@@ -1,0 +1,162 @@
+############################################################
+# Rust / Cargo
+############################################################
+/target/
+**/target/
+Cargo.lock.bak
+*.rlib
+*.rmeta
+
+# Rust-analyzer / tooling
+rust-analyzer/
+.rustc_info.json
+
+# Optional: if you generate docs locally
+/doc/
+/docs/_build/
+
+############################################################
+# Environment / secrets
+############################################################
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+secrets.*
+config.local.*
+*.local.toml
+*.local.json
+*.local.yaml
+*.local.yml
+
+############################################################
+# Logs / temp / runtime files
+############################################################
+*.log
+*.tmp
+*.temp
+*.swp
+*.swo
+*.bak
+*.old
+*.orig
+*.pid
+*.pidlock
+
+############################################################
+# OS junk
+############################################################
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+.fseventsd
+.VolumeIcon.icns
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
+*.stackdump
+
+# Linux
+*~
+.nfs*
+
+############################################################
+# Editor / IDE junk
+############################################################
+# Visual Studio Code
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/tasks.json
+
+# JetBrains IDEs (RustRover/IntelliJ/CLion/etc.)
+.idea/
+*.iml
+*.ipr
+*.iws
+out/
+# JetBrains gateway / remote dev
+.idea_modules/
+
+# Vim
+*.swn
+*.swm
+.netrwhist
+tags
+tags.lock
+
+# Emacs
+\#*\#
+.\#*
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+auto-save-list/
+tramp/
+.eshell/
+
+# Sublime Text
+*.sublime-workspace
+*.sublime-project
+
+# Atom
+.atom/
+
+# Notepad++
+*.nppBackup
+
+# Zed
+.zed/
+
+# Kate
+.kate-swp
+
+############################################################
+# Language server / build system caches
+############################################################
+# clangd (sometimes present even in Rust repos)
+.clangd/
+.cache/
+compile_commands.json
+
+# node stuff (in case you ever add tooling)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+############################################################
+# Docker / compose local files
+############################################################
+docker-compose.override.yml
+
+############################################################
+# Databases / local volumes (avoid committing data)
+############################################################
+*.sqlite
+*.sqlite3
+*.db
+*.rdb
+
+############################################################
+# Misc
+############################################################
+.DS_Store?
+*.dump
+*.tgz
+*.zip
