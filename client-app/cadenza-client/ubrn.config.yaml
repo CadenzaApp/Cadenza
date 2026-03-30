@@ -1,9 +1,0 @@
-rust:
-  directory: crates/hello_world
-  manifestPath: Cargo.toml
-
-# ---
-# rust:
-#   repo: https://github.com/ianthetechie/uniffi-starter.git
-#   branch: main
-#   manifestPath: rust/foobar/Cargo.toml
