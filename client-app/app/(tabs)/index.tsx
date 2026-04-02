@@ -1,10 +1,17 @@
-import { Text, View, StyleSheet } from "react-native";
+import { useAccount } from "@/lib/account";
+import { Redirect } from "expo-router";
+import { View, Text, StyleSheet, Button } from "react-native";
 
 export default function HomeScreen() {
+    const { account, signOut } = useAccount();
+
+    if (!account)
+        return <Redirect href="/auth?initialMode=signin" />
+
     return (
         <View style={styles.container}>
-            <View></View>
-            <Text style={styles.text}>Home Screen</Text>
+            <Text>hello, {JSON.stringify(account)}</Text>
+            <Button title="sign out" onPress={signOut} />
         </View>
     );
 }
