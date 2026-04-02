@@ -2,6 +2,7 @@
 
 use sea_orm::entity::prelude::*;
 
+#[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "Majors")]
 pub struct Model {
@@ -9,18 +10,8 @@ pub struct Model {
     pub id: i64,
     #[sea_orm(column_type = "Text", nullable)]
     pub major_name: Option<String>,
-}
-
-#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
-pub enum Relation {
-    #[sea_orm(has_many = "super::students::Entity")]
-    Students,
-}
-
-impl Related<super::students::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::Students.def()
-    }
+    #[sea_orm(has_many)]
+    pub students: HasMany<super::students::Entity>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

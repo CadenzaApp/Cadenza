@@ -19,7 +19,7 @@ cargo install sea-orm-cli@^2.0.0-rc
 To rebuild database bindings:
 
 ```sh
-generate entity --output-dir ./src/entity
+generate entity -o ./src/entity --entity-format dense
 ```
 
 # Running
