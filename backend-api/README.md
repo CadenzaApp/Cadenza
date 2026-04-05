@@ -1,6 +1,6 @@
 # Setup
 
-Because this is an HTTPS server, you'll need to self-sign some certs to get this running. Follow the steps in `certs/readme.md`
+~~Because this is an HTTPS server, you'll need to self-sign some certs to get this running. Follow the steps in `certs/readme.md`~~
 
 You'll also need to add a .env file to the current directory that contains a `DATABASE_URL` key. Should look like:
 

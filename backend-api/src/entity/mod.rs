@@ -2,5 +2,4 @@
 
 pub mod prelude;
 
-pub mod majors;
-pub mod students;
+pub mod users;

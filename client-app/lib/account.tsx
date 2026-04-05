@@ -39,11 +39,31 @@ export default function AccountProvider({ children }: Props) {
         });
         if (error) throw error;
 
+        const jwt = data.session?.access_token!;
+
         setAccount({
             id: data.user!.id,
             email: data.user!.email!,
-            jwt: data.session?.access_token!,
+            jwt,
         });
+
+        // 10.0.2.2 is android emulator's loopback to host machine's 127.0.0.1
+        try {
+            console.log("sending");
+            const response = await fetch("http://10.0.2.2:3000/users/", {
+                method: "POST",
+                headers: {
+                    Accept: "application/json",
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${jwt}`, // JWT Auth Header
+                },
+            });
+
+            const result = await response.text();
+            console.log(result);
+        } catch (error) {
+            console.error("Error sending request:", error);
+        }
     }
 
     async function signUp(email: string, password: string) {
@@ -74,9 +94,5 @@ export default function AccountProvider({ children }: Props) {
         signOut,
     });
 
-    return (
-        <AccountContext.Provider value={accountInfo}>
-            {children}
-        </AccountContext.Provider>
-    );
+    return <AccountContext.Provider value={accountInfo}>{children}</AccountContext.Provider>;
 }

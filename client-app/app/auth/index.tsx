@@ -15,7 +15,7 @@ export default function AuthPage() {
 
     const [mode, setMode] = useState(initialMode);
     function toggleMode() {
-        setMode((prevMode) => (prevMode == "signin" ? "signup" : "signin"));
+        setMode((prevMode) => (prevMode === "signin" ? "signup" : "signin"));
     }
 
     async function onSubmit() {
@@ -43,7 +43,7 @@ export default function AuthPage() {
             {loading && <Text>loading...</Text>}
 
             <View style={{ flexDirection: "row", alignItems: "center" }}>
-                <Text> {mode == "signin" ? "sign in" : "sign up"} </Text>
+                <Text> {mode === "signin" ? "sign in" : "sign up"} </Text>
                 <Button title="toggle" onPress={toggleMode} />
             </View>
 
@@ -76,9 +76,7 @@ export default function AuthPage() {
             </View>
 
             {error != null && (
-                <Text style={{ color: "red" }}>
-                    {JSON.stringify(error, null, 4)}
-                </Text>
+                <Text style={{ color: "red" }}>{JSON.stringify(error, null, 4)}</Text>
             )}
 
             <Button onPress={onSubmit} title="submit" />

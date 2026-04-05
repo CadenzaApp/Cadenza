@@ -66,6 +66,6 @@ const styles = StyleSheet.create({
     textInput: {
         outlineColor: "white",
         outlineWidth: 2,
-        padding: 4
-    }
+        padding: 4,
+    },
 });
