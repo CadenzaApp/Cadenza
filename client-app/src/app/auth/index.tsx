@@ -1,85 +1,91 @@
+import { SignInForm } from "@/components/ui/sign-in-form";
+import { SignUpForm } from "@/components/ui/sign-up-form";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Text } from "@/components/ui/text";
 import { useAccount } from "@/lib/account";
 import { Redirect, useLocalSearchParams } from "expo-router";
 import { useState } from "react";
-import { Button, Text, TextInput, View } from "react-native";
+import { ScrollView } from "react-native";
 
 type AuthPageParams = { initialMode: "signup" | "signin" };
 
 export default function AuthPage() {
-    const { initialMode } = useLocalSearchParams<AuthPageParams>();
-    const [email, setEmail] = useState("");
-    const [password, setPassword] = useState("");
-    const [error, setError] = useState<any>(null);
-    const [loading, setLoading] = useState<boolean>(false);
-    const { account, signIn, signUp } = useAccount();
+  const { initialMode } = useLocalSearchParams<AuthPageParams>();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const { account, signIn, signUp } = useAccount();
 
-    const [mode, setMode] = useState(initialMode);
-    function toggleMode() {
-        setMode((prevMode) => (prevMode === "signin" ? "signup" : "signin"));
+  const [tab, setTab] = useState<string>(initialMode ?? "signin");
+
+  function toggleTab(value: string) {
+    setTab(value);
+    setError(null);
+  }
+
+  async function submit() {
+    setLoading(true);
+    setError(null);
+    try {
+      if (tab === "signin") {
+        await signIn(email, password);
+      } else if (tab === "signup") {
+        await signUp(email, password);
+      }
+    } catch (err) {
+      setError(err);
+      setLoading(false);
     }
+  }
 
-    async function onSubmit() {
-        setLoading(true);
+  // already logged in
+  if (account != null) {
+    return <Redirect href="/" />;
+  }
 
-        try {
-            if (mode === "signin") {
-                await signIn(email, password);
-            } else {
-                await signUp(email, password);
-            }
-        } catch (error) {
-            setError(error);
-            setLoading(false);
-        }
-    }
+  return (
+    <ScrollView
+      className="bg-background"
+      contentContainerClassName="flex-grow px-4 py-8"
+      keyboardShouldPersistTaps="handled"
+    >
+      <Tabs value={tab} onValueChange={toggleTab}>
+        <TabsList className="self-center">
+          <TabsTrigger value="signin">
+            <Text>Sign In</Text>
+          </TabsTrigger>
+          <TabsTrigger value="signup">
+            <Text>Sign Up</Text>
+          </TabsTrigger>
+        </TabsList>
 
-    // already logged in
-    if (account != null) {
-        return <Redirect href="/" />;
-    }
+        <TabsContent value="signin">
+          <SignInForm
+            email={email}
+            password={password}
+            onEmailChange={setEmail}
+            onPasswordChange={setPassword}
+            onSubmit={submit}
+            onSwitchMode={() => toggleTab("signup")}
+            error={error}
+            loading={loading}
+          />
+        </TabsContent>
 
-    return (
-        <View style={{ flex: 1 }}>
-            {loading && <Text>loading...</Text>}
-
-            <View style={{ flexDirection: "row", alignItems: "center" }}>
-                <Text> {mode === "signin" ? "sign in" : "sign up"} </Text>
-                <Button title="toggle" onPress={toggleMode} />
-            </View>
-
-            <View style={{ flexDirection: "row", alignItems: "center" }}>
-                <Text> email </Text>
-                <TextInput
-                    style={{
-                        flex: 1,
-                        padding: 4,
-                        borderColor: "purple",
-                        borderWidth: 1,
-                    }}
-                    value={email}
-                    onChangeText={setEmail}
-                />
-            </View>
-
-            <View style={{ flexDirection: "row", alignItems: "center" }}>
-                <Text> password </Text>
-                <TextInput
-                    style={{
-                        flex: 1,
-                        padding: 4,
-                        borderColor: "purple",
-                        borderWidth: 1,
-                    }}
-                    value={password}
-                    onChangeText={setPassword}
-                />
-            </View>
-
-            {error != null && (
-                <Text style={{ color: "red" }}>{JSON.stringify(error, null, 4)}</Text>
-            )}
-
-            <Button onPress={onSubmit} title="submit" />
-        </View>
-    );
+        <TabsContent value="signup">
+          <SignUpForm
+            email={email}
+            password={password}
+            onEmailChange={setEmail}
+            onPasswordChange={setPassword}
+            onSubmit={submit}
+            onSwitchMode={() => toggleTab("signin")}
+            error={error}
+            loading={loading}
+          />
+        </TabsContent>
+      </Tabs>
+    </ScrollView>
+  );
 }
