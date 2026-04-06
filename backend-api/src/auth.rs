@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
-use axum::extract::FromRef;
-use axum_jwt_auth::{Decoder, RemoteJwksDecoder};
+use axum_jwt_auth::RemoteJwksDecoder;
 use jsonwebtoken::{Algorithm, Validation};
 use serde::{Deserialize, Serialize};
 
@@ -18,35 +17,28 @@ pub struct SupabaseClaims {
     pub email: String,
 }
 
-#[derive(Clone, FromRef)]
-pub struct JWTAuthDecoderState {
-    decoder: Decoder<SupabaseClaims>,
-}
+pub async fn new_jwt_decoder() -> Arc<RemoteJwksDecoder> {
+    let jwks_url = format!(
+        "https://{}.supabase.co/auth/v1/.well-known/jwks.json?apikey={}",
+        PROJECT_REF, PUBLISHABLE_KEY
+    );
 
-impl JWTAuthDecoderState {
-    pub async fn new() -> Self {
-        let jwks_url = format!(
-            "https://{}.supabase.co/auth/v1/.well-known/jwks.json?apikey={}",
-            PROJECT_REF, PUBLISHABLE_KEY
-        );
+    let mut validation = Validation::new(Algorithm::ES256);
+    validation.set_audience(&["authenticated"]);
 
-        let mut validation = Validation::new(Algorithm::ES256);
-        validation.set_audience(&["authenticated"]);
+    let decoder: Arc<RemoteJwksDecoder> = Arc::new(
+        // Fetch JWT verification keys for this project from supabase. Cached so only happens once on server startup.
+        RemoteJwksDecoder::builder()
+            .jwks_url(jwks_url)
+            .validation(validation)
+            .build()
+            .expect("Failed to fetch JWKS from Supabase. Check your URL/API Key."),
+    );
 
-        let decoder: Arc<RemoteJwksDecoder> = Arc::new(
-            // Fetch JWT verification keys for this project from supabase. Cached so only happens once on server startup.
-            RemoteJwksDecoder::builder()
-                .jwks_url(jwks_url)
-                .validation(validation)
-                .build()
-                .expect("Failed to fetch JWKS from Supabase. Check your URL/API Key."),
-        );
-
-        let _shutdown_token = decoder
-            .initialize()
-            .await
-            .expect("Failed to fetch initial JWKS from Supabase. Check your network/API key.");
-
-        JWTAuthDecoderState { decoder }
-    }
+    let _shutdown_token = decoder
+        .initialize()
+        .await
+        .expect("Failed to fetch initial JWKS from Supabase. Check your network/API key.");
+    
+    decoder
 }

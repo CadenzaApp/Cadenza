@@ -1,2 +1,2 @@
-pub mod users;
+mod entity;
 pub mod tagging;
