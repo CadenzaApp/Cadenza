@@ -16,7 +16,3 @@ pub async fn create(user: Claims<SupabaseClaims>) -> String {
 
     format!("User id: {}", user.claims.user_id)
 }
-
-pub async fn get_favorite_number() {}
-
-pub async fn set_favorite_number() {}

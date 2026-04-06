@@ -3,25 +3,22 @@ mod db;
 mod routes;
 
 use axum::{
-    Router, extract::FromRef, routing::{get, post, put}
+    Router,
+    extract::FromRef,
+    routing::{get, post},
 };
 use axum_jwt_auth::Decoder;
 use dotenvy::dotenv;
-use sea_orm::{DatabaseConnection, Database};
+use sea_orm::{Database, DatabaseConnection};
 use std::env;
 use std::net::SocketAddr;
 
 use crate::auth::{SupabaseClaims, new_jwt_decoder};
 
-
 #[derive(Clone, FromRef)]
 struct AppState {
     db: DatabaseConnection,
-    jwt_decoder: Decoder<SupabaseClaims>
-}
-
-async fn hello_world() -> String {
-    "Hello, World!".to_string()
+    jwt_decoder: Decoder<SupabaseClaims>,
 }
 
 #[tokio::main]
@@ -31,7 +28,9 @@ async fn main() {
 
     // get a db connection
     let db_url = env::var("DATABASE_URL").expect("error getting DATABASE_URL env var");
-    let db = Database::connect(db_url).await.expect("error connecting to db");
+    let db = Database::connect(db_url)
+        .await
+        .expect("error connecting to db");
 
     // builds a decoder used for parsing JSON Web Tokens into SupabaseClaims structs, which contain auth info like user id and token expiration time.
     let jwt_decoder = new_jwt_decoder().await;
@@ -40,16 +39,7 @@ async fn main() {
 
     // route paths
     let app = Router::new()
-        .route("/", get(hello_world))
         .route("/users", post(routes::users::create))
-        .route(
-            "/users/favorite_number",
-            get(routes::users::get_favorite_number),
-        )
-        .route(
-            "/users/favorite_number",
-            put(routes::users::set_favorite_number),
-        )
         .route("/tagging", post(routes::tagging::apply_tag_handler))
         .with_state(app_state);
 

@@ -39,6 +39,6 @@ pub async fn new_jwt_decoder() -> Arc<RemoteJwksDecoder> {
         .initialize()
         .await
         .expect("Failed to fetch initial JWKS from Supabase. Check your network/API key.");
-    
+
     decoder
 }
