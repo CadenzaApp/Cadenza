@@ -10,6 +10,7 @@ type Account = {
 /** if `account == null`, then user isn't logged in */
 type AccountInfo = {
     account: Account | null;
+    tryRestoreSession: () => Promise<boolean>;
     signIn: (email: string, password: string) => Promise<void>;
     signUp: (email: string, password: string) => Promise<void>;
     signOut: () => Promise<void>;
@@ -32,6 +33,32 @@ export default function AccountProvider({ children }: Props) {
         }));
     }
 
+    /**
+     * returns `true` if there was an existing session which was restored.
+     *
+     * this fn is called upon splashscreen render instead of
+     * right here in AccountProvider to avoid having to
+     * add a "loading" state in the account context.
+     *  -  Pages that arent splashscreen and /auth shouldnt have
+     *     to worry about if an account is being loaded or not.
+     */
+    async function tryRestoreSession() {
+        const { data, error } = await supabase.auth.getSession();
+        if (error) throw error;
+
+        if (data.session != null) {
+            console.log("session restored:", data.session.user.email);
+            setAccount({
+                id: data.session.user.id,
+                email: data.session.user.email!,
+                jwt: data.session.access_token,
+            });
+            return true;
+        }
+        console.log("no session");
+        return false;
+    }
+
     async function signIn(email: string, password: string) {
         const { data, error } = await supabase.auth.signInWithPassword({
             email,
@@ -39,31 +66,11 @@ export default function AccountProvider({ children }: Props) {
         });
         if (error) throw error;
 
-        const jwt = data.session?.access_token!;
-
         setAccount({
             id: data.user!.id,
             email: data.user!.email!,
-            jwt,
+            jwt: data.session!.access_token,
         });
-
-        // 10.0.2.2 is android emulator's loopback to host machine's 127.0.0.1
-        try {
-            console.log("sending");
-            const response = await fetch("http://10.0.2.2:3000/users/", {
-                method: "POST",
-                headers: {
-                    Accept: "application/json",
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${jwt}`, // JWT Auth Header
-                },
-            });
-
-            const result = await response.text();
-            console.log(result);
-        } catch (error) {
-            console.error("Error sending request:", error);
-        }
     }
 
     async function signUp(email: string, password: string) {
@@ -76,7 +83,7 @@ export default function AccountProvider({ children }: Props) {
         setAccount({
             id: data.user!.id,
             email: data.user!.email!,
-            jwt: data.session?.access_token!,
+            jwt: data.session!.access_token,
         });
     }
 
@@ -89,10 +96,15 @@ export default function AccountProvider({ children }: Props) {
 
     const [accountInfo, setAccountInfo] = useState<AccountInfo>({
         account: null,
+        tryRestoreSession,
         signIn,
         signUp,
         signOut,
     });
 
-    return <AccountContext.Provider value={accountInfo}>{children}</AccountContext.Provider>;
+    return (
+        <AccountContext.Provider value={accountInfo}>
+            {children}
+        </AccountContext.Provider>
+    );
 }
