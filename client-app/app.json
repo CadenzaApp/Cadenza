@@ -44,15 +44,6 @@
             "backgroundColor": "#000000"
           }
         }
-      ],
-      "expo-sqlite",
-      [
-        "expo-build-properties",
-        {
-          "android": {
-            "usesCleartextTraffic": true
-          }
-        }
       ]
     ],
     "experiments": {
