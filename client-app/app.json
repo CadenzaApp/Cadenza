@@ -1,5 +1,8 @@
 {
   "expo": {
+    "router": {
+      "root": "src"
+    },
     "name": "client-app",
     "slug": "client-app",
     "version": "1.0.0",
@@ -24,6 +27,7 @@
       "package": "com.troylu8.clientapp"
     },
     "web": {
+      "bundler": "metro",
       "output": "static",
       "favicon": "./assets/images/favicon.png"
     },
