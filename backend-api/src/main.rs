@@ -1,6 +1,7 @@
 mod auth;
 mod db;
 mod routes;
+mod models;
 
 use axum::{
     Router,
