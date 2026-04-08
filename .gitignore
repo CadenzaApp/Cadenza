@@ -1,0 +1,140 @@
+# ------------------------------------------------------------
+# OS / filesystem noise
+# ------------------------------------------------------------
+.DS_Store
+.DS_Store?
+._*
+.AppleDouble
+.LSOverride
+.Spotlight-V100
+.Trashes
+.fseventsd
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# ------------------------------------------------------------
+# Editors / IDEs
+# ------------------------------------------------------------
+.vscode/
+.zed/
+*.iml
+*.ipr
+*.iws
+*.swp
+*.swo
+*~
+
+# Keep existing tracked IDE config where applicable, but ignore
+# new local IDE metadata throughout the repo.
+.idea/
+**/.idea/
+out/
+
+# ------------------------------------------------------------
+# Env, secrets, and local-only config
+# ------------------------------------------------------------
+.env
+.env.*
+!.env.example
+!.env.sample
+*.local
+*.local.*
+secrets.*
+*.pem
+*.key
+*.p8
+*.p12
+*.pfx
+*.crt
+*.jks
+*.mobileprovision
+
+# ------------------------------------------------------------
+# Logs / runtime / temp
+# ------------------------------------------------------------
+*.log
+*.out
+*.err
+*.pid
+*.pidlock
+*.tmp
+*.temp
+*.bak
+*.old
+*.orig
+
+# ------------------------------------------------------------
+# Node / JavaScript / TypeScript / Expo / React Native
+# ------------------------------------------------------------
+**/node_modules/
+**/.npm/
+**/.pnpm-store/
+**/.yarn/
+**/.parcel-cache/
+**/.turbo/
+**/.next/
+**/.nuxt/
+**/.svelte-kit/
+**/coverage/
+**/*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+**/.expo/
+**/.expo-shared/
+**/web-build/
+**/.metro-health-check*
+**/expo-env.d.ts
+
+# Expo-managed native output (client app)
+client-app/android/
+client-app/ios/
+
+# ------------------------------------------------------------
+# Rust / Cargo
+# ------------------------------------------------------------
+**/target/
+Cargo.lock.bak
+*.rlib
+*.rmeta
+.rustc_info.json
+rust-analyzer/
+
+# ------------------------------------------------------------
+# Python (ml-service)
+# ------------------------------------------------------------
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/.venv/
+**/venv/
+**/env/
+**/pip-wheel-metadata/
+**/*.egg-info/
+
+# ------------------------------------------------------------
+# Infrastructure / Terraform
+# ------------------------------------------------------------
+**/.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# ------------------------------------------------------------
+# Databases / dumps / archives
+# ------------------------------------------------------------
+*.sqlite
+*.sqlite3
+*.db
+*.rdb
+*.dump
+*.tgz
+*.zip
