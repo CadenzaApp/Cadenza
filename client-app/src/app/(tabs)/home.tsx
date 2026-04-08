@@ -9,7 +9,7 @@ export default function HomeScreen() {
 
     return (
         <View style={styles.container}>
-            <Text>hello, {account.email}</Text>
+            <Text>Hello, {account.email}</Text>
             <Button title="sign out" onPress={signOut} />
         </View>
     );
@@ -21,6 +21,7 @@ const styles = StyleSheet.create({
         backgroundColor: "#25292e",
         alignItems: "center",
         justifyContent: "center",
+        
     },
     text: {
         color: "#fff",
