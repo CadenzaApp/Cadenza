@@ -41,7 +41,7 @@ impl ExternalSource {
             source_name: source_name.into(),
             source_track_id: None,
         }
-            .normalized()
+        .normalized()
     }
 
     pub fn with_source_track_id(mut self, source_track_id: impl Into<String>) -> Self {

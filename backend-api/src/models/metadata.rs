@@ -52,7 +52,7 @@ impl Metadata {
             artist: Some(artist.into()),
             ..Self::default()
         }
-            .normalized()
+        .normalized()
     }
 
     pub fn with_album(mut self, album: impl Into<String>) -> Self {
