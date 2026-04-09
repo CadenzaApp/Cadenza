@@ -11,7 +11,6 @@ pub async fn apply_tag(
     song_id: usize,
     tag_name: &str,
 ) -> Result<(), DbErr> {
-
     // currently this just adds a new tag and nothing else
 
     let new_tag = tags::ActiveModel {
