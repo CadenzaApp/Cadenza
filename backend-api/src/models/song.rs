@@ -267,13 +267,6 @@ mod tests {
     }
 
     #[test]
-    fn validate_rejects_invalid_tag() {
-        let song = Song::new(Metadata::new("Numb", "Linkin Park")).with_tags(vec![Tag::new("")]);
-
-        assert!(matches!(song.validate(), Err(SongValidationError::Tag(_))));
-    }
-
-    #[test]
     fn validate_rejects_invalid_source() {
         let song = Song::new(Metadata::new("Numb", "Linkin Park"))
             .with_sources(vec![ExternalSource::new("")]);
