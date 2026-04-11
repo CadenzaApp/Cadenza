@@ -1,5 +1,5 @@
 pub mod metadata;
 pub mod song;
-mod sources;
+pub mod sources;
 pub mod tag;
-mod user_song_attributes;
+pub mod user_song_attributes;

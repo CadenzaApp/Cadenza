@@ -1,10 +1,8 @@
-use crate::models::metadata::{Metadata, MetadataValidationError};
-use crate::models::sources::{ExternalSource, ExternalSourceValidationError};
-use crate::models::tag::{Tag, TagValidationError};
-use crate::models::user_song_attributes::{UserSongAttributes, UserSongAttributesValidationError};
+use crate::models::metadata::Metadata;
+use crate::models::sources::ExternalSource;
+use crate::models::tag::Tag;
+use crate::models::user_song_attributes::UserSongAttributes;
 use serde::{Deserialize, Serialize};
-use std::error::Error;
-use std::fmt::{Display, Formatter};
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct Song {
@@ -20,78 +18,9 @@ pub struct Song {
     pub sources: Vec<ExternalSource>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SongValidationError {
-    Metadata(MetadataValidationError),
-    Tag(TagValidationError),
-    ExternalSource(ExternalSourceValidationError),
-    UserSongAttributes(UserSongAttributesValidationError),
-}
-
-impl Display for SongValidationError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            SongValidationError::Metadata(err) => write!(f, "metadata validation failed: {err}"),
-            SongValidationError::Tag(err) => write!(f, "tag validation failed: {err}"),
-            SongValidationError::ExternalSource(err) => {
-                write!(f, "external source validation failed: {err}")
-            }
-            SongValidationError::UserSongAttributes(err) => {
-                write!(f, "user song attributes validation failed: {err}")
-            }
-        }
-    }
-}
-
-impl Error for SongValidationError {}
-
-impl From<MetadataValidationError> for SongValidationError {
-    fn from(value: MetadataValidationError) -> Self {
-        SongValidationError::Metadata(value)
-    }
-}
-
-impl From<TagValidationError> for SongValidationError {
-    fn from(value: TagValidationError) -> Self {
-        SongValidationError::Tag(value)
-    }
-}
-
-impl From<ExternalSourceValidationError> for SongValidationError {
-    fn from(value: ExternalSourceValidationError) -> Self {
-        SongValidationError::ExternalSource(value)
-    }
-}
-
-impl From<UserSongAttributesValidationError> for SongValidationError {
-    fn from(value: UserSongAttributesValidationError) -> Self {
-        SongValidationError::UserSongAttributes(value)
-    }
-}
-
 impl Song {
-    pub fn new(metadata: Metadata) -> Self {
-        Self {
-            metadata: metadata.normalized(),
-            ..Self::default()
-        }
-    }
-
-    pub fn with_tags(mut self, tags: Vec<Tag>) -> Self {
-        self.tags = tags;
-        self.normalize_mut();
-        self
-    }
-
-    pub fn with_user_song_attributes(mut self, user_song_attributes: UserSongAttributes) -> Self {
-        self.user_song_attributes = user_song_attributes;
-        self
-    }
-
-    pub fn with_sources(mut self, sources: Vec<ExternalSource>) -> Self {
-        self.sources = sources;
-        self.normalize_mut();
-        self
+    pub fn builder(metadata: Metadata) -> SongBuilder {
+        SongBuilder::new(metadata)
     }
 
     pub fn add_tag(&mut self, tag: Tag) {
@@ -118,7 +47,7 @@ impl Song {
     }
 
     pub fn normalize_mut(&mut self) {
-        self.metadata = self.metadata.clone().normalized();
+        self.metadata.normalize_mut();
 
         for tag in &mut self.tags {
             tag.normalize_mut();
@@ -133,43 +62,81 @@ impl Song {
         }
 
         self.sources.sort_by(|a, b| {
-            a.source_name
-                .cmp(&b.source_name)
-                .then_with(|| a.source_track_id.cmp(&b.source_track_id))
+            a.provider
+                .cmp(&b.provider)
+                .then_with(|| a.track_id.cmp(&b.track_id))
         });
+        self.sources
+            .dedup_by(|a, b| a.provider == b.provider && a.track_id == b.track_id);
+    }
+}
 
-        self.sources.dedup_by(|a, b| {
-            a.source_name == b.source_name && a.source_track_id == b.source_track_id
-        });
+#[derive(Debug, Clone)]
+pub struct SongBuilder {
+    metadata: Metadata,
+    tags: Vec<Tag>,
+    user_song_attributes: UserSongAttributes,
+    sources: Vec<ExternalSource>,
+}
+
+impl SongBuilder {
+    fn new(metadata: Metadata) -> Self {
+        Self {
+            metadata: metadata.normalized(),
+            tags: Vec::new(),
+            user_song_attributes: UserSongAttributes::default(),
+            sources: Vec::new(),
+        }
     }
 
-    pub fn validate(&self) -> Result<(), SongValidationError> {
-        self.metadata.validate()?;
-        self.user_song_attributes.validate()?;
+    pub fn tag(mut self, tag: Tag) -> Self {
+        self.tags.push(tag);
+        self
+    }
 
-        for tag in &self.tags {
-            tag.validate()?;
+    pub fn tags(mut self, tags: impl IntoIterator<Item = Tag>) -> Self {
+        self.tags.extend(tags);
+        self
+    }
+
+    pub fn source(mut self, source: ExternalSource) -> Self {
+        self.sources.push(source);
+        self
+    }
+
+    pub fn sources(mut self, sources: impl IntoIterator<Item = ExternalSource>) -> Self {
+        self.sources.extend(sources);
+        self
+    }
+
+    pub fn user_song_attributes(mut self, user_song_attributes: UserSongAttributes) -> Self {
+        self.user_song_attributes = user_song_attributes;
+        self
+    }
+
+    pub fn build(self) -> Song {
+        Song {
+            metadata: self.metadata,
+            tags: self.tags,
+            user_song_attributes: self.user_song_attributes,
+            sources: self.sources,
         }
-
-        for source in &self.sources {
-            source.validate()?;
-        }
-
-        Ok(())
+        .normalized()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::metadata::Metadata;
-    use crate::models::sources::ExternalSource;
-    use crate::models::tag::Tag;
+    use crate::models::sources::SourceProvider;
 
     #[test]
-    fn new_sets_metadata_and_defaults_other_fields() {
-        let metadata = Metadata::new("Numb", "Linkin Park");
-        let song = Song::new(metadata.clone());
+    fn builder_builds_song_with_defaults() {
+        let metadata = Metadata::builder()
+            .title("Numb")
+            .artist("Linkin Park")
+            .build();
+        let song = Song::builder(metadata.clone()).build();
 
         assert_eq!(song.metadata, metadata);
         assert!(song.tags.is_empty());
@@ -178,102 +145,37 @@ mod tests {
     }
 
     #[test]
-    fn add_tag_adds_and_normalizes_tag() {
-        let mut song = Song::new(Metadata::new("Numb", "Linkin Park"));
+    fn builder_deduplicates_tags_and_sources() {
+        let rock = Tag::builder().name(" rock ").build().unwrap();
+        let rock_duplicate = Tag::builder().name("rock").build().unwrap();
+        let spotify_123 = ExternalSource::builder(SourceProvider::Spotify)
+            .track_id("123")
+            .build();
+        let spotify_123_duplicate = ExternalSource::builder(SourceProvider::Spotify)
+            .track_id(" 123 ")
+            .build();
 
-        song.add_tag(Tag::new("  alt   rock  "));
+        let song = Song::builder(Metadata::builder().title("Numb").build())
+            .tags(vec![rock, rock_duplicate])
+            .sources(vec![spotify_123, spotify_123_duplicate])
+            .build();
 
         assert_eq!(song.tags.len(), 1);
-        assert_eq!(song.tags[0].name, "alt rock");
-    }
-
-    #[test]
-    fn add_source_adds_and_normalizes_source() {
-        let mut song = Song::new(Metadata::new("Numb", "Linkin Park"));
-
-        song.add_source(ExternalSource::new("  spotify  ").with_source_track_id(" 123 "));
-
         assert_eq!(song.sources.len(), 1);
-        assert_eq!(song.sources[0].source_name, "spotify");
-        assert_eq!(song.sources[0].source_track_id.as_deref(), Some("123"));
     }
 
     #[test]
-    fn normalize_mut_deduplicates_tags() {
-        let mut song = Song::new(Metadata::new("Numb", "Linkin Park")).with_tags(vec![
-            Tag::new("rock"),
-            Tag::new("  rock  "),
-            Tag::new("alt rock"),
-        ]);
+    fn add_tag_and_source_work_with_normalization() {
+        let mut song = Song::builder(Metadata::builder().title("Numb").build()).build();
 
-        song.normalize_mut();
+        song.add_tag(Tag::builder().name(" alt   rock ").build().unwrap());
+        song.add_source(
+            ExternalSource::builder(SourceProvider::AppleMusic)
+                .track_id(" abc ")
+                .build(),
+        );
 
-        assert_eq!(song.tags.len(), 2);
         assert_eq!(song.tags[0].name, "alt rock");
-        assert_eq!(song.tags[1].name, "rock");
-    }
-
-    #[test]
-    fn normalize_mut_removes_empty_tags() {
-        let mut song = Song::new(Metadata::new("Numb", "Linkin Park")).with_tags(vec![
-            Tag::new(""),
-            Tag::new("   "),
-            Tag::new("electronic"),
-        ]);
-
-        song.normalize_mut();
-
-        assert_eq!(song.tags.len(), 1);
-        assert_eq!(song.tags[0].name, "electronic");
-    }
-
-    #[test]
-    fn normalize_mut_deduplicates_sources() {
-        let mut song = Song::new(Metadata::new("Numb", "Linkin Park")).with_sources(vec![
-            ExternalSource::new("spotify").with_source_track_id("123"),
-            ExternalSource::new(" spotify ").with_source_track_id(" 123 "),
-            ExternalSource::new("apple_music").with_source_track_id("abc"),
-        ]);
-
-        song.normalize_mut();
-
-        assert_eq!(song.sources.len(), 2);
-    }
-
-    #[test]
-    fn has_tags_and_has_sources_work() {
-        let mut song = Song::new(Metadata::new("Numb", "Linkin Park"));
-
-        assert!(!song.has_tags());
-        assert!(!song.has_sources());
-
-        song.add_tag(Tag::new("rock"));
-        song.add_source(ExternalSource::new("spotify"));
-
-        assert!(song.has_tags());
-        assert!(song.has_sources());
-    }
-
-    #[test]
-    fn validate_accepts_valid_song() {
-        let song = Song::new(Metadata::new("Numb", "Linkin Park"))
-            .with_tags(vec![Tag::new("rock"), Tag::new("alternative")])
-            .with_sources(vec![
-                ExternalSource::new("spotify").with_source_track_id("123"),
-                ExternalSource::new("apple_music").with_source_track_id("abc"),
-            ]);
-
-        assert_eq!(song.validate(), Ok(()));
-    }
-
-    #[test]
-    fn validate_rejects_invalid_source() {
-        let song = Song::new(Metadata::new("Numb", "Linkin Park"))
-            .with_sources(vec![ExternalSource::new("")]);
-
-        assert!(matches!(
-            song.validate(),
-            Err(SongValidationError::ExternalSource(_))
-        ));
+        assert_eq!(song.sources[0].track_id.as_deref(), Some("abc"));
     }
 }

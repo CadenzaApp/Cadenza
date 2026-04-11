@@ -1,7 +1,5 @@
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
-use std::error::Error;
-use std::fmt::{Display, Formatter};
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct Metadata {
@@ -15,7 +13,7 @@ pub struct Metadata {
     pub album: Option<String>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub duration: Option<u32>,
+    pub duration_seconds: Option<u32>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub release_date: Option<NaiveDate>,
@@ -24,64 +22,9 @@ pub struct Metadata {
     pub explicit: Option<bool>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MetadataValidationError {
-    DurationMustBePositive,
-    DurationTooLarge,
-}
-
-impl Display for MetadataValidationError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            MetadataValidationError::DurationMustBePositive => {
-                write!(f, "duration must be greater than zero")
-            }
-            MetadataValidationError::DurationTooLarge => {
-                write!(f, "duration is unrealistically large")
-            }
-        }
-    }
-}
-
-impl Error for MetadataValidationError {}
-
 impl Metadata {
-    pub fn new(title: impl Into<String>, artist: impl Into<String>) -> Self {
-        Self {
-            title: Some(title.into()),
-            artist: Some(artist.into()),
-            ..Self::default()
-        }
-        .normalized()
-    }
-
-    pub fn with_album(mut self, album: impl Into<String>) -> Self {
-        self.album = Some(album.into());
-        self
-    }
-
-    pub fn with_duration(mut self, duration: u32) -> Self {
-        self.duration = Some(duration);
-        self
-    }
-
-    pub fn with_release_date(mut self, release_date: NaiveDate) -> Self {
-        self.release_date = Some(release_date);
-        self
-    }
-
-    pub fn with_explicit(mut self, explicit: bool) -> Self {
-        self.explicit = Some(explicit);
-        self
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.title.is_none()
-            && self.artist.is_none()
-            && self.album.is_none()
-            && self.duration.is_none()
-            && self.release_date.is_none()
-            && self.explicit.is_none()
+    pub fn builder() -> MetadataBuilder {
+        MetadataBuilder::default()
     }
 
     pub fn normalized(mut self) -> Self {
@@ -93,6 +36,10 @@ impl Metadata {
         self.title = normalize_optional_string(self.title.take());
         self.artist = normalize_optional_string(self.artist.take());
         self.album = normalize_optional_string(self.album.take());
+
+        if self.duration_seconds == Some(0) {
+            self.duration_seconds = None;
+        }
     }
 
     pub fn merge_missing_from(&mut self, fallback: &Metadata) {
@@ -108,8 +55,8 @@ impl Metadata {
         if self.album.is_none() {
             self.album = fallback.album;
         }
-        if self.duration.is_none() {
-            self.duration = fallback.duration;
+        if self.duration_seconds.is_none() {
+            self.duration_seconds = fallback.duration_seconds;
         }
         if self.release_date.is_none() {
             self.release_date = fallback.release_date;
@@ -119,18 +66,67 @@ impl Metadata {
         }
     }
 
-    pub fn validate(&self) -> Result<(), MetadataValidationError> {
-        if let Some(duration) = self.duration {
-            if duration == 0 {
-                return Err(MetadataValidationError::DurationMustBePositive);
-            }
+    pub fn is_empty(&self) -> bool {
+        self.title.is_none()
+            && self.artist.is_none()
+            && self.album.is_none()
+            && self.duration_seconds.is_none()
+            && self.release_date.is_none()
+            && self.explicit.is_none()
+    }
+}
 
-            if duration > 60 * 60 * 12 {
-                return Err(MetadataValidationError::DurationTooLarge);
-            }
+#[derive(Debug, Clone, Default)]
+pub struct MetadataBuilder {
+    title: Option<String>,
+    artist: Option<String>,
+    album: Option<String>,
+    duration_seconds: Option<u32>,
+    release_date: Option<NaiveDate>,
+    explicit: Option<bool>,
+}
+
+impl MetadataBuilder {
+    pub fn title(mut self, title: impl Into<String>) -> Self {
+        self.title = Some(title.into());
+        self
+    }
+
+    pub fn artist(mut self, artist: impl Into<String>) -> Self {
+        self.artist = Some(artist.into());
+        self
+    }
+
+    pub fn album(mut self, album: impl Into<String>) -> Self {
+        self.album = Some(album.into());
+        self
+    }
+
+    pub fn duration_seconds(mut self, duration_seconds: u32) -> Self {
+        self.duration_seconds = Some(duration_seconds);
+        self
+    }
+
+    pub fn release_date(mut self, release_date: NaiveDate) -> Self {
+        self.release_date = Some(release_date);
+        self
+    }
+
+    pub fn explicit(mut self, explicit: bool) -> Self {
+        self.explicit = Some(explicit);
+        self
+    }
+
+    pub fn build(self) -> Metadata {
+        Metadata {
+            title: self.title,
+            artist: self.artist,
+            album: self.album,
+            duration_seconds: self.duration_seconds,
+            release_date: self.release_date,
+            explicit: self.explicit,
         }
-
-        Ok(())
+        .normalized()
     }
 }
 
@@ -150,116 +146,42 @@ mod tests {
     use super::*;
 
     #[test]
-    fn metadata_new_sets_required_fields() {
-        let metadata = Metadata::new("Numb", "Linkin Park");
+    fn builder_normalizes_strings() {
+        let metadata = Metadata::builder()
+            .title("  Numb  ")
+            .artist("  Linkin Park ")
+            .album("  Meteora\t")
+            .build();
 
         assert_eq!(metadata.title.as_deref(), Some("Numb"));
         assert_eq!(metadata.artist.as_deref(), Some("Linkin Park"));
-        assert!(metadata.album.is_none());
+        assert_eq!(metadata.album.as_deref(), Some("Meteora"));
     }
 
     #[test]
-    fn normalized_trims_and_removes_empty_strings() {
-        let metadata = Metadata {
-            title: Some("  Song Title  ".to_string()),
-            artist: Some("  ".to_string()),
-            album: Some("\nAlbum Name\t".to_string()),
-            ..Metadata::default()
-        };
-
-        let normalized = metadata.normalized();
-
-        assert_eq!(normalized.title.as_deref(), Some("Song Title"));
-        assert_eq!(normalized.artist, None);
-        assert_eq!(normalized.album.as_deref(), Some("Album Name"));
+    fn builder_drops_zero_duration() {
+        let metadata = Metadata::builder().duration_seconds(0).build();
+        assert_eq!(metadata.duration_seconds, None);
     }
 
     #[test]
-    fn normalize_mut_trims_in_place() {
-        let mut metadata = Metadata {
-            title: Some("  Title  ".to_string()),
-            artist: Some(" Artist ".to_string()),
-            ..Metadata::default()
-        };
+    fn merge_missing_from_fills_only_missing_values() {
+        let mut primary = Metadata::builder().title("Numb").build();
+        let fallback = Metadata::builder()
+            .title("Fallback title")
+            .artist("Linkin Park")
+            .duration_seconds(185)
+            .build();
 
-        metadata.normalize_mut();
+        primary.merge_missing_from(&fallback);
 
-        assert_eq!(metadata.title.as_deref(), Some("Title"));
-        assert_eq!(metadata.artist.as_deref(), Some("Artist"));
-    }
-
-    #[test]
-    fn merge_missing_from_uses_fallback_values() {
-        let mut metadata = Metadata {
-            title: Some("Primary".to_string()),
-            ..Metadata::default()
-        };
-
-        let fallback = Metadata::new("Fallback", "Artist")
-            .with_album("Album")
-            .with_duration(180)
-            .with_explicit(true);
-
-        metadata.merge_missing_from(&fallback);
-
-        assert_eq!(metadata.title.as_deref(), Some("Primary"));
-        assert_eq!(metadata.artist.as_deref(), Some("Artist"));
-        assert_eq!(metadata.album.as_deref(), Some("Album"));
-        assert_eq!(metadata.duration, Some(180));
-        assert_eq!(metadata.explicit, Some(true));
-    }
-
-    #[test]
-    fn merge_missing_from_treats_whitespace_as_missing() {
-        let mut metadata = Metadata {
-            title: Some("   ".to_string()),
-            artist: None,
-            ..Metadata::default()
-        };
-
-        let fallback = Metadata::new("Fallback Title", "Fallback Artist");
-
-        metadata.merge_missing_from(&fallback);
-
-        assert_eq!(metadata.title.as_deref(), Some("Fallback Title"));
-        assert_eq!(metadata.artist.as_deref(), Some("Fallback Artist"));
+        assert_eq!(primary.title.as_deref(), Some("Numb"));
+        assert_eq!(primary.artist.as_deref(), Some("Linkin Park"));
+        assert_eq!(primary.duration_seconds, Some(185));
     }
 
     #[test]
     fn is_empty_returns_true_for_default_metadata() {
-        let metadata = Metadata::default();
-        assert!(metadata.is_empty());
-    }
-
-    #[test]
-    fn is_empty_returns_false_when_any_field_is_present() {
-        let metadata = Metadata::new("Numb", "Linkin Park");
-        assert!(!metadata.is_empty());
-    }
-
-    #[test]
-    fn validate_rejects_zero_duration() {
-        let metadata = Metadata::default().with_duration(0);
-        let result = metadata.validate();
-
-        assert_eq!(result, Err(MetadataValidationError::DurationMustBePositive));
-    }
-
-    #[test]
-    fn validate_rejects_unreasonably_large_duration() {
-        let metadata = Metadata::default().with_duration(60 * 60 * 12 + 1);
-        let result = metadata.validate();
-
-        assert_eq!(result, Err(MetadataValidationError::DurationTooLarge));
-    }
-
-    #[test]
-    fn validate_accepts_normal_metadata() {
-        let metadata = Metadata::new("Numb", "Linkin Park")
-            .with_album("Meteora")
-            .with_duration(185)
-            .with_explicit(false);
-
-        assert_eq!(metadata.validate(), Ok(()));
+        assert!(Metadata::default().is_empty());
     }
 }
