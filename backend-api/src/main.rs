@@ -1,13 +1,14 @@
 mod auth;
 mod db;
-mod routes;
 mod models;
+mod routes;
 
 use axum::{
     Router,
     extract::FromRef,
     routing::{get, post},
 };
+
 use axum_jwt_auth::Decoder;
 use dotenvy::dotenv;
 use sea_orm::{Database, DatabaseConnection};
