@@ -1,28 +1,29 @@
+use bon::Builder;
+use serde::{Deserialize, Serialize};
+
 use crate::models::metadata::Metadata;
 use crate::models::sources::ExternalSource;
 use crate::models::tag::Tag;
 use crate::models::user_song_attributes::UserSongAttributes;
-use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, Builder)]
 pub struct Song {
     pub metadata: Metadata,
 
+    #[builder(default)]
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<Tag>,
 
+    #[builder(default)]
     #[serde(default)]
     pub user_song_attributes: UserSongAttributes,
 
+    #[builder(default)]
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sources: Vec<ExternalSource>,
 }
 
 impl Song {
-    pub fn builder(metadata: Metadata) -> SongBuilder {
-        SongBuilder::new(metadata)
-    }
-
     pub fn add_tag(&mut self, tag: Tag) {
         self.tags.push(tag);
         self.normalize_mut();
@@ -71,60 +72,6 @@ impl Song {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct SongBuilder {
-    metadata: Metadata,
-    tags: Vec<Tag>,
-    user_song_attributes: UserSongAttributes,
-    sources: Vec<ExternalSource>,
-}
-
-impl SongBuilder {
-    fn new(metadata: Metadata) -> Self {
-        Self {
-            metadata: metadata.normalized(),
-            tags: Vec::new(),
-            user_song_attributes: UserSongAttributes::default(),
-            sources: Vec::new(),
-        }
-    }
-
-    pub fn tag(mut self, tag: Tag) -> Self {
-        self.tags.push(tag);
-        self
-    }
-
-    pub fn tags(mut self, tags: impl IntoIterator<Item = Tag>) -> Self {
-        self.tags.extend(tags);
-        self
-    }
-
-    pub fn source(mut self, source: ExternalSource) -> Self {
-        self.sources.push(source);
-        self
-    }
-
-    pub fn sources(mut self, sources: impl IntoIterator<Item = ExternalSource>) -> Self {
-        self.sources.extend(sources);
-        self
-    }
-
-    pub fn user_song_attributes(mut self, user_song_attributes: UserSongAttributes) -> Self {
-        self.user_song_attributes = user_song_attributes;
-        self
-    }
-
-    pub fn build(self) -> Song {
-        Song {
-            metadata: self.metadata,
-            tags: self.tags,
-            user_song_attributes: self.user_song_attributes,
-            sources: self.sources,
-        }
-        .normalized()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -133,10 +80,13 @@ mod tests {
     #[test]
     fn builder_builds_song_with_defaults() {
         let metadata = Metadata::builder()
-            .title("Numb")
-            .artist("Linkin Park")
+            .title("Numb".to_string())
+            .artist("Linkin Park".to_string())
             .build();
-        let song = Song::builder(metadata.clone()).build();
+        let song = Song::builder()
+            .metadata(metadata.clone())
+            .build()
+            .normalized();
 
         assert_eq!(song.metadata, metadata);
         assert!(song.tags.is_empty());
@@ -146,19 +96,28 @@ mod tests {
 
     #[test]
     fn builder_deduplicates_tags_and_sources() {
-        let rock = Tag::builder().name(" rock ").build().unwrap();
-        let rock_duplicate = Tag::builder().name("rock").build().unwrap();
-        let spotify_123 = ExternalSource::builder(SourceProvider::Spotify)
-            .track_id("123")
-            .build();
-        let spotify_123_duplicate = ExternalSource::builder(SourceProvider::Spotify)
-            .track_id(" 123 ")
-            .build();
+        let rock = Tag::builder()
+            .name(" rock ".to_string())
+            .build()
+            .normalized();
+        let rock_duplicate = Tag::builder().name("rock".to_string()).build().normalized();
+        let spotify_123 = ExternalSource::builder()
+            .provider(SourceProvider::Spotify)
+            .track_id("123".to_string())
+            .build()
+            .normalized();
+        let spotify_123_duplicate = ExternalSource::builder()
+            .provider(SourceProvider::Spotify)
+            .track_id(" 123 ".to_string())
+            .build()
+            .normalized();
 
-        let song = Song::builder(Metadata::builder().title("Numb").build())
+        let song = Song::builder()
+            .metadata(Metadata::builder().title("Numb".to_string()).build())
             .tags(vec![rock, rock_duplicate])
             .sources(vec![spotify_123, spotify_123_duplicate])
-            .build();
+            .build()
+            .normalized();
 
         assert_eq!(song.tags.len(), 1);
         assert_eq!(song.sources.len(), 1);
@@ -166,13 +125,23 @@ mod tests {
 
     #[test]
     fn add_tag_and_source_work_with_normalization() {
-        let mut song = Song::builder(Metadata::builder().title("Numb").build()).build();
+        let mut song = Song::builder()
+            .metadata(Metadata::builder().title("Numb".to_string()).build())
+            .build()
+            .normalized();
 
-        song.add_tag(Tag::builder().name(" alt   rock ").build().unwrap());
+        song.add_tag(
+            Tag::builder()
+                .name(" alt   rock ".to_string())
+                .build()
+                .normalized(),
+        );
         song.add_source(
-            ExternalSource::builder(SourceProvider::AppleMusic)
-                .track_id(" abc ")
-                .build(),
+            ExternalSource::builder()
+                .provider(SourceProvider::AppleMusic)
+                .track_id(" abc ".to_string())
+                .build()
+                .normalized(),
         );
 
         assert_eq!(song.tags[0].name, "alt rock");

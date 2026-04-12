@@ -1,3 +1,4 @@
+use bon::Builder;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
@@ -8,7 +9,7 @@ pub enum SourceProvider {
     Deezer,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Builder)]
 pub struct ExternalSource {
     pub provider: SourceProvider,
 
@@ -17,10 +18,6 @@ pub struct ExternalSource {
 }
 
 impl ExternalSource {
-    pub fn builder(provider: SourceProvider) -> ExternalSourceBuilder {
-        ExternalSourceBuilder::new(provider)
-    }
-
     pub fn normalized(mut self) -> Self {
         self.normalize_mut();
         self
@@ -28,34 +25,6 @@ impl ExternalSource {
 
     pub fn normalize_mut(&mut self) {
         self.track_id = normalize_optional_string(self.track_id.take());
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct ExternalSourceBuilder {
-    provider: SourceProvider,
-    track_id: Option<String>,
-}
-
-impl ExternalSourceBuilder {
-    fn new(provider: SourceProvider) -> Self {
-        Self {
-            provider,
-            track_id: None,
-        }
-    }
-
-    pub fn track_id(mut self, track_id: impl Into<String>) -> Self {
-        self.track_id = Some(track_id.into());
-        self
-    }
-
-    pub fn build(self) -> ExternalSource {
-        ExternalSource {
-            provider: self.provider,
-            track_id: self.track_id,
-        }
-        .normalized()
     }
 }
 
@@ -76,9 +45,11 @@ mod tests {
 
     #[test]
     fn builder_normalizes_track_id() {
-        let source = ExternalSource::builder(SourceProvider::Spotify)
-            .track_id("  12345 ")
-            .build();
+        let source = ExternalSource::builder()
+            .provider(SourceProvider::Spotify)
+            .track_id("  12345 ".to_string())
+            .build()
+            .normalized();
 
         assert_eq!(source.provider, SourceProvider::Spotify);
         assert_eq!(source.track_id.as_deref(), Some("12345"));
@@ -86,9 +57,22 @@ mod tests {
 
     #[test]
     fn builder_drops_empty_track_id() {
-        let source = ExternalSource::builder(SourceProvider::AppleMusic)
-            .track_id("   ")
-            .build();
+        let source = ExternalSource::builder()
+            .provider(SourceProvider::AppleMusic)
+            .track_id("   ".to_string())
+            .build()
+            .normalized();
+
+        assert_eq!(source.track_id, None);
+    }
+
+    #[test]
+    fn builder_drops_empty_track_id2() {
+        let source = ExternalSource::builder()
+            .provider(SourceProvider::AppleMusic)
+            .track_id("".to_string())
+            .build()
+            .normalized();
 
         assert_eq!(source.track_id, None);
     }

@@ -1,7 +1,8 @@
+use bon::Builder;
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, Builder)]
 pub struct Metadata {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
@@ -23,10 +24,6 @@ pub struct Metadata {
 }
 
 impl Metadata {
-    pub fn builder() -> MetadataBuilder {
-        MetadataBuilder::default()
-    }
-
     pub fn normalized(mut self) -> Self {
         self.normalize_mut();
         self
@@ -76,60 +73,6 @@ impl Metadata {
     }
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct MetadataBuilder {
-    title: Option<String>,
-    artist: Option<String>,
-    album: Option<String>,
-    duration_seconds: Option<u32>,
-    release_date: Option<NaiveDate>,
-    explicit: Option<bool>,
-}
-
-impl MetadataBuilder {
-    pub fn title(mut self, title: impl Into<String>) -> Self {
-        self.title = Some(title.into());
-        self
-    }
-
-    pub fn artist(mut self, artist: impl Into<String>) -> Self {
-        self.artist = Some(artist.into());
-        self
-    }
-
-    pub fn album(mut self, album: impl Into<String>) -> Self {
-        self.album = Some(album.into());
-        self
-    }
-
-    pub fn duration_seconds(mut self, duration_seconds: u32) -> Self {
-        self.duration_seconds = Some(duration_seconds);
-        self
-    }
-
-    pub fn release_date(mut self, release_date: NaiveDate) -> Self {
-        self.release_date = Some(release_date);
-        self
-    }
-
-    pub fn explicit(mut self, explicit: bool) -> Self {
-        self.explicit = Some(explicit);
-        self
-    }
-
-    pub fn build(self) -> Metadata {
-        Metadata {
-            title: self.title,
-            artist: self.artist,
-            album: self.album,
-            duration_seconds: self.duration_seconds,
-            release_date: self.release_date,
-            explicit: self.explicit,
-        }
-        .normalized()
-    }
-}
-
 fn normalize_optional_string(value: Option<String>) -> Option<String> {
     value.and_then(|input| {
         let trimmed = input.trim();
@@ -148,10 +91,11 @@ mod tests {
     #[test]
     fn builder_normalizes_strings() {
         let metadata = Metadata::builder()
-            .title("  Numb  ")
-            .artist("  Linkin Park ")
-            .album("  Meteora\t")
-            .build();
+            .title("  Numb  ".to_string())
+            .artist("  Linkin Park ".to_string())
+            .album("  Meteora\t".to_string())
+            .build()
+            .normalized();
 
         assert_eq!(metadata.title.as_deref(), Some("Numb"));
         assert_eq!(metadata.artist.as_deref(), Some("Linkin Park"));
@@ -160,16 +104,16 @@ mod tests {
 
     #[test]
     fn builder_drops_zero_duration() {
-        let metadata = Metadata::builder().duration_seconds(0).build();
+        let metadata = Metadata::builder().duration_seconds(0).build().normalized();
         assert_eq!(metadata.duration_seconds, None);
     }
 
     #[test]
     fn merge_missing_from_fills_only_missing_values() {
-        let mut primary = Metadata::builder().title("Numb").build();
+        let mut primary = Metadata::builder().title("Numb".to_string()).build();
         let fallback = Metadata::builder()
-            .title("Fallback title")
-            .artist("Linkin Park")
+            .title("Fallback title".to_string())
+            .artist("Linkin Park".to_string())
             .duration_seconds(185)
             .build();
 

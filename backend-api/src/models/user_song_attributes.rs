@@ -1,13 +1,17 @@
+use bon::Builder;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Builder)]
 pub struct UserSongAttributes {
+    #[builder(default)]
     #[serde(default)]
     pub play_count: u32,
 
+    #[builder(default)]
     #[serde(default)]
     pub is_favorite: bool,
 
+    #[builder(default)]
     #[serde(default)]
     pub is_hidden: bool,
 }
@@ -23,10 +27,6 @@ impl Default for UserSongAttributes {
 }
 
 impl UserSongAttributes {
-    pub fn builder() -> UserSongAttributesBuilder {
-        UserSongAttributesBuilder::default()
-    }
-
     pub fn increment_play_count(&mut self) {
         self.play_count = self.play_count.saturating_add(1);
     }
@@ -48,38 +48,6 @@ impl UserSongAttributes {
     }
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct UserSongAttributesBuilder {
-    play_count: Option<u32>,
-    is_favorite: Option<bool>,
-    is_hidden: Option<bool>,
-}
-
-impl UserSongAttributesBuilder {
-    pub fn play_count(mut self, play_count: u32) -> Self {
-        self.play_count = Some(play_count);
-        self
-    }
-
-    pub fn favorite(mut self, is_favorite: bool) -> Self {
-        self.is_favorite = Some(is_favorite);
-        self
-    }
-
-    pub fn hidden(mut self, is_hidden: bool) -> Self {
-        self.is_hidden = Some(is_hidden);
-        self
-    }
-
-    pub fn build(self) -> UserSongAttributes {
-        UserSongAttributes {
-            play_count: self.play_count.unwrap_or(0),
-            is_favorite: self.is_favorite.unwrap_or(false),
-            is_hidden: self.is_hidden.unwrap_or(false),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -88,8 +56,8 @@ mod tests {
     fn builder_sets_values() {
         let attrs = UserSongAttributes::builder()
             .play_count(12)
-            .favorite(true)
-            .hidden(true)
+            .is_favorite(true)
+            .is_hidden(true)
             .build();
 
         assert_eq!(attrs.play_count, 12);
