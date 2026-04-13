@@ -30,6 +30,7 @@ export default function TabLayout() {
         name="tags"
         options={{
           title: "Tags",
+          headerShown: false,
           tabBarIcon: ({ color, focused }) => (
             <Ionicons
               name={focused ? "pricetags-sharp" : "pricetags-outline"}

@@ -102,7 +102,6 @@ function getSongsForTag(tagId: string) {
   return MOCK_SONGS.filter((s) => s.tags.some((t) => t.id === tagId));
 }
 
-
 function SongRow({ song }: { song: Song }) {
   return (
     <Card style={{ backgroundColor: "rgba(255,255,255,0.06)", borderColor: "transparent" }}>
@@ -133,6 +132,7 @@ export default function TagsScreen() {
   if (!account) return <Redirect href="/auth?initialMode=signin" />;
 
   const songsForTag = selectedTag ? getSongsForTag(selectedTag.id) : [];
+  const count = selectedTag ? getSongsForTag(selectedTag.id).length : undefined;
 
   return (
     <View style={styles.container}>
@@ -141,9 +141,9 @@ export default function TagsScreen() {
         <>
           <View style={styles.header}>
             <Pressable onPress={() => setSelectedTag(null)} style={styles.backButton}>
-              <Text style={styles.backButtonText}>← Back</Text>
+              <Text style={styles.backButtonText}>Back</Text>
             </Pressable>
-            <TagPill tag={selectedTag} height={20} count={3}/>
+            <TagPill tag={selectedTag} height={20} count={count}/>
           </View>
 
           <Text style={styles.subheading}>
@@ -205,6 +205,7 @@ const styles = StyleSheet.create({
     color: "#fff",
     marginBottom: 4,
     fontSize: 35,
+    lineHeight: 50
   },
   subheading: {
     color: "#888",
