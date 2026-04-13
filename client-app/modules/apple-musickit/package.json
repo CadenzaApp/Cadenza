@@ -1,0 +1,5 @@
+{
+  "name": "apple-musickit",
+  "version": "1.0.0",
+  "description": "Local Expo module bridging Apple MusicKit for iOS and Android under one interface."
+}
