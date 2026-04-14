@@ -12,6 +12,7 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
+      "appleTeamId": "ZUH2FX793C",
       "supportsTablet": true,
       "bundleIdentifier": "com.cadenza.cs4000",
       "infoPlist": {

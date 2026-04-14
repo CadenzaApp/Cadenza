@@ -15,7 +15,7 @@ import { Text } from "@/components/ui/text";
  *
  * See: https://developer.apple.com/documentation/applemusicapi/generating_developer_tokens
  */
-const DEVELOPER_TOKEN = "eyJhbGciOiJFUzI1NiIsImtpZCI6IjRMN0hSOTVVRFYifQ.eyJpc3MiOiJaVUgyRlg3OTNDIiwiaWF0IjoxNTE2MjM5MDIyLCJleHAiOjE1MzIwMTUwMDB9.YNMlMrkyAAvF6xROfusVkslBaVnki0-IrPj_L4aoOKKtnKdFCxMoS1G6OuJ3qc8Q5ApEASe_UrZB3_PIOSH3CA";
+const DEVELOPER_TOKEN = "eyJhbGciOiJFUzI1NiIsImtpZCI6IjRMN0hSOTVVRFYifQ.eyJpc3MiOiJaVUgyRlg3OTNDIiwiaWF0IjoxNzc2MTIxMzU1LCJleHAiOjE3OTE4NDYxNTV9.HCcvJ-iHzFBTPP2R1w3-fC1NGLHxzBp2avq2FvwOkK8vqB_bo2Qhs6WthS84EVtGhsstJDJw_CHNGwPQEEIXMA";
 
 export default function AccountScreen() {
     const [authResult, setAuthResult] = useState<AuthResult | null>(null);

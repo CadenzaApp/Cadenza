@@ -1,24 +1,23 @@
-apply plugin: 'com.android.library'
-apply plugin: 'kotlin-android'
-apply plugin: 'expo-modules-core'
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'expo.modules.applemusickit.AppleMusicKitModule'
+version = '0.7.10'
 
 android {
-    namespace "expo.modules.applemusickit"
-    compileSdkVersion safeExtGet("compileSdkVersion", 34)
-
-    defaultConfig {
-        minSdkVersion safeExtGet("minSdkVersion", 21)
-        targetSdkVersion safeExtGet("targetSdkVersion", 34)
-    }
+  namespace "expo.modules.applemusickit.AppleMusicKitModule"
+  defaultConfig {
+    versionCode 1
+    versionName "0.7.10"
+  }
+  lintOptions {
+    abortOnError false
+  }
 }
 
-repositories {
-    flatDir {
-        dirs 'libs'
-    }
-}
 
 dependencies {
-    implementation project(':expo-modules-core')
     implementation fileTree(dir: 'libs', include: ['*.aar', '*.jar'])
 }

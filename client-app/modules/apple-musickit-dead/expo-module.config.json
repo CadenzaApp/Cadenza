@@ -1,0 +1,17 @@
+{
+  "name": "AppleMusicKit",
+  "platforms": [
+    "apple",
+    "android"
+  ],
+  "apple": {
+    "modules": [
+      "AppleMusicKitModule"
+    ]
+  },
+  "android": {
+    "modules": [
+      "expo.modules.applemusickit.AppleMusicKitModule"
+    ]
+  }
+}
