@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use axum_jwt_auth::RemoteJwksDecoder;
 use jsonwebtoken::{Algorithm, Validation};
+use sea_orm::prelude::Uuid;
 use serde::{Deserialize, Serialize};
 
 const PROJECT_REF: &str = "zerlyloonvyujsculwde";
@@ -10,7 +11,7 @@ const PUBLISHABLE_KEY: &str = "sb_publishable_VlG0XaDpUVGlF03Z84A7-Q_yfn7DSvX";
 #[derive(Deserialize, Serialize)]
 pub struct SupabaseClaims {
     #[serde(rename = "sub")]
-    pub user_id: String,
+    pub user_id: Uuid,
     #[serde(rename = "exp")]
     // Todo: write some code to help this parse into a DateTime or something like that
     pub expiration: usize,

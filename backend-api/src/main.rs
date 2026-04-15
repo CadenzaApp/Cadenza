@@ -3,11 +3,7 @@ mod db;
 mod models;
 mod routes;
 
-use axum::{
-    Router,
-    extract::FromRef,
-    routing::{get, post},
-};
+use axum::{Router, extract::FromRef};
 
 use axum_jwt_auth::Decoder;
 use dotenvy::dotenv;
@@ -15,7 +11,10 @@ use sea_orm::{Database, DatabaseConnection};
 use std::env;
 use std::net::SocketAddr;
 
-use crate::auth::{SupabaseClaims, new_jwt_decoder};
+use crate::{
+    auth::{SupabaseClaims, new_jwt_decoder},
+    routes::{songs::get_songs_router, tags::get_tagging_router},
+};
 
 #[derive(Clone, FromRef)]
 struct AppState {
@@ -41,8 +40,8 @@ async fn main() {
 
     // route paths
     let app = Router::new()
-        .route("/users", post(routes::users::create))
-        .route("/tagging", post(routes::tagging::apply_tag_handler))
+        .nest("/songs", get_songs_router())
+        .nest("/tags", get_tagging_router())
         .with_state(app_state);
 
     // show time baby
