@@ -1,8 +1,0 @@
-{
-  "name": "apple-musickit",
-  "version": "1.0.0",
-  "main": "src/index.ts",
-  "expo": {
-    "module": "expo-module.config.json"
-  }
-}

@@ -2,49 +2,71 @@ package expo.modules.applemusickit.AppleMusicKitModule
 
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
-import java.net.URL
 
 class AppleMusicKitModule : Module() {
-  // Each module class must implement the definition function. The definition consists of components
-  // that describes the module's functionality and behavior.
-  // See https://docs.expo.dev/modules/module-api for more details about available components.
   override fun definition() = ModuleDefinition {
-    // Sets the name of the module that JavaScript code will use to refer to the module. Takes a string as an argument.
-    // Can be inferred from module's class name, but it's recommended to set it explicitly for clarity.
-    // The module will be accessible from `requireNativeModule('AppleMusicKitModule')` in JavaScript.
-    Name("AppleMusicKitModule")
+    // Aligned with the JS implementation's requireNativeModule parameter
+    Name("AppleMusicKit")
 
-    // Defines constant property on the module.
-    Constant("PI") {
-      Math.PI
+    Events("onPlaybackStateChange")
+
+    AsyncFunction("authorize") { developerToken: String ->
+      // TODO: Wrap musickitauth-release AuthenticationManager.createIntent()
+      // and process the result for the Music User Token.
+      return@AsyncFunction mapOf("status" to "not_implemented_yet")
     }
 
-    // Defines event names that the module can send to JavaScript.
-    Events("onChange")
-
-    // Defines a JavaScript synchronous function that runs the native code on the JavaScript thread.
-    Function("hello") {
-      "Hello world! 👋"
+    AsyncFunction("play") {
+      // TODO: Hook up mediaplayback-release player.play()
     }
 
-    // Defines a JavaScript function that always returns a Promise and whose native code
-    // is by default dispatched on the different thread than the JavaScript runtime runs on.
-    AsyncFunction("setValueAsync") { value: String ->
-      // Send an event to JavaScript.
-      sendEvent("onChange", mapOf(
-        "value" to value
-      ))
+    AsyncFunction("pause") {
+      // TODO: Hook up mediaplayback-release player.pause()
     }
 
-    // Enables the module to be used as a native view. Definition components that are accepted as part of
-    // the view definition: Prop, Events.
-    View(AppleMusicKitModuleView::class) {
-      // Defines a setter for the `url` prop.
-      Prop("url") { view: AppleMusicKitModuleView, url: URL ->
-        view.webView.loadUrl(url.toString())
-      }
-      // Defines an event that the view can send to JavaScript.
-      Events("onLoad")
+    AsyncFunction("togglePlayerState") {
+      // TODO: Hook up state detection
+    }
+
+    AsyncFunction("skipToNextEntry") {
+      // TODO: Hook up mediaplayback-release skip forward
+    }
+
+    AsyncFunction("skipToPreviousEntry") {
+      // TODO: Hook up mediaplayback-release skip backward
+    }
+
+    AsyncFunction("restartCurrentEntry") {
+      // TODO: Hook up mediaplayback-release restart
+    }
+
+    AsyncFunction("seekToTime") { time: Double ->
+      // TODO: Hook up mediaplayback-release player.seekToPosition()
+    }
+
+    AsyncFunction("catalogSearch") { query: String, types: List<String> ->
+      // TODO: Native Android catalog network request or fallback implementation
+      return@AsyncFunction mapOf<String, Any>()
+    }
+
+    AsyncFunction("getTracksFromLibrary") {
+      return@AsyncFunction mapOf("items" to listOf<Any>())
+    }
+
+    AsyncFunction("getUserPlaylists") { options: Map<String, Int> ->
+      return@AsyncFunction mapOf("items" to listOf<Any>())
+    }
+
+    AsyncFunction("getLibrarySongs") { options: Map<String, Int> ->
+      return@AsyncFunction mapOf("items" to listOf<Any>())
+    }
+
+    AsyncFunction("getPlaylistSongs") { playlistId: String ->
+      return@AsyncFunction mapOf("items" to listOf<Any>())
+    }
+
+    AsyncFunction("setPlaybackQueue") { id: String, type: String ->
+      // TODO: Wrap mediaplayback-release playbackQueue logic.
     }
   }
 }

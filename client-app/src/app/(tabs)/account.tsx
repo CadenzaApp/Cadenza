@@ -1,4 +1,4 @@
-import { authorize, type AuthResult } from "@apple-musickit";
+import { Auth, type AuthResult } from "@apple-musickit";
 import { useState } from "react";
 import { Alert, StyleSheet, View } from "react-native";
 import { Button } from "@/components/ui/button";
@@ -8,12 +8,6 @@ import { Text } from "@/components/ui/text";
  * TODO: Replace this with a value fetched from your backend at runtime.
  * Never ship a hardcoded developer token in production — it can be rotated
  * without a new app release if it lives server-side.
- *
- * Generate it by signing a JWT with your MusicKit private key (.p8):
- *   alg: ES256  |  kid: <Key ID>  |  iss: <Team ID>
- *   iat: <now>  |  exp: <now + ≤ 6 months>
- *
- * See: https://developer.apple.com/documentation/applemusicapi/generating_developer_tokens
  */
 const DEVELOPER_TOKEN = "eyJhbGciOiJFUzI1NiIsImtpZCI6IjRMN0hSOTVVRFYifQ.eyJpc3MiOiJaVUgyRlg3OTNDIiwiaWF0IjoxNzc2MTIxMzU1LCJleHAiOjE3OTE4NDYxNTV9.HCcvJ-iHzFBTPP2R1w3-fC1NGLHxzBp2avq2FvwOkK8vqB_bo2Qhs6WthS84EVtGhsstJDJw_CHNGwPQEEIXMA";
 
@@ -21,7 +15,7 @@ export default function AccountScreen() {
     const [authResult, setAuthResult] = useState<AuthResult | null>(null);
     const [isLoading, setIsLoading] = useState(false);
 
-    const isAuthorized = authResult?.status === "authorized" && !!authResult.userToken;
+    const hasAuthState = authResult !== null;
 
     async function handleConnectAppleMusic() {
         if (!DEVELOPER_TOKEN) {
@@ -34,7 +28,7 @@ export default function AccountScreen() {
 
         setIsLoading(true);
         try {
-            const result = await authorize(DEVELOPER_TOKEN);
+            const result = await Auth.authorize(DEVELOPER_TOKEN);
             setAuthResult(result);
 
             switch (result.status) {
@@ -80,6 +74,28 @@ export default function AccountScreen() {
         }
     }
 
+    function handleDisconnect() {
+        Alert.alert(
+            "Sign Out",
+            "Are you sure you want to disconnect Apple Music?",
+            [
+                { text: "Cancel", style: "cancel" },
+                {
+                    text: "Sign Out",
+                    style: "destructive",
+                    onPress: () => {
+                        // Clear the local state
+                        setAuthResult(null);
+
+                        // TODO: Also clear the saved token from your backend or local secure store here
+
+                        Alert.alert("Disconnected", "You have been signed out of Apple Music.");
+                    }
+                }
+            ]
+        );
+    }
+
     function statusLabel(result: AuthResult): string {
         switch (result.status) {
             case "authorized":
@@ -90,8 +106,6 @@ export default function AccountScreen() {
                 return "Restricted";
             case "notDetermined":
                 return "Not Determined";
-            case "failed":
-                return "Failed";
             default:
                 return "Unknown";
         }
@@ -102,7 +116,6 @@ export default function AccountScreen() {
             case "authorized":
                 return result.userToken ? "#4ade80" : "#facc15";
             case "denied":
-            case "failed":
                 return "#f87171";
             case "restricted":
                 return "#fb923c";
@@ -139,20 +152,28 @@ export default function AccountScreen() {
                         )}
                     </View>
 
-                    <Button
-                        onPress={handleConnectAppleMusic}
-                        disabled={isLoading || isAuthorized}
-                        variant={isAuthorized ? "outline" : "default"}
-                        size="sm"
-                    >
-                        <Text>
-                            {isLoading
-                                ? "Connecting…"
-                                : isAuthorized
-                                    ? "Connected"
-                                    : "Connect"}
-                        </Text>
-                    </Button>
+                    {hasAuthState ? (
+                        <Button
+                            onPress={handleDisconnect}
+                            variant="outline"
+                            size="sm"
+                        >
+                            <Text style={styles.signOutText}>
+                                {authResult.status === "authorized" ? "Sign Out" : "Clear Status"}
+                            </Text>
+                        </Button>
+                    ) : (
+                        <Button
+                            onPress={handleConnectAppleMusic}
+                            disabled={isLoading}
+                            variant="default"
+                            size="sm"
+                        >
+                            <Text>
+                                {isLoading ? "Connecting…" : "Connect"}
+                            </Text>
+                        </Button>
+                    )}
                 </View>
             </View>
         </View>
@@ -195,4 +216,7 @@ const styles = StyleSheet.create({
     statusText: {
         marginTop: 3,
     },
+    signOutText: {
+        color: "#f87171", // A red hue to indicate a destructive/disconnect action
+    }
 });

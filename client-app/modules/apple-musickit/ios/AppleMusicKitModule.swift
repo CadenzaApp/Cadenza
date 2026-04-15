@@ -4,24 +4,22 @@ import StoreKit
 
 public class AppleMusicKitModule: Module {
     public func definition() -> ModuleDefinition {
+        // Matches the requireNativeModule('AppleMusicKit') call
         Name("AppleMusicKit")
+
+        Events("onPlaybackStateChange")
 
         AsyncFunction("authorize") { (developerToken: String) async throws -> [String: String] in
             guard #available(iOS 15.1, *) else {
                 throw Exception(
-                    name: "ERR_UNSUPPORTED",
-                    description: "Apple MusicKit requires iOS 15.1 or later."
-                )
+                    name: "ERR_UNSUPPORTED", description: "Apple MusicKit requires iOS 15.1+.")
             }
 
             let status = await MusicAuthorization.request()
 
             switch status {
             case .authorized:
-                guard !developerToken.isEmpty else {
-                    return ["status": "authorized"]
-                }
-
+                guard !developerToken.isEmpty else { return ["status": "authorized"] }
                 do {
                     let userToken: String = try await withCheckedThrowingContinuation {
                         continuation in
@@ -35,14 +33,11 @@ public class AppleMusicKitModule: Module {
                             } else {
                                 continuation.resume(
                                     throwing: NSError(
-                                        domain: "AppleMusicKit",
-                                        code: -1,
+                                        domain: "AppleMusicKit", code: -1,
                                         userInfo: [
                                             NSLocalizedDescriptionKey:
                                                 "requestUserToken returned neither a token nor an error."
-                                        ]
-                                    )
-                                )
+                                        ]))
                             }
                         }
                     }
@@ -50,18 +45,155 @@ public class AppleMusicKitModule: Module {
                 } catch {
                     return ["status": "authorized", "error": error.localizedDescription]
                 }
+            case .denied: return ["status": "denied"]
+            case .restricted: return ["status": "restricted"]
+            case .notDetermined: return ["status": "notDetermined"]
+            @unknown default: return ["status": "unknown"]
+            }
+        }
 
-            case .denied:
-                return ["status": "denied"]
+        AsyncFunction("play") { () async throws -> Void in
+            guard #available(iOS 15.0, *) else { return }
+            try await ApplicationMusicPlayer.shared.play()
+        }
 
-            case .restricted:
-                return ["status": "restricted"]
+        AsyncFunction("pause") { () -> Void in
+            guard #available(iOS 15.0, *) else { return }
+            ApplicationMusicPlayer.shared.pause()
+        }
 
-            case .notDetermined:
-                return ["status": "notDetermined"]
+        AsyncFunction("togglePlayerState") { () async throws -> Void in
+            guard #available(iOS 15.0, *) else { return }
+            if ApplicationMusicPlayer.shared.state.playbackStatus == .playing {
+                ApplicationMusicPlayer.shared.pause()
+            } else {
+                try await ApplicationMusicPlayer.shared.play()
+            }
+        }
 
-            @unknown default:
-                return ["status": "unknown"]
+        AsyncFunction("skipToNextEntry") { () async throws -> Void in
+            guard #available(iOS 15.0, *) else { return }
+            try await ApplicationMusicPlayer.shared.skipToNextEntry()
+        }
+
+        AsyncFunction("skipToPreviousEntry") { () async throws -> Void in
+            guard #available(iOS 15.0, *) else { return }
+            try await ApplicationMusicPlayer.shared.skipToPreviousEntry()
+        }
+
+        AsyncFunction("restartCurrentEntry") { () -> Void in
+            guard #available(iOS 15.0, *) else { return }
+            ApplicationMusicPlayer.shared.restartCurrentEntry()
+        }
+
+        AsyncFunction("seekToTime") { (time: Double) -> Void in
+            guard #available(iOS 15.0, *) else { return }
+            ApplicationMusicPlayer.shared.playbackTime = time
+        }
+
+        AsyncFunction("catalogSearch") {
+            (query: String, types: [String]) async throws -> [String: Any] in
+            guard #available(iOS 15.0, *) else {
+                throw Exception(name: "ERR_UNSUPPORTED", description: "Requires iOS 15.0+")
+            }
+
+            // Map types array to actual MusicKit types if needed, using Song/Album as baseline
+            var request = MusicCatalogSearchRequest(term: query, types: [Song.self, Album.self])
+            request.limit = 20
+
+            let response = try await request.response()
+
+            // Format to a JSON-friendly dictionary mapping
+            let songs = response.songs.map {
+                ["id": $0.id.rawValue, "title": $0.title, "artistName": $0.artistName]
+            }
+            let albums = response.albums.map {
+                ["id": $0.id.rawValue, "title": $0.title, "artistName": $0.artistName]
+            }
+
+            return [
+                "songs": songs,
+                "albums": albums,
+            ]
+        }
+
+        AsyncFunction("getTracksFromLibrary") { () async throws -> [String: Any] in
+            guard #available(iOS 16.0, *) else {
+                throw Exception(
+                    name: "ERR_UNSUPPORTED",
+                    description: "iOS 16.0+ required to access the user's library.")
+            }
+            var request = MusicLibraryRequest<Song>()
+            request.limit = 50  // Default mapping for recently played/library
+            let response = try await request.response()
+            let items = response.items.map {
+                ["id": $0.id.rawValue, "title": $0.title, "artistName": $0.artistName]
+            }
+            return ["items": items]
+        }
+
+        AsyncFunction("getUserPlaylists") {
+            (options: [String: Int]) async throws -> [String: Any] in
+            guard #available(iOS 16.0, *) else {
+                throw Exception(
+                    name: "ERR_UNSUPPORTED",
+                    description: "iOS 16.0+ required to access the user's library.")
+            }
+            var request = MusicLibraryRequest<Playlist>()
+            if let limit = options["limit"] { request.limit = limit }
+            let response = try await request.response()
+            let items = response.items.map {
+                ["id": $0.id.rawValue, "title": $0.name, "artistName": $0.curatorName]
+            }
+            return ["items": items]
+        }
+
+        AsyncFunction("getLibrarySongs") { (options: [String: Int]) async throws -> [String: Any] in
+            guard #available(iOS 16.0, *) else {
+                throw Exception(
+                    name: "ERR_UNSUPPORTED",
+                    description: "iOS 16.0+ required to access the user's library.")
+            }
+            var request = MusicLibraryRequest<Song>()
+            if let limit = options["limit"] { request.limit = limit }
+            let response = try await request.response()
+            let items = response.items.map {
+                ["id": $0.id.rawValue, "title": $0.title, "artistName": $0.artistName]
+            }
+            return ["items": items]
+        }
+
+        AsyncFunction("getPlaylistSongs") { (playlistId: String) async throws -> [String: Any] in
+            // Typically requires a separate network request with `MusicDataRequest` for detailed playlist contents.
+            // Stubbed for standard return flow.
+            return ["items": []]
+        }
+
+        AsyncFunction("setPlaybackQueue") { (id: String, type: String) async throws -> Void in
+            guard #available(iOS 15.0, *) else { return }
+
+            // Note: ApplicationMusicPlayer.shared.queue requires fetching the object first.
+            if type == "album" {
+                var request = MusicCatalogResourceRequest<Album>(
+                    matching: \.id, equalTo: MusicItemID(id))
+                let response = try await request.response()
+                if let album = response.items.first {
+                    ApplicationMusicPlayer.shared.queue = [album]
+                }
+            } else if type == "song" {
+                var request = MusicCatalogResourceRequest<Song>(
+                    matching: \.id, equalTo: MusicItemID(id))
+                let response = try await request.response()
+                if let song = response.items.first {
+                    ApplicationMusicPlayer.shared.queue = [song]
+                }
+            } else if type == "playlist" {
+                var request = MusicCatalogResourceRequest<Playlist>(
+                    matching: \.id, equalTo: MusicItemID(id))
+                let response = try await request.response()
+                if let playlist = response.items.first {
+                    ApplicationMusicPlayer.shared.queue = [playlist]
+                }
             }
         }
     }

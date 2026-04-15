@@ -1,30 +1,75 @@
-import { requireNativeModule } from 'expo-modules-core';
-import type { AuthResult } from './AppleMusicKit.types';
+import { requireNativeModule, EventSubscription } from 'expo-modules-core';
+import type {
+  AuthResult,
+  MusicKitOptions,
+  PlaybackQueueType,
+  SearchResult,
+  LibraryResult
+} from './AppleMusicKit.types';
 
 interface AppleMusicKitNativeModule {
   authorize(developerToken: string): Promise<AuthResult>;
+  play(): Promise<void>;
+  pause(): Promise<void>;
+  togglePlayerState(): Promise<void>;
+  skipToNextEntry(): Promise<void>;
+  skipToPreviousEntry(): Promise<void>;
+  restartCurrentEntry(): Promise<void>;
+  seekToTime(time: number): Promise<void>;
+
+  // MusicKit Functionality
+  catalogSearch(query: string, types: string[]): Promise<SearchResult>;
+  getTracksFromLibrary(): Promise<LibraryResult>;
+  getUserPlaylists(options?: MusicKitOptions): Promise<LibraryResult>;
+  getLibrarySongs(options?: MusicKitOptions): Promise<LibraryResult>;
+  getPlaylistSongs(playlistId: string): Promise<LibraryResult>;
+  setPlaybackQueue(id: string, type: string): Promise<void>;
+
+  addListener(eventName: string, listener: (...args: any[]) => void): EventSubscription;
+  removeListeners(count: number): void;
 }
 
 const native = requireNativeModule<AppleMusicKitNativeModule>('AppleMusicKit');
 
-/**
- * Requests authorization to access the user's Apple Music account and retrieves
- * a Music User Token that can be used to make authenticated Apple Music API requests.
- *
- * @param developerToken - A signed JWT developer token obtained from your backend.
- *   - On **iOS**: passed to `SKCloudServiceController.requestUserToken(forDeveloperToken:)`
- *     after the system authorization dialog is approved, to retrieve the Music User Token.
- *   - On **Android**: passed to the Apple MusicKit SDK's `AuthenticationManager` to launch
- *     the Apple Music sign-in activity, which returns the Music User Token directly.
- *
- * Generate this token server-side using your MusicKit private key (.p8 file) and
- * never hardcode it in the client app.
- *
- * @returns A promise that resolves to an {@link AuthResult} containing the authorization
- *   status and, on success, the Music User Token.
- */
-export async function authorize(developerToken: string): Promise<AuthResult> {
-  return native.authorize(developerToken);
-}
+export const Auth = {
+  authorize: async (developerToken: string): Promise<AuthResult> => native.authorize(developerToken)
+};
 
-export type { AuthResult, AuthStatus } from './AppleMusicKit.types';
+export const Player = {
+  play: () => native.play(),
+  pause: () => native.pause(),
+  togglePlayerState: () => native.togglePlayerState(),
+  skipToNextEntry: () => native.skipToNextEntry(),
+  skipToPreviousEntry: () => native.skipToPreviousEntry(),
+  restartCurrentEntry: () => native.restartCurrentEntry(),
+  seekToTime: (time: number) => native.seekToTime(time),
+  addListener: (
+    eventName: 'onPlaybackStateChange',
+    listener: (event: { state: string }) => void
+  ): EventSubscription => {
+    return native.addListener(eventName, listener);
+  }
+};
+
+export const MusicKit = {
+  catalogSearch: (query: string, types: string[] = ['songs', 'albums']): Promise<SearchResult> => {
+    return native.catalogSearch(query, types);
+  },
+  getTracksFromLibrary: (): Promise<LibraryResult> => {
+    return native.getTracksFromLibrary();
+  },
+  getUserPlaylists: (options?: MusicKitOptions): Promise<LibraryResult> => {
+    return native.getUserPlaylists(options || {});
+  },
+  getLibrarySongs: (options?: MusicKitOptions): Promise<LibraryResult> => {
+    return native.getLibrarySongs(options || {});
+  },
+  getPlaylistSongs: (playlistId: string): Promise<LibraryResult> => {
+    return native.getPlaylistSongs(playlistId);
+  },
+  setPlaybackQueue: (id: string, type: PlaybackQueueType): Promise<void> => {
+    return native.setPlaybackQueue(id, type);
+  }
+};
+
+export * from './AppleMusicKit.types';
