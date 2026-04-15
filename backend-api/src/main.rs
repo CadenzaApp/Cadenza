@@ -15,7 +15,7 @@ use sea_orm::{Database, DatabaseConnection};
 use std::env;
 use std::net::SocketAddr;
 
-use crate::auth::{SupabaseClaims, new_jwt_decoder};
+use crate::{auth::{SupabaseClaims, new_jwt_decoder}, routes::songs::get_songs_router};
 
 #[derive(Clone, FromRef)]
 struct AppState {
@@ -42,7 +42,7 @@ async fn main() {
     // route paths
     let app = Router::new()
         .route("/users", post(routes::users::create))
-        .route("/tagging", post(routes::tagging::apply_tag_handler))
+        .nest("/songs", get_songs_router())
         .with_state(app_state);
 
     // show time baby
