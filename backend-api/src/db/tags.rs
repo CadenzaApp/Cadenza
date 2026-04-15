@@ -1,7 +1,6 @@
 use sea_orm::ColumnTrait;
 use sea_orm::ModelTrait;
 use sea_orm::QueryFilter;
-use sea_orm::sea_query::OnConflict;
 use sea_orm::{
     ActiveModelTrait,
     ActiveValue::{NotSet, Set},
@@ -15,7 +14,7 @@ use super::entity::*;
 pub async fn apply_tag(
     db: DatabaseConnection,
     user_id: Uuid,
-    song_id: usize,
+    song_id: i64,
     tag_name: &str,
 ) -> Result<(), DbErr> {
     // get the tag that matches this tag_name...
@@ -40,7 +39,7 @@ pub async fn apply_tag(
     // apply this tag to this song under this user
     let new_tag_relation = applied_tags::ActiveModel {
         user_id: Set(user_id),
-        song_id: Set(song_id as i64),
+        song_id: Set(song_id),
         tag_id: Set(tag_id),
     };
     new_tag_relation.insert(&db).await?;
@@ -51,14 +50,13 @@ pub async fn apply_tag(
 pub async fn remove_tag(
     db: DatabaseConnection,
     user_id: Uuid,
-    song_id: usize,
-    tag_id: usize,
+    song_id: i64,
+    tag_id: i64,
 ) -> Result<(), DbErr> {
-
     let applied_tag = applied_tags::Entity::find()
         .filter(applied_tags::Column::UserId.eq(user_id))
-        .filter(applied_tags::Column::SongId.eq(song_id as i64))
-        .filter(applied_tags::Column::TagId.eq(tag_id as i64))
+        .filter(applied_tags::Column::SongId.eq(song_id))
+        .filter(applied_tags::Column::TagId.eq(tag_id))
         .one(&db)
         .await?;
 
@@ -68,3 +66,4 @@ pub async fn remove_tag(
 
     Ok(())
 }
+

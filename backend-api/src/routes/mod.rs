@@ -1,2 +1,2 @@
-pub mod tagging;
+pub mod tags;
 pub mod songs;

@@ -13,7 +13,7 @@ use std::net::SocketAddr;
 
 use crate::{
     auth::{SupabaseClaims, new_jwt_decoder},
-    routes::{songs::get_songs_router, tagging::get_tagging_router},
+    routes::{songs::get_songs_router, tags::get_tagging_router},
 };
 
 #[derive(Clone, FromRef)]
@@ -41,7 +41,7 @@ async fn main() {
     // route paths
     let app = Router::new()
         .nest("/songs", get_songs_router())
-        .nest("/tagging", get_tagging_router())
+        .nest("/tags", get_tagging_router())
         .with_state(app_state);
 
     // show time baby
