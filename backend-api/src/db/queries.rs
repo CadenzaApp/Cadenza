@@ -2,74 +2,30 @@ use std::fmt::Display;
 
 use sea_orm::{DatabaseConnection, FromQueryResult};
 use sea_orm::{DbBackend, Statement};
-use serde_json::{Value, json};
+use serde_json::Value;
 
 #[derive(Debug, FromQueryResult)]
-struct SongsAndTags {
-    song_id: i64,
-    tag_id: i64,
-    tag_name: String,
+pub struct SongTagPair {
+    pub song_id: i64,
+    pub tag_id: i64,
+    pub tag_name: String,
 }
 
-/// Returns JSON response listing matching songs from the given query.
-///
-/// JSON return value format:
-/// ```json
-/// {
-///    "song id": {
-///        "name": ...    ( TODO: song/duration fields don't exist yet)
-///        "duration": ...
-///        "tags": [
-///            {
-///                "id": ..
-///                "name": ..
-///            }
-///        ]
-///    },
-///    ...
-///}
-/// ```
+/// Returns many matching `SongTagPair`
 pub async fn run_json_query(
     db: &DatabaseConnection,
     json_query: &Value,
     user_id: impl Display,
-) -> Result<Value, String> {
-    let songs_and_tags = SongsAndTags::find_by_statement(Statement::from_string(
+) -> Result<Vec<SongTagPair>, String> {
+    println!("starting query: {}", json_query);
+
+    SongTagPair::find_by_statement(Statement::from_string(
         DbBackend::Postgres,
         decode_query(json_query, user_id)?,
     ))
     .all(db)
     .await
-    .map_err(|e| e.to_string())?;
-
-    let mut response = json!({});
-    let response_obj = response.as_object_mut().unwrap();
-
-    // construct json response
-    for row in songs_and_tags {
-        match response_obj.get_mut(&row.song_id.to_string()) {
-            None => {
-                // song isn't in response yet, add it
-                response_obj.insert(
-                    row.song_id.to_string(),
-                    json!({
-                        // TODO: other song metadata can go here e.g. name, duration
-                    }),
-                );
-            }
-            Some(song_obj) => {
-                // this song was already in the response, so add this tag to its "tags" array
-                let song_obj = song_obj.as_object_mut().unwrap();
-                let tags_arr = song_obj.get_mut("tags").unwrap().as_array_mut().unwrap();
-                tags_arr.push(json!({
-                    "id": row.tag_id,
-                    "name": row.tag_name
-                }));
-            }
-        }
-    }
-
-    Ok(response)
+    .map_err(|e| e.to_string())
 }
 
 enum BoolRelation {
@@ -88,25 +44,45 @@ impl BoolRelation {
 /// Converts the given JSON to a full SQL statement.
 fn decode_query(json_query: &Value, user_id: impl Display) -> Result<String, String> {
     let where_clause = decode_query_json_node(json_query, false)?;
-    Ok(format!(
-        "SELECT * FROM applied_tags WHERE user_id = {} AND {};",
+
+    // this sql first gets all song ids that match the query,
+    // then finds all tags related to those matched songs
+    let sql = format!(
+        r#"
+            SELECT
+                matched_songs.song_id AS song_id,
+                tags.tag_id AS tag_id,
+                tags.name AS tag_name
+            FROM
+            (
+                SELECT songs.song_id AS song_id
+                FROM 
+                    tags 
+                    JOIN applied_tags ON tags.tag_id=applied_tags.tag_id
+                    JOIN songs ON applied_tags.song_id=songs.song_id
+                WHERE applied_tags.user_id='{}' AND {}
+            ) AS matched_songs
+            JOIN applied_tags ON matched_songs.song_id=applied_tags.song_id
+            JOIN tags ON tags.tag_id=applied_tags.tag_id;
+        "#,
         user_id, where_clause
-    ))
+    );
+    Ok(sql)
 }
 
 /// Converts the given JSON to a SQL snippet.
 /// Applies Demorgan's Law when `inverted == true` to produce accurate SQL.
 fn decode_query_json_node(curr: &Value, inverted: bool) -> Result<String, String> {
-    if curr.is_string() {
+    if let Some(tag_id) = curr.as_number() {
         return match inverted {
-            false => Ok(format!("tag_id = {}", curr)),
-            true => Ok(format!("tag_id != {}", curr)),
+            false => Ok(format!("applied_tags.tag_id = {}", tag_id)),
+            true => Ok(format!("applied_tags.tag_id != {}", tag_id)),
         };
     }
 
     if curr.is_object() {
         if let Some(child) = curr.get("not") {
-            // recur on the child, adding an inversion
+            // add another layer of inversion before recurring
             return decode_query_json_node(child, !inverted);
         }
         if let Some(child) = curr.get("and") {
