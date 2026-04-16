@@ -70,7 +70,7 @@ function updateNode(
       return { ...node, children: next };
     }
 
-    // ── Drop on a specific slot: replace it in place ──────────────────────
+    // Drop on a specific slot: replace it in place
     const next = [...node.children];
     next[index] = replacement;
     return { ...node, children: next };

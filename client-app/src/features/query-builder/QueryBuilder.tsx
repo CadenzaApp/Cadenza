@@ -136,7 +136,7 @@ export function QueryBuilder({ tags, onChange }: {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: "#0E0E12",
+    backgroundColor: "#25292e", //"#0E0E12",
   },
   container: {
     flex: 1,
