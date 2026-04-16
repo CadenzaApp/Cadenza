@@ -52,6 +52,10 @@ public class AppleMusicKitModule: Module {
             }
         }
 
+        AsyncFunction("setTokens") { (developerToken: String, userToken: String?) -> Void in
+            // No-op: iOS MusicKit frameworks handle the user session automatically.
+        }
+
         AsyncFunction("play") { () async throws -> Void in
             guard #available(iOS 15.0, *) else { return }
             try await ApplicationMusicPlayer.shared.play()

@@ -135,6 +135,12 @@ class AppleMusicKitModule : Module() {
             }
         }
 
+        AsyncFunction("setTokens") { devToken: String, usrToken: String? ->
+            developerToken = devToken
+            userToken = usrToken
+            Log.i(TAG, "Tokens restored/cleared from JS.")
+        }
+
         OnActivityResult { _, payload ->
             if (payload.requestCode != APPLE_MUSIC_REQUEST_CODE) return@OnActivityResult
             val promise = pendingPromise

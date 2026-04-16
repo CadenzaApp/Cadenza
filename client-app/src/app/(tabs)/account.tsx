@@ -1,42 +1,27 @@
-import { Auth, type AuthResult } from "@apple-musickit";
+import { type AuthResult } from "@apple-musickit";
 import { useState } from "react";
 import { Alert, View } from "react-native";
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-
-/**
- * TODO: Replace this with a value fetched from your backend at runtime.
- * Never ship a hardcoded developer token in production — it can be rotated
- * without a new app release if it lives server-side.
- */
-const DEVELOPER_TOKEN =
-    "eyJhbGciOiJFUzI1NiIsImtpZCI6IjRMN0hSOTVVRFYifQ.eyJpc3MiOiJaVUgyRlg3OTNDIiwiaWF0IjoxNzc2MTIxMzU1LCJleHAiOjE3OTE4NDYxNTV9.HCcvJ-iHzFBTPP2R1w3-fC1NGLHxzBp2avq2FvwOkK8vqB_bo2Qhs6WthS84EVtGhsstJDJw_CHNGwPQEEIXMA";
+import { useAppleMusic } from "@/lib/apple-music"; // <-- Use the new hook
 
 export default function AccountScreen() {
-    const [authResult, setAuthResult] = useState<AuthResult | null>(null);
+    // Consume our single source of truth
+    const { authResult, connect, disconnect } = useAppleMusic();
     const [isLoading, setIsLoading] = useState(false);
 
     const hasAuthState = authResult !== null;
 
     async function handleConnectAppleMusic() {
-        if (!DEVELOPER_TOKEN) {
-            Alert.alert(
-                "Developer Token Missing",
-                "A developer token is required to connect Apple Music. Set DEVELOPER_TOKEN in account.tsx (fetched from your backend in production).",
-            );
-            return;
-        }
-
         setIsLoading(true);
         try {
-            const result = await Auth.authorize(DEVELOPER_TOKEN);
-            setAuthResult(result);
+            const result = await connect();
+            if (!result) return;
 
             switch (result.status) {
                 case "authorized":
                     if (result.userToken) {
-                        // TODO: send result.userToken to your backend / store in context
                         Alert.alert(
                             "Connected",
                             "Apple Music connected successfully.",
@@ -76,7 +61,6 @@ export default function AccountScreen() {
                     );
             }
         } catch (error) {
-            console.error("Apple Music authorization error:", error);
             Alert.alert(
                 "Error",
                 "An unexpected error occurred. Please try again.",
@@ -95,12 +79,8 @@ export default function AccountScreen() {
                 {
                     text: "Sign Out",
                     style: "destructive",
-                    onPress: () => {
-                        // Clear the local state
-                        setAuthResult(null);
-
-                        // TODO: Also clear the saved token from your backend or local secure store here
-
+                    onPress: async () => {
+                        await disconnect();
                         Alert.alert(
                             "Disconnected",
                             "You have been signed out of Apple Music.",
@@ -128,7 +108,6 @@ export default function AccountScreen() {
         }
     }
 
-    // Refactored to return Tailwind text color classes instead of hex codes
     function statusColorClass(result: AuthResult): string {
         switch (result.status) {
             case "authorized":
@@ -148,7 +127,6 @@ export default function AccountScreen() {
                 Account
             </Text>
 
-            {/* Music Services Card */}
             <Card className="w-full">
                 <CardHeader>
                     <CardTitle className="text-xl">Music Services</CardTitle>
