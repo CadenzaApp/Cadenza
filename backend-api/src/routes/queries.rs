@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::db;
+use crate::err::CadenzaError;
 use crate::{AppState, auth::SupabaseClaims};
 use axum::{
     Router,
@@ -27,7 +28,7 @@ async fn run_json_query_handler(
     State(db): State<DatabaseConnection>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
     json_query: Json<Value>,
-) -> axum::response::Result<String, String> {
+) -> Result<String, CadenzaError> {
     let matched_songs_and_tags = db::queries::run_json_query(&db, &json_query, claims.user_id).await?;
 
     let mut mentioned_tags = HashSet::new();

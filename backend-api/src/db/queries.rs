@@ -4,6 +4,8 @@ use sea_orm::prelude::Uuid;
 use sea_orm::{DatabaseConnection, FromQueryResult};
 use sea_orm::{DbBackend, Statement};
 
+use crate::err::CadenzaError;
+
 #[derive(Debug, FromQueryResult)]
 struct SongTagPair {
     song_id: i64,
@@ -15,8 +17,7 @@ pub async fn run_json_query(
     db: &DatabaseConnection,
     json_query: &serde_json::Value,
     user_id: Uuid,
-) -> Result<HashMap<i64, HashSet<i64>>, String> {
-
+) -> Result<HashMap<i64, HashSet<i64>>, CadenzaError> {
     let user_id = sea_query::Value::Uuid(Some(user_id));
     let (sql, values) = decode_query(json_query, user_id)?;
 
@@ -26,8 +27,7 @@ pub async fn run_json_query(
         values,
     ))
     .all(db)
-    .await
-    .map_err(|e| e.to_string())?;
+    .await?;
 
     let mut res: HashMap<i64, HashSet<i64>> = HashMap::new();
 
@@ -35,7 +35,7 @@ pub async fn run_json_query(
         match res.get_mut(&row.song_id) {
             Some(tags) => {
                 tags.insert(row.tag_id);
-            },
+            }
             None => {
                 let mut tags = HashSet::new();
                 tags.insert(row.tag_id);
@@ -64,7 +64,7 @@ impl BoolRelation {
 fn decode_query(
     json_query: &serde_json::Value,
     user_id: sea_query::Value,
-) -> Result<(String, Vec<sea_query::Value>), String> {
+) -> Result<(String, Vec<sea_query::Value>), CadenzaError> {
     let (where_clause, mut child_values, _) =
         decode_query_json_node(json_query, user_id.clone(), 2, false)?;
 
@@ -100,7 +100,7 @@ fn decode_query_json_node(
     user_id: sea_query::Value,
     param_counter: usize,
     inverted: bool,
-) -> Result<(String, Vec<sea_query::Value>, usize), String> {
+) -> Result<(String, Vec<sea_query::Value>, usize), CadenzaError> {
     if let Some(tag_id) = curr.as_number() {
         let mut exists_clause = format!(
             r#"
@@ -146,16 +146,16 @@ fn decode_query_json_node(
             );
         }
 
-        return Err(format!(
-            "error decoding query: this object is missing an 'and' or 'or' field: {}",
+        return Err(CadenzaError::QueryFormatError(format!(
+            "this object is missing an 'and' or 'or' field: {}",
             curr
-        ));
+        )));
     }
 
-    Err(format!(
-        "error decoding query: expected tag id or object, got: {:?}",
+    Err(CadenzaError::QueryFormatError(format!(
+        "expected tag id or object, got: {:?}",
         curr
-    ))
+    )))
 }
 
 /// Converts the given JSON arr to a SQL snippet, joining child SQL snippets with AND/OR depending on `bool_relation`.
@@ -167,12 +167,12 @@ fn decode_query_arr(
     user_id: sea_query::Value,
     mut param_counter: usize,
     inverted: bool,
-) -> Result<(String, Vec<sea_query::Value>, usize), String> {
+) -> Result<(String, Vec<sea_query::Value>, usize), CadenzaError> {
     match arr.as_array() {
-        None => Err(format!(
-            "error decoding query: expected array, got: {:?}",
+        None => Err(CadenzaError::QueryFormatError(format!(
+            "expected array, got: {:?}",
             arr
-        )),
+        ))),
         Some(arr) => {
             let mut child_snippets = Vec::with_capacity(arr.len());
             let mut child_values = Vec::with_capacity(arr.len() * 2);
