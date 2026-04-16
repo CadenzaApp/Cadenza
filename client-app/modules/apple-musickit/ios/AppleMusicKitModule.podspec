@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name           = 'AppleMusicKitModule'
-  s.version        = '1.0.0'
+  s.version        = '0.1.0'
   s.summary        = 'A sample project summary'
   s.description    = 'A sample project description'
   s.author         = ''
