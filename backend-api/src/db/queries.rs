@@ -4,8 +4,6 @@ use sea_orm::{DatabaseConnection, FromQueryResult};
 use sea_orm::{DbBackend, Statement};
 use serde_json::Value;
 
-use crate::models::tag;
-
 #[derive(Debug, FromQueryResult)]
 pub struct SongTagPair {
     pub song_id: i64,
@@ -72,7 +70,11 @@ fn decode_query(json_query: &Value, user_id: &impl Display) -> Result<String, St
 
 /// Converts the given JSON to a SQL snippet.
 /// Applies Demorgan's Law when `inverted == true` to produce accurate SQL.
-fn decode_query_json_node(curr: &Value, user_id: &impl Display, inverted: bool) -> Result<String, String> {
+fn decode_query_json_node(
+    curr: &Value,
+    user_id: &impl Display,
+    inverted: bool,
+) -> Result<String, String> {
     if let Some(tag_id) = curr.as_number() {
         let exists_clause = format!(
             r#"

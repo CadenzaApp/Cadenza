@@ -17,12 +17,7 @@ use serde_json::{Value, json};
 ///    "song id": {
 ///        "name": ...    ( TODO: song/duration fields don't exist yet)
 ///        "duration": ...
-///        "tags": [
-///            {
-///                "id": ..
-///                "name": ..
-///            }
-///        ]
+///        "tags": [ 1, 2, 3, ... ]
 ///    },
 ///    ...
 ///}
@@ -48,12 +43,7 @@ async fn run_json_query_handler(
                     row.song_id.to_string(),
                     json!({
                         // TODO: other song metadata can go here e.g. name, duration
-                        "tags": [
-                            {
-                                "id": row.tag_id,
-                                "name": row.tag_name
-                            }
-                        ]
+                        "tags": [ row.tag_id ]
                     }),
                 );
             }
@@ -61,10 +51,7 @@ async fn run_json_query_handler(
                 // this song was already in the response, so add this tag to its "tags" array
                 let song_obj = song_obj.as_object_mut().unwrap();
                 let tags_arr = song_obj.get_mut("tags").unwrap().as_array_mut().unwrap();
-                tags_arr.push(json!({
-                    "id": row.tag_id,
-                    "name": row.tag_name
-                }));
+                tags_arr.push(row.tag_id.into());
             }
         }
     }
