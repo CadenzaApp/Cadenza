@@ -4,6 +4,8 @@ use sea_orm::{DatabaseConnection, FromQueryResult};
 use sea_orm::{DbBackend, Statement};
 use serde_json::Value;
 
+use crate::models::tag;
+
 #[derive(Debug, FromQueryResult)]
 pub struct SongTagPair {
     pub song_id: i64,
@@ -21,7 +23,7 @@ pub async fn run_json_query(
 
     SongTagPair::find_by_statement(Statement::from_string(
         DbBackend::Postgres,
-        decode_query(json_query, user_id)?,
+        decode_query(json_query, &user_id)?,
     ))
     .all(db)
     .await
@@ -42,8 +44,8 @@ impl BoolRelation {
 }
 
 /// Converts the given JSON to a full SQL statement.
-fn decode_query(json_query: &Value, user_id: impl Display) -> Result<String, String> {
-    let where_clause = decode_query_json_node(json_query, false)?;
+fn decode_query(json_query: &Value, user_id: &impl Display) -> Result<String, String> {
+    let where_clause = decode_query_json_node(json_query, user_id, false)?;
 
     // this sql first gets all song ids that match the query,
     // then finds all tags related to those matched songs
@@ -55,41 +57,48 @@ fn decode_query(json_query: &Value, user_id: impl Display) -> Result<String, Str
                 tags.name AS tag_name
             FROM
             (
-                SELECT songs.song_id AS song_id
-                FROM 
-                    tags 
-                    JOIN applied_tags ON tags.tag_id=applied_tags.tag_id
-                    JOIN songs ON applied_tags.song_id=songs.song_id
-                WHERE applied_tags.user_id='{}' AND {}
+                SELECT songs.song_id AS song_id 
+                FROM songs
+                WHERE songs.user_id='{}' AND {}
             ) AS matched_songs
             JOIN applied_tags ON matched_songs.song_id=applied_tags.song_id
             JOIN tags ON tags.tag_id=applied_tags.tag_id;
         "#,
         user_id, where_clause
     );
+    println!("{}", sql);
     Ok(sql)
 }
 
 /// Converts the given JSON to a SQL snippet.
 /// Applies Demorgan's Law when `inverted == true` to produce accurate SQL.
-fn decode_query_json_node(curr: &Value, inverted: bool) -> Result<String, String> {
+fn decode_query_json_node(curr: &Value, user_id: &impl Display, inverted: bool) -> Result<String, String> {
     if let Some(tag_id) = curr.as_number() {
+        let exists_clause = format!(
+            r#"
+                EXISTS (
+                    SELECT * FROM applied_tags AS exists_check 
+                    WHERE exists_check.song_id=songs.song_id AND exists_check.user_id = '{}' AND exists_check.tag_id = {}
+                )
+            "#,
+            user_id, tag_id
+        );
         return match inverted {
-            false => Ok(format!("applied_tags.tag_id = {}", tag_id)),
-            true => Ok(format!("applied_tags.tag_id != {}", tag_id)),
+            false => Ok(exists_clause),
+            true => Ok(format!("NOT {}", exists_clause)),
         };
     }
 
     if curr.is_object() {
         if let Some(child) = curr.get("not") {
             // add another layer of inversion before recurring
-            return decode_query_json_node(child, !inverted);
+            return decode_query_json_node(child, user_id, !inverted);
         }
         if let Some(child) = curr.get("and") {
-            return decode_query_arr(child, BoolRelation::And, inverted);
+            return decode_query_arr(child, BoolRelation::And, user_id, inverted);
         }
         if let Some(child) = curr.get("or") {
-            return decode_query_arr(child, BoolRelation::Or, inverted);
+            return decode_query_arr(child, BoolRelation::Or, user_id, inverted);
         }
 
         return Err(format!(
@@ -99,7 +108,7 @@ fn decode_query_json_node(curr: &Value, inverted: bool) -> Result<String, String
     }
 
     Err(format!(
-        "error decoding query: expected string or object, got: {:?}",
+        "error decoding query: expected tag id or object, got: {:?}",
         curr
     ))
 }
@@ -109,6 +118,7 @@ fn decode_query_json_node(curr: &Value, inverted: bool) -> Result<String, String
 fn decode_query_arr(
     arr: &Value,
     mut bool_relation: BoolRelation,
+    user_id: &impl Display,
     inverted: bool,
 ) -> Result<String, String> {
     match arr.as_array() {
@@ -121,7 +131,7 @@ fn decode_query_arr(
 
             // recur on children to get their decoded strs
             for child in arr {
-                match decode_query_json_node(child, inverted) {
+                match decode_query_json_node(child, user_id, inverted) {
                     Err(msg) => return Err(msg),
                     Ok(child_str) => child_strs.push(child_str),
                 }
