@@ -20,7 +20,7 @@ pub async fn run_json_query(
 ) -> Result<Vec<SongTagPair>, String> {
     println!("starting query: {}", json_query);
 
-    let user_id = sea_query::Value::String(Some(user_id.to_string()));
+    let user_id = sea_query::Value::Uuid(Some(user_id));
     let (sql, values) = decode_query(json_query, user_id)?;
 
     SongTagPair::find_by_statement(Statement::from_sql_and_values(
@@ -51,7 +51,7 @@ fn decode_query(
     json_query: &serde_json::Value,
     user_id: sea_query::Value,
 ) -> Result<(String, Vec<sea_query::Value>), String> {
-    let (where_clause, values, _) = decode_query_json_node(json_query, user_id, 2, false)?;
+    let (where_clause, mut child_values, _) = decode_query_json_node(json_query, user_id.clone(), 2, false)?;
 
     // this sql first gets all song ids that match the query,
     // then finds all tags related to those matched songs
@@ -73,6 +73,9 @@ fn decode_query(
         where_clause
     );
     println!("{}", sql);
+    let mut values = vec![user_id];
+    values.append(&mut child_values);
+    println!("{:?}", values);
     Ok((sql, values))
 }
 
