@@ -14,10 +14,10 @@ function hexToRgba(hex: string, alpha: number) {
 /**
  * A pill shaped badge that represents a tag
  *
- * @param tag    - The tag object (id, name, hex color).
- * @param height - Controls all sizing proportionally (font, dot, padding).
- * @param count  - If provided, renders a count badge on the right side.
- * @param onRemove - If provided, renders an × button inside the pill.
+ * @param tag       - The tag object (id, name, hex color).
+ * @param height    - Controls all sizing proportionally (font, dot, padding).
+ * @param count     - If provided, renders a count badge on the right side.
+ * @param onRemove  - If provided, renders an × button inside the pill.
  *                   Called when the user taps it and caller decides what to do.
  */
 export function TagPill({ tag, height, count, onRemove }: { tag: Tag; height: number; count?: number; onRemove?: () => void }) {

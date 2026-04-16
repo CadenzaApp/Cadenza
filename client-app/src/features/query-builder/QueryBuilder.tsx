@@ -23,9 +23,6 @@ const LOGIC_ITEMS: PaletteItem[] = [
   { kind: "logic", operator: "NOT" },
 ];
 
-
-
-
 /**
  * Drag-and-drop query builder
  *
@@ -39,7 +36,6 @@ const LOGIC_ITEMS: PaletteItem[] = [
  *                    or null if the workspace is cleared. Use this to read
  *                    the current query for filtering or persistence.
  */
-
 export function QueryBuilder({ tags, onChange }: {  
   tags: Tag[],
   onChange?: (root: QueryNode | null) => void,

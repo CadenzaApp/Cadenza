@@ -99,7 +99,7 @@ export function LogicNodeBox({ node, onDrop, onRemove, style }: {
         hitSlop={8}
         style={({ pressed }) => pressed && { opacity: 0.4 }}
       >
-        <Text style={styles.logicRemoveText}>x</Text>
+        <Text style={styles.logicRemoveText}>×</Text>
       </Pressable>
     </View>
   );
