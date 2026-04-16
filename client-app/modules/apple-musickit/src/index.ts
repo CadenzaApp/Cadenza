@@ -1,14 +1,18 @@
 // TODO:  instead of hard-coding 200px song artwork requests,
 //        expose a way for clients to request artwork at different sizes
 
-import { requireNativeModule, EventSubscription } from "expo-modules-core";
-import { useSyncExternalStore } from "react"; // <-- ADD THIS
-import type {
-    AuthResult,
-    MusicKitOptions,
-    PlaybackQueueType,
-    SearchResult,
-    LibraryResult,
+import {
+    requireOptionalNativeModule,
+    EventSubscription,
+} from "expo-modules-core";
+import { useSyncExternalStore } from "react";
+import {
+    AuthStatus,
+    type AuthResult,
+    type MusicKitOptions,
+    type PlaybackQueueType,
+    type SearchResult,
+    type LibraryResult,
 } from "./AppleMusicKit.types";
 
 interface AppleMusicKitNativeModule {
@@ -37,7 +41,8 @@ interface AppleMusicKitNativeModule {
     removeListeners(count: number): void;
 }
 
-const native = requireNativeModule<AppleMusicKitNativeModule>("AppleMusicKit");
+const native =
+    requireOptionalNativeModule<AppleMusicKitNativeModule>("AppleMusicKit");
 
 let isPlaying = false;
 const listeners = new Set<() => void>();
@@ -46,16 +51,20 @@ function notifyListeners() {
     listeners.forEach((listener) => listener());
 }
 
-// Listen to native OS changes
-native.addListener("onPlaybackStateChange", (event: { state: string }) => {
-    const newState = event.state === "playing";
-    if (isPlaying !== newState) {
-        isPlaying = newState;
-        notifyListeners();
-    }
-});
+// Listen to native OS changes. Things can happen that might start/stop playback
+if (native) {
+    native.addListener("onPlaybackStateChange", (event: { state: string }) => {
+        const newState = event.state === "playing";
+        if (isPlaying !== newState) {
+            isPlaying = newState;
+            notifyListeners();
+        }
+    });
+}
 
-// --- EXPORTED HOOK ---
+/**
+ * @returns a react hook for the isPlaying media playback state
+ */
 export function isPlayingState() {
     return useSyncExternalStore(
         (callback) => {
@@ -69,12 +78,23 @@ export function isPlayingState() {
 }
 
 export const Auth = {
-    authorize: async (developerToken: string): Promise<AuthResult> =>
-        native.authorize(developerToken),
+    authorize: async (developerToken: string): Promise<AuthResult> => {
+        if (!native) {
+            console.warn("Apple Music API is not available in Expo Go.");
+            return {
+                status: AuthStatus.Unknown,
+                error: "Apple Music API is not available in Expo Go. Test on an android emulator or physical device (physical device required for audio playback.)",
+            };
+        }
+        return native.authorize(developerToken);
+    },
     setTokens: async (
         developerToken: string,
         userToken?: string | null,
-    ): Promise<void> => native.setTokens(developerToken, userToken ?? null),
+    ): Promise<void> => {
+        if (!native) return;
+        return native.setTokens(developerToken, userToken ?? null);
+    },
 };
 
 export const Player = {
@@ -82,6 +102,7 @@ export const Player = {
      * Plays playback for the currently queued track.
      */
     play: async () => {
+        if (!native) return;
         isPlaying = true;
         notifyListeners();
         await native.play();
@@ -91,6 +112,7 @@ export const Player = {
      * Pauses playback for the currently queued track.
      */
     pause: async () => {
+        if (!native) return;
         isPlaying = false;
         notifyListeners();
         await native.pause();
@@ -101,6 +123,7 @@ export const Player = {
      * @returns `true` if playback was switched to playing, `false` otherwise.
      */
     togglePlayerState: async (): Promise<boolean> => {
+        if (!native) return false;
         isPlaying = !isPlaying;
         notifyListeners();
         await native.togglePlayerState();
@@ -116,24 +139,32 @@ export const Player = {
     /**
      * Ends the currently playing track and plays the next one in the queue.
      */
-    skipToNextEntry: () => native.skipToNextEntry(),
+    skipToNextEntry: async () => {
+        if (native) await native.skipToNextEntry();
+    },
 
     /**
      * Ends the currently playing track and plays the previous one in the queue.
      */
-    skipToPreviousEntry: () => native.skipToPreviousEntry(),
+    skipToPreviousEntry: async () => {
+        if (native) await native.skipToPreviousEntry();
+    },
 
     /**
      * Restarts the currently playing track from the beginning.
      */
-    restartCurrentEntry: () => native.restartCurrentEntry(),
+    restartCurrentEntry: async () => {
+        if (native) await native.restartCurrentEntry();
+    },
 
     /**
      * Seeks to a specific time in the currently playing track.
      *
      * @param time The time to seek to, in seconds.
      */
-    seekToTime: (time: number) => native.seekToTime(time),
+    seekToTime: async (time: number) => {
+        if (native) await native.seekToTime(time);
+    },
 
     /**
      * Adds a listener for playback state changes.
@@ -146,6 +177,9 @@ export const Player = {
         eventName: "onPlaybackStateChange",
         listener: (event: { state: string }) => void,
     ): EventSubscription => {
+        if (!native) {
+            return { remove: () => {} } as EventSubscription;
+        }
         return native.addListener(eventName, listener);
     },
 };
@@ -158,11 +192,12 @@ export const MusicKit = {
      * @param types The types of items to search for, defaults to ["songs", "albums"].
      * @returns A promise that resolves to the search results.
      */
-    catalogSearch: (
+    catalogSearch: async (
         query: string,
         // TODO: Refactor to take types as enum variants instead of strings
         types: string[] = ["songs", "albums"],
     ): Promise<SearchResult> => {
+        if (!native) return { songs: [], albums: [] };
         return native.catalogSearch(query, types);
     },
 
@@ -171,7 +206,8 @@ export const MusicKit = {
      *
      * @returns A promise that resolves to the library results.
      */
-    getTracksFromLibrary: (): Promise<LibraryResult> => {
+    getTracksFromLibrary: async (): Promise<LibraryResult> => {
+        if (!native) return { items: [] };
         return native.getTracksFromLibrary();
     },
 
@@ -181,7 +217,10 @@ export const MusicKit = {
      * @param options
      * @returns A promise that resolves to the library results.
      */
-    getUserPlaylists: (options?: MusicKitOptions): Promise<LibraryResult> => {
+    getUserPlaylists: async (
+        options?: MusicKitOptions,
+    ): Promise<LibraryResult> => {
+        if (!native) return { items: [] };
         return native.getUserPlaylists(options || {});
     },
 
@@ -191,7 +230,10 @@ export const MusicKit = {
      * @param options
      * @returns A promise that resolves to the library results.
      */
-    getLibrarySongs: (options?: MusicKitOptions): Promise<LibraryResult> => {
+    getLibrarySongs: async (
+        options?: MusicKitOptions,
+    ): Promise<LibraryResult> => {
+        if (!native) return { items: [] };
         return native.getLibrarySongs(options || {});
     },
 
@@ -201,7 +243,8 @@ export const MusicKit = {
      * @param playlistId
      * @returns A promise that resolves to the library results.
      */
-    getPlaylistSongs: (playlistId: string): Promise<LibraryResult> => {
+    getPlaylistSongs: async (playlistId: string): Promise<LibraryResult> => {
+        if (!native) return { items: [] };
         return native.getPlaylistSongs(playlistId);
     },
 
@@ -212,7 +255,14 @@ export const MusicKit = {
      * @param type
      * @returns A promise that resolves when the queue is set.
      */
-    setPlaybackQueue: (id: string, type: PlaybackQueueType): Promise<void> => {
+    setPlaybackQueue: async (
+        id: string,
+        type: PlaybackQueueType,
+    ): Promise<void> => {
+        if (!native) {
+            console.warn("Playback is not supported in Expo Go.");
+            return;
+        }
         // Native iOS auto-plays when a queue is set, so we optimistically update here too
         isPlaying = true;
         notifyListeners();

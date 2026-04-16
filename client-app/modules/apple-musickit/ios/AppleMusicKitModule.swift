@@ -4,7 +4,6 @@ import StoreKit
 
 public class AppleMusicKitModule: Module {
     public func definition() -> ModuleDefinition {
-        // Matches the requireNativeModule('AppleMusicKit') call
         Name("AppleMusicKit")
 
         Events("onPlaybackStateChange")
