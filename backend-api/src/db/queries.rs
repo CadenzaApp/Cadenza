@@ -16,7 +16,6 @@ pub async fn run_json_query(
     json_query: &serde_json::Value,
     user_id: Uuid,
 ) -> Result<HashMap<i64, HashSet<i64>>, String> {
-    println!("starting query: {}", json_query);
 
     let user_id = sea_query::Value::Uuid(Some(user_id));
     let (sql, values) = decode_query(json_query, user_id)?;
@@ -88,10 +87,8 @@ fn decode_query(
         "#,
         where_clause
     );
-    println!("{}", sql);
     let mut values = vec![user_id];
     values.append(&mut child_values);
-    println!("{:?}", values);
     Ok((sql, values))
 }
 

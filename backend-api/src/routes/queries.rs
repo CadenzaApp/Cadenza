@@ -29,22 +29,25 @@ async fn run_json_query_handler(
     json_query: Json<Value>,
 ) -> axum::response::Result<String, String> {
     let matched_songs_and_tags = db::queries::run_json_query(&db, &json_query, claims.user_id).await?;
-    let mut songs: Vec<i64> = matched_songs_and_tags.keys().copied().collect();
 
     let mut mentioned_tags = HashSet::new();
     get_mentioned_tags(&json_query, &mut mentioned_tags);
 
     // song id -> its relevancy score (# of mentioned tags it has)
-    let mut relevancies: HashMap<i64, usize> = HashMap::new();
-    for song in &songs {
-        match relevancies.get_mut(song) {
-            Some(relevance) => { *relevance += 1; },
-            None => { relevancies.insert(*song, 1); } 
+    let mut relevancies: HashMap<i64, i32> = HashMap::new();
+    for (song, tags) in &matched_songs_and_tags {
+        let mut score = 0;
+        for tag in tags {
+            if mentioned_tags.contains(tag) {
+                score += 1;
+            }
         }
+        relevancies.insert(*song, score);
     }
 
     // order songs by relevancy
-    songs.sort_by_key(|song| relevancies.get(song).unwrap());
+    let mut songs: Vec<i64> = matched_songs_and_tags.keys().copied().collect();
+    songs.sort_by_key(|song| -relevancies.get(song).unwrap());
 
     // construct json response
     let mut response = json!([]);
