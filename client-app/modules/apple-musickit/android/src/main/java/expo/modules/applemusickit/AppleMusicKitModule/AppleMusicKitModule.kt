@@ -175,6 +175,8 @@ class AppleMusicKitModule : Module() {
         }
 
         AsyncFunction("play") { promise: Promise ->
+            // Handler(Looper.GetMainLooper()).post ensures the following action happens on the main (UI)
+            // which is absolutely crucial to ensure audio playback w
             Handler(Looper.getMainLooper()).post {
                 getOrCreatePlayerController()?.play()
                 promise.resolve(null)

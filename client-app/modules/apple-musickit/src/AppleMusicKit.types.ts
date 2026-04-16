@@ -1,35 +1,40 @@
-export type AuthStatus =
-  | 'authorized'
-  | 'denied'
-  | 'restricted'
-  | 'notDetermined'
-  | 'unknown';
-
-export interface AuthResult {
-  status: AuthStatus;
-  userToken?: string;
-  error?: string;
+export enum AuthStatus {
+    Authorized = "authorized",
+    Denied = "denied",
+    Restricted = "restricted",
+    NotDetermined = "notDetermined",
+    Unknown = "unknown",
 }
 
-// --- NEW MUSICKIT TYPES ---
+export interface AuthResult {
+    status: AuthStatus;
+    userToken?: string;
+    error?: string;
+}
 
-export type PlaybackQueueType = 'song' | 'album' | 'playlist' | 'station';
+export enum PlaybackQueueType {
+    Song = "song",
+    Album = "album",
+    Playlist = "playlist",
+    Station = "station",
+}
 
 export interface MusicKitOptions {
-  limit?: number;
+    limit?: number;
 }
 
 export interface MusicItem {
-  id: string;
-  title: string;
-  artistName?: string;
+    id: string;
+    title: string;
+    artistName?: string;
+    artworkUrl?: string;
 }
 
 export interface SearchResult {
-  songs?: MusicItem[];
-  albums?: MusicItem[];
+    songs?: MusicItem[];
+    albums?: MusicItem[];
 }
 
 export interface LibraryResult {
-  items: MusicItem[];
+    items: MusicItem[];
 }

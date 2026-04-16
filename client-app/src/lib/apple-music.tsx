@@ -35,7 +35,7 @@ export function AppleMusicProvider({ children }: { children: ReactNode }) {
     const [authResult, setAuthResult] = useState<AuthResult | null>(null);
     const [isInitializing, setIsInitializing] = useState(true);
 
-    // 1. Initialize tokens on app load (Single Source of Truth)
+    // Initialize tokens on app load
     useEffect(() => {
         async function initAppleMusic() {
             try {
@@ -45,7 +45,7 @@ export function AppleMusicProvider({ children }: { children: ReactNode }) {
                     setAuthResult(savedAuth);
                     await Auth.setTokens(DEVELOPER_TOKEN, savedAuth.userToken);
                 } else {
-                    await Auth.setTokens(DEVELOPER_TOKEN);
+                    (await Auth.setTokens(DEVELOPER_TOKEN), null);
                 }
             } catch (e) {
                 console.error("Failed to restore Apple Music tokens:", e);
@@ -53,10 +53,14 @@ export function AppleMusicProvider({ children }: { children: ReactNode }) {
                 setIsInitializing(false);
             }
         }
+        // required to make this inline function to handle async stuff. Unless there's a better way, idk.
         initAppleMusic();
     }, []);
 
-    // 2. Connect logic
+    /**
+     * Prompts the user to authorize Apple Music and stores the tokens in AsyncStorage,
+     * allowing them to be restored in future sessions.
+     */
     async function connect() {
         try {
             const result = await Auth.authorize(DEVELOPER_TOKEN);
@@ -76,12 +80,14 @@ export function AppleMusicProvider({ children }: { children: ReactNode }) {
         }
     }
 
-    // 3. Disconnect logic
+    /**
+     * Signs the user out of Apple Music and invalidates the tokens in AsyncStorage.
+     */
     async function disconnect() {
         setAuthResult(null);
         await AsyncStorage.removeItem("appleMusicAuth");
 
-        // Explicitly pass null to overwrite the userToken in the Android Native module
+        // Explicitly pass null to overwrite the userToken in the native module
         await Auth.setTokens(DEVELOPER_TOKEN, null);
     }
 

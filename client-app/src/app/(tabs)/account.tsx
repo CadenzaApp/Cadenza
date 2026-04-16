@@ -1,4 +1,4 @@
-import { type AuthResult } from "@apple-musickit";
+import { AuthStatus, type AuthResult } from "@apple-musickit";
 import { useState } from "react";
 import { Alert, View } from "react-native";
 import { Button } from "@/components/ui/button";
@@ -20,7 +20,7 @@ export default function AccountScreen() {
             if (!result) return;
 
             switch (result.status) {
-                case "authorized":
+                case AuthStatus.Authorized:
                     if (result.userToken) {
                         Alert.alert(
                             "Connected",
@@ -29,36 +29,29 @@ export default function AccountScreen() {
                     } else {
                         Alert.alert(
                             "Authorized",
-                            result.error
-                                ? `Access granted, but the user token could not be retrieved: ${result.error}`
-                                : "Access granted, but no user token was returned.",
+                            result.error ?? "No user token was returned.",
                         );
                     }
                     break;
-                case "denied":
+                case AuthStatus.Denied:
                     Alert.alert(
                         "Access Denied",
-                        "Apple Music access was denied. You can enable it in Settings → Privacy → Media & Apple Music.",
+                        "Apple Music access was denied.",
                     );
                     break;
-                case "restricted":
+                case AuthStatus.Restricted:
                     Alert.alert(
                         "Access Restricted",
-                        "Apple Music access is restricted on this device.",
+                        "Apple Music access is restricted.",
                     );
                     break;
-                case "failed":
+                case AuthStatus.Unknown:
+                case AuthStatus.NotDetermined:
                     Alert.alert(
                         "Sign-in Failed",
-                        result.error ??
-                            "Apple Music sign-in failed. Please try again.",
+                        result.error ?? "Status unknown.",
                     );
                     break;
-                default:
-                    Alert.alert(
-                        "Unavailable",
-                        "Apple Music authorization returned an unknown status.",
-                    );
             }
         } catch (error) {
             Alert.alert(
@@ -93,15 +86,15 @@ export default function AccountScreen() {
 
     function statusLabel(result: AuthResult): string {
         switch (result.status) {
-            case "authorized":
+            case AuthStatus.Authorized:
                 return result.userToken
                     ? "Connected ✓"
                     : "Authorized (no token)";
-            case "denied":
+            case AuthStatus.Denied:
                 return "Access Denied";
-            case "restricted":
+            case AuthStatus.Restricted:
                 return "Restricted";
-            case "notDetermined":
+            case AuthStatus.NotDetermined:
                 return "Not Determined";
             default:
                 return "Unknown";
@@ -110,11 +103,11 @@ export default function AccountScreen() {
 
     function statusColorClass(result: AuthResult): string {
         switch (result.status) {
-            case "authorized":
+            case AuthStatus.Authorized:
                 return result.userToken ? "text-green-500" : "text-yellow-500";
-            case "denied":
+            case AuthStatus.Denied:
                 return "text-destructive";
-            case "restricted":
+            case AuthStatus.Restricted:
                 return "text-orange-500";
             default:
                 return "text-muted-foreground";
@@ -154,7 +147,7 @@ export default function AccountScreen() {
                                 size="sm"
                             >
                                 <Text className="text-destructive">
-                                    {authResult.status === "authorized"
+                                    {authResult.status === AuthStatus.Authorized
                                         ? "Sign Out"
                                         : "Clear Status"}
                                 </Text>

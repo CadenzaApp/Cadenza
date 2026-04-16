@@ -1,6 +1,11 @@
 import { useState } from "react";
 import { View, FlatList, ActivityIndicator, Alert } from "react-native";
-import { MusicKit, Player } from "@apple-musickit";
+import {
+    MusicKit,
+    PlaybackQueueType,
+    Player,
+    isPlayingState,
+} from "@apple-musickit";
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { Card, CardContent } from "@/components/ui/card";
@@ -10,10 +15,8 @@ export default function ExploreScreen() {
     const [tracks, setTracks] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
-
-    // Playback UI states
     const [activeTrackId, setActiveTrackId] = useState<string | null>(null);
-    const [isPlaying, setIsPlaying] = useState(false);
+    const isPlaying = isPlayingState();
 
     async function handleFetchLibrary() {
         setIsLoading(true);
@@ -35,22 +38,14 @@ export default function ExploreScreen() {
     async function handleTogglePlayback(trackId: string) {
         try {
             if (activeTrackId === trackId) {
-                // If clicking the track that is already active, just toggle pause/play
-                if (isPlaying) {
-                    await Player.pause();
-                    setIsPlaying(false);
-                } else {
-                    await Player.play();
-                    setIsPlaying(true);
-                }
+                await Player.togglePlayerState();
             } else {
-                // If clicking a new track, load it into the queue.
-                // Because native prepare() uses playWhenReady = true, we DO NOT call Player.play() here.
-                // It will automatically begin playing once the native stream buffers!
-                await MusicKit.setPlaybackQueue(trackId, "song");
-
+                // Use the enum instead of the raw string
+                await MusicKit.setPlaybackQueue(
+                    trackId,
+                    PlaybackQueueType.Song,
+                );
                 setActiveTrackId(trackId);
-                setIsPlaying(true);
             }
         } catch (e) {
             console.error("Failed to toggle playback:", e);
@@ -59,7 +54,6 @@ export default function ExploreScreen() {
     }
 
     const renderTrackItem = ({ item }: { item: any }) => {
-        // Determine if THIS specific row is the one currently playing
         const isThisTrackPlaying = activeTrackId === item.id && isPlaying;
 
         return (
@@ -82,7 +76,7 @@ export default function ExploreScreen() {
                     <Button
                         size="sm"
                         onPress={() => handleTogglePlayback(item.id)}
-                        variant={isThisTrackPlaying ? "secondary" : "default"} // Optional: change visual style if playing
+                        variant={isThisTrackPlaying ? "secondary" : "default"}
                     >
                         <Text>{isThisTrackPlaying ? "Pause" : "Play"}</Text>
                     </Button>

@@ -66,6 +66,7 @@ public class AppleMusicKitModule: Module {
             ApplicationMusicPlayer.shared.pause()
         }
 
+
         AsyncFunction("togglePlayerState") { () async throws -> Void in
             guard #available(iOS 15.0, *) else { return }
             if ApplicationMusicPlayer.shared.state.playbackStatus == .playing {
