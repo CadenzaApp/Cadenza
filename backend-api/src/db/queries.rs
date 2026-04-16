@@ -1,31 +1,50 @@
-use std::fmt::Display;
+use std::collections::{HashMap, HashSet};
 
+use sea_orm::prelude::Uuid;
 use sea_orm::{DatabaseConnection, FromQueryResult};
 use sea_orm::{DbBackend, Statement};
-use serde_json::Value;
 
 #[derive(Debug, FromQueryResult)]
-pub struct SongTagPair {
-    pub song_id: i64,
-    pub tag_id: i64,
-    pub tag_name: String,
+struct SongTagPair {
+    song_id: i64,
+    tag_id: i64,
 }
 
-/// Returns many matching `SongTagPair`
+/// Returns hashmap of (matched song id) -> (its tag ids)
 pub async fn run_json_query(
     db: &DatabaseConnection,
-    json_query: &Value,
-    user_id: impl Display,
-) -> Result<Vec<SongTagPair>, String> {
-    println!("starting query: {}", json_query);
+    json_query: &serde_json::Value,
+    user_id: Uuid,
+) -> Result<HashMap<i64, HashSet<i64>>, String> {
 
-    SongTagPair::find_by_statement(Statement::from_string(
+    let user_id = sea_query::Value::Uuid(Some(user_id));
+    let (sql, values) = decode_query(json_query, user_id)?;
+
+    let song_tag_pairs = SongTagPair::find_by_statement(Statement::from_sql_and_values(
         DbBackend::Postgres,
-        decode_query(json_query, &user_id)?,
+        sql,
+        values,
     ))
     .all(db)
     .await
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?;
+
+    let mut res: HashMap<i64, HashSet<i64>> = HashMap::new();
+
+    for row in song_tag_pairs {
+        match res.get_mut(&row.song_id) {
+            Some(tags) => {
+                tags.insert(row.tag_id);
+            },
+            None => {
+                let mut tags = HashSet::new();
+                tags.insert(row.tag_id);
+                res.insert(row.song_id, tags);
+            }
+        }
+    }
+
+    Ok(res)
 }
 
 enum BoolRelation {
@@ -41,9 +60,13 @@ impl BoolRelation {
     }
 }
 
-/// Converts the given JSON to a full SQL statement.
-fn decode_query(json_query: &Value, user_id: &impl Display) -> Result<String, String> {
-    let where_clause = decode_query_json_node(json_query, user_id, false)?;
+/// Converts the given JSON to a full SQL statement and its values
+fn decode_query(
+    json_query: &serde_json::Value,
+    user_id: sea_query::Value,
+) -> Result<(String, Vec<sea_query::Value>), String> {
+    let (where_clause, mut child_values, _) =
+        decode_query_json_node(json_query, user_id.clone(), 2, false)?;
 
     // this sql first gets all song ids that match the query,
     // then finds all tags related to those matched songs
@@ -57,50 +80,70 @@ fn decode_query(json_query: &Value, user_id: &impl Display) -> Result<String, St
             (
                 SELECT songs.song_id AS song_id 
                 FROM songs
-                WHERE songs.user_id='{}' AND {}
+                WHERE songs.user_id=$1 AND {}
             ) AS matched_songs
             JOIN applied_tags ON matched_songs.song_id=applied_tags.song_id
             JOIN tags ON tags.tag_id=applied_tags.tag_id;
         "#,
-        user_id, where_clause
+        where_clause
     );
-    println!("{}", sql);
-    Ok(sql)
+    let mut values = vec![user_id];
+    values.append(&mut child_values);
+    Ok((sql, values))
 }
 
-/// Converts the given JSON to a SQL snippet.
+/// Converts the given JSON to a SQL snippet and its values.
+/// Returns `(SQL snippet, values, next param_counter)`
 /// Applies Demorgan's Law when `inverted == true` to produce accurate SQL.
 fn decode_query_json_node(
-    curr: &Value,
-    user_id: &impl Display,
+    curr: &serde_json::Value,
+    user_id: sea_query::Value,
+    param_counter: usize,
     inverted: bool,
-) -> Result<String, String> {
+) -> Result<(String, Vec<sea_query::Value>, usize), String> {
     if let Some(tag_id) = curr.as_number() {
-        let exists_clause = format!(
+        let mut exists_clause = format!(
             r#"
                 EXISTS (
                     SELECT * FROM applied_tags AS exists_check 
-                    WHERE exists_check.song_id=songs.song_id AND exists_check.user_id = '{}' AND exists_check.tag_id = {}
+                    WHERE exists_check.song_id=songs.song_id AND exists_check.user_id = ${} AND exists_check.tag_id = ${}
                 )
             "#,
-            user_id, tag_id
+            param_counter,
+            param_counter + 1
         );
-        return match inverted {
-            false => Ok(exists_clause),
-            true => Ok(format!("NOT {}", exists_clause)),
-        };
+
+        if inverted {
+            exists_clause = format!("NOT {}", exists_clause);
+        }
+
+        let vals: Vec<sea_query::Value> = vec![user_id, sea_query::Value::BigInt(tag_id.as_i64())];
+
+        return Ok((exists_clause, vals, param_counter + 2));
     }
 
     if curr.is_object() {
         if let Some(child) = curr.get("not") {
             // add another layer of inversion before recurring
-            return decode_query_json_node(child, user_id, !inverted);
+            return decode_query_json_node(child, user_id.clone(), param_counter, !inverted);
         }
         if let Some(child) = curr.get("and") {
-            return decode_query_arr(child, BoolRelation::And, user_id, inverted);
+            return decode_query_arr(
+                child,
+                BoolRelation::And,
+                user_id.clone(),
+                param_counter,
+                inverted,
+            );
         }
         if let Some(child) = curr.get("or") {
-            return decode_query_arr(child, BoolRelation::Or, user_id, inverted);
+            return decode_query_arr(
+                child,
+                BoolRelation::Or,
+                user_id.clone(),
+                param_counter,
+                inverted,
+            );
         }
 
         return Err(format!(
@@ -116,41 +159,49 @@ fn decode_query_json_node(
 }
 
 /// Converts the given JSON arr to a SQL snippet, joining child SQL snippets with AND/OR depending on `bool_relation`.
+/// Returns `(SQL snippet, values, next param_counter)`
 /// Applies Demorgan's Law when `inverted == true` to produce accurate SQL.
 fn decode_query_arr(
-    arr: &Value,
+    arr: &serde_json::Value,
     mut bool_relation: BoolRelation,
-    user_id: &impl Display,
+    user_id: sea_query::Value,
+    mut param_counter: usize,
     inverted: bool,
-) -> Result<String, String> {
+) -> Result<(String, Vec<sea_query::Value>, usize), String> {
     match arr.as_array() {
         None => Err(format!(
             "error decoding query: expected array, got: {:?}",
             arr
         )),
         Some(arr) => {
-            let mut child_strs = Vec::with_capacity(arr.len());
+            let mut child_snippets = Vec::with_capacity(arr.len());
+            let mut child_values = Vec::with_capacity(arr.len() * 2);
 
-            // recur on children to get their decoded strs
+            // recur on children to get their sql snippets
             for child in arr {
-                match decode_query_json_node(child, user_id, inverted) {
-                    Err(msg) => return Err(msg),
-                    Ok(child_str) => child_strs.push(child_str),
-                }
+                let (sql, mut values, next_param_counter) =
+                    decode_query_json_node(child, user_id.clone(), param_counter, inverted)?;
+                child_snippets.push(sql);
+                child_values.append(&mut values);
+                param_counter = next_param_counter;
             }
 
             // join child strs and surround with parentheses before returning
             if inverted {
                 bool_relation = bool_relation.inverted()
             }
-            let joined_child_strs = child_strs
+            let joined_child_snippets = child_snippets
                 .join(match bool_relation {
                     BoolRelation::And => " AND ",
                     BoolRelation::Or => " OR ",
                 })
                 .to_string();
 
-            Ok(format!("({})", joined_child_strs))
+            Ok((
+                format!("({})", joined_child_snippets),
+                child_values,
+                param_counter,
+            ))
         }
     }
 }
