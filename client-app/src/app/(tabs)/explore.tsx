@@ -1,10 +1,10 @@
 import { useState } from "react";
-import { View, FlatList, ActivityIndicator, Alert } from "react-native";
+import { View, FlatList, ActivityIndicator, Alert, Image } from "react-native";
 import {
     MusicKit,
-    PlaybackQueueType,
     Player,
     isPlayingState,
+    PlaybackQueueType,
 } from "@apple-musickit";
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
@@ -40,7 +40,6 @@ export default function ExploreScreen() {
             if (activeTrackId === trackId) {
                 await Player.togglePlayerState();
             } else {
-                // Use the enum instead of the raw string
                 await MusicKit.setPlaybackQueue(
                     trackId,
                     PlaybackQueueType.Song,
@@ -57,22 +56,38 @@ export default function ExploreScreen() {
         const isThisTrackPlaying = activeTrackId === item.id && isPlaying;
 
         return (
-            <Card className="mb-3">
-                <CardContent className="p-4 flex-row justify-between items-center">
-                    <View className="flex-1 mr-4">
-                        <Text
-                            className="text-base font-bold text-foreground"
-                            numberOfLines={1}
-                        >
-                            {item.title}
-                        </Text>
-                        <Text
-                            className="text-sm text-muted-foreground mt-1"
-                            numberOfLines={1}
-                        >
-                            {item.artistName}
-                        </Text>
+            <Card className="mb-3 py-2">
+                <CardContent className="flex-row justify-between items-center py-0">
+                    <View className="flex-1 mr-4 flex-row items-center">
+                        {item.artworkUrl ? (
+                            <Image
+                                source={{ uri: item.artworkUrl }}
+                                className="w-12 h-12 rounded bg-muted mr-3"
+                            />
+                        ) : (
+                            <View className="w-12 h-12 rounded bg-muted mr-3 items-center justify-center">
+                                <Text className="text-xs text-muted-foreground">
+                                    No Art
+                                </Text>
+                            </View>
+                        )}
+
+                        <View className="flex-1">
+                            <Text
+                                className="text-base font-bold text-foreground"
+                                numberOfLines={1}
+                            >
+                                {item.title}
+                            </Text>
+                            <Text
+                                className="text-sm text-muted-foreground mt-1"
+                                numberOfLines={1}
+                            >
+                                {item.artistName}
+                            </Text>
+                        </View>
                     </View>
+
                     <Button
                         size="sm"
                         onPress={() => handleTogglePlayback(item.id)}

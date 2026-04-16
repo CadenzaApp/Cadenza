@@ -328,10 +328,17 @@ class AppleMusicKitModule : Module() {
         val playableId = catalogId ?: (item["id"]?.toString() ?: "")
         val title = attributes?.get("name") ?: "Unknown Title"
 
+        // Extract and format the artwork URL
+        val artworkObj = attributes?.get("artwork") as? Map<*, *>
+        var artworkUrl = artworkObj?.get("url")?.toString()
+        // Replace Apple's dynamic width/height placeholders with 200px
+        artworkUrl = artworkUrl?.replace("{w}", "200")?.replace("{h}", "200")
+
         return mapOf(
             "id" to playableId,
             "title" to title,
-            "artistName" to (attributes?.get("artistName") ?: "Unknown Artist")
+            "artistName" to (attributes?.get("artistName") ?: "Unknown Artist"),
+            "artworkUrl" to (artworkUrl ?: "") // Add to output
         )
     }
 

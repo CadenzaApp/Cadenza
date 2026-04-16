@@ -1,3 +1,6 @@
+// TODO:  instead of hard-coding 200px song artwork requests,
+//        expose a way for clients to request artwork at different sizes
+
 import { requireNativeModule, EventSubscription } from "expo-modules-core";
 import { useSyncExternalStore } from "react"; // <-- ADD THIS
 import type {

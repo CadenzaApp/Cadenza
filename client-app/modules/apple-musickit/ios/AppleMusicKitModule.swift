@@ -110,10 +110,10 @@ public class AppleMusicKitModule: Module {
 
             // Format to a JSON-friendly dictionary mapping
             let songs = response.songs.map {
-                ["id": $0.id.rawValue, "title": $0.title, "artistName": $0.artistName]
+                ["id": $0.id.rawValue, "title": $0.title, "artistName": $0.artistName, "artworkUrl": $0.artwork?.url(width: 200, height: 200)?.absoluteString ?? ""]
             }
             let albums = response.albums.map {
-                ["id": $0.id.rawValue, "title": $0.title, "artistName": $0.artistName]
+                ["id": $0.id.rawValue, "title": $0.title, "artistName": $0.artistName, "artworkUrl": $0.artwork?.url(width: 200, height: 200)?.absoluteString ?? ""]
             }
 
             return [
@@ -132,7 +132,7 @@ public class AppleMusicKitModule: Module {
             request.limit = 50  // Default mapping for recently played/library
             let response = try await request.response()
             let items = response.items.map {
-                ["id": $0.id.rawValue, "title": $0.title, "artistName": $0.artistName]
+                ["id": $0.id.rawValue, "title": $0.title, "artistName": $0.artistName, "artworkUrl": $0.artwork?.url(width: 200, height: 200)?.absoluteString ?? ""]
             }
             return ["items": items]
         }
@@ -148,7 +148,7 @@ public class AppleMusicKitModule: Module {
             if let limit = options["limit"] { request.limit = limit }
             let response = try await request.response()
             let items = response.items.map {
-                ["id": $0.id.rawValue, "title": $0.name, "artistName": $0.curatorName]
+                ["id": $0.id.rawValue, "title": $0.name, "artistName": $0.curatorName, "artworkUrl": $0.artwork?.url(width: 200, height: 200)?.absoluteString ?? ""]
             }
             return ["items": items]
         }
@@ -163,7 +163,7 @@ public class AppleMusicKitModule: Module {
             if let limit = options["limit"] { request.limit = limit }
             let response = try await request.response()
             let items = response.items.map {
-                ["id": $0.id.rawValue, "title": $0.title, "artistName": $0.artistName]
+                ["id": $0.id.rawValue, "title": $0.title, "artistName": $0.artistName, "artworkUrl": $0.artwork?.url(width: 200, height: 200)?.absoluteString ?? ""]
             }
             return ["items": items]
         }
