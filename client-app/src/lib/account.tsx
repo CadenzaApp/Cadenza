@@ -59,6 +59,7 @@ export default function AccountProvider({ children }: Props) {
         }
         console.log("no session");
         return false;
+
     }
 
     async function signIn(email: string, password: string) {

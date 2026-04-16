@@ -3,7 +3,8 @@ import { Redirect } from "expo-router";
 import { useState } from "react";
 import { Text } from "@/components/ui/text";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { TagPill, type Tag } from "@/components/custom/tag-pill";
+import { TagPill } from "@/components/custom/tag-pill";
+import { Tag } from "@/types/tag-types"
 import {
   FlatList,
   Pressable,
