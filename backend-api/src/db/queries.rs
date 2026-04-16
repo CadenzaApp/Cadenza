@@ -1,36 +1,51 @@
-use std::fmt::Display;
+use std::collections::{HashMap, HashSet};
 
 use sea_orm::prelude::Uuid;
 use sea_orm::{DatabaseConnection, FromQueryResult};
 use sea_orm::{DbBackend, Statement};
 
-use crate::models::tag;
-
 #[derive(Debug, FromQueryResult)]
-pub struct SongTagPair {
-    pub song_id: i64,
-    pub tag_id: i64,
+struct SongTagPair {
+    song_id: i64,
+    tag_id: i64,
 }
 
-/// Returns many matching `SongTagPair`
+/// Returns hashmap of (matched song id) -> (its tag ids)
 pub async fn run_json_query(
     db: &DatabaseConnection,
     json_query: &serde_json::Value,
     user_id: Uuid,
-) -> Result<Vec<SongTagPair>, String> {
+) -> Result<HashMap<i64, HashSet<i64>>, String> {
     println!("starting query: {}", json_query);
 
     let user_id = sea_query::Value::Uuid(Some(user_id));
     let (sql, values) = decode_query(json_query, user_id)?;
 
-    SongTagPair::find_by_statement(Statement::from_sql_and_values(
+    let song_tag_pairs = SongTagPair::find_by_statement(Statement::from_sql_and_values(
         DbBackend::Postgres,
         sql,
         values,
     ))
     .all(db)
     .await
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?;
+
+    let mut res: HashMap<i64, HashSet<i64>> = HashMap::new();
+
+    for row in song_tag_pairs {
+        match res.get_mut(&row.song_id) {
+            Some(tags) => {
+                tags.insert(row.tag_id);
+            },
+            None => {
+                let mut tags = HashSet::new();
+                tags.insert(row.tag_id);
+                res.insert(row.song_id, tags);
+            }
+        }
+    }
+
+    Ok(res)
 }
 
 enum BoolRelation {
@@ -51,7 +66,8 @@ fn decode_query(
     json_query: &serde_json::Value,
     user_id: sea_query::Value,
 ) -> Result<(String, Vec<sea_query::Value>), String> {
-    let (where_clause, mut child_values, _) = decode_query_json_node(json_query, user_id.clone(), 2, false)?;
+    let (where_clause, mut child_values, _) =
+        decode_query_json_node(json_query, user_id.clone(), 2, false)?;
 
     // this sql first gets all song ids that match the query,
     // then finds all tags related to those matched songs
