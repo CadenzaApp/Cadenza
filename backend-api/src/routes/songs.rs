@@ -10,7 +10,7 @@ pub struct SongIdPayload {
     song_id: usize
 }
 
-pub async fn add_song_handler(
+async fn add_song_handler(
     State(db): State<DatabaseConnection>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
     payload: Json<SongIdPayload>
@@ -18,7 +18,7 @@ pub async fn add_song_handler(
     let _ = db::songs::add_song_to_library(db, claims.user_id, payload.song_id).await;
 }
 
-pub async fn remove_song_handler(
+async fn remove_song_handler(
     State(db): State<DatabaseConnection>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
     payload: Json<SongIdPayload>

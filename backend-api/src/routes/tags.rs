@@ -14,7 +14,7 @@ pub struct ApplyTagPayload {
     name: String,
 }
 
-pub async fn apply_tag_handler(
+async fn apply_tag_handler(
     State(db): State<DatabaseConnection>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Json(payload): Json<ApplyTagPayload>,
@@ -33,7 +33,7 @@ pub struct RemoveTagPayload {
     song_id: i64,
     tag_id: i64,
 }
-pub async fn remove_tag_handler(
+async fn remove_tag_handler(
     State(db): State<DatabaseConnection>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Json(payload): Json<RemoveTagPayload>,

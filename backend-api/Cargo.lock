@@ -562,6 +562,7 @@ dependencies = [
  "jsonwebtoken",
  "sea-orm",
  "serde",
+ "serde_json",
  "tokio",
 ]
 
