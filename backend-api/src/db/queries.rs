@@ -1,21 +1,75 @@
 use std::fmt::Display;
 
-use sea_orm::sea_query::raw_sql;
-use sea_orm::DbBackend;
-use sea_orm::{
-    ActiveModelTrait, ActiveValue::Set, DatabaseConnection, DbErr, EntityTrait, QueryFilter,
-};
-use sea_orm::{ColumnTrait, ModelTrait, prelude::Uuid};
-use serde_json::Value;
+use sea_orm::{DatabaseConnection, FromQueryResult};
+use sea_orm::{DbBackend, Statement};
+use serde_json::{Value, json};
 
-use crate::db::entity::applied_tags;
+#[derive(Debug, FromQueryResult)]
+struct SongsAndTags {
+    song_id: i64,
+    tag_id: i64,
+    tag_name: String,
+}
 
-pub fn run_json_query(json_query: &Value, user_id: impl Display) -> Result<(), String> {
-    let json_sql = decode_query(json_query, user_id)?;
+/// Returns JSON response listing matching songs from the given query.
+///
+/// JSON return value format:
+/// ```json
+/// {
+///    "song id": {
+///        "name": ...    ( TODO: song/duration fields don't exist yet)
+///        "duration": ...
+///        "tags": [
+///            {
+///                "id": ..
+///                "name": ..
+///            }
+///        ]
+///    },
+///    ...
+///}
+/// ```
+pub async fn run_json_query(
+    db: &DatabaseConnection,
+    json_query: &Value,
+    user_id: impl Display,
+) -> Result<Value, String> {
+    let songs_and_tags = SongsAndTags::find_by_statement(Statement::from_string(
+        DbBackend::Postgres,
+        decode_query(json_query, user_id)?,
+    ))
+    .all(db)
+    .await
+    .map_err(|e| e.to_string())?;
 
-    
+    let mut response = json!({});
+    let response_obj = response.as_object_mut().unwrap();
 
-    Ok(())
+    // construct json response
+    for row in songs_and_tags {
+        match response_obj.get_mut(&row.song_id.to_string()) {
+            None => {
+                // song isn't in response yet, add it
+                response_obj.insert(
+                    row.song_id.to_string(),
+                    json!({
+                        // TODO: other song metadata can go here e.g. name, duration
+                    }),
+                );
+            }
+            Some(song_obj) => {
+                // this song was already in the response, so add this tag to its "tags" array
+                let song_obj = song_obj.as_object_mut().unwrap();
+                let tags_arr = song_obj.get_mut("tags").unwrap().as_array_mut().unwrap();
+                tags_arr.push(json!({
+                    "id": row.tag_id,
+                    "name": row.tag_name
+                }));
+            }
+        }
+    }
+
+    Ok(response)
 }
 
 enum BoolRelation {
@@ -31,7 +85,7 @@ impl BoolRelation {
     }
 }
 
-/// converts json query into sql
+/// Converts the given JSON to a full SQL statement.
 fn decode_query(json_query: &Value, user_id: impl Display) -> Result<String, String> {
     let where_clause = decode_query_json_node(json_query, false)?;
     Ok(format!(
@@ -40,7 +94,8 @@ fn decode_query(json_query: &Value, user_id: impl Display) -> Result<String, Str
     ))
 }
 
-/// demorgan's law!!
+/// Converts the given JSON to a SQL snippet.
+/// Applies Demorgan's Law when `inverted == true` to produce accurate SQL.
 fn decode_query_json_node(curr: &Value, inverted: bool) -> Result<String, String> {
     if curr.is_string() {
         return match inverted {
@@ -73,6 +128,8 @@ fn decode_query_json_node(curr: &Value, inverted: bool) -> Result<String, String
     ))
 }
 
+/// Converts the given JSON arr to a SQL snippet, joining child SQL snippets with AND/OR depending on `bool_relation`.
+/// Applies Demorgan's Law when `inverted == true` to produce accurate SQL.
 fn decode_query_arr(
     arr: &Value,
     mut bool_relation: BoolRelation,
