@@ -1,8 +1,8 @@
+use std::{error::Error, fmt};
+
 use axum::{body::Body, http::Response, response::IntoResponse};
 use sea_orm::{DbErr, RuntimeErr};
 use serde_json::{Value, json};
-
-use crate::db;
 
 // besides 401 and 422, all other errors will respond with JSON:
 // {
@@ -10,6 +10,7 @@ use crate::db;
 //  "message": ... (optional)
 // }
 
+#[derive(Debug)]
 pub enum CadenzaError {
     SongNotInLibrary,
     SongAlreadyInLibrary,
@@ -50,6 +51,14 @@ impl CadenzaError {
         }
     }
 }
+
+impl fmt::Display for CadenzaError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.get_json().to_string())
+    }
+}
+
+impl Error for CadenzaError {}
 
 impl IntoResponse for CadenzaError {
     fn into_response(self) -> Response<Body> {
