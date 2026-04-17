@@ -54,12 +54,12 @@ export function CreateTagDialog({ onTagCreated }: { onTagCreated: (tag: Tag) => 
       const { data, error: dbError } = await supabase
         .from('tags')
         .insert({ name: name.trim(), color: selectedColor, user_id: account.id })
-        .select()
+        .select('tag_id, name, color')
         .single();
 
       if(dbError) throw dbError;
 
-      onTagCreated({ id: data.id, name: data.name, color: data.color });
+      onTagCreated({ id: data.tag_id, name: data.name, color: data.color });
       resetForm();
       setOpen(false);
     } catch(err: unknown) {
