@@ -1,5 +1,6 @@
 import React from "react";
-import { SafeAreaView, ActivityIndicator, StyleSheet } from "react-native";
+import { ActivityIndicator, StyleSheet } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { QueryBuilder } from "../../features/query-builder/QueryBuilder";
 import { useAccount } from "@/lib/account";
 import { useTags } from "@/lib/tags";
