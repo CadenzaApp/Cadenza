@@ -1,4 +1,4 @@
-use crate::{AppState, auth::SupabaseClaims, db};
+use crate::{AppState, auth::SupabaseClaims, db, err::CadenzaError};
 use axum::{
     Json, Router,
     extract::State,
@@ -18,8 +18,8 @@ async fn apply_tag_handler(
     State(db): State<DatabaseConnection>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Json(payload): Json<ApplyTagPayload>,
-) {
-    let _ = db::tags::apply_tag(db, claims.user_id, payload.song_id, &payload.name).await;
+) -> Result<(), CadenzaError> {
+    db::tags::apply_tag(db, claims.user_id, payload.song_id, &payload.name).await
 }
 
 // NOTE: `RemoveTagPayload` identifies tags by id but
@@ -37,8 +37,8 @@ async fn remove_tag_handler(
     State(db): State<DatabaseConnection>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Json(payload): Json<RemoveTagPayload>,
-) {
-    let _ = db::tags::remove_tag(db, claims.user_id, payload.song_id, payload.tag_id).await;
+) -> Result<(), CadenzaError> {
+    db::tags::remove_tag(db, claims.user_id, payload.song_id, payload.tag_id).await
 }
 
 pub fn get_tagging_router() -> Router<AppState> {

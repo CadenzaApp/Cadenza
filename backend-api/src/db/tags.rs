@@ -1,12 +1,17 @@
 use sea_orm::ColumnTrait;
 use sea_orm::ModelTrait;
 use sea_orm::QueryFilter;
+use sea_orm::RuntimeErr;
+use sea_orm::SqlxError;
 use sea_orm::{
     ActiveModelTrait,
     ActiveValue::{NotSet, Set},
     DatabaseConnection, DbErr, EntityTrait,
     prelude::Uuid,
 };
+
+use crate::err::CadenzaError;
+use crate::models::song;
 
 use super::entity::*;
 
@@ -16,7 +21,7 @@ pub async fn apply_tag(
     user_id: Uuid,
     song_id: i64,
     tag_name: &str,
-) -> Result<(), DbErr> {
+) -> Result<(), CadenzaError> {
     // get the tag that matches this tag_name...
     let existing_tag = tags::Entity::find()
         .filter(tags::Column::Name.eq(tag_name))
@@ -42,8 +47,8 @@ pub async fn apply_tag(
         song_id: Set(song_id),
         tag_id: Set(tag_id),
     };
-    new_tag_relation.insert(&db).await?;
 
+    new_tag_relation.insert(&db).await?;
     Ok(())
 }
 
@@ -52,7 +57,7 @@ pub async fn remove_tag(
     user_id: Uuid,
     song_id: i64,
     tag_id: i64,
-) -> Result<(), DbErr> {
+) -> Result<(), CadenzaError> {
     let applied_tag = applied_tags::Entity::find()
         .filter(applied_tags::Column::UserId.eq(user_id))
         .filter(applied_tags::Column::SongId.eq(song_id))
@@ -66,4 +71,3 @@ pub async fn remove_tag(
 
     Ok(())
 }
-

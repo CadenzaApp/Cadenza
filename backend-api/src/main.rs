@@ -2,6 +2,7 @@ mod auth;
 mod db;
 mod models;
 mod routes;
+mod err;
 
 use axum::{Router, extract::FromRef};
 
