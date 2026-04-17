@@ -1,11 +1,10 @@
 import { useAccount } from "@/lib/account";
-import { supabase } from "@/lib/supabase";
+import { useTags } from "@/lib/tags";
 import { Redirect } from "expo-router";
-import { useState, useEffect } from "react";
 import { Text } from "@/components/ui/text";
 import { TagPill } from "@/components/custom/tag-pill";
 import { CreateTagDialog } from "@/components/custom/create-tag-dialog";
-import { Tag } from "@/types/tag-types"
+import { Tag } from "@/types/tag-types";
 import {
   ScrollView,
   StyleSheet,
@@ -14,40 +13,12 @@ import {
 
 export default function TagsScreen() {
   const { account } = useAccount();
-  const [tags, setTags] = useState<Tag[]>([]);
-  const [loadingTags, setLoadingTags] = useState(true);
-  const [fetchError, setFetchError] = useState<string | null>(null);
+  const { tags, loading: loadingTags, error: fetchError, addTag } = useTags(); // get global tags context
 
-  // send to login page
   if (!account) return <Redirect href="/auth?initialMode=signin" />;
 
-  useEffect(() => {
-    async function fetchTags() {
-      setLoadingTags(true);
-      setFetchError(null);
-
-      try {
-        const { data, error } = await supabase
-          .from('tags')
-          .select('tag_id, name, color')
-          .eq('user_id', account!.id)
-          .order('name');
-
-        if (error) throw error;
-
-        setTags(data.map((row) => ({ id: row.tag_id, name: row.name, color: row.color })));
-      } catch (err: unknown) {
-        setFetchError(err instanceof Error ? err.message : 'Failed to load tags');
-      } finally {
-        setLoadingTags(false);
-      }
-    }
-
-    fetchTags();
-  }, [account?.id]);
-
   function handleTagCreated(newTag: Tag) {
-    setTags((prev) => [...prev, newTag]);
+    addTag(newTag);
   }
 
   return (
@@ -71,7 +42,7 @@ export default function TagsScreen() {
         ) : (
           <View style={styles.tagsGrid}>
             {tags.map((tag) => (
-              <TagPill key={tag.id} tag={tag} height={16} />
+              <TagPill key={tag.id} tag={tag} height={20} />
             ))}
           </View>
         )}
