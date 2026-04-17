@@ -21,7 +21,7 @@ const COLOR_OPTIONS: string[] = [
   '#5644ce', '#963dd1', '#da34c1', '#d62f67',
 ];
 
-export function CreateTagDialog(onTagCreated : (tag: Tag) => void) {
+export function CreateTagDialog({ onTagCreated }: { onTagCreated: (tag: Tag) => void }) {
   const [open, setOpen] = useState(false); // whether dialog is visible or not
   const [name, setName] = useState('');
   const [selectedColor, setSelectedColor] = useState(COLOR_OPTIONS[0]);
@@ -43,7 +43,10 @@ export function CreateTagDialog(onTagCreated : (tag: Tag) => void) {
     setLoading(true);
 
     try {
-      // TODO:  supabase stuff here
+      // TODO: persist tag to database here
+      onTagCreated({ id: Date.now().toString(), name: name.trim(), color: selectedColor });
+      resetForm();
+      setOpen(false);
     } finally {
       setLoading(false);
     }
