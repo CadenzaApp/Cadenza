@@ -12,6 +12,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Text } from '@/components/ui/text';
+import { supabase } from '@/lib/supabase';
+import { useAccount } from '@/lib/account';
 import { Tag } from '@/types/tag-types';
 
 const COLOR_BOX_SIZE = 44;
@@ -22,14 +24,18 @@ const COLOR_OPTIONS: string[] = [
 ];
 
 export function CreateTagDialog({ onTagCreated }: { onTagCreated: (tag: Tag) => void }) {
+  const { account } = useAccount();
+
   const [open, setOpen] = useState(false); // whether dialog is visible or not
   const [name, setName] = useState('');
   const [selectedColor, setSelectedColor] = useState(COLOR_OPTIONS[0]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   function resetForm() {
     setName('');
     setSelectedColor(COLOR_OPTIONS[0]);
+    setError(null);
   }
 
   function handleOpenChange(val: boolean) {
@@ -38,15 +44,26 @@ export function CreateTagDialog({ onTagCreated }: { onTagCreated: (tag: Tag) => 
   }
 
   async function handleCreate() {
-    if(!name.trim()) return; // if empty
+    // if empty tag or no account return
+    if(!name.trim() || !account) return;
 
     setLoading(true);
+    setError(null);
 
     try {
-      // TODO: persist tag to database here
-      onTagCreated({ id: Date.now().toString(), name: name.trim(), color: selectedColor });
+      const { data, error: dbError } = await supabase
+        .from('tags')
+        .insert({ name: name.trim(), color: selectedColor, user_id: account.id })
+        .select()
+        .single();
+
+      if(dbError) throw dbError;
+
+      onTagCreated({ id: data.id, name: data.name, color: data.color });
       resetForm();
       setOpen(false);
+    } catch(err: unknown) {
+      setError(err instanceof Error ? err.message : 'Something went wrong');
     } finally {
       setLoading(false);
     }
@@ -102,6 +119,8 @@ export function CreateTagDialog({ onTagCreated }: { onTagCreated: (tag: Tag) => 
             ))}
           </View>
         </View>
+
+        {error && <Text style={styles.errorText}>{error}</Text>}
 
         {/* Footer buttons */}
         <View style={styles.footer}>
@@ -162,6 +181,11 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  errorText: {
+    color: '#E05C5C',
+    fontSize: 13,
+    marginBottom: 8,
   },
   footer: {
     flexDirection: 'row',
