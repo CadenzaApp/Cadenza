@@ -98,6 +98,7 @@ mod tests {
     fn builder_deduplicates_tags_and_sources() {
         let rock = Tag::builder()
             .name(" rock ".to_string())
+            .canonical_or_default(true)
             .build()
             .normalized();
         let rock_duplicate = Tag::builder().name("rock".to_string()).build().normalized();
@@ -133,6 +134,10 @@ mod tests {
         song.add_tag(
             Tag::builder()
                 .name(" alt   rock ".to_string())
+                .user_created(false)
+                .llm_suggested(false)
+                .llm_approved(false)
+                .canonical_or_default(true)
                 .build()
                 .normalized(),
         );
