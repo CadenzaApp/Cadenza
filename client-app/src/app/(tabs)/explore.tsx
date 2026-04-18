@@ -11,7 +11,6 @@ import { Text } from "@/components/ui/text";
 import { Card, CardContent } from "@/components/ui/card";
 
 export default function ExploreScreen() {
-    // Data states
     const [tracks, setTracks] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);

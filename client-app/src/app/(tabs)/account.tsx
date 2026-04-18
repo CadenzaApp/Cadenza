@@ -4,10 +4,9 @@ import { Alert, View } from "react-native";
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { useAppleMusic } from "@/lib/apple-music"; // <-- Use the new hook
+import { useAppleMusic } from "@/lib/apple-music";
 
 export default function AccountScreen() {
-    // Consume our single source of truth
     const { authResult, connect, disconnect } = useAppleMusic();
     const [isLoading, setIsLoading] = useState(false);
 
