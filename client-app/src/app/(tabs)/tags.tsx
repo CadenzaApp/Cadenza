@@ -5,83 +5,50 @@ import { Text } from "@/components/ui/text";
 import { TagPill } from "@/components/custom/tag-pill";
 import { CreateTagDialog } from "@/components/custom/create-tag-dialog";
 import { Tag } from "@/types/tag-types";
-import {
-  ScrollView,
-  StyleSheet,
-  View,
-} from "react-native";
+import { ScrollView, View } from "react-native";
 
 export default function TagsScreen() {
-  const { account } = useAccount();
-  const { tags, loading: loadingTags, error: fetchError, addTag } = useTags(); // get global tags context
+    const { account } = useAccount();
+    const { tags, loading: loadingTags, error: fetchError, addTag } = useTags();
 
-  if (!account) return <Redirect href="/auth?initialMode=signin" />;
+    if (!account) return <Redirect href="/auth?initialMode=signin" />;
 
-  function handleTagCreated(newTag: Tag) {
-    addTag(newTag);
-  }
+    function handleTagCreated(newTag: Tag) {
+        addTag(newTag);
+    }
 
-  return (
-    <View style={styles.container}>
-      <ScrollView showsVerticalScrollIndicator={false}>
-        <View style={styles.header}>
-          <Text variant="h3" style={styles.pageTitle}>
-            Your Tags
-          </Text>
-          <Text style={styles.subheading}>
-            {tags.length} {tags.length === 1 ? "tag" : "tags"}
-          </Text>
+    return (
+        <View className="flex-1 bg-background px-4 pt-14">
+            <ScrollView showsVerticalScrollIndicator={false}>
+                <View className="mb-2">
+                    <Text variant="h2" className="border-b-0 mb-1">
+                        Your Tags
+                    </Text>
+                    <Text className="text-muted-foreground text-lg mb-5">
+                        {tags.length} {tags.length === 1 ? "tag" : "tags"}
+                    </Text>
+                </View>
+
+                {fetchError && (
+                    <Text className="text-destructive text-sm mb-3">
+                        {fetchError}
+                    </Text>
+                )}
+
+                {loadingTags ? (
+                    <Text className="text-muted-foreground text-lg">
+                        Loading...
+                    </Text>
+                ) : (
+                    <View className="flex-row flex-wrap gap-2.5">
+                        {tags.map((tag) => (
+                            <TagPill key={tag.id} tag={tag} height={20} />
+                        ))}
+                    </View>
+                )}
+            </ScrollView>
+
+            <CreateTagDialog onTagCreated={handleTagCreated} />
         </View>
-
-        {fetchError && (
-          <Text style={styles.errorText}>{fetchError}</Text>
-        )}
-
-        {loadingTags ? (
-          <Text style={styles.subheading}>Loading...</Text>
-        ) : (
-          <View style={styles.tagsGrid}>
-            {tags.map((tag) => (
-              <TagPill key={tag.id} tag={tag} height={20} />
-            ))}
-          </View>
-        )}
-      </ScrollView>
-
-      <CreateTagDialog onTagCreated={handleTagCreated} />
-    </View>
-  );
+    );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#25292e",
-    paddingHorizontal: 16,
-    paddingTop: 60,
-  },
-  header: {
-    marginBottom: 8,
-  },
-  pageTitle: {
-    color: "#fff",
-    marginBottom: 4,
-    fontSize: 35,
-    lineHeight: 50,
-  },
-  subheading: {
-    color: "#888",
-    fontSize: 20,
-    marginBottom: 20,
-  },
-  errorText: {
-    color: '#E05C5C',
-    fontSize: 14,
-    marginBottom: 12,
-  },
-  tagsGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-  },
-});
