@@ -88,6 +88,8 @@ pnpm-debug.log*
 **/.metro-health-check*
 **/expo-env.d.ts
 
+**/android/build
+
 # Expo-managed native output (client app)
 client-app/android/
 client-app/ios/

@@ -1,0 +1,21 @@
+{
+    "platforms": ["apple", "android", "web"],
+    "apple": {
+        "modules": ["AppleMusicKitModule"]
+    },
+    "android": {
+        "modules": [
+            "expo.modules.applemusickit.AppleMusicKitModule.AppleMusicKitModule"
+        ],
+        "gradleAarProjects": [
+            {
+                "name": "mediaplayback",
+                "aarFilePath": "android/libs/mediaplayback-release-1.1.1.aar"
+            },
+            {
+                "name": "musickitauth",
+                "aarFilePath": "android/libs/musickitauth-release-1.1.2.aar"
+            }
+        ]
+    }
+}
