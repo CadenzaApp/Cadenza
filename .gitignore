@@ -140,3 +140,4 @@ override.tf.json
 *.dump
 *.tgz
 *.zip
+.DS_Store
