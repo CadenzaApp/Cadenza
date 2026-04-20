@@ -1,21 +1,20 @@
 import { useState } from "react";
-import { View, FlatList, ActivityIndicator, Alert, Image } from "react-native";
+import { View, ActivityIndicator } from "react-native";
 import {
     MusicKit,
-    Player,
-    isPlayingState,
-    PlaybackQueueType,
+    MusicItem as AppleMusicItem,
 } from "@apple-musickit";
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
-import { Card, CardContent } from "@/components/ui/card";
+import { MusicList } from "@/components/custom/music-list";
+import { usePlayback } from "@/lib/playback";
 
 export default function ExploreScreen() {
-    const [tracks, setTracks] = useState<any[]>([]);
+    const [tracks, setTracks] = useState<AppleMusicItem[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [activeTrackId, setActiveTrackId] = useState<string | null>(null);
-    const isPlaying = isPlayingState();
+
+    const { activeTrackId, isPlaying, togglePlayback } = usePlayback();
 
     async function handleFetchLibrary() {
         setIsLoading(true);
@@ -33,71 +32,6 @@ export default function ExploreScreen() {
             setIsLoading(false);
         }
     }
-
-    async function handleTogglePlayback(trackId: string) {
-        try {
-            if (activeTrackId === trackId) {
-                await Player.togglePlayerState();
-            } else {
-                await MusicKit.setPlaybackQueue(
-                    trackId,
-                    PlaybackQueueType.Song,
-                );
-                setActiveTrackId(trackId);
-            }
-        } catch (e) {
-            console.error("Failed to toggle playback:", e);
-            Alert.alert("Playback Error", "Failed to update playback state.");
-        }
-    }
-
-    const renderTrackItem = ({ item }: { item: any }) => {
-        const isThisTrackPlaying = activeTrackId === item.id && isPlaying;
-
-        return (
-            <Card className="mb-3 py-2">
-                <CardContent className="flex-row justify-between items-center py-0">
-                    <View className="flex-1 mr-4 flex-row items-center">
-                        {item.artworkUrl ? (
-                            <Image
-                                source={{ uri: item.artworkUrl }}
-                                className="w-12 h-12 rounded bg-muted mr-3"
-                            />
-                        ) : (
-                            <View className="w-12 h-12 rounded bg-muted mr-3 items-center justify-center">
-                                <Text className="text-xs text-muted-foreground">
-                                    No Art
-                                </Text>
-                            </View>
-                        )}
-
-                        <View className="flex-1">
-                            <Text
-                                className="text-base font-bold text-foreground"
-                                numberOfLines={1}
-                            >
-                                {item.title}
-                            </Text>
-                            <Text
-                                className="text-sm text-muted-foreground mt-1"
-                                numberOfLines={1}
-                            >
-                                {item.artistName}
-                            </Text>
-                        </View>
-                    </View>
-
-                    <Button
-                        size="sm"
-                        onPress={() => handleTogglePlayback(item.id)}
-                        variant={isThisTrackPlaying ? "secondary" : "default"}
-                    >
-                        <Text>{isThisTrackPlaying ? "Pause" : "Play"}</Text>
-                    </Button>
-                </CardContent>
-            </Card>
-        );
-    };
 
     return (
         <View className="flex-1 bg-background pt-16">
@@ -124,18 +58,12 @@ export default function ExploreScreen() {
                 </Text>
             )}
 
-            <FlatList
-                data={tracks}
-                keyExtractor={(item, index) => item.id || index.toString()}
-                renderItem={renderTrackItem}
-                contentContainerClassName="px-6 pb-10"
-                ListEmptyComponent={
-                    !isLoading && tracks.length === 0 ? (
-                        <Text className="text-muted-foreground text-center mt-10">
-                            No tracks loaded yet.
-                        </Text>
-                    ) : null
-                }
+            <MusicList
+                tracks={tracks}
+                isLoading={isLoading}
+                activeTrackId={activeTrackId}
+                isPlaying={isPlaying}
+                onTogglePlayback={togglePlayback}
             />
         </View>
     );
