@@ -13,7 +13,7 @@
 
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
 
-    <application>
+    <application android:largeHeap="true">
         <activity
             android:name="com.apple.android.sdk.authentication.SDKUriHandlerActivity"
             android:exported="true"

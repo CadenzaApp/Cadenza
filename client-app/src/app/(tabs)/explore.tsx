@@ -36,9 +36,6 @@ export default function ExploreScreen() {
     return (
         <View className="flex-1 bg-background pt-16">
             <View className="px-6 mb-4">
-                <Text className="text-3xl font-bold text-foreground mb-6">
-                    Explore
-                </Text>
                 <Button onPress={handleFetchLibrary} disabled={isLoading}>
                     <Text>
                         {isLoading ? "Loading..." : "Load Library Songs"}
