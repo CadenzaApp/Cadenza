@@ -2,10 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::models::song::Song;
 use crate::models::sources::SourceProvider;
-use crate::models::tag_generation_model::{
-    OpenAiTagGenerationRequest, OpenAiTagGenerationSongInput, ResolvedTagGenerationSongInput,
-    TagGenerationBatchRequest, TagGenerationBatchResponse, TagGenerationSongResponse,
-};
+use crate::models::tag_generation_model::*;
 use crate::services::openai_client::{OpenAiClientError, OpenAiTagGenerator};
 use crate::services::tag_normalizer::normalize_generated_tags_for_song;
 
@@ -35,6 +32,22 @@ impl<C: OpenAiTagGenerator> TagGenerationService<C> {
         }
     }
 
+    fn resolve_requested_tag_count(
+        &self,
+        request: &TagGenerationBatchRequest,
+    ) -> Result<usize, TagGenerationServiceError> {
+        request.validate().map_err(|err| match err {
+            TagGenerationRequestError::EmptySelection => TagGenerationServiceError::EmptySelection,
+            TagGenerationRequestError::InvalidRequestedTagCount => {
+                TagGenerationServiceError::InvalidRequestedTagCount
+            }
+        })?;
+
+        Ok(request
+            .requested_tag_count
+            .unwrap_or(self.default_requested_tag_count))
+    }
+
     pub fn with_default_requested_tag_count(
         openai_client: C,
         default_requested_tag_count: usize,
@@ -53,10 +66,6 @@ impl<C: OpenAiTagGenerator> TagGenerationService<C> {
         let requested_tag_count = request
             .requested_tag_count
             .unwrap_or(self.default_requested_tag_count);
-
-        if requested_tag_count == 0 {
-            return Err(TagGenerationServiceError::InvalidRequestedTagCount);
-        }
 
         let resolved_inputs = self.resolve_requested_songs(&request, canonical_songs)?;
         let openai_request = self.build_openai_request(&resolved_inputs, requested_tag_count);
@@ -104,15 +113,13 @@ impl<C: OpenAiTagGenerator> TagGenerationService<C> {
     ) -> OpenAiTagGenerationRequest {
         let songs = resolved_inputs
             .iter()
-            .map(|song| {
-                OpenAiTagGenerationSongInput {
-                    song_id: song.song_id.clone(),
-                    title: song.title.clone(),
-                    artist: song.artist.clone(),
-                    album: song.album.clone(),
-                    source_providers: song.source_providers.clone(),
-                    existing_global_tag_names: song.existing_global_tag_names.clone(),
-                }
+            .map(|song| OpenAiTagGenerationSongInput {
+                song_id: song.song_id.clone(),
+                title: song.title.clone(),
+                artist: song.artist.clone(),
+                album: song.album.clone(),
+                source_providers: song.source_providers.clone(),
+                existing_global_tag_names: song.existing_global_tag_names.clone(),
             })
             .collect();
 
@@ -127,39 +134,62 @@ impl<C: OpenAiTagGenerator> TagGenerationService<C> {
         request: &TagGenerationBatchRequest,
         canonical_songs: &[Song],
     ) -> Result<Vec<ResolvedTagGenerationSongInput>, TagGenerationServiceError> {
-        let song_ids = normalize_identifier_list(&request.song_ids);
-        let apple_music_song_ids = normalize_identifier_list(&request.apple_music_song_ids);
-
-        if song_ids.is_empty() && apple_music_song_ids.is_empty() {
-            return Err(TagGenerationServiceError::EmptySelection);
-        }
-
         let mut missing_song_ids = Vec::new();
         let mut missing_apple_music_song_ids = Vec::new();
         let mut resolved_by_song_id: HashMap<String, ResolvedTagGenerationSongInput> =
             HashMap::new();
 
-        for song_id in song_ids {
-            match canonical_songs.iter().find(|song| song.song_id == song_id) {
-                Some(song) => {
-                    resolved_by_song_id.insert(song.song_id.clone(), resolved_input_from_song(song));
+        for requested_song in &request.songs {
+            match &requested_song.selection {
+                SongSelection::InternalSongId { song_id } => {
+                    let normalized_song_id = song_id.trim();
+
+                    if normalized_song_id.is_empty() {
+                        continue;
+                    }
+
+                    match canonical_songs
+                        .iter()
+                        .find(|song| song.song_id == normalized_song_id)
+                    {
+                        Some(song) => {
+                            resolved_by_song_id
+                                .insert(song.song_id.clone(), resolved_input_from_song(song));
+                        }
+                        None => missing_song_ids.push(normalized_song_id.to_string()),
+                    }
                 }
-                None => missing_song_ids.push(song_id),
+
+                SongSelection::ExternalSource { provider, track_id } => {
+                    let normalized_track_id = track_id.trim();
+
+                    if normalized_track_id.is_empty() {
+                        continue;
+                    }
+
+                    match canonical_songs.iter().find(|song| {
+                        song.sources.iter().any(|source| {
+                            source.provider == *provider && source.track_id == normalized_track_id
+                        })
+                    }) {
+                        Some(song) => {
+                            resolved_by_song_id
+                                .insert(song.song_id.clone(), resolved_input_from_song(song));
+                        }
+                        None => {
+                            if *provider == SourceProvider::AppleMusic {
+                                missing_apple_music_song_ids.push(normalized_track_id.to_string());
+                            } else {
+                                missing_song_ids.push(normalized_track_id.to_string());
+                            }
+                        }
+                    }
+                }
             }
         }
 
-        for apple_music_song_id in apple_music_song_ids {
-            match canonical_songs.iter().find(|song| {
-                song.sources.iter().any(|source| {
-                    source.provider == SourceProvider::AppleMusic
-                        && source.track_id == apple_music_song_id
-                })
-            }) {
-                Some(song) => {
-                    resolved_by_song_id.insert(song.song_id.clone(), resolved_input_from_song(song));
-                }
-                None => missing_apple_music_song_ids.push(apple_music_song_id),
-            }
+        if resolved_by_song_id.is_empty() {
+            return Err(TagGenerationServiceError::EmptySelection);
         }
 
         if !missing_song_ids.is_empty() || !missing_apple_music_song_ids.is_empty() {
@@ -196,11 +226,16 @@ fn normalize_identifier_list(ids: &[String]) -> Vec<String> {
 }
 
 fn resolved_input_from_song(song: &Song) -> ResolvedTagGenerationSongInput {
-    let mut source_providers: Vec<SourceProvider> = song.sources.iter().map(|s| s.provider).collect();
+    let mut source_providers: Vec<SourceProvider> =
+        song.sources.iter().map(|s| s.provider).collect();
     source_providers.sort();
     source_providers.dedup();
 
-    let existing_global_tag_names = song.global_tags.iter().map(|tag| tag.name.clone()).collect();
+    let existing_global_tag_names = song
+        .global_tags
+        .iter()
+        .map(|tag| tag.name.clone())
+        .collect();
 
     ResolvedTagGenerationSongInput {
         song_id: song.song_id.clone(),
@@ -249,10 +284,12 @@ mod tests {
                     .build(),
             )
             .global_tags(vec![Tag::builder().name("rock".to_string()).build()])
-            .sources(vec![ExternalSource::builder()
-                .provider(SourceProvider::AppleMusic)
-                .track_id(apple_track_id.to_string())
-                .build()])
+            .sources(vec![
+                ExternalSource::builder()
+                    .provider(SourceProvider::AppleMusic)
+                    .track_id(apple_track_id.to_string())
+                    .build(),
+            ])
             .build()
             .normalized()
     }
@@ -288,8 +325,19 @@ mod tests {
         let response = service
             .generate_tags_for_songs(
                 TagGenerationBatchRequest::builder()
-                    .apple_music_song_ids(vec![" am-111 ".to_string()])
-                    .song_ids(vec!["song-local".to_string()])
+                    .songs(vec![
+                        TagGenerationSongRequest::builder()
+                            .selection(SongSelection::ExternalSource {
+                                provider: SourceProvider::AppleMusic,
+                                track_id: " am-111 ".to_string(),
+                            })
+                            .build(),
+                        TagGenerationSongRequest::builder()
+                            .selection(SongSelection::InternalSongId {
+                                song_id: "song-local".to_string(),
+                            })
+                            .build(),
+                    ])
                     .requested_tag_count(5)
                     .build(),
                 &[apple_song, local_song],
@@ -297,30 +345,49 @@ mod tests {
             .expect("tag generation should succeed");
 
         assert_eq!(response.songs.len(), 2);
-        assert!(response.songs.iter().any(|song| song.song_id == "song-apple"));
-        assert!(response.songs.iter().any(|song| song.song_id == "song-local"));
+        assert!(
+            response
+                .songs
+                .iter()
+                .any(|song| song.song_id == "song-apple")
+        );
+        assert!(
+            response
+                .songs
+                .iter()
+                .any(|song| song.song_id == "song-local")
+        );
     }
 
     #[test]
     fn service_filters_existing_tags_and_normalized_duplicates() {
         let apple_song = song_with_apple_source("am-111");
         let client = TestOpenAiClient {
-            suggestions: vec![GeneratedSongTagSuggestions::builder()
-                .song_id("song-apple".to_string())
-                .suggested_tags(vec![
-                    " rock ".to_string(),
-                    "ROCK".to_string(),
-                    " alt   rock ".to_string(),
-                    "".to_string(),
-                ])
-                .build()],
+            suggestions: vec![
+                GeneratedSongTagSuggestions::builder()
+                    .song_id("song-apple".to_string())
+                    .suggested_tags(vec![
+                        " rock ".to_string(),
+                        "ROCK".to_string(),
+                        " alt   rock ".to_string(),
+                        "".to_string(),
+                    ])
+                    .build(),
+            ],
         };
 
         let service = TagGenerationService::new(client);
         let response = service
             .generate_tags_for_songs(
                 TagGenerationBatchRequest::builder()
-                    .apple_music_song_ids(vec!["am-111".to_string()])
+                    .songs(vec![
+                        TagGenerationSongRequest::builder()
+                            .selection(SongSelection::ExternalSource {
+                                provider: SourceProvider::AppleMusic,
+                                track_id: "am-111".to_string(),
+                            })
+                            .build(),
+                    ])
                     .requested_tag_count(5)
                     .build(),
                 &[apple_song],
@@ -328,6 +395,9 @@ mod tests {
             .expect("tag generation should succeed");
 
         assert_eq!(response.songs.len(), 1);
-        assert_eq!(response.songs[0].suggested_tags, vec!["alt rock".to_string()]);
+        assert_eq!(
+            response.songs[0].suggested_tags,
+            vec!["alt rock".to_string()]
+        );
     }
 }
