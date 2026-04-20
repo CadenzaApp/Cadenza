@@ -35,6 +35,14 @@ impl Tag {
     pub fn is_empty(&self) -> bool {
         self.name.is_empty()
     }
+
+    pub fn validate(&self) -> Result<(), &'static str> {
+        if self.name.trim().is_empty() {
+            return Err("tag name cannot be empty");
+        }
+
+        Ok(())
+    }
 }
 
 fn normalize_name(input: &str) -> String {
@@ -71,5 +79,11 @@ mod tests {
         assert!(tag.llm_approved);
         assert!(!tag.user_created);
         assert!(!tag.canonical_or_default);
+    }
+
+    #[test]
+    fn validate_rejects_empty_name() {
+        let tag = Tag::builder().name("   ".to_string()).build().normalized();
+        assert!(tag.validate().is_err());
     }
 }

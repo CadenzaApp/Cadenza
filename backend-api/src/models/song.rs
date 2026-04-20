@@ -9,6 +9,7 @@ use crate::models::tag::Tag;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Builder)]
 pub struct Song {
     #[builder(default = generate_song_id())]
+    #[serde(default = "generate_song_id")]
     pub song_id: String,
 
     pub metadata: Metadata,
@@ -37,6 +38,10 @@ impl Song {
     pub fn validate(&self) -> Result<(), &'static str> {
         if self.song_id.trim().is_empty() {
             return Err("song_id cannot be empty");
+        }
+
+        for source in &self.sources {
+            source.validate()?;
         }
 
         Ok(())
@@ -81,6 +86,7 @@ impl Song {
             source.normalize_mut();
         }
 
+        self.sources.retain(|source| source.validate().is_ok());
         self.sources.sort_by(|a, b| {
             a.provider
                 .cmp(&b.provider)
@@ -210,6 +216,28 @@ mod tests {
         assert!(!song.song_id.is_empty());
         assert!(song.sources.is_empty());
         assert!(song.validate().is_ok());
+    }
+
+    #[test]
+    fn normalize_drops_sources_with_empty_track_id() {
+        let song = Song::builder()
+            .metadata(Metadata::builder().title("Numb".to_string()).build())
+            .sources(vec![
+                ExternalSource::builder()
+                    .provider(SourceProvider::AppleMusic)
+                    .track_id("".to_string())
+                    .build(),
+                ExternalSource::builder()
+                    .provider(SourceProvider::Spotify)
+                    .track_id("123".to_string())
+                    .build(),
+            ])
+            .build()
+            .normalized();
+
+        assert_eq!(song.sources.len(), 1);
+        assert_eq!(song.sources[0].provider, SourceProvider::Spotify);
+        assert_eq!(song.sources[0].track_id, "123");
     }
 
     #[test]
