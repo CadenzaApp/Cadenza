@@ -3,15 +3,28 @@ use serde::{Deserialize, Serialize};
 
 use crate::models::sources::SourceProvider;
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "selection_type", rename_all = "snake_case")]
+pub enum SongSelection {
+    InternalSongId {
+        song_id: String,
+    },
+    ExternalSource {
+        provider: SourceProvider,
+        track_id: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Builder)]
+pub struct TagGenerationSongRequest {
+    pub selection: SongSelection,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Builder, Default)]
 pub struct TagGenerationBatchRequest {
     #[builder(default)]
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub song_ids: Vec<String>,
-
-    #[builder(default)]
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub apple_music_song_ids: Vec<String>,
+    pub songs: Vec<TagGenerationSongRequest>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub requested_tag_count: Option<usize>,
@@ -114,10 +127,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn request_round_trips_through_json() {
+    fn batch_request_round_trips_internal_and_external_selections() {
         let request = TagGenerationBatchRequest::builder()
-            .song_ids(vec!["song-1".to_string()])
-            .apple_music_song_ids(vec!["am-1".to_string()])
+            .songs(vec![
+                TagGenerationSongRequest::builder()
+                    .selection(SongSelection::InternalSongId {
+                        song_id: "song-1".to_string(),
+                    })
+                    .build(),
+                TagGenerationSongRequest::builder()
+                    .selection(SongSelection::ExternalSource {
+                        provider: SourceProvider::AppleMusic,
+                        track_id: "am-1".to_string(),
+                    })
+                    .build(),
+            ])
             .requested_tag_count(5)
             .build();
 
@@ -125,8 +149,7 @@ mod tests {
         let deserialized: TagGenerationBatchRequest =
             serde_json::from_str(&serialized).expect("deserialize request");
 
-        assert_eq!(deserialized.song_ids, vec!["song-1".to_string()]);
-        assert_eq!(deserialized.apple_music_song_ids, vec!["am-1".to_string()]);
+        assert_eq!(deserialized.songs.len(), 2);
         assert_eq!(deserialized.requested_tag_count, Some(5));
     }
 
