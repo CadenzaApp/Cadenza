@@ -1,3 +1,6 @@
+use std::env;
+use std::env::VarError;
+use dotenvy::dotenv;
 use crate::models::tag_generation_model::{
     GeneratedSongTagSuggestions, OpenAiTagGenerationRequest, OpenAiTagGenerationResponse,
 };
@@ -5,6 +8,11 @@ use crate::models::tag_generation_model::{
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OpenAiClientError {
     EmptyRequest,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OpenAiApiKeyError {
+    OpenAiApiKeyMissing,
 }
 
 pub trait OpenAiTagGenerator {
@@ -17,11 +25,13 @@ pub trait OpenAiTagGenerator {
 #[derive(Debug, Clone)]
 pub struct OpenAiClient {
     model: String,
+    api_key: String,
 }
 
 impl OpenAiClient {
-    pub fn new(model: impl Into<String>) -> Self {
+    fn new(api_key: impl Into<String>, model: impl Into<String>) -> Self {
         Self {
+            api_key: api_key.into(),
             model: model.into(),
         }
     }
@@ -31,9 +41,10 @@ impl OpenAiClient {
     }
 }
 
-impl Default for OpenAiClient {
-    fn default() -> Self {
-        Self::new("gpt-4o-mini")
+impl OpenAiClient {
+    pub fn from_env() -> Result<Self, OpenAiApiKeyError> {
+        let api_key = load_api_from_env()?;
+        Ok(Self::new(api_key, "gpt-4o-mini"))
     }
 }
 
@@ -79,6 +90,16 @@ impl OpenAiTagGenerator for OpenAiClient {
     }
 }
 
+pub fn load_api_from_env() -> Result<String, OpenAiApiKeyError>{
+    dotenv().ok();
+    let api_key = match env::var("OPENAI_API_KEY") {
+        Ok(value) if !value.trim().is_empty() => value,
+        _ => return Err(OpenAiApiKeyError::OpenAiApiKeyMissing),
+    };
+
+    Ok(api_key)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -87,13 +108,13 @@ mod tests {
 
     #[test]
     fn default_client_uses_expected_model_name() {
-        let client = OpenAiClient::default();
+        let client = OpenAiClient::new("fake_key", "gpt-4o-mini");
         assert_eq!(client.model(), "gpt-4o-mini");
     }
 
     #[test]
     fn stub_returns_response_mapped_by_song_id() {
-        let client = OpenAiClient::default();
+        let client = OpenAiClient::new("fake_key", "gpt-4o-mini");
         let request = OpenAiTagGenerationRequest::builder()
             .requested_tag_count(2)
             .songs(vec![OpenAiTagGenerationSongInput::builder()
