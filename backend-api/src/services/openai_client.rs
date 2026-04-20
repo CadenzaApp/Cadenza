@@ -1,9 +1,21 @@
-use std::env;
-use std::env::VarError;
-use dotenvy::dotenv;
 use crate::models::tag_generation_model::{
     GeneratedSongTagSuggestions, OpenAiTagGenerationRequest, OpenAiTagGenerationResponse,
 };
+use dotenvy::dotenv;
+use std::env;
+
+const TAG_GENERATION_SYSTEM_PROMPT: &str = r#"You generate concise music tags for songs.
+Rules:
+- Use only the provided song metadata and existing tags.
+- Suggest only likely, useful music tags.
+- Prefer short tags.
+- Prefer tags about genre, mood, energy, instrumentation, era, or listening context.
+- Do not repeat or closely restate existing tags.
+- Do not return the song title, artist name, album name, or source provider as tags.
+- Do not explain your reasoning.
+- Do not output sentences, numbering, or prose.
+- Do not invent highly specific facts you are not confident about.
+- Return valid JSON only, matching the requested schema."#;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OpenAiClientError {
@@ -90,7 +102,7 @@ impl OpenAiTagGenerator for OpenAiClient {
     }
 }
 
-pub fn load_api_from_env() -> Result<String, OpenAiApiKeyError>{
+pub fn load_api_from_env() -> Result<String, OpenAiApiKeyError> {
     dotenv().ok();
     let api_key = match env::var("OPENAI_API_KEY") {
         Ok(value) if !value.trim().is_empty() => value,
@@ -117,12 +129,14 @@ mod tests {
         let client = OpenAiClient::new("fake_key", "gpt-4o-mini");
         let request = OpenAiTagGenerationRequest::builder()
             .requested_tag_count(2)
-            .songs(vec![OpenAiTagGenerationSongInput::builder()
-                .song_id("song-1".to_string())
-                .title("Numb".to_string())
-                .artist("Linkin Park".to_string())
-                .source_providers(vec![SourceProvider::AppleMusic])
-                .build()])
+            .songs(vec![
+                OpenAiTagGenerationSongInput::builder()
+                    .song_id("song-1".to_string())
+                    .title("Numb".to_string())
+                    .artist("Linkin Park".to_string())
+                    .source_providers(vec![SourceProvider::AppleMusic])
+                    .build(),
+            ])
             .build();
 
         let response = client
