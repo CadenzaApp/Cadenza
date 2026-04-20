@@ -313,6 +313,7 @@ mod tests {
                 Metadata::builder()
                     .title("Basement Demo".to_string())
                     .artist("Local Band".to_string())
+                    .album("Demo".to_string())
                     .build(),
             )
             .build()
