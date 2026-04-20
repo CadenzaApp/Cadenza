@@ -113,19 +113,26 @@ impl<C: OpenAiTagGenerator> TagGenerationService<C> {
     ) -> OpenAiTagGenerationRequest {
         let songs = resolved_inputs
             .iter()
-            .map(|song| OpenAiTagGenerationSongInput {
-                song_id: song.song_id.clone(),
-                title: song.title.clone(),
-                artist: song.artist.clone(),
-                album: song.album.clone(),
-                source_providers: song.source_providers.clone(),
-                existing_global_tag_names: song.existing_global_tag_names.clone(),
-            })
+            .map(|song| self.build_openai_song_input(song))
             .collect();
 
         OpenAiTagGenerationRequest::builder()
             .songs(songs)
             .requested_tag_count(requested_tag_count)
+            .build()
+    }
+
+    fn build_openai_song_input(
+        &self,
+        resolved_song: &ResolvedTagGenerationSongInput,
+    ) -> OpenAiTagGenerationSongInput {
+        OpenAiTagGenerationSongInput::builder()
+            .song_id(resolved_song.song_id.clone())
+            .title(resolved_song.title.clone().unwrap())
+            .artist(resolved_song.artist.clone().unwrap())
+            .album(resolved_song.album.clone().unwrap())
+            .source_providers(resolved_song.source_providers.clone())
+            .existing_global_tag_names(resolved_song.existing_global_tag_names.clone())
             .build()
     }
 
@@ -205,7 +212,10 @@ impl<C: OpenAiTagGenerator> TagGenerationService<C> {
 
         Ok(resolved)
     }
+
 }
+
+
 
 fn normalize_identifier_list(ids: &[String]) -> Vec<String> {
     let mut seen = HashSet::new();
