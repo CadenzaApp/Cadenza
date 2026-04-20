@@ -1,8 +1,36 @@
 import ExpoModulesCore
+import Foundation
 import MusicKit
 import StoreKit
 
 public class AppleMusicKitModule: Module {
+    private func artworkURLString(from artwork: Artwork?, width: Int = 200, height: Int = 200) -> String {
+        guard let url = artwork?.url(width: width, height: height) else { return "" }
+
+        if let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" {
+            return url.absoluteString
+        }
+
+        guard
+            url.scheme?.lowercased() == "musickit",
+            let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+            let assetPath = components.queryItems?.first(where: { $0.name == "aat" })?.value,
+            !assetPath.isEmpty
+        else {
+            return ""
+        }
+
+        let encodedAssetPath = assetPath
+            .split(separator: "/")
+            .map { segment in
+                String(segment).addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)
+                    ?? String(segment)
+            }
+            .joined(separator: "/")
+
+        return "https://is1-ssl.mzstatic.com/image/thumb/\(encodedAssetPath)/\(width)x\(height)bb.jpg"
+    }
+
     public func definition() -> ModuleDefinition {
         Name("AppleMusicKit")
 
@@ -109,10 +137,10 @@ public class AppleMusicKitModule: Module {
 
             // Format to a JSON-friendly dictionary mapping
             let songs = response.songs.map {
-                ["id": $0.id.rawValue, "title": $0.title, "artistName": $0.artistName, "artworkUrl": $0.artwork?.url(width: 200, height: 200)?.absoluteString ?? ""]
+                ["id": $0.id.rawValue, "title": $0.title, "artistName": $0.artistName, "artworkUrl": artworkURLString(from: $0.artwork)]
             }
             let albums = response.albums.map {
-                ["id": $0.id.rawValue, "title": $0.title, "artistName": $0.artistName, "artworkUrl": $0.artwork?.url(width: 200, height: 200)?.absoluteString ?? ""]
+                ["id": $0.id.rawValue, "title": $0.title, "artistName": $0.artistName, "artworkUrl": artworkURLString(from: $0.artwork)]
             }
 
             return [
@@ -131,7 +159,13 @@ public class AppleMusicKitModule: Module {
             request.limit = 50  // Default mapping for recently played/library
             let response = try await request.response()
             let items = response.items.map {
-                ["id": $0.id.rawValue, "title": $0.title, "artistName": $0.artistName, "artworkUrl": $0.artwork?.url(width: 200, height: 200)?.absoluteString ?? ""]
+                [
+                    "id": $0.id.rawValue,
+                    "title": $0.title,
+                    "artistName": $0.artistName,
+                    "artworkUrl": artworkURLString(from: $0.artwork),
+                    "playbackType": "librarySong",
+                ]
             }
             return ["items": items]
         }
@@ -147,7 +181,7 @@ public class AppleMusicKitModule: Module {
             if let limit = options["limit"] { request.limit = limit }
             let response = try await request.response()
             let items = response.items.map {
-                ["id": $0.id.rawValue, "title": $0.name, "artistName": $0.curatorName, "artworkUrl": $0.artwork?.url(width: 200, height: 200)?.absoluteString ?? ""]
+                ["id": $0.id.rawValue, "title": $0.name, "artistName": $0.curatorName, "artworkUrl": artworkURLString(from: $0.artwork)]
             }
             return ["items": items]
         }
@@ -162,7 +196,13 @@ public class AppleMusicKitModule: Module {
             if let limit = options["limit"] { request.limit = limit }
             let response = try await request.response()
             let items = response.items.map {
-                ["id": $0.id.rawValue, "title": $0.title, "artistName": $0.artistName, "artworkUrl": $0.artwork?.url(width: 200, height: 200)?.absoluteString ?? ""]
+                [
+                    "id": $0.id.rawValue,
+                    "title": $0.title,
+                    "artistName": $0.artistName,
+                    "artworkUrl": artworkURLString(from: $0.artwork),
+                    "playbackType": "librarySong",
+                ]
             }
             return ["items": items]
         }
@@ -190,6 +230,20 @@ public class AppleMusicKitModule: Module {
                 let response = try await request.response()
                 if let song = response.items.first {
                     ApplicationMusicPlayer.shared.queue = [song]
+                }
+            } else if type == "librarySong" {
+                if #available(iOS 16.0, *) {
+                    var request = MusicLibraryRequest<Song>()
+                    request.filter(matching: \.id, equalTo: MusicItemID(id))
+                    request.limit = 1
+                    let response = try await request.response()
+                    if let song = response.items.first {
+                        ApplicationMusicPlayer.shared.queue = [song]
+                    }
+                } else {
+                    throw Exception(
+                        name: "ERR_UNSUPPORTED",
+                        description: "iOS 16.0+ required to play library songs.")
                 }
             } else if type == "playlist" {
                 var request = MusicCatalogResourceRequest<Playlist>(

@@ -237,7 +237,7 @@ class AppleMusicKitModule : Module() {
             when (type.lowercase()) {
                 "album" -> builder.containers(MediaContainerType.ALBUM, id)
                 "playlist" -> builder.containers(MediaContainerType.PLAYLIST, id)
-                "song" -> builder.items(MediaItemType.SONG, id)
+                "song", "librarysong" -> builder.items(MediaItemType.SONG, id)
                 else -> {
                     promise.reject("INVALID_TYPE", "Unsupported queue type: $type", null)
                     return@AsyncFunction
@@ -338,7 +338,8 @@ class AppleMusicKitModule : Module() {
             "id" to playableId,
             "title" to title,
             "artistName" to (attributes?.get("artistName") ?: "Unknown Artist"),
-            "artworkUrl" to (artworkUrl ?: "") // Add to output
+            "artworkUrl" to (artworkUrl ?: ""),
+            "playbackType" to "song"
         )
     }
 

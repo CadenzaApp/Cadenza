@@ -14,6 +14,7 @@ export interface AuthResult {
 
 export enum PlaybackQueueType {
     Song = "song",
+    LibrarySong = "librarySong",
     Album = "album",
     Playlist = "playlist",
     Station = "station",
@@ -28,6 +29,7 @@ export interface MusicItem {
     title: string;
     artistName?: string;
     artworkUrl?: string;
+    playbackType?: PlaybackQueueType;
 }
 
 export interface SearchResult {

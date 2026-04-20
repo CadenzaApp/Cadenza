@@ -103,9 +103,9 @@ export const Player = {
      */
     play: async () => {
         if (!native) return;
+        await native.play();
         isPlaying = true;
         notifyListeners();
-        await native.play();
     },
 
     /**
@@ -113,9 +113,9 @@ export const Player = {
      */
     pause: async () => {
         if (!native) return;
+        await native.pause();
         isPlaying = false;
         notifyListeners();
-        await native.pause();
     },
     /**
      * Pauses playback if already playing and vice versa.
@@ -124,9 +124,9 @@ export const Player = {
      */
     togglePlayerState: async (): Promise<boolean> => {
         if (!native) return false;
+        await native.togglePlayerState();
         isPlaying = !isPlaying;
         notifyListeners();
-        await native.togglePlayerState();
         return isPlaying;
     },
 
@@ -263,9 +263,6 @@ export const MusicKit = {
             console.warn("Playback is not supported in Expo Go.");
             return;
         }
-        // Native iOS auto-plays when a queue is set, so we optimistically update here too
-        isPlaying = true;
-        notifyListeners();
         return native.setPlaybackQueue(id, type);
     },
 };
