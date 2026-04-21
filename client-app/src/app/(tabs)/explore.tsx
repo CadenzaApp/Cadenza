@@ -107,6 +107,11 @@ export default function ExploreScreen() {
         setIsSongDetailModalOpen(true);
     }
 
+    async function handleSongDetailPlay(song: AppleMusicItem) {
+        if (!song.id) return;
+        await handleTogglePlayback(song.id);
+    }
+
     return (
         <View className="flex-1 bg-background pt-16">
             <View className="px-6 mb-4">
@@ -146,6 +151,12 @@ export default function ExploreScreen() {
                 onOpenChange={setIsSongDetailModalOpen}
                 song={selectedSong}
                 tags={selectedSongTags}
+                onTogglePlayback={togglePlayback}
+                isThisTrackPlaying={Boolean(
+                    selectedSong?.id &&
+                    activeTrackId === selectedSong.id &&
+                    isPlaying,
+                )}
             />
         </View>
     );
