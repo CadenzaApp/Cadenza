@@ -16,7 +16,7 @@ pub enum CadenzaError {
     SongAlreadyInLibrary,
     TagAlreadyApplied,
     DatabaseError(String), // generic database error
-    QueryFormatError(String)
+    QueryFormatError(String),
 }
 
 impl CadenzaError {

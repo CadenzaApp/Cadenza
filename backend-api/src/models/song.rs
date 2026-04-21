@@ -151,10 +151,7 @@ mod tests {
             .build()
             .normalized();
 
-        let rock_duplicate = Tag::builder()
-            .name("rock".to_string())
-            .build()
-            .normalized();
+        let rock_duplicate = Tag::builder().name("rock".to_string()).build().normalized();
 
         let spotify_123 = ExternalSource::builder()
             .provider(SourceProvider::Spotify)

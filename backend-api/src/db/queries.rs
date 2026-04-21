@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use sea_orm::prelude::Uuid;
-use sea_orm::{sea_query, DatabaseConnection, FromQueryResult};
+use sea_orm::{DatabaseConnection, FromQueryResult, sea_query};
 use sea_orm::{DbBackend, Statement};
 
 use crate::err::CadenzaError;

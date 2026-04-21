@@ -490,7 +490,6 @@ mod tests {
         ));
     }
 
-
     // ---------------------------------------------------------------------------------------------
     //                This is an actual test that calls the API and will use tokens!!!
     //                   Should not be ran unless you think something is broken!!!

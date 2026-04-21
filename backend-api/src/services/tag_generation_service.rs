@@ -236,7 +236,6 @@ fn resolved_input_from_song(song: &Song) -> ResolvedTagGenerationSongInput {
 
 #[cfg(test)]
 mod tests {
-    use sea_orm::prelude::async_trait::async_trait;
     use super::*;
     use crate::models::metadata::Metadata;
     use crate::models::sources::ExternalSource;
@@ -244,6 +243,7 @@ mod tests {
     use crate::models::tag_generation_model::{
         GeneratedSongTagSuggestions, OpenAiTagGenerationResponse,
     };
+    use sea_orm::prelude::async_trait::async_trait;
 
     #[derive(Debug, Clone)]
     struct TestOpenAiClient {
@@ -336,8 +336,18 @@ mod tests {
             .expect("tag generation should succeed");
 
         assert_eq!(response.songs.len(), 2);
-        assert!(response.songs.iter().any(|song| song.song_id == "song-apple"));
-        assert!(response.songs.iter().any(|song| song.song_id == "song-local"));
+        assert!(
+            response
+                .songs
+                .iter()
+                .any(|song| song.song_id == "song-apple")
+        );
+        assert!(
+            response
+                .songs
+                .iter()
+                .any(|song| song.song_id == "song-local")
+        );
     }
 
     #[tokio::test]

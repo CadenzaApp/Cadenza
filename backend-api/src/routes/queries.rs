@@ -29,7 +29,8 @@ async fn run_json_query_handler(
     Claims { claims, .. }: Claims<SupabaseClaims>,
     json_query: Json<Value>,
 ) -> Result<String, CadenzaError> {
-    let matched_songs_and_tags = db::queries::run_json_query(&db, &json_query, claims.user_id).await?;
+    let matched_songs_and_tags =
+        db::queries::run_json_query(&db, &json_query, claims.user_id).await?;
 
     let mut mentioned_tags = HashSet::new();
     get_mentioned_tags(&json_query, &mut mentioned_tags);
@@ -54,13 +55,16 @@ async fn run_json_query_handler(
     let mut response = json!([]);
     let response_arr = response.as_array_mut().unwrap();
     for song in songs {
-        let tags: Vec<i64> = matched_songs_and_tags.get(&song).unwrap().iter().copied().collect();
-        response_arr.push(
-            json!({
-                "song_id": song,
-                "tags": tags
-            })
-        );
+        let tags: Vec<i64> = matched_songs_and_tags
+            .get(&song)
+            .unwrap()
+            .iter()
+            .copied()
+            .collect();
+        response_arr.push(json!({
+            "song_id": song,
+            "tags": tags
+        }));
     }
 
     Ok(response.to_string())
@@ -75,21 +79,20 @@ fn get_mentioned_tags(query: &Value, out: &mut HashSet<i64>) {
                     get_mentioned_tags(child, out);
                 }
             }
-        },
+        }
         Value::Array(arr) => {
             for child in arr {
                 get_mentioned_tags(child, out);
             }
-        },
+        }
         Value::Number(tag_id) => {
             if let Some(tag_id) = tag_id.as_i64() {
                 out.insert(tag_id);
             }
-        },
+        }
         _ => {}
     }
 }
-
 
 pub fn get_queries_router() -> Router<AppState> {
     Router::new().route("/", post(run_json_query_handler))
