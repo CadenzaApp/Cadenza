@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAppleMusic } from "@/lib/apple-music";
 
 export default function AccountScreen() {
-    const { authResult, connect, disconnect } = useAppleMusic();
+    const { authResult, isConnected, connect, disconnect } = useAppleMusic();
     const [isLoading, setIsLoading] = useState(false);
 
     const hasAuthState = authResult !== null;
@@ -27,8 +27,9 @@ export default function AccountScreen() {
                         );
                     } else {
                         Alert.alert(
-                            "Authorized",
-                            result.error ?? "No user token was returned.",
+                            "Not Connected",
+                            result.error ??
+                                "Apple Music authorized access but did not return a user token. Please try connecting again.",
                         );
                     }
                     break;
@@ -53,6 +54,7 @@ export default function AccountScreen() {
                     break;
             }
         } catch (error) {
+            console.error("Apple Music connection error:", error);
             Alert.alert(
                 "Error",
                 "An unexpected error occurred. Please try again.",
@@ -88,7 +90,7 @@ export default function AccountScreen() {
             case AuthStatus.Authorized:
                 return result.userToken
                     ? "Connected ✓"
-                    : "Authorized (no token)";
+                    : "Not Connected (no token)";
             case AuthStatus.Denied:
                 return "Access Denied";
             case AuthStatus.Restricted:
@@ -130,7 +132,7 @@ export default function AccountScreen() {
                             <Text className="text-base font-medium text-foreground">
                                 Apple Music
                             </Text>
-                            {authResult !== null && (
+                            {hasAuthState && (
                                 <Text
                                     className={`mt-1 text-sm ${statusColorClass(authResult)}`}
                                 >
@@ -139,16 +141,14 @@ export default function AccountScreen() {
                             )}
                         </View>
 
-                        {hasAuthState ? (
+                        {isConnected ? (
                             <Button
                                 onPress={handleDisconnect}
                                 variant="outline"
                                 size="sm"
                             >
                                 <Text className="text-destructive">
-                                    {authResult.status === AuthStatus.Authorized
-                                        ? "Sign Out"
-                                        : "Clear Status"}
+                                    Sign Out
                                 </Text>
                             </Button>
                         ) : (
