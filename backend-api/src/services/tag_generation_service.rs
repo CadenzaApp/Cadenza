@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use crate::models::song::Song;
 use crate::models::sources::SourceProvider;
@@ -32,6 +32,16 @@ impl<C: OpenAiTagGenerator> TagGenerationService<C> {
         }
     }
 
+    pub fn with_default_requested_tag_count(
+        openai_client: C,
+        default_requested_tag_count: usize,
+    ) -> Self {
+        Self {
+            openai_client,
+            default_requested_tag_count,
+        }
+    }
+
     fn resolve_requested_tag_count(
         &self,
         request: &TagGenerationBatchRequest,
@@ -48,31 +58,19 @@ impl<C: OpenAiTagGenerator> TagGenerationService<C> {
             .unwrap_or(self.default_requested_tag_count))
     }
 
-    pub fn with_default_requested_tag_count(
-        openai_client: C,
-        default_requested_tag_count: usize,
-    ) -> Self {
-        Self {
-            openai_client,
-            default_requested_tag_count,
-        }
-    }
-
-    pub fn generate_tags_for_songs(
+    pub async fn generate_tags_for_songs(
         &self,
         request: TagGenerationBatchRequest,
         canonical_songs: &[Song],
     ) -> Result<TagGenerationBatchResponse, TagGenerationServiceError> {
-        let requested_tag_count = request
-            .requested_tag_count
-            .unwrap_or(self.default_requested_tag_count);
-
+        let requested_tag_count = self.resolve_requested_tag_count(&request)?;
         let resolved_inputs = self.resolve_requested_songs(&request, canonical_songs)?;
         let openai_request = self.build_openai_request(&resolved_inputs, requested_tag_count);
 
         let openai_response = self
             .openai_client
             .generate_tag_suggestions(openai_request)
+            .await
             .map_err(TagGenerationServiceError::OpenAi)?;
 
         let mut by_song_id: HashMap<String, Vec<String>> = HashMap::new();
@@ -128,9 +126,9 @@ impl<C: OpenAiTagGenerator> TagGenerationService<C> {
     ) -> OpenAiTagGenerationSongInput {
         OpenAiTagGenerationSongInput::builder()
             .song_id(resolved_song.song_id.clone())
-            .title(resolved_song.title.clone().unwrap())
-            .artist(resolved_song.artist.clone().unwrap())
-            .album(resolved_song.album.clone().unwrap())
+            .maybe_title(resolved_song.title.clone())
+            .maybe_artist(resolved_song.artist.clone())
+            .maybe_album(resolved_song.album.clone())
             .source_providers(resolved_song.source_providers.clone())
             .existing_global_tag_names(resolved_song.existing_global_tag_names.clone())
             .build()
@@ -212,27 +210,6 @@ impl<C: OpenAiTagGenerator> TagGenerationService<C> {
 
         Ok(resolved)
     }
-
-}
-
-
-
-fn normalize_identifier_list(ids: &[String]) -> Vec<String> {
-    let mut seen = HashSet::new();
-    let mut normalized_ids = Vec::new();
-
-    for raw in ids {
-        let normalized = raw.trim();
-        if normalized.is_empty() {
-            continue;
-        }
-
-        if seen.insert(normalized.to_string()) {
-            normalized_ids.push(normalized.to_string());
-        }
-    }
-
-    normalized_ids
 }
 
 fn resolved_input_from_song(song: &Song) -> ResolvedTagGenerationSongInput {
@@ -259,6 +236,7 @@ fn resolved_input_from_song(song: &Song) -> ResolvedTagGenerationSongInput {
 
 #[cfg(test)]
 mod tests {
+    use sea_orm::prelude::async_trait::async_trait;
     use super::*;
     use crate::models::metadata::Metadata;
     use crate::models::sources::ExternalSource;
@@ -272,8 +250,9 @@ mod tests {
         suggestions: Vec<GeneratedSongTagSuggestions>,
     }
 
+    #[async_trait]
     impl OpenAiTagGenerator for TestOpenAiClient {
-        fn generate_tag_suggestions(
+        async fn generate_tag_suggestions(
             &self,
             _request: OpenAiTagGenerationRequest,
         ) -> Result<OpenAiTagGenerationResponse, OpenAiClientError> {
@@ -304,8 +283,8 @@ mod tests {
             .normalized()
     }
 
-    #[test]
-    fn service_generates_tags_for_small_batch_and_maps_to_internal_song_ids() {
+    #[tokio::test]
+    async fn service_generates_tags_for_small_batch_and_maps_to_internal_song_ids() {
         let apple_song = song_with_apple_source("am-111");
         let local_song = Song::builder()
             .song_id("song-local".to_string())
@@ -353,25 +332,16 @@ mod tests {
                     .build(),
                 &[apple_song, local_song],
             )
+            .await
             .expect("tag generation should succeed");
 
         assert_eq!(response.songs.len(), 2);
-        assert!(
-            response
-                .songs
-                .iter()
-                .any(|song| song.song_id == "song-apple")
-        );
-        assert!(
-            response
-                .songs
-                .iter()
-                .any(|song| song.song_id == "song-local")
-        );
+        assert!(response.songs.iter().any(|song| song.song_id == "song-apple"));
+        assert!(response.songs.iter().any(|song| song.song_id == "song-local"));
     }
 
-    #[test]
-    fn service_filters_existing_tags_and_normalized_duplicates() {
+    #[tokio::test]
+    async fn service_filters_existing_tags_and_normalized_duplicates() {
         let apple_song = song_with_apple_source("am-111");
         let client = TestOpenAiClient {
             suggestions: vec![
@@ -403,6 +373,7 @@ mod tests {
                     .build(),
                 &[apple_song],
             )
+            .await
             .expect("tag generation should succeed");
 
         assert_eq!(response.songs.len(), 1);

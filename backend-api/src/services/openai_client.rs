@@ -1,11 +1,16 @@
 use crate::models::tag_generation_model::{
-    GeneratedSongTagSuggestions, OpenAiTagGenerationRequest, OpenAiTagGenerationResponse,
+    OpenAiTagGenerationRequest, OpenAiTagGenerationResponse,
 };
 use dotenvy::dotenv;
-use std::env;
+use reqwest::Client;
+use sea_orm::prelude::async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
+use std::env;
+use std::time::Duration;
 
+const OPENAI_CHAT_COMPLETIONS_URL: &str = "https://api.openai.com/v1/chat/completions";
+const OPENAI_HTTP_TIMEOUT_SECS: u64 = 20;
 const TAG_GENERATION_SYSTEM_PROMPT: &str = r#"You generate concise music tags for songs.
 Rules:
 - Use only the provided song metadata and existing tags.
@@ -22,48 +27,106 @@ Rules:
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OpenAiClientError {
     EmptyRequest,
+    HttpClientBuildFailed { message: String },
+    RequestSendFailed { message: String },
+    ResponseBodyReadFailed { message: String },
+    NonSuccessStatusCode { status_code: u16, body: String },
+    ResponseJsonParseFailed { message: String },
+    MissingResponseContent,
+    ModelContentDeserializationFailed { message: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OpenAiApiKeyError {
     OpenAiApiKeyMissing,
+    HttpClientBuildFailed { message: String },
 }
 
+#[async_trait]
 pub trait OpenAiTagGenerator {
-    fn generate_tag_suggestions(
+    async fn generate_tag_suggestions(
         &self,
         request: OpenAiTagGenerationRequest,
     ) -> Result<OpenAiTagGenerationResponse, OpenAiClientError>;
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct OpenAiClient {
     model: String,
     api_key: String,
+    http_client: Client,
 }
 
 impl OpenAiClient {
-    fn new(api_key: impl Into<String>, model: impl Into<String>) -> Self {
-        Self {
+    pub fn new(
+        api_key: impl Into<String>,
+        model: impl Into<String>,
+    ) -> Result<Self, OpenAiClientError> {
+        let http_client = build_http_client()
+            .map_err(|message| OpenAiClientError::HttpClientBuildFailed { message })?;
+
+        Ok(Self {
             api_key: api_key.into(),
             model: model.into(),
-        }
+            http_client,
+        })
     }
 
     pub fn model(&self) -> &str {
         &self.model
     }
-}
 
-impl OpenAiClient {
     pub fn from_env() -> Result<Self, OpenAiApiKeyError> {
         let api_key = load_api_from_env()?;
-        Ok(Self::new(api_key, "gpt-4o-mini"))
+        let http_client = build_http_client()
+            .map_err(|message| OpenAiApiKeyError::HttpClientBuildFailed { message })?;
+
+        Ok(Self {
+            api_key,
+            model: "gpt-4o-mini".to_string(),
+            http_client,
+        })
+    }
+
+    async fn send_chat_completions_request(
+        &self,
+        outbound_request: &ChatCompletionsRequest,
+    ) -> Result<String, OpenAiClientError> {
+        let response = self
+            .http_client
+            .post(OPENAI_CHAT_COMPLETIONS_URL)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("Content-Type", "application/json")
+            .json(outbound_request)
+            .send()
+            .await
+            .map_err(|err| OpenAiClientError::RequestSendFailed {
+                message: err.to_string(),
+            })?;
+
+        let status = response.status();
+        let body =
+            response
+                .text()
+                .await
+                .map_err(|err| OpenAiClientError::ResponseBodyReadFailed {
+                    message: err.to_string(),
+                })?;
+
+        if !status.is_success() {
+            return Err(OpenAiClientError::NonSuccessStatusCode {
+                status_code: status.as_u16(),
+                body,
+            });
+        }
+
+        Ok(body)
     }
 }
 
+#[async_trait]
 impl OpenAiTagGenerator for OpenAiClient {
-    fn generate_tag_suggestions(
+    async fn generate_tag_suggestions(
         &self,
         request: OpenAiTagGenerationRequest,
     ) -> Result<OpenAiTagGenerationResponse, OpenAiClientError> {
@@ -71,47 +134,31 @@ impl OpenAiTagGenerator for OpenAiClient {
             return Err(OpenAiClientError::EmptyRequest);
         }
 
-        // Stubbed LLM response for initial backend architecture wiring.
-        // This intentionally stays thin and transport-focused; business cleanup
-        // is handled in tag_normalizer + tag_generation_service.
-        let mut suggestions = Vec::with_capacity(request.songs.len());
-        for song in request.songs {
-            let mut generated = Vec::new();
+        let outbound_request = build_chat_completions_request(&self.model, &request);
+        let raw_response_body = self
+            .send_chat_completions_request(&outbound_request)
+            .await?;
 
-            if let Some(artist) = song.artist {
-                generated.push(artist);
-            }
-            if let Some(album) = song.album {
-                generated.push(album);
-            }
-            if let Some(title) = song.title {
-                generated.push(title);
-            }
-
-            generated.truncate(request.requested_tag_count);
-
-            suggestions.push(
-                GeneratedSongTagSuggestions::builder()
-                    .song_id(song.song_id)
-                    .suggested_tags(generated)
-                    .build(),
-            );
-        }
-
-        Ok(OpenAiTagGenerationResponse::builder()
-            .suggestions(suggestions)
-            .build())
+        parse_openai_tag_generation_response(&raw_response_body)
     }
 }
 
 pub fn load_api_from_env() -> Result<String, OpenAiApiKeyError> {
     dotenv().ok();
+
     let api_key = match env::var("OPENAI_API_KEY") {
         Ok(value) if !value.trim().is_empty() => value,
         _ => return Err(OpenAiApiKeyError::OpenAiApiKeyMissing),
     };
 
     Ok(api_key)
+}
+
+fn build_http_client() -> Result<Client, String> {
+    Client::builder()
+        .timeout(Duration::from_secs(OPENAI_HTTP_TIMEOUT_SECS))
+        .build()
+        .map_err(|err| err.to_string())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -139,6 +186,22 @@ struct JsonSchemaConfig {
     name: String,
     strict: bool,
     schema: Value,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAiChatCompletionsResponse {
+    #[serde(default)]
+    choices: Vec<OpenAiChatCompletionChoice>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAiChatCompletionChoice {
+    message: Option<OpenAiChatCompletionMessage>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAiChatCompletionMessage {
+    content: Option<String>,
 }
 
 fn build_tag_generation_user_payload(request: &OpenAiTagGenerationRequest) -> Value {
@@ -221,6 +284,36 @@ fn build_chat_completions_request(
     }
 }
 
+fn parse_openai_tag_generation_response(
+    raw_response_body: &str,
+) -> Result<OpenAiTagGenerationResponse, OpenAiClientError> {
+    let raw_response: OpenAiChatCompletionsResponse = serde_json::from_str(raw_response_body)
+        .map_err(|err| OpenAiClientError::ResponseJsonParseFailed {
+            message: err.to_string(),
+        })?;
+
+    let model_content = extract_model_content(&raw_response)?;
+
+    serde_json::from_str::<OpenAiTagGenerationResponse>(model_content).map_err(|err| {
+        OpenAiClientError::ModelContentDeserializationFailed {
+            message: err.to_string(),
+        }
+    })
+}
+
+fn extract_model_content(
+    response: &OpenAiChatCompletionsResponse,
+) -> Result<&str, OpenAiClientError> {
+    response
+        .choices
+        .first()
+        .and_then(|choice| choice.message.as_ref())
+        .and_then(|message| message.content.as_deref())
+        .map(str::trim)
+        .filter(|content| !content.is_empty())
+        .ok_or(OpenAiClientError::MissingResponseContent)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -229,32 +322,9 @@ mod tests {
 
     #[test]
     fn default_client_uses_expected_model_name() {
-        let client = OpenAiClient::new("fake_key", "gpt-4o-mini");
+        let client = OpenAiClient::new("fake_key", "gpt-4o-mini")
+            .expect("client should build with default settings");
         assert_eq!(client.model(), "gpt-4o-mini");
-    }
-
-    #[test]
-    fn stub_returns_response_mapped_by_song_id() {
-        let client = OpenAiClient::new("fake_key", "gpt-4o-mini");
-        let request = OpenAiTagGenerationRequest::builder()
-            .requested_tag_count(2)
-            .songs(vec![
-                OpenAiTagGenerationSongInput::builder()
-                    .song_id("song-1".to_string())
-                    .title("Numb".to_string())
-                    .artist("Linkin Park".to_string())
-                    .source_providers(vec![SourceProvider::AppleMusic])
-                    .build(),
-            ])
-            .build();
-
-        let response = client
-            .generate_tag_suggestions(request)
-            .expect("stub should generate");
-
-        assert_eq!(response.suggestions.len(), 1);
-        assert_eq!(response.suggestions[0].song_id, "song-1");
-        assert_eq!(response.suggestions[0].suggested_tags.len(), 2);
     }
 
     #[test]
@@ -319,34 +389,104 @@ mod tests {
         assert_eq!(outbound.model, "gpt-4o-mini");
         assert_eq!(outbound.messages.len(), 2);
         assert_eq!(outbound.messages[0].role, "developer");
-        assert!(outbound.messages[0].content.contains("You generate concise music tags"));
+        assert!(
+            outbound.messages[0]
+                .content
+                .contains("You generate concise music tags")
+        );
         assert_eq!(outbound.messages[1].role, "user");
+        assert!(
+            outbound.messages[1]
+                .content
+                .contains("\"requested_tag_count\":3")
+        );
+        assert!(
+            outbound.messages[1]
+                .content
+                .contains("\"song_id\":\"song-1\"")
+        );
         assert_eq!(outbound.response_format.format_type, "json_schema");
-        assert_eq!(outbound.response_format.json_schema.name, "tag_generation_response");
+        assert_eq!(
+            outbound.response_format.json_schema.name,
+            "tag_generation_response"
+        );
         assert!(outbound.response_format.json_schema.strict);
     }
 
     #[test]
-    fn chat_completions_request_serializes_cleanly() {
-        let request = OpenAiTagGenerationRequest::builder()
-            .requested_tag_count(2)
-            .songs(vec![
-                OpenAiTagGenerationSongInput::builder()
-                    .song_id("song-1".to_string())
-                    .title("Numb".to_string())
-                    .artist("Linkin Park".to_string())
-                    .build(),
-            ])
-            .build();
+    fn parser_converts_valid_raw_openai_response() {
+        let content = json!({
+            "suggestions": [
+                {
+                    "song_id": "song-1",
+                    "suggested_tags": ["alt rock", "energetic"]
+                }
+            ]
+        })
+        .to_string();
 
-        let outbound = build_chat_completions_request("gpt-4o-mini", &request);
-        let serialized = serde_json::to_string(&outbound).expect("request should serialize");
+        let raw_response = json!({
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": content
+                    }
+                }
+            ]
+        })
+        .to_string();
 
-        assert!(serialized.contains("\"model\":\"gpt-4o-mini\""));
-        assert!(serialized.contains("\"response_format\""));
-        assert!(serialized.contains("\"json_schema\""));
+        let parsed = parse_openai_tag_generation_response(&raw_response)
+            .expect("parser should convert valid response");
 
-        let user_message = &outbound.messages[1].content;
-        assert!(user_message.contains("\"song_id\":\"song-1\""));
+        assert_eq!(parsed.suggestions.len(), 1);
+        assert_eq!(parsed.suggestions[0].song_id, "song-1");
+        assert_eq!(
+            parsed.suggestions[0].suggested_tags,
+            vec!["alt rock".to_string(), "energetic".to_string()]
+        );
+    }
+
+    #[test]
+    fn parser_returns_error_when_content_is_missing() {
+        let raw_response = json!({
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant"
+                    }
+                }
+            ]
+        })
+        .to_string();
+
+        let err = parse_openai_tag_generation_response(&raw_response)
+            .expect_err("missing content should return an error");
+
+        assert_eq!(err, OpenAiClientError::MissingResponseContent);
+    }
+
+    #[test]
+    fn parser_returns_error_when_content_is_not_valid_target_json() {
+        let raw_response = json!({
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": "not valid json"
+                    }
+                }
+            ]
+        })
+        .to_string();
+
+        let err = parse_openai_tag_generation_response(&raw_response)
+            .expect_err("invalid model content should fail to deserialize");
+
+        assert!(matches!(
+            err,
+            OpenAiClientError::ModelContentDeserializationFailed { .. }
+        ));
     }
 }
