@@ -18,39 +18,6 @@ const DUMMY_TAGS: Tag[] = [
     {id: "4", name: "focus", color: "#25924f"},
 ];
 
-function colorToTransparent(color: string) {
-    const value = color.trim();
-
-    if (value.startsWith("#")) {
-        const hex = value.slice(1);
-
-        if (hex.length === 3) {
-            const r = parseInt(hex[0] + hex[0], 16);
-            const g = parseInt(hex[1] + hex[1], 16);
-            const b = parseInt(hex[2] + hex[2], 16);
-            return `rgba(${r}, ${g}, ${b}, 0)`;
-        }
-
-        if (hex.length === 6) {
-            const r = parseInt(hex.slice(0, 2), 16);
-            const g = parseInt(hex.slice(2, 4), 16);
-            const b = parseInt(hex.slice(4, 6), 16);
-            return `rgba(${r}, ${g}, ${b}, 0)`;
-        }
-    }
-
-    const rgbMatch = value.match(
-        /^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)(?:\s*,\s*[\d.]+\s*)?\)$/i,
-    );
-
-    if (rgbMatch) {
-        const [, r, g, b] = rgbMatch;
-        return `rgba(${r}, ${g}, ${b}, 0)`;
-    }
-
-    return value;
-}
-
 type MusicItemProps = {
     item: AppleMusicItem;
     isThisTrackPlaying: boolean;
