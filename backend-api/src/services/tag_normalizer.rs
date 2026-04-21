@@ -43,6 +43,35 @@ pub fn normalize_generated_tags_for_song(
     output
 }
 
+pub fn normalize_existing_tags_for_prompt(
+    existing_global_tag_names: &[String],
+    max_tags: usize,
+) -> Vec<String> {
+    if max_tags == 0 {
+        return Vec::new();
+    }
+
+    let mut seen = HashSet::new();
+    let mut output = Vec::new();
+
+    for raw_tag in existing_global_tag_names {
+        let Some(normalized) = normalize_tag_name(raw_tag) else {
+            continue;
+        };
+
+        if !seen.insert(normalized.clone()) {
+            continue;
+        }
+
+        output.push(normalized);
+        if output.len() >= max_tags {
+            break;
+        }
+    }
+
+    output
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -92,5 +121,42 @@ mod tests {
 
         let result = normalize_generated_tags_for_song(&generated, &[], Some(2));
         assert_eq!(result, vec!["rock".to_string(), "synth pop".to_string()]);
+    }
+
+    #[test]
+    fn normalize_existing_tags_for_prompt_drops_empty_and_deduplicates() {
+        let existing = vec![
+            "  alt   rock ".to_string(),
+            "".to_string(),
+            "ALT ROCK".to_string(),
+            "  ".to_string(),
+            "dream pop".to_string(),
+        ];
+
+        let result = normalize_existing_tags_for_prompt(&existing, 25);
+        assert_eq!(
+            result,
+            vec!["alt rock".to_string(), "dream pop".to_string()]
+        );
+    }
+
+    #[test]
+    fn normalize_existing_tags_for_prompt_caps_to_max_count() {
+        let existing = vec![
+            "rock".to_string(),
+            "indie".to_string(),
+            "shoegaze".to_string(),
+        ];
+
+        let result = normalize_existing_tags_for_prompt(&existing, 2);
+        assert_eq!(result, vec!["rock".to_string(), "indie".to_string()]);
+    }
+
+    #[test]
+    fn normalize_existing_tags_for_prompt_passes_small_lists_through() {
+        let existing = vec!["jazz".to_string(), "evening".to_string()];
+
+        let result = normalize_existing_tags_for_prompt(&existing, 25);
+        assert_eq!(result, vec!["jazz".to_string(), "evening".to_string()]);
     }
 }

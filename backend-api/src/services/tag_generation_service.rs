@@ -4,9 +4,12 @@ use crate::models::song::Song;
 use crate::models::sources::SourceProvider;
 use crate::models::tag_generation_model::*;
 use crate::services::openai_client::{OpenAiClientError, OpenAiTagGenerator};
-use crate::services::tag_normalizer::normalize_generated_tags_for_song;
+use crate::services::tag_normalizer::{
+    normalize_existing_tags_for_prompt, normalize_generated_tags_for_song,
+};
 
 const DEFAULT_REQUESTED_TAG_COUNT: usize = 5;
+const MAX_EXISTING_TAGS_IN_PROMPT: usize = 25;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TagGenerationServiceError {
@@ -124,13 +127,18 @@ impl<C: OpenAiTagGenerator> TagGenerationService<C> {
         &self,
         resolved_song: &ResolvedTagGenerationSongInput,
     ) -> OpenAiTagGenerationSongInput {
+        let existing_global_tag_names = normalize_existing_tags_for_prompt(
+            &resolved_song.existing_global_tag_names,
+            MAX_EXISTING_TAGS_IN_PROMPT,
+        );
+
         OpenAiTagGenerationSongInput::builder()
             .song_id(resolved_song.song_id.clone())
             .maybe_title(resolved_song.title.clone())
             .maybe_artist(resolved_song.artist.clone())
             .maybe_album(resolved_song.album.clone())
             .source_providers(resolved_song.source_providers.clone())
-            .existing_global_tag_names(resolved_song.existing_global_tag_names.clone())
+            .existing_global_tag_names(existing_global_tag_names)
             .build()
     }
 
@@ -390,6 +398,92 @@ mod tests {
         assert_eq!(
             response.songs[0].suggested_tags,
             vec!["alt rock".to_string()]
+        );
+    }
+
+    #[test]
+    fn openai_song_input_drops_empty_existing_tags() {
+        let service = TagGenerationService::new(TestOpenAiClient {
+            suggestions: Vec::new(),
+        });
+
+        let resolved_song = ResolvedTagGenerationSongInput::builder()
+            .song_id("song-1".to_string())
+            .existing_global_tag_names(vec!["".to_string(), "   ".to_string(), "indie".to_string()])
+            .build();
+
+        let openai_song = service.build_openai_song_input(&resolved_song);
+
+        assert_eq!(
+            openai_song.existing_global_tag_names,
+            vec!["indie".to_string()]
+        );
+    }
+
+    #[test]
+    fn openai_song_input_deduplicates_existing_tags() {
+        let service = TagGenerationService::new(TestOpenAiClient {
+            suggestions: Vec::new(),
+        });
+
+        let resolved_song = ResolvedTagGenerationSongInput::builder()
+            .song_id("song-1".to_string())
+            .existing_global_tag_names(vec![
+                "Alt   Rock".to_string(),
+                " alt rock ".to_string(),
+                "dream pop".to_string(),
+            ])
+            .build();
+
+        let openai_song = service.build_openai_song_input(&resolved_song);
+
+        assert_eq!(
+            openai_song.existing_global_tag_names,
+            vec!["alt rock".to_string(), "dream pop".to_string()]
+        );
+    }
+
+    #[test]
+    fn openai_song_input_caps_existing_tags_at_prompt_limit() {
+        let service = TagGenerationService::new(TestOpenAiClient {
+            suggestions: Vec::new(),
+        });
+
+        let existing_global_tag_names: Vec<String> = (1..=40).map(|i| format!("Tag {i}")).collect();
+        let resolved_song = ResolvedTagGenerationSongInput::builder()
+            .song_id("song-1".to_string())
+            .existing_global_tag_names(existing_global_tag_names)
+            .build();
+
+        let openai_song = service.build_openai_song_input(&resolved_song);
+
+        assert_eq!(
+            openai_song.existing_global_tag_names.len(),
+            MAX_EXISTING_TAGS_IN_PROMPT
+        );
+        assert_eq!(openai_song.existing_global_tag_names[0], "tag 1");
+        assert_eq!(
+            openai_song.existing_global_tag_names[MAX_EXISTING_TAGS_IN_PROMPT - 1],
+            "tag 25"
+        );
+    }
+
+    #[test]
+    fn openai_song_input_keeps_small_existing_tags_list() {
+        let service = TagGenerationService::new(TestOpenAiClient {
+            suggestions: Vec::new(),
+        });
+
+        let resolved_song = ResolvedTagGenerationSongInput::builder()
+            .song_id("song-1".to_string())
+            .existing_global_tag_names(vec!["Jazz".to_string(), " evening ".to_string()])
+            .build();
+
+        let openai_song = service.build_openai_song_input(&resolved_song);
+
+        assert_eq!(
+            openai_song.existing_global_tag_names,
+            vec!["jazz".to_string(), "evening".to_string()]
         );
     }
 }
