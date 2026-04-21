@@ -1,5 +1,5 @@
 import {useState} from "react";
-import {View, Image, ScrollView} from "react-native";
+import {View, Image, ScrollView, Pressable} from "react-native";
 import {MusicItem as AppleMusicItem} from "@apple-musickit";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import Svg, {Defs, LinearGradient as SvgGradient, Rect, Stop} from "react-native-svg";
@@ -23,6 +23,7 @@ type MusicItemProps = {
     isThisTrackPlaying: boolean;
     onTogglePlayback: (trackId: string) => void;
     tags?: Tag[];
+    onPress?: (item: AppleMusicItem, tags: Tag[]) => void;
 };
 
 export function MusicListItem({
@@ -30,6 +31,7 @@ export function MusicListItem({
                                   isThisTrackPlaying,
                                   onTogglePlayback,
                                   tags = DUMMY_TAGS,
+                                  onPress,
                               }: MusicItemProps) {
     const {colors} = useTheme();
     const [artworkFailed, setArtworkFailed] = useState(false);
@@ -42,7 +44,12 @@ export function MusicListItem({
 
     return (
         <View className="flex-row items-center justify-between py-3 border-b border-border">
-            <View className="flex-1 flex-row items-center mr-3 overflow-hidden">
+            <Pressable
+                className="flex-1 flex-row items-center mr-3 overflow-hidden"
+                onPress={() => onPress?.(item, tags)}
+                disabled={!onPress}
+                style={({pressed}) => (pressed ? {opacity: 0.85} : undefined)}
+            >
                 {canRenderArtwork ? (
                     <Image
                         source={{uri: artworkUrl}}
@@ -108,7 +115,7 @@ export function MusicListItem({
                         </View>
                     )}
                 </View>
-            </View>
+            </Pressable>
 
             <Button
                 size="icon"

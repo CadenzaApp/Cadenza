@@ -5,8 +5,10 @@ import {MusicKit, MusicItem as AppleMusicItem} from "@apple-musickit";
 import {Button} from "@/components/ui/button";
 import {Text} from "@/components/ui/text";
 import {MusicList} from "@/components/custom/music-list";
+import {SongDetailModal} from "@/components/custom/song-detail-modal";
 import {usePlayback} from "@/lib/playback";
 import {useAppleMusic} from "@/lib/apple-music";
+import {Tag} from "@/types/tag-types";
 
 function getErrorDetails(error: unknown) {
     if (error instanceof Error) {
@@ -44,6 +46,9 @@ export default function ExploreScreen() {
     const [tracks, setTracks] = useState<AppleMusicItem[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [selectedSong, setSelectedSong] = useState<AppleMusicItem | null>(null);
+    const [selectedSongTags, setSelectedSongTags] = useState<Tag[]>([]);
+    const [isSongDetailModalOpen, setIsSongDetailModalOpen] = useState(false);
 
     const {isInitializing, isConnected, ensureConnected} = useAppleMusic();
     const {activeTrackId, isPlaying, togglePlayback} = usePlayback();
@@ -96,6 +101,12 @@ export default function ExploreScreen() {
         }
     }
 
+    function handleTrackSelected(track: AppleMusicItem, tags: Tag[]) {
+        setSelectedSong(track);
+        setSelectedSongTags(tags);
+        setIsSongDetailModalOpen(true);
+    }
+
     return (
         <View className="flex-1 bg-background pt-16">
             <View className="px-6 mb-4">
@@ -127,6 +138,14 @@ export default function ExploreScreen() {
                 activeTrackId={activeTrackId}
                 isPlaying={isPlaying}
                 onTogglePlayback={handleTogglePlayback}
+                onSelectTrack={handleTrackSelected}
+            />
+
+            <SongDetailModal
+                open={isSongDetailModalOpen}
+                onOpenChange={setIsSongDetailModalOpen}
+                song={selectedSong}
+                tags={selectedSongTags}
             />
         </View>
     );

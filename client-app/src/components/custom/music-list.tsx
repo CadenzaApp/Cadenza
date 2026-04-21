@@ -1,6 +1,7 @@
 import { FlatList } from "react-native";
 import { MusicItem as AppleMusicItem } from "@apple-musickit";
 import { Text } from "@/components/ui/text";
+import { Tag } from "@/types/tag-types";
 import { MusicListItem } from "./music-list-item";
 
 type MusicListProps = {
@@ -9,6 +10,7 @@ type MusicListProps = {
     activeTrackId: string | null;
     isPlaying: boolean;
     onTogglePlayback: (trackId: string) => void;
+    onSelectTrack?: (track: AppleMusicItem, tags: Tag[]) => void;
 };
 
 export function MusicList({
@@ -17,6 +19,7 @@ export function MusicList({
     activeTrackId,
     isPlaying,
     onTogglePlayback,
+    onSelectTrack,
 }: MusicListProps) {
     return (
         <FlatList
@@ -27,6 +30,7 @@ export function MusicList({
                     item={item}
                     isThisTrackPlaying={activeTrackId === item.id && isPlaying}
                     onTogglePlayback={onTogglePlayback}
+                    onPress={onSelectTrack}
                 />
             )}
             contentContainerClassName="px-6 pb-10"
