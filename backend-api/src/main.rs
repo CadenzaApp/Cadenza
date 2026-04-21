@@ -4,6 +4,7 @@ mod models;
 mod routes;
 mod err;
 
+use axum::routing::get;
 use axum::{Router, extract::FromRef};
 
 use axum_jwt_auth::Decoder;
@@ -14,7 +15,7 @@ use std::net::SocketAddr;
 
 use crate::{
     auth::{SupabaseClaims, new_jwt_decoder},
-    routes::{queries::get_queries_router, songs::get_songs_router, tags::get_tagging_router},
+    routes::{queries::get_queries_router, tags::get_tags_router},
 };
 
 #[derive(Clone, FromRef)]
@@ -41,13 +42,13 @@ async fn main() {
 
     // route paths
     let app = Router::new()
-        .nest("/songs", get_songs_router())
-        .nest("/tags", get_tagging_router())
+        .nest("/tags", get_tags_router())
         .nest("/queries", get_queries_router())
+        .route("/test", get(async || "hello from server"))
         .with_state(app_state);
 
     // show time baby
-    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
+    let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
     println!("Running on http://{}", addr);
 
     axum_server::bind(addr)

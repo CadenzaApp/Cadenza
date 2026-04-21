@@ -2,6 +2,8 @@ import { createContext, useContext, useState, useEffect, ReactNode } from 'react
 import { supabase } from '@/lib/supabase';
 import { useAccount } from '@/lib/account';
 import { Tag } from '@/types/tag-types';
+import query from '@/app/(tabs)/query';
+import { BACKEND_URL } from './backend';
 
 ////////////////////////////////////////////////////////////////////////////////////
 // Note: most of this file is boilerplate that react requires
@@ -37,6 +39,7 @@ export function TagsProvider({ children }: { children: ReactNode }) {
       setError(null);
 
       try {
+            // TODO: create backend api endpoint for this
         const { data, error: dbError } = await supabase
           .from('tags')
           .select('tag_id, name, color')
@@ -56,7 +59,21 @@ export function TagsProvider({ children }: { children: ReactNode }) {
     fetchTags();
   }, [account?.id]);
 
-  function addTag(tag: Tag) {
+  async function addTag(tag: Tag, accessToken: string) {
+
+    const resp = await fetch(`${BACKEND_URL}/queries`, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${accessToken}`
+        },
+    });
+    const json = await resp.json();
+
+    if (!resp.ok) {
+        throw json;
+    }
+
     setTags((prev) => [...prev, tag]);
   }
 

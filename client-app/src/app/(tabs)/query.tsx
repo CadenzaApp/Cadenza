@@ -5,11 +5,21 @@ import { QueryBuilder } from "../../features/query-builder/QueryBuilder";
 import { useAccount } from "@/lib/account";
 import { useTags } from "@/lib/tags";
 import { Text } from "@/components/ui/text";
-import { Redirect } from "expo-router";
+import { Redirect, useRouter } from "expo-router";
+import { QuerySongsApiResult } from "@/features/query-builder/types";
+import { usePlayback } from "@/lib/playback";
 
-export default function QueryBuilderDemo() {
+export default function QueryScreen() {
     const { account } = useAccount();
     const { tags, loading, error } = useTags();
+    const { setTrackQueue } = usePlayback();
+    const router = useRouter();
+
+
+    function onQueryReturn(matchedSongs: QuerySongsApiResult) {
+        setTrackQueue(matchedSongs.map((item) => item.song_id.toString()));
+        router.replace("/player");
+    }
 
     if (!account) return <Redirect href="/auth?initialMode=signin" />;
 
@@ -31,7 +41,7 @@ export default function QueryBuilderDemo() {
 
     return (
         <SafeAreaView className="flex-1 bg-background">
-            <QueryBuilder tags={tags} />
+            <QueryBuilder tags={tags} onQueryReturn={onQueryReturn} />
         </SafeAreaView>
     );
 }

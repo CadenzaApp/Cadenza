@@ -3,5 +3,4 @@
 pub mod prelude;
 
 pub mod applied_tags;
-pub mod songs;
 pub mod tags;

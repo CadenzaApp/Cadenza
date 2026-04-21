@@ -10,7 +10,7 @@ export type QueryNodeTag = {
   tag: Tag;
 };
 
-export type LogicOperator = "AND" | "OR" | "NOT";
+export type LogicOperator = "and" | "or" | "not";
 
 export type QueryNodeLogic = {
   kind: "logic";
@@ -46,3 +46,15 @@ export type SlotAddress =
   | { nodeId: "root" }                  
   | { nodeId: string; index: number }
   | { nodeId: string; index: "append" };
+
+
+export type QueryJSONNode = 
+    | number
+    | { and: QueryJSONNode[] }
+    | { or: QueryJSONNode[] }
+    | { not: QueryJSONNode }
+
+export type QuerySongsApiResult = {
+    song_id: number,
+    tags: number[]
+}[]

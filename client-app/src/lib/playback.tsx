@@ -11,6 +11,9 @@ type PlaybackInfo = {
     activeTrackId: string | null;
     isPlaying: boolean;
     togglePlayback: (trackId: string) => Promise<void>;
+
+    queuedTrackIds: string[],
+    setTrackQueue: (trackIds: string[]) => any,
 };
 
 const PlaybackContext = createContext<PlaybackInfo | null>(null);
@@ -21,6 +24,7 @@ export function usePlayback() {
 
 export function PlaybackProvider({ children }: { children: ReactNode }) {
     const [activeTrackId, setActiveTrackId] = useState<string | null>(null);
+    const [queuedTrackIds, setTrackQueue] = useState<string[]>([]);
 
     const isPlaying = useIsPlaying();
 
@@ -40,7 +44,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
 
     return (
         <PlaybackContext.Provider
-            value={{ activeTrackId, isPlaying, togglePlayback }}
+            value={{ activeTrackId, isPlaying, togglePlayback, queuedTrackIds, setTrackQueue }}
         >
             {children}
         </PlaybackContext.Provider>
