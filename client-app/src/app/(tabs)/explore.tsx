@@ -1,11 +1,16 @@
 import { useState } from "react";
-import { View, FlatList, ActivityIndicator, Alert, Image } from "react-native";
+import {
+    View,
+    FlatList,
+    ActivityIndicator,
+    Alert,
+    Image,
+} from "react-native";
 import {
     MusicKit,
     Player,
     isPlayingState,
-    PlaybackQueueType,
-    type MusicItem,
+    type MusicItem, PlaybackQueueType,
 } from "@apple-musickit";
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
@@ -44,7 +49,6 @@ function getErrorMessage(error: unknown) {
 }
 
 export default function ExploreScreen() {
-    const { isInitializing, isConnected, ensureConnected } = useAppleMusic();
     const [tracks, setTracks] = useState<MusicItem[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -52,6 +56,8 @@ export default function ExploreScreen() {
     const [failedArtworkIds, setFailedArtworkIds] = useState<Set<string>>(
         () => new Set(),
     );
+
+    const { isInitializing, isConnected, ensureConnected } = useAppleMusic();
     const isPlaying = isPlayingState();
 
     async function handleFetchLibrary() {
@@ -93,14 +99,11 @@ export default function ExploreScreen() {
 
         try {
             await ensureConnected();
+
             if (activeTrackId === trackId) {
                 await Player.togglePlayerState();
             } else {
-                const track = tracks.find((item) => item.id === trackId);
-                await MusicKit.setPlaybackQueue(
-                    trackId,
-                    track?.playbackType ?? PlaybackQueueType.LibrarySong,
-                );
+                await MusicKit.setPlaybackQueue(trackId, PlaybackQueueType.LibrarySong);
                 await Player.play();
                 setActiveTrackId(trackId);
             }
@@ -115,6 +118,7 @@ export default function ExploreScreen() {
 
     function getArtworkUrl(item: MusicItem) {
         const artworkUrl = item.artworkUrl?.trim();
+
         if (
             !artworkUrl ||
             failedArtworkIds.has(item.id) ||
@@ -189,20 +193,13 @@ export default function ExploreScreen() {
                 <Text className="text-3xl font-bold text-foreground mb-6">
                     Explore
                 </Text>
+
                 <Button
                     onPress={handleFetchLibrary}
                     disabled={isInitializing || isLoading || !isConnected}
                 >
-                    <Text>
-                        {isLoading ? "Loading..." : "Load Library Songs"}
-                    </Text>
+                    <Text>{isLoading ? "Loading..." : "Load Library Songs"}</Text>
                 </Button>
-                {!isConnected && (
-                    <Text className="text-muted-foreground text-center mt-3">
-                        Connect Apple Music in Account to load and play your
-                        library.
-                    </Text>
-                )}
             </View>
 
             {isLoading && (

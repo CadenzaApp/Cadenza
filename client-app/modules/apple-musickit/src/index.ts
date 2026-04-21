@@ -65,7 +65,7 @@ if (native) {
 /**
  * @returns a react hook for the isPlaying media playback state
  */
-export function isPlayingState() {
+export function useIsPlaying() {
     return useSyncExternalStore(
         (callback) => {
             listeners.add(callback);
@@ -178,7 +178,7 @@ export const Player = {
         listener: (event: { state: string }) => void,
     ): EventSubscription => {
         if (!native) {
-            return { remove: () => {} } as EventSubscription;
+            return { remove: () => { } } as EventSubscription;
         }
         return native.addListener(eventName, listener);
     },

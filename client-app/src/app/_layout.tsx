@@ -3,6 +3,7 @@ import { ThemeProvider } from "@react-navigation/native";
 import { Stack } from "expo-router";
 import AccountProvider from "@/lib/account";
 import { AppleMusicProvider } from "@/lib/apple-music";
+import { PlaybackProvider } from "@/lib/playback";
 import { PortalHost } from "@rn-primitives/portal";
 import { useColorScheme } from "nativewind";
 
@@ -14,29 +15,31 @@ export default function RootLayout() {
     return (
         <AccountProvider>
             <AppleMusicProvider>
-                <ThemeProvider
-                    value={
-                        colorScheme === "dark"
-                            ? NAV_THEME.dark
-                            : NAV_THEME.light
-                    }
-                >
-                    <Stack>
-                        <Stack.Screen
-                            name="(splashscreen)/index"
-                            options={{ headerShown: false }}
-                        />
-                        <Stack.Screen
-                            name="(tabs)"
-                            options={{ headerShown: false }}
-                        />
-                        <Stack.Screen
-                            name="auth/index"
-                            options={{ title: "Welcome" }}
-                        />
-                    </Stack>
-                </ThemeProvider>
-                <PortalHost />
+                <PlaybackProvider>
+                    <ThemeProvider
+                        value={
+                            colorScheme === "dark"
+                                ? NAV_THEME.dark
+                                : NAV_THEME.light
+                        }
+                    >
+                        <Stack>
+                            <Stack.Screen
+                                name="(splashscreen)/index"
+                                options={{ headerShown: false }}
+                            />
+                            <Stack.Screen
+                                name="(tabs)"
+                                options={{ headerShown: false }}
+                            />
+                            <Stack.Screen
+                                name="auth/index"
+                                options={{ title: "Welcome" }}
+                            />
+                        </Stack>
+                    </ThemeProvider>
+                    <PortalHost />
+                </PlaybackProvider>
             </AppleMusicProvider>
         </AccountProvider>
     );

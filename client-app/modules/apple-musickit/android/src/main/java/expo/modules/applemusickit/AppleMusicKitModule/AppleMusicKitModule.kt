@@ -89,6 +89,10 @@ class AppleMusicKitModule : Module() {
         }
 
         try {
+            // default max jvm memory is sometimes too low and playback fails
+            System.setProperty("org.bytedeco.javacpp.maxphysicalbytes", "0")
+            System.setProperty("org.bytedeco.javacpp.maxbytes", "0")
+
             playerController = MediaPlayerControllerFactory.createLocalController(context, tokenProvider)
             Log.i(TAG, "MediaPlayerController successfully created!")
         } catch (e: Throwable) {
