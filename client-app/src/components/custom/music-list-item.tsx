@@ -2,7 +2,7 @@ import {useState} from "react";
 import {View, Image, ScrollView} from "react-native";
 import {MusicItem as AppleMusicItem} from "@apple-musickit";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import {LinearGradient} from "expo-linear-gradient";
+import Svg, {Defs, LinearGradient as SvgGradient, Rect, Stop} from "react-native-svg";
 import {useTheme} from "@react-navigation/native";
 
 import {Button} from "@/components/ui/button";
@@ -18,12 +18,37 @@ const DUMMY_TAGS: Tag[] = [
     {id: "4", name: "focus", color: "#25924f"},
 ];
 
-// Helper to calculate rgba for the gradient fade
-function hexToRgba(hex: string, alpha: number) {
-    const r = parseInt(hex.slice(1, 3), 16);
-    const g = parseInt(hex.slice(3, 5), 16);
-    const b = parseInt(hex.slice(5, 7), 16);
-    return `rgba(${r},${g},${b},${alpha})`;
+function colorToTransparent(color: string) {
+    const value = color.trim();
+
+    if (value.startsWith("#")) {
+        const hex = value.slice(1);
+
+        if (hex.length === 3) {
+            const r = parseInt(hex[0] + hex[0], 16);
+            const g = parseInt(hex[1] + hex[1], 16);
+            const b = parseInt(hex[2] + hex[2], 16);
+            return `rgba(${r}, ${g}, ${b}, 0)`;
+        }
+
+        if (hex.length === 6) {
+            const r = parseInt(hex.slice(0, 2), 16);
+            const g = parseInt(hex.slice(2, 4), 16);
+            const b = parseInt(hex.slice(4, 6), 16);
+            return `rgba(${r}, ${g}, ${b}, 0)`;
+        }
+    }
+
+    const rgbMatch = value.match(
+        /^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)(?:\s*,\s*[\d.]+\s*)?\)$/i,
+    );
+
+    if (rgbMatch) {
+        const [, r, g, b] = rgbMatch;
+        return `rgba(${r}, ${g}, ${b}, 0)`;
+    }
+
+    return value;
 }
 
 type MusicItemProps = {
@@ -87,23 +112,14 @@ export function MusicListItem({
                             <ScrollView
                                 horizontal
                                 showsHorizontalScrollIndicator={false}
-                                contentContainerStyle={{
-                                    gap: 6,
-                                    paddingRight: 24,
-                                }}
+                                contentContainerStyle={{gap: 6, paddingRight: 24}}
                             >
                                 {tags.map((tag) => (
                                     <TagPill key={tag.id} tag={tag} height={10}/>
                                 ))}
                             </ScrollView>
-
-                            <LinearGradient
-                                colors={[
-                                    hexToRgba(colors.background, 0),
-                                    colors.background,
-                                ]}
-                                start={{x: 0, y: 0}}
-                                end={{x: 1, y: 0}}
+                            <View
+                                pointerEvents="none"
                                 style={{
                                     position: "absolute",
                                     right: 0,
@@ -111,8 +127,17 @@ export function MusicListItem({
                                     bottom: 0,
                                     width: 24,
                                 }}
-                                pointerEvents="none"
-                            />
+                            >
+                                <Svg width="100%" height="100%">
+                                    <Defs>
+                                        <SvgGradient id="tagsFade" x1="0%" y1="0%" x2="100%" y2="0%">
+                                            <Stop offset="0%" stopColor={colors.background} stopOpacity={0}/>
+                                            <Stop offset="100%" stopColor={colors.background} stopOpacity={1}/>
+                                        </SvgGradient>
+                                    </Defs>
+                                    <Rect x="0" y="0" width="100%" height="100%" fill="url(#tagsFade)"/>
+                                </Svg>
+                            </View>
                         </View>
                     )}
                 </View>
