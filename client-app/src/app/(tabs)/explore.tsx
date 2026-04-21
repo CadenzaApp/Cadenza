@@ -9,8 +9,9 @@ import {
 import {
     MusicKit,
     Player,
-    isPlayingState,
-    type MusicItem, PlaybackQueueType,
+    useIsPlaying,
+    type MusicItem,
+    PlaybackQueueType,
 } from "@apple-musickit";
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
@@ -58,7 +59,7 @@ export default function ExploreScreen() {
     );
 
     const { isInitializing, isConnected, ensureConnected } = useAppleMusic();
-    const isPlaying = isPlayingState();
+    const isPlaying = useIsPlaying();
 
     async function handleFetchLibrary() {
         if (!isConnected) {
