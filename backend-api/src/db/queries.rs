@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use sea_orm::prelude::Uuid;
-use sea_orm::{DatabaseConnection, FromQueryResult};
+use sea_orm::{DatabaseConnection, FromQueryResult, sea_query};
 use sea_orm::{DbBackend, Statement};
 
 use crate::err::CadenzaError;
@@ -68,7 +68,7 @@ fn decode_query(
     let (where_clause, mut child_values, _) =
         decode_query_json_node(json_query, user_id.clone(), 2, false)?;
 
-    // this sql first gets all song ids that match the query,
+    // this SQL first gets all song ids that match the query,
     // then finds all tags related to those matched songs
     let sql = format!(
         r#"

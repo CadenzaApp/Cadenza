@@ -6,15 +6,14 @@ use serde::{Deserialize, Serialize};
 pub enum SourceProvider {
     AppleMusic,
     Spotify,
+    Local,
     Deezer,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Builder)]
 pub struct ExternalSource {
     pub provider: SourceProvider,
-
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub track_id: Option<String>,
+    pub track_id: String,
 }
 
 impl ExternalSource {
@@ -24,19 +23,16 @@ impl ExternalSource {
     }
 
     pub fn normalize_mut(&mut self) {
-        self.track_id = normalize_optional_string(self.track_id.take());
+        self.track_id = self.track_id.trim().to_string();
     }
-}
 
-fn normalize_optional_string(value: Option<String>) -> Option<String> {
-    value.and_then(|input| {
-        let trimmed = input.trim();
-        if trimmed.is_empty() {
-            None
-        } else {
-            Some(trimmed.to_string())
+    pub fn validate(&self) -> Result<(), &'static str> {
+        if self.track_id.trim().is_empty() {
+            return Err("track_id cannot be empty");
         }
-    })
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -52,28 +48,31 @@ mod tests {
             .normalized();
 
         assert_eq!(source.provider, SourceProvider::Spotify);
-        assert_eq!(source.track_id.as_deref(), Some("12345"));
+        assert_eq!(source.track_id, "12345");
+        assert!(source.validate().is_ok());
     }
 
     #[test]
-    fn builder_drops_empty_track_id() {
+    fn validate_rejects_empty_track_id() {
         let source = ExternalSource::builder()
-            .provider(SourceProvider::AppleMusic)
+            .provider(SourceProvider::Spotify)
             .track_id("   ".to_string())
             .build()
             .normalized();
 
-        assert_eq!(source.track_id, None);
+        assert!(source.validate().is_err());
     }
 
     #[test]
-    fn builder_drops_empty_track_id2() {
+    fn apple_music_source_can_be_represented() {
         let source = ExternalSource::builder()
             .provider(SourceProvider::AppleMusic)
-            .track_id("".to_string())
+            .track_id("am-123".to_string())
             .build()
             .normalized();
 
-        assert_eq!(source.track_id, None);
+        assert_eq!(source.provider, SourceProvider::AppleMusic);
+        assert_eq!(source.track_id, "am-123");
+        assert!(source.validate().is_ok());
     }
 }

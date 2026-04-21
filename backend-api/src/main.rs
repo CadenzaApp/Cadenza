@@ -1,8 +1,9 @@
 mod auth;
 mod db;
+mod err;
 mod models;
 mod routes;
-mod err;
+mod services;
 
 use axum::{Router, extract::FromRef};
 
