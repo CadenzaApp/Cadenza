@@ -29,7 +29,10 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
             if (activeTrackId === trackId) {
                 await Player.togglePlayerState();
             } else {
-                await MusicKit.setPlaybackQueue(trackId, PlaybackQueueType.Song);
+                await MusicKit.setPlaybackQueue(
+                    trackId,
+                    PlaybackQueueType.LibrarySong,
+                );
                 setActiveTrackId(trackId);
             }
         } catch (e) {
