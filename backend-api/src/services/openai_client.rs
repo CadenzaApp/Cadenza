@@ -489,4 +489,41 @@ mod tests {
             OpenAiClientError::ModelContentDeserializationFailed { .. }
         ));
     }
+
+
+    // ---------------------------------------------------------------------------------------------
+    //                This is an actual test that calls the API and will use tokens!!!
+    //                   Should not be ran unless you think something is broken!!!
+    //                Tis why it has the [ignore] brackets so it doesn't run every time
+    //                             Last test ran: April 21st at 01:15
+    // ---------------------------------------------------------------------------------------------
+    #[tokio::test]
+    #[ignore]
+    async fn real_openai_call_returns_structured_response() {
+        let client = OpenAiClient::from_env().expect("OPENAI_API_KEY must be set");
+
+        let request = OpenAiTagGenerationRequest::builder()
+            .requested_tag_count(10)
+            .songs(vec![
+                OpenAiTagGenerationSongInput::builder()
+                    .song_id("song-1".to_string())
+                    .title("Suzume".to_string())
+                    .artist("RADWIMPS".to_string())
+                    .album("Suzume".to_string())
+                    .source_providers(vec![SourceProvider::AppleMusic])
+                    .existing_global_tag_names(vec!["Japanese".to_string()])
+                    .build(),
+            ])
+            .build();
+
+        let response = client
+            .generate_tag_suggestions(request)
+            .await
+            .expect("real OpenAI request should succeed");
+
+        println!("{response:#?}");
+
+        assert_eq!(response.suggestions.len(), 1);
+        assert_eq!(response.suggestions[0].song_id, "song-1");
+    }
 }
