@@ -1,4 +1,4 @@
-import { createContext, useContext, useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useState, ReactNode } from "react";
 import { Alert } from "react-native";
 import {
     MusicKit,
@@ -21,41 +21,25 @@ export function usePlayback() {
 
 export function PlaybackProvider({ children }: { children: ReactNode }) {
     const [activeTrackId, setActiveTrackId] = useState<string | null>(null);
-    const isUpdatingPlayback = useRef(false);
 
     const isPlaying = useIsPlaying();
 
     async function togglePlayback(trackId: string) {
-        if (isUpdatingPlayback.current) {
-            return;
-        }
-
-        isUpdatingPlayback.current = true;
-
         try {
             if (activeTrackId === trackId) {
-                if (isPlaying) {
-                    await Player.pause();
-                } else {
-                    await Player.play();
-                }
+                await Player.togglePlayerState();
             } else {
-                if (isPlaying) {
-                    await Player.pause();
-                }
-
                 await MusicKit.setPlaybackQueue(
                     trackId,
                     PlaybackQueueType.LibrarySong,
                 );
                 setActiveTrackId(trackId);
+
                 await Player.play();
             }
         } catch (e) {
             console.error("Failed to toggle playback:", e);
             Alert.alert("Playback Error", "Failed to update playback state.");
-        } finally {
-            isUpdatingPlayback.current = false;
         }
     }
 
