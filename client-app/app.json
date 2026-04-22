@@ -64,5 +64,28 @@
             "typedRoutes": true,
             "reactCompiler": true
         }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "deploymentTarget": "15.1"
+          }
+        }
+      ],
+      "expo-font",
+      "expo-image",
+      "expo-web-browser"
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "d3d375fc-ad3b-424b-8c33-eb38a0ae3902"
+      }
     }
+  }
 }
