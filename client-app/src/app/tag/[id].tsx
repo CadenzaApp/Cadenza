@@ -29,10 +29,28 @@ export default function TagDetailScreen() {
         async function load() {
             setIsLoading(true);
             try {
-                await Promise.all([
-                    MusicKit.getTracksFromLibrary().then((r) => setTracks(r.items || [])),
+                const [libraryResult, map] = await Promise.all([
+                    MusicKit.getTracksFromLibrary(),
                     loadSongTags(),
                 ]);
+
+                const libraryTracks = libraryResult.items || [];
+                const libraryIds = new Set(libraryTracks.map((t) => t.id));
+
+                // Find all song IDs that have this tag
+                const taggedSongIds = Object.entries(map)
+                    .filter(([, tags]) => tags.some((t: Tag) => t.id === id))
+                    .map(([songId]) => songId);
+
+                // Fetch metadata for any tagged songs not already in the library
+                const nonLibraryIds = taggedSongIds.filter((songId) => !libraryIds.has(songId));
+                const nonLibrarySongs = (
+                    await Promise.allSettled(nonLibraryIds.map((songId) => MusicKit.getSongInfo(songId)))
+                )
+                    .filter((r): r is PromiseFulfilledResult<AppleMusicItem> => r.status === "fulfilled")
+                    .map((r) => r.value);
+
+                setTracks([...libraryTracks, ...nonLibrarySongs]);
             } catch (e) {
                 console.error("Failed to load tag detail:", e);
             } finally {
