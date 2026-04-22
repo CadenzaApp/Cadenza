@@ -17,7 +17,7 @@ export default function QueryScreen() {
     const [matchedSongs, setMatchedSongs] = useState<MusicItem[] | null>(null);
 
     async function onQueryReturn(matchedSongIds: string[]) {
-        console.log(matchedSongIds);
+        console.log("matched songs:", matchedSongIds);
         const songs = await Promise.all(
             matchedSongIds.map((id) => MusicKit.getSongInfo(id)),
         );

@@ -63,7 +63,6 @@ export function QueryBuilder({ tags, onQueryReturn }: Props) {
     }
 
     async function onSubmit() {
-        console.log("submit clicked");
         if (root == null) {
             console.error("query is empty!");
             return;
