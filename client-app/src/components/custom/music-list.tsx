@@ -11,6 +11,7 @@ type MusicListProps = {
     isPlaying: boolean;
     onTogglePlayback: (trackId: string) => void;
     onSelectTrack?: (track: AppleMusicItem, tags: Tag[]) => void;
+    songTagsMap?: Record<string, Tag[]>;
 };
 
 export function MusicList({
@@ -20,6 +21,7 @@ export function MusicList({
     isPlaying,
     onTogglePlayback,
     onSelectTrack,
+    songTagsMap = {},
 }: MusicListProps) {
     return (
         <FlatList
@@ -30,6 +32,7 @@ export function MusicList({
                     item={item}
                     isThisTrackPlaying={activeTrackId === item.id && isPlaying}
                     onTogglePlayback={onTogglePlayback}
+                    tags={item.id ? (songTagsMap[item.id] ?? []) : []}
                     onPress={onSelectTrack}
                 />
             )}

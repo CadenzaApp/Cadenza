@@ -11,6 +11,7 @@ import { SongDetailModal } from "@/components/custom/song-detail-modal";
 import { usePlayback } from "@/lib/playback";
 import { useAppleMusic } from "@/lib/apple-music";
 import { Tag } from "@/types/tag-types";
+import { useTags } from "@/lib/tags";
 
 function getErrorDetails(error: unknown) {
     if (error instanceof Error) {
@@ -63,11 +64,11 @@ export default function ExploreScreen() {
     const [selectedSong, setSelectedSong] = useState<AppleMusicItem | null>(
         null,
     );
-    const [selectedSongTags, setSelectedSongTags] = useState<Tag[]>([]);
     const [isSongDetailModalOpen, setIsSongDetailModalOpen] = useState(false);
 
     const { isInitializing, isConnected, ensureConnected } = useAppleMusic();
     const { activeTrackId, isPlaying, togglePlayback } = usePlayback();
+    const { songTagsMap, loadSongTags, applyTag, removeTag } = useTags();
 
     async function handleFetchLibrary() {
         if (!isConnected) {
@@ -83,7 +84,10 @@ export default function ExploreScreen() {
 
         try {
             await ensureConnected();
-            const result = await MusicKit.getTracksFromLibrary();
+            const [result] = await Promise.all([
+                MusicKit.getTracksFromLibrary(),
+                loadSongTags(),
+            ]);
             setTracks(result.items || []);
         } catch (e) {
             console.error(
@@ -146,16 +150,24 @@ export default function ExploreScreen() {
         }
     }
 
-    function handleTrackSelected(track: AppleMusicItem, tags: Tag[]) {
+    function handleTrackSelected(track: AppleMusicItem, _tags: Tag[]) {
         setSelectedSong(track);
-        setSelectedSongTags(tags);
         setIsSongDetailModalOpen(true);
     }
 
-    async function handleSongDetailPlay(song: AppleMusicItem) {
-        if (!song.id) return;
-        await handleTogglePlayback(song.id);
+    async function handleApplyTag(tag: Tag) {
+        if (!selectedSong?.id) return;
+        await applyTag(selectedSong.id, tag);
     }
+
+    async function handleRemoveTag(tag: Tag) {
+        if (!selectedSong?.id) return;
+        await removeTag(selectedSong.id, tag);
+    }
+
+    const selectedSongTags = selectedSong?.id
+        ? (songTagsMap[selectedSong.id] ?? [])
+        : [];
 
     return (
         <View className="flex-1 bg-background pt-8">
@@ -211,6 +223,7 @@ export default function ExploreScreen() {
                         isPlaying={isPlaying}
                         onTogglePlayback={handleTogglePlayback}
                         onSelectTrack={handleTrackSelected}
+                        songTagsMap={songTagsMap}
                     />
                 </TabsContent>
 
@@ -252,11 +265,12 @@ export default function ExploreScreen() {
 
                     <MusicList
                         tracks={searchResults}
-                        isLoading={isSearchLoading}
+                        isLoading={isLoading}
                         activeTrackId={activeTrackId}
                         isPlaying={isPlaying}
                         onTogglePlayback={handleTogglePlayback}
                         onSelectTrack={handleTrackSelected}
+                        songTagsMap={songTagsMap}
                     />
                 </TabsContent>
             </Tabs>
@@ -272,6 +286,8 @@ export default function ExploreScreen() {
                     activeTrackId === selectedSong.id &&
                     isPlaying,
                 )}
+                onApplyTag={handleApplyTag}
+                onRemoveTag={handleRemoveTag}
             />
         </View>
     );
