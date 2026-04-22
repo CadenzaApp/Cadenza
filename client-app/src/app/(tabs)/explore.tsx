@@ -9,7 +9,7 @@ import {SongDetailModal} from "@/components/custom/song-detail-modal";
 import {usePlayback} from "@/lib/playback";
 import {useAppleMusic} from "@/lib/apple-music";
 import {useAccount} from "@/lib/account";
-import {fetchAllSongTags} from "@/lib/tags";
+import {fetchAllSongTags, applyTagToSong} from "@/lib/tags";
 import {Tag} from "@/types/tag-types";
 
 function getErrorDetails(error: unknown) {
@@ -115,9 +115,29 @@ export default function ExploreScreen() {
         setIsSongDetailModalOpen(true);
     }
 
-    async function handleSongDetailPlay(song: AppleMusicItem) {
-        if (!song.id) return;
-        await handleTogglePlayback(song.id);
+    async function handleApplyTag(tag: Tag) {
+        if (!selectedSong?.id || !account) return;
+        const songId = selectedSong.id;
+
+        // Optimistic update — show the tag immediately in both the modal and the list
+        setSelectedSongTags((prev) => [...prev, tag]);
+        setSongTagsMap((prev) => ({
+            ...prev,
+            [songId]: [...(prev[songId] ?? []), tag],
+        }));
+
+        try {
+            await applyTagToSong(songId, tag.id, account.id);
+        } catch (e) {
+            // Roll back if the DB call failed
+            setSelectedSongTags((prev) => prev.filter((t) => t.id !== tag.id));
+            setSongTagsMap((prev) => ({
+                ...prev,
+                [songId]: (prev[songId] ?? []).filter((t) => t.id !== tag.id),
+            }));
+            Alert.alert("Error", "Failed to add tag. Please try again.");
+            console.error("Failed to apply tag:", e);
+        }
     }
 
     return (
@@ -166,6 +186,7 @@ export default function ExploreScreen() {
                     activeTrackId === selectedSong.id &&
                     isPlaying,
                 )}
+                onApplyTag={handleApplyTag}
             />
         </View>
     );

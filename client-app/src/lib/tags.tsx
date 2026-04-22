@@ -68,8 +68,19 @@ export function TagsProvider({ children }: { children: ReactNode }) {
 }
 
 /**
+ * Inserts a row into applied_tags, linking a tag to a song for the current user.
+ */
+export async function applyTagToSong(songId: string, tagId: string, userId: string): Promise<void> {
+  const { error } = await supabase
+    .from('applied_tags')
+    .insert({ user_id: userId, song_id: Number(songId), tag_id: Number(tagId) });
+
+  if (error) throw error;
+}
+
+/**
  * Fetches all applied tags for a user across every song, returned as a
- * map of songId -> Tag[]. One query for the whole library.
+ * map of songId -> Tag[].
  */
 export async function fetchAllSongTags(userId: string): Promise<Record<string, Tag[]>> {
   const { data, error } = await supabase
