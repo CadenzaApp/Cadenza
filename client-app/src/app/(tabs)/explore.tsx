@@ -52,7 +52,7 @@ export default function ExploreScreen() {
 
     const {isInitializing, isConnected, ensureConnected} = useAppleMusic();
     const {activeTrackId, isPlaying, togglePlayback} = usePlayback();
-    const {songTagsMap, loadSongTags, applyTag} = useTags();
+    const {songTagsMap, loadSongTags, applyTag, removeTag} = useTags();
 
     async function handleFetchLibrary() {
         if (!isConnected) {
@@ -115,6 +115,11 @@ export default function ExploreScreen() {
         await applyTag(selectedSong.id, tag);
     }
 
+    async function handleRemoveTag(tag: Tag) {
+        if (!selectedSong?.id) return;
+        await removeTag(selectedSong.id, tag);
+    }
+
     const selectedSongTags = selectedSong?.id ? (songTagsMap[selectedSong.id] ?? []) : [];
 
     return (
@@ -164,6 +169,7 @@ export default function ExploreScreen() {
                     isPlaying,
                 )}
                 onApplyTag={handleApplyTag}
+                onRemoveTag={handleRemoveTag}
             />
         </View>
     );

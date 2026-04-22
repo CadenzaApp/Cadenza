@@ -17,6 +17,7 @@ type SongDetailModalProps = {
     onTogglePlayback: (trackId: string) => void;
     isThisTrackPlaying: boolean;
     onApplyTag?: (tag: Tag) => void;
+    onRemoveTag?: (tag: Tag) => void;
 };
 
 type MusicItemWithOptionalMetadata = AppleMusicItem & {
@@ -40,6 +41,7 @@ export function SongDetailModal({
                                     onTogglePlayback,
                                     isThisTrackPlaying,
                                     onApplyTag,
+                                    onRemoveTag,
                                 }: SongDetailModalProps) {
     const [artworkFailed, setArtworkFailed] = useState(false);
     const [showTagPicker, setShowTagPicker] = useState(false);
@@ -212,7 +214,12 @@ export function SongDetailModal({
                                 {tags.length > 0 ? (
                                     <View className="flex-row flex-wrap gap-2">
                                         {tags.map((tag) => (
-                                            <TagPill key={tag.id} tag={tag} height={12}/>
+                                            <TagPill
+                                                key={tag.id}
+                                                tag={tag}
+                                                height={12}
+                                                onRemove={() => onRemoveTag?.(tag)}
+                                            />
                                         ))}
                                     </View>
                                 ) : (
@@ -253,20 +260,17 @@ export function SongDetailModal({
                                         </Text>
                                     ) : (
                                         <View className="flex-row flex-wrap gap-2">
-                                            {allUserTags.map((tag) => {
-                                                const alreadyApplied = tags.some((t) => t.id === tag.id);
-                                                return (
+                                            {allUserTags
+                                                .filter((tag) => !tags.some((t) => t.id === tag.id))
+                                                .map((tag) => (
                                                     <Pressable
                                                         key={tag.id}
-                                                        onPress={() => {
-                                                            if (!alreadyApplied) onApplyTag?.(tag);
-                                                        }}
-                                                        style={{opacity: alreadyApplied ? 0.35 : 1}}
+                                                        onPress={() => onApplyTag?.(tag)}
                                                     >
                                                         <TagPill tag={tag} height={12}/>
                                                     </Pressable>
-                                                );
-                                            })}
+                                                ))
+                                            }
                                         </View>
                                     )}
                                 </View>
