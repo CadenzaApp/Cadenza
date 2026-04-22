@@ -1,7 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import { Text } from "@/components/ui/text";
 import { Pressable, View } from "react-native";
-import { Tag } from "../../types/tag-types";
+import { Tag } from "../../lib/types";
 
 // Helper to lighten hex colors
 function hexToRgba(hex: string, alpha: number) {

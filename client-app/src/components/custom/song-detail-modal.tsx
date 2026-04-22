@@ -3,10 +3,10 @@ import { Image, Modal, Pressable, ScrollView, View } from "react-native";
 import { MusicItem as AppleMusicItem } from "@apple-musickit";
 import Ionicons from "@expo/vector-icons/Ionicons";
 
-import {Button} from "@/components/ui/button";
-import {Text} from "@/components/ui/text";
-import {TagPill} from "@/components/custom/tag-pill";
-import {Tag} from "@/types/tag-types";
+import { Button } from "@/components/ui/button";
+import { Text } from "@/components/ui/text";
+import { TagPill } from "@/components/custom/tag-pill";
+import { Tag } from "@/lib/types";
 import {useTags} from "@/lib/tags";
 
 type SongDetailModalProps = {

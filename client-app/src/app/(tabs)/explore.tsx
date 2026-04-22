@@ -11,7 +11,7 @@ import { MusicList } from "@/components/custom/music-list";
 import { SongDetailModal } from "@/components/custom/song-detail-modal";
 import { usePlayback } from "@/lib/playback";
 import { useAppleMusic } from "@/lib/apple-music";
-import { Tag } from "@/types/tag-types";
+import { Tag } from "@/lib/types";
 import { useTags } from "@/lib/tags";
 
 function getErrorDetails(error: unknown) {

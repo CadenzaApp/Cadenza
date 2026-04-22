@@ -5,7 +5,7 @@ import { Redirect, useRouter } from "expo-router";
 import { Text } from "@/components/ui/text";
 import { TagPill } from "@/components/custom/tag-pill";
 import { CreateTagDialog } from "@/components/custom/create-tag-dialog";
-import { Tag } from "@/types/tag-types";
+import { Tag } from "@/lib/types";
 import { ScrollView, View, Pressable } from "react-native";
 
 export default function TagsScreen() {

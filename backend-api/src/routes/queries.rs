@@ -30,7 +30,7 @@ async fn run_json_query_handler(
     get_mentioned_tags(&json_query, &mut mentioned_tags);
 
     // song id -> its relevancy score (# of mentioned tags it has)
-    let mut relevancies: HashMap<i64, i32> = HashMap::new();
+    let mut relevancies: HashMap<&str, i32> = HashMap::new();
     for (song, tags) in &matched_songs_and_tags {
         let mut score = 0;
         for tag in tags {
@@ -38,18 +38,18 @@ async fn run_json_query_handler(
                 score += 1;
             }
         }
-        relevancies.insert(*song, score);
+        relevancies.insert(song, score);
     }
 
     // order songs by relevancy
-    let mut song_ids: Vec<i64> = matched_songs_and_tags.keys().copied().collect();
-    song_ids.sort_by_key(|song| -relevancies.get(song).unwrap());
+    let mut song_ids: Vec<&String> = matched_songs_and_tags.keys().collect();
+    song_ids.sort_by_key(|song| -relevancies.get(&song.as_str()).unwrap());
 
     // construct json response
     let mut response = json!([]);
     let response_arr = response.as_array_mut().unwrap();
     for song_id in song_ids {
-        response_arr.push(song_id.into());
+        response_arr.push(song_id.as_str().into());
     }
 
     Ok(response.to_string())
