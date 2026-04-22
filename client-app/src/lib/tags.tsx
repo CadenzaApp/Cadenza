@@ -22,6 +22,7 @@ type TagsInfo = {
   songTagsMap: Record<string, Tag[]>;
   loadSongTags: () => Promise<void>;
   applyTag: (songId: string, tag: Tag) => Promise<void>;
+  removeTag: (songId: string, tag: Tag) => Promise<void>;
 };
 
 const TagsContext = createContext<TagsInfo | null>(null);
@@ -97,12 +98,11 @@ export function TagsProvider({ children }: { children: ReactNode }) {
   }
 
   /**
-   * Applies a tag to a song — updates the DB and songTagsMap optimistically.
+   * Applies a tag to a song
    */
   async function applyTag(songId: string, tag: Tag) {
     if (!account) return;
 
-    // Optimistic update
     setSongTagsMap((prev) => ({
       ...prev,
       [songId]: [...(prev[songId] ?? []), tag],
@@ -112,7 +112,7 @@ export function TagsProvider({ children }: { children: ReactNode }) {
       .from('applied_tags')
       .insert({ user_id: account.id, song_id: Number(songId), tag_id: Number(tag.id) });
 
-    if (dbError) {
+    if(dbError) {
       // Roll back
       setSongTagsMap((prev) => ({
         ...prev,
@@ -123,8 +123,37 @@ export function TagsProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  /**
+   * Removes a tag from a song
+   */
+  async function removeTag(songId: string, tag: Tag) {
+    if(!account) return;
+
+    setSongTagsMap((prev) => ({
+      ...prev,
+      [songId]: (prev[songId] ?? []).filter((t) => t.id !== tag.id),
+    }));
+
+    const { error: dbError } = await supabase
+      .from('applied_tags')
+      .delete()
+      .eq('user_id', account.id)
+      .eq('song_id', Number(songId))
+      .eq('tag_id', Number(tag.id));
+
+    if(dbError) {
+      // Roll back
+      setSongTagsMap((prev) => ({
+        ...prev,
+        [songId]: [...(prev[songId] ?? []), tag],
+      }));
+      Alert.alert('Error', 'Failed to remove tag. Please try again.');
+      console.error('Failed to remove tag:', dbError);
+    }
+  }
+
   return (
-    <TagsContext.Provider value={{ tags, loading, error, addTag, songTagsMap, loadSongTags, applyTag }}>
+    <TagsContext.Provider value={{ tags, loading, error, addTag, songTagsMap, loadSongTags, applyTag, removeTag }}>
       {children}
     </TagsContext.Provider>
   );
