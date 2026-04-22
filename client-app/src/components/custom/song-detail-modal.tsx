@@ -44,12 +44,17 @@ export function SongDetailModal({
                                     onRemoveTag,
                                 }: SongDetailModalProps) {
     const [artworkFailed, setArtworkFailed] = useState(false);
-    const [showTagPicker, setShowTagPicker] = useState(false);
+    const [activePanel, setActivePanel] = useState<'addTag' | 'aiTags' | null>(null);
+
+    const MOCK_AI_TAGS: Tag[] = [
+        {id: "mock-1", name: "energetic", color: "#e05c2a"},
+        {id: "mock-2", name: "atmospheric", color: "#7c3aed"},
+    ];
     const { tags: allUserTags, loading: tagsLoading } = useTags();
 
     useEffect(() => {
         setArtworkFailed(false);
-        setShowTagPicker(false);
+        setActivePanel(null);
     }, [song?.id, song?.artworkUrl]);
 
     const songWithMetadata = song as MusicItemWithOptionalMetadata | null;
@@ -67,11 +72,11 @@ export function SongDetailModal({
     );
 
     function handleAddTagPress() {
-        setShowTagPicker((prev) => !prev);
+        setActivePanel((prev) => prev === 'addTag' ? null : 'addTag');
     }
 
     function handleAskAiForTagsPress() {
-        // TODO: Hook this up when AI tag suggestions are wired into the app.
+        setActivePanel((prev) => prev === 'aiTags' ? null : 'aiTags');
     }
 
     function handlePlayPress() {
@@ -231,13 +236,14 @@ export function SongDetailModal({
 
                             <View className="flex-row gap-2">
                                 <Button
-                                    variant={showTagPicker ? "default" : "secondary"}
+                                    variant={activePanel === 'addTag' ? "default" : "secondary"}
                                     className="flex-1 h-11"
                                     onPress={handleAddTagPress}
                                 >
                                     <Text>Add Tags</Text>
                                 </Button>
                                 <Button
+                                    variant={activePanel === 'aiTags' ? "default" : "secondary"}
                                     className="flex-1 h-11"
                                     onPress={handleAskAiForTagsPress}
                                 >
@@ -245,7 +251,20 @@ export function SongDetailModal({
                                 </Button>
                             </View>
 
-                            {showTagPicker && (
+                            {activePanel === 'aiTags' && (
+                                <View className="border border-border rounded-md p-3 gap-3 pb-4">
+                                    <Text className="text-sm font-medium text-foreground">
+                                        AI suggested tags
+                                    </Text>
+                                    <View className="flex-row flex-wrap gap-2">
+                                        {MOCK_AI_TAGS.map((tag) => (
+                                            <TagPill key={tag.id} tag={tag} height={12}/>
+                                        ))}
+                                    </View>
+                                </View>
+                            )}
+
+                            {activePanel === 'addTag' && (
                                 <View className="border border-border rounded-md p-3 gap-3 pb-4">
                                     <Text className="text-sm font-medium text-foreground">
                                         Your tags
