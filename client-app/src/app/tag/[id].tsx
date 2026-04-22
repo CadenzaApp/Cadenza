@@ -10,15 +10,18 @@ import { Tag } from "@/types/tag-types";
 import { Text } from "@/components/ui/text";
 import { TagPill } from "@/components/custom/tag-pill";
 import { MusicList } from "@/components/custom/music-list";
+import { SongDetailModal } from "@/components/custom/song-detail-modal";
 
 export default function TagDetailScreen() {
     const { id } = useLocalSearchParams<{ id: string }>();
     const router = useRouter();
-    const { tags, songTagsMap, loadSongTags } = useTags();
+    const { tags, songTagsMap, loadSongTags, applyTag, removeTag } = useTags();
     const { activeTrackId, isPlaying, togglePlayback } = usePlayback();
 
     const [tracks, setTracks] = useState<AppleMusicItem[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [selectedSong, setSelectedSong] = useState<AppleMusicItem | null>(null);
+    const [isSongDetailModalOpen, setIsSongDetailModalOpen] = useState(false);
 
     const tag = tags.find((t: Tag) => t.id === id);
 
@@ -43,9 +46,26 @@ export default function TagDetailScreen() {
         track.id && (songTagsMap[track.id] ?? []).some((t: Tag) => t.id === id)
     );
 
+    function handleTrackSelected(track: AppleMusicItem) {
+        setSelectedSong(track);
+        setIsSongDetailModalOpen(true);
+    }
+
+    async function handleApplyTag(tag: Tag) {
+        if (!selectedSong?.id) return;
+        await applyTag(selectedSong.id, tag);
+    }
+
+    async function handleRemoveTag(tag: Tag) {
+        if (!selectedSong?.id) return;
+        await removeTag(selectedSong.id, tag);
+    }
+
+    const selectedSongTags = selectedSong?.id ? (songTagsMap[selectedSong.id] ?? []) : [];
+
     return (
         <View className="flex-1 bg-background">
-            {/* Header */}
+            {/* Header tag pill */}
             <View className="px-6 pt-16 pb-6 border-b border-border">
                 <Pressable
                     onPress={() => router.back()}
@@ -75,9 +95,25 @@ export default function TagDetailScreen() {
                     activeTrackId={activeTrackId}
                     isPlaying={isPlaying}
                     onTogglePlayback={togglePlayback}
+                    onSelectTrack={handleTrackSelected}
                     songTagsMap={songTagsMap}
                 />
             )}
+
+            <SongDetailModal
+                open={isSongDetailModalOpen}
+                onOpenChange={setIsSongDetailModalOpen}
+                song={selectedSong}
+                tags={selectedSongTags}
+                onTogglePlayback={togglePlayback}
+                isThisTrackPlaying={Boolean(
+                    selectedSong?.id &&
+                    activeTrackId === selectedSong.id &&
+                    isPlaying
+                )}
+                onApplyTag={handleApplyTag}
+                onRemoveTag={handleRemoveTag}
+            />
         </View>
     );
 }
