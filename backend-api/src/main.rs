@@ -15,7 +15,10 @@ use std::net::SocketAddr;
 
 use crate::{
     auth::{SupabaseClaims, new_jwt_decoder},
-    routes::{queries::get_queries_router, tags::get_tags_router},
+    routes::{
+        queries::get_queries_router, tag_generation_route::get_tag_generation_router,
+        tags::get_tags_router,
+    },
 };
 
 #[derive(Clone, FromRef)]
@@ -44,10 +47,11 @@ async fn main() {
     let app = Router::new()
         .nest("/tags", get_tags_router())
         .nest("/queries", get_queries_router())
+        .nest("/tag-generation", get_tag_generation_router())
         .with_state(app_state);
 
     // show time baby
-    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
+    let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
     println!("Running on http://{}", addr);
 
     axum_server::bind(addr)

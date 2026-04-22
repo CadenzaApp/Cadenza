@@ -28,7 +28,7 @@ interface AppleMusicKitNativeModule {
     seekToTime(time: number): Promise<void>;
 
     // MusicKit Functionality
-    getSongInfo(id: string): Promise<MusicItem>;
+    getSongInfo(id: string, type: string): Promise<MusicItem>;
     catalogSearch(query: string, types: string[]): Promise<SearchResult>;
     getTracksFromLibrary(): Promise<LibraryResult>;
     getUserPlaylists(options?: MusicKitOptions): Promise<LibraryResult>;
