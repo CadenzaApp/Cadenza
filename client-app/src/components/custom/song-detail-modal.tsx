@@ -1,6 +1,6 @@
-import {useEffect, useState} from "react";
-import {Image, Modal, Pressable, ScrollView, View} from "react-native";
-import {MusicItem as AppleMusicItem} from "@apple-musickit";
+import { useEffect, useState } from "react";
+import { Image, Modal, Pressable, ScrollView, View } from "react-native";
+import { MusicItem as AppleMusicItem } from "@apple-musickit";
 import Ionicons from "@expo/vector-icons/Ionicons";
 
 import {Button} from "@/components/ui/button";
@@ -20,17 +20,39 @@ type SongDetailModalProps = {
     onRemoveTag?: (tag: Tag) => void;
 };
 
-type MusicItemWithOptionalMetadata = AppleMusicItem & {
-    albumName?: string;
-    albumTitle?: string;
-    collectionName?: string;
-};
-
 function toDisplayString(value: unknown, fallback = "Unavailable") {
     if (typeof value === "string" && value.trim()) {
         return value.trim();
     }
     return fallback;
+}
+
+const releaseDateOptions: Intl.DateTimeFormatOptions = {
+    timeZone: "UTC",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+};
+const dateFormatter = new Intl.DateTimeFormat("en-US", releaseDateOptions);
+
+function formatSeconds(totalSeconds: number): string {
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = Math.floor(totalSeconds % 60);
+
+    const parts: string[] = [];
+
+    if (hours > 0) {
+        parts.push(`${hours}h`);
+    }
+
+    if (minutes > 0) {
+        parts.push(`${minutes}m`);
+    }
+
+    parts.push(`${seconds}s`);
+
+    return parts.join(" ");
 }
 
 export function SongDetailModal({
@@ -57,19 +79,20 @@ export function SongDetailModal({
         setActivePanel(null);
     }, [song?.id, song?.artworkUrl]);
 
-    const songWithMetadata = song as MusicItemWithOptionalMetadata | null;
     const artworkUrl = song?.artworkUrl?.trim();
     const canRenderArtwork =
         !artworkFailed &&
         typeof artworkUrl === "string" &&
         /^https?:\/\//i.test(artworkUrl);
 
-    const albumName = toDisplayString(
-        songWithMetadata?.albumName ||
-        songWithMetadata?.albumTitle ||
-        songWithMetadata?.collectionName,
-        "Unknown Album",
+    const albumName = toDisplayString(song?.albumName, "Unknown Album");
+
+    const releaseDate = toDisplayString(
+        dateFormatter.format(new Date(song?.releaseDate ?? 0)),
+        "Unknown Release Date",
     );
+
+    const songDuration = formatSeconds(song?.songDuration ?? 0);
 
     function handleAddTagPress() {
         setActivePanel((prev) => prev === 'addTag' ? null : 'addTag');
@@ -98,7 +121,7 @@ export function SongDetailModal({
                 <Pressable
                     onPress={(event) => event.stopPropagation()}
                     className="w-full max-w-[560px] bg-popover border border-border rounded-xl overflow-hidden"
-                    style={{height: "82%"}}
+                    style={{ height: "82%" }}
                 >
                     <View className="px-5 py-4 border-b border-border">
                         <View className="flex-row items-start justify-between gap-3">
@@ -107,13 +130,19 @@ export function SongDetailModal({
                                     className="text-lg font-semibold text-foreground"
                                     numberOfLines={2}
                                 >
-                                    {toDisplayString(song?.title, "Unknown Title")}
+                                    {toDisplayString(
+                                        song?.title,
+                                        "Unknown Title",
+                                    )}
                                 </Text>
                                 <Text
                                     className="text-sm text-muted-foreground mt-1"
                                     numberOfLines={1}
                                 >
-                                    {toDisplayString(song?.artistName, "Unknown Artist")}
+                                    {toDisplayString(
+                                        song?.artistName,
+                                        "Unknown Artist",
+                                    )}
                                 </Text>
                             </View>
 
@@ -123,13 +152,25 @@ export function SongDetailModal({
                                     className="h-11 w-11 rounded-full shrink-0"
                                     onPress={handlePlayPress}
                                     disabled={!song?.id}
-                                    variant={isThisTrackPlaying ? "secondary" : "default"}
+                                    variant={
+                                        isThisTrackPlaying
+                                            ? "secondary"
+                                            : "default"
+                                    }
                                 >
                                     <Text>
                                         <Ionicons
-                                            name={isThisTrackPlaying ? "pause" : "play"}
+                                            name={
+                                                isThisTrackPlaying
+                                                    ? "pause"
+                                                    : "play"
+                                            }
                                             size={22}
-                                            style={{marginLeft: isThisTrackPlaying ? 0 : 3}}
+                                            style={{
+                                                marginLeft: isThisTrackPlaying
+                                                    ? 0
+                                                    : 3,
+                                            }}
                                         />
                                     </Text>
                                 </Button>
@@ -141,7 +182,7 @@ export function SongDetailModal({
                                     onPress={() => onOpenChange(false)}
                                 >
                                     <Text>
-                                        <Ionicons name="close" size={20}/>
+                                        <Ionicons name="close" size={20} />
                                     </Text>
                                 </Button>
                             </View>
@@ -163,7 +204,7 @@ export function SongDetailModal({
                             <View className="flex-row items-center gap-4">
                                 {canRenderArtwork ? (
                                     <Image
-                                        source={{uri: artworkUrl}}
+                                        source={{ uri: artworkUrl }}
                                         className="w-24 h-24 rounded-md bg-muted"
                                         onError={() => setArtworkFailed(true)}
                                     />
@@ -177,10 +218,10 @@ export function SongDetailModal({
 
                                 <View className="flex-1 gap-1">
                                     <Text className="text-base font-semibold text-foreground">
-                                        Album
+                                        {albumName}
                                     </Text>
                                     <Text className="text-sm text-muted-foreground">
-                                        {albumName}
+                                        {releaseDate}
                                     </Text>
                                 </View>
                             </View>
@@ -207,6 +248,18 @@ export function SongDetailModal({
                                         numberOfLines={1}
                                     >
                                         {toDisplayString(song.playbackType)}
+                                    </Text>
+                                </View>
+
+                                <View className="flex-row items-start justify-between gap-3">
+                                    <Text className="text-sm text-muted-foreground">
+                                        Duration
+                                    </Text>
+                                    <Text
+                                        className="text-sm text-foreground flex-1 text-right"
+                                        numberOfLines={2}
+                                    >
+                                        {songDuration}
                                     </Text>
                                 </View>
                             </View>

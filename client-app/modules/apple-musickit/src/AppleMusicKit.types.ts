@@ -30,6 +30,11 @@ export interface MusicItem {
     artistName?: string;
     artworkUrl?: string;
     playbackType?: PlaybackQueueType;
+    albumID?: string;
+    albumName?: string;
+    songDuration?: number;
+    releaseDate?: number;
+    genres?: string[];
 }
 
 export interface SearchResult {

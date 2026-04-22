@@ -12,17 +12,11 @@ use axum_jwt_auth::Claims;
 use sea_orm::DatabaseConnection;
 use serde_json::{Value, json};
 
-/// Returns JSON response listing matching songs from the given query.
+/// Returns JSON array of ids of matching songs from the given query.
 ///
 /// JSON return value format:
 /// ```json
-/// [
-///    {
-///        "song_id": ...,
-///        "tags": [ 1, 2, 3, ... ],
-///    },
-///    ...
-/// ]
+/// [ 1, 2, 3, ... ]
 /// ```
 async fn run_json_query_handler(
     State(db): State<DatabaseConnection>,
@@ -48,23 +42,14 @@ async fn run_json_query_handler(
     }
 
     // order songs by relevancy
-    let mut songs: Vec<i64> = matched_songs_and_tags.keys().copied().collect();
-    songs.sort_by_key(|song| -relevancies.get(song).unwrap());
+    let mut song_ids: Vec<i64> = matched_songs_and_tags.keys().copied().collect();
+    song_ids.sort_by_key(|song| -relevancies.get(song).unwrap());
 
     // construct json response
     let mut response = json!([]);
     let response_arr = response.as_array_mut().unwrap();
-    for song in songs {
-        let tags: Vec<i64> = matched_songs_and_tags
-            .get(&song)
-            .unwrap()
-            .iter()
-            .copied()
-            .collect();
-        response_arr.push(json!({
-            "song_id": song,
-            "tags": tags
-        }));
+    for song_id in song_ids {
+        response_arr.push(song_id.into());
     }
 
     Ok(response.to_string())
