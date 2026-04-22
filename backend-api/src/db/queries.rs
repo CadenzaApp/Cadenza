@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use sea_orm::prelude::Uuid;
-use sea_orm::{DatabaseConnection, FromQueryResult, sea_query};
+use sea_orm::{DatabaseConnection, FromQueryResult};
 use sea_orm::{DbBackend, Statement};
 
 use crate::err::CadenzaError;
@@ -66,27 +66,17 @@ fn decode_query(
     user_id: sea_query::Value,
 ) -> Result<(String, Vec<sea_query::Value>), CadenzaError> {
     let (where_clause, mut child_values, _) =
-        decode_query_json_node(json_query, user_id.clone(), 2, false)?;
+        decode_query_json_node(json_query, 2, false)?;
 
-    // this SQL first gets all song ids that match the query,
-    // then finds all tags related to those matched songs
     let sql = format!(
         r#"
-            SELECT
-                matched_songs.song_id AS song_id,
-                tags.tag_id AS tag_id,
-                tags.name AS tag_name
-            FROM
-            (
-                SELECT songs.song_id AS song_id 
-                FROM songs
-                WHERE songs.user_id=$1 AND {}
-            ) AS matched_songs
-            JOIN applied_tags ON matched_songs.song_id=applied_tags.song_id
-            JOIN tags ON tags.tag_id=applied_tags.tag_id;
+            SELECT song_id, tag_id
+            FROM applied_tags
+            WHERE applied_tags.user_id=$1 AND {}
         "#,
         where_clause
     );
+
     let mut values = vec![user_id];
     values.append(&mut child_values);
     Ok((sql, values))
@@ -97,7 +87,6 @@ fn decode_query(
 /// Applies Demorgan's Law when `inverted == true` to produce accurate SQL.
 fn decode_query_json_node(
     curr: &serde_json::Value,
-    user_id: sea_query::Value,
     param_counter: usize,
     inverted: bool,
 ) -> Result<(String, Vec<sea_query::Value>, usize), CadenzaError> {
@@ -106,32 +95,30 @@ fn decode_query_json_node(
             r#"
                 EXISTS (
                     SELECT * FROM applied_tags AS exists_check 
-                    WHERE exists_check.song_id=songs.song_id AND exists_check.user_id = ${} AND exists_check.tag_id = ${}
+                    WHERE exists_check.song_id=applied_tags.song_id AND exists_check.user_id = $1 AND exists_check.tag_id=${}
                 )
             "#,
             param_counter,
-            param_counter + 1
         );
 
         if inverted {
             exists_clause = format!("NOT {}", exists_clause);
         }
 
-        let vals: Vec<sea_query::Value> = vec![user_id, sea_query::Value::BigInt(tag_id.as_i64())];
+        let vals: Vec<sea_query::Value> = vec![sea_query::Value::BigInt(tag_id.as_i64())];
 
-        return Ok((exists_clause, vals, param_counter + 2));
+        return Ok((exists_clause, vals, param_counter + 1));
     }
 
     if curr.is_object() {
         if let Some(child) = curr.get("not") {
             // add another layer of inversion before recurring
-            return decode_query_json_node(child, user_id.clone(), param_counter, !inverted);
+            return decode_query_json_node(child, param_counter, !inverted);
         }
         if let Some(child) = curr.get("and") {
             return decode_query_arr(
                 child,
                 BoolRelation::And,
-                user_id.clone(),
                 param_counter,
                 inverted,
             );
@@ -140,7 +127,6 @@ fn decode_query_json_node(
             return decode_query_arr(
                 child,
                 BoolRelation::Or,
-                user_id.clone(),
                 param_counter,
                 inverted,
             );
@@ -164,7 +150,6 @@ fn decode_query_json_node(
 fn decode_query_arr(
     arr: &serde_json::Value,
     mut bool_relation: BoolRelation,
-    user_id: sea_query::Value,
     mut param_counter: usize,
     inverted: bool,
 ) -> Result<(String, Vec<sea_query::Value>, usize), CadenzaError> {
@@ -180,7 +165,7 @@ fn decode_query_arr(
             // recur on children to get their sql snippets
             for child in arr {
                 let (sql, mut values, next_param_counter) =
-                    decode_query_json_node(child, user_id.clone(), param_counter, inverted)?;
+                    decode_query_json_node(child, param_counter, inverted)?;
                 child_snippets.push(sql);
                 child_values.append(&mut values);
                 param_counter = next_param_counter;
