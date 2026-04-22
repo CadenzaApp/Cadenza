@@ -57,14 +57,10 @@ export default function TagDetailScreen() {
                 </Pressable>
 
                 {tag ? (
-                    <TagPill tag={tag} height={36} />
+                    <TagPill tag={tag} height={36} count={isLoading ? undefined : taggedTracks.length} />
                 ) : (
                     <Text className="text-muted-foreground">Tag not found</Text>
                 )}
-
-                <Text className="text-muted-foreground text-sm mt-4">
-                    {isLoading ? "Loading..." : `${taggedTracks.length} ${taggedTracks.length === 1 ? "song" : "songs"}`}
-                </Text>
             </View>
 
             {/* Song list */}
