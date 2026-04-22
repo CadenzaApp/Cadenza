@@ -7,6 +7,7 @@ import {Button} from "@/components/ui/button";
 import {Text} from "@/components/ui/text";
 import {TagPill} from "@/components/custom/tag-pill";
 import {Tag} from "@/types/tag-types";
+import {useTags} from "@/lib/tags";
 
 type SongDetailModalProps = {
     open: boolean;
@@ -15,6 +16,7 @@ type SongDetailModalProps = {
     tags: Tag[];
     onTogglePlayback: (trackId: string) => void;
     isThisTrackPlaying: boolean;
+    onApplyTag?: (tag: Tag) => void;
 };
 
 type MusicItemWithOptionalMetadata = AppleMusicItem & {
@@ -37,11 +39,15 @@ export function SongDetailModal({
                                     tags,
                                     onTogglePlayback,
                                     isThisTrackPlaying,
+                                    onApplyTag,
                                 }: SongDetailModalProps) {
     const [artworkFailed, setArtworkFailed] = useState(false);
+    const [showTagPicker, setShowTagPicker] = useState(false);
+    const { tags: allUserTags, loading: tagsLoading } = useTags();
 
     useEffect(() => {
         setArtworkFailed(false);
+        setShowTagPicker(false);
     }, [song?.id, song?.artworkUrl]);
 
     const songWithMetadata = song as MusicItemWithOptionalMetadata | null;
@@ -59,7 +65,7 @@ export function SongDetailModal({
     );
 
     function handleAddTagPress() {
-        // TODO: Hook this up when song-to-tag assignment is implemented.
+        setShowTagPicker((prev) => !prev);
     }
 
     function handleAskAiForTagsPress() {
@@ -216,9 +222,9 @@ export function SongDetailModal({
                                 )}
                             </View>
 
-                            <View className="flex-row gap-2 pb-1">
+                            <View className="flex-row gap-2">
                                 <Button
-                                    variant="secondary"
+                                    variant={showTagPicker ? "default" : "secondary"}
                                     className="flex-1 h-11"
                                     onPress={handleAddTagPress}
                                 >
@@ -231,6 +237,40 @@ export function SongDetailModal({
                                     <Text>Ask AI for Tags</Text>
                                 </Button>
                             </View>
+
+                            {showTagPicker && (
+                                <View className="border border-border rounded-md p-3 gap-3 pb-4">
+                                    <Text className="text-sm font-medium text-foreground">
+                                        Your tags
+                                    </Text>
+                                    {tagsLoading ? (
+                                        <Text className="text-sm text-muted-foreground">
+                                            Loading...
+                                        </Text>
+                                    ) : allUserTags.length === 0 ? (
+                                        <Text className="text-sm text-muted-foreground">
+                                            No tags created yet.
+                                        </Text>
+                                    ) : (
+                                        <View className="flex-row flex-wrap gap-2">
+                                            {allUserTags.map((tag) => {
+                                                const alreadyApplied = tags.some((t) => t.id === tag.id);
+                                                return (
+                                                    <Pressable
+                                                        key={tag.id}
+                                                        onPress={() => {
+                                                            if (!alreadyApplied) onApplyTag?.(tag);
+                                                        }}
+                                                        style={{opacity: alreadyApplied ? 0.35 : 1}}
+                                                    >
+                                                        <TagPill tag={tag} height={12}/>
+                                                    </Pressable>
+                                                );
+                                            })}
+                                        </View>
+                                    )}
+                                </View>
+                            )}
                         </ScrollView>
                     )}
                 </Pressable>
