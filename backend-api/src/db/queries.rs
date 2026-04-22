@@ -9,7 +9,7 @@ use crate::db::entity::*;
 
 #[derive(Debug, FromQueryResult)]
 struct SongTagPair {
-    song_id: i64,
+    song_id: String,
     tag_id: i64,
 }
 
@@ -18,7 +18,7 @@ pub async fn run_json_query(
     db: &DatabaseConnection,
     json_query: &serde_json::Value,
     user_id: Uuid,
-) -> Result<HashMap<i64, HashSet<i64>>, CadenzaError> {
+) -> Result<HashMap<String, HashSet<i64>>, CadenzaError> {
     let user_id = sea_query::Value::Uuid(Some(user_id));
     let (sql, values) = decode_query(json_query, user_id)?;
 
@@ -30,7 +30,7 @@ pub async fn run_json_query(
     .all(db)
     .await?;
 
-    let mut res: HashMap<i64, HashSet<i64>> = HashMap::new();
+    let mut res: HashMap<String, HashSet<i64>> = HashMap::new();
 
     for row in song_tag_pairs {
         match res.get_mut(&row.song_id) {

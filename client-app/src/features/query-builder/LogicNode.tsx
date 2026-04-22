@@ -7,9 +7,9 @@ import { DropSlot } from "./DropSlot";
 import { useDrag } from "./DragContext";
 
 export const OPERATOR_COLORS = {
-    AND: { bg: "#2E6EAD45", border: "#2E6EAD", text: "#2E6EAD" },
-    OR: { bg: "#6E3AAD45", border: "#6E3AAD", text: "#6E3AAD" },
-    NOT: { bg: "#c4424245", border: "#c44242", text: "#c44242" },
+    and: { bg: "#2E6EAD45", border: "#2E6EAD", text: "#2E6EAD" },
+    or: { bg: "#6E3AAD45", border: "#6E3AAD", text: "#6E3AAD" },
+    not: { bg: "#c4424245", border: "#c44242", text: "#c44242" },
 } as const;
 
 function SlotCell({
@@ -30,7 +30,7 @@ function SlotCell({
             <DropSlot
                 slotKey={slotKey}
                 style={{
-                    borderColor: OPERATOR_COLORS[operator ?? "AND"].border,
+                    borderColor: OPERATOR_COLORS[operator ?? "and"].border,
                 }}
             >
                 <Text
@@ -95,7 +95,7 @@ export function LogicNodeBox({
         </View>
     );
 
-    if (operator === "NOT") {
+    if (operator === "not") {
         return (
             <View
                 style={[
@@ -117,7 +117,7 @@ export function LogicNodeBox({
         );
     }
 
-    if (operator === "AND") {
+    if (operator === "and") {
         return (
             <View
                 style={[

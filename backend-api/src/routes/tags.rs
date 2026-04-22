@@ -39,7 +39,7 @@ async fn delete_tag_handler(
 
 #[derive(Deserialize)]
 pub struct ApplyTagPayload {
-    song_id: i64,
+    song_id: String,
     tag_id: i64,
 }
 
@@ -53,7 +53,7 @@ async fn apply_tag_handler(
 
 #[derive(Deserialize)]
 pub struct RemoveTagPayload {
-    song_id: i64,
+    song_id: String,
     tag_id: i64,
 }
 async fn remove_tag_handler(

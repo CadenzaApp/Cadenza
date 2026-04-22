@@ -14,7 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Text } from "@/components/ui/text";
 import { supabase } from "@/lib/supabase";
 import { useAccount } from "@/lib/account";
-import { Tag } from "@/types/tag-types";
+import { Tag } from "@/lib/types";
 
 const COLOR_BOX_SIZE = 44;
 const COLOR_OPTIONS: string[] = [

@@ -8,7 +8,7 @@ import {useTheme} from "@react-navigation/native";
 import {Button} from "@/components/ui/button";
 import {Text} from "@/components/ui/text";
 import {TagPill} from "@/components/custom/tag-pill";
-import {Tag} from "@/types/tag-types";
+import {Tag} from "@/lib/types";
 
 // Dummy data for testing the UI before the database is hooked up
 const DUMMY_TAGS: Tag[] = [

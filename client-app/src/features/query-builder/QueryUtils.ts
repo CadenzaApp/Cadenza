@@ -160,7 +160,7 @@ function queryNodeToJSON(node: QueryNode): QueryJSONNode {
 export async function getSongsFromQuery(
     query: QueryNode,
     accessToken: string,
-): Promise<number[]> {
+): Promise<string[]> {
 
     const resp = await fetch(`${BACKEND_URL}/queries`, {
         method: "POST",

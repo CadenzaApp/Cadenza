@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAccount } from '@/lib/account';
-import { Tag } from '@/types/tag-types';
+import { Tag } from '@/lib/types';
 
 ////////////////////////////////////////////////////////////////////////////////////
 // Note: most of this file is boilerplate that react requires

@@ -1,14 +1,9 @@
-import React, { useCallback, useState } from "react";
+import { useCallback, useState } from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
 import { Text } from "@/components/ui/text";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 
-import {
-    QueryNode,
-    PaletteItem,
-    SlotAddress,
-    QuerySongsApiResult,
-} from "./types";
+import { QueryNode, PaletteItem, SlotAddress } from "./types";
 import { TagPill } from "@/components/custom/tag-pill";
 import {
     insertAtSlot,
@@ -33,7 +28,7 @@ const LOGIC_ITEMS: PaletteItem[] = [
 
 type Props = {
     tags: Tag[];
-    onQueryReturn: (matchedSongs: QuerySongsApiResult) => any;
+    onQueryReturn: (matchedSongs: string[]) => any;
 };
 export function QueryBuilder({ tags, onQueryReturn }: Props) {
     const { account } = useAccount();
@@ -68,6 +63,7 @@ export function QueryBuilder({ tags, onQueryReturn }: Props) {
     }
 
     async function onSubmit() {
+        console.log("submit clicked");
         if (root == null) {
             console.error("query is empty!");
             return;
