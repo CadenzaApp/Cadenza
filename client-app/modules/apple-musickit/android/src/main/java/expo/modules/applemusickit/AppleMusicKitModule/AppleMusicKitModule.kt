@@ -262,8 +262,24 @@ class AppleMusicKitModule : Module() {
             }
         }
 
+        AsyncFunction("getSongInfo") { id: String, type: String ->
+            val endpoint = if (type == "librarySong") {
+                "/v1/me/library/songs/$id?include=albums"
+            } else {
+                // Hardcoding 'us' storefront for catalog searches to match your existing catalogSearch implementation
+                "/v1/catalog/us/songs/$id?include=albums"
+            }
+
+            val response = makeApiRequest(endpoint)
+            val data = response["data"] as? List<Map<String, Any>>
+            val firstItem = data?.firstOrNull()
+                ?: throw Exception("Could not find song with ID $id")
+
+            return@AsyncFunction formatMediaItem(firstItem)
+        }
+
         AsyncFunction("getTracksFromLibrary") {
-            val response = makeApiRequest("/v1/me/library/songs?limit=50")
+            val response = makeApiRequest("/v1/me/library/songs?limit=50&include=albums")
             val data = response["data"] as? List<Map<String, Any>> ?: emptyList()
             return@AsyncFunction mapOf("items" to data.map { formatMediaItem(it) })
         }
@@ -276,9 +292,13 @@ class AppleMusicKitModule : Module() {
             val songsObj = resultsObj?.get("songs") as? Map<*, *>
             val albumsObj = resultsObj?.get("albums") as? Map<*, *>
             return@AsyncFunction mapOf(
-                "songs" to ((songsObj?.get("data") as? List<Map<String, Any>>)?.map { formatMediaItem(it) }
+                "songs" to ((songsObj?.get("data") as? List<Map<String, Any>>)?.map {
+                    formatMediaItem(it)
+                }
                     ?: emptyList()),
-                "albums" to ((albumsObj?.get("data") as? List<Map<String, Any>>)?.map { formatMediaItem(it) }
+                "albums" to ((albumsObj?.get("data") as? List<Map<String, Any>>)?.map {
+                    formatMediaItem(it)
+                }
                     ?: emptyList())
             )
         }
@@ -292,7 +312,7 @@ class AppleMusicKitModule : Module() {
         AsyncFunction("getLibrarySongs") { options: Map<String, Int> ->
             val limit = options["limit"] ?: 50
             return@AsyncFunction mapOf(
-                "items" to (makeApiRequest("/v1/me/library/songs?limit=$limit")["data"] as? List<Map<String, Any>>
+                "items" to (makeApiRequest("/v1/me/library/songs?limit=$limit&include=albums")["data"] as? List<Map<String, Any>>
                     ?: emptyList()).map { formatMediaItem(it) })
         }
         AsyncFunction("getPlaylistSongs") { playlistId: String ->
@@ -330,21 +350,50 @@ class AppleMusicKitModule : Module() {
 
         val catalogId = playParams?.get("catalogId")?.toString()
         val playableId = catalogId ?: (item["id"]?.toString() ?: "")
-        val title = attributes?.get("name") ?: "Unknown Title"
 
-        // Extract and format the artwork URL
+        val result = mutableMapOf<String, Any>(
+            "id" to playableId,
+            "playbackType" to "song",
+            "title" to (attributes?.get("name") ?: "Unknown Title"),
+            "artistName" to (attributes?.get("artistName") ?: "Unknown Artist")
+        )
+
         val artworkObj = attributes?.get("artwork") as? Map<*, *>
         var artworkUrl = artworkObj?.get("url")?.toString()
-        // Replace Apple's dynamic width/height placeholders with 200px
         artworkUrl = artworkUrl?.replace("{w}", "200")?.replace("{h}", "200")
+        result["artworkUrl"] = artworkUrl ?: ""
 
-        return mapOf(
-            "id" to playableId,
-            "title" to title,
-            "artistName" to (attributes?.get("artistName") ?: "Unknown Artist"),
-            "artworkUrl" to (artworkUrl ?: ""),
-            "playbackType" to "song"
-        )
+        attributes?.get("albumName")?.let { result["albumName"] = it }
+        attributes?.get("genreNames")?.let { result["genres"] = it }
+
+        val durationMs = (attributes?.get("durationInMillis") as? Number)?.toDouble()
+        if (durationMs != null) {
+            result["songDuration"] = durationMs / 1000.0
+        }
+
+        val releaseDateStr = attributes?.get("releaseDate")?.toString()
+        if (releaseDateStr != null) {
+            try {
+                val format = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+                format.timeZone = java.util.TimeZone.getTimeZone("UTC")
+                val date = format.parse(releaseDateStr)
+                if (date != null) {
+                    result["releaseDate"] = date.time
+                }
+            } catch (e: Exception) {
+                Log.w("AppleMusicKit", "Failed to parse releaseDate: $releaseDateStr")
+            }
+        }
+
+        val relationships = item["relationships"] as? Map<*, *>
+        val albumsData = (relationships?.get("albums") as? Map<*, *>)?.get("data") as? List<*>
+        val firstAlbum = albumsData?.firstOrNull() as? Map<*, *>
+        val albumId = firstAlbum?.get("id")?.toString()
+        if (albumId != null) {
+            result["albumID"] = albumId
+        }
+
+        return result
     }
 
     private fun jsonObjectToMap(jsonObj: JSONObject): Map<String, Any> {
