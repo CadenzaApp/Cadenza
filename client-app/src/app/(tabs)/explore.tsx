@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { View, ActivityIndicator, Alert } from "react-native";
+import { View, Alert } from "react-native";
 import { MusicKit, MusicItem as AppleMusicItem } from "@apple-musickit";
+import Ionicons from "@expo/vector-icons/Ionicons";
 
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
@@ -204,12 +205,6 @@ export default function ExploreScreen() {
                         </Button>
                     </View>
 
-                    {isLoading && (
-                        <View className="my-6 items-center">
-                            <ActivityIndicator size="large" color="#888" />
-                        </View>
-                    )}
-
                     {error && (
                         <Text className="text-destructive text-center my-2 px-6">
                             {error}
@@ -231,7 +226,7 @@ export default function ExploreScreen() {
                 <TabsContent value="search" className="flex-1">
                     <View className="px-6 mb-4 flex-row gap-2">
                         <Input
-                            className="flex-1 bg-input"
+                            className="flex-1 bg-input rounded-full mr-2 pl-4"
                             placeholder="Search Apple Music..."
                             value={searchQuery}
                             onChangeText={setSearchQuery}
@@ -240,6 +235,8 @@ export default function ExploreScreen() {
                             editable={!isSearchLoading}
                         />
                         <Button
+                            size="icon"
+                            className="rounded-full"
                             onPress={handleSearch}
                             disabled={
                                 isInitializing ||
@@ -247,15 +244,15 @@ export default function ExploreScreen() {
                                 !isConnected
                             }
                         >
-                            <Text>{isSearchLoading ? "..." : "Search"}</Text>
+                            <Text>
+                                {isSearchLoading ? (
+                                    "..."
+                                ) : (
+                                    <Ionicons name="search" size={20} />
+                                )}
+                            </Text>
                         </Button>
                     </View>
-
-                    {isSearchLoading && (
-                        <View className="my-6 items-center">
-                            <ActivityIndicator size="large" color="#888" />
-                        </View>
-                    )}
 
                     {searchError && (
                         <Text className="text-destructive text-center my-2 px-6">
@@ -265,7 +262,7 @@ export default function ExploreScreen() {
 
                     <MusicList
                         tracks={searchResults}
-                        isLoading={isLoading}
+                        isLoading={isSearchLoading}
                         activeTrackId={activeTrackId}
                         isPlaying={isPlaying}
                         onTogglePlayback={handleTogglePlayback}
