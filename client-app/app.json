@@ -3,12 +3,12 @@
         "router": {
             "root": "src"
         },
-        "name": "client-app",
-        "slug": "client-app",
+        "name": "Cadenza",
+        "slug": "cadenza-client-app",
         "version": "1.0.0",
         "orientation": "portrait",
-        "icon": "./assets/images/icon.png",
-        "scheme": "client-app",
+        "icon": "./assets/images/splash-icon.png",
+        "scheme": "cadenza-client-app",
         "userInterfaceStyle": "automatic",
         "newArchEnabled": true,
         "ios": {
