@@ -10,17 +10,15 @@
       ],
       "@apple-musickit": [
         "./modules/apple-musickit/index"
-      ],
-    },
+      ]
+    }
   },
   "include": [
     "**/*.ts",
     "**/*.tsx",
-    ".expo/types/**/*.ts",
-    "expo-env.d.ts",
-    "nativewind-env.d.ts",
+    "nativewind-env.d.ts"
   ],
   "exclude": [
     "node_modules"
-  ],
+  ]
 }

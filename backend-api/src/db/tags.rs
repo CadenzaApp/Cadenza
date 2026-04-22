@@ -49,7 +49,7 @@ pub async fn delete_tag(
 pub async fn apply_tag(
     db: DatabaseConnection,
     user_id: Uuid,
-    song_id: i64,
+    song_id: String,
     tag_id: i64,
 ) -> Result<(), CadenzaError> {
     let new_tag_relation = applied_tags::ActiveModel {
@@ -65,7 +65,7 @@ pub async fn apply_tag(
 pub async fn remove_tag(
     db: DatabaseConnection,
     user_id: Uuid,
-    song_id: i64,
+    song_id: String,
     tag_id: i64,
 ) -> Result<(), CadenzaError> {
     let applied_tag = applied_tags::Entity::find()

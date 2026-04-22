@@ -1,7 +1,7 @@
 import { FlatList, View } from "react-native";
 import { MusicItem as AppleMusicItem } from "@apple-musickit";
 import { Text } from "@/components/ui/text";
-import { Tag } from "@/types/tag-types";
+import { Tag } from "@/lib/types";
 import { MusicListItem, MusicListItemSkeleton } from "./music-list-item";
 
 type MusicListProps = {
@@ -50,7 +50,7 @@ export function MusicList({
             ListEmptyComponent={
                 !isLoading && tracks.length === 0 ? (
                     <Text className="text-muted-foreground text-center mt-10">
-                        No tracks loaded yet.
+                        No tracks.
                     </Text>
                 ) : null
             }

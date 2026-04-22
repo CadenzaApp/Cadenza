@@ -2,7 +2,7 @@ import { createContext, useContext, useState, useEffect, ReactNode } from 'react
 import { Alert } from 'react-native';
 import { supabase } from '@/lib/supabase';
 import { useAccount } from '@/lib/account';
-import { Tag } from '@/types/tag-types';
+import { Tag } from '@/lib/types';
 
 ////////////////////////////////////////////////////////////////////////////////////
 // Note: most of this file is boilerplate that react requires
@@ -20,7 +20,7 @@ type TagsInfo = {
 
   // Map of songId -> tags applied to that song
   songTagsMap: Record<string, Tag[]>;
-  loadSongTags: () => Promise<void>;
+  loadSongTags: () => Promise<Record<string, Tag[]>>;
   applyTag: (songId: string, tag: Tag) => Promise<void>;
   removeTag: (songId: string, tag: Tag) => Promise<void>;
 };
@@ -74,8 +74,8 @@ export function TagsProvider({ children }: { children: ReactNode }) {
    * Fetches all applied tags for the user across every song and populates
    * songTagsMap. Call this after loading the song library.
    */
-  async function loadSongTags() {
-    if (!account) return;
+  async function loadSongTags(): Promise<Record<string, Tag[]>> {
+    if (!account) return {};
 
     const { data, error: dbError } = await supabase
       .from('applied_tags')
@@ -95,6 +95,7 @@ export function TagsProvider({ children }: { children: ReactNode }) {
       });
     }
     setSongTagsMap(map);
+    return map;
   }
 
   /**

@@ -1,15 +1,21 @@
+import { useEffect } from "react";
 import { useAccount } from "@/lib/account";
 import { useTags } from "@/lib/tags";
-import { Redirect } from "expo-router";
+import { Redirect, useRouter } from "expo-router";
 import { Text } from "@/components/ui/text";
 import { TagPill } from "@/components/custom/tag-pill";
 import { CreateTagDialog } from "@/components/custom/create-tag-dialog";
-import { Tag } from "@/types/tag-types";
-import { ScrollView, View } from "react-native";
+import { Tag } from "@/lib/types";
+import { ScrollView, View, Pressable } from "react-native";
 
 export default function TagsScreen() {
     const { account } = useAccount();
-    const { tags, loading: loadingTags, error: fetchError, addTag } = useTags();
+    const { tags, loading: loadingTags, error: fetchError, addTag, songTagsMap, loadSongTags } = useTags();
+
+    useEffect(() => {
+        loadSongTags();
+    }, []);
+    const router = useRouter();
 
     if (!account) return <Redirect href="/auth?initialMode=signin" />;
 
@@ -42,7 +48,17 @@ export default function TagsScreen() {
                 ) : (
                     <View className="flex-row flex-wrap gap-2.5">
                         {tags.map((tag) => (
-                            <TagPill key={tag.id} tag={tag} height={20} />
+                            <Pressable
+                                key={tag.id}
+                                onPress={() => router.push({ pathname: '/tag/[id]', params: { id: tag.id } })}
+                                style={({ pressed }) => pressed ? { opacity: 0.7 } : undefined}
+                            >
+                                <TagPill
+                                    tag={tag}
+                                    height={14}
+                                    count={Object.values(songTagsMap).filter(songTags => songTags.some(t => t.id === tag.id)).length}
+                                />
+                            </Pressable>
                         ))}
                     </View>
                 )}

@@ -1,14 +1,12 @@
 import { Tabs } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { TagsProvider } from "@/lib/tags";
 import { useTheme } from "@react-navigation/native";
 
 export default function TabLayout() {
     const { colors } = useTheme();
 
     return (
-        <TagsProvider>
-            <Tabs
+        <Tabs
                 screenOptions={{
                     tabBarActiveTintColor: colors.primary,
                     tabBarInactiveTintColor: colors.text,
@@ -102,7 +100,6 @@ export default function TabLayout() {
                         ),
                     }}
                 />
-            </Tabs>
-        </TagsProvider>
+        </Tabs>
     );
 }
