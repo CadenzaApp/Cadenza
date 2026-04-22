@@ -10,9 +10,10 @@ import {
     AuthStatus,
     type AuthResult,
     type MusicKitOptions,
-    type PlaybackQueueType,
+    PlaybackQueueType,
     type SearchResult,
     type LibraryResult,
+    MusicItem,
 } from "./AppleMusicKit.types";
 
 interface AppleMusicKitNativeModule {
@@ -27,6 +28,7 @@ interface AppleMusicKitNativeModule {
     seekToTime(time: number): Promise<void>;
 
     // MusicKit Functionality
+    getSongInfo(id: string): Promise<MusicItem>;
     catalogSearch(query: string, types: string[]): Promise<SearchResult>;
     getTracksFromLibrary(): Promise<LibraryResult>;
     getUserPlaylists(options?: MusicKitOptions): Promise<LibraryResult>;
@@ -178,7 +180,7 @@ export const Player = {
         listener: (event: { state: string }) => void,
     ): EventSubscription => {
         if (!native) {
-            return { remove: () => { } } as EventSubscription;
+            return { remove: () => {} } as EventSubscription;
         }
         return native.addListener(eventName, listener);
     },
@@ -186,37 +188,35 @@ export const Player = {
 
 export const MusicKit = {
     /**
-     * Searches the catalog for songs or albums.
-     *
-     * @param query The search query.
-     * @param types The types of items to search for, defaults to ["songs", "albums"].
-     * @returns A promise that resolves to the search results.
+     * Retrieves the full metadata for a specific song.
+     * @param id The catalog ID or library ID of the song.
+     * @returns A promise that resolves to the full MusicItem.
      */
+    getSongInfo: async (id: string): Promise<MusicItem> => {
+        if (!native)
+            throw new Error("Apple Music API is not available in Expo Go.");
+
+        // Infer the playback queue type based on Apple Music's ID formatting rules
+        const inferredType = id.startsWith("i.")
+            ? PlaybackQueueType.LibrarySong
+            : PlaybackQueueType.Song;
+
+        return native.getSongInfo(id, inferredType);
+    },
+
     catalogSearch: async (
         query: string,
-        // TODO: Refactor to take types as enum variants instead of strings
         types: string[] = ["songs", "albums"],
     ): Promise<SearchResult> => {
         if (!native) return { songs: [], albums: [] };
         return native.catalogSearch(query, types);
     },
 
-    /**
-     * Retrieves tracks from the user's library.
-     *
-     * @returns A promise that resolves to the library results.
-     */
     getTracksFromLibrary: async (): Promise<LibraryResult> => {
         if (!native) return { items: [] };
         return native.getTracksFromLibrary();
     },
 
-    /**
-     * Retrieves the user's playlists.
-     *
-     * @param options
-     * @returns A promise that resolves to the library results.
-     */
     getUserPlaylists: async (
         options?: MusicKitOptions,
     ): Promise<LibraryResult> => {
@@ -224,12 +224,6 @@ export const MusicKit = {
         return native.getUserPlaylists(options || {});
     },
 
-    /**
-     * Retrieves songs from the user's library.
-     *
-     * @param options
-     * @returns A promise that resolves to the library results.
-     */
     getLibrarySongs: async (
         options?: MusicKitOptions,
     ): Promise<LibraryResult> => {
@@ -237,24 +231,11 @@ export const MusicKit = {
         return native.getLibrarySongs(options || {});
     },
 
-    /**
-     * Retrieves songs from a playlist.
-     *
-     * @param playlistId
-     * @returns A promise that resolves to the library results.
-     */
     getPlaylistSongs: async (playlistId: string): Promise<LibraryResult> => {
         if (!native) return { items: [] };
         return native.getPlaylistSongs(playlistId);
     },
 
-    /**
-     * Sets the playback queue.
-     *
-     * @param id
-     * @param type
-     * @returns A promise that resolves when the queue is set.
-     */
     setPlaybackQueue: async (
         id: string,
         type: PlaybackQueueType,

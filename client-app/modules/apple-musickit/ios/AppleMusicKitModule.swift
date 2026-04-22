@@ -31,6 +31,34 @@ public class AppleMusicKitModule: Module {
         return "https://is1-ssl.mzstatic.com/image/thumb/\(encodedAssetPath)/\(width)x\(height)bb.jpg"
     }
 
+    private func formatSong(_ song: Song, playbackType: String) -> [String: Any] {
+        var dict: [String: Any] = [
+            "id": song.id.rawValue,
+            "playbackType": playbackType,
+            "title": song.title,
+            "artistName": song.artistName,
+            "artworkUrl": artworkURLString(from: song.artwork, width: 200, height: 200)
+        ]
+
+        if let albumTitle = song.albumTitle {
+            dict["albumName"] = albumTitle
+        }
+        if let duration = song.duration {
+            dict["songDuration"] = duration
+        }
+        if let albumId = song.albums?.first?.id.rawValue {
+            dict["albumID"] = albumId
+        }
+        if !song.genreNames.isEmpty {
+            dict["genres"] = song.genreNames
+        }
+        if let date = song.releaseDate {
+            dict["releaseDate"] = date.timeIntervalSince1970 * 1000
+        }
+
+        return dict
+    }
+
     public func definition() -> ModuleDefinition {
         Name("AppleMusicKit")
 
@@ -129,16 +157,12 @@ public class AppleMusicKitModule: Module {
                 throw Exception(name: "ERR_UNSUPPORTED", description: "Requires iOS 15.0+")
             }
 
-            // Map types array to actual MusicKit types if needed, using Song/Album as baseline
             var request = MusicCatalogSearchRequest(term: query, types: [Song.self, Album.self])
             request.limit = 20
 
             let response = try await request.response()
 
-            // Format to a JSON-friendly dictionary mapping
-            let songs = response.songs.map {
-                ["id": $0.id.rawValue, "title": $0.title, "artistName": $0.artistName, "artworkUrl": artworkURLString(from: $0.artwork)]
-            }
+            let songs = response.songs.map { formatSong($0, playbackType: "song") }
             let albums = response.albums.map {
                 ["id": $0.id.rawValue, "title": $0.title, "artistName": $0.artistName, "artworkUrl": artworkURLString(from: $0.artwork)]
             }
@@ -149,6 +173,35 @@ public class AppleMusicKitModule: Module {
             ]
         }
 
+        AsyncFunction("getSongInfo") { (id: String, type: String) async throws -> [String: Any] in
+                    guard #available(iOS 15.0, *) else {
+                        throw Exception(name: "ERR_UNSUPPORTED", description: "Requires iOS 15.0+")
+                    }
+
+                    if type == "librarySong" {
+                        if #available(iOS 16.0, *) {
+                            var request = MusicLibraryRequest<Song>()
+                            request.filter(matching: \.id, equalTo: MusicItemID(id))
+                            let response = try await request.response()
+
+                            guard let song = response.items.first else {
+                                throw Exception(name: "ERR_NOT_FOUND", description: "Could not find library song with ID \(id)")
+                            }
+                            return self.formatSong(song, playbackType: "librarySong")
+                        } else {
+                            throw Exception(name: "ERR_UNSUPPORTED", description: "iOS 16.0+ required to access library songs.")
+                        }
+                    } else {
+                        var request = MusicCatalogResourceRequest<Song>(matching: \.id, equalTo: MusicItemID(id))
+                        let response = try await request.response()
+
+                        guard let song = response.items.first else {
+                            throw Exception(name: "ERR_NOT_FOUND", description: "Could not find catalog song with ID \(id)")
+                        }
+                        return self.formatSong(song, playbackType: "song")
+                    }
+                }
+
         AsyncFunction("getTracksFromLibrary") { () async throws -> [String: Any] in
             guard #available(iOS 16.0, *) else {
                 throw Exception(
@@ -156,17 +209,10 @@ public class AppleMusicKitModule: Module {
                     description: "iOS 16.0+ required to access the user's library.")
             }
             var request = MusicLibraryRequest<Song>()
-            request.limit = 50  // Default mapping for recently played/library
+            request.limit = 50
             let response = try await request.response()
-            let items = response.items.map {
-                [
-                    "id": $0.id.rawValue,
-                    "title": $0.title,
-                    "artistName": $0.artistName,
-                    "artworkUrl": artworkURLString(from: $0.artwork),
-                    "playbackType": "librarySong",
-                ]
-            }
+
+            let items = response.items.map { formatSong($0, playbackType: "librarySong") }
             return ["items": items]
         }
 
@@ -195,15 +241,8 @@ public class AppleMusicKitModule: Module {
             var request = MusicLibraryRequest<Song>()
             if let limit = options["limit"] { request.limit = limit }
             let response = try await request.response()
-            let items = response.items.map {
-                [
-                    "id": $0.id.rawValue,
-                    "title": $0.title,
-                    "artistName": $0.artistName,
-                    "artworkUrl": artworkURLString(from: $0.artwork),
-                    "playbackType": "librarySong",
-                ]
-            }
+
+            let items = response.items.map { formatSong($0, playbackType: "librarySong") }
             return ["items": items]
         }
 
@@ -216,7 +255,6 @@ public class AppleMusicKitModule: Module {
         AsyncFunction("setPlaybackQueue") { (id: String, type: String) async throws -> Void in
             guard #available(iOS 15.0, *) else { return }
 
-            // Note: ApplicationMusicPlayer.shared.queue requires fetching the object first.
             if type == "album" {
                 var request = MusicCatalogResourceRequest<Album>(
                     matching: \.id, equalTo: MusicItemID(id))
