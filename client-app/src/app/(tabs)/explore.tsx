@@ -8,8 +8,7 @@ import {MusicList} from "@/components/custom/music-list";
 import {SongDetailModal} from "@/components/custom/song-detail-modal";
 import {usePlayback} from "@/lib/playback";
 import {useAppleMusic} from "@/lib/apple-music";
-import {useAccount} from "@/lib/account";
-import {fetchAllSongTags, applyTagToSong} from "@/lib/tags";
+import {useTags} from "@/lib/tags";
 import {Tag} from "@/types/tag-types";
 
 function getErrorDetails(error: unknown) {
@@ -49,13 +48,11 @@ export default function ExploreScreen() {
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [selectedSong, setSelectedSong] = useState<AppleMusicItem | null>(null);
-    const [selectedSongTags, setSelectedSongTags] = useState<Tag[]>([]);
     const [isSongDetailModalOpen, setIsSongDetailModalOpen] = useState(false);
-    const [songTagsMap, setSongTagsMap] = useState<Record<string, Tag[]>>({});
 
     const {isInitializing, isConnected, ensureConnected} = useAppleMusic();
     const {activeTrackId, isPlaying, togglePlayback} = usePlayback();
-    const {account} = useAccount();
+    const {songTagsMap, loadSongTags, applyTag} = useTags();
 
     async function handleFetchLibrary() {
         if (!isConnected) {
@@ -71,12 +68,11 @@ export default function ExploreScreen() {
 
         try {
             await ensureConnected();
-            const [result, tagsMap] = await Promise.all([
+            const [result] = await Promise.all([
                 MusicKit.getTracksFromLibrary(),
-                account ? fetchAllSongTags(account.id) : Promise.resolve({}),
+                loadSongTags(),
             ]);
             setTracks(result.items || []);
-            setSongTagsMap(tagsMap);
         } catch (e) {
             console.error(
                 "Failed to fetch library tracks:",
@@ -111,34 +107,15 @@ export default function ExploreScreen() {
 
     function handleTrackSelected(track: AppleMusicItem, _tags: Tag[]) {
         setSelectedSong(track);
-        setSelectedSongTags(track.id ? (songTagsMap[track.id] ?? []) : []);
         setIsSongDetailModalOpen(true);
     }
 
     async function handleApplyTag(tag: Tag) {
-        if (!selectedSong?.id || !account) return;
-        const songId = selectedSong.id;
-
-        // Optimistic update — show the tag immediately in both the modal and the list
-        setSelectedSongTags((prev) => [...prev, tag]);
-        setSongTagsMap((prev) => ({
-            ...prev,
-            [songId]: [...(prev[songId] ?? []), tag],
-        }));
-
-        try {
-            await applyTagToSong(songId, tag.id, account.id);
-        } catch (e) {
-            // Roll back if the DB call failed
-            setSelectedSongTags((prev) => prev.filter((t) => t.id !== tag.id));
-            setSongTagsMap((prev) => ({
-                ...prev,
-                [songId]: (prev[songId] ?? []).filter((t) => t.id !== tag.id),
-            }));
-            Alert.alert("Error", "Failed to add tag. Please try again.");
-            console.error("Failed to apply tag:", e);
-        }
+        if (!selectedSong?.id) return;
+        await applyTag(selectedSong.id, tag);
     }
+
+    const selectedSongTags = selectedSong?.id ? (songTagsMap[selectedSong.id] ?? []) : [];
 
     return (
         <View className="flex-1 bg-background pt-16">

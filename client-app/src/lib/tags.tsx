@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { Alert } from 'react-native';
 import { supabase } from '@/lib/supabase';
 import { useAccount } from '@/lib/account';
 import { Tag } from '@/types/tag-types';
@@ -6,15 +7,21 @@ import { Tag } from '@/types/tag-types';
 ////////////////////////////////////////////////////////////////////////////////////
 // Note: most of this file is boilerplate that react requires
 // for sharing state among components without passing them down through props.
-// Essentially this allows global data that represents the users tags to be exposed to 
-// all props.
+// Essentially this allows global data that represents the users tags to be exposed to
+// all components.
 ////////////////////////////////////////////////////////////////////////////////////
 
 type TagsInfo = {
-  tags: Tag[],                // All of the current user's tags
-  loading: boolean,           // True if loading the user's tags
-  error: string | null,       // Possible error while loading user's tags
-  addTag: (tag: Tag) => void, // Callback for when tags are added 
+  // The current user's created tags
+  tags: Tag[];
+  loading: boolean;
+  error: string | null;
+  addTag: (tag: Tag) => void;
+
+  // Map of songId -> tags applied to that song
+  songTagsMap: Record<string, Tag[]>;
+  loadSongTags: () => Promise<void>;
+  applyTag: (songId: string, tag: Tag) => Promise<void>;
 };
 
 const TagsContext = createContext<TagsInfo | null>(null);
@@ -28,7 +35,9 @@ export function TagsProvider({ children }: { children: ReactNode }) {
   const [tags, setTags] = useState<Tag[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [songTagsMap, setSongTagsMap] = useState<Record<string, Tag[]>>({});
 
+  // Load the user's created tags whenever the account changes
   useEffect(() => {
     if (!account) return;
 
@@ -45,7 +54,7 @@ export function TagsProvider({ children }: { children: ReactNode }) {
 
         if (dbError) throw dbError;
 
-        setTags(data.map((row) => ({ id: row.tag_id, name: row.name, color: row.color })));
+        setTags(data.map((row) => ({ id: String(row.tag_id), name: row.name, color: row.color })));
       } catch (err: unknown) {
         setError(err instanceof Error ? err.message : 'Failed to load tags.');
       } finally {
@@ -60,45 +69,63 @@ export function TagsProvider({ children }: { children: ReactNode }) {
     setTags((prev) => [...prev, tag]);
   }
 
+  /**
+   * Fetches all applied tags for the user across every song and populates
+   * songTagsMap. Call this after loading the song library.
+   */
+  async function loadSongTags() {
+    if (!account) return;
+
+    const { data, error: dbError } = await supabase
+      .from('applied_tags')
+      .select('song_id, tag_id, tags(name, color)')
+      .eq('user_id', account.id);
+
+    if (dbError) throw dbError;
+
+    const map: Record<string, Tag[]> = {};
+    for (const row of (data ?? []) as any[]) {
+      const songId = String(row.song_id);
+      if (!map[songId]) map[songId] = [];
+      map[songId].push({
+        id: String(row.tag_id),
+        name: row.tags.name,
+        color: row.tags.color,
+      });
+    }
+    setSongTagsMap(map);
+  }
+
+  /**
+   * Applies a tag to a song — updates the DB and songTagsMap optimistically.
+   */
+  async function applyTag(songId: string, tag: Tag) {
+    if (!account) return;
+
+    // Optimistic update
+    setSongTagsMap((prev) => ({
+      ...prev,
+      [songId]: [...(prev[songId] ?? []), tag],
+    }));
+
+    const { error: dbError } = await supabase
+      .from('applied_tags')
+      .insert({ user_id: account.id, song_id: Number(songId), tag_id: Number(tag.id) });
+
+    if (dbError) {
+      // Roll back
+      setSongTagsMap((prev) => ({
+        ...prev,
+        [songId]: (prev[songId] ?? []).filter((t) => t.id !== tag.id),
+      }));
+      Alert.alert('Error', 'Failed to add tag. Please try again.');
+      console.error('Failed to apply tag:', dbError);
+    }
+  }
+
   return (
-    <TagsContext.Provider value={{ tags, loading, error, addTag }}>
+    <TagsContext.Provider value={{ tags, loading, error, addTag, songTagsMap, loadSongTags, applyTag }}>
       {children}
     </TagsContext.Provider>
   );
-}
-
-/**
- * Inserts a row into applied_tags, linking a tag to a song for the current user.
- */
-export async function applyTagToSong(songId: string, tagId: string, userId: string): Promise<void> {
-  const { error } = await supabase
-    .from('applied_tags')
-    .insert({ user_id: userId, song_id: Number(songId), tag_id: Number(tagId) });
-
-  if (error) throw error;
-}
-
-/**
- * Fetches all applied tags for a user across every song, returned as a
- * map of songId -> Tag[].
- */
-export async function fetchAllSongTags(userId: string): Promise<Record<string, Tag[]>> {
-  const { data, error } = await supabase
-    .from('applied_tags')
-    .select('song_id, tag_id, tags(name, color)')
-    .eq('user_id', userId);
-
-  if (error) throw error;
-
-  const map: Record<string, Tag[]> = {};
-  for (const row of (data ?? []) as any[]) {
-    const songId = String(row.song_id);
-    if (!map[songId]) map[songId] = [];
-    map[songId].push({
-      id: String(row.tag_id),
-      name: row.tags.name,
-      color: row.tags.color,
-    });
-  }
-  return map;
 }

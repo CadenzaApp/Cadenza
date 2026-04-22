@@ -228,7 +228,7 @@ export function SongDetailModal({
                                     className="flex-1 h-11"
                                     onPress={handleAddTagPress}
                                 >
-                                    <Text>Add Tag</Text>
+                                    <Text>Add Tags</Text>
                                 </Button>
                                 <Button
                                     className="flex-1 h-11"
