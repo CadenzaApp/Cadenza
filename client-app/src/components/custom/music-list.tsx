@@ -1,8 +1,8 @@
-import { FlatList } from "react-native";
+import { FlatList, View } from "react-native";
 import { MusicItem as AppleMusicItem } from "@apple-musickit";
 import { Text } from "@/components/ui/text";
 import { Tag } from "@/lib/types";
-import { MusicListItem } from "./music-list-item";
+import { MusicListItem, MusicListItemSkeleton } from "./music-list-item";
 
 type MusicListProps = {
     tracks: AppleMusicItem[];
@@ -11,6 +11,7 @@ type MusicListProps = {
     isPlaying: boolean;
     onTogglePlayback: (trackId: string) => void;
     onSelectTrack?: (track: AppleMusicItem, tags: Tag[]) => void;
+    songTagsMap?: Record<string, Tag[]>;
 };
 
 export function MusicList({
@@ -20,7 +21,18 @@ export function MusicList({
     isPlaying,
     onTogglePlayback,
     onSelectTrack,
+    songTagsMap = {},
 }: MusicListProps) {
+    if (isLoading && tracks.length === 0) {
+        return (
+            <View className="px-6 pb-10">
+                {Array.from({ length: 8 }).map((_, i) => (
+                    <MusicListItemSkeleton key={i} />
+                ))}
+            </View>
+        );
+    }
+
     return (
         <FlatList
             data={tracks}
@@ -30,6 +42,7 @@ export function MusicList({
                     item={item}
                     isThisTrackPlaying={activeTrackId === item.id && isPlaying}
                     onTogglePlayback={onTogglePlayback}
+                    tags={item.id ? (songTagsMap[item.id] ?? []) : []}
                     onPress={onSelectTrack}
                 />
             )}

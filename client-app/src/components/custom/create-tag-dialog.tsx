@@ -76,7 +76,7 @@ export function CreateTagDialog({
             if (dbError) throw dbError;
 
             onTagCreated({
-                id: data.tag_id,
+                id: String(data.tag_id),
                 name: data.name,
                 color: data.color,
             });

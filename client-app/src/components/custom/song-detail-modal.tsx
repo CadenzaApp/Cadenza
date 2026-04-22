@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { TagPill } from "@/components/custom/tag-pill";
 import { Tag } from "@/lib/types";
+import {useTags} from "@/lib/tags";
 
 type SongDetailModalProps = {
     open: boolean;
@@ -15,6 +16,8 @@ type SongDetailModalProps = {
     tags: Tag[];
     onTogglePlayback: (trackId: string) => void;
     isThisTrackPlaying: boolean;
+    onApplyTag?: (tag: Tag) => void;
+    onRemoveTag?: (tag: Tag) => void;
 };
 
 function toDisplayString(value: unknown, fallback = "Unavailable") {
@@ -53,17 +56,27 @@ function formatSeconds(totalSeconds: number): string {
 }
 
 export function SongDetailModal({
-    open,
-    onOpenChange,
-    song,
-    tags,
-    onTogglePlayback,
-    isThisTrackPlaying,
-}: SongDetailModalProps) {
+                                    open,
+                                    onOpenChange,
+                                    song,
+                                    tags,
+                                    onTogglePlayback,
+                                    isThisTrackPlaying,
+                                    onApplyTag,
+                                    onRemoveTag,
+                                }: SongDetailModalProps) {
     const [artworkFailed, setArtworkFailed] = useState(false);
+    const [activePanel, setActivePanel] = useState<'addTag' | 'aiTags' | null>(null);
+
+    const MOCK_AI_TAGS: Tag[] = [
+        {id: "mock-1", name: "energetic", color: "#e05c2a"},
+        {id: "mock-2", name: "atmospheric", color: "#7c3aed"},
+    ];
+    const { tags: allUserTags, loading: tagsLoading } = useTags();
 
     useEffect(() => {
         setArtworkFailed(false);
+        setActivePanel(null);
     }, [song?.id, song?.artworkUrl]);
 
     const artworkUrl = song?.artworkUrl?.trim();
@@ -82,11 +95,11 @@ export function SongDetailModal({
     const songDuration = formatSeconds(song?.songDuration ?? 0);
 
     function handleAddTagPress() {
-        // TODO: Hook this up when song-to-tag assignment is implemented.
+        setActivePanel((prev) => prev === 'addTag' ? null : 'addTag');
     }
 
     function handleAskAiForTagsPress() {
-        // TODO: Hook this up when AI tag suggestions are wired into the app.
+        setActivePanel((prev) => prev === 'aiTags' ? null : 'aiTags');
     }
 
     function handlePlayPress() {
@@ -263,6 +276,7 @@ export function SongDetailModal({
                                                 key={tag.id}
                                                 tag={tag}
                                                 height={12}
+                                                onRemove={() => onRemoveTag?.(tag)}
                                             />
                                         ))}
                                     </View>
@@ -273,21 +287,66 @@ export function SongDetailModal({
                                 )}
                             </View>
 
-                            <View className="flex-row gap-2 pb-1">
+                            <View className="flex-row gap-2">
                                 <Button
-                                    variant="secondary"
+                                    variant={activePanel === 'addTag' ? "default" : "secondary"}
                                     className="flex-1 h-11"
                                     onPress={handleAddTagPress}
                                 >
-                                    <Text>Add Tag</Text>
+                                    <Text>Add Tags</Text>
                                 </Button>
                                 <Button
+                                    variant={activePanel === 'aiTags' ? "default" : "secondary"}
                                     className="flex-1 h-11"
                                     onPress={handleAskAiForTagsPress}
                                 >
                                     <Text>Ask AI for Tags</Text>
                                 </Button>
                             </View>
+
+                            {activePanel === 'aiTags' && (
+                                <View className="border border-border rounded-md p-3 gap-3 pb-4">
+                                    <Text className="text-sm font-medium text-foreground">
+                                        AI suggested tags
+                                    </Text>
+                                    <View className="flex-row flex-wrap gap-2">
+                                        {MOCK_AI_TAGS.map((tag) => (
+                                            <TagPill key={tag.id} tag={tag} height={12}/>
+                                        ))}
+                                    </View>
+                                </View>
+                            )}
+
+                            {activePanel === 'addTag' && (
+                                <View className="border border-border rounded-md p-3 gap-3 pb-4">
+                                    <Text className="text-sm font-medium text-foreground">
+                                        Your tags
+                                    </Text>
+                                    {tagsLoading ? (
+                                        <Text className="text-sm text-muted-foreground">
+                                            Loading...
+                                        </Text>
+                                    ) : allUserTags.length === 0 ? (
+                                        <Text className="text-sm text-muted-foreground">
+                                            No tags created yet.
+                                        </Text>
+                                    ) : (
+                                        <View className="flex-row flex-wrap gap-2">
+                                            {allUserTags
+                                                .filter((tag) => !tags.some((t) => t.id === tag.id))
+                                                .map((tag) => (
+                                                    <Pressable
+                                                        key={tag.id}
+                                                        onPress={() => onApplyTag?.(tag)}
+                                                    >
+                                                        <TagPill tag={tag} height={12}/>
+                                                    </Pressable>
+                                                ))
+                                            }
+                                        </View>
+                                    )}
+                                </View>
+                            )}
                         </ScrollView>
                     )}
                 </Pressable>

@@ -4,6 +4,7 @@ import { Stack } from "expo-router";
 import AccountProvider from "@/lib/account";
 import { AppleMusicProvider } from "@/lib/apple-music";
 import { PlaybackProvider } from "@/lib/playback";
+import { TagsProvider } from "@/lib/tags";
 import { PortalHost } from "@rn-primitives/portal";
 import { useColorScheme } from "nativewind";
 
@@ -14,6 +15,7 @@ export default function RootLayout() {
 
     return (
         <AccountProvider>
+            <TagsProvider>
             <AppleMusicProvider>
                 <PlaybackProvider>
                     <ThemeProvider
@@ -36,11 +38,16 @@ export default function RootLayout() {
                                 name="auth/index"
                                 options={{ title: "Welcome" }}
                             />
+                            <Stack.Screen
+                                name="tag/[id]"
+                                options={{ headerShown: false }}
+                            />
                         </Stack>
                     </ThemeProvider>
                     <PortalHost />
                 </PlaybackProvider>
             </AppleMusicProvider>
+            </TagsProvider>
         </AccountProvider>
     );
 }
