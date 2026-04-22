@@ -8,6 +8,8 @@ import {MusicList} from "@/components/custom/music-list";
 import {SongDetailModal} from "@/components/custom/song-detail-modal";
 import {usePlayback} from "@/lib/playback";
 import {useAppleMusic} from "@/lib/apple-music";
+import {useAccount} from "@/lib/account";
+import {fetchAllSongTags} from "@/lib/tags";
 import {Tag} from "@/types/tag-types";
 
 function getErrorDetails(error: unknown) {
@@ -49,9 +51,11 @@ export default function ExploreScreen() {
     const [selectedSong, setSelectedSong] = useState<AppleMusicItem | null>(null);
     const [selectedSongTags, setSelectedSongTags] = useState<Tag[]>([]);
     const [isSongDetailModalOpen, setIsSongDetailModalOpen] = useState(false);
+    const [songTagsMap, setSongTagsMap] = useState<Record<string, Tag[]>>({});
 
     const {isInitializing, isConnected, ensureConnected} = useAppleMusic();
     const {activeTrackId, isPlaying, togglePlayback} = usePlayback();
+    const {account} = useAccount();
 
     async function handleFetchLibrary() {
         if (!isConnected) {
@@ -67,8 +71,12 @@ export default function ExploreScreen() {
 
         try {
             await ensureConnected();
-            const result = await MusicKit.getTracksFromLibrary();
+            const [result, tagsMap] = await Promise.all([
+                MusicKit.getTracksFromLibrary(),
+                account ? fetchAllSongTags(account.id) : Promise.resolve({}),
+            ]);
             setTracks(result.items || []);
+            setSongTagsMap(tagsMap);
         } catch (e) {
             console.error(
                 "Failed to fetch library tracks:",
@@ -101,9 +109,9 @@ export default function ExploreScreen() {
         }
     }
 
-    function handleTrackSelected(track: AppleMusicItem, tags: Tag[]) {
+    function handleTrackSelected(track: AppleMusicItem, _tags: Tag[]) {
         setSelectedSong(track);
-        setSelectedSongTags(tags);
+        setSelectedSongTags(track.id ? (songTagsMap[track.id] ?? []) : []);
         setIsSongDetailModalOpen(true);
     }
 
@@ -144,6 +152,7 @@ export default function ExploreScreen() {
                 isPlaying={isPlaying}
                 onTogglePlayback={handleTogglePlayback}
                 onSelectTrack={handleTrackSelected}
+                songTagsMap={songTagsMap}
             />
 
             <SongDetailModal

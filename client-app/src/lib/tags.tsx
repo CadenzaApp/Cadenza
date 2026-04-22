@@ -68,20 +68,26 @@ export function TagsProvider({ children }: { children: ReactNode }) {
 }
 
 /**
- * Fetch the tags applied to a specific song for a given user
+ * Fetches all applied tags for a user across every song, returned as a
+ * map of songId -> Tag[]. One query for the whole library.
  */
-export async function fetchTagsForSong(songId: string, userId: string): Promise<Tag[]> {
+export async function fetchAllSongTags(userId: string): Promise<Record<string, Tag[]>> {
   const { data, error } = await supabase
     .from('applied_tags')
-    .select('tag_id, tags(name, color)')
-    .eq('song_id', songId)
+    .select('song_id, tag_id, tags(name, color)')
     .eq('user_id', userId);
 
   if (error) throw error;
 
-  return (data ?? []).map((row: any) => ({
-    id: String(row.tag_id),
-    name: row.tags.name,
-    color: row.tags.color,
-  }));
+  const map: Record<string, Tag[]> = {};
+  for (const row of (data ?? []) as any[]) {
+    const songId = String(row.song_id);
+    if (!map[songId]) map[songId] = [];
+    map[songId].push({
+      id: String(row.tag_id),
+      name: row.tags.name,
+      color: row.tags.color,
+    });
+  }
+  return map;
 }
