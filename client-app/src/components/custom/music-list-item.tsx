@@ -10,14 +10,6 @@ import {Text} from "@/components/ui/text";
 import {TagPill} from "@/components/custom/tag-pill";
 import {Tag} from "@/types/tag-types";
 
-// Dummy data for testing the UI before the database is hooked up
-const DUMMY_TAGS: Tag[] = [
-    {id: "1", name: "chill", color: "#1f93d6"},
-    {id: "2", name: "hiphop", color: "#ce7129"},
-    {id: "3", name: "lofi", color: "#5644ce"},
-    {id: "4", name: "focus", color: "#25924f"},
-];
-
 type MusicItemProps = {
     item: AppleMusicItem;
     isThisTrackPlaying: boolean;
@@ -30,7 +22,7 @@ export function MusicListItem({
                                   item,
                                   isThisTrackPlaying,
                                   onTogglePlayback,
-                                  tags = DUMMY_TAGS,
+                                  tags = [],
                                   onPress,
                               }: MusicItemProps) {
     const {colors} = useTheme();
