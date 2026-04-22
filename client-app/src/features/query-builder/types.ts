@@ -1,8 +1,9 @@
-import { Tag } from "@/types/tag-types";
 
 /////////////////////////
 // Query builder types
 /////////////////////////
+
+import { Tag } from "@/lib/types";
 
 export type QueryNodeTag = {
   kind: "tag";
@@ -10,7 +11,7 @@ export type QueryNodeTag = {
   tag: Tag;
 };
 
-export type LogicOperator = "AND" | "OR" | "NOT";
+export type LogicOperator = "and" | "or" | "not";
 
 export type QueryNodeLogic = {
   kind: "logic";
@@ -46,3 +47,10 @@ export type SlotAddress =
   | { nodeId: "root" }                  
   | { nodeId: string; index: number }
   | { nodeId: string; index: "append" };
+
+
+export type QueryJSONNode = 
+    | number
+    | { and: QueryJSONNode[] }
+    | { or: QueryJSONNode[] }
+    | { not: QueryJSONNode }

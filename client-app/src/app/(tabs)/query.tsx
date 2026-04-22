@@ -6,10 +6,16 @@ import { useAccount } from "@/lib/account";
 import { useTags } from "@/lib/tags";
 import { Text } from "@/components/ui/text";
 import { Redirect } from "expo-router";
+import { QuerySongsApiResult } from "@/features/query-builder/types";
 
-export default function QueryBuilderDemo() {
+export default function QueryScreen() {
     const { account } = useAccount();
     const { tags, loading, error } = useTags();
+
+
+
+    function onQueryReturn(matchedSongs: QuerySongsApiResult) {
+    }
 
     if (!account) return <Redirect href="/auth?initialMode=signin" />;
 
@@ -31,7 +37,7 @@ export default function QueryBuilderDemo() {
 
     return (
         <SafeAreaView className="flex-1 bg-background">
-            <QueryBuilder tags={tags} />
+            <QueryBuilder tags={tags} onQueryReturn={onQueryReturn} />
         </SafeAreaView>
     );
 }

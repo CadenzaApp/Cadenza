@@ -3,29 +3,40 @@ import { ScrollView, StyleSheet, View } from "react-native";
 import { Text } from "@/components/ui/text";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 
-import { QueryNode, PaletteItem, SlotAddress } from "./types";
-import { Tag } from "@/types/tag-types";
+import {
+    QueryNode,
+    PaletteItem,
+    SlotAddress,
+    QuerySongsApiResult,
+} from "./types";
 import { TagPill } from "@/components/custom/tag-pill";
-import { insertAtSlot, removeNode, findNodeById } from "./QueryUtils";
+import {
+    insertAtSlot,
+    removeNode,
+    findNodeById,
+    getSongsFromQuery,
+} from "./QueryUtils";
 import { DragProvider } from "./DragContext";
 import { DragGhost } from "./DragGhost";
 import { PaletteSection } from "./PaletteSection";
 import { LogicNodeBox } from "./LogicNode";
 import { DropSlot } from "./DropSlot";
+import { Button } from "@/components/ui/button";
+import { Tag } from "@/lib/types";
+import { useAccount } from "@/lib/account";
 
 const LOGIC_ITEMS: PaletteItem[] = [
-    { kind: "logic", operator: "AND" },
-    { kind: "logic", operator: "OR" },
-    { kind: "logic", operator: "NOT" },
+    { kind: "logic", operator: "and" },
+    { kind: "logic", operator: "or" },
+    { kind: "logic", operator: "not" },
 ];
 
-export function QueryBuilder({
-    tags,
-    onChange,
-}: {
+type Props = {
     tags: Tag[];
-    onChange?: (root: QueryNode | null) => void;
-}) {
+    onQueryReturn: (matchedSongs: QuerySongsApiResult) => any;
+};
+export function QueryBuilder({ tags, onQueryReturn }: Props) {
+    const { account } = useAccount();
     const [root, setRoot] = useState<QueryNode | null>(null);
 
     const tagPaletteItems: PaletteItem[] = tags.map((t) => ({
@@ -33,36 +44,46 @@ export function QueryBuilder({
         tag: t,
     }));
 
-    const handleDrop = useCallback(
-        (item: PaletteItem, address: SlotAddress) => {
-            setRoot((prev) => {
-                if (item.kind === "logic" && address.nodeId !== "root") {
-                    const targetNode = findNodeById(prev, address.nodeId);
-                    if (
-                        targetNode?.kind === "logic" &&
-                        targetNode.operator === item.operator
-                    ) {
-                        return prev;
-                    }
+    function handleDrop(item: PaletteItem, address: SlotAddress) {
+        setRoot((prev) => {
+            if (item.kind === "logic" && address.nodeId !== "root") {
+                const targetNode = findNodeById(prev, address.nodeId);
+                if (
+                    targetNode?.kind === "logic" &&
+                    targetNode.operator === item.operator
+                ) {
+                    return prev;
                 }
-                const next = insertAtSlot(prev, address, item);
-                onChange?.(next);
-                return next;
-            });
-        },
-        [onChange],
-    );
+            }
+            const next = insertAtSlot(prev, address, item);
+            return next;
+        });
+    }
 
-    const handleRemove = useCallback(
-        (id: string) => {
-            setRoot((prev) => {
-                const next = removeNode(prev, id);
-                onChange?.(next);
-                return next;
-            });
-        },
-        [onChange],
-    );
+    function handleRemove(id: string) {
+        setRoot((prev) => {
+            const next = removeNode(prev, id);
+            return next;
+        });
+    }
+
+    async function onSubmit() {
+        if (root == null) {
+            console.error("query is empty!");
+            return;
+        }
+        if (account == null) {
+            console.error("not signed in");
+            return;
+        }
+
+        try {
+            const matchedSongs = await getSongsFromQuery(root, account?.jwt);
+            onQueryReturn(matchedSongs);
+        } catch (e) {
+            console.error("error getting songs from query:", e);
+        }
+    }
 
     return (
         <GestureHandlerRootView style={styles.root} className="bg-background">
@@ -118,6 +139,10 @@ export function QueryBuilder({
                             </DropSlot>
                         )}
                     </ScrollView>
+
+                    <Button onPress={onSubmit}>
+                        <Text> Create mix </Text>
+                    </Button>
                 </View>
                 <DragGhost />
             </DragProvider>
