@@ -63,6 +63,11 @@ export default function TagDetailScreen() {
 
     const selectedSongTags = selectedSong?.id ? (songTagsMap[selectedSong.id] ?? []) : [];
 
+    // Scale the header pill down for longer tag names so it doesn't look weird
+    const pillHeight = tag
+        ? Math.max(18, 36 - Math.max(0, (tag.name.length - 6) * 1.5))
+        : 36;
+
     return (
         <View className="flex-1 bg-background">
             {/* Header tag pill */}
@@ -77,7 +82,7 @@ export default function TagDetailScreen() {
                 </Pressable>
 
                 {tag ? (
-                    <TagPill tag={tag} height={36} count={isLoading ? undefined : taggedTracks.length} />
+                    <TagPill tag={tag} height={pillHeight} count={isLoading ? undefined : taggedTracks.length} />
                 ) : (
                     <Text className="text-muted-foreground">Tag not found</Text>
                 )}
