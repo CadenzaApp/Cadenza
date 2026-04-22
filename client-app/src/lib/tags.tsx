@@ -66,3 +66,22 @@ export function TagsProvider({ children }: { children: ReactNode }) {
     </TagsContext.Provider>
   );
 }
+
+/**
+ * Fetch the tags applied to a specific song for a given user
+ */
+export async function fetchTagsForSong(songId: string, userId: string): Promise<Tag[]> {
+  const { data, error } = await supabase
+    .from('applied_tags')
+    .select('tag_id, tags(name, color)')
+    .eq('song_id', songId)
+    .eq('user_id', userId);
+
+  if (error) throw error;
+
+  return (data ?? []).map((row: any) => ({
+    id: String(row.tag_id),
+    name: row.tags.name,
+    color: row.tags.color,
+  }));
+}
