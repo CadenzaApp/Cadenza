@@ -5,6 +5,7 @@ use sea_orm::{DatabaseConnection, FromQueryResult};
 use sea_orm::{DbBackend, Statement};
 
 use crate::err::CadenzaError;
+use crate::db::entity::*;
 
 #[derive(Debug, FromQueryResult)]
 struct SongTagPair {

@@ -9,6 +9,7 @@ use sea_orm::{
 };
 
 use crate::err::CadenzaError;
+use crate::db::entity::*;
 
 
 pub async fn new_tag(
