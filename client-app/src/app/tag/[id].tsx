@@ -107,21 +107,17 @@ export default function TagDetailScreen() {
             </View>
 
             {/* Song list */}
-            {isLoading ? (
-                <View className="flex-1 items-center justify-center">
-                    <ActivityIndicator size="large" color={tag?.color ?? "#888888"} />
-                </View>
-            ) : (
-                <MusicList
-                    tracks={taggedTracks}
-                    isLoading={false}
-                    activeTrackId={activeTrackId}
-                    isPlaying={isPlaying}
-                    onTogglePlayback={togglePlayback}
-                    onSelectTrack={handleTrackSelected}
-                    songTagsMap={songTagsMap}
-                />
-            )}
+
+            <MusicList
+                tracks={taggedTracks}
+                isLoading={isLoading}
+                activeTrackId={activeTrackId}
+                isPlaying={isPlaying}
+                onTogglePlayback={togglePlayback}
+                onSelectTrack={handleTrackSelected}
+                songTagsMap={songTagsMap}
+            />
+
 
             <SongDetailModal
                 open={isSongDetailModalOpen}

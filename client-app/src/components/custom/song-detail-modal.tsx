@@ -1,13 +1,15 @@
 import { useEffect, useState } from "react";
 import { Image, Modal, Pressable, ScrollView, View } from "react-native";
-import { MusicItem as AppleMusicItem } from "@apple-musickit";
+import { MusicItem as AppleMusicItem, MusicKit } from "@apple-musickit";
 import Ionicons from "@expo/vector-icons/Ionicons";
 
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { TagPill } from "@/components/custom/tag-pill";
-import { Tag } from "@/lib/types";
-import {useTags} from "@/lib/tags";
+import { Tag } from "@/types/tag-types";
+import { useTags } from "@/lib/tags";
+import { useAccount } from "@/lib/account";
+import { requestSongTagSuggestions } from "@/lib/tag-generation";
 
 type SongDetailModalProps = {
     open: boolean;
@@ -66,17 +68,19 @@ export function SongDetailModal({
                                     onRemoveTag,
                                 }: SongDetailModalProps) {
     const [artworkFailed, setArtworkFailed] = useState(false);
-    const [activePanel, setActivePanel] = useState<'addTag' | 'aiTags' | null>(null);
-
-    const MOCK_AI_TAGS: Tag[] = [
-        {id: "mock-1", name: "energetic", color: "#e05c2a"},
-        {id: "mock-2", name: "atmospheric", color: "#7c3aed"},
-    ];
+    const [activePanel, setActivePanel] = useState<"addTag" | "aiTags" | null>(null);
+    const [aiSuggestedTagNames, setAiSuggestedTagNames] = useState<string[]>([]);
+    const [isAiSuggestionsLoading, setIsAiSuggestionsLoading] = useState(false);
+    const [aiSuggestionsError, setAiSuggestionsError] = useState<string | null>(null);
+    const { account } = useAccount();
     const { tags: allUserTags, loading: tagsLoading } = useTags();
 
     useEffect(() => {
         setArtworkFailed(false);
         setActivePanel(null);
+        setAiSuggestedTagNames([]);
+        setAiSuggestionsError(null);
+        setIsAiSuggestionsLoading(false);
     }, [song?.id, song?.artworkUrl]);
 
     const artworkUrl = song?.artworkUrl?.trim();
@@ -95,17 +99,79 @@ export function SongDetailModal({
     const songDuration = formatSeconds(song?.songDuration ?? 0);
 
     function handleAddTagPress() {
-        setActivePanel((prev) => prev === 'addTag' ? null : 'addTag');
+        setActivePanel((prev) => prev === "addTag" ? null : "addTag");
     }
 
-    function handleAskAiForTagsPress() {
-        setActivePanel((prev) => prev === 'aiTags' ? null : 'aiTags');
+    async function handleAskAiForTagsPress() {
+        const shouldOpenPanel = activePanel !== "aiTags";
+        setActivePanel((prev) => prev === "aiTags" ? null : "aiTags");
+
+        if (!shouldOpenPanel) {
+            return;
+        }
+
+        if (!song?.id) {
+            setAiSuggestedTagNames([]);
+            setAiSuggestionsError("Unable to find this song ID.");
+            return;
+        }
+
+        if (!account?.jwt) {
+            setAiSuggestedTagNames([]);
+            setAiSuggestionsError("You need to sign in to request AI suggestions.");
+            return;
+        }
+
+        setIsAiSuggestionsLoading(true);
+        setAiSuggestionsError(null);
+
+        try {
+            let metadataSong = song;
+            if (!hasRequiredMetadata(song)) {
+                metadataSong = await MusicKit.getSongInfo(song.id);
+            }
+
+            const title = normalizeRequiredString(
+                metadataSong.title,
+                "Song title is unavailable.",
+            );
+            const artist = normalizeRequiredString(
+                metadataSong.artistName,
+                "Song artist is unavailable.",
+            );
+            const album = normalizeOptionalString(metadataSong.albumName);
+
+            const suggestedTags = await requestSongTagSuggestions({
+                jwt: account.jwt,
+                songId: song.id,
+                title,
+                artist,
+                album,
+                sourceProvider: "apple_music",
+            });
+
+            setAiSuggestedTagNames(suggestedTags);
+        } catch (error) {
+            const message = error instanceof Error
+                ? error.message
+                : "Failed to generate AI tag suggestions.";
+            setAiSuggestedTagNames([]);
+            setAiSuggestionsError(message);
+        } finally {
+            setIsAiSuggestionsLoading(false);
+        }
     }
 
     function handlePlayPress() {
         if (!song?.id) return;
         onTogglePlayback(song.id);
     }
+
+    const aiSuggestedTags: Tag[] = aiSuggestedTagNames.map((name, index) => ({
+        id: `ai-${index}-${name}`,
+        name,
+        color: "#7c3aed",
+    }));
 
     return (
         <Modal
@@ -289,14 +355,14 @@ export function SongDetailModal({
 
                             <View className="flex-row gap-2">
                                 <Button
-                                    variant={activePanel === 'addTag' ? "default" : "secondary"}
+                                    variant={activePanel === "addTag" ? "default" : "secondary"}
                                     className="flex-1 h-11"
                                     onPress={handleAddTagPress}
                                 >
                                     <Text>Add Tags</Text>
                                 </Button>
                                 <Button
-                                    variant={activePanel === 'aiTags' ? "default" : "secondary"}
+                                    variant={activePanel === "aiTags" ? "default" : "secondary"}
                                     className="flex-1 h-11"
                                     onPress={handleAskAiForTagsPress}
                                 >
@@ -304,20 +370,34 @@ export function SongDetailModal({
                                 </Button>
                             </View>
 
-                            {activePanel === 'aiTags' && (
+                            {activePanel === "aiTags" && (
                                 <View className="border border-border rounded-md p-3 gap-3 pb-4">
                                     <Text className="text-sm font-medium text-foreground">
                                         AI suggested tags
                                     </Text>
-                                    <View className="flex-row flex-wrap gap-2">
-                                        {MOCK_AI_TAGS.map((tag) => (
-                                            <TagPill key={tag.id} tag={tag} height={12}/>
-                                        ))}
-                                    </View>
+                                    {isAiSuggestionsLoading ? (
+                                        <Text className="text-sm text-muted-foreground">
+                                            Generating suggestions...
+                                        </Text>
+                                    ) : aiSuggestionsError ? (
+                                        <Text className="text-sm text-destructive">
+                                            {aiSuggestionsError}
+                                        </Text>
+                                    ) : aiSuggestedTags.length === 0 ? (
+                                        <Text className="text-sm text-muted-foreground">
+                                            No suggestions returned.
+                                        </Text>
+                                    ) : (
+                                        <View className="flex-row flex-wrap gap-2">
+                                            {aiSuggestedTags.map((tag) => (
+                                                <TagPill key={tag.id} tag={tag} height={12} />
+                                            ))}
+                                        </View>
+                                    )}
                                 </View>
                             )}
 
-                            {activePanel === 'addTag' && (
+                            {activePanel === "addTag" && (
                                 <View className="border border-border rounded-md p-3 gap-3 pb-4">
                                     <Text className="text-sm font-medium text-foreground">
                                         Your tags
@@ -339,7 +419,7 @@ export function SongDetailModal({
                                                         key={tag.id}
                                                         onPress={() => onApplyTag?.(tag)}
                                                     >
-                                                        <TagPill tag={tag} height={12}/>
+                                                        <TagPill tag={tag} height={12} />
                                                     </Pressable>
                                                 ))
                                             }
@@ -353,4 +433,27 @@ export function SongDetailModal({
             </Pressable>
         </Modal>
     );
+}
+
+function normalizeOptionalString(value: unknown): string | undefined {
+    if (typeof value !== "string") {
+        return undefined;
+    }
+
+    const normalized = value.trim();
+    return normalized.length > 0 ? normalized : undefined;
+}
+
+function normalizeRequiredString(value: unknown, message: string): string {
+    const normalized = normalizeOptionalString(value);
+    if (!normalized) {
+        throw new Error(message);
+    }
+    return normalized;
+}
+
+function hasRequiredMetadata(song: AppleMusicItem): boolean {
+    const title = normalizeOptionalString(song.title);
+    const artist = normalizeOptionalString(song.artistName);
+    return Boolean(title && artist);
 }

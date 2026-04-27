@@ -111,7 +111,7 @@ export function TagsProvider({ children }: { children: ReactNode }) {
 
     const { error: dbError } = await supabase
       .from('applied_tags')
-      .insert({ user_id: account.id, song_id: Number(songId), tag_id: Number(tag.id) });
+      .insert({ user_id: account.id, song_id: songId, tag_id: Number(tag.id) });
 
     if(dbError) {
       // Roll back
@@ -139,7 +139,7 @@ export function TagsProvider({ children }: { children: ReactNode }) {
       .from('applied_tags')
       .delete()
       .eq('user_id', account.id)
-      .eq('song_id', Number(songId))
+      .eq('song_id', songId)
       .eq('tag_id', Number(tag.id));
 
     if(dbError) {

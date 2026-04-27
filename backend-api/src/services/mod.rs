@@ -1,3 +1,3 @@
-mod openai_client;
-mod tag_generation_service;
-mod tag_normalizer;
+pub mod openai_client;
+pub mod tag_generation_service;
+pub mod tag_normalizer;

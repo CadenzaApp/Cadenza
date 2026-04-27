@@ -3,6 +3,7 @@ import { SongDetailModal } from "@/components/custom/song-detail-modal";
 import { Button } from "@/components/ui/button";
 import { useAppleMusic } from "@/lib/apple-music";
 import { usePlayback } from "@/lib/playback";
+import { useTags } from "@/lib/tags";
 import { Tag } from "@/lib/types";
 import { MusicItem } from "@apple-musickit";
 import { useState } from "react";
@@ -12,11 +13,14 @@ type Props = {
     songs: MusicItem[];
     onBackPress: () => any;
 };
+
 export default function QueryResults({ songs, onBackPress }: Props) {
     const [selectedSong, setSelectedSong] = useState<MusicItem | null>(null);
     const [isSongDetailModalOpen, setIsSongDetailModalOpen] = useState(false);
     const { isConnected, ensureConnected } = useAppleMusic();
     const { activeTrackId, isPlaying, togglePlayback } = usePlayback();
+
+    const { songTagsMap, applyTag, removeTag } = useTags();
 
     async function handleTogglePlayback(trackId: string) {
         if (!isConnected) {
@@ -40,6 +44,20 @@ export default function QueryResults({ songs, onBackPress }: Props) {
         setIsSongDetailModalOpen(true);
     }
 
+    async function handleApplyTag(tag: Tag) {
+        if (!selectedSong?.id) return;
+        await applyTag(selectedSong.id, tag);
+    }
+
+    async function handleRemoveTag(tag: Tag) {
+        if (!selectedSong?.id) return;
+        await removeTag(selectedSong.id, tag);
+    }
+
+    const selectedSongTags = selectedSong?.id
+        ? (songTagsMap[selectedSong.id] ?? [])
+        : [];
+
     return (
         <View style={styles.container}>
             <Text style={styles.headerText} className="text-foreground">
@@ -53,18 +71,21 @@ export default function QueryResults({ songs, onBackPress }: Props) {
                     isPlaying={isPlaying}
                     onTogglePlayback={handleTogglePlayback}
                     onSelectTrack={handleTrackSelected}
+                    songTagsMap={songTagsMap}
                 />
                 <SongDetailModal
                     open={isSongDetailModalOpen}
                     onOpenChange={setIsSongDetailModalOpen}
                     song={selectedSong}
-                    tags={[]}
+                    tags={selectedSongTags}
                     onTogglePlayback={togglePlayback}
                     isThisTrackPlaying={Boolean(
                         selectedSong?.id &&
                         activeTrackId === selectedSong.id &&
                         isPlaying,
                     )}
+                    onApplyTag={handleApplyTag}
+                    onRemoveTag={handleRemoveTag}
                 />
             </View>
             <Button onPress={onBackPress}>

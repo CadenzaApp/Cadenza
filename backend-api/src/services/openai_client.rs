@@ -214,8 +214,8 @@ fn build_tag_generation_user_payload(request: &OpenAiTagGenerationRequest) -> Va
                 "title": song.title,
                 "artist": song.artist,
                 "album": song.album,
-                "source_providers": song.source_providers,
-                "existing_global_tag_names": song.existing_global_tag_names,
+                "source_provider": song.source_provider,
+                "existing_user_tag_names": song.existing_user_tag_names,
             })
         })
         .collect();
@@ -337,8 +337,8 @@ mod tests {
                     .title("Numb".to_string())
                     .artist("Linkin Park".to_string())
                     .album("Meteora".to_string())
-                    .source_providers(vec![SourceProvider::AppleMusic])
-                    .existing_global_tag_names(vec!["rock".to_string()])
+                    .maybe_source_provider(Some(SourceProvider::AppleMusic))
+                    .existing_user_tag_names(vec!["rock".to_string()])
                     .build(),
             ])
             .build();
@@ -350,7 +350,7 @@ mod tests {
         assert_eq!(payload["songs"][0]["title"], "Numb");
         assert_eq!(payload["songs"][0]["artist"], "Linkin Park");
         assert_eq!(payload["songs"][0]["album"], "Meteora");
-        assert_eq!(payload["songs"][0]["existing_global_tag_names"][0], "rock");
+        assert_eq!(payload["songs"][0]["existing_user_tag_names"][0], "rock");
     }
 
     #[test]
@@ -379,7 +379,7 @@ mod tests {
                     .song_id("song-1".to_string())
                     .title("Numb".to_string())
                     .artist("Linkin Park".to_string())
-                    .source_providers(vec![SourceProvider::AppleMusic])
+                    .maybe_source_provider(Some(SourceProvider::AppleMusic))
                     .build(),
             ])
             .build();
@@ -509,8 +509,8 @@ mod tests {
                     .title("Suzume".to_string())
                     .artist("RADWIMPS".to_string())
                     .album("Suzume".to_string())
-                    .source_providers(vec![SourceProvider::AppleMusic])
-                    .existing_global_tag_names(vec!["Japanese".to_string()])
+                    .maybe_source_provider(Some(SourceProvider::AppleMusic))
+                    .existing_user_tag_names(vec!["Japanese".to_string()])
                     .build(),
             ])
             .build();
