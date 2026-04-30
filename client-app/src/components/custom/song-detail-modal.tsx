@@ -142,7 +142,7 @@ export function SongDetailModal({
         try {
             let metadataSong = song;
             if (!hasRequiredMetadata(song)) {
-                metadataSong = await MusicKit.getSongInfo(song.id);
+                metadataSong = (await MusicKit.getSongInfo([song.id]))[0];
             }
 
             const title = normalizeRequiredString(

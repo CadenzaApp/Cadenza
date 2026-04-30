@@ -11,10 +11,17 @@ import { View, Text, StyleSheet, Alert } from "react-native";
 
 type Props = {
     songs: MusicItem[];
+    isLoading: boolean;
+    anticipatedTrackCount?: number;
     onBackPress: () => any;
 };
 
-export default function QueryResults({ songs, onBackPress }: Props) {
+export default function QueryResults({
+    songs,
+    isLoading,
+    anticipatedTrackCount,
+    onBackPress,
+}: Props) {
     const [selectedSong, setSelectedSong] = useState<MusicItem | null>(null);
     const [isSongDetailModalOpen, setIsSongDetailModalOpen] = useState(false);
     const { isConnected, ensureConnected } = useAppleMusic();
@@ -66,13 +73,15 @@ export default function QueryResults({ songs, onBackPress }: Props) {
             <View style={styles.container}>
                 <MusicList
                     tracks={songs}
-                    isLoading={false}
+                    isLoading={isLoading}
+                    anticipatedTrackCount={anticipatedTrackCount}
                     activeTrackId={activeTrackId}
                     isPlaying={isPlaying}
                     onTogglePlayback={handleTogglePlayback}
                     onSelectTrack={handleTrackSelected}
                     songTagsMap={songTagsMap}
                 />
+
                 <SongDetailModal
                     open={isSongDetailModalOpen}
                     onOpenChange={setIsSongDetailModalOpen}
