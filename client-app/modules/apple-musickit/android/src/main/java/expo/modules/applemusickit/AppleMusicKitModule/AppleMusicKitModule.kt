@@ -262,20 +262,37 @@ class AppleMusicKitModule : Module() {
             }
         }
 
-        AsyncFunction("getSongInfo") { id: String, type: String ->
-            val endpoint = if (type == "librarySong") {
-                "/v1/me/library/songs/$id?include=albums"
-            } else {
-                // Hardcoding 'us' storefront for catalog searches to match your existing catalogSearch implementation
-                "/v1/catalog/us/songs/$id?include=albums"
+        AsyncFunction("getSongInfo") { ids: List<String> ->
+            if (ids.isEmpty()) return@AsyncFunction emptyList<Map<String, Any>>()
+
+            val libraryIds = ids.filter { it.startsWith("i.") }
+            val catalogIds = ids.filter { !it.startsWith("i.") }
+
+            val fetchedResults = mutableListOf<Map<String, Any>>()
+
+            // Fetch Library Songs
+            if (libraryIds.isNotEmpty()) {
+                val idsParam = libraryIds.joinToString(",")
+                val response = makeApiRequest("/v1/me/library/songs?ids=$idsParam&include=albums")
+                val data = response["data"] as? List<Map<String, Any>> ?: emptyList()
+                fetchedResults.addAll(data.map { formatMediaItem(it) })
             }
 
-            val response = makeApiRequest(endpoint)
-            val data = response["data"] as? List<Map<String, Any>>
-            val firstItem = data?.firstOrNull()
-                ?: throw Exception("Could not find song with ID $id")
+            // Fetch Catalog Songs
+            if (catalogIds.isNotEmpty()) {
+                val idsParam = catalogIds.joinToString(",")
+                // Hardcoding 'us' storefront for catalog searches to match your existing implementation
+                val response = makeApiRequest("/v1/catalog/us/songs?ids=$idsParam&include=albums")
+                val data = response["data"] as? List<Map<String, Any>> ?: emptyList()
+                fetchedResults.addAll(data.map { formatMediaItem(it) })
+            }
 
-            return@AsyncFunction formatMediaItem(firstItem)
+            // Restore original order
+            // associateBy creates a Map<String, Map<String, Any>> keyed by the song's "id"
+            val resultsMap = fetchedResults.associateBy { it["id"] as? String }
+
+            // mapNotNull preserves order of `ids` and filters out nulls
+            return@AsyncFunction ids.mapNotNull { resultsMap[it] }
         }
 
         AsyncFunction("getTracksFromLibrary") {
