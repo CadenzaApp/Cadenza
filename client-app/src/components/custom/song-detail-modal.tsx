@@ -58,20 +58,26 @@ function formatSeconds(totalSeconds: number): string {
 }
 
 export function SongDetailModal({
-                                    open,
-                                    onOpenChange,
-                                    song,
-                                    tags,
-                                    onTogglePlayback,
-                                    isThisTrackPlaying,
-                                    onApplyTag,
-                                    onRemoveTag,
-                                }: SongDetailModalProps) {
+    open,
+    onOpenChange,
+    song,
+    tags,
+    onTogglePlayback,
+    isThisTrackPlaying,
+    onApplyTag,
+    onRemoveTag,
+}: SongDetailModalProps) {
     const [artworkFailed, setArtworkFailed] = useState(false);
-    const [activePanel, setActivePanel] = useState<"addTag" | "aiTags" | null>(null);
-    const [aiSuggestedTagNames, setAiSuggestedTagNames] = useState<string[]>([]);
+    const [activePanel, setActivePanel] = useState<"addTag" | "aiTags" | null>(
+        null,
+    );
+    const [aiSuggestedTagNames, setAiSuggestedTagNames] = useState<string[]>(
+        [],
+    );
     const [isAiSuggestionsLoading, setIsAiSuggestionsLoading] = useState(false);
-    const [aiSuggestionsError, setAiSuggestionsError] = useState<string | null>(null);
+    const [aiSuggestionsError, setAiSuggestionsError] = useState<string | null>(
+        null,
+    );
     const { account } = useAccount();
     const { tags: allUserTags, loading: tagsLoading } = useTags();
 
@@ -99,12 +105,12 @@ export function SongDetailModal({
     const songDuration = formatSeconds(song?.songDuration ?? 0);
 
     function handleAddTagPress() {
-        setActivePanel((prev) => prev === "addTag" ? null : "addTag");
+        setActivePanel((prev) => (prev === "addTag" ? null : "addTag"));
     }
 
     async function handleAskAiForTagsPress() {
         const shouldOpenPanel = activePanel !== "aiTags";
-        setActivePanel((prev) => prev === "aiTags" ? null : "aiTags");
+        setActivePanel((prev) => (prev === "aiTags" ? null : "aiTags"));
 
         if (!shouldOpenPanel) {
             return;
@@ -118,7 +124,9 @@ export function SongDetailModal({
 
         if (!account?.jwt) {
             setAiSuggestedTagNames([]);
-            setAiSuggestionsError("You need to sign in to request AI suggestions.");
+            setAiSuggestionsError(
+                "You need to sign in to request AI suggestions.",
+            );
             return;
         }
 
@@ -128,7 +136,7 @@ export function SongDetailModal({
         try {
             let metadataSong = song;
             if (!hasRequiredMetadata(song)) {
-                metadataSong = await MusicKit.getSongInfo(song.id);
+                metadataSong = (await MusicKit.getSongInfo([song.id]))[0];
             }
 
             const title = normalizeRequiredString(
@@ -152,9 +160,10 @@ export function SongDetailModal({
 
             setAiSuggestedTagNames(suggestedTags);
         } catch (error) {
-            const message = error instanceof Error
-                ? error.message
-                : "Failed to generate AI tag suggestions.";
+            const message =
+                error instanceof Error
+                    ? error.message
+                    : "Failed to generate AI tag suggestions.";
             setAiSuggestedTagNames([]);
             setAiSuggestionsError(message);
         } finally {
@@ -342,7 +351,9 @@ export function SongDetailModal({
                                                 key={tag.id}
                                                 tag={tag}
                                                 height={12}
-                                                onRemove={() => onRemoveTag?.(tag)}
+                                                onRemove={() =>
+                                                    onRemoveTag?.(tag)
+                                                }
                                             />
                                         ))}
                                     </View>
@@ -355,14 +366,22 @@ export function SongDetailModal({
 
                             <View className="flex-row gap-2">
                                 <Button
-                                    variant={activePanel === "addTag" ? "default" : "secondary"}
+                                    variant={
+                                        activePanel === "addTag"
+                                            ? "default"
+                                            : "secondary"
+                                    }
                                     className="flex-1 h-11"
                                     onPress={handleAddTagPress}
                                 >
                                     <Text>Add Tags</Text>
                                 </Button>
                                 <Button
-                                    variant={activePanel === "aiTags" ? "default" : "secondary"}
+                                    variant={
+                                        activePanel === "aiTags"
+                                            ? "default"
+                                            : "secondary"
+                                    }
                                     className="flex-1 h-11"
                                     onPress={handleAskAiForTagsPress}
                                 >
@@ -390,7 +409,11 @@ export function SongDetailModal({
                                     ) : (
                                         <View className="flex-row flex-wrap gap-2">
                                             {aiSuggestedTags.map((tag) => (
-                                                <TagPill key={tag.id} tag={tag} height={12} />
+                                                <TagPill
+                                                    key={tag.id}
+                                                    tag={tag}
+                                                    height={12}
+                                                />
                                             ))}
                                         </View>
                                     )}
@@ -413,16 +436,26 @@ export function SongDetailModal({
                                     ) : (
                                         <View className="flex-row flex-wrap gap-2">
                                             {allUserTags
-                                                .filter((tag) => !tags.some((t) => t.id === tag.id))
+                                                .filter(
+                                                    (tag) =>
+                                                        !tags.some(
+                                                            (t) =>
+                                                                t.id === tag.id,
+                                                        ),
+                                                )
                                                 .map((tag) => (
                                                     <Pressable
                                                         key={tag.id}
-                                                        onPress={() => onApplyTag?.(tag)}
+                                                        onPress={() =>
+                                                            onApplyTag?.(tag)
+                                                        }
                                                     >
-                                                        <TagPill tag={tag} height={12} />
+                                                        <TagPill
+                                                            tag={tag}
+                                                            height={12}
+                                                        />
                                                     </Pressable>
-                                                ))
-                                            }
+                                                ))}
                                         </View>
                                     )}
                                 </View>

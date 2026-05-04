@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { View, ActivityIndicator, Pressable } from "react-native";
+import { useEffect, useState, useMemo } from "react";
+import { View, Pressable } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { MusicKit, MusicItem as AppleMusicItem } from "@apple-musickit";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -12,57 +12,72 @@ import { TagPill } from "@/components/custom/tag-pill";
 import { MusicList } from "@/components/custom/music-list";
 import { SongDetailModal } from "@/components/custom/song-detail-modal";
 
+/**
+ * Custom hook to cleanly fetch exactly the tracks we need.
+ */
+function useTagTracks(tagId: string, songTagsMap: Record<string, Tag[]>) {
+    const [tracks, setTracks] = useState<AppleMusicItem[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+
+    // Memoize the exact IDs that belong to this tag
+    const taggedSongIds = useMemo(() => {
+        return Object.entries(songTagsMap)
+            .filter(([, tags]) => tags.some((t) => t.id === tagId))
+            .map(([songId]) => songId);
+    }, [songTagsMap, tagId]);
+
+    useEffect(() => {
+        let isMounted = true;
+
+        async function fetchTracks() {
+            if (taggedSongIds.length === 0) {
+                if (isMounted) {
+                    setTracks([]);
+                    setIsLoading(false);
+                }
+                return;
+            }
+
+            setIsLoading(true);
+            try {
+                const fetchedTracks = await MusicKit.getSongInfo(taggedSongIds);
+                if (isMounted) setTracks(fetchedTracks);
+            } catch (e) {
+                console.error("Failed to load tag detail tracks:", e);
+            } finally {
+                if (isMounted) setIsLoading(false);
+            }
+        }
+
+        fetchTracks();
+
+        return () => {
+            isMounted = false;
+        };
+        // We use a joined string dependency so the effect only re-runs if
+        // the user actually adds/removes a track from this tag.
+    }, [taggedSongIds.join(",")]);
+
+    return { tracks, isLoading, anticipatedCount: taggedSongIds.length };
+}
+
 export default function TagDetailScreen() {
     const { id } = useLocalSearchParams<{ id: string }>();
     const router = useRouter();
-    const { tags, songTagsMap, loadSongTags, applyTag, removeTag } = useTags();
-    const { activeTrackId, isPlaying, togglePlayback } = usePlayback();
 
-    const [tracks, setTracks] = useState<AppleMusicItem[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
-    const [selectedSong, setSelectedSong] = useState<AppleMusicItem | null>(null);
+    const { tags, songTagsMap, applyTag, removeTag } = useTags();
+    const { activeTrackId, isPlaying, togglePlayback } = usePlayback();
+    const { tracks, isLoading, anticipatedCount } = useTagTracks(
+        id,
+        songTagsMap,
+    );
+
+    const [selectedSong, setSelectedSong] = useState<AppleMusicItem | null>(
+        null,
+    );
     const [isSongDetailModalOpen, setIsSongDetailModalOpen] = useState(false);
 
     const tag = tags.find((t: Tag) => t.id === id);
-
-    useEffect(() => {
-        async function load() {
-            setIsLoading(true);
-            try {
-                const [libraryResult, map] = await Promise.all([
-                    MusicKit.getTracksFromLibrary(),
-                    loadSongTags(),
-                ]);
-
-                const libraryTracks = libraryResult.items || [];
-                const libraryIds = new Set(libraryTracks.map((t) => t.id));
-
-                // Find all song IDs that have this tag
-                const taggedSongIds = Object.entries(map)
-                    .filter(([, tags]) => tags.some((t: Tag) => t.id === id))
-                    .map(([songId]) => songId);
-
-                // Fetch metadata for any tagged songs not already in the library
-                const nonLibraryIds = taggedSongIds.filter((songId) => !libraryIds.has(songId));
-                const nonLibrarySongs = (
-                    await Promise.allSettled(nonLibraryIds.map((songId) => MusicKit.getSongInfo(songId)))
-                )
-                    .filter((r): r is PromiseFulfilledResult<AppleMusicItem> => r.status === "fulfilled")
-                    .map((r) => r.value);
-
-                setTracks([...libraryTracks, ...nonLibrarySongs]);
-            } catch (e) {
-                console.error("Failed to load tag detail:", e);
-            } finally {
-                setIsLoading(false);
-            }
-        }
-        load();
-    }, []);
-
-    const taggedTracks = tracks.filter((track) =>
-        track.id && (songTagsMap[track.id] ?? []).some((t: Tag) => t.id === id)
-    );
 
     function handleTrackSelected(track: AppleMusicItem) {
         setSelectedSong(track);
@@ -70,16 +85,16 @@ export default function TagDetailScreen() {
     }
 
     async function handleApplyTag(tag: Tag) {
-        if (!selectedSong?.id) return;
-        await applyTag(selectedSong.id, tag);
+        if (selectedSong?.id) await applyTag(selectedSong.id, tag);
     }
 
     async function handleRemoveTag(tag: Tag) {
-        if (!selectedSong?.id) return;
-        await removeTag(selectedSong.id, tag);
+        if (selectedSong?.id) await removeTag(selectedSong.id, tag);
     }
 
-    const selectedSongTags = selectedSong?.id ? (songTagsMap[selectedSong.id] ?? []) : [];
+    const selectedSongTags = selectedSong?.id
+        ? (songTagsMap[selectedSong.id] ?? [])
+        : [];
 
     // Scale the header pill down for longer tag names so it doesn't look weird
     const pillHeight = tag
@@ -93,31 +108,36 @@ export default function TagDetailScreen() {
                 <Pressable
                     onPress={() => router.back()}
                     className="flex-row items-center gap-1 mb-6"
-                    style={({ pressed }) => pressed ? { opacity: 0.6 } : undefined}
+                    style={({ pressed }) =>
+                        pressed ? { opacity: 0.6 } : undefined
+                    }
                 >
                     <Ionicons name="chevron-back" size={20} color="white" />
                     <Text style={{ color: "white", fontSize: 16 }}>Tags</Text>
                 </Pressable>
 
                 {tag ? (
-                    <TagPill tag={tag} height={pillHeight} count={isLoading ? undefined : taggedTracks.length} />
+                    <TagPill
+                        tag={tag}
+                        height={pillHeight}
+                        count={anticipatedCount}
+                    />
                 ) : (
                     <Text className="text-muted-foreground">Tag not found</Text>
                 )}
             </View>
 
             {/* Song list */}
-
             <MusicList
-                tracks={taggedTracks}
+                tracks={tracks}
                 isLoading={isLoading}
+                anticipatedTrackCount={anticipatedCount}
                 activeTrackId={activeTrackId}
                 isPlaying={isPlaying}
                 onTogglePlayback={togglePlayback}
                 onSelectTrack={handleTrackSelected}
                 songTagsMap={songTagsMap}
             />
-
 
             <SongDetailModal
                 open={isSongDetailModalOpen}
@@ -128,7 +148,7 @@ export default function TagDetailScreen() {
                 isThisTrackPlaying={Boolean(
                     selectedSong?.id &&
                     activeTrackId === selectedSong.id &&
-                    isPlaying
+                    isPlaying,
                 )}
                 onApplyTag={handleApplyTag}
                 onRemoveTag={handleRemoveTag}

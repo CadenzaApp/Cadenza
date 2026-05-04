@@ -12,6 +12,7 @@ type MusicListProps = {
     onTogglePlayback: (trackId: string) => void;
     onSelectTrack?: (track: AppleMusicItem, tags: Tag[]) => void;
     songTagsMap?: Record<string, Tag[]>;
+    anticipatedTrackCount?: number;
 };
 
 export function MusicList({
@@ -22,11 +23,12 @@ export function MusicList({
     onTogglePlayback,
     onSelectTrack,
     songTagsMap = {},
+    anticipatedTrackCount = 8,
 }: MusicListProps) {
     if (isLoading && tracks.length === 0) {
         return (
             <View className="px-6 pb-10">
-                {Array.from({ length: 8 }).map((_, i) => (
+                {Array.from({ length: anticipatedTrackCount }).map((_, i) => (
                     <MusicListItemSkeleton key={i} />
                 ))}
             </View>

@@ -173,34 +173,55 @@ public class AppleMusicKitModule: Module {
             ]
         }
 
-        AsyncFunction("getSongInfo") { (id: String, type: String) async throws -> [String: Any] in
-                    guard #available(iOS 15.0, *) else {
-                        throw Exception(name: "ERR_UNSUPPORTED", description: "Requires iOS 15.0+")
-                    }
+        AsyncFunction("getSongInfo") { (ids: [String]) async throws -> [[String: Any]] in
+            guard #available(iOS 15.0, *) else {
+                throw Exception(name: "ERR_UNSUPPORTED", description: "Requires iOS 15.0+")
+            }
 
-                    if type == "librarySong" {
-                        if #available(iOS 16.0, *) {
-                            var request = MusicLibraryRequest<Song>()
-                            request.filter(matching: \.id, equalTo: MusicItemID(id))
-                            let response = try await request.response()
+            if ids.isEmpty { return [] }
 
-                            guard let song = response.items.first else {
-                                throw Exception(name: "ERR_NOT_FOUND", description: "Could not find library song with ID \(id)")
-                            }
-                            return self.formatSong(song, playbackType: "librarySong")
-                        } else {
-                            throw Exception(name: "ERR_UNSUPPORTED", description: "iOS 16.0+ required to access library songs.")
-                        }
-                    } else {
-                        var request = MusicCatalogResourceRequest<Song>(matching: \.id, equalTo: MusicItemID(id))
+            let libraryIds = ids.filter { $0.hasPrefix("i.") }
+            let catalogIds = ids.filter { !$0.hasPrefix("i.") }
+
+            var fetchedResults: [[String: Any]] = []
+
+            // Fetch Library Songs
+            if !libraryIds.isEmpty {
+                if #available(iOS 16.0, *) {
+                    for id in libraryIds {
+                        var request = MusicLibraryRequest<Song>()
+                        request.filter(matching: \.id, equalTo: MusicItemID(id))
                         let response = try await request.response()
-
-                        guard let song = response.items.first else {
-                            throw Exception(name: "ERR_NOT_FOUND", description: "Could not find catalog song with ID \(id)")
+                        if let song = response.items.first {
+                            fetchedResults.append(self.formatSong(song, playbackType: "librarySong"))
                         }
-                        return self.formatSong(song, playbackType: "song")
                     }
+                } else {
+                    throw Exception(name: "ERR_UNSUPPORTED", description: "iOS 16.0+ required for library songs.")
                 }
+            }
+
+            // Fetch Catalog Songs
+            if !catalogIds.isEmpty {
+                let musicItemIds = catalogIds.map { MusicItemID($0) }
+                var request = MusicCatalogResourceRequest<Song>(matching: \.id, memberOf: musicItemIds)
+                let response = try await request.response()
+
+                let catalogFormatted = response.items.map { self.formatSong($0, playbackType: "song") }
+                fetchedResults.append(contentsOf: catalogFormatted)
+            }
+
+            // Restore original order
+            var resultsDict: [String: [String: Any]] = [:]
+            for result in fetchedResults {
+                if let id = result["id"] as? String {
+                    resultsDict[id] = result
+                }
+            }
+
+            // compactMap preserves order of `ids` and filters out any nil values automatically
+            return ids.compactMap { resultsDict[$0] }
+        }
 
         AsyncFunction("getTracksFromLibrary") { () async throws -> [String: Any] in
             guard #available(iOS 16.0, *) else {
