@@ -18,7 +18,7 @@ pub async fn new_tag(
     name: String,
     color: String,
 ) -> Result<i64, CadenzaError> {
-    let new_tag = tags::ActiveModel {
+    let new_tag = local_tags::ActiveModel {
         user_id: Set(user_id),
         tag_id: NotSet,
         name: Set(name),
@@ -34,8 +34,8 @@ pub async fn delete_tag(
     user_id: Uuid,
     tag_id: i64,
 ) -> Result<(), CadenzaError> {
-    let tag = tags::Entity::find_by_id(tag_id)
-        .filter(tags::Column::UserId.eq(user_id))
+    let tag = local_tags::Entity::find_by_id(tag_id)
+        .filter(local_tags::Column::UserId.eq(user_id))
         .one(&db)
         .await?;
 
@@ -52,7 +52,7 @@ pub async fn apply_tag(
     song_id: String,
     tag_id: i64,
 ) -> Result<(), CadenzaError> {
-    let new_tag_relation = applied_tags::ActiveModel {
+    let new_tag_relation = local_tags_applied::ActiveModel {
         user_id: Set(user_id),
         song_id: Set(song_id),
         tag_id: Set(tag_id),
@@ -68,10 +68,10 @@ pub async fn remove_tag(
     song_id: String,
     tag_id: i64,
 ) -> Result<(), CadenzaError> {
-    let applied_tag = applied_tags::Entity::find()
-        .filter(applied_tags::Column::UserId.eq(user_id))
-        .filter(applied_tags::Column::SongId.eq(song_id))
-        .filter(applied_tags::Column::TagId.eq(tag_id))
+    let applied_tag = local_tags_applied::Entity::find()
+        .filter(local_tags_applied::Column::UserId.eq(user_id))
+        .filter(local_tags_applied::Column::SongId.eq(song_id))
+        .filter(local_tags_applied::Column::TagId.eq(tag_id))
         .one(&db)
         .await?;
 

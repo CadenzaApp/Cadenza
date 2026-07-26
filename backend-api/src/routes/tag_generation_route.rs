@@ -15,7 +15,7 @@ use crate::{
     models::tag_generation_model::{TagGenerationSongRequest, TagGenerationSongResponse},
     services::{
         openai_client::{OpenAiApiKeyError, OpenAiClient},
-        tag_generation_service::{TagGenerationService, TagGenerationServiceError},
+        tag_generation::{TagGenerationService, TagGenerationServiceError},
     },
 };
 
