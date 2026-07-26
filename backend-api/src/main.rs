@@ -18,13 +18,14 @@ use crate::{
     routes::{
         queries::get_queries_router, tag_generation_route::get_tag_generation_router,
         tags::get_tags_router,
-    },
+    }, services::tag_generation::{TagGenerationService, TagGenerator, openai_tag_generator::OpenAiTagGenerator},
 };
 
 #[derive(Clone, FromRef)]
 struct AppState {
     db: DatabaseConnection,
     jwt_decoder: Decoder<SupabaseClaims>,
+    tag_gen_service: TagGenerationService<OpenAiTagGenerator>
 }
 
 #[tokio::main]
@@ -41,7 +42,10 @@ async fn main() {
     // builds a decoder used for parsing JSON Web Tokens into SupabaseClaims structs, which contain auth info like user id and token expiration time.
     let jwt_decoder = new_jwt_decoder().await;
 
-    let app_state = AppState { db, jwt_decoder };
+    // init tag generation service
+    let tag_gen_service = TagGenerationService::new();
+
+    let app_state = AppState { db, jwt_decoder, tag_gen_service };
 
     // route paths
     let app = Router::new()

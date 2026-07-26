@@ -17,6 +17,7 @@ pub enum CadenzaError {
     TagAlreadyApplied,
     DatabaseError(String), // generic database error
     QueryFormatError(String),
+    TagGenerationErr(String)
 }
 
 impl CadenzaError {
@@ -27,6 +28,7 @@ impl CadenzaError {
             Self::TagAlreadyApplied => 409,
             Self::DatabaseError(_) => 500,
             Self::QueryFormatError(_) => 422,
+            Self::TagGenerationErr(_) => 500,
         }
     }
     fn get_json(&self) -> Value {
@@ -46,6 +48,10 @@ impl CadenzaError {
             }),
             Self::QueryFormatError(msg) => json!({
                 "error_type": "QueryFormatError",
+                "message": msg
+            }),
+            Self::TagGenerationErr(msg) => json!({
+                "error_type": "TagGenerationErr",
                 "message": msg
             }),
         }
