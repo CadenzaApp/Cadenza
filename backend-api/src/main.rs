@@ -1,7 +1,6 @@
 mod auth;
 mod db;
 mod err;
-mod models;
 mod routes;
 mod services;
 
@@ -16,7 +15,8 @@ use std::net::SocketAddr;
 use crate::{
     auth::{SupabaseClaims, new_jwt_decoder},
     routes::{
-        queries::get_queries_router, tag_generation_route::get_tag_generation_router,
+        queries::get_queries_router, 
+        // tag_generation_route::get_tag_generation_router,
         tags::get_tags_router,
     }, services::tag_generation::{TagGenerationService, TagGenerator, openai_tag_generator::OpenAiTagGenerator},
 };
@@ -51,7 +51,7 @@ async fn main() {
     let app = Router::new()
         .nest("/tags", get_tags_router())
         .nest("/queries", get_queries_router())
-        .nest("/tag-generation", get_tag_generation_router())
+        // .nest("/tag-generation", get_tag_generation_router())
         .with_state(app_state);
 
     // show time baby

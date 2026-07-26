@@ -1,7 +1,7 @@
 use crate::services::tag_generation::TagGenerator;
+use dotenvy::dotenv;
 use reqwest::Client;
 use sea_orm::prelude::async_trait::async_trait;
-use sea_orm::sqlx::Encode;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::env;
@@ -10,21 +10,17 @@ use std::time::Duration;
 const OPENAI_RESPONSES_URL: &str = "https://api.openai.com/v1/responses";
 const OPENAI_HTTP_TIMEOUT_SECS: u64 = 20;
 const OPENAI_MODEL: &str = "gpt-4o-mini";
-const TAG_GENERATION_SYSTEM_PROMPT: &str = r#"You generate concise music tags for songs.
-Rules:
-- Suggest only likely, useful music tags.
-- Prefer short, one word tags.
-- Prefer tags about genre, mood, energy, instrumentation, era, or listening context.
-- Do not repeat or closely restate existing tags.
-- Do not return the song title, artist name, album name, or source provider as tags.
-- The "tags" field in the return format is a 2d array - for each input song, return an array of tags.
-- The order of returned tags corresponds to the order of input songs.
-- The number of tags returned for each song should match `requested_tag_count`.
-"#;
+const TAG_GENERATION_SYSTEM_PROMPT: &str = r#"Generate one word music tags for each given song. The ordering of the returned 2d array must match the order of input songs. Generate `requested_tag_count` tags per song."#;
 const MAX_REQUESTED_TAG_COUNT: usize = 10;
-const MAX_REQUEST_BODY_INPUT_CHARS: usize = 200;
+const MAX_COMBINED_SONG_DESC_LENGTH: usize = 200;
 
-fn get_tag_generation_req_body(song_descs: &Vec<String>, requested_tag_count: usize) -> Value {
+fn get_tag_generation_req_body(song_descs: &[String], requested_tag_count: usize) -> Value {
+    let user_content = format!(
+        "{{ songs: [{}], requested_tag_count: {} }}",
+        song_descs.join(","),
+        requested_tag_count
+    );
+
     json!({
         "model": OPENAI_MODEL,
         "input": [
@@ -34,24 +30,26 @@ fn get_tag_generation_req_body(song_descs: &Vec<String>, requested_tag_count: us
             },
             {
                 "role": "user",
-                "content": {
-                    "songs": song_descs,
-                    "requested_tag_count": requested_tag_count,
-                }
+                "content": user_content
             }
         ],
         "text": {
             "format": {
                 "type": "json_schema",
+                "name": "tags_schema",
                 "strict": true,
                 "schema": {
                     "type": "object",
-                    "tags": {
-                        "type": "array",
-                        "items": {
+                    "required": ["tags"],
+                    "additionalProperties": false,
+                    "properties": {
+                        "tags": {
                             "type": "array",
                             "items": {
-                                "type": "string"
+                                "type": "array",
+                                "items": {
+                                    "type": "string"
+                                }
                             }
                         }
                     }
@@ -63,21 +61,58 @@ fn get_tag_generation_req_body(song_descs: &Vec<String>, requested_tag_count: us
 
 #[derive(Clone)]
 pub struct OpenAiTagGenerator {
-    model: String,
     api_key: String,
     http_client: Client,
 }
 
-#[derive(Debug, Deserialize)]
-struct OpenAiTagsResponse {
+// models for OpenAI API response, struct names match what they're called in the docs
+// https://developers.openai.com/api/reference/resources/responses/methods/create
+#[derive(Deserialize)]
+struct OpenAiApiResponse {
+    error: Option<ResponseError>,
+    output: Vec<ResponseOutputMessage>,
+}
+impl OpenAiApiResponse {
+    pub fn as_text(mut self) -> Result<String, String> {
+        if let Some(error) = self.error {
+            return Err(error.message);
+        }
+        if self.output.is_empty() {
+            return Err("openai returned empty response".into());
+        }
+
+        let text = self.output.remove(0).content.remove(0).text;
+        let text = text.replace("\\\"", "\""); // response text has \" instead of "
+
+        Ok(text)
+    }
+}
+#[derive(Deserialize)]
+struct ResponseError {
+    code: String,
+    message: String,
+}
+#[derive(Deserialize)]
+struct ResponseOutputMessage {
+    content: Vec<ResponseOutputText>,
+}
+#[derive(Deserialize)]
+struct ResponseOutputText {
+    // this field is returned from api as a string, deserializing it here as a OpenAiGeneratedTags
+    text: String,
+}
+
+#[derive(Deserialize)]
+struct OpenAiGeneratedTags {
     tags: Vec<Vec<String>>,
 }
 
 #[async_trait]
 impl TagGenerator for OpenAiTagGenerator {
     fn new() -> Self {
+        dotenv().unwrap();
+
         Self {
-            model: "gpt-4o-mini".into(),
             api_key: env::var("OPENAI_API_KEY").expect("error getting OPENAI_API_KEY env var"),
             http_client: Client::builder()
                 .timeout(Duration::from_secs(OPENAI_HTTP_TIMEOUT_SECS))
@@ -89,46 +124,56 @@ impl TagGenerator for OpenAiTagGenerator {
     async fn generate_tags(
         &self,
         song_descs: &Vec<String>,
-        requested_tag_count: usize,
+        mut requested_tag_count: usize,
     ) -> Result<Vec<Vec<String>>, String> {
-        if requested_tag_count > MAX_REQUESTED_TAG_COUNT {
-            return Err(format!(
-                "requested {} tags but at most {} is allowed",
-                requested_tag_count, MAX_REQUESTED_TAG_COUNT
-            ));
+        if song_descs.is_empty() {
+            return Ok(vec![]);
         }
 
-        let body = &get_tag_generation_req_body(song_descs, requested_tag_count);
-
-        if body.to_string().len() > MAX_REQUEST_BODY_INPUT_CHARS {
-            return Err("body too large!".into());
+        if requested_tag_count == 0 {
+            return Ok(song_descs.iter().map(|_| vec![]).collect());
         }
 
-        let response = self
+        requested_tag_count = requested_tag_count.min(MAX_REQUESTED_TAG_COUNT);
+
+        if song_descs.iter().map(|s| s.len()).sum::<usize>() > MAX_COMBINED_SONG_DESC_LENGTH {
+            return Err("song descriptions are too long!".into());
+        }
+
+        let resp = self
             .http_client
             .post(OPENAI_RESPONSES_URL)
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header("Content-Type", "application/json")
-            .json(body)
+            .json(&get_tag_generation_req_body(
+                song_descs,
+                requested_tag_count,
+            ))
             .send()
             .await
             .map_err(|err| format!("request to openai failed: {}", err))?;
 
-        let generated_tags_resp = response
-            .json::<OpenAiTagsResponse>()
+        let resp_text = resp
+            .json::<OpenAiApiResponse>()
             .await
-            .map_err(|err| format!("openai returned malformed response: {}", err))?;
+            .map_err(|err| format!("openai returned malformed response: {}", err))?
+            .as_text()?;
 
-        Ok(generated_tags_resp.tags)
+        let generated_tags: OpenAiGeneratedTags =
+            serde_json::from_str(&resp_text).map_err(|e| e.to_string())?;
+        Ok(generated_tags.tags)
     }
 }
 
-#[cfg(test)]
+// ---------------------------------------------------------------------------------------------
+// These tests call the OpenAI API and use tokens! Remove #[ignore] to run them.
+// Last ran: Jul 26
+// ---------------------------------------------------------------------------------------------
 mod tests {
     use super::*;
 
     #[tokio::test]
-    // #[ignore]
+    #[ignore]
     async fn generate_tags_works() {
         let g = OpenAiTagGenerator::new();
         let res = g
@@ -153,7 +198,7 @@ mod tests {
     }
 
     #[tokio::test]
-    // #[ignore]
+    #[ignore]
     async fn empty_input_arr() {
         let g = OpenAiTagGenerator::new();
         let res = g.generate_tags(&vec![], 1).await.unwrap();
@@ -161,34 +206,53 @@ mod tests {
     }
 
     #[tokio::test]
-    // #[ignore]
+    #[ignore]
     async fn request_zero_tags() {
         let g = OpenAiTagGenerator::new();
         let res = g
-            .generate_tags(&vec!["Into The Night by YOASOBI".into()], 0)
+            .generate_tags(
+                &vec![
+                    "Into The Night by YOASOBI".into(),
+                    "As It Was by Harry Styles".into(),
+                ],
+                0,
+            )
             .await
             .unwrap();
-        assert!(res.is_empty());
+
+        assert_eq!(res.len(), 2);
+        assert!(res[0].is_empty());
+        assert!(res[1].is_empty());
     }
 
     #[tokio::test]
-    // #[ignore]
+    #[ignore]
     async fn request_tag_count_over_limit() {
         let g = OpenAiTagGenerator::new();
-        let res = g.generate_tags(&vec![], MAX_REQUESTED_TAG_COUNT + 1).await;
-        assert!(res.is_err());
+        let res = g
+            .generate_tags(
+                &vec!["Into The Night by YOASOBI".into()],
+                MAX_REQUESTED_TAG_COUNT + 1,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(res.len(), 1);
+        assert_eq!(res[0].len(), MAX_REQUESTED_TAG_COUNT);
     }
 
     #[tokio::test]
-    // #[ignore]
-    async fn request_body_too_large() {
+    #[ignore]
+    async fn request_song_names_too_long() {
         let g = OpenAiTagGenerator::new();
 
         let mut long_song_name = vec![];
-        for _ in 0..MAX_REQUEST_BODY_INPUT_CHARS {
+        for _ in 0..=MAX_COMBINED_SONG_DESC_LENGTH {
             long_song_name.push("a".to_string());
         }
         let long_song_name = long_song_name.join("");
+
+        assert_eq!(long_song_name.len(), MAX_COMBINED_SONG_DESC_LENGTH + 1);
 
         let res = g.generate_tags(&vec![long_song_name], 1).await;
 
@@ -196,7 +260,7 @@ mod tests {
     }
 
     #[tokio::test]
-    // #[ignore]
+    #[ignore]
     async fn same_song_name_different_genre() {
         let g = OpenAiTagGenerator::new();
 
