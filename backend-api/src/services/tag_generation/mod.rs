@@ -4,6 +4,8 @@ use sea_orm::prelude::async_trait::async_trait;
 
 use crate::err::CadenzaError;
 
+const DEFAULT_REQUESTED_TAG_COUNT: usize = 10;
+
 #[derive(Clone)]
 pub struct TagGenerationService<G: TagGenerator>(G);
 
@@ -15,10 +17,13 @@ impl<G: TagGenerator> TagGenerationService<G> {
     async fn generate_tags(
         &self,
         song_descs: &Vec<String>,
-        requested_tag_count: usize,
+        requested_tag_count: Option<usize>,
     ) -> Result<Vec<Vec<String>>, CadenzaError> {
         self.0
-            .generate_tags(song_descs, requested_tag_count)
+            .generate_tags(
+                song_descs,
+                requested_tag_count.unwrap_or(DEFAULT_REQUESTED_TAG_COUNT),
+            )
             .await
             .map_err(|msg| CadenzaError::TagGenerationErr(msg))
     }
@@ -28,7 +33,7 @@ impl<G: TagGenerator> TagGenerationService<G> {
 ///
 /// e.g. "Override by Yoshida Yasei" -> "vocaloid", "japanese", "teto"
 #[async_trait]
-pub trait TagGenerator : Clone {
+pub trait TagGenerator: Clone {
     fn new() -> Self;
 
     /// returns a list of generated tags for each song, or an err msg
