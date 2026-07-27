@@ -1,4 +1,5 @@
 use crate::services::tag_generation::TagGenerator;
+use crate::services::tag_normalizer::normalize_tag_name;
 use dotenvy::dotenv;
 use reqwest::Client;
 use sea_orm::prelude::async_trait::async_trait;
@@ -159,8 +160,19 @@ impl TagGenerator for OpenAiTagGenerator {
             .map_err(|err| format!("openai returned malformed response: {}", err))?
             .as_text()?;
 
-        let generated_tags: OpenAiGeneratedTags =
+        let mut generated_tags: OpenAiGeneratedTags =
             serde_json::from_str(&resp_text).map_err(|e| e.to_string())?;
+
+        // normalize all generated tags (if more tags returned than requested, ignore them)
+        for tags in &mut generated_tags.tags {
+            if tags.len() > requested_tag_count {
+                *tags = tags[..requested_tag_count].to_vec();
+            }
+            for tag in tags.iter_mut() {
+                *tag = normalize_tag_name(tag);
+            }
+        }
+
         Ok(generated_tags.tags)
     }
 }
@@ -171,6 +183,7 @@ impl TagGenerator for OpenAiTagGenerator {
 // ---------------------------------------------------------------------------------------------
 mod tests {
     use super::*;
+    use crate::test_utils::string_of_length;
 
     #[tokio::test]
     #[ignore]
@@ -246,15 +259,12 @@ mod tests {
     async fn request_song_names_too_long() {
         let g = OpenAiTagGenerator::new();
 
-        let mut long_song_name = vec![];
-        for _ in 0..=MAX_COMBINED_SONG_DESC_LENGTH {
-            long_song_name.push("a".to_string());
-        }
-        let long_song_name = long_song_name.join("");
-
-        assert_eq!(long_song_name.len(), MAX_COMBINED_SONG_DESC_LENGTH + 1);
-
-        let res = g.generate_tags(&vec![long_song_name], 1).await;
+        let res = g
+            .generate_tags(
+                &vec![string_of_length(MAX_COMBINED_SONG_DESC_LENGTH + 1)],
+                1,
+            )
+            .await;
 
         assert!(res.is_err());
     }

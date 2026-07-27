@@ -3,6 +3,7 @@ mod db;
 mod err;
 mod routes;
 mod services;
+mod test_utils;
 
 use axum::{Router, extract::FromRef};
 
