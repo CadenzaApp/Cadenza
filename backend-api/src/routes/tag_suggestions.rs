@@ -7,29 +7,46 @@ use axum::{
 };
 use axum_jwt_auth::Claims;
 use sea_orm::DatabaseConnection;
+use serde::Deserialize;
 use serde_json::json;
+use uuid::Uuid;
 
 use crate::{
-    AppState,
-    auth::SupabaseClaims,
+    AppState, auth::SupabaseClaims, db::tags::get_tag_count, err::CadenzaError,
+    services::tag_generation::TagGenerationService,
 };
 
-// async fn generate_tags_for_song_handler(
-//     State(db): State<DatabaseConnection>,
-//     Claims { claims, .. }: Claims<SupabaseClaims>,
-//     Json(payload): Json<TagGenerationSongRequest>,
-// ) -> Result<Json<TagGenerationSongResponse>, Response> {
-//     let openai_client = OpenAiClient::from_env().map_err(map_openai_key_error_to_response)?;
-//     let service = TagGenerationService::new(openai_client);
-//
-//     let response = service
-//         .generate_tags_for_song(&db, claims.user_id, payload)
-//         .await
-//         .map_err(map_service_error_to_response)?;
-//
-//     Ok(Json(response))
-// }
-//
+#[derive(Deserialize)]
+struct TagGenerationPayload {
+    user_id: Uuid,
+    song_id: String,
+    song_desc: String,
+    requested_tag_count: usize,
+}
+
+async fn suggest_tags_for_song_handler(
+    State(db): State<DatabaseConnection>,
+    State(tag_gen_service): State<TagGenerationService>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Json(payload): Json<TagGenerationPayload>,
+) -> Result<Vec<String>, CadenzaError> {
+    let user_tags_count = get_tag_count(db, payload.user_id, &payload.song_id).await?;
+
+    let mut suggested_tags = tag_gen_service
+        .generate_tags(
+            &[payload.song_desc],
+            // add # of existing tags to requested tag count to ensure 
+            // there's at least `requested_tag_count` new tags
+            Some(payload.requested_tag_count + user_tags_count), 
+        )
+        .await?;
+
+    match suggested_tags.is_empty() {
+        true => Ok(vec![]),
+        false => Ok(suggested_tags.remove(0)),
+    }
+}
+
 // fn map_openai_key_error_to_response(err: OpenAiApiKeyError) -> Response {
 //     let message = match err {
 //         OpenAiApiKeyError::OpenAiApiKeyMissing => {
