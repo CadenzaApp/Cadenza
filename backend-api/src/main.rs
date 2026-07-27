@@ -10,23 +10,24 @@ use axum::{Router, extract::FromRef};
 use axum_jwt_auth::Decoder;
 use dotenvy::dotenv;
 use sea_orm::{Database, DatabaseConnection};
-use std::env;
 use std::net::SocketAddr;
+use std::{env, sync::Arc};
 
 use crate::{
     auth::{SupabaseClaims, new_jwt_decoder},
     routes::{
-        queries::get_queries_router, 
+        queries::get_queries_router,
         // tag_generation_route::get_tag_generation_router,
         tags::get_tags_router,
-    }, services::tag_generation::{TagGenerationService, TagGenerator, openai_tag_generator::OpenAiTagGenerator},
+    },
+    services::tag_generation::{TagGenerationService, openai_tag_generator::OpenAiTagGenerator},
 };
 
 #[derive(Clone, FromRef)]
 struct AppState {
     db: DatabaseConnection,
     jwt_decoder: Decoder<SupabaseClaims>,
-    tag_gen_service: TagGenerationService<OpenAiTagGenerator>
+    tag_gen_service: TagGenerationService,
 }
 
 #[tokio::main]
@@ -44,9 +45,13 @@ async fn main() {
     let jwt_decoder = new_jwt_decoder().await;
 
     // init tag generation service
-    let tag_gen_service = TagGenerationService::new();
+    let tag_gen_service = TagGenerationService::new(OpenAiTagGenerator::new());
 
-    let app_state = AppState { db, jwt_decoder, tag_gen_service };
+    let app_state = AppState {
+        db,
+        jwt_decoder,
+        tag_gen_service,
+    };
 
     // route paths
     let app = Router::new()
