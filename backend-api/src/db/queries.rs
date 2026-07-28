@@ -5,7 +5,6 @@ use sea_orm::{DatabaseConnection, FromQueryResult};
 use sea_orm::{DbBackend, Statement};
 
 use crate::err::CadenzaError;
-use crate::db::entity::*;
 
 #[derive(Debug, FromQueryResult)]
 struct SongTagPair {
@@ -72,8 +71,8 @@ fn decode_query(
     let sql = format!(
         r#"
             SELECT song_id, tag_id
-            FROM applied_tags
-            WHERE applied_tags.user_id=$1 AND {}
+            FROM local_tags_applied
+            WHERE local_tags_applied.user_id=$1 AND {}
         "#,
         where_clause
     );
@@ -95,8 +94,8 @@ fn decode_query_json_node(
         let mut exists_clause = format!(
             r#"
                 EXISTS (
-                    SELECT * FROM applied_tags AS exists_check 
-                    WHERE exists_check.song_id=applied_tags.song_id AND exists_check.user_id = $1 AND exists_check.tag_id=${}
+                    SELECT * FROM local_tags_applied AS exists_check 
+                    WHERE exists_check.song_id=local_tags_applied.song_id AND exists_check.user_id = $1 AND exists_check.tag_id=${}
                 )
             "#,
             param_counter,
