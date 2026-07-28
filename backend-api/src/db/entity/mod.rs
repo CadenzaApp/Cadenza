@@ -6,4 +6,4 @@ pub mod global_tags;
 pub mod global_tags_applied;
 pub mod local_tags;
 pub mod local_tags_applied;
-pub mod songs_global_meta;
+pub mod songs;

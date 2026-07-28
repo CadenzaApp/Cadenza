@@ -92,7 +92,6 @@ struct ResponseOutputMessage {
 }
 #[derive(Deserialize)]
 struct ResponseOutputText {
-    // this field is returned from api as a string, deserializing it here as a OpenAiGeneratedTags
     text: String,
 }
 

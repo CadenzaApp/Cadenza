@@ -4,4 +4,4 @@ pub use super::global_tags::Entity as GlobalTags;
 pub use super::global_tags_applied::Entity as GlobalTagsApplied;
 pub use super::local_tags::Entity as LocalTags;
 pub use super::local_tags_applied::Entity as LocalTagsApplied;
-pub use super::songs_global_meta::Entity as SongsGlobalMeta;
+pub use super::songs::Entity as Songs;
