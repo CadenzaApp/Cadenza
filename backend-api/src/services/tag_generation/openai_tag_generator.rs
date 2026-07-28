@@ -67,7 +67,7 @@ struct OpenAiApiResponse {
     output: Vec<ResponseOutputMessage>,
 }
 impl OpenAiApiResponse {
-    pub fn as_text(mut self) -> Result<String, String> {
+    pub fn into_text(mut self) -> Result<String, String> {
         if let Some(error) = self.error {
             return Err(error.message);
         }
@@ -83,7 +83,6 @@ impl OpenAiApiResponse {
 }
 #[derive(Deserialize)]
 struct ResponseError {
-    code: String,
     message: String,
 }
 #[derive(Deserialize)]
@@ -124,7 +123,7 @@ impl TagGenerator for OpenAiTagGenerator {
     async fn generate_tags(
         &self,
         song_descs: &[String],
-        mut requested_tag_count: usize,
+        requested_tag_count: usize,
     ) -> Result<Vec<Vec<String>>, String> {
         if song_descs.is_empty() {
             return Ok(vec![]);
@@ -155,7 +154,7 @@ impl TagGenerator for OpenAiTagGenerator {
             .json::<OpenAiApiResponse>()
             .await
             .map_err(|err| format!("openai returned malformed response: {}", err))?
-            .as_text()?;
+            .into_text()?;
 
         let mut generated_tags: OpenAiGeneratedTags =
             serde_json::from_str(&resp_text).map_err(|e| e.to_string())?;
@@ -211,7 +210,7 @@ mod tests {
     #[ignore]
     async fn empty_input_arr() {
         let g = OpenAiTagGenerator::new();
-        let res = g.generate_tags(&vec![], 1).await.unwrap();
+        let res = g.generate_tags(&[], 1).await.unwrap();
         assert!(res.is_empty());
     }
 
