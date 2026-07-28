@@ -11,7 +11,7 @@ use axum_jwt_auth::Decoder;
 use dotenvy::dotenv;
 use sea_orm::{Database, DatabaseConnection};
 use std::net::SocketAddr;
-use std::{env, sync::Arc};
+use std::env;
 
 use crate::{
     auth::{SupabaseClaims, new_jwt_decoder},

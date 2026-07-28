@@ -11,14 +11,6 @@ use sea_orm::{
 use crate::db::entity::*;
 use crate::err::CadenzaError;
 
-pub async fn get_tag_count(
-    db: DatabaseConnection,
-    user_id: Uuid,
-    song_id: &str,
-) -> Result<usize, CadenzaError> {
-    todo!()
-}
-
 pub async fn new_tag(
     db: DatabaseConnection,
     user_id: Uuid,
