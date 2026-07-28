@@ -57,7 +57,6 @@ async fn main() {
     let app = Router::new()
         .nest("/tags", get_tags_router())
         .nest("/queries", get_queries_router())
-        // .nest("/tag-generation", get_tag_generation_router())
         .with_state(app_state);
 
     // show time baby
