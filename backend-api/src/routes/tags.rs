@@ -1,4 +1,7 @@
-use crate::{AppState, auth::SupabaseClaims, db, err::CadenzaError, services::tag_generation::TagGenerationService};
+use crate::{
+    AppState, auth::SupabaseClaims, db, err::CadenzaError,
+    services::tag_generation::TagGenerationService,
+};
 use axum::{
     Json, Router,
     extract::{Query, State},
@@ -64,7 +67,6 @@ async fn remove_tag_handler(
     db::tags::remove_tag(db, claims.user_id, payload.song_id, payload.tag_id).await
 }
 
-
 #[derive(Deserialize)]
 struct TagSuggestionQueryParams {
     song_desc: String,
@@ -75,14 +77,14 @@ async fn suggest_tags_for_song_handler(
     _: Claims<SupabaseClaims>, // must have credentials to use this route
     State(tag_gen_service): State<TagGenerationService>,
     Query(payload): Query<TagSuggestionQueryParams>,
-) -> Result<Vec<String>, CadenzaError> {
+) -> Result<Json<Vec<String>>, CadenzaError> {
     let mut suggested_tags = tag_gen_service
         .generate_tags(&[payload.song_desc], Some(payload.requested_tag_count))
         .await?;
 
     match suggested_tags.is_empty() {
-        true => Ok(vec![]),
-        false => Ok(suggested_tags.remove(0)),
+        true => Ok(Json(vec![])),
+        false => Ok(Json(suggested_tags.remove(0))),
     }
 }
 
@@ -92,5 +94,5 @@ pub fn get_tags_router() -> Router<AppState> {
         .route("/", delete(delete_tag_handler))
         .route("/applied", post(apply_tag_handler))
         .route("/applied", delete(remove_tag_handler))
-        .route("/suggest", get(remove_tag_handler))
+        .route("/suggest", get(suggest_tags_for_song_handler))
 }
