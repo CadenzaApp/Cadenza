@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { TagPill } from "@/components/custom/tag-pill";
 import { Tag } from "@/types/tag-types";
-import { useTags } from "@/lib/tags";
+import { useTagControls } from "@/lib/tags";
 import { useAccount } from "@/lib/account";
 import { requestSongTagSuggestions } from "@/lib/tag-generation";
 
@@ -79,7 +79,7 @@ export function SongDetailModal({
         null,
     );
     const { account } = useAccount();
-    const { tags: allUserTags, loading: tagsLoading } = useTags();
+    const { tags: allUserTags, loading: tagsLoading } = useTagControls();
 
     useEffect(() => {
         setArtworkFailed(false);

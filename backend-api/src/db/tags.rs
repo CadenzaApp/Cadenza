@@ -1,24 +1,82 @@
-use sea_orm::ColumnTrait;
-use sea_orm::ModelTrait;
-use sea_orm::QueryFilter;
+use std::collections::HashMap;
+
 use sea_orm::{
     ActiveModelTrait,
     ActiveValue::{NotSet, Set},
-    DatabaseConnection, EntityTrait,
+    ColumnTrait, Condition, DatabaseConnection, EntityTrait, FromQueryResult, ModelTrait,
+    QueryFilter, QuerySelect,
     prelude::Uuid,
 };
 
-use crate::err::CadenzaError;
 use crate::db::entity::*;
+use crate::err::CadenzaError;
 
-pub async fn new_tag(
+pub fn is_global_tag(tag: &tags::Model) -> bool {
+    tag.user_id.is_none()
+}
+
+pub async fn get_all_local_tags(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+) -> Result<Vec<tags::Model>, CadenzaError> {
+    Ok(tags::Entity::find()
+        .filter(tags::Column::UserId.eq(user_id))
+        .all(db)
+        .await?)
+}
+
+#[derive(FromQueryResult)]
+struct LocalTagUsageCount {
+    id: i64,
+    count: u64,
+}
+
+pub async fn get_local_tag_usage_counts(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+) -> Result<HashMap<i64, usize>, CadenzaError> {
+    let tag_usage_counts = tags_applied::Entity::find()
+        .select_only()
+        .column(tags::Column::TagId)
+        .column_as(tags::Column::TagId.count(), "count")
+        .filter(tags::Column::UserId.eq(user_id))
+        .group_by(tags::Column::TagId)
+        .into_model::<LocalTagUsageCount>()
+        .all(db)
+        .await?;
+
+    let mut res = HashMap::new();
+    for LocalTagUsageCount { id, count } in tag_usage_counts {
+        res.insert(id, count as usize);
+    }
+
+    Ok(res)
+}
+
+pub async fn get_tags_on_song(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+    song_id: &str,
+) -> Result<Vec<tags::Model>, CadenzaError> {
+    Ok(tags::Entity::find()
+        .filter(tags_applied::Column::SongId.eq(song_id))
+        .filter(
+            Condition::any()
+                .add(tags_applied::Column::UserId.eq(user_id))
+                .add(tags_applied::Column::UserId.is_null()),
+        )
+        .all(db)
+        .await?)
+}
+
+pub async fn new_local_tag(
     db: DatabaseConnection,
     user_id: Uuid,
     name: String,
     color: String,
 ) -> Result<i64, CadenzaError> {
-    let new_tag = local_tags::ActiveModel {
-        user_id: Set(user_id),
+    let new_tag = tags::ActiveModel {
+        user_id: Set(Some(user_id)),
         tag_id: NotSet,
         name: Set(name),
         color: Set(color),
@@ -28,13 +86,13 @@ pub async fn new_tag(
     Ok(new_tag.tag_id)
 }
 
-pub async fn delete_tag(
+pub async fn delete_local_tag(
     db: DatabaseConnection,
     user_id: Uuid,
     tag_id: i64,
 ) -> Result<(), CadenzaError> {
-    let tag = local_tags::Entity::find_by_id(tag_id)
-        .filter(local_tags::Column::UserId.eq(user_id))
+    let tag = tags::Entity::find_by_id(tag_id)
+        .filter(tags::Column::UserId.eq(user_id))
         .one(&db)
         .await?;
 
@@ -45,13 +103,13 @@ pub async fn delete_tag(
     Ok(())
 }
 
-pub async fn apply_tag(
+pub async fn apply_local_tag(
     db: DatabaseConnection,
     user_id: Uuid,
     song_id: String,
     tag_id: i64,
 ) -> Result<(), CadenzaError> {
-    let new_tag_relation = local_tags_applied::ActiveModel {
+    let new_tag_relation = tags_applied::ActiveModel {
         user_id: Set(user_id),
         song_id: Set(song_id),
         tag_id: Set(tag_id),
@@ -61,16 +119,16 @@ pub async fn apply_tag(
     Ok(())
 }
 
-pub async fn remove_tag(
+pub async fn unapply_local_tag(
     db: DatabaseConnection,
     user_id: Uuid,
     song_id: String,
     tag_id: i64,
 ) -> Result<(), CadenzaError> {
-    let applied_tag = local_tags_applied::Entity::find()
-        .filter(local_tags_applied::Column::UserId.eq(user_id))
-        .filter(local_tags_applied::Column::SongId.eq(song_id))
-        .filter(local_tags_applied::Column::TagId.eq(tag_id))
+    let applied_tag = tags_applied::Entity::find()
+        .filter(tags_applied::Column::SongId.eq(song_id))
+        .filter(tags_applied::Column::UserId.eq(user_id))
+        .filter(tags_applied::Column::TagId.eq(tag_id))
         .one(&db)
         .await?;
 

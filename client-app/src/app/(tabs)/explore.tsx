@@ -12,7 +12,7 @@ import { SongDetailModal } from "@/components/custom/song-detail-modal";
 import { usePlayback } from "@/lib/playback";
 import { useAppleMusic } from "@/lib/apple-music";
 import { Tag } from "@/lib/types";
-import { useTags } from "@/lib/tags";
+import { useTagControls } from "@/lib/tags";
 
 function getErrorDetails(error: unknown) {
     if (error instanceof Error) {
@@ -69,7 +69,7 @@ export default function ExploreScreen() {
 
     const { isInitializing, isConnected, ensureConnected } = useAppleMusic();
     const { activeTrackId, isPlaying, togglePlayback } = usePlayback();
-    const { songTagsMap, loadSongTags, applyTag, removeTag } = useTags();
+    const { songTagsMap, loadSongTags, applyTag, removeTag } = useTagControls();
 
     async function handleFetchLibrary() {
         if (!isConnected) {

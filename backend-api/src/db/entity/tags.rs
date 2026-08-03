@@ -3,10 +3,16 @@
 use sea_orm::entity::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
-#[sea_orm(table_name = "songs")]
+#[sea_orm(table_name = "tags")]
 pub struct Model {
-    #[sea_orm(primary_key, auto_increment = false, column_type = "Text")]
-    pub song_id: String,
+    #[sea_orm(primary_key)]
+    pub tag_id: i64,
+    #[sea_orm(column_type = "Text", unique_key = "name_user_unique")]
+    pub name: String,
+    #[sea_orm(column_type = "Text")]
+    pub color: String,
+    #[sea_orm(unique_key = "name_user_unique")]
+    pub user_id: Option<Uuid>,
     #[sea_orm(
         ignore,
         column_type = "custom(\"vector\")",

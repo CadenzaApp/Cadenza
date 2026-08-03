@@ -3,7 +3,7 @@ import { SongDetailModal } from "@/components/custom/song-detail-modal";
 import { Button } from "@/components/ui/button";
 import { useAppleMusic } from "@/lib/apple-music";
 import { usePlayback } from "@/lib/playback";
-import { useTags } from "@/lib/tags";
+import { useTagControls } from "@/lib/tags";
 import { Tag } from "@/lib/types";
 import { MusicItem } from "@apple-musickit";
 import { useState } from "react";
@@ -27,7 +27,7 @@ export default function QueryResults({
     const { isConnected, ensureConnected } = useAppleMusic();
     const { activeTrackId, isPlaying, togglePlayback } = usePlayback();
 
-    const { songTagsMap, applyTag, removeTag } = useTags();
+    const { songTagsMap, applyTag, removeTag } = useTagControls();
 
     async function handleTogglePlayback(trackId: string) {
         if (!isConnected) {

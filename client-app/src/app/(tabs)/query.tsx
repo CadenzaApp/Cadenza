@@ -3,7 +3,7 @@ import { ActivityIndicator } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { QueryBuilder } from "../../features/query-builder/QueryBuilder";
 import { useAccount } from "@/lib/account";
-import { useTags } from "@/lib/tags";
+import { useTagControls } from "@/lib/tags";
 import { Text } from "@/components/ui/text";
 import { Redirect } from "expo-router";
 import { MusicItem, MusicKit } from "@apple-musickit";
@@ -11,7 +11,7 @@ import QueryResults from "@/features/query-builder/QueryResults";
 
 export default function QueryScreen() {
     const { account } = useAccount();
-    const { tags, loading, error } = useTags();
+    const { tags, loading, error } = useTagControls();
 
     const [matchedSongs, setMatchedSongs] = useState<MusicItem[] | null>(null);
     const [isFetchingMetadata, setIsFetchingMetadata] = useState(false);

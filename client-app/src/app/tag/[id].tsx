@@ -4,7 +4,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { MusicKit, MusicItem as AppleMusicItem } from "@apple-musickit";
 import Ionicons from "@expo/vector-icons/Ionicons";
 
-import { useTags } from "@/lib/tags";
+import { useTagControls } from "@/lib/tags";
 import { usePlayback } from "@/lib/playback";
 import { Tag } from "@/types/tag-types";
 import { Text } from "@/components/ui/text";
@@ -65,7 +65,7 @@ export default function TagDetailScreen() {
     const { id } = useLocalSearchParams<{ id: string }>();
     const router = useRouter();
 
-    const { tags, songTagsMap, applyTag, removeTag } = useTags();
+    const { tags, songTagsMap, applyTag, removeTag } = useTagControls();
     const { activeTrackId, isPlaying, togglePlayback } = usePlayback();
     const { tracks, isLoading, anticipatedCount } = useTagTracks(
         id,

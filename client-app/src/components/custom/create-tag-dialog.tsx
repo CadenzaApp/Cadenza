@@ -12,9 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Text } from "@/components/ui/text";
-import { supabase } from "@/lib/supabase";
-import { useAccount } from "@/lib/account";
-import { Tag } from "@/lib/types";
+import { useCreateTag } from "@/lib/routes/tags";
 
 const COLOR_BOX_SIZE = 44;
 const COLOR_OPTIONS: string[] = [
@@ -32,67 +30,41 @@ const COLOR_OPTIONS: string[] = [
     "#d62f67",
 ];
 
-export function CreateTagDialog({
-    onTagCreated,
-}: {
-    onTagCreated: (tag: Tag) => void;
-}) {
-    const { account } = useAccount();
+export function CreateTagDialog() {
+    const {
+        action: createTag,
+        error,
+        loading,
+        reset: resetCreateTag,
+    } = useCreateTag();
 
-    const [open, setOpen] = useState(false);
+    const [open, _setOpen] = useState(false);
     const [name, setName] = useState("");
     const [selectedColor, setSelectedColor] = useState(COLOR_OPTIONS[0]);
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState<string | null>(null);
 
     function resetForm() {
+        resetCreateTag();
         setName("");
         setSelectedColor(COLOR_OPTIONS[0]);
-        setError(null);
     }
 
-    function handleOpenChange(val: boolean) {
+    function setOpen(val: boolean) {
         if (!val) resetForm();
-        setOpen(val);
+        _setOpen(val);
     }
 
     async function handleCreate() {
-        if (!name.trim() || !account) return;
+        if (!name.trim()) return;
 
-        setLoading(true);
-        setError(null);
-
-        try {
-            const { data, error: dbError } = await supabase
-                .from("tags")
-                .insert({
-                    name: name.trim(),
-                    color: selectedColor,
-                    user_id: account.id,
-                })
-                .select("tag_id, name, color")
-                .single();
-
-            if (dbError) throw dbError;
-
-            onTagCreated({
-                id: String(data.tag_id),
-                name: data.name,
-                color: data.color,
-            });
-            resetForm();
-            setOpen(false);
-        } catch (err: unknown) {
-            setError(
-                err instanceof Error ? err.message : "Something went wrong",
-            );
-        } finally {
-            setLoading(false);
-        }
+        await createTag({
+            name: name.trim(),
+            color: selectedColor
+        });
+        setOpen(false);
     }
 
     return (
-        <Dialog open={open} onOpenChange={handleOpenChange}>
+        <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
                 <Pressable className="absolute bottom-7 right-5 w-14 h-14 rounded-full bg-primary items-center justify-center shadow-lg shadow-black/30">
                     <Text className="text-primary-foreground text-3xl font-light leading-9 mt-[-2px]">
@@ -158,7 +130,7 @@ export function CreateTagDialog({
                 <View className="flex-row gap-2.5 mt-1">
                     <Button
                         variant="secondary"
-                        onPress={() => handleOpenChange(false)}
+                        onPress={() => setOpen(false)}
                         disabled={loading}
                         className="flex-1"
                     >
