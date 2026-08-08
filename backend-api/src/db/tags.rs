@@ -25,6 +25,17 @@ pub async fn get_all_local_tags(
         .await?)
 }
 
+
+pub async fn get_tag(
+    db: &DatabaseConnection,
+    tag_id: i64,
+) -> Result<Option<tags::Model>, CadenzaError> {
+    Ok(tags::Entity::find()
+        .filter(tags::Column::TagId.eq(tag_id))
+        .one(db)
+        .await?)
+}
+
 #[derive(FromQueryResult)]
 struct LocalTagUsageCount {
     id: i64,
@@ -67,6 +78,26 @@ pub async fn get_tags_on_song(
         )
         .all(db)
         .await?)
+}
+
+pub async fn get_songs_with_tag(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+    tag_id: i64,
+) ->  Result<Vec<String>, CadenzaError> {
+    let song_ids: Vec<String> = tags_applied::Entity::find()
+        .filter(tags_applied::Column::TagId.eq(tag_id))
+        .filter(
+            Condition::any()
+                .add(tags_applied::Column::UserId.eq(user_id))
+                .add(tags_applied::Column::UserId.is_null()),
+        )
+        .select_only()
+        .column(tags_applied::Column::SongId)
+        .into_tuple()
+        .all(db).await?;
+
+    Ok(song_ids)
 }
 
 pub async fn new_local_tag(

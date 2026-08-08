@@ -1,5 +1,5 @@
 import { useAccount } from "@/lib/account";
-import { useLocalTags } from "@/lib/routes/tags";
+import { useTags } from "@/lib/routes/tags";
 import { Redirect, useRouter } from "expo-router";
 import { Text } from "@/components/ui/text";
 import { TagPill } from "@/components/custom/tag-pill";
@@ -9,7 +9,8 @@ import { ScrollView, View, Pressable } from "react-native";
 export default function TagsScreen() {
     const router = useRouter();
     const { account } = useAccount();
-    const { data, isLoading, error } = useLocalTags();
+    const { data, isLoading, error } = useTags();
+    const tags = data?.Many;
 
     if (!account) return <Redirect href="/auth?initialMode=signin" />;
 
@@ -21,7 +22,7 @@ export default function TagsScreen() {
                         Your Tags
                     </Text>
                     <Text className="text-muted-foreground text-lg mb-5">
-                        {data.length} {data.length === 1 ? "tag" : "tags"}
+                        {tags?.length ?? '?'} {tags?.length === 1 ? "tag" : "tags"}
                     </Text>
                 </View>
 
@@ -37,7 +38,7 @@ export default function TagsScreen() {
                     </Text>
                 ) : (
                     <View className="flex-row flex-wrap gap-2.5">
-                        {data.map(({tag, count}) => (
+                        {tags?.map(({tag, count}) => (
                             <Pressable
                                 key={tag.id}
                                 onPress={() =>

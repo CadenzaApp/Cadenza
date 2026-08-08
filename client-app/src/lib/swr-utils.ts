@@ -1,4 +1,4 @@
-import { mutate } from "swr";
+import useSWR, { mutate } from "swr";
 import useSWRMutation from "swr/mutation";
 import { useAccount } from "./account";
 import { BACKEND_URL } from "./backend";
@@ -8,54 +8,110 @@ export function clearCache() {
     mutate(() => true, undefined, { revalidate: false });
 }
 
-// useSWRmutation wrapper that invalidates other cache keys that start with the key
-export function useMutation<Input, Output>(
-    key: string[],
+/** Simplified wrapper around `useSWRMutation`.
+ * Triggering this mutation invalidates many keys (not just one) */
+function useMultiKeyMutation<Input, Output>(
     action: (input: Input) => Promise<Output>,
-    options?: object,
+    keys: any[],
+    options?: any,
 ) {
     let { isMutating, trigger, error, reset } = useSWRMutation(
-        (otherKey: any) => {
-            if (!Array.isArray(otherKey)) return false;
-
-            for (let i = 0; i < Math.min(otherKey.length, key.length); i++) {
-                if (otherKey[i] !== key[i]) {
-                    return false;
-                }
-            }
-
-            return true;
-        },
-        async (_, { arg }: { arg: Input }) => {
-            return await action(arg);
+        keys[0], // need to put a key here, so just put a dummy value
+        async (_: any, { arg }: { arg: Input }) => {
+            const result = await action(arg);
+            mutate((key: any) => keys.includes(key), undefined, {
+                revalidate: true,
+            });
+            return result;
         },
         options,
     );
 
     return {
-        action: trigger as (input: Input) => Promise<Output>,
-        loading: isMutating,
+        trigger: trigger as (input: Input) => Promise<Output>,
+        isMutating,
         error,
         reset,
     };
 }
 
-export function useAPIAction<Input, Output>(
-    key: string[],
+function queryParamsToStr(params?: Record<string, any>) {
+    return params && Object.keys(params).length === 0
+        ? ""
+        : "?" + new URLSearchParams(params).toString();
+}
+
+/** When triggered, invalidates this path and optionally other paths too */
+export function useAPIMutation<RequestBody, Response>(
     method: string,
     path: string,
+    additionalInvalidatedPaths: string[] = [],
 ) {
     const { account } = useAccount();
 
-    return useMutation<Input, Output>(key, async (body: Input) => {
-        const resp = await fetch(BACKEND_URL + path, {
-            method,
-            headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${account?.jwt}`,
+    return useMultiKeyMutation<RequestBody, Response>(
+        async (body: RequestBody) => {
+            const resp = await fetch(BACKEND_URL + path, {
+                method,
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${account?.jwt}`,
+                },
+                body: JSON.stringify(body),
+            });
+            const json = resp.json();
+
+            if (!resp.ok) {
+                throw json;
+            }
+
+            return json as Response;
+        },
+        [path, ...additionalInvalidatedPaths],
+    );
+}
+
+export function useAPIData<Output>(
+    path: string,
+    params?: Record<string, any>,
+) {
+    const { account } = useAccount();
+
+    return useSWR(path, async () => {
+        const resp = await fetch(
+            BACKEND_URL + path + queryParamsToStr(params),
+            {
+                headers: {
+                    Authorization: `Bearer ${account?.jwt}`,
+                },
             },
-            body: JSON.stringify(body),
-        });
+        );
+        const json = resp.json();
+
+        if (!resp.ok) {
+            throw json;
+        }
+
+        return json as Output;
+    });
+}
+
+/** GET requests with query params, but only run upon triggered */
+export function useAPIFetch<QueryParams extends Record<string, any>, Output>(
+    path: string,
+    params?: QueryParams,
+) {
+    const { account } = useAccount();
+
+    return useSWRMutation(path, async () => {
+        const resp = await fetch(
+            BACKEND_URL + path + queryParamsToStr(params),
+            {
+                headers: {
+                    Authorization: `Bearer ${account?.jwt}`,
+                },
+            },
+        );
         const json = resp.json();
 
         if (!resp.ok) {

@@ -5,21 +5,23 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
+import { Tag } from "@/lib/types";
 import { TagPill } from "@/components/custom/tag-pill";
-import { Tag } from "@/types/tag-types";
-import { useTagControls } from "@/lib/tags";
 import { useAccount } from "@/lib/account";
 import { requestSongTagSuggestions } from "@/lib/tag-generation";
+import {
+    useApplyTag,
+    useSuggestTags,
+    useTagsOnSong,
+    useUnapplyTag,
+} from "@/lib/routes/tags";
 
 type SongDetailModalProps = {
     open: boolean;
-    onOpenChange: (open: boolean) => void;
+    onClose: () => any;
     song: AppleMusicItem | null;
-    tags: Tag[];
     onTogglePlayback: (trackId: string) => void;
     isThisTrackPlaying: boolean;
-    onApplyTag?: (tag: Tag) => void;
-    onRemoveTag?: (tag: Tag) => void;
 };
 
 function toDisplayString(value: unknown, fallback = "Unavailable") {
@@ -59,34 +61,41 @@ function formatSeconds(totalSeconds: number): string {
 
 export function SongDetailModal({
     open,
-    onOpenChange,
+    onClose,
     song,
-    tags,
     onTogglePlayback,
     isThisTrackPlaying,
-    onApplyTag,
-    onRemoveTag,
 }: SongDetailModalProps) {
     const [artworkFailed, setArtworkFailed] = useState(false);
     const [activePanel, setActivePanel] = useState<"addTag" | "aiTags" | null>(
         null,
     );
-    const [aiSuggestedTagNames, setAiSuggestedTagNames] = useState<string[]>(
-        [],
+    const {
+        data: tagsOnSong,
+        isLoading: tagsLoading,
+        error: tagsError,
+    } = useTagsOnSong(song!.id);
+    const tags = tagsOnSong && [...tagsOnSong.global, ...tagsOnSong.local];
+
+    const { trigger: unapplyTag } = useUnapplyTag();
+    const { trigger: applyTag } = useApplyTag();
+    const {
+        trigger: suggestTags,
+        isMutating: isSuggestingTags,
+        data: suggestedTagNames,
+        error: suggestTagsError,
+    } = useSuggestTags({ song_desc: `${song?.title} by ${song?.artistName}` });
+    const suggestedTags: Tag[] | undefined = suggestedTagNames?.map(
+        (name, i) => ({
+            id: -i,
+            name,
+            color: "#7c3aed",
+        }),
     );
-    const [isAiSuggestionsLoading, setIsAiSuggestionsLoading] = useState(false);
-    const [aiSuggestionsError, setAiSuggestionsError] = useState<string | null>(
-        null,
-    );
-    const { account } = useAccount();
-    const { tags: allUserTags, loading: tagsLoading } = useTagControls();
 
     useEffect(() => {
         setArtworkFailed(false);
         setActivePanel(null);
-        setAiSuggestedTagNames([]);
-        setAiSuggestionsError(null);
-        setIsAiSuggestionsLoading(false);
     }, [song?.id, song?.artworkUrl]);
 
     const artworkUrl = song?.artworkUrl?.trim();
@@ -94,15 +103,6 @@ export function SongDetailModal({
         !artworkFailed &&
         typeof artworkUrl === "string" &&
         /^https?:\/\//i.test(artworkUrl);
-
-    const albumName = toDisplayString(song?.albumName, "Unknown Album");
-
-    const releaseDate = toDisplayString(
-        dateFormatter.format(new Date(song?.releaseDate ?? 0)),
-        "Unknown Release Date",
-    );
-
-    const songDuration = formatSeconds(song?.songDuration ?? 0);
 
     function handleAddTagPress() {
         setActivePanel((prev) => (prev === "addTag" ? null : "addTag"));
@@ -116,59 +116,7 @@ export function SongDetailModal({
             return;
         }
 
-        if (!song?.id) {
-            setAiSuggestedTagNames([]);
-            setAiSuggestionsError("Unable to find this song ID.");
-            return;
-        }
-
-        if (!account?.jwt) {
-            setAiSuggestedTagNames([]);
-            setAiSuggestionsError(
-                "You need to sign in to request AI suggestions.",
-            );
-            return;
-        }
-
-        setIsAiSuggestionsLoading(true);
-        setAiSuggestionsError(null);
-
-        try {
-            let metadataSong = song;
-            if (!hasRequiredMetadata(song)) {
-                metadataSong = (await MusicKit.getSongInfo([song.id]))[0];
-            }
-
-            const title = normalizeRequiredString(
-                metadataSong.title,
-                "Song title is unavailable.",
-            );
-            const artist = normalizeRequiredString(
-                metadataSong.artistName,
-                "Song artist is unavailable.",
-            );
-            const album = normalizeOptionalString(metadataSong.albumName);
-
-            const suggestedTags = await requestSongTagSuggestions({
-                jwt: account.jwt,
-                songId: song.id,
-                title,
-                artist,
-                album,
-                sourceProvider: "apple_music",
-            });
-
-            setAiSuggestedTagNames(suggestedTags);
-        } catch (error) {
-            const message =
-                error instanceof Error
-                    ? error.message
-                    : "Failed to generate AI tag suggestions.";
-            setAiSuggestedTagNames([]);
-            setAiSuggestionsError(message);
-        } finally {
-            setIsAiSuggestionsLoading(false);
-        }
+        await suggestTags();
     }
 
     function handlePlayPress() {
@@ -176,22 +124,16 @@ export function SongDetailModal({
         onTogglePlayback(song.id);
     }
 
-    const aiSuggestedTags: Tag[] = aiSuggestedTagNames.map((name, index) => ({
-        id: `ai-${index}-${name}`,
-        name,
-        color: "#7c3aed",
-    }));
-
     return (
         <Modal
             visible={open}
             transparent
             animationType="fade"
-            onRequestClose={() => onOpenChange(false)}
+            onRequestClose={onClose}
         >
             <Pressable
                 className="flex-1 bg-black/70 items-center justify-center px-4 py-8"
-                onPress={() => onOpenChange(false)}
+                onPress={onClose}
             >
                 <Pressable
                     onPress={(event) => event.stopPropagation()}
@@ -254,7 +196,7 @@ export function SongDetailModal({
                                     size="icon"
                                     variant="ghost"
                                     className="h-10 w-10 rounded-full"
-                                    onPress={() => onOpenChange(false)}
+                                    onPress={onClose}
                                 >
                                     <Text>
                                         <Ionicons name="close" size={20} />
@@ -293,10 +235,10 @@ export function SongDetailModal({
 
                                 <View className="flex-1 gap-1">
                                     <Text className="text-base font-semibold text-foreground">
-                                        {albumName}
+                                        {song.albumName}
                                     </Text>
                                     <Text className="text-sm text-muted-foreground">
-                                        {releaseDate}
+                                        {song.releaseDate}
                                     </Text>
                                 </View>
                             </View>
@@ -334,7 +276,7 @@ export function SongDetailModal({
                                         className="text-sm text-foreground flex-1 text-right"
                                         numberOfLines={2}
                                     >
-                                        {songDuration}
+                                        {song.songDuration}
                                     </Text>
                                 </View>
                             </View>
@@ -344,7 +286,7 @@ export function SongDetailModal({
                                     Tags
                                 </Text>
 
-                                {tags.length > 0 ? (
+                                {tags ? (
                                     <View className="flex-row flex-wrap gap-2">
                                         {tags.map((tag) => (
                                             <TagPill
@@ -352,7 +294,10 @@ export function SongDetailModal({
                                                 tag={tag}
                                                 height={12}
                                                 onRemove={() =>
-                                                    onRemoveTag?.(tag)
+                                                    unapplyTag({
+                                                        song_id: song.id,
+                                                        tag_id: tag.id,
+                                                    })
                                                 }
                                             />
                                         ))}
@@ -394,29 +339,34 @@ export function SongDetailModal({
                                     <Text className="text-sm font-medium text-foreground">
                                         AI suggested tags
                                     </Text>
-                                    {isAiSuggestionsLoading ? (
+                                    {isSuggestingTags && (
                                         <Text className="text-sm text-muted-foreground">
                                             Generating suggestions...
                                         </Text>
-                                    ) : aiSuggestionsError ? (
-                                        <Text className="text-sm text-destructive">
-                                            {aiSuggestionsError}
-                                        </Text>
-                                    ) : aiSuggestedTags.length === 0 ? (
-                                        <Text className="text-sm text-muted-foreground">
-                                            No suggestions returned.
-                                        </Text>
-                                    ) : (
-                                        <View className="flex-row flex-wrap gap-2">
-                                            {aiSuggestedTags.map((tag) => (
-                                                <TagPill
-                                                    key={tag.id}
-                                                    tag={tag}
-                                                    height={12}
-                                                />
-                                            ))}
-                                        </View>
                                     )}
+                                    {suggestTagsError && (
+                                        <Text className="text-sm text-destructive">
+                                            {suggestTagsError}
+                                        </Text>
+                                    )}
+                                    {suggestedTags &&
+                                        suggestedTags.length === 0 && (
+                                            <Text className="text-sm text-muted-foreground">
+                                                No suggestions returned.
+                                            </Text>
+                                        )}
+                                    {suggestedTags &&
+                                        suggestedTags.length !== 0 && (
+                                            <View className="flex-row flex-wrap gap-2">
+                                                {suggestedTags.map((tag) => (
+                                                    <TagPill
+                                                        key={tag.id}
+                                                        tag={tag}
+                                                        height={12}
+                                                    />
+                                                ))}
+                                            </View>
+                                        )}
                                 </View>
                             )}
 
@@ -425,17 +375,25 @@ export function SongDetailModal({
                                     <Text className="text-sm font-medium text-foreground">
                                         Your tags
                                     </Text>
-                                    {tagsLoading ? (
+
+                                    {tagsLoading && (
                                         <Text className="text-sm text-muted-foreground">
                                             Loading...
                                         </Text>
-                                    ) : allUserTags.length === 0 ? (
+                                    )}
+                                    {tagsError && (
+                                        <Text className="text-sm text-destructive">
+                                            {tagsError}
+                                        </Text>
+                                    )}
+                                    {tags?.length === 0 && (
                                         <Text className="text-sm text-muted-foreground">
                                             No tags created yet.
                                         </Text>
-                                    ) : (
+                                    )}
+                                    {tags && tags.length !== 0 && (
                                         <View className="flex-row flex-wrap gap-2">
-                                            {allUserTags
+                                            {tags
                                                 .filter(
                                                     (tag) =>
                                                         !tags.some(
@@ -447,7 +405,11 @@ export function SongDetailModal({
                                                     <Pressable
                                                         key={tag.id}
                                                         onPress={() =>
-                                                            onApplyTag?.(tag)
+                                                            applyTag({
+                                                                song_id:
+                                                                    song.id,
+                                                                tag_id: tag.id,
+                                                            })
                                                         }
                                                     >
                                                         <TagPill

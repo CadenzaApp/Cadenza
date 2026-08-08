@@ -1,10 +1,8 @@
 import { MusicList } from "@/components/custom/music-list";
 import { SongDetailModal } from "@/components/custom/song-detail-modal";
 import { Button } from "@/components/ui/button";
-import { useAppleMusic } from "@/lib/apple-music";
+import { useAppleMusic } from "@/lib/apple-music-auth";
 import { usePlayback } from "@/lib/playback";
-import { useTagControls } from "@/lib/tags";
-import { Tag } from "@/lib/types";
 import { MusicItem } from "@apple-musickit";
 import { useState } from "react";
 import { View, Text, StyleSheet, Alert } from "react-native";
@@ -27,7 +25,6 @@ export default function QueryResults({
     const { isConnected, ensureConnected } = useAppleMusic();
     const { activeTrackId, isPlaying, togglePlayback } = usePlayback();
 
-    const { songTagsMap, applyTag, removeTag } = useTagControls();
 
     async function handleTogglePlayback(trackId: string) {
         if (!isConnected) {
@@ -84,7 +81,7 @@ export default function QueryResults({
 
                 <SongDetailModal
                     open={isSongDetailModalOpen}
-                    onOpenChange={setIsSongDetailModalOpen}
+                    onClose={setIsSongDetailModalOpen}
                     song={selectedSong}
                     tags={selectedSongTags}
                     onTogglePlayback={togglePlayback}

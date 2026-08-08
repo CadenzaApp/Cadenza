@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { MusicList } from "@/components/custom/music-list";
 import { SongDetailModal } from "@/components/custom/song-detail-modal";
 import { usePlayback } from "@/lib/playback";
-import { useAppleMusic } from "@/lib/apple-music";
+import { useAppleMusic } from "@/lib/apple-music-auth";
 import { Tag } from "@/lib/types";
 import { useTagControls } from "@/lib/tags";
 
@@ -274,7 +274,7 @@ export default function ExploreScreen() {
 
             <SongDetailModal
                 open={isSongDetailModalOpen}
-                onOpenChange={setIsSongDetailModalOpen}
+                onClose={setIsSongDetailModalOpen}
                 song={selectedSong}
                 tags={selectedSongTags}
                 onTogglePlayback={togglePlayback}

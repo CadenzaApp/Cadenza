@@ -2,7 +2,7 @@ import { NAV_THEME } from "@/lib/theme";
 import { ThemeProvider } from "@react-navigation/native";
 import { Stack } from "expo-router";
 import AccountProvider from "@/lib/account";
-import { AppleMusicProvider } from "@/lib/apple-music";
+import { AppleMusicProvider } from "@/lib/apple-music-auth";
 import { PlaybackProvider } from "@/lib/playback";
 import { TagControlsProvider } from "@/lib/tags";
 import { PortalHost } from "@rn-primitives/portal";

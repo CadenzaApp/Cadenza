@@ -32,9 +32,9 @@ const COLOR_OPTIONS: string[] = [
 
 export function CreateTagDialog() {
     const {
-        action: createTag,
+        trigger: createTag,
         error,
-        loading,
+        isMutating: isCreatingTag,
         reset: resetCreateTag,
     } = useCreateTag();
 
@@ -58,7 +58,7 @@ export function CreateTagDialog() {
 
         await createTag({
             name: name.trim(),
-            color: selectedColor
+            color: selectedColor,
         });
         setOpen(false);
     }
@@ -131,17 +131,17 @@ export function CreateTagDialog() {
                     <Button
                         variant="secondary"
                         onPress={() => setOpen(false)}
-                        disabled={loading}
+                        disabled={isCreatingTag}
                         className="flex-1"
                     >
                         <Text>Cancel</Text>
                     </Button>
                     <Button
                         onPress={handleCreate}
-                        disabled={!name.trim() || loading}
+                        disabled={!name.trim() || isCreatingTag}
                         className="flex-1"
                     >
-                        {loading ? (
+                        {isCreatingTag ? (
                             <ActivityIndicator size="small" color="#ffffff" />
                         ) : (
                             <Text>Create</Text>

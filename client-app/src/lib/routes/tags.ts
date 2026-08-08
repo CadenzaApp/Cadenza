@@ -1,60 +1,17 @@
-import useSWR from "swr";
-import { Alert } from "react-native";
-import { useAccount } from "@/lib/account";
-import { useAPIAction, useMutation } from "../swr-utils";
+import { useAPIData, useAPIFetch, useAPIMutation } from "../swr-utils";
+import { Tag } from "@/lib/types";
 
-export type Tag = {
-    id: number;
-    name: string;
-    color: string;
+type TagsResponse = {
+    Single?: {
+        tag: Tag;
+        song_ids: string[];
+    };
+    Many?: { tag: Tag; count: number }[];
 };
-
-type TagWithMetadata = { tag: Tag; count: number };
-
-export function useLocalTags() {
-    const { account } = useAccount();
-
-    const {
-        data = [],
-        error,
-        isLoading,
-    } = useSWR(["tags"], async () => {
-        const resp = await fetch("/tags/local", {
-            headers: {
-                Authorization: `Bearer ${account?.jwt}`,
-            },
-        });
-        return (await resp.json()) as TagWithMetadata[];
+export function useTags(tagId?: number) {
+    return useAPIData<TagsResponse>("/tags", {
+        tag_id: tagId,
     });
-
-    return { data, error, isLoading };
-}
-
-type UseTagsOnSongData = {
-    global: Tag[];
-    local: Tag[];
-};
-
-export function useTagsOnSong(songId: string) {
-    const { account } = useAccount();
-
-    const {
-        data: tags = [],
-        error,
-        isLoading,
-    } = useSWR(
-        ["tags", `song_id=${songId}`],
-        async () => {
-            const resp = await fetch(`/tags?song_id=${songId}`, {
-                headers: {
-                    Authorization: `Bearer ${account?.jwt}`,
-                },
-            });
-            return (await resp.json()) as UseTagsOnSongData;
-        },
-    );
-
-    return { tags, error, isLoading };
 }
 
 type NewTagPayload = {
@@ -62,31 +19,22 @@ type NewTagPayload = {
     color: string;
 };
 export function useCreateTag() {
-    return useAPIAction<NewTagPayload, number>(["tags"], "POST", "/tags/local");
+    return useAPIMutation<NewTagPayload, number>("POST", "/tags", [
+        "/tags/songs",
+        "/songs/tags",
+    ]);
 }
 
 export function useDeleteTag() {
-    return useAPIAction<{ tag_id: number }, void>(
-        ["tags"],
-        "POST",
-        "/tags/local",
-    );
+    return useAPIMutation<{ tag_id: number }, void>("DELETE", "/tags", [
+        "/tags/songs",
+        "/songs/tags",
+    ]);
 }
 
-type ApplyTagPayload = {
-    song_id: string;
-    tag_id: number;
+type SuggestTagsParams = {
+    song_desc: string;
 };
-
-export function useApplyTag() {
-    return useAPIAction<ApplyTagPayload, void>(["tags"], "POST", "/tags/local");
+export function useSuggestTags(params: SuggestTagsParams) {
+    return useAPIFetch<SuggestTagsParams, string[]>("/tags/suggest", params);
 }
-
-export function useUnapplyTag() {
-    return useAPIAction<ApplyTagPayload, void>(
-        ["tags"],
-        "POST",
-        "/tags/local",
-    );
-}
-
