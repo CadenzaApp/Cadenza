@@ -32,10 +32,7 @@ const COLOR_OPTIONS: string[] = [
 
 export function CreateTagDialog() {
     const {
-        trigger: createTag,
-        error,
-        isMutating: isCreatingTag,
-        reset: resetCreateTag,
+        createTag, createTagErr, createTagLoading, resetCreateTag
     } = useCreateTag();
 
     const [open, _setOpen] = useState(false);
@@ -121,9 +118,9 @@ export function CreateTagDialog() {
                     </View>
                 </View>
 
-                {error && (
+                {createTagErr && (
                     <Text className="text-destructive text-sm mb-2">
-                        {error}
+                        {createTagErr}
                     </Text>
                 )}
 
@@ -131,17 +128,17 @@ export function CreateTagDialog() {
                     <Button
                         variant="secondary"
                         onPress={() => setOpen(false)}
-                        disabled={isCreatingTag}
+                        disabled={createTagLoading}
                         className="flex-1"
                     >
                         <Text>Cancel</Text>
                     </Button>
                     <Button
                         onPress={handleCreate}
-                        disabled={!name.trim() || isCreatingTag}
+                        disabled={!name.trim() || createTagLoading}
                         className="flex-1"
                     >
-                        {isCreatingTag ? (
+                        {createTagLoading ? (
                             <ActivityIndicator size="small" color="#ffffff" />
                         ) : (
                             <Text>Create</Text>

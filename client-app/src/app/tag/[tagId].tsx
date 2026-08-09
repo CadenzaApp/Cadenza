@@ -9,17 +9,17 @@ import { Text } from "@/components/ui/text";
 import { TagPill } from "@/components/custom/tag-pill";
 import { MusicList } from "@/components/custom/music-list";
 import { SongDetailModal } from "@/components/custom/song-detail-modal";
-import { useTags } from "@/lib/routes/tags";
+import { useTag } from "@/lib/routes/tags";
+import { useSongInfo } from "@/lib/musickit-hooks";
 
 // needs to be replaced with a hook to get all song ids for a tag,
 // then select: to map song ids to AppleMusicItem
 
-
 export default function TagDetailScreen() {
     const { tagId } = useLocalSearchParams<{ tagId: string }>();
-    const {data: singleTag} = useTags(Number(tagId));
-    const tag = singleTag?.Single?.tag;
-    const songIds = singleTag?.Single?.song_ids;
+    const {tag, songIds} = useTag(Number(tagId));
+    const { songInfo: tracks = [], songInfoLoading: tracksLoading } = useSongInfo(songIds ?? []);
+
     
     const router = useRouter();
 
@@ -66,7 +66,7 @@ export default function TagDetailScreen() {
             {/* Song list */}
             <MusicList
                 tracks={tracks}
-                isLoading={isLoading}
+                isLoading={tracksLoading}
                 anticipatedTrackCount={songIds?.length ?? 0}
                 activeTrackId={activeTrackId}
                 isPlaying={isPlaying}

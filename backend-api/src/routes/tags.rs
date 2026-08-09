@@ -32,8 +32,8 @@ pub struct TagPlusMetadata {
 
 #[derive(Serialize)]
 pub enum GetTagsResponse {
-    Single(TagPlusSongs),
-    Many(Vec<TagPlusMetadata>),
+    One(TagPlusSongs),
+    All(Vec<TagPlusMetadata>),
 }
 #[derive(Deserialize)]
 struct GetTagsParams {
@@ -50,7 +50,7 @@ async fn get_tags_handler(
             let Some(tag) = get_tag(&db, tag_id).await? else {
                 return Err(CadenzaError::NotFound);
             };
-            Ok(Json(GetTagsResponse::Single(TagPlusSongs {
+            Ok(Json(GetTagsResponse::One(TagPlusSongs {
                 tag: tag.into(),
                 song_ids: get_songs_with_tag(&db, claims.user_id, tag_id).await?,
             })))
@@ -69,7 +69,7 @@ async fn get_tags_handler(
                     }
                 })
                 .collect();
-            Ok(Json(GetTagsResponse::Many(tags_with_metadata)))
+            Ok(Json(GetTagsResponse::All(tags_with_metadata)))
         }
     }
 }

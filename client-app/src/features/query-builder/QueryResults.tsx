@@ -21,10 +21,8 @@ export default function QueryResults({
     onBackPress,
 }: Props) {
     const [selectedSong, setSelectedSong] = useState<MusicItem | null>(null);
-    const [isSongDetailModalOpen, setIsSongDetailModalOpen] = useState(false);
     const { isConnected, ensureConnected } = useAppleMusic();
     const { activeTrackId, isPlaying, togglePlayback } = usePlayback();
-
 
     async function handleTogglePlayback(trackId: string) {
         if (!isConnected) {
@@ -43,25 +41,6 @@ export default function QueryResults({
         }
     }
 
-    function handleTrackSelected(track: MusicItem, _: Tag[]) {
-        setSelectedSong(track);
-        setIsSongDetailModalOpen(true);
-    }
-
-    async function handleApplyTag(tag: Tag) {
-        if (!selectedSong?.id) return;
-        await applyTag(selectedSong.id, tag);
-    }
-
-    async function handleRemoveTag(tag: Tag) {
-        if (!selectedSong?.id) return;
-        await removeTag(selectedSong.id, tag);
-    }
-
-    const selectedSongTags = selectedSong?.id
-        ? (songTagsMap[selectedSong.id] ?? [])
-        : [];
-
     return (
         <View style={styles.container}>
             <Text style={styles.headerText} className="text-foreground">
@@ -75,23 +54,19 @@ export default function QueryResults({
                     activeTrackId={activeTrackId}
                     isPlaying={isPlaying}
                     onTogglePlayback={handleTogglePlayback}
-                    onSelectTrack={handleTrackSelected}
-                    songTagsMap={songTagsMap}
+                    onSelectTrack={setSelectedSong}
                 />
 
                 <SongDetailModal
-                    open={isSongDetailModalOpen}
-                    onClose={setIsSongDetailModalOpen}
+                    open={selectedSong != null}
+                    onClose={() => setSelectedSong(null)}
                     song={selectedSong}
-                    tags={selectedSongTags}
                     onTogglePlayback={togglePlayback}
                     isThisTrackPlaying={Boolean(
                         selectedSong?.id &&
                         activeTrackId === selectedSong.id &&
                         isPlaying,
                     )}
-                    onApplyTag={handleApplyTag}
-                    onRemoveTag={handleRemoveTag}
                 />
             </View>
             <Button onPress={onBackPress}>

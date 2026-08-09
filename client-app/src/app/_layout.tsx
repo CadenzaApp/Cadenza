@@ -4,7 +4,6 @@ import { Stack } from "expo-router";
 import AccountProvider from "@/lib/account";
 import { AppleMusicProvider } from "@/lib/apple-music-auth";
 import { PlaybackProvider } from "@/lib/playback";
-import { TagControlsProvider } from "@/lib/tags";
 import { PortalHost } from "@rn-primitives/portal";
 import { useColorScheme } from "nativewind";
 
@@ -15,7 +14,6 @@ export default function RootLayout() {
 
     return (
         <AccountProvider>
-            <TagControlsProvider>
             <AppleMusicProvider>
                 <PlaybackProvider>
                     <ThemeProvider
@@ -47,7 +45,6 @@ export default function RootLayout() {
                     <PortalHost />
                 </PlaybackProvider>
             </AppleMusicProvider>
-            </TagControlsProvider>
         </AccountProvider>
     );
 }

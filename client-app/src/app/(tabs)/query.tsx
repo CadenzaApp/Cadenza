@@ -3,15 +3,16 @@ import { ActivityIndicator } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { QueryBuilder } from "../../features/query-builder/QueryBuilder";
 import { useAccount } from "@/lib/account";
-import { useTagControls } from "@/lib/tags";
 import { Text } from "@/components/ui/text";
 import { Redirect } from "expo-router";
 import { MusicItem, MusicKit } from "@apple-musickit";
 import QueryResults from "@/features/query-builder/QueryResults";
+import { useTags } from "@/lib/routes/tags";
 
 export default function QueryScreen() {
     const { account } = useAccount();
-    const { tags, loading, error } = useTagControls();
+    const {tagsWithMeta, tagsLoading, tagsErr} = useTags();
+    const tags = tagsWithMeta?.map(t => t.tag);
 
     const [matchedSongs, setMatchedSongs] = useState<MusicItem[] | null>(null);
     const [isFetchingMetadata, setIsFetchingMetadata] = useState(false);
@@ -47,7 +48,7 @@ export default function QueryScreen() {
 
     if (!account) return <Redirect href="/auth?initialMode=signin" />;
 
-    if (loading) {
+    if (tagsLoading) {
         return (
             <SafeAreaView className="flex-1 bg-background items-center justify-center">
                 <ActivityIndicator size="large" className="text-primary" />
@@ -55,10 +56,10 @@ export default function QueryScreen() {
         );
     }
 
-    if (error) {
+    if (tagsErr) {
         return (
             <SafeAreaView className="flex-1 bg-background items-center justify-center">
-                <Text className="text-destructive text-sm">{error}</Text>
+                <Text className="text-destructive text-sm">{tagsErr}</Text>
             </SafeAreaView>
         );
     }
@@ -73,7 +74,7 @@ export default function QueryScreen() {
                     onBackPress={returnToQueryBuilder}
                 />
             ) : (
-                <QueryBuilder tags={tags} onQueryReturn={onQueryReturn} />
+                <QueryBuilder tags={tags!} onQueryReturn={onQueryReturn} />
             )}
         </SafeAreaView>
     );

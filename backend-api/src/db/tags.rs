@@ -48,10 +48,10 @@ pub async fn get_local_tag_usage_counts(
 ) -> Result<HashMap<i64, usize>, CadenzaError> {
     let tag_usage_counts = tags_applied::Entity::find()
         .select_only()
-        .column(tags::Column::TagId)
-        .column_as(tags::Column::TagId.count(), "count")
-        .filter(tags::Column::UserId.eq(user_id))
-        .group_by(tags::Column::TagId)
+        .column(tags_applied::Column::TagId)
+        .column_as(tags_applied::Column::TagId.count(), "count")
+        .filter(tags_applied::Column::UserId.eq(user_id))
+        .group_by(tags_applied::Column::TagId)
         .into_model::<LocalTagUsageCount>()
         .all(db)
         .await?;

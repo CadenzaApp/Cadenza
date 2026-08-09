@@ -1,20 +1,19 @@
 import { useEffect, useState } from "react";
 import { Image, Modal, Pressable, ScrollView, View } from "react-native";
-import { MusicItem as AppleMusicItem, MusicKit } from "@apple-musickit";
+import { MusicItem as AppleMusicItem } from "@apple-musickit";
 import Ionicons from "@expo/vector-icons/Ionicons";
 
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { Tag } from "@/lib/types";
 import { TagPill } from "@/components/custom/tag-pill";
-import { useAccount } from "@/lib/account";
-import { requestSongTagSuggestions } from "@/lib/tag-generation";
 import {
     useApplyTag,
-    useSuggestTags,
     useTagsOnSong,
     useUnapplyTag,
-} from "@/lib/routes/tags";
+} from "@/lib/routes/songs";
+import { useSuggestTags } from "@/lib/routes/tags";
+
 
 type SongDetailModalProps = {
     open: boolean;
@@ -31,33 +30,6 @@ function toDisplayString(value: unknown, fallback = "Unavailable") {
     return fallback;
 }
 
-const releaseDateOptions: Intl.DateTimeFormatOptions = {
-    timeZone: "UTC",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-};
-const dateFormatter = new Intl.DateTimeFormat("en-US", releaseDateOptions);
-
-function formatSeconds(totalSeconds: number): string {
-    const hours = Math.floor(totalSeconds / 3600);
-    const minutes = Math.floor((totalSeconds % 3600) / 60);
-    const seconds = Math.floor(totalSeconds % 60);
-
-    const parts: string[] = [];
-
-    if (hours > 0) {
-        parts.push(`${hours}h`);
-    }
-
-    if (minutes > 0) {
-        parts.push(`${minutes}m`);
-    }
-
-    parts.push(`${seconds}s`);
-
-    return parts.join(" ");
-}
 
 export function SongDetailModal({
     open,
@@ -71,20 +43,20 @@ export function SongDetailModal({
         null,
     );
     const {
-        data: tagsOnSong,
-        isLoading: tagsLoading,
-        error: tagsError,
-    } = useTagsOnSong(song!.id);
+        tagsOnSong,
+        tagsOnSongLoading,
+        tagsOnSongErr,
+    } = useTagsOnSong(song?.id);
     const tags = tagsOnSong && [...tagsOnSong.global, ...tagsOnSong.local];
 
-    const { trigger: unapplyTag } = useUnapplyTag();
-    const { trigger: applyTag } = useApplyTag();
-    const {
-        trigger: suggestTags,
-        isMutating: isSuggestingTags,
-        data: suggestedTagNames,
-        error: suggestTagsError,
-    } = useSuggestTags({ song_desc: `${song?.title} by ${song?.artistName}` });
+    const { unapplyTag } = useUnapplyTag();
+    const { applyTag } = useApplyTag();
+    let {
+        suggestedTagNames,
+        suggestTags,
+        suggestTagsErr,
+        suggestTagsLoading,
+    } = useSuggestTags();
     const suggestedTags: Tag[] | undefined = suggestedTagNames?.map(
         (name, i) => ({
             id: -i,
@@ -116,7 +88,7 @@ export function SongDetailModal({
             return;
         }
 
-        await suggestTags();
+        await suggestTags({ song_desc: `${song?.title} by ${song?.artistName}` });
     }
 
     function handlePlayPress() {
@@ -339,14 +311,14 @@ export function SongDetailModal({
                                     <Text className="text-sm font-medium text-foreground">
                                         AI suggested tags
                                     </Text>
-                                    {isSuggestingTags && (
+                                    {suggestTagsLoading && (
                                         <Text className="text-sm text-muted-foreground">
                                             Generating suggestions...
                                         </Text>
                                     )}
-                                    {suggestTagsError && (
+                                    {suggestTagsErr && (
                                         <Text className="text-sm text-destructive">
-                                            {suggestTagsError}
+                                            {suggestTagsErr}
                                         </Text>
                                     )}
                                     {suggestedTags &&
@@ -376,14 +348,14 @@ export function SongDetailModal({
                                         Your tags
                                     </Text>
 
-                                    {tagsLoading && (
+                                    {tagsOnSongLoading && (
                                         <Text className="text-sm text-muted-foreground">
                                             Loading...
                                         </Text>
                                     )}
-                                    {tagsError && (
+                                    {tagsOnSongErr && (
                                         <Text className="text-sm text-destructive">
-                                            {tagsError}
+                                            {tagsOnSongErr}
                                         </Text>
                                     )}
                                     {tags?.length === 0 && (

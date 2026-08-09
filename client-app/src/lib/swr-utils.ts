@@ -8,26 +8,21 @@ export function clearCache() {
     mutate(() => true, undefined, { revalidate: false });
 }
 
-/** Simplified wrapper around `useSWRMutation`.
- * Triggering this mutation invalidates many keys (not just one) */
-function useMultiKeyMutation<Input, Output>(
+/** Simplified wrapper around `useSWRMutation` with Input/Output types */
+export function useSimpleMutation<Input, Output>(
+    key: any,
     action: (input: Input) => Promise<Output>,
-    keys: any[],
-    options?: any,
 ) {
-    let { isMutating, trigger, error, reset } = useSWRMutation(
-        keys[0], // need to put a key here, so just put a dummy value
+    let { data, isMutating, trigger, error, reset } = useSWRMutation(
+        key,
         async (_: any, { arg }: { arg: Input }) => {
             const result = await action(arg);
-            mutate((key: any) => keys.includes(key), undefined, {
-                revalidate: true,
-            });
             return result;
         },
-        options,
     );
 
     return {
+        data,
         trigger: trigger as (input: Input) => Promise<Output>,
         isMutating,
         error,
@@ -36,21 +31,28 @@ function useMultiKeyMutation<Input, Output>(
 }
 
 function queryParamsToStr(params?: Record<string, any>) {
-    return params && Object.keys(params).length === 0
+    return !params || Object.keys(params).length === 0
         ? ""
         : "?" + new URLSearchParams(params).toString();
 }
 
-/** When triggered, invalidates this path and optionally other paths too */
+type GETEndpoint = {
+    path: string;
+    params?: Record<string, any> | "*";
+};
+
+/** When triggered, invalidates the GET endpoint that matches this path, and optionally other GET endpoints too. */
 export function useAPIMutation<RequestBody, Response>(
     method: string,
     path: string,
-    additionalInvalidatedPaths: string[] = [],
+    invalidatedEndpoints:
+        ((body: RequestBody) => GETEndpoint[]) | GETEndpoint[] = [],
 ) {
     const { account } = useAccount();
 
-    return useMultiKeyMutation<RequestBody, Response>(
-        async (body: RequestBody) => {
+    return useSWRMutation(
+        path, // need to put a key here, so just put any random value
+        async (_: any, { arg: body }: { arg: RequestBody }) => {
             const resp = await fetch(BACKEND_URL + path, {
                 method,
                 headers: {
@@ -65,9 +67,46 @@ export function useAPIMutation<RequestBody, Response>(
                 throw json;
             }
 
+            const endpointsToInvalidate = Array.isArray(invalidatedEndpoints)
+                ? invalidatedEndpoints
+                : invalidatedEndpoints(body);
+            endpointsToInvalidate.push({ path });
+
+            mutate((key: any) => {
+                if (!key.path) return false;
+
+                for (const invalidEndpoint of endpointsToInvalidate) {
+                    if (key.path !== invalidEndpoint.path) continue;
+
+                    // if no params, invalidate if key has no params
+                    if (!invalidEndpoint.params) {
+                        if (!key.params) {
+                            console.log("invalidated", key);
+                            return true;
+                        } else continue;
+                    }
+
+                    // invalidate if params is a subset of the key's params
+                    if (invalidEndpoint.params !== "*") {
+                        for (const queryParam of Object.keys(
+                            invalidEndpoint.params,
+                        )) {
+                            if (
+                                key.params[queryParam] !==
+                                invalidEndpoint.params[queryParam]
+                            )
+                                continue;
+                        }
+                    }
+                    console.log("invalidated", key);
+                    return true;
+                }
+
+                return false;
+            });
+
             return json as Response;
         },
-        [path, ...additionalInvalidatedPaths],
     );
 }
 
@@ -77,12 +116,16 @@ export function useAPIData<Output>(
 ) {
     const { account } = useAccount();
 
-    return useSWR(path, async () => {
+    // disable this query if any param value is null/undefined
+    const enabled = !params || !Object.values(params).some(val => val == null);
+
+    return useSWR(enabled ? { path, params } : null, async () => {
         const resp = await fetch(
             BACKEND_URL + path + queryParamsToStr(params),
             {
                 headers: {
                     Authorization: `Bearer ${account?.jwt}`,
+                    Accept: "*/*",
                 },
             },
         );
@@ -96,28 +139,39 @@ export function useAPIData<Output>(
     });
 }
 
-/** GET requests with query params, but only run upon triggered */
-export function useAPIFetch<QueryParams extends Record<string, any>, Output>(
+/** GET/POST requests that only run upon triggered */
+export function useAPIFetch<Input extends Record<string, any>, Output>(
     path: string,
-    params?: QueryParams,
+    method: "GET" | "POST" = "GET",
 ) {
     const { account } = useAccount();
 
-    return useSWRMutation(path, async () => {
-        const resp = await fetch(
-            BACKEND_URL + path + queryParamsToStr(params),
-            {
+    return useSWRMutation(
+        path,
+        async (_: any, { arg: paramsOrBody }: { arg: Input }) => {
+            // initialize args to fetch() depending on what method is used
+            path = BACKEND_URL + path;
+            const fetchArgs: RequestInit = {
+                method,
                 headers: {
                     Authorization: `Bearer ${account?.jwt}`,
                 },
-            },
-        );
-        const json = resp.json();
+            };
+            if (method === "GET") {
+                path += queryParamsToStr(paramsOrBody);
+            } else {
+                (fetchArgs.headers as any)["Content-Type"] = "application/json";
+                fetchArgs.body = JSON.stringify(paramsOrBody);
+            }
 
-        if (!resp.ok) {
-            throw json;
-        }
+            const resp = await fetch(path, fetchArgs);
+            const json = resp.json();
 
-        return json as Output;
-    });
+            if (!resp.ok) {
+                throw json;
+            }
+
+            return json as Output;
+        },
+    );
 }
