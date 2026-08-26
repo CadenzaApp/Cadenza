@@ -4,8 +4,13 @@
 # Run format.sh --check just to check if the current formatting passes the formatting standards
 #
 
-RUST_DIR="./backend-api"
-REACT_NATIVE_DIR="./client-app"
+# Some black magic to ensure the scripts can be run from anywhere
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+
+
+RUST_DIR="$PROJECT_ROOT/backend-api"
+REACT_NATIVE_DIR="$PROJECT_ROOT/client-app"
 
 RUST_FMT_ARGS=""
 PRETTIER_ARGS="--write"
@@ -27,7 +32,7 @@ fi
 echo ""
 echo "----- 2. Prettier format pass for files in $REACT_NATIVE_DIR -----"
 
-if npx prettier $REACT_NATIVE_DIR $PRETTIER_ARGS; then
+if npx --prefix "$REACT_NATIVE_DIR" prettier "$REACT_NATIVE_DIR" $PRETTIER_ARGS; then
   echo "✅ Prettier succeeded."
 else
   echo "❌ Prettier failed!"
