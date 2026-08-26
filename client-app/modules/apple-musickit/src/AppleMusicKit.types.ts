@@ -29,6 +29,8 @@ export interface MusicItem {
     title: string;
     artistName?: string;
     artworkUrl?: string;
+    /** High-resolution artwork for immersive playback surfaces. */
+    artworkUrlLarge?: string;
     playbackType?: PlaybackQueueType;
     albumID?: string;
     albumName?: string;

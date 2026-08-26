@@ -9,7 +9,7 @@ type MusicListProps = {
     isLoading: boolean;
     activeTrackId: string | null;
     isPlaying: boolean;
-    onTogglePlayback: (trackId: string) => void;
+    onTogglePlayback: (track: AppleMusicItem) => void;
     onSelectTrack?: (track: AppleMusicItem, tags: Tag[]) => void;
     songTagsMap?: Record<string, Tag[]>;
 };

@@ -359,9 +359,15 @@ class AppleMusicKitModule : Module() {
         )
 
         val artworkObj = attributes?.get("artwork") as? Map<*, *>
-        var artworkUrl = artworkObj?.get("url")?.toString()
-        artworkUrl = artworkUrl?.replace("{w}", "200")?.replace("{h}", "200")
-        result["artworkUrl"] = artworkUrl ?: ""
+        val artworkUrlTemplate = artworkObj?.get("url")?.toString()
+        result["artworkUrl"] = artworkUrlTemplate
+            ?.replace("{w}", "200")
+            ?.replace("{h}", "200")
+            ?: ""
+        result["artworkUrlLarge"] = artworkUrlTemplate
+            ?.replace("{w}", "1200")
+            ?.replace("{h}", "1200")
+            ?: ""
 
         attributes?.get("albumName")?.let { result["albumName"] = it }
         attributes?.get("genreNames")?.let { result["genres"] = it }

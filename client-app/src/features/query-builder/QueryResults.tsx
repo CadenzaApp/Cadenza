@@ -22,7 +22,7 @@ export default function QueryResults({ songs, onBackPress }: Props) {
 
     const { songTagsMap, applyTag, removeTag } = useTags();
 
-    async function handleTogglePlayback(trackId: string) {
+    async function handleTogglePlayback(track: MusicItem) {
         if (!isConnected) {
             Alert.alert(
                 "Apple Music Not Connected",
@@ -33,7 +33,7 @@ export default function QueryResults({ songs, onBackPress }: Props) {
 
         try {
             await ensureConnected();
-            await togglePlayback(trackId);
+            await togglePlayback(track);
         } catch (e) {
             console.error(e);
         }

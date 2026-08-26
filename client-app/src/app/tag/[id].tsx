@@ -6,7 +6,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 
 import { useTags } from "@/lib/tags";
 import { usePlayback } from "@/lib/playback";
-import { Tag } from "@/types/tag-types";
+import { Tag } from "@/lib/types";
 import { Text } from "@/components/ui/text";
 import { TagPill } from "@/components/custom/tag-pill";
 import { MusicList } from "@/components/custom/music-list";
@@ -20,7 +20,9 @@ export default function TagDetailScreen() {
 
     const [tracks, setTracks] = useState<AppleMusicItem[]>([]);
     const [isLoading, setIsLoading] = useState(true);
-    const [selectedSong, setSelectedSong] = useState<AppleMusicItem | null>(null);
+    const [selectedSong, setSelectedSong] = useState<AppleMusicItem | null>(
+        null,
+    );
     const [isSongDetailModalOpen, setIsSongDetailModalOpen] = useState(false);
 
     const tag = tags.find((t: Tag) => t.id === id);
@@ -43,11 +45,20 @@ export default function TagDetailScreen() {
                     .map(([songId]) => songId);
 
                 // Fetch metadata for any tagged songs not already in the library
-                const nonLibraryIds = taggedSongIds.filter((songId) => !libraryIds.has(songId));
+                const nonLibraryIds = taggedSongIds.filter(
+                    (songId) => !libraryIds.has(songId),
+                );
                 const nonLibrarySongs = (
-                    await Promise.allSettled(nonLibraryIds.map((songId) => MusicKit.getSongInfo(songId)))
+                    await Promise.allSettled(
+                        nonLibraryIds.map((songId) =>
+                            MusicKit.getSongInfo(songId),
+                        ),
+                    )
                 )
-                    .filter((r): r is PromiseFulfilledResult<AppleMusicItem> => r.status === "fulfilled")
+                    .filter(
+                        (r): r is PromiseFulfilledResult<AppleMusicItem> =>
+                            r.status === "fulfilled",
+                    )
                     .map((r) => r.value);
 
                 setTracks([...libraryTracks, ...nonLibrarySongs]);
@@ -60,8 +71,10 @@ export default function TagDetailScreen() {
         load();
     }, []);
 
-    const taggedTracks = tracks.filter((track) =>
-        track.id && (songTagsMap[track.id] ?? []).some((t: Tag) => t.id === id)
+    const taggedTracks = tracks.filter(
+        (track) =>
+            track.id &&
+            (songTagsMap[track.id] ?? []).some((t: Tag) => t.id === id),
     );
 
     function handleTrackSelected(track: AppleMusicItem) {
@@ -79,7 +92,9 @@ export default function TagDetailScreen() {
         await removeTag(selectedSong.id, tag);
     }
 
-    const selectedSongTags = selectedSong?.id ? (songTagsMap[selectedSong.id] ?? []) : [];
+    const selectedSongTags = selectedSong?.id
+        ? (songTagsMap[selectedSong.id] ?? [])
+        : [];
 
     // Scale the header pill down for longer tag names so it doesn't look weird
     const pillHeight = tag
@@ -93,14 +108,20 @@ export default function TagDetailScreen() {
                 <Pressable
                     onPress={() => router.back()}
                     className="flex-row items-center gap-1 mb-6"
-                    style={({ pressed }) => pressed ? { opacity: 0.6 } : undefined}
+                    style={({ pressed }) =>
+                        pressed ? { opacity: 0.6 } : undefined
+                    }
                 >
                     <Ionicons name="chevron-back" size={20} color="white" />
                     <Text style={{ color: "white", fontSize: 16 }}>Tags</Text>
                 </Pressable>
 
                 {tag ? (
-                    <TagPill tag={tag} height={pillHeight} count={isLoading ? undefined : taggedTracks.length} />
+                    <TagPill
+                        tag={tag}
+                        height={pillHeight}
+                        count={isLoading ? undefined : taggedTracks.length}
+                    />
                 ) : (
                     <Text className="text-muted-foreground">Tag not found</Text>
                 )}
@@ -118,7 +139,6 @@ export default function TagDetailScreen() {
                 songTagsMap={songTagsMap}
             />
 
-
             <SongDetailModal
                 open={isSongDetailModalOpen}
                 onOpenChange={setIsSongDetailModalOpen}
@@ -128,7 +148,7 @@ export default function TagDetailScreen() {
                 isThisTrackPlaying={Boolean(
                     selectedSong?.id &&
                     activeTrackId === selectedSong.id &&
-                    isPlaying
+                    isPlaying,
                 )}
                 onApplyTag={handleApplyTag}
                 onRemoveTag={handleRemoveTag}

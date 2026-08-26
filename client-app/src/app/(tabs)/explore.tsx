@@ -130,7 +130,7 @@ export default function ExploreScreen() {
         }
     }
 
-    async function handleTogglePlayback(trackId: string) {
+    async function handleTogglePlayback(track: AppleMusicItem) {
         if (!isConnected) {
             Alert.alert(
                 "Apple Music Not Connected",
@@ -141,7 +141,7 @@ export default function ExploreScreen() {
 
         try {
             await ensureConnected();
-            await togglePlayback(trackId);
+            await togglePlayback(track);
         } catch (e) {
             console.error("Failed to toggle playback:", getErrorDetails(e));
             Alert.alert(

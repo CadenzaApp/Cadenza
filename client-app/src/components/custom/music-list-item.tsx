@@ -10,24 +10,24 @@ import Svg, {
 } from "react-native-svg";
 import { useTheme } from "expo-router/react-navigation";
 
-import {Button} from "@/components/ui/button";
-import {Text} from "@/components/ui/text";
+import { Button } from "@/components/ui/button";
+import { Text } from "@/components/ui/text";
 import { Skeleton } from "@/components/ui/skeleton";
-import {TagPill} from "@/components/custom/tag-pill";
-import {Tag} from "@/lib/types";
+import { TagPill } from "@/components/custom/tag-pill";
+import { Tag } from "@/lib/types";
 
 // Dummy data for testing the UI before the database is hooked up
 const DUMMY_TAGS: Tag[] = [
-    {id: "1", name: "chill", color: "#1f93d6"},
-    {id: "2", name: "hiphop", color: "#ce7129"},
-    {id: "3", name: "lofi", color: "#5644ce"},
-    {id: "4", name: "focus", color: "#25924f"},
+    { id: "1", name: "chill", color: "#1f93d6" },
+    { id: "2", name: "hiphop", color: "#ce7129" },
+    { id: "3", name: "lofi", color: "#5644ce" },
+    { id: "4", name: "focus", color: "#25924f" },
 ];
 
 type MusicItemProps = {
     item: AppleMusicItem;
     isThisTrackPlaying: boolean;
-    onTogglePlayback: (trackId: string) => void;
+    onTogglePlayback: (track: AppleMusicItem) => void;
     tags?: Tag[];
     onPress?: (item: AppleMusicItem, tags: Tag[]) => void;
 };
@@ -154,7 +154,7 @@ export function MusicListItem({
             <Button
                 size="icon"
                 className="h-11 w-11 rounded-full shrink-0"
-                onPress={() => item.id && onTogglePlayback(item.id)}
+                onPress={() => item.id && onTogglePlayback(item)}
                 variant={isThisTrackPlaying ? "secondary" : "default"}
             >
                 <Text>

@@ -52,7 +52,8 @@ public class AppleMusicKitModule: Module {
             "playbackType": playbackType,
             "title": song.title,
             "artistName": song.artistName,
-            "artworkUrl": artworkURLString(from: song.artwork, width: 200, height: 200)
+            "artworkUrl": artworkURLString(from: song.artwork, width: 200, height: 200),
+            "artworkUrlLarge": artworkURLString(from: song.artwork, width: 1200, height: 1200)
         ]
 
         if let albumTitle = song.albumTitle {
