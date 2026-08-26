@@ -70,6 +70,7 @@ pub async fn get_tags_on_song(
     song_id: &str,
 ) -> Result<Vec<tags::Model>, CadenzaError> {
     Ok(tags::Entity::find()
+        .inner_join(tags_applied::Entity)
         .filter(tags_applied::Column::SongId.eq(song_id))
         .filter(
             Condition::any()
