@@ -46,17 +46,13 @@ export interface AppleMusicKitNativeModule {
 
 // Set EXPO_PUBLIC_MOCK_MUSICKIT=1 to answer from ./mock-native instead of the
 // real module, for frontend work without a native build or a subscription.
-const useMockNative =
-    process.env.EXPO_PUBLIC_MOCK_MUSICKIT === "1" ||
-    process.env.EXPO_PUBLIC_MOCK_MUSICKIT === "true";
+const useMockData = process.env.MOCK_MUSICKIT === "1";
 
-console.log(process.env);
-
-if (useMockNative) {
+if (useMockData) {
     console.warn("AppleMusicKit: using mock data, no audio will play.");
 }
 
-const native: AppleMusicKitNativeModule | null = useMockNative
+const native: AppleMusicKitNativeModule | null = useMockData
     ? createMockNativeModule()
     : requireOptionalNativeModule<AppleMusicKitNativeModule>("AppleMusicKit");
 
