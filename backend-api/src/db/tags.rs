@@ -8,9 +8,8 @@ use sea_orm::{
     prelude::Uuid,
 };
 
-use crate::err::CadenzaError;
 use crate::db::entity::*;
-
+use crate::err::CadenzaError;
 
 pub async fn new_tag(
     db: DatabaseConnection,
