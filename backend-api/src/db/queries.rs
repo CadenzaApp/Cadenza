@@ -4,8 +4,8 @@ use sea_orm::prelude::Uuid;
 use sea_orm::{DatabaseConnection, FromQueryResult};
 use sea_orm::{DbBackend, Statement};
 
-use crate::err::CadenzaError;
 use crate::db::entity::*;
+use crate::err::CadenzaError;
 
 #[derive(Debug, FromQueryResult)]
 struct SongTagPair {
@@ -66,8 +66,7 @@ fn decode_query(
     json_query: &serde_json::Value,
     user_id: sea_query::Value,
 ) -> Result<(String, Vec<sea_query::Value>), CadenzaError> {
-    let (where_clause, mut child_values, _) =
-        decode_query_json_node(json_query, 2, false)?;
+    let (where_clause, mut child_values, _) = decode_query_json_node(json_query, 2, false)?;
 
     let sql = format!(
         r#"
@@ -117,20 +116,10 @@ fn decode_query_json_node(
             return decode_query_json_node(child, param_counter, !inverted);
         }
         if let Some(child) = curr.get("and") {
-            return decode_query_arr(
-                child,
-                BoolRelation::And,
-                param_counter,
-                inverted,
-            );
+            return decode_query_arr(child, BoolRelation::And, param_counter, inverted);
         }
         if let Some(child) = curr.get("or") {
-            return decode_query_arr(
-                child,
-                BoolRelation::Or,
-                param_counter,
-                inverted,
-            );
+            return decode_query_arr(child, BoolRelation::Or, param_counter, inverted);
         }
 
         return Err(CadenzaError::QueryFormatError(format!(
