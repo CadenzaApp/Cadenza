@@ -1,26 +1,27 @@
-// Static fixtures shaped like the values AppleMusicKitNativeModule resolves
-// with, for frontend work without a native build. Data only - nothing here is
-// wired into the module yet.
+// A stand-in for the AppleMusicKit native module, used by ./index when
+// EXPO_PUBLIC_MOCK_MUSICKIT is set, so the app can be worked on in Expo Go or
+// without an Apple Music subscription.
 //
-// Shapes follow the native implementations:
-//   - songDuration is in seconds, releaseDate in epoch milliseconds
-//   - catalog songs use numeric ids, library songs are prefixed "i."
-//   - album and playlist items carry only id/title/artistName/artworkUrl,
-//     since that is all the native side sets on them
-//
-// Each list ends with a few deliberately awkward entries - emoji, missing and
-// empty fields, text that will not fit - so layouts get stressed by default
-// rather than only on the happy path.
+// Answers come from the fixtures in ./mock-data and follow what the native
+// implementations do: ids keep their catalog / "i." library split, getSongInfo
+// preserves the requested order and drops ids it cannot find, the same limits
+// apply (20 for search, 50 for library requests), and setPlaybackQueue rejects
+// queue types the native side does not support. Playback is bookkeeping only -
+// nothing makes sound - but the queue moves the way the real player's would.
 
+import type { EventSubscription } from "expo-modules-core";
+import type { AppleMusicKitNativeModule } from "./index";
 import {
+    LibraryResult,
+    MusicItem,
+    MusicKitOptions,
+    SearchResult,
     AuthStatus,
+    AuthResult,
     PlaybackQueueType,
-    type AuthResult,
-    type MusicItem,
 } from "./AppleMusicKit.types";
 
-/** Swap for real artwork urls once there is something to point at. */
-function artwork(seed: string) {
+function mockArtworkUrl(seed: string) {
     return `https://picsum.photos/seed/${seed}/200/200`;
 }
 
@@ -39,7 +40,7 @@ export const MOCK_CATALOG_SONGS: MusicItem[] = [
         id: "1490401244",
         title: "Blinding Lights",
         artistName: "The Weeknd",
-        artworkUrl: artwork("after-hours"),
+        artworkUrl: mockArtworkUrl("after-hours"),
         playbackType: PlaybackQueueType.Song,
         albumID: "1499378108",
         albumName: "After Hours",
@@ -51,7 +52,7 @@ export const MOCK_CATALOG_SONGS: MusicItem[] = [
         id: "1615585008",
         title: "As It Was",
         artistName: "Harry Styles",
-        artworkUrl: artwork("harrys-house"),
+        artworkUrl: mockArtworkUrl("harrys-house"),
         playbackType: PlaybackQueueType.Song,
         albumID: "1615584999",
         albumName: "Harry's House",
@@ -63,7 +64,7 @@ export const MOCK_CATALOG_SONGS: MusicItem[] = [
         id: "1544319711",
         title: "Good Days",
         artistName: "SZA",
-        artworkUrl: artwork("good-days"),
+        artworkUrl: mockArtworkUrl("good-days"),
         playbackType: PlaybackQueueType.Song,
         albumID: "1544319709",
         albumName: "Good Days - Single",
@@ -75,7 +76,7 @@ export const MOCK_CATALOG_SONGS: MusicItem[] = [
         id: "1497787101",
         title: "Levitating",
         artistName: "Dua Lipa",
-        artworkUrl: artwork("future-nostalgia"),
+        artworkUrl: mockArtworkUrl("future-nostalgia"),
         playbackType: PlaybackQueueType.Song,
         albumID: "1497787091",
         albumName: "Future Nostalgia",
@@ -87,7 +88,7 @@ export const MOCK_CATALOG_SONGS: MusicItem[] = [
         id: "1440833098",
         title: "Dreams",
         artistName: "Fleetwood Mac",
-        artworkUrl: artwork("rumours"),
+        artworkUrl: mockArtworkUrl("rumours"),
         playbackType: PlaybackQueueType.Song,
         albumID: "1440833080",
         albumName: "Rumours",
@@ -99,7 +100,7 @@ export const MOCK_CATALOG_SONGS: MusicItem[] = [
         id: "1436314155",
         title: "Redbone",
         artistName: "Childish Gambino",
-        artworkUrl: artwork("awaken-my-love"),
+        artworkUrl: mockArtworkUrl("awaken-my-love"),
         playbackType: PlaybackQueueType.Song,
         albumID: "1436314127",
         albumName: '"Awaken, My Love!"',
@@ -113,7 +114,7 @@ export const MOCK_CATALOG_SONGS: MusicItem[] = [
         id: "1700000001",
         title: "🌙 midnight bloom 🌸 (sped up + reverb) 💫",
         artistName: "🦋 lilac ✨",
-        artworkUrl: artwork("midnight-bloom"),
+        artworkUrl: mockArtworkUrl("midnight-bloom"),
         playbackType: PlaybackQueueType.Song,
         albumID: "1700000000",
         albumName: "🌙🌙🌙",
@@ -125,7 +126,7 @@ export const MOCK_CATALOG_SONGS: MusicItem[] = [
         id: "1700000002",
         title: "دقات قلب - Live from القاهرة",
         artistName: "عمرو دياب",
-        artworkUrl: artwork("rtl-mixed"),
+        artworkUrl: mockArtworkUrl("rtl-mixed"),
         playbackType: PlaybackQueueType.Song,
         albumID: "1700000003",
         albumName: "الليلة",
@@ -140,7 +141,7 @@ export const MOCK_CATALOG_SONGS: MusicItem[] = [
         title: "The Sound of the Life of the Mind (Extended Director's Cut) [feat. Everyone Who Was in the Room That Day] - Remastered 2019 Anniversary Edition",
         artistName:
             "A Band With an Unreasonably Long Name and No Regrets About It",
-        artworkUrl: artwork("very-long-title"),
+        artworkUrl: mockArtworkUrl("very-long-title"),
         playbackType: PlaybackQueueType.Song,
         albumID: "1700000005",
         albumName:
@@ -178,7 +179,7 @@ export const MOCK_LIBRARY_SONGS: MusicItem[] = [
         id: "i.4YZ8Kq0TmEXbN",
         title: "Alright",
         artistName: "Kendrick Lamar",
-        artworkUrl: artwork("to-pimp-a-butterfly"),
+        artworkUrl: mockArtworkUrl("to-pimp-a-butterfly"),
         playbackType: PlaybackQueueType.LibrarySong,
         albumID: "l.9Vd2QwR",
         albumName: "To Pimp a Butterfly",
@@ -190,7 +191,7 @@ export const MOCK_LIBRARY_SONGS: MusicItem[] = [
         id: "i.7Bm3XpLdQvWzR",
         title: "Weird Fishes / Arpeggi",
         artistName: "Radiohead",
-        artworkUrl: artwork("in-rainbows"),
+        artworkUrl: mockArtworkUrl("in-rainbows"),
         playbackType: PlaybackQueueType.LibrarySong,
         albumID: "l.2Kf8LpN",
         albumName: "In Rainbows",
@@ -202,7 +203,7 @@ export const MOCK_LIBRARY_SONGS: MusicItem[] = [
         id: "i.QnR6ZvJyLdM2W",
         title: "Motion Sickness",
         artistName: "Phoebe Bridgers",
-        artworkUrl: artwork("stranger-in-the-alps"),
+        artworkUrl: mockArtworkUrl("stranger-in-the-alps"),
         playbackType: PlaybackQueueType.LibrarySong,
         albumID: "l.5Tq1BmZ",
         albumName: "Stranger in the Alps",
@@ -214,7 +215,7 @@ export const MOCK_LIBRARY_SONGS: MusicItem[] = [
         id: "i.8LdWq2NvXbT5K",
         title: "Bags",
         artistName: "Clairo",
-        artworkUrl: artwork("immunity"),
+        artworkUrl: mockArtworkUrl("immunity"),
         playbackType: PlaybackQueueType.LibrarySong,
         albumID: "l.3Hn7YcV",
         albumName: "Immunity",
@@ -226,7 +227,7 @@ export const MOCK_LIBRARY_SONGS: MusicItem[] = [
         id: "i.MvZ3TqXwK8RbL",
         title: "電光石火",
         artistName: "羊文学",
-        artworkUrl: artwork("our-hope"),
+        artworkUrl: mockArtworkUrl("our-hope"),
         playbackType: PlaybackQueueType.LibrarySong,
         albumID: "l.4Cm9RtW",
         albumName: "our hope",
@@ -238,7 +239,7 @@ export const MOCK_LIBRARY_SONGS: MusicItem[] = [
         id: "i.RbK9WmT2LqXvZ",
         title: "Passionfruit",
         artistName: "Drake",
-        artworkUrl: artwork("more-life"),
+        artworkUrl: mockArtworkUrl("more-life"),
         playbackType: PlaybackQueueType.LibrarySong,
         albumID: "l.8Zx5NpK",
         albumName: "More Life",
@@ -273,7 +274,7 @@ export const MOCK_LIBRARY_SONGS: MusicItem[] = [
         id: "i.Nk8TqWmZ2LbXv",
         title: "track 07\n(hidden track)",
         artistName: "Unknown Artist",
-        artworkUrl: artwork("hidden-track"),
+        artworkUrl: mockArtworkUrl("hidden-track"),
         playbackType: PlaybackQueueType.LibrarySong,
         albumName: "bootleg \\ 1998 // side b",
         songDuration: 47.2,
@@ -285,7 +286,7 @@ export const MOCK_LIBRARY_SONGS: MusicItem[] = [
         id: "i.Lb3XvNkWq8TmZ",
         title: "彼女は 🎐 (Pre-Release)",
         artistName: "ずっと真夜中でいいのに。",
-        artworkUrl: artwork("pre-release"),
+        artworkUrl: mockArtworkUrl("pre-release"),
         playbackType: PlaybackQueueType.LibrarySong,
         albumID: "l.7Qw3NmT",
         albumName: "TBA",
@@ -301,31 +302,31 @@ export const MOCK_ALBUMS: MusicItem[] = [
         id: "1499378108",
         title: "After Hours",
         artistName: "The Weeknd",
-        artworkUrl: artwork("after-hours"),
+        artworkUrl: mockArtworkUrl("after-hours"),
     },
     {
         id: "1615584999",
         title: "Harry's House",
         artistName: "Harry Styles",
-        artworkUrl: artwork("harrys-house"),
+        artworkUrl: mockArtworkUrl("harrys-house"),
     },
     {
         id: "1497787091",
         title: "Future Nostalgia",
         artistName: "Dua Lipa",
-        artworkUrl: artwork("future-nostalgia"),
+        artworkUrl: mockArtworkUrl("future-nostalgia"),
     },
     {
         id: "1440833080",
         title: "Rumours",
         artistName: "Fleetwood Mac",
-        artworkUrl: artwork("rumours"),
+        artworkUrl: mockArtworkUrl("rumours"),
     },
     {
         id: "1700000000",
         title: "🌙🌙🌙",
         artistName: "🦋 lilac ✨",
-        artworkUrl: artwork("midnight-bloom"),
+        artworkUrl: mockArtworkUrl("midnight-bloom"),
     },
     {
         id: "1700000008",
@@ -340,19 +341,19 @@ export const MOCK_PLAYLISTS: MusicItem[] = [
         id: "p.LV0PYJDC0b2klQ7",
         title: "Late Night Drive",
         artistName: "Troy",
-        artworkUrl: artwork("late-night-drive"),
+        artworkUrl: mockArtworkUrl("late-night-drive"),
     },
     {
         id: "p.O1kz9WMuqNJb3Xd",
         title: "Focus Flow",
         artistName: "Apple Music",
-        artworkUrl: artwork("focus-flow"),
+        artworkUrl: mockArtworkUrl("focus-flow"),
     },
     {
         id: "p.8aVBmZ3TqLdW1Kx",
         title: "songs i cry to 😭😭😭 (do not open) 🔒",
         artistName: "Troy",
-        artworkUrl: artwork("cry-playlist"),
+        artworkUrl: mockArtworkUrl("cry-playlist"),
     },
     {
         id: "p.qX7NvR2WbKmZ9Lt",
@@ -379,3 +380,181 @@ export const MOCK_PLAYLIST_TRACKS: Record<string, MusicItem[]> = {
     // an empty playlist
     "p.qX7NvR2WbKmZ9Lt": [],
 };
+
+/** Native queries cross the bridge and hit the network - leave loading states time to show. */
+const QUERY_LATENCY_MS = 220;
+
+/** Player commands stay on the device, so they come back much sooner. */
+const COMMAND_LATENCY_MS = 40;
+
+/** Both native modules cap catalog search at 20 results. */
+const SEARCH_LIMIT = 20;
+
+/** Limit the native modules fall back to when the caller does not pass one. */
+const DEFAULT_LIBRARY_LIMIT = 50;
+
+const ALL_MOCK_SONGS = [...MOCK_CATALOG_SONGS, ...MOCK_LIBRARY_SONGS];
+const MOCK_SONGS_BY_ID = new Map(ALL_MOCK_SONGS.map((song) => [song.id, song]));
+
+function respond<T>(value: T, latency = QUERY_LATENCY_MS): Promise<T> {
+    return new Promise((resolve) => setTimeout(() => resolve(value), latency));
+}
+
+function matchesQuery(item: MusicItem, query: string) {
+    return [item.title, item.artistName, item.albumName].some((field) =>
+        field?.toLowerCase().includes(query),
+    );
+}
+
+/** Mirrors setPlaybackQueue on the native side, down to its rejection of unknown types. */
+function buildQueue(id: string, type: string): MusicItem[] {
+    switch (type.toLowerCase()) {
+        case "song":
+        case "librarysong": {
+            const song = MOCK_SONGS_BY_ID.get(id);
+            return song ? [song] : [];
+        }
+        case "album":
+            return ALL_MOCK_SONGS.filter((song) => song.albumID === id);
+        case "playlist":
+            return MOCK_PLAYLIST_TRACKS[id] ?? [];
+        default:
+            throw new Error(`Unsupported queue type: ${type}`);
+    }
+}
+
+export function createMockNativeModule(): AppleMusicKitNativeModule {
+    let isPlaying = false;
+    let queue: MusicItem[] = [];
+    let queueIndex = 0;
+    // Nothing in the module reads the position back yet; it is kept so seeking
+    // and restarting have something to act on.
+    let playbackTime = 0;
+
+    // Registered but never called: both native modules declare
+    // "onPlaybackStateChange" without ever sending it, and ./index keeps the
+    // playing state itself, so emitting here would double-toggle it.
+    const listeners = new Map<string, Set<(...args: any[]) => void>>();
+
+    return {
+        authorize: (_developerToken: string) => respond(MOCK_AUTH_RESULT),
+
+        setTokens: (_developerToken: string, _userToken: string | null) =>
+            respond(undefined, COMMAND_LATENCY_MS),
+
+        play: () => {
+            isPlaying = true;
+            return respond(undefined, COMMAND_LATENCY_MS);
+        },
+
+        pause: () => {
+            isPlaying = false;
+            return respond(undefined, COMMAND_LATENCY_MS);
+        },
+
+        togglePlayerState: () => {
+            isPlaying = !isPlaying;
+            return respond(isPlaying, COMMAND_LATENCY_MS);
+        },
+
+        skipToNextEntry: () => {
+            if (queueIndex < queue.length - 1) queueIndex++;
+            playbackTime = 0;
+            return respond(undefined, COMMAND_LATENCY_MS);
+        },
+
+        skipToPreviousEntry: () => {
+            if (queueIndex > 0) queueIndex--;
+            playbackTime = 0;
+            return respond(undefined, COMMAND_LATENCY_MS);
+        },
+
+        restartCurrentEntry: () => {
+            playbackTime = 0;
+            return respond(undefined, COMMAND_LATENCY_MS);
+        },
+
+        seekToTime: (time: number) => {
+            const duration = queue[queueIndex]?.songDuration;
+            playbackTime = Math.max(
+                0,
+                duration === undefined ? time : Math.min(time, duration),
+            );
+            return respond(undefined, COMMAND_LATENCY_MS);
+        },
+
+        getSongInfo: (ids: string[]) =>
+            respond(
+                ids
+                    .map((id) => MOCK_SONGS_BY_ID.get(id))
+                    .filter((song) => song !== undefined),
+            ),
+
+        catalogSearch: (query: string, types: string[]) => {
+            const term = query.trim().toLowerCase();
+            return respond<SearchResult>({
+                songs: types.includes("songs")
+                    ? MOCK_CATALOG_SONGS.filter((song) =>
+                          matchesQuery(song, term),
+                      ).slice(0, SEARCH_LIMIT)
+                    : [],
+                albums: types.includes("albums")
+                    ? MOCK_ALBUMS.filter((album) =>
+                          matchesQuery(album, term),
+                      ).slice(0, SEARCH_LIMIT)
+                    : [],
+            });
+        },
+
+        getTracksFromLibrary: () =>
+            respond<LibraryResult>({
+                items: MOCK_LIBRARY_SONGS.slice(0, DEFAULT_LIBRARY_LIMIT),
+            }),
+
+        getUserPlaylists: (options?: MusicKitOptions) =>
+            respond<LibraryResult>({
+                items: MOCK_PLAYLISTS.slice(
+                    0,
+                    options?.limit ?? DEFAULT_LIBRARY_LIMIT,
+                ),
+            }),
+
+        getLibrarySongs: (options?: MusicKitOptions) =>
+            respond<LibraryResult>({
+                items: MOCK_LIBRARY_SONGS.slice(
+                    0,
+                    options?.limit ?? DEFAULT_LIBRARY_LIMIT,
+                ),
+            }),
+
+        getPlaylistSongs: (playlistId: string) =>
+            respond<LibraryResult>({
+                items: MOCK_PLAYLIST_TRACKS[playlistId] ?? [],
+            }),
+
+        setPlaybackQueue: (id: string, type: string) => {
+            queue = buildQueue(id, type);
+            queueIndex = 0;
+            playbackTime = 0;
+            return respond(undefined, COMMAND_LATENCY_MS);
+        },
+
+        addListener: (
+            eventName: string,
+            listener: (...args: any[]) => void,
+        ): EventSubscription => {
+            const forEvent = listeners.get(eventName) ?? new Set();
+            forEvent.add(listener);
+            listeners.set(eventName, forEvent);
+
+            return {
+                remove: () => {
+                    forEvent.delete(listener);
+                },
+            };
+        },
+
+        removeListeners: (_count: number) => {
+        },
+    };
+}
