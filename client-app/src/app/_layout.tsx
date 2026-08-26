@@ -37,7 +37,7 @@ export default function RootLayout() {
                                 options={{ title: "Welcome" }}
                             />
                             <Stack.Screen
-                                name="tag/[id]"
+                                name="tag/[tagId]"
                                 options={{ headerShown: false }}
                             />
                         </Stack>

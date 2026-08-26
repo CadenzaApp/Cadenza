@@ -132,7 +132,7 @@ export default function ExploreScreen() {
 
                     {tracksErr && (
                         <Text className="text-destructive text-center my-2 px-6">
-                            {tracksErr}
+                            {JSON.stringify(tracksErr)}
                         </Text>
                     )}
 
@@ -180,7 +180,7 @@ export default function ExploreScreen() {
 
                     {searchCatalogErr && (
                         <Text className="text-destructive text-center my-2 px-6">
-                            {searchCatalogErr}
+                            {JSON.stringify(searchCatalogErr)}
                         </Text>
                     )}
 

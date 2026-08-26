@@ -59,7 +59,7 @@ export default function QueryScreen() {
     if (tagsErr) {
         return (
             <SafeAreaView className="flex-1 bg-background items-center justify-center">
-                <Text className="text-destructive text-sm">{tagsErr}</Text>
+                <Text className="text-destructive text-sm">{JSON.stringify(tagsErr)}</Text>
             </SafeAreaView>
         );
     }

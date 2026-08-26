@@ -120,7 +120,7 @@ export function CreateTagDialog() {
 
                 {createTagErr && (
                     <Text className="text-destructive text-sm mb-2">
-                        {createTagErr}
+                        {JSON.stringify(createTagErr)}
                     </Text>
                 )}
 

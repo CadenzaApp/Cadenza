@@ -318,7 +318,7 @@ export function SongDetailModal({
                                     )}
                                     {suggestTagsErr && (
                                         <Text className="text-sm text-destructive">
-                                            {suggestTagsErr}
+                                            {JSON.stringify(suggestTagsErr)}
                                         </Text>
                                     )}
                                     {suggestedTags &&
@@ -355,7 +355,7 @@ export function SongDetailModal({
                                     )}
                                     {tagsOnSongErr && (
                                         <Text className="text-sm text-destructive">
-                                            {tagsOnSongErr}
+                                            {JSON.stringify(tagsOnSongErr)}
                                         </Text>
                                     )}
                                     {tags?.length === 0 && (

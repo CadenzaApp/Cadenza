@@ -36,6 +36,12 @@ function queryParamsToStr(params?: Record<string, any>) {
         : "?" + new URLSearchParams(params).toString();
 }
 
+/** handles the case when response has no body (doing .json() will fail) */
+async function responseData(response: Response) {
+    const text = await response.text();
+    return text ? JSON.parse(text) : {}
+}
+
 type GETEndpoint = {
     path: string;
     params?: Record<string, any> | "*";
@@ -61,10 +67,10 @@ export function useAPIMutation<RequestBody, Response>(
                 },
                 body: JSON.stringify(body),
             });
-            const json = resp.json();
+            const data = await responseData(resp);
 
             if (!resp.ok) {
-                throw json;
+                throw data;
             }
 
             const endpointsToInvalidate = Array.isArray(invalidatedEndpoints)
@@ -81,7 +87,6 @@ export function useAPIMutation<RequestBody, Response>(
                     // if no params, invalidate if key has no params
                     if (!invalidEndpoint.params) {
                         if (!key.params) {
-                            console.log("invalidated", key);
                             return true;
                         } else continue;
                     }
@@ -98,14 +103,13 @@ export function useAPIMutation<RequestBody, Response>(
                                 continue;
                         }
                     }
-                    console.log("invalidated", key);
                     return true;
                 }
 
                 return false;
             });
 
-            return json as Response;
+            return data as Response;
         },
     );
 }
@@ -129,7 +133,7 @@ export function useAPIData<Output>(
                 },
             },
         );
-        const json = resp.json();
+        const json = await responseData(resp);
 
         if (!resp.ok) {
             throw json;
@@ -165,7 +169,7 @@ export function useAPIFetch<Input extends Record<string, any>, Output>(
             }
 
             const resp = await fetch(path, fetchArgs);
-            const json = resp.json();
+            const json = await responseData(resp)
 
             if (!resp.ok) {
                 throw json;
