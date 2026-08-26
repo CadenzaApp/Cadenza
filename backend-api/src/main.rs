@@ -56,6 +56,7 @@ async fn main() {
         .nest("/tags", get_tags_router())
         .nest("/songs", get_songs_router())
         .nest("/queries", get_queries_router())
+        .route("/test", axum::routing::get(async || "server is reachable"))
         .with_state(app_state);
 
     // show time baby
