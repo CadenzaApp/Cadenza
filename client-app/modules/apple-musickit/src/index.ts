@@ -28,7 +28,7 @@ interface AppleMusicKitNativeModule {
     seekToTime(time: number): Promise<void>;
 
     // MusicKit Functionality
-    getSongInfo(id: string, type: string): Promise<MusicItem>;
+    getSongInfo(ids: string[]): Promise<MusicItem[]>;
     catalogSearch(query: string, types: string[]): Promise<SearchResult>;
     getTracksFromLibrary(): Promise<LibraryResult>;
     getUserPlaylists(options?: MusicKitOptions): Promise<LibraryResult>;
@@ -188,20 +188,19 @@ export const Player = {
 
 export const MusicKit = {
     /**
-     * Retrieves the full metadata for a specific song.
-     * @param id The catalog ID or library ID of the song.
-     * @returns A promise that resolves to the full MusicItem.
+     * Retrieves the full metadata for one or more songs.
+     * @param ids An array of catalog IDs or library IDs of the songs.
+     * @returns A promise that resolves to an array of MusicItems in the requested order.
      */
-    getSongInfo: async (id: string): Promise<MusicItem> => {
+    getSongInfo: async (ids: string[]): Promise<MusicItem[]> => {
         if (!native)
             throw new Error("Apple Music API is not available in Expo Go.");
 
-        // Infer the playback queue type based on Apple Music's ID formatting rules
-        const inferredType = id.startsWith("i.")
-            ? PlaybackQueueType.LibrarySong
-            : PlaybackQueueType.Song;
+        if (ids.length === 0) {
+            return [];
+        }
 
-        return native.getSongInfo(id, inferredType);
+        return native.getSongInfo(ids);
     },
 
     catalogSearch: async (

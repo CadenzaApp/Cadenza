@@ -3,10 +3,8 @@
 use sea_orm::entity::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
-#[sea_orm(table_name = "applied_tags")]
+#[sea_orm(table_name = "global_tags_applied")]
 pub struct Model {
-    #[sea_orm(primary_key, auto_increment = false)]
-    pub user_id: Uuid,
     #[sea_orm(primary_key, auto_increment = false, column_type = "Text")]
     pub song_id: String,
     #[sea_orm(primary_key, auto_increment = false)]
@@ -16,18 +14,18 @@ pub struct Model {
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
     #[sea_orm(
-        belongs_to = "super::tags::Entity",
+        belongs_to = "super::global_tags::Entity",
         from = "Column::TagId",
-        to = "super::tags::Column::TagId",
+        to = "super::global_tags::Column::TagId",
         on_update = "NoAction",
         on_delete = "Cascade"
     )]
-    Tags,
+    GlobalTags,
 }
 
-impl Related<super::tags::Entity> for Entity {
+impl Related<super::global_tags::Entity> for Entity {
     fn to() -> RelationDef {
-        Relation::Tags.def()
+        Relation::GlobalTags.def()
     }
 }
 

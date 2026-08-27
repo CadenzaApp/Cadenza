@@ -2,5 +2,8 @@
 
 pub mod prelude;
 
-pub mod applied_tags;
-pub mod tags;
+pub mod global_tags;
+pub mod global_tags_applied;
+pub mod local_tags;
+pub mod local_tags_applied;
+pub mod songs;

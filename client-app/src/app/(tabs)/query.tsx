@@ -13,15 +13,32 @@ export default function QueryScreen() {
     const { account } = useAccount();
     const { tags, loading, error } = useTags();
 
-    // if null, query hasn't run yet
     const [matchedSongs, setMatchedSongs] = useState<MusicItem[] | null>(null);
+    const [isFetchingMetadata, setIsFetchingMetadata] = useState(false);
+
+    // Add state to track how many songs we expect to load
+    const [anticipatedCount, setAnticipatedCount] = useState<
+        number | undefined
+    >(undefined);
 
     async function onQueryReturn(matchedSongIds: string[]) {
         console.log("matched songs:", matchedSongIds);
-        const songs = await Promise.all(
-            matchedSongIds.map((id) => MusicKit.getSongInfo(id)),
-        );
-        setMatchedSongs(songs);
+
+        // Instantly store the known length before we start the network fetch
+        setAnticipatedCount(matchedSongIds.length);
+
+        setMatchedSongs([]);
+        setIsFetchingMetadata(true);
+
+        try {
+            const songs = await MusicKit.getSongInfo(matchedSongIds);
+            setMatchedSongs(songs);
+        } catch (e) {
+            console.error("Failed to fetch song metadata", e);
+            setMatchedSongs([]);
+        } finally {
+            setIsFetchingMetadata(false);
+        }
     }
 
     function returnToQueryBuilder() {
@@ -51,6 +68,8 @@ export default function QueryScreen() {
             {matchedSongs !== null ? (
                 <QueryResults
                     songs={matchedSongs}
+                    isLoading={isFetchingMetadata}
+                    anticipatedTrackCount={anticipatedCount} // Pass down the count
                     onBackPress={returnToQueryBuilder}
                 />
             ) : (

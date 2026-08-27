@@ -3,26 +3,27 @@
 use sea_orm::entity::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
-#[sea_orm(table_name = "tags")]
+#[sea_orm(table_name = "global_tags")]
 pub struct Model {
     #[sea_orm(primary_key)]
     pub tag_id: i64,
     #[sea_orm(column_type = "Text", unique)]
     pub name: String,
+    #[sea_orm(ignore, column_type = "custom(\"vector\")", select_as = "text")]
+    pub embedding: String,
     #[sea_orm(column_type = "Text")]
     pub color: String,
-    pub user_id: Uuid,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
-    #[sea_orm(has_many = "super::applied_tags::Entity")]
-    AppliedTags,
+    #[sea_orm(has_many = "super::global_tags_applied::Entity")]
+    GlobalTagsApplied,
 }
 
-impl Related<super::applied_tags::Entity> for Entity {
+impl Related<super::global_tags_applied::Entity> for Entity {
     fn to() -> RelationDef {
-        Relation::AppliedTags.def()
+        Relation::GlobalTagsApplied.def()
     }
 }
 
