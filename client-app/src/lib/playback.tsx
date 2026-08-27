@@ -72,8 +72,8 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
                 } else {
                     // This fallback keeps the player useful when a legacy caller
                     // only knows an ID. List and detail views pass full metadata.
-                    const song = await MusicKit.getSongInfo(trackId);
-                    setActiveTrack(song);
+                    const [song] = await MusicKit.getSongInfo([trackId]);
+                    if (song) setActiveTrack(song);
                 }
                 setProgress(0);
 
