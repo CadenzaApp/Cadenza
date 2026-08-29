@@ -29,9 +29,12 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
             if (activeTrackId === trackId) {
                 await Player.togglePlayerState();
             } else {
+                const playbackType = trackId.startsWith("i.")
+                    ? PlaybackQueueType.LibrarySong
+                    : PlaybackQueueType.Song;
                 await MusicKit.setPlaybackQueue(
                     trackId,
-                    PlaybackQueueType.LibrarySong,
+                    playbackType,
                 );
                 setActiveTrackId(trackId);
 
