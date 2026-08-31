@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Image, Modal, Pressable, ScrollView, View } from "react-native";
 import { MusicItem as AppleMusicItem, MusicKit } from "@apple-musickit";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -57,7 +57,13 @@ function formatSeconds(totalSeconds: number): string {
     return parts.join(" ");
 }
 
-export function SongDetailModal({
+export function SongDetailModal(props: SongDetailModalProps) {
+    return (
+        <SongDetailModalContent key={props.song?.id ?? "no-song"} {...props} />
+    );
+}
+
+function SongDetailModalContent({
     open,
     onOpenChange,
     song,
@@ -80,20 +86,6 @@ export function SongDetailModal({
     );
     const { account } = useAccount();
     const { tags: allUserTags, loading: tagsLoading } = useTags();
-
-    useEffect(() => {
-        // Reset dependent UI after the selected song changes, without blocking
-        // the paint for the new modal content.
-        const resetTimer = setTimeout(() => {
-            setArtworkFailed(false);
-            setActivePanel(null);
-            setAiSuggestedTagNames([]);
-            setAiSuggestionsError(null);
-            setIsAiSuggestionsLoading(false);
-        }, 0);
-
-        return () => clearTimeout(resetTimer);
-    }, [song?.id, song?.artworkUrl]);
 
     const artworkUrl = song?.artworkUrl?.trim();
     const canRenderArtwork =

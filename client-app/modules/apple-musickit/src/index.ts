@@ -1,10 +1,4 @@
-// TODO:  instead of hard-coding 200px song artwork requests,
-//        expose a way for clients to request artwork at different sizes
-
-import {
-    requireOptionalNativeModule,
-    EventSubscription,
-} from "expo-modules-core";
+import { requireOptionalNativeModule } from "expo-modules-core";
 import { useSyncExternalStore } from "react";
 import {
     AuthStatus,
@@ -14,6 +8,7 @@ import {
     type SearchResult,
     type LibraryResult,
     MusicItem,
+    PlaybackSnapshot,
 } from "./AppleMusicKit.types";
 
 interface AppleMusicKitNativeModule {
@@ -21,7 +16,8 @@ interface AppleMusicKitNativeModule {
     setTokens(developerToken: string, userToken: string | null): Promise<void>;
     play(): Promise<void>;
     pause(): Promise<void>;
-    togglePlayerState(): Promise<boolean>;
+    togglePlayerState(): Promise<void>;
+    getPlaybackSnapshot(): Promise<PlaybackSnapshot>;
     skipToNextEntry(): Promise<void>;
     skipToPreviousEntry(): Promise<void>;
     restartCurrentEntry(): Promise<void>;
@@ -35,39 +31,63 @@ interface AppleMusicKitNativeModule {
     getLibrarySongs(options?: MusicKitOptions): Promise<LibraryResult>;
     getPlaylistSongs(playlistId: string): Promise<LibraryResult>;
     setPlaybackQueue(id: string, type: string): Promise<void>;
-
-    addListener(
-        eventName: string,
-        listener: (...args: any[]) => void,
-    ): EventSubscription;
-    removeListeners(count: number): void;
 }
 
 const native =
     requireOptionalNativeModule<AppleMusicKitNativeModule>("AppleMusicKit");
 
-let isPlaying = false;
+let playbackSnapshot: PlaybackSnapshot = {
+    isPlaying: false,
+    isLoading: false,
+    progress: 0,
+};
 const listeners = new Set<() => void>();
+const PLAYBACK_STATE_SETTLE_DELAY_MS = 400;
+const PLAYBACK_LOAD_TIMEOUT_MS = 15_000;
+let playbackStateRevision = 0;
+let optimisticPlaybackUntil = 0;
+let playbackLoadDeadline = 0;
+let playbackCommandQueue = Promise.resolve();
 
 function notifyListeners() {
     listeners.forEach((listener) => listener());
 }
 
-// Listen to native OS changes. Things can happen that might start/stop playback
-if (native) {
-    native.addListener("onPlaybackStateChange", (event: { state: string }) => {
-        const newState = event.state === "playing";
-        if (isPlaying !== newState) {
-            isPlaying = newState;
-            notifyListeners();
-        }
+function updatePlaybackSnapshot(nextSnapshot: PlaybackSnapshot) {
+    playbackSnapshot = nextSnapshot;
+    notifyListeners();
+}
+
+function setOptimisticPlaybackState(nextState: boolean) {
+    playbackStateRevision += 1;
+    optimisticPlaybackUntil = Date.now() + PLAYBACK_STATE_SETTLE_DELAY_MS;
+    updatePlaybackSnapshot({
+        ...playbackSnapshot,
+        isPlaying: nextState,
+    });
+    return playbackStateRevision;
+}
+
+function beginPlaybackCommand() {
+    playbackStateRevision += 1;
+    optimisticPlaybackUntil = Date.now() + PLAYBACK_STATE_SETTLE_DELAY_MS;
+    return playbackStateRevision;
+}
+
+function waitForPlaybackStateToSettle() {
+    const remainingDelay = Math.max(0, optimisticPlaybackUntil - Date.now());
+    return new Promise<void>((resolve) => {
+        setTimeout(resolve, remainingDelay);
     });
 }
 
-/**
- * @returns a react hook for the isPlaying media playback state
- */
-export function useIsPlaying() {
+function enqueuePlaybackCommand(command: () => Promise<void>) {
+    const result = playbackCommandQueue.then(command, command);
+    playbackCommandQueue = result.catch(() => undefined);
+    return result;
+}
+
+export function usePlaybackSnapshot() {
     return useSyncExternalStore(
         (callback) => {
             listeners.add(callback);
@@ -75,8 +95,12 @@ export function useIsPlaying() {
                 listeners.delete(callback);
             };
         },
-        () => isPlaying,
+        () => playbackSnapshot,
     );
+}
+
+export function useIsPlaying() {
+    return usePlaybackSnapshot().isPlaying;
 }
 
 export const Auth = {
@@ -100,14 +124,98 @@ export const Auth = {
 };
 
 export const Player = {
+    refreshPlaybackSnapshot: async (
+        ignoreSettleDelay = false,
+        expectedRevision?: number,
+    ): Promise<PlaybackSnapshot> => {
+        if (!native) return playbackSnapshot;
+        if (
+            expectedRevision !== undefined &&
+            expectedRevision !== playbackStateRevision
+        ) {
+            return playbackSnapshot;
+        }
+        if (!ignoreSettleDelay && Date.now() < optimisticPlaybackUntil) {
+            return playbackSnapshot;
+        }
+
+        const requestRevision = playbackStateRevision;
+        const nextSnapshot = await native.getPlaybackSnapshot();
+
+        // Reads begun before a newer command must never overwrite that
+        // command's optimistic state or its eventual native result.
+        if (
+            requestRevision !== playbackStateRevision ||
+            (expectedRevision !== undefined &&
+                expectedRevision !== playbackStateRevision)
+        ) {
+            return playbackSnapshot;
+        }
+
+        const resolvedSnapshot: PlaybackSnapshot = {
+            ...nextSnapshot,
+            isLoading:
+                nextSnapshot.isLoading ||
+                (playbackSnapshot.isLoading &&
+                    !nextSnapshot.isPlaying &&
+                    Date.now() < playbackLoadDeadline),
+            currentTrack:
+                nextSnapshot.currentTrack ?? playbackSnapshot.currentTrack,
+            duration:
+                nextSnapshot.duration ??
+                nextSnapshot.currentTrack?.songDuration ??
+                playbackSnapshot.currentTrack?.songDuration,
+        };
+        if (resolvedSnapshot.isPlaying || !resolvedSnapshot.isLoading) {
+            playbackLoadDeadline = 0;
+        }
+        updatePlaybackSnapshot(resolvedSnapshot);
+        return resolvedSnapshot;
+    },
+
+    reconcilePlaybackSnapshot: async (
+        commandRevision = playbackStateRevision,
+    ): Promise<PlaybackSnapshot> => {
+        await waitForPlaybackStateToSettle();
+        if (commandRevision !== playbackStateRevision) {
+            return playbackSnapshot;
+        }
+        return Player.refreshPlaybackSnapshot(true, commandRevision);
+    },
+
+    expectCurrentTrack: (track: MusicItem) => {
+        playbackLoadDeadline = Date.now() + PLAYBACK_LOAD_TIMEOUT_MS;
+        updatePlaybackSnapshot({
+            ...playbackSnapshot,
+            isPlaying: false,
+            isLoading: true,
+            currentTrack: track,
+            duration: track.songDuration,
+            progress: 0,
+        });
+    },
+
     /**
      * Plays playback for the currently queued track.
      */
     play: async () => {
         if (!native) return;
-        await native.play();
-        isPlaying = true;
-        notifyListeners();
+        // Reflect an intentional UI action immediately, then replace this
+        // optimistic state with the native player's confirmed state below.
+        const commandRevision = setOptimisticPlaybackState(true);
+        try {
+            await enqueuePlaybackCommand(() => native.play());
+        } catch (error) {
+            playbackLoadDeadline = 0;
+            updatePlaybackSnapshot({
+                ...playbackSnapshot,
+                isPlaying: false,
+                isLoading: false,
+            });
+            throw error;
+        } finally {
+            await Player.reconcilePlaybackSnapshot(commandRevision);
+        }
     },
 
     /**
@@ -115,9 +223,16 @@ export const Player = {
      */
     pause: async () => {
         if (!native) return;
-        await native.pause();
-        isPlaying = false;
-        notifyListeners();
+        playbackLoadDeadline = 0;
+        // Reflect an intentional UI action immediately, then replace this
+        // optimistic state with the native player's confirmed state below.
+        const commandRevision = setOptimisticPlaybackState(false);
+        updatePlaybackSnapshot({ ...playbackSnapshot, isLoading: false });
+        try {
+            await enqueuePlaybackCommand(() => native.pause());
+        } finally {
+            await Player.reconcilePlaybackSnapshot(commandRevision);
+        }
     },
     /**
      * Pauses playback if already playing and vice versa.
@@ -126,37 +241,61 @@ export const Player = {
      */
     togglePlayerState: async (): Promise<boolean> => {
         if (!native) return false;
-        await native.togglePlayerState();
-        isPlaying = !isPlaying;
-        notifyListeners();
-        return isPlaying;
+        playbackLoadDeadline = 0;
+        // The icon should respond to the tap without waiting for the native
+        // bridge. A refresh afterwards is still authoritative, so external
+        // playback changes or failed commands cannot leave it out of sync.
+        const commandRevision = setOptimisticPlaybackState(
+            !playbackSnapshot.isPlaying,
+        );
+        updatePlaybackSnapshot({ ...playbackSnapshot, isLoading: false });
+
+        try {
+            await enqueuePlaybackCommand(() => native.togglePlayerState());
+        } catch (error) {
+            await Player.reconcilePlaybackSnapshot(commandRevision);
+            throw error;
+        }
+
+        return (await Player.reconcilePlaybackSnapshot(commandRevision))
+            .isPlaying;
     },
 
     /**
      *
      * @returns `true` is the playback is playing, `false` otherwise.
      */
-    isPlaying: (): boolean => isPlaying,
+    isPlaying: (): boolean => playbackSnapshot.isPlaying,
 
     /**
      * Ends the currently playing track and plays the next one in the queue.
      */
     skipToNextEntry: async () => {
-        if (native) await native.skipToNextEntry();
+        if (!native) return;
+        const commandRevision = beginPlaybackCommand();
+        await enqueuePlaybackCommand(() => native.skipToNextEntry());
+        await Player.reconcilePlaybackSnapshot(commandRevision);
     },
 
     /**
      * Ends the currently playing track and plays the previous one in the queue.
      */
     skipToPreviousEntry: async () => {
-        if (native) await native.skipToPreviousEntry();
+        if (!native) return;
+        const commandRevision = beginPlaybackCommand();
+        await enqueuePlaybackCommand(() => native.skipToPreviousEntry());
+        await Player.reconcilePlaybackSnapshot(commandRevision);
     },
 
     /**
      * Restarts the currently playing track from the beginning.
      */
     restartCurrentEntry: async () => {
-        if (native) await native.restartCurrentEntry();
+        if (!native) return;
+        const commandRevision = beginPlaybackCommand();
+        updatePlaybackSnapshot({ ...playbackSnapshot, progress: 0 });
+        await enqueuePlaybackCommand(() => native.restartCurrentEntry());
+        await Player.reconcilePlaybackSnapshot(commandRevision);
     },
 
     /**
@@ -165,24 +304,11 @@ export const Player = {
      * @param time The time to seek to, in seconds.
      */
     seekToTime: async (time: number) => {
-        if (native) await native.seekToTime(time);
-    },
-
-    /**
-     * Adds a listener for playback state changes.
-     *
-     * @param eventName The event name, always "onPlaybackStateChange".
-     * @param listener The listener function to call when the playback state changes.
-     * @returns An event subscription that can be used to remove the listener.
-     */
-    addListener: (
-        eventName: "onPlaybackStateChange",
-        listener: (event: { state: string }) => void,
-    ): EventSubscription => {
-        if (!native) {
-            return { remove: () => {} } as EventSubscription;
-        }
-        return native.addListener(eventName, listener);
+        if (!native) return;
+        const commandRevision = beginPlaybackCommand();
+        updatePlaybackSnapshot({ ...playbackSnapshot, progress: time });
+        await enqueuePlaybackCommand(() => native.seekToTime(time));
+        await Player.reconcilePlaybackSnapshot(commandRevision);
     },
 };
 
@@ -243,7 +369,7 @@ export const MusicKit = {
             console.warn("Playback is not supported in Expo Go.");
             return;
         }
-        return native.setPlaybackQueue(id, type);
+        return enqueuePlaybackCommand(() => native.setPlaybackQueue(id, type));
     },
 };
 

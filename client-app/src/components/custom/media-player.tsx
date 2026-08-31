@@ -1,11 +1,13 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTheme } from "expo-router/react-navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
+    ActivityIndicator,
     Image,
     Modal,
     Pressable,
     ScrollView,
+    Share,
     useWindowDimensions,
     View,
 } from "react-native";
@@ -22,7 +24,12 @@ import Animated, {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Text } from "@/components/ui/text";
+import {
+    mediaPlayerTagRepository,
+    type SongTag,
+} from "@/lib/media-player-tags";
 import { usePlayback } from "@/lib/playback";
+import { MusicKit } from "@apple-musickit";
 
 function formatTime(totalSeconds: number) {
     const safeSeconds = Math.max(0, Math.floor(totalSeconds));
@@ -30,17 +37,6 @@ function formatTime(totalSeconds: number) {
     const seconds = safeSeconds % 60;
     return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
-
-const DUMMY_LIBRARY_TAGS = [
-    { name: "Focus", color: "#2563eb", applied: true },
-    { name: "Chill", color: "#0f766e", applied: false },
-    { name: "Late night", color: "#7c3aed", applied: true },
-    { name: "Road trip", color: "#ea580c", applied: false },
-    { name: "Workout", color: "#dc2626", applied: false },
-    { name: "Sunday", color: "#ca8a04", applied: true },
-    { name: "New music", color: "#0891b2", applied: false },
-    { name: "Throwback", color: "#be185d", applied: false },
-];
 
 /**
  * A global Apple Music player surface. Core playback commands call the native
@@ -51,6 +47,7 @@ export function MediaPlayer() {
     const {
         activeTrack,
         isPlaying,
+        isLoading,
         progress,
         seekTo,
         skipToNext,
@@ -66,14 +63,7 @@ export function MediaPlayer() {
     const detailsStartX = useSharedValue(0);
     const detailsPage = useSharedValue(0);
     const [detailsPagerWidth, setDetailsPagerWidth] = useState(0);
-    const [dummyAppliedTags, setDummyAppliedTags] = useState(
-        () =>
-            new Set(
-                DUMMY_LIBRARY_TAGS.filter((tag) => tag.applied).map(
-                    (tag) => tag.name,
-                ),
-            ),
-    );
+    const [songTags, setSongTags] = useState<SongTag[]>([]);
     const [progressBarWidth, setProgressBarWidth] = useState(0);
     const [scrubPosition, setScrubPosition] = useState<number | null>(null);
     const [failedArtworkUrl, setFailedArtworkUrl] = useState<string | null>(
@@ -94,7 +84,36 @@ export function MediaPlayer() {
     const displayedProgress = scrubPosition ?? progress;
     const progressRatio =
         duration > 0 ? Math.min(displayedProgress / duration, 1) : 0;
-    const artworkSize = Math.min(width - 48, 420);
+    const availableArtworkSize =
+        height -
+        (insets.top + 8) -
+        (insets.bottom + 16) -
+        60 - // drag indicator area
+        80 - // primary transport-control row
+        40 - // two `gap-5` spaces
+        220; // minimum room for playback details and actions
+    const artworkSize = Math.min(
+        width - 48,
+        420,
+        Math.max(220, availableArtworkSize),
+    );
+
+    useEffect(() => {
+        if (!activeTrack?.id) {
+            return;
+        }
+
+        let cancelled = false;
+        void mediaPlayerTagRepository
+            .listForSong(activeTrack.id)
+            .then((tags) => {
+                if (!cancelled) setSongTags(tags);
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [activeTrack?.id]);
 
     function completeDismissal() {
         setIsExpanded(false);
@@ -123,25 +142,40 @@ export function MediaPlayer() {
         transform: [{ translateX: detailsTranslateX.get() }],
     }));
 
+    const playbackDotStyle = useAnimatedStyle(() => ({
+        opacity: detailsPage.get() === 0 ? 1 : 0.3,
+    }));
+    const tagsDotStyle = useAnimatedStyle(() => ({
+        opacity: detailsPage.get() === 1 ? 1 : 0.3,
+    }));
+
+    function selectDetailsPage(nextPage: 0 | 1) {
+        if (!detailsPagerWidth || detailsPage.get() === nextPage) return;
+
+        cancelAnimation(detailsTranslateX);
+        detailsPage.set(nextPage);
+        if (nextPage === 1) notifyTagEditingOpened();
+        detailsTranslateX.set(
+            withTiming(-nextPage * detailsPagerWidth, {
+                duration: 220,
+                easing: Easing.out(Easing.cubic),
+            }),
+        );
+    }
+
     function notifyTagEditingOpened() {
         console.info(
             "[MediaPlayer] Tag editing is incomplete. These are dummy library tags and do not save changes yet.",
         );
     }
 
-    function toggleDummyTag(tagName: string) {
-        setDummyAppliedTags((currentTags) => {
-            const nextTags = new Set(currentTags);
-            if (nextTags.has(tagName)) {
-                nextTags.delete(tagName);
-            } else {
-                nextTags.add(tagName);
-            }
-            return nextTags;
-        });
-        console.info(
-            `[MediaPlayer] Tag editing is incomplete. ${tagName} was toggled visually only.`,
+    async function toggleTag(tagId: string) {
+        if (!activeTrack?.id) return;
+        const tags = await mediaPlayerTagRepository.toggleForSong(
+            activeTrack.id,
+            tagId,
         );
+        setSongTags(tags);
     }
 
     const dismissExpandedPlayer = Gesture.Tap().onEnd(() => {
@@ -228,7 +262,11 @@ export function MediaPlayer() {
     }
 
     const seekGesture = Gesture.Pan()
-        .minDistance(0)
+        // Keep the hit area tight and require an intentional horizontal drag.
+        // This lets page swipes that begin near the scrubber reach the pager
+        // rather than immediately changing playback position.
+        .activeOffsetX([-4, 4])
+        .failOffsetY([-10, 10])
         .onBegin((event) => {
             runOnJS(updateScrubPosition)(event.x);
         })
@@ -300,6 +338,32 @@ export function MediaPlayer() {
         );
     }
 
+    async function shareCurrentTrack() {
+        const track = activeTrack;
+        if (!track) return;
+
+        try {
+            let appleMusicUrl = track.shareUrl;
+            if (!appleMusicUrl) {
+                const [resolvedTrack] = await MusicKit.getSongInfo([track.id]);
+                appleMusicUrl = resolvedTrack?.shareUrl;
+            }
+            if (!appleMusicUrl) {
+                throw new Error("No canonical Apple Music URL is available.");
+            }
+
+            await Share.share({
+                title: track.title,
+                // Android ignores the separate `url` field, so include the
+                // canonical link in the message on every platform.
+                message: `I'm listening to ${track.title} by ${track.artistName || "an unknown artist"}. ${appleMusicUrl}`,
+                url: appleMusicUrl,
+            });
+        } catch (error) {
+            console.error("Failed to share the current track:", error);
+        }
+    }
+
     return (
         <>
             <GestureDetector gesture={expandMiniPlayer}>
@@ -351,7 +415,15 @@ export function MediaPlayer() {
 
                     <Pressable
                         accessibilityRole="button"
-                        accessibilityLabel={isPlaying ? "Pause" : "Play"}
+                        accessibilityLabel={
+                            isLoading
+                                ? "Loading song"
+                                : isPlaying
+                                  ? "Pause"
+                                  : "Play"
+                        }
+                        accessibilityState={{ busy: isLoading }}
+                        disabled={isLoading}
                         hitSlop={10}
                         onPress={(event) => {
                             event.stopPropagation();
@@ -359,12 +431,19 @@ export function MediaPlayer() {
                         }}
                         className="w-10 h-10 items-center justify-center"
                     >
-                        <Ionicons
-                            name={isPlaying ? "pause" : "play"}
-                            size={26}
-                            color={colors.text}
-                            style={{ marginLeft: isPlaying ? 0 : 2 }}
-                        />
+                        {isLoading ? (
+                            <ActivityIndicator
+                                size="small"
+                                color={colors.text}
+                            />
+                        ) : (
+                            <Ionicons
+                                name={isPlaying ? "pause" : "play"}
+                                size={26}
+                                color={colors.text}
+                                style={{ marginLeft: isPlaying ? 0 : 2 }}
+                            />
+                        )}
                     </Pressable>
                     <Pressable
                         accessibilityRole="button"
@@ -466,22 +545,56 @@ export function MediaPlayer() {
                                     )
                                 }
                             >
+                                <View className="items-center justify-center mb-3">
+                                    <View className="flex-row gap-1.5">
+                                        <Pressable
+                                            accessibilityRole="button"
+                                            accessibilityLabel="Show playback details"
+                                            onPress={() => selectDetailsPage(0)}
+                                            hitSlop={12}
+                                        >
+                                            <Animated.View
+                                                className="w-1.5 h-1.5 rounded-full"
+                                                style={[
+                                                    {
+                                                        backgroundColor:
+                                                            colors.text,
+                                                    },
+                                                    playbackDotStyle,
+                                                ]}
+                                            />
+                                        </Pressable>
+                                        <Pressable
+                                            accessibilityRole="button"
+                                            accessibilityLabel="Show tag editor"
+                                            onPress={() => selectDetailsPage(1)}
+                                            hitSlop={12}
+                                        >
+                                            <Animated.View
+                                                className="w-1.5 h-1.5 rounded-full"
+                                                style={[
+                                                    {
+                                                        backgroundColor:
+                                                            colors.text,
+                                                    },
+                                                    tagsDotStyle,
+                                                ]}
+                                            />
+                                        </Pressable>
+                                    </View>
+                                </View>
                                 <GestureDetector gesture={detailsGesture}>
                                     <Animated.View
-                                        className="flex-row"
+                                        className="flex-1 flex-row"
                                         style={[
                                             {
                                                 width: detailsPagerWidth * 2,
-                                                height: "100%",
                                             },
                                             detailsPagerStyle,
                                         ]}
                                     >
                                         <View
-                                            style={{
-                                                width: detailsPagerWidth,
-                                                height: "100%",
-                                            }}
+                                            style={{ width: detailsPagerWidth }}
                                             className="pr-1"
                                         >
                                             <View className="flex-row items-start justify-between gap-3">
@@ -535,18 +648,20 @@ export function MediaPlayer() {
                                                 gesture={seekGesture}
                                             >
                                                 <View
-                                                    accessible
-                                                    accessibilityRole="adjustable"
-                                                    accessibilityLabel="Playback progress"
+                                                    className="h-5 justify-center mt-4"
                                                     onLayout={(event) =>
                                                         setProgressBarWidth(
                                                             event.nativeEvent
                                                                 .layout.width,
                                                         )
                                                     }
-                                                    className="h-8 justify-center mt-5"
                                                 >
-                                                    <View className="h-1.5 rounded-full bg-muted overflow-hidden">
+                                                    <View
+                                                        accessible
+                                                        accessibilityRole="adjustable"
+                                                        accessibilityLabel="Playback progress"
+                                                        className="h-1.5 rounded-full bg-muted overflow-hidden"
+                                                    >
                                                         <View
                                                             className="h-full rounded-full bg-foreground"
                                                             style={{
@@ -558,82 +673,108 @@ export function MediaPlayer() {
                                             </GestureDetector>
                                             <View className="flex-row justify-between">
                                                 <Text className="text-xs text-muted-foreground">
-                                                    {formatTime(progress)}
+                                                    {formatTime(
+                                                        displayedProgress,
+                                                    )}
                                                 </Text>
                                                 <Text className="text-xs text-muted-foreground">
                                                     {formatTime(duration)}
                                                 </Text>
                                             </View>
-                                            <Text className="text-xs text-muted-foreground mt-5">
-                                                Swipe left to edit tags
-                                            </Text>
+                                            <View className="flex-row justify-center gap-12 mt-5">
+                                                <Pressable
+                                                    accessibilityRole="button"
+                                                    accessibilityLabel="Share song"
+                                                    onPress={() =>
+                                                        void shareCurrentTrack()
+                                                    }
+                                                    className="w-12 h-12 rounded-full bg-secondary items-center justify-center"
+                                                >
+                                                    <Ionicons
+                                                        name="share-outline"
+                                                        size={23}
+                                                        color={colors.text}
+                                                    />
+                                                </Pressable>
+                                                <Pressable
+                                                    accessibilityRole="button"
+                                                    accessibilityLabel="Manage queue"
+                                                    onPress={() =>
+                                                        handleNoOp(
+                                                            "Queue management",
+                                                            "It will let you view and reorder upcoming tracks.",
+                                                        )
+                                                    }
+                                                    className="w-12 h-12 rounded-full bg-secondary items-center justify-center"
+                                                >
+                                                    <Ionicons
+                                                        name="list-outline"
+                                                        size={25}
+                                                        color={colors.text}
+                                                    />
+                                                </Pressable>
+                                            </View>
                                         </View>
 
                                         <View
-                                            style={{
-                                                width: detailsPagerWidth,
-                                                height: "100%",
-                                            }}
-                                            className="pl-1 flex-1"
+                                            style={{ width: detailsPagerWidth }}
+                                            className="pl-1"
                                         >
                                             <Text className="text-xl font-bold text-foreground">
                                                 Edit tags
                                             </Text>
                                             <ScrollView
-                                                className="flex-1 mt-4"
+                                                className="flex-1 mt-3"
                                                 contentContainerClassName="flex-row flex-wrap gap-2 pb-2"
                                                 showsVerticalScrollIndicator={
                                                     false
                                                 }
                                                 nestedScrollEnabled
                                             >
-                                                {DUMMY_LIBRARY_TAGS.map(
-                                                    (tag) => {
-                                                        const isApplied =
-                                                            dummyAppliedTags.has(
-                                                                tag.name,
-                                                            );
-                                                        return (
-                                                            <Pressable
-                                                                key={tag.name}
-                                                                accessibilityRole="button"
-                                                                accessibilityLabel={`Add ${tag.name} tag`}
-                                                                onPress={() =>
-                                                                    toggleDummyTag(
-                                                                        tag.name,
-                                                                    )
-                                                                }
-                                                                className="rounded-full px-3 py-2 border"
+                                                {songTags.map((tag) => {
+                                                    return (
+                                                        <Pressable
+                                                            key={tag.id}
+                                                            accessibilityRole="button"
+                                                            accessibilityLabel={`Add ${tag.name} tag`}
+                                                            onPress={() =>
+                                                                void toggleTag(
+                                                                    tag.id,
+                                                                )
+                                                            }
+                                                            className="rounded-full px-3 py-2 border"
+                                                            style={{
+                                                                borderColor:
+                                                                    tag.color,
+                                                                backgroundColor:
+                                                                    tag.applied
+                                                                        ? tag.color
+                                                                        : "transparent",
+                                                            }}
+                                                        >
+                                                            <Text
+                                                                className="text-sm font-medium"
                                                                 style={{
-                                                                    borderColor:
-                                                                        tag.color,
-                                                                    backgroundColor:
-                                                                        isApplied
-                                                                            ? tag.color
-                                                                            : "transparent",
+                                                                    color: tag.applied
+                                                                        ? "#ffffff"
+                                                                        : tag.color,
                                                                 }}
                                                             >
-                                                                <Text
-                                                                    className="text-sm font-medium"
-                                                                    style={{
-                                                                        color: isApplied
-                                                                            ? "#ffffff"
-                                                                            : tag.color,
-                                                                    }}
-                                                                >
-                                                                    {tag.name}
-                                                                </Text>
-                                                            </Pressable>
-                                                        );
-                                                    },
-                                                )}
+                                                                {tag.name}
+                                                            </Text>
+                                                        </Pressable>
+                                                    );
+                                                })}
                                             </ScrollView>
                                         </View>
                                     </Animated.View>
                                 </GestureDetector>
                             </View>
 
-                            <View className="flex-row items-center justify-between px-2">
+                            <View
+                                className="flex-row items-center justify-between px-2"
+                                style={{ backgroundColor: "transparent" }}
+                            >
                                 <Pressable
                                     accessibilityRole="button"
                                     accessibilityLabel="Shuffle"
@@ -666,21 +807,34 @@ export function MediaPlayer() {
                                 <Pressable
                                     accessibilityRole="button"
                                     accessibilityLabel={
-                                        isPlaying ? "Pause" : "Play"
+                                        isLoading
+                                            ? "Loading song"
+                                            : isPlaying
+                                              ? "Pause"
+                                              : "Play"
                                     }
+                                    accessibilityState={{ busy: isLoading }}
+                                    disabled={isLoading}
                                     onPress={() =>
                                         void togglePlayback(activeTrack)
                                     }
                                     className="w-20 h-20 rounded-full bg-primary items-center justify-center"
                                 >
-                                    <Ionicons
-                                        name={isPlaying ? "pause" : "play"}
-                                        size={38}
-                                        color={colors.card}
-                                        style={{
-                                            marginLeft: isPlaying ? 0 : 4,
-                                        }}
-                                    />
+                                    {isLoading ? (
+                                        <ActivityIndicator
+                                            size="large"
+                                            color={colors.card}
+                                        />
+                                    ) : (
+                                        <Ionicons
+                                            name={isPlaying ? "pause" : "play"}
+                                            size={38}
+                                            color={colors.card}
+                                            style={{
+                                                marginLeft: isPlaying ? 0 : 4,
+                                            }}
+                                        />
+                                    )}
                                 </Pressable>
                                 <Pressable
                                     accessibilityRole="button"

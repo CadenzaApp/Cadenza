@@ -71,14 +71,44 @@ public class AppleMusicKitModule: Module {
         if let date = song.releaseDate {
             dict["releaseDate"] = date.timeIntervalSince1970 * 1000
         }
+        if let url = song.url {
+            dict["shareUrl"] = url.absoluteString
+        }
 
         return dict
     }
 
+    @available(iOS 15.0, *)
+    private func playbackSnapshot() -> [String: Any] {
+        let player = ApplicationMusicPlayer.shared
+        let rawProgress = player.playbackTime
+        var snapshot: [String: Any] = [
+            "isPlaying": player.state.playbackStatus == .playing,
+            "isLoading": false,
+            "progress": rawProgress.isFinite ? max(0, rawProgress) : 0
+        ]
+
+        guard let item = player.queue.currentEntry?.item else { return snapshot }
+
+        switch item {
+        case .song(let song):
+            let playbackType = song.id.rawValue.hasPrefix("i.") ? "librarySong" : "song"
+            let track = formatSong(song, playbackType: playbackType)
+            snapshot["currentTrack"] = track
+            if let duration = song.duration {
+                snapshot["duration"] = duration
+            }
+        case .musicVideo:
+            break
+        @unknown default:
+            break
+        }
+
+        return snapshot
+    }
+
     public func definition() -> ModuleDefinition {
         Name("AppleMusicKit")
-
-        Events("onPlaybackStateChange")
 
         AsyncFunction("authorize") { (developerToken: String) async throws -> [String: String] in
             guard #available(iOS 15.1, *) else {
@@ -152,6 +182,13 @@ public class AppleMusicKitModule: Module {
             } else {
                 try await ApplicationMusicPlayer.shared.play()
             }
+        }
+
+        AsyncFunction("getPlaybackSnapshot") { () -> [String: Any] in
+            guard #available(iOS 15.0, *) else {
+                return ["isPlaying": false, "isLoading": false, "progress": 0]
+            }
+            return playbackSnapshot()
         }
 
         AsyncFunction("skipToNextEntry") { () async throws -> Void in
@@ -331,25 +368,28 @@ public class AppleMusicKitModule: Module {
                 var request = MusicCatalogResourceRequest<Album>(
                     matching: \.id, equalTo: MusicItemID(id))
                 let response = try await request.response()
-                if let album = response.items.first {
-                    ApplicationMusicPlayer.shared.queue = [album]
+                guard let album = response.items.first else {
+                    throw Exception(name: "ERR_NOT_FOUND", description: "Album not found: \(id)")
                 }
+                ApplicationMusicPlayer.shared.queue = [album]
             } else if type == "song" {
                 var request = MusicCatalogResourceRequest<Song>(
                     matching: \.id, equalTo: MusicItemID(id))
                 let response = try await request.response()
-                if let song = response.items.first {
-                    ApplicationMusicPlayer.shared.queue = [song]
+                guard let song = response.items.first else {
+                    throw Exception(name: "ERR_NOT_FOUND", description: "Song not found: \(id)")
                 }
+                ApplicationMusicPlayer.shared.queue = [song]
             } else if type == "librarySong" {
                 if #available(iOS 16.0, *) {
                     var request = MusicLibraryRequest<Song>()
                     request.filter(matching: \.id, equalTo: MusicItemID(id))
                     request.limit = 1
                     let response = try await request.response()
-                    if let song = response.items.first {
-                        ApplicationMusicPlayer.shared.queue = [song]
+                    guard let song = response.items.first else {
+                        throw Exception(name: "ERR_NOT_FOUND", description: "Library song not found: \(id)")
                     }
+                    ApplicationMusicPlayer.shared.queue = [song]
                 } else {
                     throw Exception(
                         name: "ERR_UNSUPPORTED",
@@ -359,9 +399,12 @@ public class AppleMusicKitModule: Module {
                 var request = MusicCatalogResourceRequest<Playlist>(
                     matching: \.id, equalTo: MusicItemID(id))
                 let response = try await request.response()
-                if let playlist = response.items.first {
-                    ApplicationMusicPlayer.shared.queue = [playlist]
+                guard let playlist = response.items.first else {
+                    throw Exception(name: "ERR_NOT_FOUND", description: "Playlist not found: \(id)")
                 }
+                ApplicationMusicPlayer.shared.queue = [playlist]
+            } else {
+                throw Exception(name: "ERR_INVALID_TYPE", description: "Unsupported queue type: \(type)")
             }
         }
     }

@@ -1,16 +1,10 @@
+import { createContext, useContext, useEffect, ReactNode } from "react";
+import { Alert, AppState } from "react-native";
 import {
-    createContext,
-    useContext,
-    useEffect,
-    useState,
-    ReactNode,
-} from "react";
-import { Alert } from "react-native";
-import {
-    MusicKit,
     MusicItem,
     Player,
-    useIsPlaying,
+    usePlaybackSnapshot,
+    MusicKit,
     PlaybackQueueType,
 } from "@apple-musickit";
 
@@ -18,8 +12,9 @@ type PlaybackInfo = {
     activeTrackId: string | null;
     activeTrack: MusicItem | null;
     isPlaying: boolean;
+    isLoading: boolean;
     progress: number;
-    togglePlayback: (track: MusicItem | string) => Promise<void>;
+    togglePlayback: (track: MusicItem) => Promise<void>;
     seekTo: (time: number) => Promise<void>;
     skipToNext: () => Promise<void>;
     skipToPrevious: () => Promise<void>;
@@ -32,51 +27,52 @@ export function usePlayback() {
 }
 
 export function PlaybackProvider({ children }: { children: ReactNode }) {
-    const [activeTrackId, setActiveTrackId] = useState<string | null>(null);
-    const [activeTrack, setActiveTrack] = useState<MusicItem | null>(null);
-    const [progress, setProgress] = useState(0);
-
-    const isPlaying = useIsPlaying();
+    const snapshot = usePlaybackSnapshot();
+    const activeTrack = snapshot.currentTrack ?? null;
+    const activeTrackId = activeTrack?.id ?? null;
 
     useEffect(() => {
-        if (!isPlaying || !activeTrack?.songDuration) return;
+        let active = true;
 
-        const interval = setInterval(() => {
-            setProgress((currentProgress) =>
-                Math.min(
-                    currentProgress + 1,
-                    activeTrack.songDuration ?? currentProgress,
-                ),
-            );
-        }, 1000);
+        const refreshPlaybackSnapshot = () => {
+            if (!active || AppState.currentState !== "active") return;
 
-        return () => clearInterval(interval);
-    }, [activeTrack?.songDuration, isPlaying]);
+            void Player.refreshPlaybackSnapshot().catch((error) => {
+                console.warn("Failed to refresh playback snapshot:", error);
+            });
+        };
 
-    async function togglePlayback(track: MusicItem | string) {
-        const trackId = typeof track === "string" ? track : track.id;
+        refreshPlaybackSnapshot();
+        const interval = setInterval(refreshPlaybackSnapshot, 750);
+        const appStateSubscription = AppState.addEventListener(
+            "change",
+            (nextAppState) => {
+                if (nextAppState === "active") refreshPlaybackSnapshot();
+            },
+        );
+
+        return () => {
+            active = false;
+            clearInterval(interval);
+            appStateSubscription.remove();
+        };
+    }, []);
+
+    async function togglePlayback(track: MusicItem) {
+        const trackId = track.id;
+        const isNewTrack = activeTrackId !== trackId;
 
         if (!trackId) return;
 
         try {
-            if (activeTrackId === trackId) {
+            if (!isNewTrack) {
                 await Player.togglePlayerState();
             } else {
                 const playbackType = trackId.startsWith("i.")
                     ? PlaybackQueueType.LibrarySong
                     : PlaybackQueueType.Song;
                 await MusicKit.setPlaybackQueue(trackId, playbackType);
-                setActiveTrackId(trackId);
-                if (typeof track !== "string") {
-                    setActiveTrack(track);
-                } else {
-                    // This fallback keeps the player useful when a legacy caller
-                    // only knows an ID. List and detail views pass full metadata.
-                    const [song] = await MusicKit.getSongInfo([trackId]);
-                    if (song) setActiveTrack(song);
-                }
-                setProgress(0);
-
+                Player.expectCurrentTrack(track);
                 await Player.play();
             }
         } catch (e) {
@@ -91,9 +87,6 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
             Math.min(time, activeTrack?.songDuration ?? time),
         );
         try {
-            // Update the player UI immediately after the user releases the
-            // scrubber, then apply the native seek command.
-            setProgress(boundedTime);
             await Player.seekToTime(boundedTime);
         } catch (e) {
             console.error("Failed to seek playback:", e);
@@ -103,7 +96,6 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     async function skipToNext() {
         try {
             await Player.skipToNextEntry();
-            setProgress(0);
         } catch (e) {
             console.error("Failed to skip to the next track:", e);
         }
@@ -112,7 +104,6 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     async function skipToPrevious() {
         try {
             await Player.skipToPreviousEntry();
-            setProgress(0);
         } catch (e) {
             console.error("Failed to skip to the previous track:", e);
         }
@@ -123,8 +114,9 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
             value={{
                 activeTrackId,
                 activeTrack,
-                isPlaying,
-                progress,
+                isPlaying: snapshot.isPlaying,
+                isLoading: snapshot.isLoading,
+                progress: snapshot.progress,
                 togglePlayback,
                 seekTo,
                 skipToNext,

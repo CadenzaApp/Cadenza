@@ -13,6 +13,7 @@ import com.apple.android.music.playback.queue.CatalogPlaybackQueueItemProvider
 import com.apple.android.music.playback.model.MediaContainerType
 import com.apple.android.music.playback.model.MediaItemType
 import com.apple.android.music.playback.model.PlaybackState
+import com.apple.android.music.playback.model.PlayerMediaItem
 import expo.modules.kotlin.Promise
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
@@ -102,10 +103,47 @@ class AppleMusicKitModule : Module() {
         return playerController
     }
 
+    private fun formatPlayerMediaItem(item: PlayerMediaItem): Map<String, Any> {
+        val result = mutableMapOf<String, Any>(
+            "id" to (item.subscriptionStoreId ?: ""),
+            "playbackType" to "song",
+            "title" to (item.title ?: "Unknown Title"),
+            "artistName" to (item.artistName ?: "Unknown Artist")
+        )
+
+        item.getArtworkUrl(200, 200)?.takeIf { it.isNotBlank() }?.let {
+            result["artworkUrl"] = it
+        }
+        item.getArtworkUrl(1200, 1200)?.takeIf { it.isNotBlank() }?.let {
+            result["artworkUrlLarge"] = it
+        }
+        item.albumTitle?.takeIf { it.isNotBlank() }?.let { result["albumName"] = it }
+        item.albumSubscriptionStoreId?.takeIf { it.isNotBlank() }?.let { result["albumID"] = it }
+        item.url?.takeIf { it.isNotBlank() }?.let { result["shareUrl"] = it }
+        if (item.duration > 0) result["songDuration"] = item.duration / 1000.0
+
+        return result
+    }
+
+    private fun playbackSnapshot(controller: MediaPlayerController): Map<String, Any> {
+        val progressMs = controller.currentPosition
+        val durationMs = controller.duration
+        val snapshot = mutableMapOf<String, Any>(
+            "isPlaying" to (controller.playbackState == PlaybackState.PLAYING),
+            "isLoading" to controller.isBuffering,
+            "progress" to if (progressMs >= 0) progressMs / 1000.0 else 0.0
+        )
+
+        if (durationMs > 0) snapshot["duration"] = durationMs / 1000.0
+        controller.currentItem?.item?.let {
+            snapshot["currentTrack"] = formatPlayerMediaItem(it)
+        }
+
+        return snapshot
+    }
+
     override fun definition() = ModuleDefinition {
         Name("AppleMusicKit")
-        Events("onPlaybackStateChange")
-
         OnDestroy {
             try {
                 playerController?.pause()
@@ -179,58 +217,83 @@ class AppleMusicKitModule : Module() {
         }
 
         AsyncFunction("play") { promise: Promise ->
-            // Handler(Looper.GetMainLooper()).post ensures the following action happens on the main (UI)
-            // which is absolutely crucial to ensure audio playback w
             Handler(Looper.getMainLooper()).post {
-                getOrCreatePlayerController()?.play()
-                promise.resolve(null)
+                val controller = getOrCreatePlayerController()
+                if (controller == null) {
+                    promise.reject("ERR_PLAYER_UNAVAILABLE", "Apple Music player is unavailable", null)
+                } else {
+                    controller.play()
+                    promise.resolve(null)
+                }
             }
         }
 
         AsyncFunction("pause") { promise: Promise ->
             Handler(Looper.getMainLooper()).post {
-                getOrCreatePlayerController()?.pause()
-                promise.resolve(null)
+                val controller = getOrCreatePlayerController()
+                if (controller == null) {
+                    promise.reject("ERR_PLAYER_UNAVAILABLE", "Apple Music player is unavailable", null)
+                } else {
+                    controller.pause()
+                    promise.resolve(null)
+                }
             }
         }
 
         AsyncFunction("togglePlayerState") { promise: Promise ->
             Handler(Looper.getMainLooper()).post {
                 val controller = getOrCreatePlayerController()
-                if (controller?.playbackState == PlaybackState.PLAYING) {
+                if (controller == null) {
+                    promise.reject("ERR_PLAYER_UNAVAILABLE", "Apple Music player is unavailable", null)
+                } else if (controller.playbackState == PlaybackState.PLAYING) {
                     controller.pause()
                 } else {
-                    controller?.play()
+                    controller.play()
                 }
-                promise.resolve(null)
+                if (controller != null) promise.resolve(null)
+            }
+        }
+
+        AsyncFunction("getPlaybackSnapshot") { promise: Promise ->
+            Handler(Looper.getMainLooper()).post {
+                val controller = getOrCreatePlayerController()
+                if (controller == null) {
+                    promise.reject("ERR_PLAYER_UNAVAILABLE", "Apple Music player is unavailable", null)
+                } else {
+                    promise.resolve(playbackSnapshot(controller))
+                }
             }
         }
 
         AsyncFunction("skipToNextEntry") { promise: Promise ->
-            Handler(Looper.getMainLooper()).post { getOrCreatePlayerController()?.skipToNextItem(); promise.resolve(null) }
+            Handler(Looper.getMainLooper()).post {
+                val controller = getOrCreatePlayerController()
+                if (controller == null) promise.reject("ERR_PLAYER_UNAVAILABLE", "Apple Music player is unavailable", null)
+                else { controller.skipToNextItem(); promise.resolve(null) }
+            }
         }
 
         AsyncFunction("skipToPreviousEntry") { promise: Promise ->
             Handler(Looper.getMainLooper()).post {
-                getOrCreatePlayerController()?.skipToPreviousItem(); promise.resolve(
-                null
-            )
+                val controller = getOrCreatePlayerController()
+                if (controller == null) promise.reject("ERR_PLAYER_UNAVAILABLE", "Apple Music player is unavailable", null)
+                else { controller.skipToPreviousItem(); promise.resolve(null) }
             }
         }
 
         AsyncFunction("restartCurrentEntry") { promise: Promise ->
             Handler(Looper.getMainLooper()).post {
-                getOrCreatePlayerController()?.seekToPosition(0); promise.resolve(
-                null
-            )
+                val controller = getOrCreatePlayerController()
+                if (controller == null) promise.reject("ERR_PLAYER_UNAVAILABLE", "Apple Music player is unavailable", null)
+                else { controller.seekToPosition(0); promise.resolve(null) }
             }
         }
 
         AsyncFunction("seekToTime") { time: Double, promise: Promise ->
             Handler(Looper.getMainLooper()).post {
-                getOrCreatePlayerController()?.seekToPosition((time * 1000).toLong()); promise.resolve(
-                null
-            )
+                val controller = getOrCreatePlayerController()
+                if (controller == null) promise.reject("ERR_PLAYER_UNAVAILABLE", "Apple Music player is unavailable", null)
+                else { controller.seekToPosition((time * 1000).toLong()); promise.resolve(null) }
             }
         }
 
@@ -252,8 +315,12 @@ class AppleMusicKitModule : Module() {
             Handler(Looper.getMainLooper()).post {
                 try {
                     val controller = getOrCreatePlayerController()
+                    if (controller == null) {
+                        promise.reject("ERR_PLAYER_UNAVAILABLE", "Apple Music player is unavailable", null)
+                        return@post
+                    }
                     Log.i(TAG, "Preparing provider on Main Thread...")
-                    controller?.prepare(provider, true)
+                    controller.prepare(provider, true)
                     promise.resolve(null)
                 } catch (e: Exception) {
                     Log.e(TAG, "Error during prepare()", e)
@@ -388,6 +455,9 @@ class AppleMusicKitModule : Module() {
 
         attributes?.get("albumName")?.let { result["albumName"] = it }
         attributes?.get("genreNames")?.let { result["genres"] = it }
+        attributes?.get("url")?.toString()?.takeIf { it.isNotBlank() }?.let {
+            result["shareUrl"] = it
+        }
 
         val durationMs = (attributes?.get("durationInMillis") as? Number)?.toDouble()
         if (durationMs != null) {

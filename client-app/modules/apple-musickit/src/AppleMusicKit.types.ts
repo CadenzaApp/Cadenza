@@ -37,6 +37,16 @@ export interface MusicItem {
     songDuration?: number;
     releaseDate?: number;
     genres?: string[];
+    /** Canonical Apple Music URL suitable for sharing outside the app. */
+    shareUrl?: string;
+}
+
+export interface PlaybackSnapshot {
+    isPlaying: boolean;
+    isLoading: boolean;
+    progress: number;
+    duration?: number;
+    currentTrack?: MusicItem;
 }
 
 export interface SearchResult {
