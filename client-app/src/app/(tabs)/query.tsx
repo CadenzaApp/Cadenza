@@ -7,12 +7,11 @@ import { Text } from "@/components/ui/text";
 import { Redirect } from "expo-router";
 import { MusicItem, MusicKit } from "@apple-musickit";
 import QueryResults from "@/features/query-builder/QueryResults";
-import { useTags } from "@/lib/routes/tags";
+import { useUserTags } from "@/lib/routes/tags";
 
 export default function QueryScreen() {
     const { account } = useAccount();
-    const {tagsWithMeta, tagsLoading, tagsErr} = useTags();
-    const tags = tagsWithMeta?.map(t => t.tag);
+    const {userTags, userTagsLoading, userTagsErr} = useUserTags();
 
     const [matchedSongs, setMatchedSongs] = useState<MusicItem[] | null>(null);
     const [isFetchingMetadata, setIsFetchingMetadata] = useState(false);
@@ -48,7 +47,7 @@ export default function QueryScreen() {
 
     if (!account) return <Redirect href="/auth?initialMode=signin" />;
 
-    if (tagsLoading) {
+    if (userTagsLoading) {
         return (
             <SafeAreaView className="flex-1 bg-background items-center justify-center">
                 <ActivityIndicator size="large" className="text-primary" />
@@ -56,10 +55,10 @@ export default function QueryScreen() {
         );
     }
 
-    if (tagsErr) {
+    if (userTagsErr) {
         return (
             <SafeAreaView className="flex-1 bg-background items-center justify-center">
-                <Text className="text-destructive text-sm">{JSON.stringify(tagsErr)}</Text>
+                <Text className="text-destructive text-sm">{JSON.stringify(userTagsErr)}</Text>
             </SafeAreaView>
         );
     }
@@ -74,7 +73,7 @@ export default function QueryScreen() {
                     onBackPress={returnToQueryBuilder}
                 />
             ) : (
-                <QueryBuilder tags={tags!} onQueryReturn={onQueryReturn} />
+                <QueryBuilder tags={userTags!} onQueryReturn={onQueryReturn} />
             )}
         </SafeAreaView>
     );

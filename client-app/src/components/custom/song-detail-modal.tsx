@@ -7,13 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { Tag } from "@/lib/types";
 import { TagPill } from "@/components/custom/tag-pill";
-import {
-    useApplyTag,
-    useTagsOnSong,
-    useUnapplyTag,
-} from "@/lib/routes/songs";
-import { useSuggestTags } from "@/lib/routes/tags";
-
+import { useApplyTag, useTagsOnSong, useUnapplyTag } from "@/lib/routes/songs";
+import { useSuggestTags, useUserTags } from "@/lib/routes/tags";
 
 type SongDetailModalProps = {
     open: boolean;
@@ -30,7 +25,6 @@ function toDisplayString(value: unknown, fallback = "Unavailable") {
     return fallback;
 }
 
-
 export function SongDetailModal({
     open,
     onClose,
@@ -42,21 +36,22 @@ export function SongDetailModal({
     const [activePanel, setActivePanel] = useState<"addTag" | "aiTags" | null>(
         null,
     );
-    const {
-        tagsOnSong,
-        tagsOnSongLoading,
-        tagsOnSongErr,
-    } = useTagsOnSong(song?.id);
-    const tags = tagsOnSong && [...tagsOnSong.global, ...tagsOnSong.local];
+    const { tagsOnSong, tagsOnSongLoading, tagsOnSongErr } = useTagsOnSong(
+        song?.id,
+    );
+    const { userTags, userTagsLoading, userTagsErr } = useUserTags();
+    const userTagsNotOnSong =
+        userTags &&
+        tagsOnSong &&
+        userTags.filter(
+            (tag) =>
+                !tagsOnSong.some((existingTag) => existingTag.id === tag.id),
+        );
 
     const { unapplyTag } = useUnapplyTag();
     const { applyTag } = useApplyTag();
-    let {
-        suggestedTagNames,
-        suggestTags,
-        suggestTagsErr,
-        suggestTagsLoading,
-    } = useSuggestTags();
+    let { suggestedTagNames, suggestTags, suggestTagsErr, suggestTagsLoading } =
+        useSuggestTags();
     const suggestedTags: Tag[] | undefined = suggestedTagNames?.map(
         (name, i) => ({
             id: -i,
@@ -88,7 +83,9 @@ export function SongDetailModal({
             return;
         }
 
-        await suggestTags({ song_desc: `${song?.title} by ${song?.artistName}` });
+        await suggestTags({
+            song_desc: `${song?.title} by ${song?.artistName}`,
+        });
     }
 
     function handlePlayPress() {
@@ -258,9 +255,9 @@ export function SongDetailModal({
                                     Tags
                                 </Text>
 
-                                {tags ? (
+                                {tagsOnSong ? (
                                     <View className="flex-row flex-wrap gap-2">
-                                        {tags.map((tag) => (
+                                        {tagsOnSong.map((tag) => (
                                             <TagPill
                                                 key={tag.id}
                                                 tag={tag}
@@ -358,21 +355,14 @@ export function SongDetailModal({
                                             {JSON.stringify(tagsOnSongErr)}
                                         </Text>
                                     )}
-                                    {tags?.length === 0 && (
+                                    {userTagsNotOnSong?.length === 0 && (
                                         <Text className="text-sm text-muted-foreground">
-                                            No tags created yet.
+                                            No tags to add.
                                         </Text>
                                     )}
-                                    {tags && tags.length !== 0 && (
+                                    {userTagsNotOnSong && userTagsNotOnSong.length !== 0 && (
                                         <View className="flex-row flex-wrap gap-2">
-                                            {tags
-                                                .filter(
-                                                    (tag) =>
-                                                        !tags.some(
-                                                            (t) =>
-                                                                t.id === tag.id,
-                                                        ),
-                                                )
+                                            {userTagsNotOnSong
                                                 .map((tag) => (
                                                     <Pressable
                                                         key={tag.id}
@@ -400,27 +390,4 @@ export function SongDetailModal({
             </Pressable>
         </Modal>
     );
-}
-
-function normalizeOptionalString(value: unknown): string | undefined {
-    if (typeof value !== "string") {
-        return undefined;
-    }
-
-    const normalized = value.trim();
-    return normalized.length > 0 ? normalized : undefined;
-}
-
-function normalizeRequiredString(value: unknown, message: string): string {
-    const normalized = normalizeOptionalString(value);
-    if (!normalized) {
-        throw new Error(message);
-    }
-    return normalized;
-}
-
-function hasRequiredMetadata(song: AppleMusicItem): boolean {
-    const title = normalizeOptionalString(song.title);
-    const artist = normalizeOptionalString(song.artistName);
-    return Boolean(title && artist);
 }

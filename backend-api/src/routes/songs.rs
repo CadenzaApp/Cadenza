@@ -3,10 +3,10 @@ use crate::{
     auth::SupabaseClaims,
     db::{
         self,
-        tags::{get_tags_on_song, is_global_tag},
+        tags::{get_user_tags_on_song, is_global_tag},
     },
     err::CadenzaError,
-    routes::json::tag::Tag,
+    routes::json::{tag::Tag, vec_into},
 };
 use axum::{
     Json, Router,
@@ -15,7 +15,7 @@ use axum::{
 };
 use axum_jwt_auth::Claims;
 use sea_orm::DatabaseConnection;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 
 #[derive(Deserialize)]
@@ -23,30 +23,13 @@ pub struct GetTagsOnSongQueryParams {
     song_id: String,
 }
 
-#[derive(Serialize)]
-pub struct GetTagsOnSongResponse {
-    global: Vec<Tag>,
-    local: Vec<Tag>,
-}
 async fn get_tags_on_song_handler(
     State(db): State<DatabaseConnection>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Query(params): Query<GetTagsOnSongQueryParams>,
-) -> Result<Json<GetTagsOnSongResponse>, CadenzaError> {
-    let mut all_tags = get_tags_on_song(&db, claims.user_id, &params.song_id).await?;
-
-    // sort tags into global/local
-    let mut global: Vec<Tag> = vec![];
-    let mut local: Vec<Tag> = vec![];
-    while let Some(tag) = all_tags.pop() {
-        if is_global_tag(&tag) {
-            global.push(tag.into());
-        } else {
-            local.push(tag.into());
-        }
-    }
-
-    Ok(Json(GetTagsOnSongResponse { global, local }))
+) -> Result<Json<Vec<Tag>>, CadenzaError> {
+    let user_tags = get_user_tags_on_song(&db, claims.user_id, &params.song_id).await?;
+    Ok(Json(vec_into(user_tags)))
 }
 
 
@@ -56,12 +39,12 @@ pub struct ApplyTagPayload {
     tag_id: i64,
 }
 
-async fn apply_tag_handler(
+async fn apply_user_tag_handler(
     State(db): State<DatabaseConnection>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Json(payload): Json<ApplyTagPayload>,
 ) -> Result<(), CadenzaError> {
-    db::tags::apply_local_tag(db, claims.user_id, payload.song_id, payload.tag_id).await
+    db::tags::apply_user_tag(db, claims.user_id, payload.song_id, payload.tag_id).await
 }
 
 #[derive(Deserialize)]
@@ -69,18 +52,18 @@ pub struct UnapplyTagPayload {
     song_id: String,
     tag_id: i64,
 }
-async fn unapply_tag_handler(
+async fn unapply_user_tag_handler(
     State(db): State<DatabaseConnection>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Json(payload): Json<UnapplyTagPayload>,
 ) -> Result<(), CadenzaError> {
-    db::tags::unapply_local_tag(db, claims.user_id, payload.song_id, payload.tag_id).await
+    db::tags::unapply_user_tag(db, claims.user_id, payload.song_id, payload.tag_id).await
 }
 
 
 pub fn get_songs_router() -> Router<AppState> {
     Router::new()
         .route("/tags", get(get_tags_on_song_handler))
-        .route("/tags", post(apply_tag_handler))
-        .route("/tags", delete(unapply_tag_handler))
+        .route("/tags", post(apply_user_tag_handler))
+        .route("/tags", delete(unapply_user_tag_handler))
 }

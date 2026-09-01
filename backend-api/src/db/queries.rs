@@ -4,7 +4,6 @@ use sea_orm::prelude::Uuid;
 use sea_orm::{DatabaseConnection, FromQueryResult};
 use sea_orm::{DbBackend, Statement};
 
-use crate::db::entity::*;
 use crate::err::CadenzaError;
 
 #[derive(Debug, FromQueryResult)]

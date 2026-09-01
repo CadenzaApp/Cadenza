@@ -3,3 +3,7 @@ export type Tag = {
     name: string;
     color: string;
 };
+
+export type TagMetadata = {
+    count: number;
+}

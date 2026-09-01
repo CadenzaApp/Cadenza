@@ -7,30 +7,30 @@ use sea_orm::entity::prelude::*;
 pub struct Model {
     #[sea_orm(primary_key)]
     pub tag_id: i64,
-    #[sea_orm(column_type = "Text", unique_key = "name_user_unique")]
+    pub user_id: Option<Uuid>,
+    #[sea_orm(column_type = "Text")]
     pub name: String,
     #[sea_orm(column_type = "Text")]
     pub color: String,
-    #[sea_orm(unique_key = "name_user_unique")]
-    pub user_id: Option<Uuid>,
-    #[sea_orm(
-        ignore,
-        column_type = "custom(\"vector\")",
-        select_as = "text",
-        nullable
-    )]
-    pub embedding: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
-    #[sea_orm(has_many = "super::tags_applied::Entity")]
-    TagsApplied,
+    #[sea_orm(has_many = "super::default_tags_applied::Entity")]
+    DefaultTagsApplied,
+    #[sea_orm(has_many = "super::user_tags_applied::Entity")]
+    UserTagsApplied,
 }
 
-impl Related<super::tags_applied::Entity> for Entity {
+impl Related<super::default_tags_applied::Entity> for Entity {
     fn to() -> RelationDef {
-        Relation::TagsApplied.def()
+        Relation::DefaultTagsApplied.def()
+    }
+}
+
+impl Related<super::user_tags_applied::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::UserTagsApplied.def()
     }
 }
 
