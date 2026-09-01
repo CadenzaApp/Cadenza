@@ -58,6 +58,29 @@ function updatePlaybackSnapshot(nextSnapshot: PlaybackSnapshot) {
     notifyListeners();
 }
 
+function mergeCurrentTrack(
+    nativeTrack: MusicItem | undefined,
+    previousTrack: MusicItem | undefined,
+) {
+    if (!nativeTrack) return previousTrack;
+
+    // Queue snapshots can omit artwork even when the search or library result
+    // that started playback already supplied a usable image. Keep that known
+    // artwork for the same track instead of replacing it with an empty value.
+    const isSameTrack =
+        previousTrack &&
+        (!nativeTrack.id || nativeTrack.id === previousTrack.id);
+    if (!isSameTrack) return nativeTrack;
+
+    return {
+        ...previousTrack,
+        ...nativeTrack,
+        artworkUrl: previousTrack.artworkUrl || nativeTrack.artworkUrl,
+        artworkUrlLarge:
+            previousTrack.artworkUrlLarge || nativeTrack.artworkUrlLarge,
+    };
+}
+
 function setOptimisticPlaybackState(nextState: boolean) {
     playbackStateRevision += 1;
     optimisticPlaybackUntil = Date.now() + PLAYBACK_STATE_SETTLE_DELAY_MS;
@@ -159,8 +182,10 @@ export const Player = {
                 (playbackSnapshot.isLoading &&
                     !nextSnapshot.isPlaying &&
                     Date.now() < playbackLoadDeadline),
-            currentTrack:
-                nextSnapshot.currentTrack ?? playbackSnapshot.currentTrack,
+            currentTrack: mergeCurrentTrack(
+                nextSnapshot.currentTrack,
+                playbackSnapshot.currentTrack,
+            ),
             duration:
                 nextSnapshot.duration ??
                 nextSnapshot.currentTrack?.songDuration ??
