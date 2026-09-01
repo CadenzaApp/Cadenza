@@ -3,6 +3,21 @@ import Foundation
 import MusicKit
 import StoreKit
 
+private final class StaticDeveloperTokenProvider: MusicUserTokenProvider,
+    MusicDeveloperTokenProvider
+{
+    private let token: String
+
+    init(token: String) {
+        self.token = token
+        super.init()
+    }
+
+    func developerToken(options: MusicTokenRequestOptions) async throws -> String {
+        token
+    }
+}
+
 public class AppleMusicKitModule: Module {
     private func artworkURLString(from artwork: Artwork?, width: Int = 200, height: Int = 200) -> String {
         guard let url = artwork?.url(width: width, height: height) else { return "" }
@@ -108,7 +123,14 @@ public class AppleMusicKitModule: Module {
         }
 
         AsyncFunction("setTokens") { (developerToken: String, userToken: String?) -> Void in
-            // No-op: iOS MusicKit frameworks handle the user session automatically.
+            // The default provider only works when the MusicKit App Service is
+            // enabled for this bundle ID. Supplying the app's already-configured
+            // developer token keeps native catalog requests authenticated even
+            // when automatic token generation is unavailable.
+            guard !developerToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return
+            }
+            MusicDataRequest.tokenProvider = StaticDeveloperTokenProvider(token: developerToken)
         }
 
         AsyncFunction("play") { () async throws -> Void in
@@ -157,19 +179,47 @@ public class AppleMusicKitModule: Module {
                 throw Exception(name: "ERR_UNSUPPORTED", description: "Requires iOS 15.0+")
             }
 
-            var request = MusicCatalogSearchRequest(term: query, types: [Song.self, Album.self])
-            request.limit = 20
+            let requestedTypes = Set(types.map { $0.lowercased() })
+            let searchSongs = requestedTypes.isEmpty || requestedTypes.contains("songs")
+            let searchAlbums = requestedTypes.isEmpty || requestedTypes.contains("albums")
 
-            let response = try await request.response()
-
-            let songs = response.songs.map { formatSong($0, playbackType: "song") }
-            let albums = response.albums.map {
-                ["id": $0.id.rawValue, "title": $0.title, "artistName": $0.artistName, "artworkUrl": artworkURLString(from: $0.artwork)]
+            // Passing extra result types can make MusicKit fail while decoding a
+            // response the caller did not request. Match the requested types (as
+            // Android does) instead of always including albums.
+            if searchSongs && !searchAlbums {
+                var request = MusicCatalogSearchRequest(term: query, types: [Song.self])
+                request.limit = 20
+                let response = try await request.response()
+                return [
+                    "songs": response.songs.map { formatSong($0, playbackType: "song") },
+                    "albums": [],
+                ]
             }
 
+            if searchAlbums && !searchSongs {
+                var request = MusicCatalogSearchRequest(term: query, types: [Album.self])
+                request.limit = 20
+                let response = try await request.response()
+                return [
+                    "songs": [],
+                    "albums": response.albums.map {
+                        ["id": $0.id.rawValue, "title": $0.title, "artistName": $0.artistName, "artworkUrl": artworkURLString(from: $0.artwork)]
+                    },
+                ]
+            }
+
+            guard searchSongs || searchAlbums else {
+                return ["songs": [], "albums": []]
+            }
+
+            var request = MusicCatalogSearchRequest(term: query, types: [Song.self, Album.self])
+            request.limit = 20
+            let response = try await request.response()
             return [
-                "songs": songs,
-                "albums": albums,
+                "songs": response.songs.map { formatSong($0, playbackType: "song") },
+                "albums": response.albums.map {
+                    ["id": $0.id.rawValue, "title": $0.title, "artistName": $0.artistName, "artworkUrl": artworkURLString(from: $0.artwork)]
+                },
             ]
         }
 

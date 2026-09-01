@@ -1,5 +1,5 @@
 import { NAV_THEME } from "@/lib/theme";
-import { ThemeProvider } from "@react-navigation/native";
+import { ThemeProvider } from "expo-router/react-navigation";
 import { Stack } from "expo-router";
 import AccountProvider from "@/lib/account";
 import { AppleMusicProvider } from "@/lib/apple-music-auth";

@@ -8,7 +8,7 @@ import Svg, {
     Rect,
     Stop,
 } from "react-native-svg";
-import { useTheme } from "@react-navigation/native";
+import { useTheme } from "expo-router/react-navigation";
 
 import {Button} from "@/components/ui/button";
 import {Text} from "@/components/ui/text";
