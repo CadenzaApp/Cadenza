@@ -15,8 +15,9 @@ import {
     type LibraryResult,
     MusicItem,
 } from "./AppleMusicKit.types";
+import { createMockNativeModule } from "./mock-native-module";
 
-interface AppleMusicKitNativeModule {
+export interface AppleMusicKitNativeModule {
     authorize(developerToken: string): Promise<AuthResult>;
     setTokens(developerToken: string, userToken: string | null): Promise<void>;
     play(): Promise<void>;
@@ -43,8 +44,17 @@ interface AppleMusicKitNativeModule {
     removeListeners(count: number): void;
 }
 
-const native =
-    requireOptionalNativeModule<AppleMusicKitNativeModule>("AppleMusicKit");
+// Set EXPO_PUBLIC_MOCK_MUSICKIT=1 to answer from ./mock-native instead of the
+// real module, for frontend work without a native build or a subscription.
+const useMockData = process.env.EXPO_PUBLIC_MOCK_MUSICKIT === "1";
+
+if (useMockData) {
+    console.warn("AppleMusicKit: using mock data, no audio will play.");
+}
+
+const native: AppleMusicKitNativeModule | null = useMockData
+    ? createMockNativeModule()
+    : requireOptionalNativeModule<AppleMusicKitNativeModule>("AppleMusicKit");
 
 let isPlaying = false;
 const listeners = new Set<() => void>();
