@@ -7,13 +7,7 @@ import {
     ReactNode,
 } from "react";
 import { Alert, AppState } from "react-native";
-import {
-    MusicItem,
-    Player,
-    usePlaybackSnapshot,
-    MusicKit,
-    PlaybackQueueType,
-} from "@apple-musickit";
+import { MusicItem, Playback, PlaybackQueueType } from "@apple-musickit";
 
 export type PlaybackQueue = {
     tracks: MusicItem[];
@@ -44,7 +38,7 @@ export function usePlayback() {
 }
 
 export function PlaybackProvider({ children }: { children: ReactNode }) {
-    const snapshot = usePlaybackSnapshot();
+    const snapshot = Playback.usePlaybackSnapshot();
     const activeTrack = snapshot.currentTrack ?? null;
     const activeTrackId = activeTrack?.id ?? null;
     const [queue, setQueue] = useState<MusicItem[]>([]);
@@ -57,7 +51,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
         const refreshPlaybackSnapshot = () => {
             if (!active || AppState.currentState !== "active") return;
 
-            void Player.refreshPlaybackSnapshot().catch((error) => {
+            void Playback.refreshPlaybackSnapshot().catch((error) => {
                 console.warn("Failed to refresh playback snapshot:", error);
             });
         };
@@ -86,19 +80,10 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
         const track = tracks[index];
         if (!track?.id) return;
 
-        const expectation = Player.expectCurrentTrack(track);
-        const playbackType = track.id.startsWith("i.")
-            ? PlaybackQueueType.LibrarySong
-            : PlaybackQueueType.Song;
+        const playbackType = track.playbackType ?? PlaybackQueueType.Song;
 
-        try {
-            await MusicKit.setPlaybackQueue(track.id, playbackType);
-            if (requestRevision !== queueRequestRevision.current) return;
-            await Player.play();
-        } catch (error) {
-            Player.cancelExpectedCurrentTrack(track.id, expectation);
-            throw error;
-        }
+        if (requestRevision !== queueRequestRevision.current) return;
+        await Playback.playTrack(track, playbackType);
     }
 
     async function playQueue({ tracks, startIndex = 0 }: PlaybackQueue) {
@@ -137,7 +122,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
 
         try {
             if (!isNewTrack) {
-                await Player.togglePlayerState();
+                await Playback.togglePlayerState();
             } else {
                 // Song lookup/list playback intentionally creates a one-song
                 // queue today. Playlist and shuffle surfaces can pass a larger
@@ -156,7 +141,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
             Math.min(time, activeTrack?.songDuration ?? time),
         );
         try {
-            await Player.seekToTime(boundedTime);
+            await Playback.seekToTime(boundedTime);
         } catch (e) {
             console.error("Failed to seek playback:", e);
         }

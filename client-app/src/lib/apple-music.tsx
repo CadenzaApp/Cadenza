@@ -1,5 +1,5 @@
 import { Auth, AuthStatus, type AuthResult } from "@apple-musickit";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as SecureStore from "expo-secure-store";
 import {
     createContext,
     useContext,
@@ -8,10 +8,6 @@ import {
     useCallback,
     type ReactNode,
 } from "react";
-
-// Moved the developer token here so it's managed in one place
-const DEVELOPER_TOKEN =
-    "eyJhbGciOiJFUzI1NiIsImtpZCI6IjRMN0hSOTVVRFYifQ.eyJpc3MiOiJaVUgyRlg3OTNDIiwiaWF0IjoxNzc2MTIxMzU1LCJleHAiOjE3OTE4NDYxNTV9.HCcvJ-iHzFBTPP2R1w3-fC1NGLHxzBp2avq2FvwOkK8vqB_bo2Qhs6WthS84EVtGhsstJDJw_CHNGwPQEEIXMA";
 
 type AppleMusicContextType = {
     authResult: AuthResult | null;
@@ -44,21 +40,21 @@ export function AppleMusicProvider({ children }: { children: ReactNode }) {
         authResult?.status === AuthStatus.Authorized && hasUserToken;
 
     const restoreNativeTokens = useCallback(async (result: AuthResult | null) => {
+        const developerToken = getDeveloperToken();
         if (result?.status === AuthStatus.Authorized && result.userToken) {
-            await Auth.setTokens(DEVELOPER_TOKEN, result.userToken);
+            await Auth.setTokens(developerToken, result.userToken);
             return;
         }
 
-        await Auth.setTokens(DEVELOPER_TOKEN, null);
+        await Auth.setTokens(developerToken, null);
     }, []);
 
     // Initialize tokens on app load
     useEffect(() => {
         async function initAppleMusic() {
             try {
-                const savedStr = await AsyncStorage.getItem("appleMusicAuth");
-                if (savedStr) {
-                    const savedAuth: AuthResult = JSON.parse(savedStr);
+                const savedAuth = await readStoredAuth();
+                if (savedAuth) {
                     if (
                         savedAuth.status === AuthStatus.Authorized &&
                         savedAuth.userToken
@@ -66,7 +62,7 @@ export function AppleMusicProvider({ children }: { children: ReactNode }) {
                         await restoreNativeTokens(savedAuth);
                         setAuthResult(savedAuth);
                     } else {
-                        await AsyncStorage.removeItem("appleMusicAuth");
+                        await clearStoredAuth();
                         await restoreNativeTokens(null);
                         setAuthResult(null);
                     }
@@ -76,8 +72,7 @@ export function AppleMusicProvider({ children }: { children: ReactNode }) {
                 }
             } catch (e) {
                 console.error("Failed to restore Apple Music tokens:", e);
-                await AsyncStorage.removeItem("appleMusicAuth");
-                await restoreNativeTokens(null);
+                await clearStoredAuth();
                 setAuthResult(null);
             } finally {
                 setIsInitializing(false);
@@ -88,21 +83,18 @@ export function AppleMusicProvider({ children }: { children: ReactNode }) {
     }, [restoreNativeTokens]);
 
     /**
-     * Prompts the user to authorize Apple Music and stores the tokens in AsyncStorage,
+     * Prompts the user to authorize Apple Music and stores the result securely,
      * allowing them to be restored in future sessions.
      */
     const connect = useCallback(async () => {
         try {
-            const result = await Auth.authorize(DEVELOPER_TOKEN);
+            const result = await Auth.authorize(getDeveloperToken());
 
             if (result.status === AuthStatus.Authorized && result.userToken) {
-                await AsyncStorage.setItem(
-                    "appleMusicAuth",
-                    JSON.stringify(result),
-                );
+                await writeStoredAuth(result);
                 await restoreNativeTokens(result);
             } else {
-                await AsyncStorage.removeItem("appleMusicAuth");
+                await clearStoredAuth();
                 await restoreNativeTokens(null);
             }
             setAuthResult(result);
@@ -126,11 +118,11 @@ export function AppleMusicProvider({ children }: { children: ReactNode }) {
     }, [authResult, connect, restoreNativeTokens]);
 
     /**
-     * Signs the user out of Apple Music and invalidates the tokens in AsyncStorage.
+     * Signs the user out of Apple Music and removes the securely stored token.
      */
     async function disconnect() {
         setAuthResult(null);
-        await AsyncStorage.removeItem("appleMusicAuth");
+        await clearStoredAuth();
 
         // Explicitly pass null to overwrite the userToken in the native module
         await restoreNativeTokens(null);
@@ -151,4 +143,33 @@ export function AppleMusicProvider({ children }: { children: ReactNode }) {
             {children}
         </AppleMusicContext.Provider>
     );
+}
+
+const AUTH_STORAGE_KEY = "appleMusicAuth";
+
+function getDeveloperToken(): string {
+    const token = process.env.EXPO_PUBLIC_MUSICKIT_DEVELOPER_TOKEN?.trim();
+    if (!token) {
+        throw new Error(
+            "EXPO_PUBLIC_MUSICKIT_DEVELOPER_TOKEN is not configured.",
+        );
+    }
+    return token;
+}
+
+async function readStoredAuth(): Promise<AuthResult | null> {
+    if (!(await SecureStore.isAvailableAsync())) return null;
+    const serialized = await SecureStore.getItemAsync(AUTH_STORAGE_KEY);
+    if (!serialized) return null;
+    return JSON.parse(serialized) as AuthResult;
+}
+
+async function writeStoredAuth(result: AuthResult): Promise<void> {
+    if (!(await SecureStore.isAvailableAsync())) return;
+    await SecureStore.setItemAsync(AUTH_STORAGE_KEY, JSON.stringify(result));
+}
+
+async function clearStoredAuth(): Promise<void> {
+    if (!(await SecureStore.isAvailableAsync())) return;
+    await SecureStore.deleteItemAsync(AUTH_STORAGE_KEY);
 }

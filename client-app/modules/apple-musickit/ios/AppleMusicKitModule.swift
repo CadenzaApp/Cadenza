@@ -1,10 +1,10 @@
 import ExpoModulesCore
 import Foundation
-import MusicKit
+@preconcurrency import MusicKit
 import StoreKit
 
 private final class StaticDeveloperTokenProvider: MusicUserTokenProvider,
-    MusicDeveloperTokenProvider
+    MusicDeveloperTokenProvider, @unchecked Sendable
 {
     private let token: String
 
@@ -21,6 +21,7 @@ private final class StaticDeveloperTokenProvider: MusicUserTokenProvider,
 public class AppleMusicKitModule: Module {
     private var developerToken: String?
     private var userToken: String?
+    private var storefrontID: String?
 
     private func makeAPIRequest(
         path: String,
@@ -107,14 +108,23 @@ public class AppleMusicKitModule: Module {
     }
 
     private func formatSong(_ song: Song, playbackType: String) -> [String: Any] {
+        let isLibrary = playbackType == "librarySong"
         var dict: [String: Any] = [
             "id": song.id.rawValue,
+            "resourceKind": "song",
+            "source": isLibrary ? "library" : "catalog",
             "playbackType": playbackType,
             "title": song.title,
             "artistName": song.artistName,
             "artworkUrl": artworkURLString(from: song.artwork, width: 200, height: 200),
             "artworkUrlLarge": artworkURLString(from: song.artwork, width: 1200, height: 1200)
         ]
+
+        if isLibrary {
+            dict["libraryId"] = song.id.rawValue
+        } else {
+            dict["catalogId"] = song.id.rawValue
+        }
 
         if let albumTitle = song.albumTitle {
             dict["albumName"] = albumTitle
@@ -137,6 +147,163 @@ public class AppleMusicKitModule: Module {
 
         return dict
     }
+
+    private func formatAlbum(_ album: Album) -> [String: Any] {
+        [
+            "id": album.id.rawValue,
+            "catalogId": album.id.rawValue,
+            "resourceKind": "album",
+            "source": "catalog",
+            "playbackType": "album",
+            "title": album.title,
+            "artistName": album.artistName,
+            "artworkUrl": artworkURLString(from: album.artwork),
+            "artworkUrlLarge": artworkURLString(from: album.artwork, width: 1200, height: 1200),
+        ]
+    }
+
+    private func formatPlaylist(_ playlist: Playlist, source: String) -> [String: Any] {
+        var result: [String: Any] = [
+            "id": playlist.id.rawValue,
+            "resourceKind": "playlist",
+            "source": source,
+            "playbackType": "playlist",
+            "title": playlist.name,
+            "artworkUrl": artworkURLString(from: playlist.artwork),
+            "artworkUrlLarge": artworkURLString(from: playlist.artwork, width: 1200, height: 1200),
+        ]
+        if source == "library" {
+            result["libraryId"] = playlist.id.rawValue
+        } else {
+            result["catalogId"] = playlist.id.rawValue
+        }
+        if let curatorName = playlist.curatorName {
+            result["artistName"] = curatorName
+        }
+        return result
+    }
+
+    private func formatAPIResource(_ item: [String: Any]) -> [String: Any] {
+        let attributes = item["attributes"] as? [String: Any] ?? [:]
+        let playParams = attributes["playParams"] as? [String: Any] ?? [:]
+        let type = (item["type"] as? String ?? "songs").lowercased()
+        let source = type.hasPrefix("library-") ? "library" : "catalog"
+        let resourceKind: String
+        let playbackType: String
+        if type.contains("playlist") {
+            resourceKind = "playlist"
+            playbackType = "playlist"
+        } else if type.contains("album") {
+            resourceKind = "album"
+            playbackType = "album"
+        } else {
+            resourceKind = "song"
+            playbackType = source == "library" && playParams["catalogId"] == nil
+                ? "librarySong" : "song"
+        }
+
+        let resourceID = item["id"] as? String ?? ""
+        let catalogID = (playParams["catalogId"] ?? playParams["globalId"]) as? String
+        let playableID = catalogID ?? resourceID
+        var result: [String: Any] = [
+            "id": playableID,
+            "resourceKind": resourceKind,
+            "source": source,
+            "playbackType": playbackType,
+            "title": attributes["name"] as? String ?? "Unknown Title",
+        ]
+
+        if source == "library" {
+            result["libraryId"] = resourceID
+        }
+        if let catalogID {
+            result["catalogId"] = catalogID
+        } else if source == "catalog" {
+            result["catalogId"] = resourceID
+        }
+        if let artistName = attributes["artistName"] as? String {
+            result["artistName"] = artistName
+        } else if let curatorName = attributes["curatorName"] as? String {
+            result["artistName"] = curatorName
+        }
+        if let albumName = attributes["albumName"] as? String {
+            result["albumName"] = albumName
+        }
+        if let genres = attributes["genreNames"] as? [String] {
+            result["genres"] = genres
+        }
+        if let shareURL = attributes["url"] as? String, !shareURL.isEmpty {
+            result["shareUrl"] = shareURL
+        }
+        if let duration = attributes["durationInMillis"] as? NSNumber {
+            result["songDuration"] = duration.doubleValue / 1000
+        }
+
+        if let artwork = attributes["artwork"] as? [String: Any],
+           let template = artwork["url"] as? String
+        {
+            result["artworkUrl"] = artworkURL(template, width: 200, height: 200)
+            result["artworkUrlLarge"] = artworkURL(template, width: 1200, height: 1200)
+        }
+
+        if let releaseDate = attributes["releaseDate"] as? String,
+           let date = Self.releaseDateFormatter.date(from: releaseDate)
+        {
+            result["releaseDate"] = date.timeIntervalSince1970 * 1000
+        }
+
+        let relationships = item["relationships"] as? [String: Any]
+        let albums = relationships?["albums"] as? [String: Any]
+        let albumData = albums?["data"] as? [[String: Any]]
+        if let albumID = albumData?.first?["id"] as? String {
+            result["albumID"] = albumID
+        }
+        return result
+    }
+
+    private func artworkURL(_ template: String, width: Int, height: Int) -> String {
+        template
+            .replacingOccurrences(of: "{w}", with: String(width))
+            .replacingOccurrences(of: "{h}", with: String(height))
+    }
+
+    private func collectionResult(_ response: [String: Any]) -> [String: Any] {
+        let data = response["data"] as? [[String: Any]] ?? []
+        var result: [String: Any] = ["items": data.map(formatAPIResource)]
+        if let next = response["next"] as? String, !next.isEmpty {
+            result["next"] = next
+        }
+        return result
+    }
+
+    private func pageQuery(_ options: [String: Int]) -> String {
+        let limit = min(100, max(1, options["limit"] ?? 50))
+        let offset = max(0, options["offset"] ?? 0)
+        return "limit=\(limit)&offset=\(offset)"
+    }
+
+    private func currentStorefrontID() async throws -> String {
+        if let storefrontID { return storefrontID }
+        let response = try await makeAPIRequest(path: "/v1/me/storefront")
+        guard let id = (response["data"] as? [[String: Any]])?.first?["id"] as? String,
+              !id.isEmpty
+        else {
+            throw Exception(
+                name: "ERR_STOREFRONT_UNAVAILABLE",
+                description: "Apple Music did not return a storefront for the current user.")
+        }
+        storefrontID = id
+        return id
+    }
+
+    private static let releaseDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
 
     @available(iOS 15.0, *)
     private func playbackSnapshot() -> [String: Any] {
@@ -206,7 +373,7 @@ public class AppleMusicKitModule: Module {
                     self.userToken = userToken
                     return ["status": "authorized", "userToken": userToken]
                 } catch {
-                    return ["status": "authorized", "error": error.localizedDescription]
+                    return ["status": "failed", "error": error.localizedDescription]
                 }
             case .denied: return ["status": "denied"]
             case .restricted: return ["status": "restricted"]
@@ -222,6 +389,7 @@ public class AppleMusicKitModule: Module {
             // when automatic token generation is unavailable.
             self.developerToken = developerToken
             self.userToken = userToken
+            self.storefrontID = nil
             guard !developerToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 return
             }
@@ -304,9 +472,7 @@ public class AppleMusicKitModule: Module {
                 let response = try await request.response()
                 return [
                     "songs": [],
-                    "albums": response.albums.map {
-                        ["id": $0.id.rawValue, "title": $0.title, "artistName": $0.artistName, "artworkUrl": artworkURLString(from: $0.artwork)]
-                    },
+                    "albums": response.albums.map(formatAlbum),
                 ]
             }
 
@@ -319,9 +485,7 @@ public class AppleMusicKitModule: Module {
             let response = try await request.response()
             return [
                 "songs": response.songs.map { formatSong($0, playbackType: "song") },
-                "albums": response.albums.map {
-                    ["id": $0.id.rawValue, "title": $0.title, "artistName": $0.artistName, "artworkUrl": artworkURLString(from: $0.artwork)]
-                },
+                "albums": response.albums.map(formatAlbum),
             ]
         }
 
@@ -356,7 +520,7 @@ public class AppleMusicKitModule: Module {
             // Fetch Catalog Songs
             if !catalogIds.isEmpty {
                 let musicItemIds = catalogIds.map { MusicItemID($0) }
-                var request = MusicCatalogResourceRequest<Song>(matching: \.id, memberOf: musicItemIds)
+                let request = MusicCatalogResourceRequest<Song>(matching: \.id, memberOf: musicItemIds)
                 let response = try await request.response()
 
                 let catalogFormatted = response.items.map { self.formatSong($0, playbackType: "song") }
@@ -366,8 +530,10 @@ public class AppleMusicKitModule: Module {
             // Restore original order
             var resultsDict: [String: [String: Any]] = [:]
             for result in fetchedResults {
-                if let id = result["id"] as? String {
-                    resultsDict[id] = result
+                for key in ["id", "catalogId", "libraryId"] {
+                    if let id = result[key] as? String {
+                        resultsDict[id] = result
+                    }
                 }
             }
 
@@ -377,10 +543,11 @@ public class AppleMusicKitModule: Module {
 
         AsyncFunction("getSongFavoriteStatus") { (id: String) async throws -> [String: Any] in
             let catalogID = try await self.resolveCatalogSongID(id)
+            let storefrontID = try await self.currentStorefrontID()
             let encodedID = catalogID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)
                 ?? catalogID
             let response = try await self.makeAPIRequest(
-                path: "/v1/catalog/us/songs/\(encodedID)?extend=inFavorites")
+                path: "/v1/catalog/\(storefrontID)/songs/\(encodedID)?extend=inFavorites")
             let song = (response["data"] as? [[String: Any]])?.first
             let attributes = song?["attributes"] as? [String: Any]
             return ["isFavorite": attributes?["inFavorites"] as? Bool ?? false]
@@ -404,61 +571,33 @@ public class AppleMusicKitModule: Module {
             return ["isFavorite": isFavorite]
         }
 
-        AsyncFunction("getTracksFromLibrary") { () async throws -> [String: Any] in
-            guard #available(iOS 16.0, *) else {
-                throw Exception(
-                    name: "ERR_UNSUPPORTED",
-                    description: "iOS 16.0+ required to access the user's library.")
-            }
-            var request = MusicLibraryRequest<Song>()
-            request.limit = 50
-            let response = try await request.response()
-
-            let items = response.items.map { formatSong($0, playbackType: "librarySong") }
-            return ["items": items]
-        }
-
         AsyncFunction("getUserPlaylists") {
             (options: [String: Int]) async throws -> [String: Any] in
-            guard #available(iOS 16.0, *) else {
-                throw Exception(
-                    name: "ERR_UNSUPPORTED",
-                    description: "iOS 16.0+ required to access the user's library.")
-            }
-            var request = MusicLibraryRequest<Playlist>()
-            if let limit = options["limit"] { request.limit = limit }
-            let response = try await request.response()
-            let items = response.items.map {
-                ["id": $0.id.rawValue, "title": $0.name, "artistName": $0.curatorName, "artworkUrl": artworkURLString(from: $0.artwork)]
-            }
-            return ["items": items]
+            let response = try await self.makeAPIRequest(
+                path: "/v1/me/library/playlists?\(self.pageQuery(options))")
+            return self.collectionResult(response)
         }
 
         AsyncFunction("getLibrarySongs") { (options: [String: Int]) async throws -> [String: Any] in
-            guard #available(iOS 16.0, *) else {
-                throw Exception(
-                    name: "ERR_UNSUPPORTED",
-                    description: "iOS 16.0+ required to access the user's library.")
-            }
-            var request = MusicLibraryRequest<Song>()
-            if let limit = options["limit"] { request.limit = limit }
-            let response = try await request.response()
-
-            let items = response.items.map { formatSong($0, playbackType: "librarySong") }
-            return ["items": items]
+            let response = try await self.makeAPIRequest(
+                path: "/v1/me/library/songs?\(self.pageQuery(options))&include=albums")
+            return self.collectionResult(response)
         }
 
-        AsyncFunction("getPlaylistSongs") { (playlistId: String) async throws -> [String: Any] in
-            // Typically requires a separate network request with `MusicDataRequest` for detailed playlist contents.
-            // Stubbed for standard return flow.
-            return ["items": []]
+        AsyncFunction("getPlaylistSongs") {
+            (playlistId: String, options: [String: Int]) async throws -> [String: Any] in
+            let encodedID = playlistId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)
+                ?? playlistId
+            let response = try await self.makeAPIRequest(
+                path: "/v1/me/library/playlists/\(encodedID)/tracks?\(self.pageQuery(options))&include=albums")
+            return self.collectionResult(response)
         }
 
         AsyncFunction("setPlaybackQueue") { (id: String, type: String) async throws -> Void in
             guard #available(iOS 15.0, *) else { return }
 
             if type == "album" {
-                var request = MusicCatalogResourceRequest<Album>(
+                let request = MusicCatalogResourceRequest<Album>(
                     matching: \.id, equalTo: MusicItemID(id))
                 let response = try await request.response()
                 guard let album = response.items.first else {
@@ -466,7 +605,7 @@ public class AppleMusicKitModule: Module {
                 }
                 ApplicationMusicPlayer.shared.queue = [album]
             } else if type == "song" {
-                var request = MusicCatalogResourceRequest<Song>(
+                let request = MusicCatalogResourceRequest<Song>(
                     matching: \.id, equalTo: MusicItemID(id))
                 let response = try await request.response()
                 guard let song = response.items.first else {
@@ -489,13 +628,24 @@ public class AppleMusicKitModule: Module {
                         description: "iOS 16.0+ required to play library songs.")
                 }
             } else if type == "playlist" {
-                var request = MusicCatalogResourceRequest<Playlist>(
-                    matching: \.id, equalTo: MusicItemID(id))
-                let response = try await request.response()
-                guard let playlist = response.items.first else {
-                    throw Exception(name: "ERR_NOT_FOUND", description: "Playlist not found: \(id)")
+                if id.hasPrefix("p."), #available(iOS 16.0, *) {
+                    var request = MusicLibraryRequest<Playlist>()
+                    request.filter(matching: \.id, equalTo: MusicItemID(id))
+                    request.limit = 1
+                    let response = try await request.response()
+                    guard let playlist = response.items.first else {
+                        throw Exception(name: "ERR_NOT_FOUND", description: "Library playlist not found: \(id)")
+                    }
+                    ApplicationMusicPlayer.shared.queue = [playlist]
+                } else {
+                    let request = MusicCatalogResourceRequest<Playlist>(
+                        matching: \.id, equalTo: MusicItemID(id))
+                    let response = try await request.response()
+                    guard let playlist = response.items.first else {
+                        throw Exception(name: "ERR_NOT_FOUND", description: "Playlist not found: \(id)")
+                    }
+                    ApplicationMusicPlayer.shared.queue = [playlist]
                 }
-                ApplicationMusicPlayer.shared.queue = [playlist]
             } else {
                 throw Exception(name: "ERR_INVALID_TYPE", description: "Unsupported queue type: \(type)")
             }
