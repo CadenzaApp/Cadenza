@@ -215,7 +215,10 @@ export const Player = {
     },
 
     expectCurrentTrack: (track: MusicItem) => {
+        const previousSnapshot = playbackSnapshot;
+        playbackStateRevision += 1;
         playbackLoadDeadline = Date.now() + PLAYBACK_LOAD_TIMEOUT_MS;
+        optimisticPlaybackUntil = playbackLoadDeadline;
         updatePlaybackSnapshot({
             ...playbackSnapshot,
             isPlaying: false,
@@ -224,6 +227,31 @@ export const Player = {
             duration: track.songDuration,
             progress: 0,
         });
+        return {
+            revision: playbackStateRevision,
+            previousSnapshot,
+        };
+    },
+
+    cancelExpectedCurrentTrack: (
+        trackId: string,
+        expectation: {
+            revision: number;
+            previousSnapshot: PlaybackSnapshot;
+        },
+    ) => {
+        if (
+            expectation.revision !== playbackStateRevision ||
+            playbackSnapshot.currentTrack?.id !== trackId
+        ) {
+            return playbackSnapshot;
+        }
+
+        playbackStateRevision += 1;
+        playbackLoadDeadline = 0;
+        optimisticPlaybackUntil = 0;
+        updatePlaybackSnapshot(expectation.previousSnapshot);
+        return playbackSnapshot;
     },
 
     /**
@@ -392,9 +420,7 @@ export const MusicKit = {
         return native.getPlaylistSongs(playlistId);
     },
 
-    getSongFavoriteStatus: async (
-        id: string,
-    ): Promise<SongFavoriteStatus> => {
+    getSongFavoriteStatus: async (id: string): Promise<SongFavoriteStatus> => {
         if (!native) {
             throw new Error(
                 "Apple Music favorites require a native development build.",

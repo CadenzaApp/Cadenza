@@ -1,4 +1,11 @@
-import { createContext, useContext, useEffect, ReactNode } from "react";
+import {
+    createContext,
+    useContext,
+    useEffect,
+    useRef,
+    useState,
+    ReactNode,
+} from "react";
 import { Alert, AppState } from "react-native";
 import {
     MusicItem,
@@ -8,12 +15,22 @@ import {
     PlaybackQueueType,
 } from "@apple-musickit";
 
+export type PlaybackQueue = {
+    tracks: MusicItem[];
+    startIndex?: number;
+};
+
 type PlaybackInfo = {
     activeTrackId: string | null;
     activeTrack: MusicItem | null;
     isPlaying: boolean;
     isLoading: boolean;
     progress: number;
+    queue: MusicItem[];
+    queueIndex: number;
+    canSkipToNext: boolean;
+    canSkipToPrevious: boolean;
+    playQueue: (queue: PlaybackQueue) => Promise<void>;
     togglePlayback: (track: MusicItem) => Promise<void>;
     seekTo: (time: number) => Promise<void>;
     skipToNext: () => Promise<void>;
@@ -30,6 +47,9 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     const snapshot = usePlaybackSnapshot();
     const activeTrack = snapshot.currentTrack ?? null;
     const activeTrackId = activeTrack?.id ?? null;
+    const [queue, setQueue] = useState<MusicItem[]>([]);
+    const [queueIndex, setQueueIndex] = useState(-1);
+    const queueRequestRevision = useRef(0);
 
     useEffect(() => {
         let active = true;
@@ -58,6 +78,57 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
         };
     }, []);
 
+    async function startQueueTrack(
+        tracks: MusicItem[],
+        index: number,
+        requestRevision: number,
+    ) {
+        const track = tracks[index];
+        if (!track?.id) return;
+
+        const expectation = Player.expectCurrentTrack(track);
+        const playbackType = track.id.startsWith("i.")
+            ? PlaybackQueueType.LibrarySong
+            : PlaybackQueueType.Song;
+
+        try {
+            await MusicKit.setPlaybackQueue(track.id, playbackType);
+            if (requestRevision !== queueRequestRevision.current) return;
+            await Player.play();
+        } catch (error) {
+            Player.cancelExpectedCurrentTrack(track.id, expectation);
+            throw error;
+        }
+    }
+
+    async function playQueue({ tracks, startIndex = 0 }: PlaybackQueue) {
+        const playableTracks = tracks.filter((track) => Boolean(track.id));
+        if (playableTracks.length === 0) return;
+
+        const boundedIndex = Math.max(
+            0,
+            Math.min(startIndex, playableTracks.length - 1),
+        );
+        const requestRevision = ++queueRequestRevision.current;
+        setQueue(playableTracks);
+        setQueueIndex(boundedIndex);
+
+        try {
+            await startQueueTrack(
+                playableTracks,
+                boundedIndex,
+                requestRevision,
+            );
+        } catch (e) {
+            if (requestRevision === queueRequestRevision.current) {
+                setQueue([]);
+                setQueueIndex(-1);
+            }
+            console.error("Failed to start playback queue:", e);
+            Alert.alert("Playback Error", "Failed to start playback.");
+        }
+    }
+
     async function togglePlayback(track: MusicItem) {
         const trackId = track.id;
         const isNewTrack = activeTrackId !== trackId;
@@ -68,12 +139,10 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
             if (!isNewTrack) {
                 await Player.togglePlayerState();
             } else {
-                const playbackType = trackId.startsWith("i.")
-                    ? PlaybackQueueType.LibrarySong
-                    : PlaybackQueueType.Song;
-                await MusicKit.setPlaybackQueue(trackId, playbackType);
-                Player.expectCurrentTrack(track);
-                await Player.play();
+                // Song lookup/list playback intentionally creates a one-song
+                // queue today. Playlist and shuffle surfaces can pass a larger
+                // track array through playQueue without changing this provider.
+                await playQueue({ tracks: [track] });
             }
         } catch (e) {
             console.error("Failed to toggle playback:", e);
@@ -94,16 +163,26 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     }
 
     async function skipToNext() {
+        const nextIndex = queueIndex + 1;
+        if (nextIndex >= queue.length) return;
+
         try {
-            await Player.skipToNextEntry();
+            const requestRevision = ++queueRequestRevision.current;
+            setQueueIndex(nextIndex);
+            await startQueueTrack(queue, nextIndex, requestRevision);
         } catch (e) {
             console.error("Failed to skip to the next track:", e);
         }
     }
 
     async function skipToPrevious() {
+        const previousIndex = queueIndex - 1;
+        if (previousIndex < 0) return;
+
         try {
-            await Player.skipToPreviousEntry();
+            const requestRevision = ++queueRequestRevision.current;
+            setQueueIndex(previousIndex);
+            await startQueueTrack(queue, previousIndex, requestRevision);
         } catch (e) {
             console.error("Failed to skip to the previous track:", e);
         }
@@ -117,6 +196,11 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
                 isPlaying: snapshot.isPlaying,
                 isLoading: snapshot.isLoading,
                 progress: snapshot.progress,
+                queue,
+                queueIndex,
+                canSkipToNext: queueIndex >= 0 && queueIndex < queue.length - 1,
+                canSkipToPrevious: queueIndex > 0,
+                playQueue,
                 togglePlayback,
                 seekTo,
                 skipToNext,

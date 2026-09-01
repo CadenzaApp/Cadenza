@@ -4,7 +4,7 @@ import { Stack } from "expo-router";
 import AccountProvider from "@/lib/account";
 import { AppleMusicProvider } from "@/lib/apple-music";
 import { PlaybackProvider } from "@/lib/playback";
-import { MediaPlayer } from "@/components/custom/media-player";
+import { MediaPlayerHost } from "@/components/custom/media-player";
 import { TagsProvider } from "@/lib/tags";
 import { PortalHost } from "@rn-primitives/portal";
 import { useColorScheme } from "nativewind";
@@ -47,7 +47,7 @@ export default function RootLayout() {
                                     />
                                 </Stack>
                                 <PortalHost />
-                                <MediaPlayer />
+                                <MediaPlayerHost />
                             </ThemeProvider>
                         </PlaybackProvider>
                     </AppleMusicProvider>

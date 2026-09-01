@@ -20,6 +20,7 @@ type TagsInfo = {
 
   // Map of songId -> tags applied to that song
   songTagsMap: Record<string, Tag[]>;
+  songTagsLoaded: boolean;
   loadSongTags: () => Promise<Record<string, Tag[]>>;
   applyTag: (songId: string, tag: Tag) => Promise<void>;
   removeTag: (songId: string, tag: Tag) => Promise<void>;
@@ -37,20 +38,29 @@ export function TagsProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [songTagsMap, setSongTagsMap] = useState<Record<string, Tag[]>>({});
+  const [songTagsLoaded, setSongTagsLoaded] = useState(false);
 
   // Load the user's created tags whenever the account changes
   useEffect(() => {
-    if (!account) return;
+    async function syncTags() {
+      if (!account) {
+        setTags([]);
+        setSongTagsMap({});
+        setSongTagsLoaded(false);
+        setLoading(false);
+        return;
+      }
 
-    async function fetchTags() {
       setLoading(true);
+      setSongTagsMap({});
+      setSongTagsLoaded(false);
       setError(null);
 
       try {
         const { data, error: dbError } = await supabase
           .from('tags')
           .select('tag_id, name, color')
-          .eq('user_id', account!.id)
+          .eq('user_id', account.id)
           .order('name');
 
         if (dbError) throw dbError;
@@ -63,8 +73,8 @@ export function TagsProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    fetchTags();
-  }, [account?.id]);
+    void syncTags();
+  }, [account]);
 
   function addTag(tag: Tag) {
     setTags((prev) => [...prev, tag]);
@@ -75,7 +85,10 @@ export function TagsProvider({ children }: { children: ReactNode }) {
    * songTagsMap. Call this after loading the song library.
    */
   async function loadSongTags(): Promise<Record<string, Tag[]>> {
-    if (!account) return {};
+    if (!account) {
+      setSongTagsLoaded(true);
+      return {};
+    }
 
     const { data, error: dbError } = await supabase
       .from('applied_tags')
@@ -95,6 +108,7 @@ export function TagsProvider({ children }: { children: ReactNode }) {
       });
     }
     setSongTagsMap(map);
+    setSongTagsLoaded(true);
     return map;
   }
 
@@ -154,7 +168,7 @@ export function TagsProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <TagsContext.Provider value={{ tags, loading, error, addTag, songTagsMap, loadSongTags, applyTag, removeTag }}>
+    <TagsContext.Provider value={{ tags, loading, error, addTag, songTagsMap, songTagsLoaded, loadSongTags, applyTag, removeTag }}>
       {children}
     </TagsContext.Provider>
   );
