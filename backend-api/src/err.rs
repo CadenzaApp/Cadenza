@@ -12,6 +12,7 @@ use serde_json::{Value, json};
 
 #[derive(Debug)]
 pub enum CadenzaError {
+    NotFound,
     SongNotInLibrary,
     SongAlreadyInLibrary,
     TagAlreadyApplied,
@@ -23,6 +24,7 @@ pub enum CadenzaError {
 impl CadenzaError {
     fn get_status(&self) -> u16 {
         match &self {
+            Self::NotFound => 404,
             Self::SongNotInLibrary => 404,
             Self::SongAlreadyInLibrary => 409,
             Self::TagAlreadyApplied => 409,
@@ -33,6 +35,9 @@ impl CadenzaError {
     }
     fn get_json(&self) -> Value {
         match &self {
+            Self::NotFound => json!({
+                "error_type": "NotFound",
+            }),
             Self::SongNotInLibrary => json!({
                 "error_type": "SongNotInLibrary",
             }),

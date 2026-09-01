@@ -2,9 +2,8 @@ import { NAV_THEME } from "@/lib/theme";
 import { ThemeProvider } from "expo-router/react-navigation";
 import { Stack } from "expo-router";
 import AccountProvider from "@/lib/account";
-import { AppleMusicProvider } from "@/lib/apple-music";
+import { AppleMusicProvider } from "@/lib/apple-music-auth";
 import { PlaybackProvider } from "@/lib/playback";
-import { TagsProvider } from "@/lib/tags";
 import { PortalHost } from "@rn-primitives/portal";
 import { useColorScheme } from "nativewind";
 
@@ -15,7 +14,6 @@ export default function RootLayout() {
 
     return (
         <AccountProvider>
-            <TagsProvider>
             <AppleMusicProvider>
                 <PlaybackProvider>
                     <ThemeProvider
@@ -39,7 +37,7 @@ export default function RootLayout() {
                                 options={{ title: "Welcome" }}
                             />
                             <Stack.Screen
-                                name="tag/[id]"
+                                name="tag/[tagId]"
                                 options={{ headerShown: false }}
                             />
                         </Stack>
@@ -47,7 +45,6 @@ export default function RootLayout() {
                     <PortalHost />
                 </PlaybackProvider>
             </AppleMusicProvider>
-            </TagsProvider>
         </AccountProvider>
     );
 }

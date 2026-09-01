@@ -1,1 +1,0 @@
-gp-saml-gui -S -g --clientos Windows vpn.utah.edu -- --protocol=gp

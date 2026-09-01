@@ -1,5 +1,6 @@
 import { supabase } from "./supabase";
 import { useState, createContext, useContext } from "react";
+import { clearCache } from "./swr-utils";
 
 type Account = {
     id: string;
@@ -31,6 +32,7 @@ export default function AccountProvider({ children }: Props) {
             ...prev,
             account: acc,
         }));
+        clearCache();
     }
 
     /**
@@ -95,6 +97,7 @@ export default function AccountProvider({ children }: Props) {
         if (error) throw error;
 
         setAccount(null);
+        clearCache();
     }
 
     const [accountInfo, setAccountInfo] = useState<AccountInfo>({

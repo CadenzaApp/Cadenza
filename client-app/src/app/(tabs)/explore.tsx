@@ -10,9 +10,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { MusicList } from "@/components/custom/music-list";
 import { SongDetailModal } from "@/components/custom/song-detail-modal";
 import { usePlayback } from "@/lib/playback";
-import { useAppleMusic } from "@/lib/apple-music";
+import { useAppleMusic } from "@/lib/apple-music-auth";
 import { Tag } from "@/lib/types";
-import { useTags } from "@/lib/tags";
+import { useCatalogSearch, useTracksFromLibrary } from "@/lib/musickit-hooks";
 
 function getErrorDetails(error: unknown) {
     if (error instanceof Error) {
@@ -51,59 +51,22 @@ export default function ExploreScreen() {
     const [activeTab, setActiveTab] = useState("library");
 
     // Library State
-    const [tracks, setTracks] = useState<AppleMusicItem[]>([]);
-    const [isLoading, setIsLoading] = useState(false);
-    const [error, setError] = useState<string | null>(null);
+    const { tracks, tracksLoading, tracksErr } =  useTracksFromLibrary();
 
-    // Search State
     const [searchQuery, setSearchQuery] = useState("");
-    const [searchResults, setSearchResults] = useState<AppleMusicItem[]>([]);
-    const [isSearchLoading, setIsSearchLoading] = useState(false);
-    const [searchError, setSearchError] = useState<string | null>(null);
+    const {searchResults, searchCatalog, searchCatalogLoading, searchCatalogErr} = useCatalogSearch();
+
 
     // Modal State
     const [selectedSong, setSelectedSong] = useState<AppleMusicItem | null>(
         null,
     );
-    const [isSongDetailModalOpen, setIsSongDetailModalOpen] = useState(false);
 
     const { isInitializing, isConnected, ensureConnected } = useAppleMusic();
     const { activeTrackId, isPlaying, togglePlayback } = usePlayback();
-    const { songTagsMap, loadSongTags, applyTag, removeTag } = useTags();
-
-    async function handleFetchLibrary() {
-        if (!isConnected) {
-            Alert.alert(
-                "Apple Music Not Connected",
-                "Connect Apple Music from the Account tab before loading your library.",
-            );
-            return;
-        }
-
-        setIsLoading(true);
-        setError(null);
-
-        try {
-            await ensureConnected();
-            const [result] = await Promise.all([
-                MusicKit.getTracksFromLibrary(),
-                loadSongTags(),
-            ]);
-            setTracks(result.items || []);
-        } catch (e) {
-            console.error(
-                "Failed to fetch library tracks:",
-                getErrorDetails(e),
-            );
-            setError(`Failed to load library tracks. ${getErrorMessage(e)}`);
-        } finally {
-            setIsLoading(false);
-        }
-    }
 
     async function handleSearch() {
         if (!searchQuery.trim()) {
-            setSearchResults([]);
             return;
         }
 
@@ -115,19 +78,8 @@ export default function ExploreScreen() {
             return;
         }
 
-        setIsSearchLoading(true);
-        setSearchError(null);
-
-        try {
-            await ensureConnected();
-            const result = await MusicKit.catalogSearch(searchQuery, ["songs"]);
-            setSearchResults(result.songs || []);
-        } catch (e) {
-            console.error("Failed to search catalog:", getErrorDetails(e));
-            setSearchError(`Failed to search catalog. ${getErrorMessage(e)}`);
-        } finally {
-            setIsSearchLoading(false);
-        }
+        await ensureConnected();
+        await searchCatalog({query: searchQuery, types: ["song"]});
     }
 
     async function handleTogglePlayback(trackId: string) {
@@ -151,24 +103,6 @@ export default function ExploreScreen() {
         }
     }
 
-    function handleTrackSelected(track: AppleMusicItem, _tags: Tag[]) {
-        setSelectedSong(track);
-        setIsSongDetailModalOpen(true);
-    }
-
-    async function handleApplyTag(tag: Tag) {
-        if (!selectedSong?.id) return;
-        await applyTag(selectedSong.id, tag);
-    }
-
-    async function handleRemoveTag(tag: Tag) {
-        if (!selectedSong?.id) return;
-        await removeTag(selectedSong.id, tag);
-    }
-
-    const selectedSongTags = selectedSong?.id
-        ? (songTagsMap[selectedSong.id] ?? [])
-        : [];
 
     return (
         <View className="flex-1 bg-background pt-8">
@@ -190,35 +124,25 @@ export default function ExploreScreen() {
 
                 {/* --- LIBRARY TAB --- */}
                 <TabsContent value="library" className="flex-1">
-                    <View className="px-6 mb-4">
-                        <Button
-                            onPress={handleFetchLibrary}
-                            disabled={
-                                isInitializing || isLoading || !isConnected
-                            }
-                        >
-                            <Text>
-                                {isLoading
-                                    ? "Loading..."
-                                    : "Load Library Songs"}
-                            </Text>
-                        </Button>
-                    </View>
+                    {tracksLoading && (
+                        <Text className="text-sm text-muted-foreground text-center my-2 px-6">
+                            Loading...
+                        </Text>
+                    )}
 
-                    {error && (
+                    {tracksErr && (
                         <Text className="text-destructive text-center my-2 px-6">
-                            {error}
+                            {JSON.stringify(tracksErr)}
                         </Text>
                     )}
 
                     <MusicList
-                        tracks={tracks}
-                        isLoading={isLoading}
+                        tracks={tracks?.items ?? []}
+                        isLoading={tracksLoading}
                         activeTrackId={activeTrackId}
                         isPlaying={isPlaying}
                         onTogglePlayback={handleTogglePlayback}
-                        onSelectTrack={handleTrackSelected}
-                        songTagsMap={songTagsMap}
+                        onSelectTrack={setSelectedSong}
                     />
                 </TabsContent>
 
@@ -232,7 +156,7 @@ export default function ExploreScreen() {
                             onChangeText={setSearchQuery}
                             onSubmitEditing={handleSearch}
                             returnKeyType="search"
-                            editable={!isSearchLoading}
+                            editable={!searchCatalogLoading}
                         />
                         <Button
                             size="icon"
@@ -240,12 +164,12 @@ export default function ExploreScreen() {
                             onPress={handleSearch}
                             disabled={
                                 isInitializing ||
-                                isSearchLoading ||
+                                searchCatalogLoading ||
                                 !isConnected
                             }
                         >
                             <Text>
-                                {isSearchLoading ? (
+                                {searchCatalogLoading ? (
                                     "..."
                                 ) : (
                                     <Ionicons name="search" size={20} />
@@ -254,37 +178,33 @@ export default function ExploreScreen() {
                         </Button>
                     </View>
 
-                    {searchError && (
+                    {searchCatalogErr && (
                         <Text className="text-destructive text-center my-2 px-6">
-                            {searchError}
+                            {JSON.stringify(searchCatalogErr)}
                         </Text>
                     )}
 
                     <MusicList
-                        tracks={searchResults}
-                        isLoading={isSearchLoading}
+                        tracks={searchResults?.songs ?? []}
+                        isLoading={searchCatalogLoading}
                         activeTrackId={activeTrackId}
                         isPlaying={isPlaying}
                         onTogglePlayback={handleTogglePlayback}
-                        onSelectTrack={handleTrackSelected}
-                        songTagsMap={songTagsMap}
+                        onSelectTrack={setSelectedSong}
                     />
                 </TabsContent>
             </Tabs>
 
             <SongDetailModal
-                open={isSongDetailModalOpen}
-                onOpenChange={setIsSongDetailModalOpen}
+                open={selectedSong != null}
+                onClose={() => setSelectedSong(null)}
                 song={selectedSong}
-                tags={selectedSongTags}
                 onTogglePlayback={togglePlayback}
                 isThisTrackPlaying={Boolean(
                     selectedSong?.id &&
                     activeTrackId === selectedSong.id &&
                     isPlaying,
                 )}
-                onApplyTag={handleApplyTag}
-                onRemoveTag={handleRemoveTag}
             />
         </View>
     );
