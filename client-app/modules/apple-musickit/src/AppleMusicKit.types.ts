@@ -49,6 +49,11 @@ export interface PlaybackSnapshot {
     currentTrack?: MusicItem;
 }
 
+/** The user's favorite state for an Apple Music catalog song. */
+export interface SongFavoriteStatus {
+    isFavorite: boolean;
+}
+
 export interface SearchResult {
     songs?: MusicItem[];
     albums?: MusicItem[];

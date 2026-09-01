@@ -26,6 +26,7 @@ import java.net.URLEncoder
 class AppleMusicKitModule : Module() {
 
     private val TAG = "AppleMusicKit"
+    private val favoriteRatingBody = """{"type":"rating","attributes":{"value":1}}"""
 
     private var pendingPromise: Promise? = null
     private var authManager: AuthenticationManager? = null
@@ -362,6 +363,21 @@ class AppleMusicKitModule : Module() {
             return@AsyncFunction ids.mapNotNull { resultsMap[it] }
         }
 
+        AsyncFunction("getSongFavoriteStatus") { id: String ->
+            return@AsyncFunction getSongFavoriteStatus(id)
+        }
+
+        AsyncFunction("setSongFavoriteStatus") { id: String, isFavorite: Boolean ->
+            val catalogId = resolveCatalogSongId(id)
+            val encodedId = URLEncoder.encode(catalogId, "UTF-8")
+            makeApiRequest(
+                "/v1/me/ratings/songs/$encodedId",
+                if (isFavorite) "PUT" else "DELETE",
+                if (isFavorite) favoriteRatingBody else null
+            )
+            return@AsyncFunction mapOf("isFavorite" to isFavorite)
+        }
+
         AsyncFunction("getTracksFromLibrary") {
             val response = makeApiRequest("/v1/me/library/songs?limit=50&include=albums")
             val data = response["data"] as? List<Map<String, Any>> ?: emptyList()
@@ -406,22 +422,60 @@ class AppleMusicKitModule : Module() {
         }
     }
 
-    private fun makeApiRequest(path: String): Map<String, Any> {
-        val devToken = developerToken ?: throw Exception("Missing developerToken. Call authorize first.")
+    private fun resolveCatalogSongId(id: String): String {
+        if (!id.startsWith("i.")) return id
+
+        val encodedId = URLEncoder.encode(id, "UTF-8")
+        val response = makeApiRequest("/v1/me/library/songs/$encodedId")
+        val song = (response["data"] as? List<*>)?.firstOrNull() as? Map<*, *>
+        val attributes = song?.get("attributes") as? Map<*, *>
+        val playParams = attributes?.get("playParams") as? Map<*, *>
+        return playParams?.get("catalogId")?.toString()
+            ?: throw Exception("No catalog ID is available for library song $id.")
+    }
+
+    private fun getSongFavoriteStatus(id: String): Map<String, Any> {
+        val catalogId = resolveCatalogSongId(id)
+        val encodedId = URLEncoder.encode(catalogId, "UTF-8")
+        val response = makeApiRequest("/v1/catalog/us/songs/$encodedId?extend=inFavorites")
+        val song = (response["data"] as? List<*>)?.firstOrNull() as? Map<*, *>
+        val attributes = song?.get("attributes") as? Map<*, *>
+        return mapOf("isFavorite" to (attributes?.get("inFavorites") as? Boolean ?: false))
+    }
+
+    private fun makeApiRequest(
+        path: String,
+        method: String = "GET",
+        body: String? = null
+    ): Map<String, Any> {
+        val devToken = developerToken?.takeIf { it.isNotBlank() }
+            ?: throw Exception("Missing developerToken. Call authorize first.")
+        val musicUserToken = userToken?.takeIf { it.isNotBlank() }
+            ?: throw Exception("Missing Music User Token. Authorize Apple Music first.")
         val url = URL("https://api.music.apple.com$path")
         val connection = url.openConnection() as HttpURLConnection
-        connection.requestMethod = "GET"
+        connection.requestMethod = method
+        connection.connectTimeout = 15_000
+        connection.readTimeout = 15_000
         connection.setRequestProperty("Authorization", "Bearer $devToken")
-        userToken?.let { connection.setRequestProperty("Music-User-Token", it) }
+        connection.setRequestProperty("Music-User-Token", musicUserToken)
 
         try {
-            if (connection.responseCode in 200..299) {
+            if (body != null) {
+                connection.setRequestProperty("Content-Type", "application/json")
+                connection.doOutput = true
+                connection.outputStream.bufferedWriter().use { it.write(body) }
+            }
+
+            val responseCode = connection.responseCode
+            if (responseCode in 200..299) {
                 val jsonString = connection.inputStream.bufferedReader().use { it.readText() }
+                if (jsonString.isBlank()) return emptyMap()
                 return jsonObjectToMap(JSONObject(jsonString))
             } else {
                 val errorMsg = connection.errorStream?.bufferedReader()?.use { it.readText() } ?: "Unknown Error"
-                Log.e(TAG, "API Error: ${connection.responseCode} - $errorMsg")
-                throw Exception("Apple Music API Error (${connection.responseCode}): $errorMsg")
+                Log.e(TAG, "API Error: $responseCode - $errorMsg")
+                throw Exception("Apple Music API Error ($responseCode): $errorMsg")
             }
         } finally {
             connection.disconnect()

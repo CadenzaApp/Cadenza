@@ -19,6 +19,66 @@ private final class StaticDeveloperTokenProvider: MusicUserTokenProvider,
 }
 
 public class AppleMusicKitModule: Module {
+    private var developerToken: String?
+    private var userToken: String?
+
+    private func makeAPIRequest(
+        path: String,
+        method: String = "GET",
+        body: Data? = nil
+    ) async throws -> [String: Any] {
+        guard let developerToken, !developerToken.isEmpty else {
+            throw Exception(name: "ERR_MISSING_TOKEN", description: "Missing Apple Music developer token.")
+        }
+        guard let userToken, !userToken.isEmpty else {
+            throw Exception(name: "ERR_MISSING_USER_TOKEN", description: "Missing Apple Music user token.")
+        }
+        guard let url = URL(string: "https://api.music.apple.com\(path)") else {
+            throw Exception(name: "ERR_INVALID_URL", description: "Invalid Apple Music API path: \(path)")
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.httpBody = body
+        request.setValue("Bearer \(developerToken)", forHTTPHeaderField: "Authorization")
+        if body != nil {
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
+        request.setValue(userToken, forHTTPHeaderField: "Music-User-Token")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200...299).contains(httpResponse.statusCode)
+        else {
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+            let body = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw Exception(
+                name: "ERR_APPLE_MUSIC_API",
+                description: "Apple Music API error (\(statusCode)): \(body)")
+        }
+        guard !data.isEmpty else { return [:] }
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw Exception(name: "ERR_INVALID_RESPONSE", description: "Invalid Apple Music API response.")
+        }
+        return object
+    }
+
+    private func resolveCatalogSongID(_ id: String) async throws -> String {
+        guard id.hasPrefix("i.") else { return id }
+
+        let encodedID = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+        let response = try await makeAPIRequest(path: "/v1/me/library/songs/\(encodedID)")
+        let song = (response["data"] as? [[String: Any]])?.first
+        let attributes = song?["attributes"] as? [String: Any]
+        let playParams = attributes?["playParams"] as? [String: Any]
+        guard let catalogID = playParams?["catalogId"] as? String else {
+            throw Exception(
+                name: "ERR_CATALOG_ID_UNAVAILABLE",
+                description: "No catalog ID is available for library song \(id).")
+        }
+        return catalogID
+    }
+
     private func artworkURLString(from artwork: Artwork?, width: Int = 200, height: Int = 200) -> String {
         guard let url = artwork?.url(width: width, height: height) else { return "" }
 
@@ -116,6 +176,7 @@ public class AppleMusicKitModule: Module {
                     name: "ERR_UNSUPPORTED", description: "Apple MusicKit requires iOS 15.1+.")
             }
 
+            self.developerToken = developerToken
             let status = await MusicAuthorization.request()
 
             switch status {
@@ -142,6 +203,7 @@ public class AppleMusicKitModule: Module {
                             }
                         }
                     }
+                    self.userToken = userToken
                     return ["status": "authorized", "userToken": userToken]
                 } catch {
                     return ["status": "authorized", "error": error.localizedDescription]
@@ -158,6 +220,8 @@ public class AppleMusicKitModule: Module {
             // enabled for this bundle ID. Supplying the app's already-configured
             // developer token keeps native catalog requests authenticated even
             // when automatic token generation is unavailable.
+            self.developerToken = developerToken
+            self.userToken = userToken
             guard !developerToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 return
             }
@@ -309,6 +373,35 @@ public class AppleMusicKitModule: Module {
 
             // compactMap preserves order of `ids` and filters out any nil values automatically
             return ids.compactMap { resultsDict[$0] }
+        }
+
+        AsyncFunction("getSongFavoriteStatus") { (id: String) async throws -> [String: Any] in
+            let catalogID = try await self.resolveCatalogSongID(id)
+            let encodedID = catalogID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)
+                ?? catalogID
+            let response = try await self.makeAPIRequest(
+                path: "/v1/catalog/us/songs/\(encodedID)?extend=inFavorites")
+            let song = (response["data"] as? [[String: Any]])?.first
+            let attributes = song?["attributes"] as? [String: Any]
+            return ["isFavorite": attributes?["inFavorites"] as? Bool ?? false]
+        }
+
+        AsyncFunction("setSongFavoriteStatus") {
+            (id: String, isFavorite: Bool) async throws -> [String: Any] in
+            let catalogID = try await self.resolveCatalogSongID(id)
+            let encodedID = catalogID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)
+                ?? catalogID
+            let ratingBody = isFavorite
+                ? try JSONSerialization.data(withJSONObject: [
+                    "type": "rating",
+                    "attributes": ["value": 1]
+                ])
+                : nil
+            _ = try await self.makeAPIRequest(
+                path: "/v1/me/ratings/songs/\(encodedID)",
+                method: isFavorite ? "PUT" : "DELETE",
+                body: ratingBody)
+            return ["isFavorite": isFavorite]
         }
 
         AsyncFunction("getTracksFromLibrary") { () async throws -> [String: Any] in

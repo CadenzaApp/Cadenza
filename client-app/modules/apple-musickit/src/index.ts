@@ -9,6 +9,7 @@ import {
     type LibraryResult,
     MusicItem,
     PlaybackSnapshot,
+    SongFavoriteStatus,
 } from "./AppleMusicKit.types";
 
 interface AppleMusicKitNativeModule {
@@ -30,6 +31,11 @@ interface AppleMusicKitNativeModule {
     getUserPlaylists(options?: MusicKitOptions): Promise<LibraryResult>;
     getLibrarySongs(options?: MusicKitOptions): Promise<LibraryResult>;
     getPlaylistSongs(playlistId: string): Promise<LibraryResult>;
+    getSongFavoriteStatus(id: string): Promise<SongFavoriteStatus>;
+    setSongFavoriteStatus(
+        id: string,
+        isFavorite: boolean,
+    ): Promise<SongFavoriteStatus>;
     setPlaybackQueue(id: string, type: string): Promise<void>;
 }
 
@@ -384,6 +390,29 @@ export const MusicKit = {
     getPlaylistSongs: async (playlistId: string): Promise<LibraryResult> => {
         if (!native) return { items: [] };
         return native.getPlaylistSongs(playlistId);
+    },
+
+    getSongFavoriteStatus: async (
+        id: string,
+    ): Promise<SongFavoriteStatus> => {
+        if (!native) {
+            throw new Error(
+                "Apple Music favorites require a native development build.",
+            );
+        }
+        return native.getSongFavoriteStatus(id);
+    },
+
+    setSongFavoriteStatus: async (
+        id: string,
+        isFavorite: boolean,
+    ): Promise<SongFavoriteStatus> => {
+        if (!native) {
+            throw new Error(
+                "Apple Music favorites require a native development build.",
+            );
+        }
+        return native.setSongFavoriteStatus(id, isFavorite);
     },
 
     setPlaybackQueue: async (

@@ -1,8 +1,9 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTheme } from "expo-router/react-navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
     ActivityIndicator,
+    Alert,
     Image,
     Modal,
     Pressable,
@@ -30,6 +31,7 @@ import {
 } from "@/lib/media-player-tags";
 import { usePlayback } from "@/lib/playback";
 import { MusicKit } from "@apple-musickit";
+import type { SongFavoriteStatus } from "@apple-musickit";
 
 function formatTime(totalSeconds: number) {
     const safeSeconds = Math.max(0, Math.floor(totalSeconds));
@@ -38,9 +40,17 @@ function formatTime(totalSeconds: number) {
     return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
 
+const PLAYBACK_PROGRESS_INTERPOLATION_MS = 800;
+
+interface FavoriteLoadResult {
+    songId: string;
+    /** Null means the status request failed, rather than "not favorited." */
+    status: SongFavoriteStatus | null;
+}
+
 /**
  * A global Apple Music player surface. Core playback commands call the native
- * MusicKit module; library, artist, shuffle, and repeat actions intentionally
+ * MusicKit module. Artist, shuffle, repeat, and queue management actions still
  * log their future behavior until those product features are implemented.
  */
 export function MediaPlayer() {
@@ -66,9 +76,16 @@ export function MediaPlayer() {
     const [songTags, setSongTags] = useState<SongTag[]>([]);
     const [progressBarWidth, setProgressBarWidth] = useState(0);
     const [scrubPosition, setScrubPosition] = useState<number | null>(null);
+    const [favoriteLoadResult, setFavoriteLoadResult] =
+        useState<FavoriteLoadResult | null>(null);
+    const [favoriteUpdateSongId, setFavoriteUpdateSongId] = useState<
+        string | null
+    >(null);
+    const scrubPositionRef = useRef<number | null>(null);
     const [failedArtworkUrl, setFailedArtworkUrl] = useState<string | null>(
         null,
     );
+    const animatedPlaybackProgress = useSharedValue(progress);
 
     const artworkUrl = activeTrack?.artworkUrl?.trim();
     const fullArtworkUrl = activeTrack?.artworkUrlLarge?.trim() || artworkUrl;
@@ -81,9 +98,14 @@ export function MediaPlayer() {
         fullArtworkUrl !== failedArtworkUrl &&
         /^https?:\/\//i.test(fullArtworkUrl);
     const duration = activeTrack?.songDuration ?? 0;
+    const currentFavoriteStatus =
+        favoriteLoadResult !== null &&
+        favoriteLoadResult.songId === activeTrack?.id
+            ? favoriteLoadResult.status
+            : undefined;
+    const isFavoriteStatusLoading = currentFavoriteStatus === undefined;
+    const isUpdatingFavorite = favoriteUpdateSongId === activeTrack?.id;
     const displayedProgress = scrubPosition ?? progress;
-    const progressRatio =
-        duration > 0 ? Math.min(displayedProgress / duration, 1) : 0;
     const availableArtworkSize =
         height -
         (insets.top + 8) -
@@ -98,6 +120,50 @@ export function MediaPlayer() {
         Math.max(220, availableArtworkSize),
     );
 
+    const progressFillStyle = useAnimatedStyle(() => {
+        const position = Math.max(
+            0,
+            Math.min(animatedPlaybackProgress.value, duration),
+        );
+        const ratio = duration > 0 ? position / duration : 0;
+
+        return { width: `${ratio * 100}%` };
+    });
+
+    useEffect(() => {
+        scrubPositionRef.current = scrubPosition;
+        if (scrubPosition === null) return;
+
+        cancelAnimation(animatedPlaybackProgress);
+        animatedPlaybackProgress.set(scrubPosition);
+    }, [animatedPlaybackProgress, scrubPosition]);
+
+    useEffect(() => {
+        if (scrubPositionRef.current !== null) return;
+
+        const confirmedPosition = Math.max(0, Math.min(progress, duration));
+        if (!isPlaying || isLoading || duration <= 0) {
+            animatedPlaybackProgress.set(confirmedPosition);
+            return;
+        }
+
+        // Playback snapshots arrive periodically. Move toward the expected
+        // next position on the UI thread so the bar stays fluid between them.
+        animatedPlaybackProgress.set(
+            withTiming(
+                Math.min(
+                    confirmedPosition +
+                        PLAYBACK_PROGRESS_INTERPOLATION_MS / 1000,
+                    duration,
+                ),
+                {
+                    duration: PLAYBACK_PROGRESS_INTERPOLATION_MS,
+                    easing: Easing.linear,
+                },
+            ),
+        );
+    }, [animatedPlaybackProgress, duration, isLoading, isPlaying, progress]);
+
     useEffect(() => {
         if (!activeTrack?.id) {
             return;
@@ -108,6 +174,32 @@ export function MediaPlayer() {
             .listForSong(activeTrack.id)
             .then((tags) => {
                 if (!cancelled) setSongTags(tags);
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [activeTrack?.id]);
+
+    useEffect(() => {
+        const songId = activeTrack?.id;
+        if (!songId) return;
+
+        let cancelled = false;
+        void MusicKit.getSongFavoriteStatus(songId)
+            .then((status) => {
+                if (!cancelled) {
+                    setFavoriteLoadResult({ songId, status });
+                }
+            })
+            .catch((error) => {
+                console.warn(
+                    `Unable to read favorite status for song ${songId}.`,
+                    error,
+                );
+                if (!cancelled) {
+                    setFavoriteLoadResult({ songId, status: null });
+                }
             });
 
         return () => {
@@ -251,17 +343,28 @@ export function MediaPlayer() {
         if (nextPosition !== null) setScrubPosition(nextPosition);
     }
 
-    function finishSeek(locationX: number) {
+    async function finishSeek(locationX: number) {
         const time = timeAtSeekLocation(locationX);
-        setScrubPosition(null);
-        if (time !== null) void seekTo(time);
+        if (time === null) {
+            setScrubPosition(null);
+            return;
+        }
+
+        // Keep the exact tapped/released position visible while the native
+        // player applies the seek, then resume interpolating from ground truth.
+        setScrubPosition(time);
+        try {
+            await seekTo(time);
+        } finally {
+            setScrubPosition(null);
+        }
     }
 
     function cancelSeek() {
         setScrubPosition(null);
     }
 
-    const seekGesture = Gesture.Pan()
+    const seekPanGesture = Gesture.Pan()
         // Keep the hit area tight and require an intentional horizontal drag.
         // This lets page swipes that begin near the scrubber reach the pager
         // rather than immediately changing playback position.
@@ -280,8 +383,17 @@ export function MediaPlayer() {
             if (!success) runOnJS(cancelSeek)();
         });
 
+    const seekTapGesture = Gesture.Tap()
+        .maxDistance(8)
+        .onEnd((event, success) => {
+            if (success) runOnJS(finishSeek)(event.x);
+        });
+
+    const seekGesture = Gesture.Exclusive(seekPanGesture, seekTapGesture);
+
     const detailsGesture = Gesture.Pan()
-        .requireExternalGestureToFail(seekGesture)
+        .requireExternalGestureToFail(seekPanGesture)
+        .requireExternalGestureToFail(seekTapGesture)
         .activeOffsetX([-10, 10])
         .failOffsetY([-16, 16])
         .onBegin(() => {
@@ -336,6 +448,32 @@ export function MediaPlayer() {
         console.info(
             `[MediaPlayer] ${feature} is not available yet. ${futureBehavior}`,
         );
+    }
+
+    async function handleFavoriteToggle() {
+        const songId = activeTrack?.id;
+        if (!songId || !currentFavoriteStatus || isUpdatingFavorite) return;
+
+        const isFavorite = currentFavoriteStatus?.isFavorite ?? false;
+
+        setFavoriteUpdateSongId(songId);
+        try {
+            const nextStatus = await MusicKit.setSongFavoriteStatus(
+                songId,
+                !isFavorite,
+            );
+            setFavoriteLoadResult({ songId, status: nextStatus });
+        } catch (error) {
+            console.error("Unable to update Apple Music favorite.", error);
+            Alert.alert(
+                "Couldn’t Update Favorite",
+                "Please check your Apple Music connection and try again.",
+            );
+        } finally {
+            setFavoriteUpdateSongId((pendingSongId) =>
+                pendingSongId === songId ? null : pendingSongId,
+            );
+        }
     }
 
     async function shareCurrentTrack() {
@@ -627,20 +765,50 @@ export function MediaPlayer() {
                                                 </View>
                                                 <Pressable
                                                     accessibilityRole="button"
-                                                    accessibilityLabel="Add to music library"
-                                                    onPress={() =>
-                                                        handleNoOp(
-                                                            "Add to library",
-                                                            "It will add or remove this song from your music library.",
-                                                        )
+                                                    accessibilityLabel={
+                                                        currentFavoriteStatus?.isFavorite
+                                                            ? "Remove song from favorites"
+                                                            : "Add song to favorites"
+                                                    }
+                                                    accessibilityState={{
+                                                        busy:
+                                                            isFavoriteStatusLoading ||
+                                                            isUpdatingFavorite,
+                                                        disabled:
+                                                            currentFavoriteStatus ===
+                                                                null ||
+                                                            isFavoriteStatusLoading,
+                                                        selected:
+                                                            currentFavoriteStatus?.isFavorite ??
+                                                            false,
+                                                    }}
+                                                    disabled={
+                                                        currentFavoriteStatus ===
+                                                            null ||
+                                                        isFavoriteStatusLoading
+                                                    }
+                                                    onPress={
+                                                        handleFavoriteToggle
                                                     }
                                                     className="w-11 h-11 self-center items-center justify-center"
                                                 >
-                                                    <Ionicons
-                                                        name="add-circle-outline"
-                                                        size={28}
-                                                        color={colors.text}
-                                                    />
+                                                    {isFavoriteStatusLoading ||
+                                                    isUpdatingFavorite ? (
+                                                        <ActivityIndicator
+                                                            size="small"
+                                                            color={colors.text}
+                                                        />
+                                                    ) : (
+                                                        <Ionicons
+                                                            name={
+                                                                currentFavoriteStatus?.isFavorite
+                                                                    ? "star"
+                                                                    : "star-outline"
+                                                            }
+                                                            size={28}
+                                                            color={colors.text}
+                                                        />
+                                                    )}
                                                 </Pressable>
                                             </View>
 
@@ -662,11 +830,11 @@ export function MediaPlayer() {
                                                         accessibilityLabel="Playback progress"
                                                         className="h-1.5 rounded-full bg-muted overflow-hidden"
                                                     >
-                                                        <View
+                                                        <Animated.View
                                                             className="h-full rounded-full bg-foreground"
-                                                            style={{
-                                                                width: `${progressRatio * 100}%`,
-                                                            }}
+                                                            style={
+                                                                progressFillStyle
+                                                            }
                                                         />
                                                     </View>
                                                 </View>
