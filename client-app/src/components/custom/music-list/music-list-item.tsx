@@ -1,35 +1,28 @@
 import { useState } from "react";
-import { View, Image, ScrollView, Pressable } from "react-native";
-import { MusicItem as AppleMusicItem } from "@apple-musickit";
+import { Image, Pressable, ScrollView, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { useTheme } from "expo-router/react-navigation";
 import Svg, {
     Defs,
     LinearGradient as SvgGradient,
     Rect,
     Stop,
 } from "react-native-svg";
-import { useTheme } from "expo-router/react-navigation";
 
-import { Button } from "@/components/ui/button";
-import { Text } from "@/components/ui/text";
-import { Skeleton } from "@/components/ui/skeleton";
+import type { MusicItem } from "@apple-musickit";
+
 import { TagPill } from "@/components/custom/tag-pill";
-import { Tag } from "@/lib/types";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Text } from "@/components/ui/text";
+import type { Tag } from "@/lib/types";
 
-// Dummy data for testing the UI before the database is hooked up
-const DUMMY_TAGS: Tag[] = [
-    { id: "1", name: "chill", color: "#1f93d6" },
-    { id: "2", name: "hiphop", color: "#ce7129" },
-    { id: "3", name: "lofi", color: "#5644ce" },
-    { id: "4", name: "focus", color: "#25924f" },
-];
-
-type MusicItemProps = {
-    item: AppleMusicItem;
+type MusicListItemProps = {
+    item: MusicItem;
     isThisTrackPlaying: boolean;
-    onTogglePlayback: (track: AppleMusicItem) => void;
+    onTogglePlayback: (track: MusicItem) => void;
     tags?: Tag[];
-    onPress?: (item: AppleMusicItem, tags: Tag[]) => void;
+    onPress?: (item: MusicItem, tags: Tag[]) => void;
 };
 
 export function MusicListItem({
@@ -38,10 +31,9 @@ export function MusicListItem({
     onTogglePlayback,
     tags = [],
     onPress,
-}: MusicItemProps) {
+}: MusicListItemProps) {
     const { colors } = useTheme();
     const [artworkFailed, setArtworkFailed] = useState(false);
-
     const artworkUrl = item.artworkUrl?.trim();
     const canRenderArtwork =
         !artworkFailed &&
@@ -119,7 +111,7 @@ export function MusicListItem({
                                 <Svg width="100%" height="100%">
                                     <Defs>
                                         <SvgGradient
-                                            id="tagsFade"
+                                            id={`tags-fade-${item.id}`}
                                             x1="0%"
                                             y1="0%"
                                             x2="100%"
@@ -142,7 +134,7 @@ export function MusicListItem({
                                         y="0"
                                         width="100%"
                                         height="100%"
-                                        fill="url(#tagsFade)"
+                                        fill={`url(#tags-fade-${item.id})`}
                                     />
                                 </Svg>
                             </View>
@@ -154,16 +146,19 @@ export function MusicListItem({
             <Button
                 size="icon"
                 className="h-11 w-11 rounded-full shrink-0"
-                onPress={() => item.id && onTogglePlayback(item)}
+                onPress={() => onTogglePlayback(item)}
                 variant={isThisTrackPlaying ? "secondary" : "default"}
+                accessibilityLabel={
+                    isThisTrackPlaying
+                        ? `Pause ${item.title}`
+                        : `Play ${item.title}`
+                }
             >
-                <Text>
-                    <Ionicons
-                        name={isThisTrackPlaying ? "pause" : "play"}
-                        size={22}
-                        style={{ marginLeft: isThisTrackPlaying ? 0 : 3 }}
-                    />
-                </Text>
+                <Ionicons
+                    name={isThisTrackPlaying ? "pause" : "play"}
+                    size={22}
+                    style={{ marginLeft: isThisTrackPlaying ? 0 : 3 }}
+                />
             </Button>
         </View>
     );

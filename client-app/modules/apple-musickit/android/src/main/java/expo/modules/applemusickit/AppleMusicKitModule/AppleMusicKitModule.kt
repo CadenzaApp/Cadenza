@@ -390,16 +390,20 @@ class AppleMusicKitModule : Module() {
             return@AsyncFunction mapOf("isFavorite" to isFavorite)
         }
 
-        AsyncFunction("catalogSearch") { query: String, types: List<String> ->
+        AsyncFunction("catalogSearch") { query: String, types: List<String>, options: Map<String, Int> ->
             val encodedQuery = encode(query)
             val typesStr = types.joinToString(",")
-            val response = makeApiRequest("/v1/catalog/${currentStorefrontId()}/search?term=$encodedQuery&types=$typesStr&limit=20")
+            val response = makeApiRequest(
+                "/v1/catalog/${currentStorefrontId()}/search?term=$encodedQuery&types=$typesStr&${pageQuery(options)}"
+            )
             val resultsObj = response["results"] as? Map<*, *>
             val songsObj = resultsObj?.get("songs") as? Map<*, *>
             val albumsObj = resultsObj?.get("albums") as? Map<*, *>
             return@AsyncFunction mapOf(
                 "songs" to objectList(songsObj?.get("data")).map { formatMediaItem(it) },
-                "albums" to objectList(albumsObj?.get("data")).map { formatMediaItem(it) }
+                "albums" to objectList(albumsObj?.get("data")).map { formatMediaItem(it) },
+                "hasNextSongs" to !songsObj?.get("next")?.toString().isNullOrBlank(),
+                "hasNextAlbums" to !albumsObj?.get("next")?.toString().isNullOrBlank()
             )
         }
 
@@ -408,9 +412,13 @@ class AppleMusicKitModule : Module() {
                 makeApiRequest("/v1/me/library/playlists?${pageQuery(options)}")
             )
         }
-        AsyncFunction("getLibrarySongs") { options: Map<String, Int> ->
+        AsyncFunction("getLibrarySongs") { options: Map<String, Any?> ->
+            val pageOptions = mapOf(
+                "limit" to ((options["limit"] as? Number)?.toInt() ?: 50),
+                "offset" to ((options["offset"] as? Number)?.toInt() ?: 0)
+            )
             return@AsyncFunction collectionResult(
-                makeApiRequest("/v1/me/library/songs?${pageQuery(options)}&include=albums")
+                makeApiRequest("/v1/me/library/songs?${pageQuery(pageOptions)}&include=albums")
             )
         }
         AsyncFunction("getPlaylistSongs") { playlistId: String, options: Map<String, Int> ->

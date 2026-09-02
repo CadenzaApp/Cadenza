@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { View, Alert } from "react-native";
+import { useRef, useState } from "react";
+import { Platform, View, Alert } from "react-native";
 import { MusicKit, MusicItem as AppleMusicItem } from "@apple-musickit";
 import Ionicons from "@expo/vector-icons/Ionicons";
 
@@ -7,12 +7,28 @@ import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { MusicList } from "@/components/custom/music-list";
+import {
+    DEFAULT_MUSIC_LIST_SORT_OPTIONS,
+    MusicList,
+    MUSIC_LIST_SORT_OPTIONS,
+    type MusicListSort,
+} from "@/components/custom/music-list";
 import { SongDetailModal } from "@/components/custom/song-detail-modal";
 import { usePlayback } from "@/lib/playback";
 import { useAppleMusic } from "@/lib/apple-music";
 import { Tag } from "@/lib/types";
 import { useTags } from "@/lib/tags";
+
+const LIBRARY_PAGE_SIZE = 25;
+const SEARCH_PAGE_SIZE = 25;
+const DEFAULT_LIBRARY_SORT: MusicListSort = {
+    option: "title",
+    direction: "ascending",
+};
+const LIBRARY_SORT_OPTIONS =
+    Platform.OS === "ios"
+        ? MUSIC_LIST_SORT_OPTIONS
+        : DEFAULT_MUSIC_LIST_SORT_OPTIONS;
 
 function getErrorDetails(error: unknown) {
     if (error instanceof Error) {
@@ -53,13 +69,24 @@ export default function ExploreScreen() {
     // Library State
     const [tracks, setTracks] = useState<AppleMusicItem[]>([]);
     const [isLoading, setIsLoading] = useState(false);
+    const [isLoadingNextLibraryPage, setIsLoadingNextLibraryPage] =
+        useState(false);
+    const [hasNextLibraryPage, setHasNextLibraryPage] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const nextLibraryOffset = useRef(0);
+    const librarySort = useRef<MusicListSort>(DEFAULT_LIBRARY_SORT);
+    const libraryRequestID = useRef(0);
 
     // Search State
     const [searchQuery, setSearchQuery] = useState("");
     const [searchResults, setSearchResults] = useState<AppleMusicItem[]>([]);
     const [isSearchLoading, setIsSearchLoading] = useState(false);
+    const [isLoadingNextSearchPage, setIsLoadingNextSearchPage] =
+        useState(false);
+    const [hasNextSearchPage, setHasNextSearchPage] = useState(false);
     const [searchError, setSearchError] = useState<string | null>(null);
+    const nextSearchOffset = useRef(0);
+    const activeSearchQuery = useRef("");
 
     // Modal State
     const [selectedSong, setSelectedSong] = useState<AppleMusicItem | null>(
@@ -71,7 +98,7 @@ export default function ExploreScreen() {
     const { activeTrackId, isPlaying, togglePlayback } = usePlayback();
     const { songTagsMap, loadSongTags, applyTag, removeTag } = useTags();
 
-    async function handleFetchLibrary() {
+    async function handleFetchLibrary(sort = librarySort.current) {
         if (!isConnected) {
             Alert.alert(
                 "Apple Music Not Connected",
@@ -80,16 +107,31 @@ export default function ExploreScreen() {
             return;
         }
 
+        librarySort.current = sort;
+        const requestID = ++libraryRequestID.current;
         setIsLoading(true);
         setError(null);
+        setTracks([]);
+        setHasNextLibraryPage(false);
+        nextLibraryOffset.current = 0;
 
         try {
             await ensureConnected();
-            const [result] = await Promise.all([
-                MusicKit.getTracksFromLibrary(),
-                loadSongTags(),
-            ]);
-            setTracks(result.items || []);
+            // Tags supplement tracks, but must not prevent the library from
+            // loading while the applied-tags database table is unavailable.
+            void loadSongTags();
+
+            const result = await MusicKit.getLibrarySongs(
+                getLibrarySongRequestOptions(sort, 0),
+            );
+            const loadedTracks = result.items ?? [];
+            if (requestID !== libraryRequestID.current) return;
+
+            setTracks(loadedTracks);
+            nextLibraryOffset.current = loadedTracks.length;
+            setHasNextLibraryPage(
+                hasNextLibraryResult(result, loadedTracks.length),
+            );
         } catch (e) {
             console.error(
                 "Failed to fetch library tracks:",
@@ -97,13 +139,63 @@ export default function ExploreScreen() {
             );
             setError(`Failed to load library tracks. ${getErrorMessage(e)}`);
         } finally {
-            setIsLoading(false);
+            if (requestID === libraryRequestID.current) {
+                setIsLoading(false);
+            }
         }
     }
 
+    async function handleLoadNextLibraryPage() {
+        if (isLoading || isLoadingNextLibraryPage || !hasNextLibraryPage) {
+            return;
+        }
+
+        setIsLoadingNextLibraryPage(true);
+        setError(null);
+
+        try {
+            await ensureConnected();
+            const pageOffset = nextLibraryOffset.current;
+            const requestID = libraryRequestID.current;
+            const result = await MusicKit.getLibrarySongs(
+                getLibrarySongRequestOptions(librarySort.current, pageOffset),
+            );
+            const nextTracks = result.items ?? [];
+            if (requestID !== libraryRequestID.current) return;
+
+            setTracks((currentTracks) =>
+                appendTracksWithoutDuplicates(currentTracks, nextTracks),
+            );
+            nextLibraryOffset.current = pageOffset + nextTracks.length;
+            setHasNextLibraryPage(
+                hasNextLibraryResult(result, nextTracks.length),
+            );
+        } catch (e) {
+            console.error(
+                "Failed to fetch the next library page:",
+                getErrorDetails(e),
+            );
+            setError(
+                `Failed to load more library tracks. ${getErrorMessage(e)}`,
+            );
+        } finally {
+            setIsLoadingNextLibraryPage(false);
+        }
+    }
+
+    function handleLibrarySortChange(sort: MusicListSort) {
+        void handleFetchLibrary(sort);
+    }
+
     async function handleSearch() {
-        if (!searchQuery.trim()) {
+        const query = searchQuery.trim();
+
+        if (!query) {
             setSearchResults([]);
+            setSearchError(null);
+            setHasNextSearchPage(false);
+            nextSearchOffset.current = 0;
+            activeSearchQuery.current = "";
             return;
         }
 
@@ -117,16 +209,67 @@ export default function ExploreScreen() {
 
         setIsSearchLoading(true);
         setSearchError(null);
+        setSearchResults([]);
+        setHasNextSearchPage(false);
+        nextSearchOffset.current = 0;
+        activeSearchQuery.current = query;
 
         try {
             await ensureConnected();
-            const result = await MusicKit.catalogSearch(searchQuery, ["songs"]);
-            setSearchResults(result.songs || []);
+            const result = await MusicKit.catalogSearch(query, ["songs"], {
+                limit: SEARCH_PAGE_SIZE,
+                offset: 0,
+            });
+            const results = result.songs ?? [];
+            setSearchResults(results);
+            nextSearchOffset.current = results.length;
+            setHasNextSearchPage(result.hasNextSongs && results.length > 0);
         } catch (e) {
             console.error("Failed to search catalog:", getErrorDetails(e));
             setSearchError(`Failed to search catalog. ${getErrorMessage(e)}`);
         } finally {
             setIsSearchLoading(false);
+        }
+    }
+
+    async function handleLoadNextSearchPage() {
+        const query = activeSearchQuery.current;
+        if (
+            !query ||
+            isSearchLoading ||
+            isLoadingNextSearchPage ||
+            !hasNextSearchPage
+        ) {
+            return;
+        }
+
+        setIsLoadingNextSearchPage(true);
+        setSearchError(null);
+
+        try {
+            await ensureConnected();
+            const pageOffset = nextSearchOffset.current;
+            const result = await MusicKit.catalogSearch(query, ["songs"], {
+                limit: SEARCH_PAGE_SIZE,
+                offset: pageOffset,
+            });
+            const nextResults = result.songs ?? [];
+
+            setSearchResults((currentResults) =>
+                appendTracksWithoutDuplicates(currentResults, nextResults),
+            );
+            nextSearchOffset.current = pageOffset + nextResults.length;
+            setHasNextSearchPage(result.hasNextSongs && nextResults.length > 0);
+        } catch (e) {
+            console.error(
+                "Failed to fetch the next search page:",
+                getErrorDetails(e),
+            );
+            setSearchError(
+                `Failed to load more search results. ${getErrorMessage(e)}`,
+            );
+        } finally {
+            setIsLoadingNextSearchPage(false);
         }
     }
 
@@ -192,9 +335,12 @@ export default function ExploreScreen() {
                 <TabsContent value="library" className="flex-1">
                     <View className="px-6 mb-4">
                         <Button
-                            onPress={handleFetchLibrary}
+                            onPress={() => void handleFetchLibrary()}
                             disabled={
-                                isInitializing || isLoading || !isConnected
+                                isInitializing ||
+                                isLoading ||
+                                isLoadingNextLibraryPage ||
+                                !isConnected
                             }
                         >
                             <Text>
@@ -219,6 +365,11 @@ export default function ExploreScreen() {
                         onTogglePlayback={handleTogglePlayback}
                         onSelectTrack={handleTrackSelected}
                         songTagsMap={songTagsMap}
+                        hasNextPage={hasNextLibraryPage}
+                        isLoadingNextPage={isLoadingNextLibraryPage}
+                        onLoadNextPage={handleLoadNextLibraryPage}
+                        sortOptions={LIBRARY_SORT_OPTIONS}
+                        onSortChange={handleLibrarySortChange}
                     />
                 </TabsContent>
 
@@ -241,6 +392,7 @@ export default function ExploreScreen() {
                             disabled={
                                 isInitializing ||
                                 isSearchLoading ||
+                                isLoadingNextSearchPage ||
                                 !isConnected
                             }
                         >
@@ -268,6 +420,10 @@ export default function ExploreScreen() {
                         onTogglePlayback={handleTogglePlayback}
                         onSelectTrack={handleTrackSelected}
                         songTagsMap={songTagsMap}
+                        hasNextPage={hasNextSearchPage}
+                        isLoadingNextPage={isLoadingNextSearchPage}
+                        onLoadNextPage={handleLoadNextSearchPage}
+                        showSort={false}
                     />
                 </TabsContent>
             </Tabs>
@@ -288,4 +444,44 @@ export default function ExploreScreen() {
             />
         </View>
     );
+}
+
+function appendTracksWithoutDuplicates(
+    currentTracks: AppleMusicItem[],
+    nextTracks: AppleMusicItem[],
+): AppleMusicItem[] {
+    const seenTrackIds = new Set(currentTracks.map((track) => track.id));
+
+    return [
+        ...currentTracks,
+        ...nextTracks.filter((track) => {
+            if (seenTrackIds.has(track.id)) return false;
+            seenTrackIds.add(track.id);
+            return true;
+        }),
+    ];
+}
+
+function getLibrarySongRequestOptions(sort: MusicListSort, offset: number) {
+    const options = {
+        limit: LIBRARY_PAGE_SIZE,
+        offset,
+    };
+
+    return sort.option === "dateAdded"
+        ? {
+              ...options,
+              sort: {
+                  option: "dateAdded" as const,
+                  direction: sort.direction,
+              },
+          }
+        : options;
+}
+
+function hasNextLibraryResult(
+    result: { next?: string; hasNextPage?: boolean },
+    itemCount: number,
+) {
+    return itemCount > 0 && Boolean(result.next || result.hasNextPage);
 }

@@ -55,6 +55,17 @@ export interface MusicKitOptions {
     offset?: number;
 }
 
+/** A server-side library-song order available through native iOS MusicKit. */
+export interface LibrarySongSort {
+    option: "dateAdded";
+    direction: "ascending" | "descending";
+}
+
+/** Options for retrieving library songs. Android ignores `sort`. */
+export interface LibrarySongOptions extends MusicKitOptions {
+    sort?: LibrarySongSort;
+}
+
 /** Normalized metadata for an Apple Music song, album, or playlist. */
 export interface MusicItem {
     /** Apple Music catalog or library identifier. */
@@ -85,6 +96,8 @@ export interface MusicItem {
     songDuration?: number;
     /** Release date represented as Unix epoch milliseconds. */
     releaseDate?: number;
+    /** Date the song was added to the user's library, as Unix epoch milliseconds. */
+    libraryAddedDate?: number;
     /** Genre names associated with the item. */
     genres?: string[];
     /** Canonical Apple Music URL suitable for sharing outside the app. */
@@ -117,6 +130,10 @@ export interface SearchResult {
     songs: MusicItem[];
     /** Albums matching the search query. */
     albums: MusicItem[];
+    /** Whether another page of matching songs is available. */
+    hasNextSongs: boolean;
+    /** Whether another page of matching albums is available. */
+    hasNextAlbums: boolean;
 }
 
 /** A collection returned by an Apple Music library request. */
@@ -125,4 +142,6 @@ export interface LibraryResult {
     items: MusicItem[];
     /** Apple Music API path for the next page, when another page is available. */
     next?: string;
+    /** Whether another page is available when the native request has no REST next path. */
+    hasNextPage?: boolean;
 }

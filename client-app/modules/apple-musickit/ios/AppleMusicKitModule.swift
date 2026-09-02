@@ -276,6 +276,47 @@ public class AppleMusicKitModule: Module {
         return result
     }
 
+    private func collectionResult(_ response: MusicLibraryResponse<Song>) async -> [String: Any] {
+        let songs = Array(response.items)
+        let libraryIDs = songs.map(\.id.rawValue)
+        var formattedByLibraryID: [String: [String: Any]] = [:]
+
+        // Preserve the existing REST representation when possible so playback,
+        // catalog identifiers, and already-applied tags remain compatible.
+        if !libraryIDs.isEmpty {
+            let encodedIDs = libraryIDs
+                .map {
+                    $0.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? $0
+                }
+                .joined(separator: ",")
+
+            if let apiResponse = try? await makeAPIRequest(
+                path: "/v1/me/library/songs?ids=\(encodedIDs)&include=albums")
+            {
+                for item in apiResponse["data"] as? [[String: Any]] ?? [] {
+                    guard let libraryID = item["id"] as? String else { continue }
+                    formattedByLibraryID[libraryID] = formatAPIResource(item)
+                }
+            }
+        }
+
+        let items = songs.map { song -> [String: Any] in
+            var item = formattedByLibraryID[song.id.rawValue]
+                ?? formatSong(song, playbackType: "librarySong")
+
+            if let libraryAddedDate = song.libraryAddedDate {
+                item["libraryAddedDate"] = libraryAddedDate.timeIntervalSince1970 * 1000
+            }
+
+            return item
+        }
+
+        return [
+            "items": items,
+            "hasNextPage": response.items.hasNextBatch,
+        ]
+    }
+
     private func pageQuery(_ options: [String: Int]) -> String {
         let limit = min(100, max(1, options["limit"] ?? 50))
         let offset = max(0, options["offset"] ?? 0)
@@ -444,7 +485,7 @@ public class AppleMusicKitModule: Module {
         }
 
         AsyncFunction("catalogSearch") {
-            (query: String, types: [String]) async throws -> [String: Any] in
+            (query: String, types: [String], options: [String: Int]) async throws -> [String: Any] in
             guard #available(iOS 15.0, *) else {
                 throw Exception(name: "ERR_UNSUPPORTED", description: "Requires iOS 15.0+")
             }
@@ -452,40 +493,56 @@ public class AppleMusicKitModule: Module {
             let requestedTypes = Set(types.map { $0.lowercased() })
             let searchSongs = requestedTypes.isEmpty || requestedTypes.contains("songs")
             let searchAlbums = requestedTypes.isEmpty || requestedTypes.contains("albums")
+            let limit = min(25, max(1, options["limit"] ?? 25))
+            let offset = max(0, options["offset"] ?? 0)
 
             // Passing extra result types can make MusicKit fail while decoding a
             // response the caller did not request. Match the requested types (as
             // Android does) instead of always including albums.
             if searchSongs && !searchAlbums {
                 var request = MusicCatalogSearchRequest(term: query, types: [Song.self])
-                request.limit = 20
+                request.limit = limit
+                request.offset = offset
                 let response = try await request.response()
                 return [
                     "songs": response.songs.map { formatSong($0, playbackType: "song") },
                     "albums": [],
+                    "hasNextSongs": response.songs.hasNextBatch,
+                    "hasNextAlbums": false,
                 ]
             }
 
             if searchAlbums && !searchSongs {
                 var request = MusicCatalogSearchRequest(term: query, types: [Album.self])
-                request.limit = 20
+                request.limit = limit
+                request.offset = offset
                 let response = try await request.response()
                 return [
                     "songs": [],
                     "albums": response.albums.map(formatAlbum),
+                    "hasNextSongs": false,
+                    "hasNextAlbums": response.albums.hasNextBatch,
                 ]
             }
 
             guard searchSongs || searchAlbums else {
-                return ["songs": [], "albums": []]
+                return [
+                    "songs": [],
+                    "albums": [],
+                    "hasNextSongs": false,
+                    "hasNextAlbums": false,
+                ]
             }
 
             var request = MusicCatalogSearchRequest(term: query, types: [Song.self, Album.self])
-            request.limit = 20
+            request.limit = limit
+            request.offset = offset
             let response = try await request.response()
             return [
                 "songs": response.songs.map { formatSong($0, playbackType: "song") },
                 "albums": response.albums.map(formatAlbum),
+                "hasNextSongs": response.songs.hasNextBatch,
+                "hasNextAlbums": response.albums.hasNextBatch,
             ]
         }
 
@@ -578,10 +635,25 @@ public class AppleMusicKitModule: Module {
             return self.collectionResult(response)
         }
 
-        AsyncFunction("getLibrarySongs") { (options: [String: Int]) async throws -> [String: Any] in
-            let response = try await self.makeAPIRequest(
-                path: "/v1/me/library/songs?\(self.pageQuery(options))&include=albums")
-            return self.collectionResult(response)
+        AsyncFunction("getLibrarySongs") { (options: [String: Any]) async throws -> [String: Any] in
+            guard #available(iOS 16.0, *) else {
+                throw Exception(name: "ERR_UNSUPPORTED", description: "Library songs require iOS 16.0+")
+            }
+
+            let limit = min(100, max(1, options["limit"] as? Int ?? 50))
+            let offset = max(0, options["offset"] as? Int ?? 0)
+            let sort = options["sort"] as? [String: Any]
+            var request = MusicLibraryRequest<Song>()
+            request.limit = limit
+            request.offset = offset
+
+            if sort?["option"] as? String == "dateAdded" {
+                let ascending = (sort?["direction"] as? String) != "descending"
+                request.sort(by: \.libraryAddedDate, ascending: ascending)
+            }
+
+            let response = try await request.response()
+            return await self.collectionResult(response)
         }
 
         AsyncFunction("getPlaylistSongs") {
