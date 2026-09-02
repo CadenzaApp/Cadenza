@@ -265,9 +265,18 @@ class AppleMusicKitModule : Module() {
 
         AsyncFunction("getPlaybackSnapshot") { promise: Promise ->
             Handler(Looper.getMainLooper()).post {
-                val controller = getOrCreatePlayerController()
+                // Snapshot polling starts when the root playback provider
+                // mounts, potentially before Apple Music tokens are restored.
+                // A read must not initialize the token-dependent controller.
+                val controller = playerController
                 if (controller == null) {
-                    promise.reject("ERR_PLAYER_UNAVAILABLE", "Apple Music player is unavailable", null)
+                    promise.resolve(
+                        mapOf(
+                            "isPlaying" to false,
+                            "isLoading" to false,
+                            "progress" to 0.0
+                        )
+                    )
                 } else {
                     promise.resolve(playbackSnapshot(controller))
                 }
