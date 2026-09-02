@@ -2,7 +2,6 @@ import {
     CatalogSearchType,
     MusicKit,
     MusicKitOptions,
-    SearchResult,
     SongFavoriteStatus,
 } from "@apple-musickit";
 import { useState } from "react";
@@ -30,8 +29,8 @@ export function useCatalogSearch() {
     const key = request
         ? (["MusicKit.catalogSearch", request.query, request.types] as const)
         : null;
-    const x = useSWR<SearchResult>(key, () =>
-        MusicKit.catalogSearch(request!.query, request!.types),
+    const x = useSWR(key, ([, query, types]) =>
+        MusicKit.catalogSearch(query, [...types]),
     );
 
     return {
