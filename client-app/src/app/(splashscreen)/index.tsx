@@ -15,8 +15,6 @@ export default function SplashScreen() {
 
     // retrieve existing user session.
     useEffect(() => {
-        console.log("loaded splash screen");
-
         tryRestoreSession()
             .then((success) => {
                 router.replace(success ? "/home" : "/auth?initialMode=signin");

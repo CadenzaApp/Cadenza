@@ -95,6 +95,11 @@ class AppleMusicKitModule : Module() {
         }
 
         try {
+            // MusicKit's native JavaCPP layer can otherwise reject playback
+            // when its default process-memory limits are too conservative.
+            System.setProperty("org.bytedeco.javacpp.maxphysicalbytes", "0")
+            System.setProperty("org.bytedeco.javacpp.maxbytes", "0")
+
             playerController = MediaPlayerControllerFactory.createLocalController(context, tokenProvider)
             Log.i(TAG, "MediaPlayerController successfully created!")
         } catch (e: Throwable) {
@@ -265,9 +270,18 @@ class AppleMusicKitModule : Module() {
 
         AsyncFunction("getPlaybackSnapshot") { promise: Promise ->
             Handler(Looper.getMainLooper()).post {
-                val controller = getOrCreatePlayerController()
+                // Snapshot polling starts when the root playback provider
+                // mounts, potentially before Apple Music tokens are restored.
+                // A read must not initialize the token-dependent controller.
+                val controller = playerController
                 if (controller == null) {
-                    promise.reject("ERR_PLAYER_UNAVAILABLE", "Apple Music player is unavailable", null)
+                    promise.resolve(
+                        mapOf(
+                            "isPlaying" to false,
+                            "isLoading" to false,
+                            "progress" to 0.0
+                        )
+                    )
                 } else {
                     promise.resolve(playbackSnapshot(controller))
                 }

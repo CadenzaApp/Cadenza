@@ -24,7 +24,7 @@ export function MusicList({
     isPlaying,
     onTogglePlayback,
     onSelectTrack,
-    songTagsMap = {},
+    songTagsMap,
     anticipatedTrackCount = 8,
     hasNextPage = false,
     isLoadingNextPage = false,
@@ -92,7 +92,7 @@ export function MusicList({
                                 activeTrackId === item.id && isPlaying
                             }
                             onTogglePlayback={onTogglePlayback}
-                            tags={item.id ? (songTagsMap[item.id] ?? []) : []}
+                            tags={item.id ? songTagsMap?.[item.id] : undefined}
                             onPress={onSelectTrack}
                         />
                     )}

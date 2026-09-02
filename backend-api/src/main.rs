@@ -16,9 +16,7 @@ use std::env;
 use crate::{
     auth::{SupabaseClaims, new_jwt_decoder},
     routes::{
-        queries::get_queries_router,
-        // tag_generation_route::get_tag_generation_router,
-        tags::get_tags_router,
+        queries::get_queries_router, songs::get_songs_router, tags::get_tags_router
     },
     services::tag_generation::{TagGenerationService, openai_tag_generator::OpenAiTagGenerator},
 };
@@ -56,7 +54,9 @@ async fn main() {
     // route paths
     let app = Router::new()
         .nest("/tags", get_tags_router())
+        .nest("/songs", get_songs_router())
         .nest("/queries", get_queries_router())
+        .route("/test", axum::routing::get(async || "server is reachable"))
         .with_state(app_state);
 
     // show time baby

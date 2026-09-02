@@ -1,9 +1,9 @@
 # Apple MusicKit Expo module
 
 This local Expo module provides Apple Music authorization, catalog and library
-lookups, favorites, and native playback on iOS and Android. Web and Expo Go can
-import the TypeScript API, but native operations report that the bridge is not
-available.
+lookups, favorites, and native playback on iOS and Android. A mock implementation
+supports frontend development in Expo Go without Apple Music credentials or a
+subscription.
 
 ## Consumer API
 
@@ -23,6 +23,23 @@ later page exists.
 
 Use `Auth.isAvailable()`, `MusicKit.isAvailable()`, or `Playback.isAvailable()`
 when rendering a surface that may run on web or in Expo Go.
+
+## Mock mode
+
+Set the following public environment variable before starting Expo:
+
+```sh
+EXPO_PUBLIC_MOCK_MUSICKIT=1
+```
+
+Mock mode supplies authorization, catalog and library fixtures, paginated
+collections, playlist contents, mutable favorite state, queue commands, and
+playback snapshots with simulated progress. It does not play audio and does not
+require `EXPO_PUBLIC_MUSICKIT_DEVELOPER_TOKEN`.
+
+Unset `EXPO_PUBLIC_MOCK_MUSICKIT` for native MusicKit builds. The mock switch is
+evaluated when the JavaScript bundle is created, so restart Expo after changing
+it.
 
 ## Platform requirements
 

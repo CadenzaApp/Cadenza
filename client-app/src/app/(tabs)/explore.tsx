@@ -1,6 +1,6 @@
-import { useRef, useState } from "react";
-import { Platform, View, Alert } from "react-native";
-import { MusicKit, MusicItem as AppleMusicItem } from "@apple-musickit";
+import { useState } from "react";
+import { Alert, Platform, View } from "react-native";
+import { type MusicItem as AppleMusicItem } from "@apple-musickit";
 import Ionicons from "@expo/vector-icons/Ionicons";
 
 import { Button } from "@/components/ui/button";
@@ -15,12 +15,9 @@ import {
 } from "@/components/custom/music-list";
 import { SongDetailModal } from "@/components/custom/song-detail-modal";
 import { usePlayback } from "@/lib/playback";
-import { useAppleMusic } from "@/lib/apple-music";
-import { Tag } from "@/lib/types";
-import { useTags } from "@/lib/tags";
+import { useAppleMusic } from "@/lib/apple-music-auth";
+import { useCatalogSearch, useTracksFromLibrary } from "@/lib/musickit-hooks";
 
-const LIBRARY_PAGE_SIZE = 25;
-const SEARCH_PAGE_SIZE = 25;
 const DEFAULT_LIBRARY_SORT: MusicListSort = {
     option: "title",
     direction: "ascending",
@@ -63,139 +60,46 @@ function getErrorMessage(error: unknown) {
 }
 
 export default function ExploreScreen() {
-    // Tab State
     const [activeTab, setActiveTab] = useState("library");
-
-    // Library State
-    const [tracks, setTracks] = useState<AppleMusicItem[]>([]);
-    const [isLoading, setIsLoading] = useState(false);
-    const [isLoadingNextLibraryPage, setIsLoadingNextLibraryPage] =
-        useState(false);
-    const [hasNextLibraryPage, setHasNextLibraryPage] = useState(false);
-    const [error, setError] = useState<string | null>(null);
-    const nextLibraryOffset = useRef(0);
-    const librarySort = useRef<MusicListSort>(DEFAULT_LIBRARY_SORT);
-    const libraryRequestID = useRef(0);
-
-    // Search State
+    const [librarySort, setLibrarySort] =
+        useState<MusicListSort>(DEFAULT_LIBRARY_SORT);
     const [searchQuery, setSearchQuery] = useState("");
-    const [searchResults, setSearchResults] = useState<AppleMusicItem[]>([]);
-    const [isSearchLoading, setIsSearchLoading] = useState(false);
-    const [isLoadingNextSearchPage, setIsLoadingNextSearchPage] =
-        useState(false);
-    const [hasNextSearchPage, setHasNextSearchPage] = useState(false);
-    const [searchError, setSearchError] = useState<string | null>(null);
-    const nextSearchOffset = useRef(0);
-    const activeSearchQuery = useRef("");
-
-    // Modal State
     const [selectedSong, setSelectedSong] = useState<AppleMusicItem | null>(
         null,
     );
-    const [isSongDetailModalOpen, setIsSongDetailModalOpen] = useState(false);
 
     const { isInitializing, isConnected, ensureConnected } = useAppleMusic();
     const { activeTrackId, isPlaying, togglePlayback } = usePlayback();
-    const { songTagsMap, loadSongTags, applyTag, removeTag } = useTags();
-
-    async function handleFetchLibrary(sort = librarySort.current) {
-        if (!isConnected) {
-            Alert.alert(
-                "Apple Music Not Connected",
-                "Connect Apple Music from the Account tab before loading your library.",
-            );
-            return;
-        }
-
-        librarySort.current = sort;
-        const requestID = ++libraryRequestID.current;
-        setIsLoading(true);
-        setError(null);
-        setTracks([]);
-        setHasNextLibraryPage(false);
-        nextLibraryOffset.current = 0;
-
-        try {
-            await ensureConnected();
-            // Tags supplement tracks, but must not prevent the library from
-            // loading while the applied-tags database table is unavailable.
-            void loadSongTags();
-
-            const result = await MusicKit.getLibrarySongs(
-                getLibrarySongRequestOptions(sort, 0),
-            );
-            const loadedTracks = result.items ?? [];
-            if (requestID !== libraryRequestID.current) return;
-
-            setTracks(loadedTracks);
-            nextLibraryOffset.current = loadedTracks.length;
-            setHasNextLibraryPage(
-                hasNextLibraryResult(result, loadedTracks.length),
-            );
-        } catch (e) {
-            console.error(
-                "Failed to fetch library tracks:",
-                getErrorDetails(e),
-            );
-            setError(`Failed to load library tracks. ${getErrorMessage(e)}`);
-        } finally {
-            if (requestID === libraryRequestID.current) {
-                setIsLoading(false);
-            }
-        }
-    }
-
-    async function handleLoadNextLibraryPage() {
-        if (isLoading || isLoadingNextLibraryPage || !hasNextLibraryPage) {
-            return;
-        }
-
-        setIsLoadingNextLibraryPage(true);
-        setError(null);
-
-        try {
-            await ensureConnected();
-            const pageOffset = nextLibraryOffset.current;
-            const requestID = libraryRequestID.current;
-            const result = await MusicKit.getLibrarySongs(
-                getLibrarySongRequestOptions(librarySort.current, pageOffset),
-            );
-            const nextTracks = result.items ?? [];
-            if (requestID !== libraryRequestID.current) return;
-
-            setTracks((currentTracks) =>
-                appendTracksWithoutDuplicates(currentTracks, nextTracks),
-            );
-            nextLibraryOffset.current = pageOffset + nextTracks.length;
-            setHasNextLibraryPage(
-                hasNextLibraryResult(result, nextTracks.length),
-            );
-        } catch (e) {
-            console.error(
-                "Failed to fetch the next library page:",
-                getErrorDetails(e),
-            );
-            setError(
-                `Failed to load more library tracks. ${getErrorMessage(e)}`,
-            );
-        } finally {
-            setIsLoadingNextLibraryPage(false);
-        }
-    }
-
-    function handleLibrarySortChange(sort: MusicListSort) {
-        void handleFetchLibrary(sort);
-    }
+    const nativeLibrarySort =
+        librarySort.option === "dateAdded"
+            ? { option: "dateAdded" as const, direction: librarySort.direction }
+            : undefined;
+    const {
+        tracks,
+        tracksLoading,
+        tracksLoadingNextPage,
+        loadNextLibraryPage,
+        hasNextLibraryPage,
+        tracksErr,
+    } = useTracksFromLibrary({
+        enabled: isConnected,
+        sort: nativeLibrarySort,
+    });
+    const {
+        searchResults,
+        searchCatalog,
+        clearSearchCatalog,
+        loadNextSearchPage,
+        hasNextSearchPage,
+        searchCatalogLoading,
+        isLoadingNextSearchPage,
+        searchCatalogErr,
+    } = useCatalogSearch(isConnected);
 
     async function handleSearch() {
         const query = searchQuery.trim();
-
         if (!query) {
-            setSearchResults([]);
-            setSearchError(null);
-            setHasNextSearchPage(false);
-            nextSearchOffset.current = 0;
-            activeSearchQuery.current = "";
+            clearSearchCatalog();
             return;
         }
 
@@ -207,70 +111,8 @@ export default function ExploreScreen() {
             return;
         }
 
-        setIsSearchLoading(true);
-        setSearchError(null);
-        setSearchResults([]);
-        setHasNextSearchPage(false);
-        nextSearchOffset.current = 0;
-        activeSearchQuery.current = query;
-
-        try {
-            await ensureConnected();
-            const result = await MusicKit.catalogSearch(query, ["songs"], {
-                limit: SEARCH_PAGE_SIZE,
-                offset: 0,
-            });
-            const results = result.songs ?? [];
-            setSearchResults(results);
-            nextSearchOffset.current = results.length;
-            setHasNextSearchPage(result.hasNextSongs && results.length > 0);
-        } catch (e) {
-            console.error("Failed to search catalog:", getErrorDetails(e));
-            setSearchError(`Failed to search catalog. ${getErrorMessage(e)}`);
-        } finally {
-            setIsSearchLoading(false);
-        }
-    }
-
-    async function handleLoadNextSearchPage() {
-        const query = activeSearchQuery.current;
-        if (
-            !query ||
-            isSearchLoading ||
-            isLoadingNextSearchPage ||
-            !hasNextSearchPage
-        ) {
-            return;
-        }
-
-        setIsLoadingNextSearchPage(true);
-        setSearchError(null);
-
-        try {
-            await ensureConnected();
-            const pageOffset = nextSearchOffset.current;
-            const result = await MusicKit.catalogSearch(query, ["songs"], {
-                limit: SEARCH_PAGE_SIZE,
-                offset: pageOffset,
-            });
-            const nextResults = result.songs ?? [];
-
-            setSearchResults((currentResults) =>
-                appendTracksWithoutDuplicates(currentResults, nextResults),
-            );
-            nextSearchOffset.current = pageOffset + nextResults.length;
-            setHasNextSearchPage(result.hasNextSongs && nextResults.length > 0);
-        } catch (e) {
-            console.error(
-                "Failed to fetch the next search page:",
-                getErrorDetails(e),
-            );
-            setSearchError(
-                `Failed to load more search results. ${getErrorMessage(e)}`,
-            );
-        } finally {
-            setIsLoadingNextSearchPage(false);
-        }
+        await ensureConnected();
+        searchCatalog({ query, types: ["songs"] });
     }
 
     async function handleTogglePlayback(track: AppleMusicItem) {
@@ -285,33 +127,14 @@ export default function ExploreScreen() {
         try {
             await ensureConnected();
             await togglePlayback(track);
-        } catch (e) {
-            console.error("Failed to toggle playback:", getErrorDetails(e));
+        } catch (error) {
+            console.error("Failed to toggle playback:", getErrorDetails(error));
             Alert.alert(
                 "Playback Error",
-                `Failed to update playback state. ${getErrorMessage(e)}`,
+                `Failed to update playback state. ${getErrorMessage(error)}`,
             );
         }
     }
-
-    function handleTrackSelected(track: AppleMusicItem, _tags: Tag[]) {
-        setSelectedSong(track);
-        setIsSongDetailModalOpen(true);
-    }
-
-    async function handleApplyTag(tag: Tag) {
-        if (!selectedSong?.id) return;
-        await applyTag(selectedSong.id, tag);
-    }
-
-    async function handleRemoveTag(tag: Tag) {
-        if (!selectedSong?.id) return;
-        await removeTag(selectedSong.id, tag);
-    }
-
-    const selectedSongTags = selectedSong?.id
-        ? (songTagsMap[selectedSong.id] ?? [])
-        : [];
 
     return (
         <View className="flex-1 bg-background pt-8">
@@ -331,49 +154,28 @@ export default function ExploreScreen() {
                     </TabsList>
                 </View>
 
-                {/* --- LIBRARY TAB --- */}
                 <TabsContent value="library" className="flex-1">
-                    <View className="px-6 mb-4">
-                        <Button
-                            onPress={() => void handleFetchLibrary()}
-                            disabled={
-                                isInitializing ||
-                                isLoading ||
-                                isLoadingNextLibraryPage ||
-                                !isConnected
-                            }
-                        >
-                            <Text>
-                                {isLoading
-                                    ? "Loading..."
-                                    : "Load Library Songs"}
-                            </Text>
-                        </Button>
-                    </View>
-
-                    {error && (
+                    {tracksErr && (
                         <Text className="text-destructive text-center my-2 px-6">
-                            {error}
+                            {getErrorMessage(tracksErr)}
                         </Text>
                     )}
 
                     <MusicList
                         tracks={tracks}
-                        isLoading={isLoading}
+                        isLoading={tracksLoading}
                         activeTrackId={activeTrackId}
                         isPlaying={isPlaying}
                         onTogglePlayback={handleTogglePlayback}
-                        onSelectTrack={handleTrackSelected}
-                        songTagsMap={songTagsMap}
+                        onSelectTrack={setSelectedSong}
                         hasNextPage={hasNextLibraryPage}
-                        isLoadingNextPage={isLoadingNextLibraryPage}
-                        onLoadNextPage={handleLoadNextLibraryPage}
+                        isLoadingNextPage={tracksLoadingNextPage}
+                        onLoadNextPage={loadNextLibraryPage}
                         sortOptions={LIBRARY_SORT_OPTIONS}
-                        onSortChange={handleLibrarySortChange}
+                        onSortChange={setLibrarySort}
                     />
                 </TabsContent>
 
-                {/* --- SEARCH TAB --- */}
                 <TabsContent value="search" className="flex-1">
                     <View className="px-6 mb-4 flex-row gap-2">
                         <Input
@@ -381,23 +183,23 @@ export default function ExploreScreen() {
                             placeholder="Search Apple Music..."
                             value={searchQuery}
                             onChangeText={setSearchQuery}
-                            onSubmitEditing={handleSearch}
+                            onSubmitEditing={() => void handleSearch()}
                             returnKeyType="search"
-                            editable={!isSearchLoading}
+                            editable={!searchCatalogLoading}
                         />
                         <Button
                             size="icon"
                             className="rounded-full"
-                            onPress={handleSearch}
+                            onPress={() => void handleSearch()}
                             disabled={
                                 isInitializing ||
-                                isSearchLoading ||
+                                searchCatalogLoading ||
                                 isLoadingNextSearchPage ||
                                 !isConnected
                             }
                         >
                             <Text>
-                                {isSearchLoading ? (
+                                {searchCatalogLoading ? (
                                     "..."
                                 ) : (
                                     <Ionicons name="search" size={20} />
@@ -406,82 +208,38 @@ export default function ExploreScreen() {
                         </Button>
                     </View>
 
-                    {searchError && (
+                    {searchCatalogErr && (
                         <Text className="text-destructive text-center my-2 px-6">
-                            {searchError}
+                            {getErrorMessage(searchCatalogErr)}
                         </Text>
                     )}
 
                     <MusicList
                         tracks={searchResults}
-                        isLoading={isSearchLoading}
+                        isLoading={searchCatalogLoading}
                         activeTrackId={activeTrackId}
                         isPlaying={isPlaying}
                         onTogglePlayback={handleTogglePlayback}
-                        onSelectTrack={handleTrackSelected}
-                        songTagsMap={songTagsMap}
+                        onSelectTrack={setSelectedSong}
                         hasNextPage={hasNextSearchPage}
                         isLoadingNextPage={isLoadingNextSearchPage}
-                        onLoadNextPage={handleLoadNextSearchPage}
+                        onLoadNextPage={loadNextSearchPage}
                         showSort={false}
                     />
                 </TabsContent>
             </Tabs>
 
             <SongDetailModal
-                open={isSongDetailModalOpen}
-                onOpenChange={setIsSongDetailModalOpen}
+                open={selectedSong != null}
+                onClose={() => setSelectedSong(null)}
                 song={selectedSong}
-                tags={selectedSongTags}
                 onTogglePlayback={togglePlayback}
                 isThisTrackPlaying={Boolean(
                     selectedSong?.id &&
                     activeTrackId === selectedSong.id &&
                     isPlaying,
                 )}
-                onApplyTag={handleApplyTag}
-                onRemoveTag={handleRemoveTag}
             />
         </View>
     );
-}
-
-function appendTracksWithoutDuplicates(
-    currentTracks: AppleMusicItem[],
-    nextTracks: AppleMusicItem[],
-): AppleMusicItem[] {
-    const seenTrackIds = new Set(currentTracks.map((track) => track.id));
-
-    return [
-        ...currentTracks,
-        ...nextTracks.filter((track) => {
-            if (seenTrackIds.has(track.id)) return false;
-            seenTrackIds.add(track.id);
-            return true;
-        }),
-    ];
-}
-
-function getLibrarySongRequestOptions(sort: MusicListSort, offset: number) {
-    const options = {
-        limit: LIBRARY_PAGE_SIZE,
-        offset,
-    };
-
-    return sort.option === "dateAdded"
-        ? {
-              ...options,
-              sort: {
-                  option: "dateAdded" as const,
-                  direction: sort.direction,
-              },
-          }
-        : options;
-}
-
-function hasNextLibraryResult(
-    result: { next?: string; hasNextPage?: boolean },
-    itemCount: number,
-) {
-    return itemCount > 0 && Boolean(result.next || result.hasNextPage);
 }

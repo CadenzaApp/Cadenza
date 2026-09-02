@@ -27,17 +27,12 @@ import { MediaPlayerPlaybackDetails } from "./playback-details";
 import { MediaPlayerTagEditor } from "./tag-editor";
 import { MediaPlayerTransport } from "./transport-controls";
 import { usePlayback } from "@/lib/playback";
-import { useTags } from "@/lib/tags";
+import { useTags } from "@/lib/routes/tags";
+import { useApplyTag, useTagsOnSong, useUnapplyTag } from "@/lib/routes/songs";
 import { MusicKit } from "@apple-musickit";
-import type { SongFavoriteStatus } from "@apple-musickit";
+import { useSongFavoriteStatus } from "@/lib/musickit-hooks";
 
 const PLAYBACK_PROGRESS_INTERPOLATION_MS = 800;
-
-interface FavoriteLoadResult {
-    songId: string;
-    /** Null means the status request failed, rather than "not favorited." */
-    status: SongFavoriteStatus | null;
-}
 
 /**
  * A global Apple Music player surface. Core playback commands call the native
@@ -61,14 +56,15 @@ export function MediaPlayer({
         canSkipToNext,
         canSkipToPrevious,
     } = usePlayback();
-    const {
-        tags,
-        songTagsMap,
-        songTagsLoaded,
-        loadSongTags,
-        applyTag,
-        removeTag,
-    } = useTags();
+    const { tagsWithMeta = [] } = useTags();
+    const tags = tagsWithMeta.map(({ tag }) => tag);
+    const { tagsOnSong } = useTagsOnSong(activeTrack?.id);
+    const appliedTags = [
+        ...(tagsOnSong?.global ?? []),
+        ...(tagsOnSong?.local ?? []),
+    ];
+    const { applyTag } = useApplyTag();
+    const { unapplyTag } = useUnapplyTag();
     const { colors } = useTheme();
     const insets = useSafeAreaInsets();
     const { width, height } = useWindowDimensions();
@@ -80,8 +76,6 @@ export function MediaPlayer({
     const [detailsPagerWidth, setDetailsPagerWidth] = useState(0);
     const [progressBarWidth, setProgressBarWidth] = useState(0);
     const [scrubPosition, setScrubPosition] = useState<number | null>(null);
-    const [favoriteLoadResult, setFavoriteLoadResult] =
-        useState<FavoriteLoadResult | null>(null);
     const [favoriteUpdateSongId, setFavoriteUpdateSongId] = useState<
         string | null
     >(null);
@@ -90,16 +84,16 @@ export function MediaPlayer({
         null,
     );
     const animatedPlaybackProgress = useSharedValue(progress);
-    const appliedTagIds = new Set(
-        (activeTrack?.id ? songTagsMap[activeTrack.id] : undefined)?.map(
-            (tag) => tag.id,
-        ) ?? [],
-    );
+    const appliedTagIds = new Set(appliedTags.map((tag) => tag.id));
     const songTags = tags.map((tag) => ({
         ...tag,
         applied: appliedTagIds.has(tag.id),
     }));
-    const tagLoadStarted = useRef(false);
+    const {
+        favoriteStatus,
+        favoriteStatusLoading: isFavoriteStatusLoading,
+        setSongFavoriteStatus,
+    } = useSongFavoriteStatus(activeTrack?.id);
 
     const artworkUrl = activeTrack?.artworkUrl?.trim();
     const fullArtworkUrl = activeTrack?.artworkUrlLarge?.trim() || artworkUrl;
@@ -112,12 +106,6 @@ export function MediaPlayer({
         fullArtworkUrl !== failedArtworkUrl &&
         /^https?:\/\//i.test(fullArtworkUrl);
     const duration = activeTrack?.songDuration ?? 0;
-    const currentFavoriteStatus =
-        favoriteLoadResult !== null &&
-        favoriteLoadResult.songId === activeTrack?.id
-            ? favoriteLoadResult.status
-            : undefined;
-    const isFavoriteStatusLoading = currentFavoriteStatus === undefined;
     const isUpdatingFavorite = favoriteUpdateSongId === activeTrack?.id;
     const displayedProgress = scrubPosition ?? progress;
     const availableArtworkSize =
@@ -178,45 +166,6 @@ export function MediaPlayer({
         );
     }, [animatedPlaybackProgress, duration, isLoading, isPlaying, progress]);
 
-    useEffect(() => {
-        if (songTagsLoaded) {
-            tagLoadStarted.current = false;
-            return;
-        }
-        if (tagLoadStarted.current) return;
-        tagLoadStarted.current = true;
-        void loadSongTags().catch((error) => {
-            tagLoadStarted.current = false;
-            console.warn("Unable to load tags for the media player:", error);
-        });
-    }, [loadSongTags, songTagsLoaded]);
-
-    useEffect(() => {
-        const songId = activeTrack?.id;
-        if (!songId) return;
-
-        let cancelled = false;
-        void MusicKit.getSongFavoriteStatus(songId)
-            .then((status) => {
-                if (!cancelled) {
-                    setFavoriteLoadResult({ songId, status });
-                }
-            })
-            .catch((error) => {
-                console.warn(
-                    `Unable to read favorite status for song ${songId}.`,
-                    error,
-                );
-                if (!cancelled) {
-                    setFavoriteLoadResult({ songId, status: null });
-                }
-            });
-
-        return () => {
-            cancelled = true;
-        };
-    }, [activeTrack?.id]);
-
     function completeDismissal() {
         setIsExpanded(false);
     }
@@ -264,16 +213,16 @@ export function MediaPlayer({
         );
     }
 
-    async function toggleTag(tagId: string) {
+    async function toggleTag(tagId: number) {
         const songId = activeTrack?.id;
         const tag = tags.find((candidate) => candidate.id === tagId);
         if (!songId || !tag) return;
 
-        const isApplied = (songTagsMap[songId] ?? []).some(
+        const isApplied = appliedTags.some(
             (appliedTag) => appliedTag.id === tagId,
         );
-        if (isApplied) await removeTag(songId, tag);
-        else await applyTag(songId, tag);
+        if (isApplied) await unapplyTag({ song_id: songId, tag_id: tag.id });
+        else await applyTag({ song_id: songId, tag_id: tag.id });
     }
 
     const dismissExpandedPlayer = Gesture.Tap().onEnd(() => {
@@ -457,17 +406,13 @@ export function MediaPlayer({
 
     async function handleFavoriteToggle() {
         const songId = activeTrack?.id;
-        if (!songId || !currentFavoriteStatus || isUpdatingFavorite) return;
+        if (!songId || !favoriteStatus || isUpdatingFavorite) return;
 
-        const isFavorite = currentFavoriteStatus?.isFavorite ?? false;
+        const isFavorite = favoriteStatus.isFavorite;
 
         setFavoriteUpdateSongId(songId);
         try {
-            const nextStatus = await MusicKit.setSongFavoriteStatus(
-                songId,
-                !isFavorite,
-            );
-            setFavoriteLoadResult({ songId, status: nextStatus });
+            await setSongFavoriteStatus(!isFavorite);
         } catch (error) {
             console.error("Unable to update Apple Music favorite.", error);
             Alert.alert(
@@ -660,9 +605,7 @@ export function MediaPlayer({
                                         <MediaPlayerPlaybackDetails
                                             width={detailsPagerWidth}
                                             track={activeTrack}
-                                            favoriteStatus={
-                                                currentFavoriteStatus
-                                            }
+                                            favoriteStatus={favoriteStatus}
                                             isFavoriteStatusLoading={
                                                 isFavoriteStatusLoading
                                             }
