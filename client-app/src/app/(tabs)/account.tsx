@@ -4,7 +4,7 @@ import { Alert, View } from "react-native";
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { useAppleMusic } from "@/lib/apple-music";
+import { useAppleMusic } from "@/lib/apple-music-auth";
 
 export default function AccountScreen() {
     const { authResult, isConnected, connect, disconnect } = useAppleMusic();

@@ -27,7 +27,12 @@ import { MediaPlayerPlaybackDetails } from "./playback-details";
 import { MediaPlayerTagEditor } from "./tag-editor";
 import { MediaPlayerTransport } from "./transport-controls";
 import { usePlayback } from "@/lib/playback";
-import { useTags } from "@/lib/tags";
+import { useTags } from "@/lib/routes/tags";
+import {
+    useApplyTag,
+    useTagsOnSong,
+    useUnapplyTag,
+} from "@/lib/routes/songs";
 import { MusicKit } from "@apple-musickit";
 import type { SongFavoriteStatus } from "@apple-musickit";
 
@@ -61,14 +66,15 @@ export function MediaPlayer({
         canSkipToNext,
         canSkipToPrevious,
     } = usePlayback();
-    const {
-        tags,
-        songTagsMap,
-        songTagsLoaded,
-        loadSongTags,
-        applyTag,
-        removeTag,
-    } = useTags();
+    const { tagsWithMeta = [] } = useTags();
+    const tags = tagsWithMeta.map(({ tag }) => tag);
+    const { tagsOnSong } = useTagsOnSong(activeTrack?.id);
+    const appliedTags = [
+        ...(tagsOnSong?.global ?? []),
+        ...(tagsOnSong?.local ?? []),
+    ];
+    const { applyTag } = useApplyTag();
+    const { unapplyTag } = useUnapplyTag();
     const { colors } = useTheme();
     const insets = useSafeAreaInsets();
     const { width, height } = useWindowDimensions();
@@ -90,16 +96,11 @@ export function MediaPlayer({
         null,
     );
     const animatedPlaybackProgress = useSharedValue(progress);
-    const appliedTagIds = new Set(
-        (activeTrack?.id ? songTagsMap[activeTrack.id] : undefined)?.map(
-            (tag) => tag.id,
-        ) ?? [],
-    );
+    const appliedTagIds = new Set(appliedTags.map((tag) => tag.id));
     const songTags = tags.map((tag) => ({
         ...tag,
         applied: appliedTagIds.has(tag.id),
     }));
-    const tagLoadStarted = useRef(false);
 
     const artworkUrl = activeTrack?.artworkUrl?.trim();
     const fullArtworkUrl = activeTrack?.artworkUrlLarge?.trim() || artworkUrl;
@@ -179,19 +180,6 @@ export function MediaPlayer({
     }, [animatedPlaybackProgress, duration, isLoading, isPlaying, progress]);
 
     useEffect(() => {
-        if (songTagsLoaded) {
-            tagLoadStarted.current = false;
-            return;
-        }
-        if (tagLoadStarted.current) return;
-        tagLoadStarted.current = true;
-        void loadSongTags().catch((error) => {
-            tagLoadStarted.current = false;
-            console.warn("Unable to load tags for the media player:", error);
-        });
-    }, [loadSongTags, songTagsLoaded]);
-
-    useEffect(() => {
         const songId = activeTrack?.id;
         if (!songId) return;
 
@@ -264,16 +252,16 @@ export function MediaPlayer({
         );
     }
 
-    async function toggleTag(tagId: string) {
+    async function toggleTag(tagId: number) {
         const songId = activeTrack?.id;
         const tag = tags.find((candidate) => candidate.id === tagId);
         if (!songId || !tag) return;
 
-        const isApplied = (songTagsMap[songId] ?? []).some(
+        const isApplied = appliedTags.some(
             (appliedTag) => appliedTag.id === tagId,
         );
-        if (isApplied) await removeTag(songId, tag);
-        else await applyTag(songId, tag);
+        if (isApplied) await unapplyTag({ song_id: songId, tag_id: tag.id });
+        else await applyTag({ song_id: songId, tag_id: tag.id });
     }
 
     const dismissExpandedPlayer = Gesture.Tap().onEnd(() => {

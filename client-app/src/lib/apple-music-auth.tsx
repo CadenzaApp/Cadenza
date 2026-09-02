@@ -148,6 +148,9 @@ export function AppleMusicProvider({ children }: { children: ReactNode }) {
 const AUTH_STORAGE_KEY = "appleMusicAuth";
 
 function getDeveloperToken(): string {
+    if (process.env.EXPO_PUBLIC_MOCK_MUSICKIT === "1") {
+        return "mock-developer-token";
+    }
     const token = process.env.EXPO_PUBLIC_MUSICKIT_DEVELOPER_TOKEN?.trim();
     if (!token) {
         throw new Error(

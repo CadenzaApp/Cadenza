@@ -12,7 +12,7 @@ export function MediaPlayerTagEditor({
 }: {
     width: number;
     tags: EditableSongTag[];
-    onToggleTag: (tagId: string) => void;
+    onToggleTag: (tagId: number) => void;
 }) {
     return (
         <View style={{ width }} className="pl-1">
