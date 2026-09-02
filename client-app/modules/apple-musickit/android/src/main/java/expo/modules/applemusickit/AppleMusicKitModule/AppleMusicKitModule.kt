@@ -95,6 +95,11 @@ class AppleMusicKitModule : Module() {
         }
 
         try {
+            // MusicKit's native JavaCPP layer can otherwise reject playback
+            // when its default process-memory limits are too conservative.
+            System.setProperty("org.bytedeco.javacpp.maxphysicalbytes", "0")
+            System.setProperty("org.bytedeco.javacpp.maxbytes", "0")
+
             playerController = MediaPlayerControllerFactory.createLocalController(context, tokenProvider)
             Log.i(TAG, "MediaPlayerController successfully created!")
         } catch (e: Throwable) {
