@@ -28,21 +28,11 @@ import { MediaPlayerTagEditor } from "./tag-editor";
 import { MediaPlayerTransport } from "./transport-controls";
 import { usePlayback } from "@/lib/playback";
 import { useTags } from "@/lib/routes/tags";
-import {
-    useApplyTag,
-    useTagsOnSong,
-    useUnapplyTag,
-} from "@/lib/routes/songs";
+import { useApplyTag, useTagsOnSong, useUnapplyTag } from "@/lib/routes/songs";
 import { MusicKit } from "@apple-musickit";
-import type { SongFavoriteStatus } from "@apple-musickit";
+import { useSongFavoriteStatus } from "@/lib/musickit-hooks";
 
 const PLAYBACK_PROGRESS_INTERPOLATION_MS = 800;
-
-interface FavoriteLoadResult {
-    songId: string;
-    /** Null means the status request failed, rather than "not favorited." */
-    status: SongFavoriteStatus | null;
-}
 
 /**
  * A global Apple Music player surface. Core playback commands call the native
@@ -86,8 +76,6 @@ export function MediaPlayer({
     const [detailsPagerWidth, setDetailsPagerWidth] = useState(0);
     const [progressBarWidth, setProgressBarWidth] = useState(0);
     const [scrubPosition, setScrubPosition] = useState<number | null>(null);
-    const [favoriteLoadResult, setFavoriteLoadResult] =
-        useState<FavoriteLoadResult | null>(null);
     const [favoriteUpdateSongId, setFavoriteUpdateSongId] = useState<
         string | null
     >(null);
@@ -101,6 +89,11 @@ export function MediaPlayer({
         ...tag,
         applied: appliedTagIds.has(tag.id),
     }));
+    const {
+        favoriteStatus,
+        favoriteStatusLoading: isFavoriteStatusLoading,
+        setSongFavoriteStatus,
+    } = useSongFavoriteStatus(activeTrack?.id);
 
     const artworkUrl = activeTrack?.artworkUrl?.trim();
     const fullArtworkUrl = activeTrack?.artworkUrlLarge?.trim() || artworkUrl;
@@ -113,12 +106,6 @@ export function MediaPlayer({
         fullArtworkUrl !== failedArtworkUrl &&
         /^https?:\/\//i.test(fullArtworkUrl);
     const duration = activeTrack?.songDuration ?? 0;
-    const currentFavoriteStatus =
-        favoriteLoadResult !== null &&
-        favoriteLoadResult.songId === activeTrack?.id
-            ? favoriteLoadResult.status
-            : undefined;
-    const isFavoriteStatusLoading = currentFavoriteStatus === undefined;
     const isUpdatingFavorite = favoriteUpdateSongId === activeTrack?.id;
     const displayedProgress = scrubPosition ?? progress;
     const availableArtworkSize =
@@ -178,32 +165,6 @@ export function MediaPlayer({
             ),
         );
     }, [animatedPlaybackProgress, duration, isLoading, isPlaying, progress]);
-
-    useEffect(() => {
-        const songId = activeTrack?.id;
-        if (!songId) return;
-
-        let cancelled = false;
-        void MusicKit.getSongFavoriteStatus(songId)
-            .then((status) => {
-                if (!cancelled) {
-                    setFavoriteLoadResult({ songId, status });
-                }
-            })
-            .catch((error) => {
-                console.warn(
-                    `Unable to read favorite status for song ${songId}.`,
-                    error,
-                );
-                if (!cancelled) {
-                    setFavoriteLoadResult({ songId, status: null });
-                }
-            });
-
-        return () => {
-            cancelled = true;
-        };
-    }, [activeTrack?.id]);
 
     function completeDismissal() {
         setIsExpanded(false);
@@ -445,17 +406,13 @@ export function MediaPlayer({
 
     async function handleFavoriteToggle() {
         const songId = activeTrack?.id;
-        if (!songId || !currentFavoriteStatus || isUpdatingFavorite) return;
+        if (!songId || !favoriteStatus || isUpdatingFavorite) return;
 
-        const isFavorite = currentFavoriteStatus?.isFavorite ?? false;
+        const isFavorite = favoriteStatus.isFavorite;
 
         setFavoriteUpdateSongId(songId);
         try {
-            const nextStatus = await MusicKit.setSongFavoriteStatus(
-                songId,
-                !isFavorite,
-            );
-            setFavoriteLoadResult({ songId, status: nextStatus });
+            await setSongFavoriteStatus(!isFavorite);
         } catch (error) {
             console.error("Unable to update Apple Music favorite.", error);
             Alert.alert(
@@ -648,9 +605,7 @@ export function MediaPlayer({
                                         <MediaPlayerPlaybackDetails
                                             width={detailsPagerWidth}
                                             track={activeTrack}
-                                            favoriteStatus={
-                                                currentFavoriteStatus
-                                            }
+                                            favoriteStatus={favoriteStatus}
                                             isFavoriteStatusLoading={
                                                 isFavoriteStatusLoading
                                             }

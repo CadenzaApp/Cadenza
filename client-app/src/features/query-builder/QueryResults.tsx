@@ -10,6 +10,7 @@ import { View, Text, StyleSheet, Alert } from "react-native";
 type Props = {
     songs: MusicItem[];
     isLoading: boolean;
+    error?: unknown;
     anticipatedTrackCount?: number;
     onBackPress: () => any;
 };
@@ -17,6 +18,7 @@ type Props = {
 export default function QueryResults({
     songs,
     isLoading,
+    error,
     anticipatedTrackCount,
     onBackPress,
 }: Props) {
@@ -47,6 +49,11 @@ export default function QueryResults({
                 Your Mix
             </Text>
             <View style={styles.container}>
+                {error ? (
+                    <Text className="text-destructive text-center">
+                        Failed to load song metadata.
+                    </Text>
+                ) : null}
                 <MusicList
                     tracks={songs}
                     isLoading={isLoading}

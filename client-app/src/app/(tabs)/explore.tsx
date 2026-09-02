@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { View, Alert } from "react-native";
-import { MusicKit, MusicItem as AppleMusicItem } from "@apple-musickit";
+import { MusicItem as AppleMusicItem } from "@apple-musickit";
 import Ionicons from "@expo/vector-icons/Ionicons";
 
 import { Button } from "@/components/ui/button";
@@ -11,7 +11,6 @@ import { MusicList } from "@/components/custom/music-list";
 import { SongDetailModal } from "@/components/custom/song-detail-modal";
 import { usePlayback } from "@/lib/playback";
 import { useAppleMusic } from "@/lib/apple-music-auth";
-import { Tag } from "@/lib/types";
 import { useCatalogSearch, useTracksFromLibrary } from "@/lib/musickit-hooks";
 
 function getErrorDetails(error: unknown) {
@@ -51,11 +50,15 @@ export default function ExploreScreen() {
     const [activeTab, setActiveTab] = useState("library");
 
     // Library State
-    const { tracks, tracksLoading, tracksErr } =  useTracksFromLibrary();
+    const { tracks, tracksLoading, tracksErr } = useTracksFromLibrary();
 
     const [searchQuery, setSearchQuery] = useState("");
-    const {searchResults, searchCatalog, searchCatalogLoading, searchCatalogErr} = useCatalogSearch();
-
+    const {
+        searchResults,
+        searchCatalog,
+        searchCatalogLoading,
+        searchCatalogErr,
+    } = useCatalogSearch();
 
     // Modal State
     const [selectedSong, setSelectedSong] = useState<AppleMusicItem | null>(
@@ -102,7 +105,6 @@ export default function ExploreScreen() {
             );
         }
     }
-
 
     return (
         <View className="flex-1 bg-background pt-8">

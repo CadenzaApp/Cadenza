@@ -39,7 +39,7 @@ function queryParamsToStr(params?: Record<string, any>) {
 /** handles the case when response has no body (doing .json() will fail) */
 async function responseData(response: Response) {
     const text = await response.text();
-    return text ? JSON.parse(text) : {}
+    return text ? JSON.parse(text) : {};
 }
 
 type GETEndpoint = {
@@ -52,7 +52,8 @@ export function useAPIMutation<RequestBody, Response>(
     method: string,
     path: string,
     invalidatedEndpoints:
-        ((body: RequestBody) => GETEndpoint[]) | GETEndpoint[] = [],
+        | ((body: RequestBody) => GETEndpoint[])
+        | GETEndpoint[] = [],
 ) {
     const { account } = useAccount();
 
@@ -114,14 +115,12 @@ export function useAPIMutation<RequestBody, Response>(
     );
 }
 
-export function useAPIData<Output>(
-    path: string,
-    params?: Record<string, any>,
-) {
+export function useAPIData<Output>(path: string, params?: Record<string, any>) {
     const { account } = useAccount();
 
     // disable this query if any param value is null/undefined
-    const enabled = !params || !Object.values(params).some(val => val == null);
+    const enabled =
+        !params || !Object.values(params).some((val) => val == null);
 
     return useSWR(enabled ? { path, params } : null, async () => {
         const resp = await fetch(
@@ -154,7 +153,7 @@ export function useAPIFetch<Input extends Record<string, any>, Output>(
         path,
         async (_: any, { arg: paramsOrBody }: { arg: Input }) => {
             // initialize args to fetch() depending on what method is used
-            path = BACKEND_URL + path;
+            let requestPath = BACKEND_URL + path;
             const fetchArgs: RequestInit = {
                 method,
                 headers: {
@@ -162,14 +161,14 @@ export function useAPIFetch<Input extends Record<string, any>, Output>(
                 },
             };
             if (method === "GET") {
-                path += queryParamsToStr(paramsOrBody);
+                requestPath += queryParamsToStr(paramsOrBody);
             } else {
                 (fetchArgs.headers as any)["Content-Type"] = "application/json";
                 fetchArgs.body = JSON.stringify(paramsOrBody);
             }
 
-            const resp = await fetch(path, fetchArgs);
-            const json = await responseData(resp)
+            const resp = await fetch(requestPath, fetchArgs);
+            const json = await responseData(resp);
 
             if (!resp.ok) {
                 throw json;
