@@ -9,7 +9,7 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
-import { FloatingBubble } from "@/components/custom/floating-bubble";
+import { ScreenFloatingBubble } from "@/components/custom/floating-bubble";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -64,12 +64,12 @@ export function CreateTagDialog() {
 
     return (
         <Dialog open={open} onOpenChange={setOpen}>
-            <FloatingBubble
+            <ScreenFloatingBubble
                 onPress={() => setOpen(true)}
                 accessibilityLabel="Create a new tag"
             >
                 <Plus size={28} color={colors.background} />
-            </FloatingBubble>
+            </ScreenFloatingBubble>
 
             <DialogContent>
                 <DialogHeader>

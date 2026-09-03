@@ -1,6 +1,7 @@
 import { useSegments } from "expo-router";
 
 import { MediaPlayer } from "./media-player";
+import { TAB_BAR_HEIGHT } from "@/lib/screen-overlay";
 
 /**
  * Keeps playback state global while limiting the visual player to authenticated
@@ -11,7 +12,7 @@ export function MediaPlayerHost() {
     const rootSegment = segments[0];
 
     if (rootSegment === "(tabs)") {
-        return <MediaPlayer compactBottomOffset={54} />;
+        return <MediaPlayer compactBottomOffset={TAB_BAR_HEIGHT} />;
     }
 
     if (rootSegment === "tag") {

@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Modal, Pressable, useWindowDimensions } from "react-native";
 import { useTheme } from "expo-router/react-navigation";
 
-import { FloatingBubble } from "@/components/custom/floating-bubble";
+import { ScreenFloatingBubble } from "@/components/custom/floating-bubble";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { Text } from "@/components/ui/text";
@@ -35,13 +35,13 @@ export function MusicListSortButton({
 
     return (
         <>
-            <FloatingBubble
+            <ScreenFloatingBubble
                 onPress={() => setIsOpen(true)}
                 accessibilityLabel={`Sort tracks by ${sortLabel}, ${sort.direction}`}
                 accessibilityState={{ expanded: isOpen }}
             >
                 <Funnel size={28} color={colors.background} />
-            </FloatingBubble>
+            </ScreenFloatingBubble>
 
             <Modal
                 visible={isOpen}

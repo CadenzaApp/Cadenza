@@ -269,11 +269,11 @@ public class AppleMusicKitModule: Module {
 
     private func collectionResult(_ response: [String: Any]) -> [String: Any] {
         let data = response["data"] as? [[String: Any]] ?? []
-        var result: [String: Any] = ["items": data.map(formatAPIResource)]
-        if let next = response["next"] as? String, !next.isEmpty {
-            result["next"] = next
-        }
-        return result
+        let next = response["next"] as? String
+        return [
+            "items": data.map(formatAPIResource),
+            "hasNextPage": !(next?.isEmpty ?? true),
+        ]
     }
 
     private func collectionResult(_ response: MusicLibraryResponse<Song>) async -> [String: Any] {
@@ -290,19 +290,37 @@ public class AppleMusicKitModule: Module {
                 }
                 .joined(separator: ",")
 
-            if let apiResponse = try? await makeAPIRequest(
-                path: "/v1/me/library/songs?ids=\(encodedIDs)&include=albums")
-            {
+            do {
+                let apiResponse = try await makeAPIRequest(
+                    path: "/v1/me/library/songs?ids=\(encodedIDs)&include=albums")
                 for item in apiResponse["data"] as? [[String: Any]] ?? [] {
                     guard let libraryID = item["id"] as? String else { continue }
                     formattedByLibraryID[libraryID] = formatAPIResource(item)
                 }
+            } catch {
+                // Enrichment is optional: native MusicLibraryRequest data is
+                // sufficient to render and play the library page.
+                NSLog("AppleMusicKit: library song enrichment failed: %@", error.localizedDescription)
             }
         }
 
         let items = songs.map { song -> [String: Any] in
             var item = formattedByLibraryID[song.id.rawValue]
                 ?? formatSong(song, playbackType: "librarySong")
+
+            // A library row keeps its library identity even when optional REST
+            // enrichment resolves a catalog identifier. Playback has its own
+            // explicit identifier so hydration success cannot change list keys.
+            item["id"] = song.id.rawValue
+            item["libraryId"] = song.id.rawValue
+            item["source"] = "library"
+            if let catalogID = item["catalogId"] as? String {
+                item["playbackId"] = catalogID
+                item["playbackType"] = "song"
+            } else {
+                item["playbackId"] = song.id.rawValue
+                item["playbackType"] = "librarySong"
+            }
 
             if let libraryAddedDate = song.libraryAddedDate {
                 item["libraryAddedDate"] = libraryAddedDate.timeIntervalSince1970 * 1000
@@ -647,9 +665,20 @@ public class AppleMusicKitModule: Module {
             request.limit = limit
             request.offset = offset
 
-            if sort?["option"] as? String == "dateAdded" {
+            if let sortOption = sort?["option"] as? String {
                 let ascending = (sort?["direction"] as? String) != "descending"
-                request.sort(by: \.libraryAddedDate, ascending: ascending)
+                switch sortOption {
+                case "title":
+                    request.sort(by: \.title, ascending: ascending)
+                case "artist":
+                    request.sort(by: \.artistName, ascending: ascending)
+                case "album":
+                    request.sort(by: \.albumTitle, ascending: ascending)
+                case "dateAdded":
+                    request.sort(by: \.libraryAddedDate, ascending: ascending)
+                default:
+                    break
+                }
             }
 
             let response = try await request.response()

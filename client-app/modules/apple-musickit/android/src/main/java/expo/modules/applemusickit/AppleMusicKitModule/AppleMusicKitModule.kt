@@ -485,11 +485,10 @@ class AppleMusicKitModule : Module() {
 
     private fun collectionResult(response: Map<String, Any>): Map<String, Any> {
         val data = objectList(response["data"])
-        val result = mutableMapOf<String, Any>("items" to data.map { formatMediaItem(it) })
-        response["next"]?.toString()?.takeIf { it.isNotBlank() }?.let {
-            result["next"] = it
-        }
-        return result
+        return mapOf(
+            "items" to data.map { formatMediaItem(it) },
+            "hasNextPage" to !response["next"]?.toString().isNullOrBlank()
+        )
     }
 
     private fun encode(value: String): String = URLEncoder.encode(value, "UTF-8")

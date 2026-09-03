@@ -15,7 +15,6 @@ import { TagPill } from "@/components/custom/tag-pill";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
-import { useTagsOnSong } from "@/lib/routes/songs";
 import type { Tag } from "@/lib/types";
 
 type MusicListItemProps = {
@@ -23,7 +22,7 @@ type MusicListItemProps = {
     isThisTrackPlaying: boolean;
     onTogglePlayback: (track: MusicItem) => void;
     tags?: Tag[];
-    onPress?: (item: MusicItem, tags: Tag[]) => void;
+    onPress?: (item: MusicItem) => void;
 };
 
 export function MusicListItem({
@@ -35,11 +34,7 @@ export function MusicListItem({
 }: MusicListItemProps) {
     const { colors } = useTheme();
     const [artworkFailed, setArtworkFailed] = useState(false);
-    const { tagsOnSong } = useTagsOnSong(item.id);
-    const itemTags = tags ?? [
-        ...(tagsOnSong?.global ?? []),
-        ...(tagsOnSong?.local ?? []),
-    ];
+    const itemTags = tags ?? [];
     const artworkUrl = item.artworkUrl?.trim();
     const canRenderArtwork =
         !artworkFailed &&
@@ -50,7 +45,7 @@ export function MusicListItem({
         <View className="flex-row items-center justify-between py-3 border-b border-border">
             <Pressable
                 className="flex-1 flex-row items-center mr-3 overflow-hidden"
-                onPress={() => onPress?.(item, itemTags)}
+                onPress={() => onPress?.(item)}
                 disabled={!onPress}
                 style={({ pressed }) =>
                     pressed ? { opacity: 0.85 } : undefined
@@ -63,7 +58,7 @@ export function MusicListItem({
                         onError={() => setArtworkFailed(true)}
                     />
                 ) : (
-                    <View className="w-12 h-12 shrink-0 aspect-square rounded bg-muted mr-3 items-center justify-center">
+                    <View className="w-14 h-14 shrink-0 aspect-square rounded bg-muted mr-3 items-center justify-center">
                         <Text className="text-xs text-muted-foreground text-center">
                             No Art
                         </Text>

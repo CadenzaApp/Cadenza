@@ -1,7 +1,5 @@
 import type { MusicItem } from "@apple-musickit";
 
-import type { Tag } from "@/lib/types";
-
 export const MUSIC_LIST_SORT_OPTIONS = [
     "title",
     "artist",
@@ -30,8 +28,7 @@ export type MusicListProps = {
     activeTrackId: string | null;
     isPlaying: boolean;
     onTogglePlayback: (track: MusicItem) => void;
-    onSelectTrack?: (track: MusicItem, tags: Tag[]) => void;
-    songTagsMap?: Record<string, Tag[]>;
+    onSelectTrack?: (track: MusicItem) => void;
     anticipatedTrackCount?: number;
     hasNextPage?: boolean;
     isLoadingNextPage?: boolean;
@@ -40,6 +37,9 @@ export type MusicListProps = {
     showSort?: boolean;
     /** The fields available from this list's sort control. */
     sortOptions?: readonly MusicListSortOption[];
-    initialSort?: MusicListSort;
+    /** Controlled sort value. */
+    sort?: MusicListSort;
+    /** Initial value when the list owns its sort state. */
+    defaultSort?: MusicListSort;
     onSortChange?: (sort: MusicListSort) => void;
 };

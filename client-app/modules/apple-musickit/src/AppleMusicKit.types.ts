@@ -57,7 +57,7 @@ export interface MusicKitOptions {
 
 /** A server-side library-song order available through native iOS MusicKit. */
 export interface LibrarySongSort {
-    option: "dateAdded";
+    option: "title" | "artist" | "album" | "dateAdded";
     direction: "ascending" | "descending";
 }
 
@@ -68,7 +68,7 @@ export interface LibrarySongOptions extends MusicKitOptions {
 
 /** Normalized metadata for an Apple Music song, album, or playlist. */
 export interface MusicItem {
-    /** Apple Music catalog or library identifier. */
+    /** Stable identifier from the collection that produced this item. */
     id: string;
     /** The kind of Apple Music resource represented by this item. */
     resourceKind: MusicResourceKind;
@@ -78,6 +78,8 @@ export interface MusicItem {
     catalogId?: string;
     /** Apple Music library identifier, when one is available. */
     libraryId?: string;
+    /** Identifier sent to the native playback queue when it differs from `id`. */
+    playbackId?: string;
     /** Display title for the item. */
     title: string;
     /** Display name of the primary artist. */
@@ -140,8 +142,6 @@ export interface SearchResult {
 export interface LibraryResult {
     /** Normalized items returned by the request. */
     items: MusicItem[];
-    /** Apple Music API path for the next page, when another page is available. */
-    next?: string;
-    /** Whether another page is available when the native request has no REST next path. */
-    hasNextPage?: boolean;
+    /** Whether another page is available. Native modules normalize this value. */
+    hasNextPage: boolean;
 }

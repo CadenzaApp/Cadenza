@@ -53,15 +53,19 @@ export const MusicKit = {
     getUserPlaylists: async (
         options?: MusicKitOptions,
     ): Promise<LibraryResult> => {
-        return requireNative().getUserPlaylists(normalizeOptions(options));
+        return normalizeLibraryResult(
+            await requireNative().getUserPlaylists(normalizeOptions(options)),
+        );
     },
 
     /** Returns the user's library songs, optionally limited by result count. */
     getLibrarySongs: async (
         options?: LibrarySongOptions,
     ): Promise<LibraryResult> => {
-        return requireNative().getLibrarySongs(
-            normalizeLibrarySongOptions(options),
+        return normalizeLibraryResult(
+            await requireNative().getLibrarySongs(
+                normalizeLibrarySongOptions(options),
+            ),
         );
     },
 
@@ -70,9 +74,11 @@ export const MusicKit = {
         playlistId: string,
         options?: MusicKitOptions,
     ): Promise<LibraryResult> => {
-        return requireNative().getPlaylistSongs(
-            requireIdentifier(playlistId, "playlist ID"),
-            normalizeOptions(options),
+        return normalizeLibraryResult(
+            await requireNative().getPlaylistSongs(
+                requireIdentifier(playlistId, "playlist ID"),
+                normalizeOptions(options),
+            ),
         );
     },
 
@@ -100,6 +106,13 @@ export function configureLibraryNative(
     nativeModule: LibraryNativeModule | null,
 ): void {
     native = nativeModule;
+}
+
+function normalizeLibraryResult(result: LibraryResult): LibraryResult {
+    return {
+        items: result.items,
+        hasNextPage: result.hasNextPage === true,
+    };
 }
 
 interface LibraryNativeModule {

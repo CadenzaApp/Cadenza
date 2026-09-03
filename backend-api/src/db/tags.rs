@@ -25,7 +25,6 @@ pub async fn get_all_local_tags(
         .await?)
 }
 
-
 pub async fn get_tag(
     db: &DatabaseConnection,
     tag_id: i64,
@@ -81,11 +80,40 @@ pub async fn get_tags_on_song(
         .await?)
 }
 
+pub async fn get_tags_on_songs(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+    song_ids: &[String],
+) -> Result<HashMap<String, Vec<tags::Model>>, CadenzaError> {
+    if song_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let rows = tags_applied::Entity::find()
+        .filter(tags_applied::Column::SongId.is_in(song_ids.iter().cloned()))
+        .filter(
+            Condition::any()
+                .add(tags_applied::Column::UserId.eq(user_id))
+                .add(tags_applied::Column::UserId.is_null()),
+        )
+        .find_also_related(tags::Entity)
+        .all(db)
+        .await?;
+
+    let mut result: HashMap<String, Vec<tags::Model>> = HashMap::new();
+    for (application, tag) in rows {
+        if let Some(tag) = tag {
+            result.entry(application.song_id).or_default().push(tag);
+        }
+    }
+    Ok(result)
+}
+
 pub async fn get_songs_with_tag(
     db: &DatabaseConnection,
     user_id: Uuid,
     tag_id: i64,
-) ->  Result<Vec<String>, CadenzaError> {
+) -> Result<Vec<String>, CadenzaError> {
     let song_ids: Vec<String> = tags_applied::Entity::find()
         .filter(tags_applied::Column::TagId.eq(tag_id))
         .filter(
@@ -96,7 +124,8 @@ pub async fn get_songs_with_tag(
         .select_only()
         .column(tags_applied::Column::SongId)
         .into_tuple()
-        .all(db).await?;
+        .all(db)
+        .await?;
 
     Ok(song_ids)
 }

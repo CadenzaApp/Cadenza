@@ -120,26 +120,54 @@ export function useAPIData<Output>(path: string, params?: Record<string, any>) {
 
     // disable this query if any param value is null/undefined
     const enabled =
-        !params || !Object.values(params).some((val) => val == null);
+        Boolean(account) &&
+        (!params || !Object.values(params).some((val) => val == null));
 
-    return useSWR(enabled ? { path, params } : null, async () => {
-        const resp = await fetch(
-            BACKEND_URL + path + queryParamsToStr(params),
-            {
-                headers: {
-                    Authorization: `Bearer ${account?.jwt}`,
-                    Accept: "*/*",
+    return useSWR(
+        enabled ? { path, params, accountId: account?.id } : null,
+        async () => {
+            const resp = await fetch(
+                BACKEND_URL + path + queryParamsToStr(params),
+                {
+                    headers: {
+                        Authorization: `Bearer ${account?.jwt}`,
+                        Accept: "*/*",
+                    },
                 },
-            },
-        );
-        const json = await responseData(resp);
+            );
+            const json = await responseData(resp);
 
-        if (!resp.ok) {
-            throw json;
-        }
+            if (!resp.ok) {
+                throw json;
+            }
 
-        return json as Output;
-    });
+            return json as Output;
+        },
+    );
+}
+
+/** Cached idempotent read whose request payload is too large for a query string. */
+export function useAPIPostData<Input, Output>(path: string, body?: Input) {
+    const { account } = useAccount();
+
+    return useSWR(
+        body === undefined || !account
+            ? null
+            : { path, body, accountId: account?.id, readMethod: "POST" },
+        async () => {
+            const resp = await fetch(BACKEND_URL + path, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${account?.jwt}`,
+                },
+                body: JSON.stringify(body),
+            });
+            const json = await responseData(resp);
+            if (!resp.ok) throw json;
+            return json as Output;
+        },
+    );
 }
 
 /** GET/POST requests that only run upon triggered */

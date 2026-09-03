@@ -3,7 +3,7 @@ use crate::{
     auth::SupabaseClaims,
     db::{
         self,
-        tags::{get_tags_on_song, is_global_tag},
+        tags::{get_tags_on_song, get_tags_on_songs, is_global_tag},
     },
     err::CadenzaError,
     routes::json::tag::Tag,
@@ -16,7 +16,7 @@ use axum::{
 use axum_jwt_auth::Claims;
 use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
-
+use std::collections::HashMap;
 
 #[derive(Deserialize)]
 pub struct GetTagsOnSongQueryParams {
@@ -49,6 +49,44 @@ async fn get_tags_on_song_handler(
     Ok(Json(GetTagsOnSongResponse { global, local }))
 }
 
+#[derive(Deserialize)]
+struct GetTagsOnSongsPayload {
+    song_ids: Vec<String>,
+}
+
+#[derive(Default, Serialize)]
+struct TagsOnSong {
+    global: Vec<Tag>,
+    local: Vec<Tag>,
+}
+
+async fn get_tags_on_songs_handler(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Json(payload): Json<GetTagsOnSongsPayload>,
+) -> Result<Json<HashMap<String, TagsOnSong>>, CadenzaError> {
+    let song_ids: Vec<String> = payload
+        .song_ids
+        .into_iter()
+        .filter(|id| !id.is_empty())
+        .collect();
+    let tags_by_song = get_tags_on_songs(&db, claims.user_id, &song_ids).await?;
+    let mut response = HashMap::new();
+
+    for song_id in song_ids {
+        let mut grouped = TagsOnSong::default();
+        for tag in tags_by_song.get(&song_id).into_iter().flatten().cloned() {
+            if is_global_tag(&tag) {
+                grouped.global.push(tag.into());
+            } else {
+                grouped.local.push(tag.into());
+            }
+        }
+        response.insert(song_id, grouped);
+    }
+
+    Ok(Json(response))
+}
 
 #[derive(Deserialize)]
 pub struct ApplyTagPayload {
@@ -77,10 +115,10 @@ async fn unapply_tag_handler(
     db::tags::unapply_local_tag(db, claims.user_id, payload.song_id, payload.tag_id).await
 }
 
-
 pub fn get_songs_router() -> Router<AppState> {
     Router::new()
         .route("/tags", get(get_tags_on_song_handler))
         .route("/tags", post(apply_tag_handler))
         .route("/tags", delete(unapply_tag_handler))
+        .route("/tags/batch", post(get_tags_on_songs_handler))
 }

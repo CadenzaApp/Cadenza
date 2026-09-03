@@ -1,60 +1,38 @@
-import { useSegments } from "expo-router";
 import { useTheme } from "expo-router/react-navigation";
-import type { ReactNode } from "react";
+import type { ComponentProps, ReactNode } from "react";
 import { View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Button } from "@/components/ui/button";
-import { usePlayback } from "@/lib/playback";
+import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 
 const DEFAULT_BOTTOM_OFFSET = 24;
-const COMPACT_PLAYER_HEIGHT = 64;
-const COMPACT_PLAYER_GAP = 16;
 
 type FloatingBubbleProps = {
     children: ReactNode;
     onPress: () => void;
     accessibilityLabel: string;
-    accessibilityState?: { expanded?: boolean };
+    accessibilityState?: ComponentProps<typeof Button>["accessibilityState"];
     bottomOffset?: number;
+    rightOffset?: number;
 };
 
-/**
- * A circular action button pinned to the lower-right corner of its parent.
- * It automatically clears the persistent compact media player when present.
- */
+/** Pure circular action button pinned to the lower-right of its parent. */
 export function FloatingBubble({
     children,
     onPress,
     accessibilityLabel,
     accessibilityState,
     bottomOffset = DEFAULT_BOTTOM_OFFSET,
+    rightOffset = 24,
 }: FloatingBubbleProps) {
-    const { activeTrack } = usePlayback();
     const { colors } = useTheme();
-    const insets = useSafeAreaInsets();
-    const segments = useSegments();
-    const rootSegment = segments[0];
-    const isCompactPlayerVisible =
-        activeTrack != null &&
-        (rootSegment === "(tabs)" || rootSegment === "tag");
-    const adjustedBottomOffset = isCompactPlayerVisible
-        ? Math.max(
-              bottomOffset,
-              // Tab-screen content already stops above the tab bar. Only
-              // full-screen tag routes need to account for the safe area.
-              (rootSegment === "(tabs)" ? 0 : insets.bottom) +
-                  COMPACT_PLAYER_HEIGHT +
-                  COMPACT_PLAYER_GAP,
-          )
-        : bottomOffset;
 
     return (
         <View
             style={{
                 position: "absolute",
-                right: 24,
-                bottom: adjustedBottomOffset,
+                right: rightOffset,
+                bottom: bottomOffset,
                 zIndex: 10,
                 elevation: 10,
             }}
@@ -77,4 +55,12 @@ export function FloatingBubble({
             </Button>
         </View>
     );
+}
+
+/** Screen-aware bubble that clears the compact player when it is visible. */
+export function ScreenFloatingBubble(
+    props: Omit<FloatingBubbleProps, "bottomOffset">,
+) {
+    const { floatingActionBottom } = useScreenOverlayInsets();
+    return <FloatingBubble {...props} bottomOffset={floatingActionBottom} />;
 }

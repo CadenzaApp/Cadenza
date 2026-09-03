@@ -10,6 +10,7 @@
 import type { AppleMusicKitNativeModule } from "./index";
 import {
     LibraryResult,
+    LibrarySongOptions,
     MusicItem,
     MusicKitOptions,
     SearchResult,
@@ -335,7 +336,10 @@ export const MOCK_LIBRARY_SONGS = normalizeMockItems(
     "song",
     "library",
     PlaybackQueueType.LibrarySong,
-);
+).map((song, index) => ({
+    ...song,
+    libraryAddedDate: Date.UTC(2024, 0, index + 1),
+}));
 
 /** catalogSearch only fills id/title/artistName/artworkUrl for albums. */
 const RAW_MOCK_ALBUMS: MockItemInput[] = [
@@ -473,7 +477,6 @@ function matchesQuery(item: MusicItem, query: string) {
 function paginatedResult(
     items: MusicItem[],
     options: MusicKitOptions = {},
-    path: string,
 ): LibraryResult {
     const limit = Math.min(
         100,
@@ -484,11 +487,31 @@ function paginatedResult(
     const nextOffset = offset + pageItems.length;
     return {
         items: pageItems,
-        next:
-            nextOffset < items.length
-                ? `${path}?limit=${limit}&offset=${nextOffset}`
-                : undefined,
+        hasNextPage: nextOffset < items.length,
     };
+}
+
+function sortedLibrarySongs(options?: LibrarySongOptions) {
+    const sort = options?.sort;
+    if (!sort) return MOCK_LIBRARY_SONGS;
+    const direction = sort.direction === "ascending" ? 1 : -1;
+    return [...MOCK_LIBRARY_SONGS].sort((left, right) => {
+        if (sort.option === "dateAdded") {
+            return (
+                ((left.libraryAddedDate ?? 0) - (right.libraryAddedDate ?? 0)) *
+                direction
+            );
+        }
+
+        const field = {
+            title: "title",
+            artist: "artistName",
+            album: "albumName",
+        }[sort.option] as "title" | "artistName" | "albumName";
+        return (
+            (left[field] ?? "").localeCompare(right[field] ?? "") * direction
+        );
+    });
 }
 
 /** Mirrors setPlaybackQueue on the native side, down to its rejection of unknown types. */
@@ -634,29 +657,16 @@ export function createMockNativeModule(): AppleMusicKitNativeModule {
         },
 
         getUserPlaylists: (options?: MusicKitOptions) =>
-            respond(
-                paginatedResult(
-                    MOCK_PLAYLISTS,
-                    options,
-                    "/v1/me/library/playlists",
-                ),
-            ),
+            respond(paginatedResult(MOCK_PLAYLISTS, options)),
 
-        getLibrarySongs: (options?: MusicKitOptions) =>
-            respond(
-                paginatedResult(
-                    MOCK_LIBRARY_SONGS,
-                    options,
-                    "/v1/me/library/songs",
-                ),
-            ),
+        getLibrarySongs: (options?: LibrarySongOptions) =>
+            respond(paginatedResult(sortedLibrarySongs(options), options)),
 
         getPlaylistSongs: (playlistId: string, options?: MusicKitOptions) =>
             respond(
                 paginatedResult(
                     MOCK_PLAYLIST_TRACKS[playlistId] ?? [],
                     options,
-                    `/v1/me/library/playlists/${encodeURIComponent(playlistId)}/tracks`,
                 ),
             ),
 

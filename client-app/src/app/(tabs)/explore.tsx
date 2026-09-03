@@ -8,7 +8,6 @@ import { Text } from "@/components/ui/text";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
-    DEFAULT_MUSIC_LIST_SORT_OPTIONS,
     MusicList,
     MUSIC_LIST_SORT_OPTIONS,
     type MusicListSort,
@@ -16,48 +15,18 @@ import {
 import { SongDetailModal } from "@/components/custom/song-detail-modal";
 import { usePlayback } from "@/lib/playback";
 import { useAppleMusic } from "@/lib/apple-music-auth";
-import { useCatalogSearch, useTracksFromLibrary } from "@/lib/musickit-hooks";
+import { getErrorDetails, getErrorMessage } from "@/lib/error-utils";
+import {
+    useCatalogSongSearch,
+    useTracksFromLibrary,
+} from "@/lib/musickit-hooks";
 
 const DEFAULT_LIBRARY_SORT: MusicListSort = {
-    option: "title",
-    direction: "ascending",
+    option: Platform.OS === "ios" ? "dateAdded" : "title",
+    direction: Platform.OS === "ios" ? "descending" : "ascending",
 };
 const LIBRARY_SORT_OPTIONS =
-    Platform.OS === "ios"
-        ? MUSIC_LIST_SORT_OPTIONS
-        : DEFAULT_MUSIC_LIST_SORT_OPTIONS;
-
-function getErrorDetails(error: unknown) {
-    if (error instanceof Error) {
-        return {
-            message: error.message,
-            name: error.name,
-            code: (error as any).code,
-            nativeStackIOS: (error as any).nativeStackIOS,
-            cause: (error as any).cause,
-        };
-    }
-
-    if (typeof error === "object" && error !== null) {
-        return error;
-    }
-
-    return { message: String(error) };
-}
-
-function getErrorMessage(error: unknown) {
-    const details = getErrorDetails(error);
-
-    if (
-        typeof details === "object" &&
-        details !== null &&
-        "message" in details
-    ) {
-        return String(details.message);
-    }
-
-    return "Unknown error";
-}
+    Platform.OS === "ios" ? MUSIC_LIST_SORT_OPTIONS : ([] as const);
 
 export default function ExploreScreen() {
     const [activeTab, setActiveTab] = useState("library");
@@ -70,10 +39,7 @@ export default function ExploreScreen() {
 
     const { isInitializing, isConnected, ensureConnected } = useAppleMusic();
     const { activeTrackId, isPlaying, togglePlayback } = usePlayback();
-    const nativeLibrarySort =
-        librarySort.option === "dateAdded"
-            ? { option: "dateAdded" as const, direction: librarySort.direction }
-            : undefined;
+    const nativeLibrarySort = Platform.OS === "ios" ? librarySort : undefined;
     const {
         tracks,
         tracksLoading,
@@ -94,7 +60,7 @@ export default function ExploreScreen() {
         searchCatalogLoading,
         isLoadingNextSearchPage,
         searchCatalogErr,
-    } = useCatalogSearch(isConnected);
+    } = useCatalogSongSearch(isConnected);
 
     async function handleSearch() {
         const query = searchQuery.trim();
@@ -112,7 +78,7 @@ export default function ExploreScreen() {
         }
 
         await ensureConnected();
-        searchCatalog({ query, types: ["songs"] });
+        searchCatalog(query);
     }
 
     async function handleTogglePlayback(track: AppleMusicItem) {
@@ -172,6 +138,7 @@ export default function ExploreScreen() {
                         isLoadingNextPage={tracksLoadingNextPage}
                         onLoadNextPage={loadNextLibraryPage}
                         sortOptions={LIBRARY_SORT_OPTIONS}
+                        sort={librarySort}
                         onSortChange={setLibrarySort}
                     />
                 </TabsContent>
