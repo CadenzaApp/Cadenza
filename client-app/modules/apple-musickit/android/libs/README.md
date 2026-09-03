@@ -1,6 +1,14 @@
 # Apple MusicKit Android SDK
 
-This directory must contain the Apple MusicKit for Android SDK `.aar` file before building.
+This directory contains the two Apple MusicKit for Android SDK artifacts used by
+the Expo module:
+
+- `mediaplayback-release-1.1.1.aar`
+- `musickitauth-release-1.1.2.aar`
+
+Their paths and versions are declared explicitly in `expo-module.config.json`.
+When upgrading the SDK, replace both files together, update that configuration,
+and compile the module for every supported Android ABI.
 
 ## How to obtain the SDK
 
@@ -8,13 +16,13 @@ This directory must contain the Apple MusicKit for Android SDK `.aar` file befor
 2. Navigate to **More** → **Downloads**
 3. Search for **MusicKit for Android**
 4. Download the SDK archive and extract it
-5. Copy the `.aar` file (e.g. `apple-music-sdk.aar`) into this directory
+5. Copy the authentication and media-playback `.aar` files into this directory.
 
-The `build.gradle` for this module uses:
+The module also includes local AARs from this directory through:
 ```groovy
-implementation fileTree(dir: 'libs', include: ['*.aar', '*.jar'])
+implementation fileTree(dir: 'libs', include: ['*.aar'])
 ```
-so any `.aar` file placed here will be picked up automatically at build time.
+Keep unrelated AARs out of this directory.
 
 ## Developer Token requirement
 

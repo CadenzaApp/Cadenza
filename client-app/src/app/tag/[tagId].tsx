@@ -20,7 +20,6 @@ export default function TagDetailScreen() {
     const {tag, songIds} = useTag(Number(tagId));
     const { songInfo: tracks = [], songInfoLoading: tracksLoading } = useSongInfo(songIds ?? []);
 
-    
     const router = useRouter();
 
     const { activeTrackId, isPlaying, togglePlayback } = usePlayback();

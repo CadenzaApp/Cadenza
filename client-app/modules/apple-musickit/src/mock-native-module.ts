@@ -2,14 +2,11 @@
 // EXPO_PUBLIC_MOCK_MUSICKIT is set, so the app can be worked on in Expo Go or
 // without an Apple Music subscription.
 //
-// Answers come from the fixtures in ./mock-data and follow what the native
-// implementations do: ids keep their catalog / "i." library split, getSongInfo
-// preserves the requested order and drops ids it cannot find, the same limits
-// apply (20 for search, 50 for library requests), and setPlaybackQueue rejects
-// queue types the native side does not support. Playback is bookkeeping only -
-// nothing makes sound - but the queue moves the way the real player's would.
+// Answers come from local fixtures and follow the refactored native contract:
+// ids retain their catalog / "i." library split, getSongInfo preserves requested
+// order, collection calls paginate, favorites are mutable, and playback exposes
+// simulated snapshots. Playback is bookkeeping only; nothing makes sound.
 
-import type { EventSubscription } from "expo-modules-core";
 import type { AppleMusicKitNativeModule } from "./index";
 import {
     LibraryResult,
@@ -19,7 +16,34 @@ import {
     AuthStatus,
     AuthResult,
     PlaybackQueueType,
+    PlaybackSnapshot,
+    SongFavoriteStatus,
 } from "./AppleMusicKit.types";
+
+type MockItemInput = Partial<MusicItem> & Pick<MusicItem, "id" | "title">;
+
+function normalizeMockItems(
+    items: MockItemInput[],
+    resourceKind: MusicItem["resourceKind"],
+    source: MusicItem["source"],
+    playbackType: PlaybackQueueType,
+): MusicItem[] {
+    return items.map((item) => ({
+        ...item,
+        resourceKind,
+        source,
+        playbackType: item.playbackType ?? playbackType,
+        catalogId: source === "catalog" ? item.catalogId ?? item.id : item.catalogId,
+        libraryId: source === "library" ? item.libraryId ?? item.id : item.libraryId,
+        artworkUrlLarge:
+            item.artworkUrlLarge ?? item.artworkUrl?.replace("/200/200", "/1200/1200"),
+        shareUrl:
+            item.shareUrl ??
+            (source === "catalog"
+                ? `https://music.apple.com/us/${resourceKind}/${encodeURIComponent(item.id)}`
+                : undefined),
+    }));
+}
 
 function mockArtworkUrl(seed: string) {
     return `https://picsum.photos/seed/${seed}/200/200`;
@@ -35,7 +59,7 @@ export const MOCK_AUTH_DENIED_RESULT: AuthResult = {
     error: "The user denied access to Apple Music.",
 };
 
-export const MOCK_CATALOG_SONGS: MusicItem[] = [
+const RAW_MOCK_CATALOG_SONGS: MockItemInput[] = [
     {
         id: "1490401244",
         title: "Blinding Lights",
@@ -174,7 +198,14 @@ export const MOCK_CATALOG_SONGS: MusicItem[] = [
     },
 ];
 
-export const MOCK_LIBRARY_SONGS: MusicItem[] = [
+export const MOCK_CATALOG_SONGS = normalizeMockItems(
+    RAW_MOCK_CATALOG_SONGS,
+    "song",
+    "catalog",
+    PlaybackQueueType.Song,
+);
+
+const RAW_MOCK_LIBRARY_SONGS: MockItemInput[] = [
     {
         id: "i.4YZ8Kq0TmEXbN",
         title: "Alright",
@@ -296,8 +327,15 @@ export const MOCK_LIBRARY_SONGS: MusicItem[] = [
     },
 ];
 
+export const MOCK_LIBRARY_SONGS = normalizeMockItems(
+    RAW_MOCK_LIBRARY_SONGS,
+    "song",
+    "library",
+    PlaybackQueueType.LibrarySong,
+);
+
 /** catalogSearch only fills id/title/artistName/artworkUrl for albums. */
-export const MOCK_ALBUMS: MusicItem[] = [
+const RAW_MOCK_ALBUMS: MockItemInput[] = [
     {
         id: "1499378108",
         title: "After Hours",
@@ -335,8 +373,15 @@ export const MOCK_ALBUMS: MusicItem[] = [
     },
 ];
 
+export const MOCK_ALBUMS = normalizeMockItems(
+    RAW_MOCK_ALBUMS,
+    "album",
+    "catalog",
+    PlaybackQueueType.Album,
+);
+
 /** getUserPlaylists puts the curator name in artistName. */
-export const MOCK_PLAYLISTS: MusicItem[] = [
+const RAW_MOCK_PLAYLISTS: MockItemInput[] = [
     {
         id: "p.LV0PYJDC0b2klQ7",
         title: "Late Night Drive",
@@ -361,6 +406,13 @@ export const MOCK_PLAYLISTS: MusicItem[] = [
         // no curator or artwork - both are optional on the native side
     },
 ];
+
+export const MOCK_PLAYLISTS = normalizeMockItems(
+    RAW_MOCK_PLAYLISTS,
+    "playlist",
+    "library",
+    PlaybackQueueType.Playlist,
+);
 
 /** getPlaylistSongs, keyed by playlist id. */
 export const MOCK_PLAYLIST_TRACKS: Record<string, MusicItem[]> = {
@@ -394,7 +446,16 @@ const SEARCH_LIMIT = 20;
 const DEFAULT_LIBRARY_LIMIT = 50;
 
 const ALL_MOCK_SONGS = [...MOCK_CATALOG_SONGS, ...MOCK_LIBRARY_SONGS];
-const MOCK_SONGS_BY_ID = new Map(ALL_MOCK_SONGS.map((song) => [song.id, song]));
+const MOCK_SONGS_BY_ID = new Map<string, MusicItem>();
+for (const song of ALL_MOCK_SONGS) {
+    for (const id of [song.id, song.catalogId, song.libraryId]) {
+        if (id) MOCK_SONGS_BY_ID.set(id, song);
+    }
+}
+const MOCK_FAVORITE_IDS = new Set<string>([
+    MOCK_CATALOG_SONGS[0].id,
+    MOCK_LIBRARY_SONGS[1].id,
+]);
 
 function respond<T>(value: T, latency = QUERY_LATENCY_MS): Promise<T> {
     return new Promise((resolve) => setTimeout(() => resolve(value), latency));
@@ -404,6 +465,24 @@ function matchesQuery(item: MusicItem, query: string) {
     return [item.title, item.artistName, item.albumName].some((field) =>
         field?.toLowerCase().includes(query),
     );
+}
+
+function paginatedResult(
+    items: MusicItem[],
+    options: MusicKitOptions = {},
+    path: string,
+): LibraryResult {
+    const limit = Math.min(100, Math.max(1, Math.trunc(options.limit ?? DEFAULT_LIBRARY_LIMIT)));
+    const offset = Math.max(0, Math.trunc(options.offset ?? 0));
+    const pageItems = items.slice(offset, offset + limit);
+    const nextOffset = offset + pageItems.length;
+    return {
+        items: pageItems,
+        next:
+            nextOffset < items.length
+                ? `${path}?limit=${limit}&offset=${nextOffset}`
+                : undefined,
+    };
 }
 
 /** Mirrors setPlaybackQueue on the native side, down to its rejection of unknown types. */
@@ -427,14 +506,23 @@ export function createMockNativeModule(): AppleMusicKitNativeModule {
     let isPlaying = false;
     let queue: MusicItem[] = [];
     let queueIndex = 0;
-    // Nothing in the module reads the position back yet; it is kept so seeking
-    // and restarting have something to act on.
     let playbackTime = 0;
+    let playbackStartedAt: number | null = null;
 
-    // Registered but never called: both native modules declare
-    // "onPlaybackStateChange" without ever sending it, and ./index keeps the
-    // playing state itself, so emitting here would double-toggle it.
-    const listeners = new Map<string, Set<(...args: any[]) => void>>();
+    function currentPlaybackTime(): number {
+        const elapsed =
+            isPlaying && playbackStartedAt !== null
+                ? (Date.now() - playbackStartedAt) / 1000
+                : 0;
+        const duration = queue[queueIndex]?.songDuration;
+        const current = playbackTime + elapsed;
+        return duration === undefined ? current : Math.min(current, duration);
+    }
+
+    function stopPlaybackClock(): void {
+        playbackTime = currentPlaybackTime();
+        playbackStartedAt = null;
+    }
 
     return {
         authorize: (_developerToken: string) => respond(MOCK_AUTH_RESULT),
@@ -443,34 +531,57 @@ export function createMockNativeModule(): AppleMusicKitNativeModule {
             respond(undefined, COMMAND_LATENCY_MS),
 
         play: () => {
+            if (!isPlaying) playbackStartedAt = Date.now();
             isPlaying = true;
             return respond(undefined, COMMAND_LATENCY_MS);
         },
 
         pause: () => {
+            stopPlaybackClock();
             isPlaying = false;
             return respond(undefined, COMMAND_LATENCY_MS);
         },
 
         togglePlayerState: () => {
-            isPlaying = !isPlaying;
-            return respond(isPlaying, COMMAND_LATENCY_MS);
+            if (isPlaying) {
+                stopPlaybackClock();
+                isPlaying = false;
+            } else {
+                playbackStartedAt = Date.now();
+                isPlaying = true;
+            }
+            return respond(undefined, COMMAND_LATENCY_MS);
+        },
+
+        getPlaybackSnapshot: () => {
+            const currentTrack = queue[queueIndex];
+            const snapshot: PlaybackSnapshot = {
+                isPlaying,
+                isLoading: false,
+                progress: currentPlaybackTime(),
+                duration: currentTrack?.songDuration,
+                currentTrack,
+            };
+            return respond(snapshot, COMMAND_LATENCY_MS);
         },
 
         skipToNextEntry: () => {
             if (queueIndex < queue.length - 1) queueIndex++;
             playbackTime = 0;
+            playbackStartedAt = isPlaying ? Date.now() : null;
             return respond(undefined, COMMAND_LATENCY_MS);
         },
 
         skipToPreviousEntry: () => {
             if (queueIndex > 0) queueIndex--;
             playbackTime = 0;
+            playbackStartedAt = isPlaying ? Date.now() : null;
             return respond(undefined, COMMAND_LATENCY_MS);
         },
 
         restartCurrentEntry: () => {
             playbackTime = 0;
+            playbackStartedAt = isPlaying ? Date.now() : null;
             return respond(undefined, COMMAND_LATENCY_MS);
         },
 
@@ -480,6 +591,7 @@ export function createMockNativeModule(): AppleMusicKitNativeModule {
                 0,
                 duration === undefined ? time : Math.min(time, duration),
             );
+            playbackStartedAt = isPlaying ? Date.now() : null;
             return respond(undefined, COMMAND_LATENCY_MS);
         },
 
@@ -506,55 +618,51 @@ export function createMockNativeModule(): AppleMusicKitNativeModule {
             });
         },
 
-        getTracksFromLibrary: () =>
-            respond<LibraryResult>({
-                items: MOCK_LIBRARY_SONGS.slice(0, DEFAULT_LIBRARY_LIMIT),
-            }),
-
         getUserPlaylists: (options?: MusicKitOptions) =>
-            respond<LibraryResult>({
-                items: MOCK_PLAYLISTS.slice(
-                    0,
-                    options?.limit ?? DEFAULT_LIBRARY_LIMIT,
+            respond(
+                paginatedResult(
+                    MOCK_PLAYLISTS,
+                    options,
+                    "/v1/me/library/playlists",
                 ),
-            }),
+            ),
 
         getLibrarySongs: (options?: MusicKitOptions) =>
-            respond<LibraryResult>({
-                items: MOCK_LIBRARY_SONGS.slice(
-                    0,
-                    options?.limit ?? DEFAULT_LIBRARY_LIMIT,
+            respond(
+                paginatedResult(
+                    MOCK_LIBRARY_SONGS,
+                    options,
+                    "/v1/me/library/songs",
                 ),
+            ),
+
+        getPlaylistSongs: (playlistId: string, options?: MusicKitOptions) =>
+            respond(
+                paginatedResult(
+                    MOCK_PLAYLIST_TRACKS[playlistId] ?? [],
+                    options,
+                    `/v1/me/library/playlists/${encodeURIComponent(playlistId)}/tracks`,
+                ),
+            ),
+
+        getSongFavoriteStatus: (id: string) =>
+            respond<SongFavoriteStatus>({
+                isFavorite: MOCK_FAVORITE_IDS.has(id),
             }),
 
-        getPlaylistSongs: (playlistId: string) =>
-            respond<LibraryResult>({
-                items: MOCK_PLAYLIST_TRACKS[playlistId] ?? [],
-            }),
+        setSongFavoriteStatus: (id: string, isFavorite: boolean) => {
+            if (isFavorite) MOCK_FAVORITE_IDS.add(id);
+            else MOCK_FAVORITE_IDS.delete(id);
+            return respond<SongFavoriteStatus>({ isFavorite });
+        },
 
         setPlaybackQueue: (id: string, type: string) => {
             queue = buildQueue(id, type);
             queueIndex = 0;
             playbackTime = 0;
+            playbackStartedAt = null;
+            isPlaying = false;
             return respond(undefined, COMMAND_LATENCY_MS);
-        },
-
-        addListener: (
-            eventName: string,
-            listener: (...args: any[]) => void,
-        ): EventSubscription => {
-            const forEvent = listeners.get(eventName) ?? new Set();
-            forEvent.add(listener);
-            listeners.set(eventName, forEvent);
-
-            return {
-                remove: () => {
-                    forEvent.delete(listener);
-                },
-            };
-        },
-
-        removeListeners: (_count: number) => {
         },
     };
 }

@@ -10,6 +10,7 @@ import { View, Text, StyleSheet, Alert } from "react-native";
 type Props = {
     songs: MusicItem[];
     isLoading: boolean;
+    error?: unknown;
     anticipatedTrackCount?: number;
     onBackPress: () => any;
 };
@@ -17,6 +18,7 @@ type Props = {
 export default function QueryResults({
     songs,
     isLoading,
+    error,
     anticipatedTrackCount,
     onBackPress,
 }: Props) {
@@ -24,7 +26,7 @@ export default function QueryResults({
     const { isConnected, ensureConnected } = useAppleMusic();
     const { activeTrackId, isPlaying, togglePlayback } = usePlayback();
 
-    async function handleTogglePlayback(trackId: string) {
+    async function handleTogglePlayback(track: MusicItem) {
         if (!isConnected) {
             Alert.alert(
                 "Apple Music Not Connected",
@@ -35,7 +37,7 @@ export default function QueryResults({
 
         try {
             await ensureConnected();
-            await togglePlayback(trackId);
+            await togglePlayback(track);
         } catch (e) {
             console.error(e);
         }
@@ -47,6 +49,11 @@ export default function QueryResults({
                 Your Mix
             </Text>
             <View style={styles.container}>
+                {error ? (
+                    <Text className="text-destructive text-center">
+                        Failed to load song metadata.
+                    </Text>
+                ) : null}
                 <MusicList
                     tracks={songs}
                     isLoading={isLoading}

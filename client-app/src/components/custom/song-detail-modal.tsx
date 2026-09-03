@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Image, Modal, Pressable, ScrollView, View } from "react-native";
 import { MusicItem as AppleMusicItem } from "@apple-musickit";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -19,7 +19,7 @@ type SongDetailModalProps = {
     open: boolean;
     onClose: () => any;
     song: AppleMusicItem | null;
-    onTogglePlayback: (trackId: string) => void;
+    onTogglePlayback: (track: AppleMusicItem) => void;
     isThisTrackPlaying: boolean;
 };
 
@@ -31,7 +31,13 @@ function toDisplayString(value: unknown, fallback = "Unavailable") {
 }
 
 
-export function SongDetailModal({
+export function SongDetailModal(props: SongDetailModalProps) {
+    return (
+        <SongDetailModalContent key={props.song?.id ?? "no-song"} {...props} />
+    );
+}
+
+function SongDetailModalContent({
     open,
     onClose,
     song,
@@ -65,11 +71,6 @@ export function SongDetailModal({
         }),
     );
 
-    useEffect(() => {
-        setArtworkFailed(false);
-        setActivePanel(null);
-    }, [song?.id, song?.artworkUrl]);
-
     const artworkUrl = song?.artworkUrl?.trim();
     const canRenderArtwork =
         !artworkFailed &&
@@ -93,7 +94,7 @@ export function SongDetailModal({
 
     function handlePlayPress() {
         if (!song?.id) return;
-        onTogglePlayback(song.id);
+        onTogglePlayback(song);
     }
 
     return (
@@ -400,27 +401,4 @@ export function SongDetailModal({
             </Pressable>
         </Modal>
     );
-}
-
-function normalizeOptionalString(value: unknown): string | undefined {
-    if (typeof value !== "string") {
-        return undefined;
-    }
-
-    const normalized = value.trim();
-    return normalized.length > 0 ? normalized : undefined;
-}
-
-function normalizeRequiredString(value: unknown, message: string): string {
-    const normalized = normalizeOptionalString(value);
-    if (!normalized) {
-        throw new Error(message);
-    }
-    return normalized;
-}
-
-function hasRequiredMetadata(song: AppleMusicItem): boolean {
-    const title = normalizeOptionalString(song.title);
-    const artist = normalizeOptionalString(song.artistName);
-    return Boolean(title && artist);
 }
