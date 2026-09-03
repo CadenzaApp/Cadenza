@@ -1,3 +1,5 @@
+import { Plus } from "lucide-react-native";
+import { useTheme } from "expo-router/react-navigation";
 import { useState } from "react";
 import { ActivityIndicator, Pressable, View } from "react-native";
 import {
@@ -6,8 +8,8 @@ import {
     DialogDescription,
     DialogHeader,
     DialogTitle,
-    DialogTrigger,
 } from "@/components/ui/dialog";
+import { FloatingBubble } from "@/components/custom/floating-bubble";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -31,10 +33,10 @@ const COLOR_OPTIONS: string[] = [
 ];
 
 export function CreateTagDialog() {
-    const {
-        createTag, createTagErr, createTagLoading, resetCreateTag
-    } = useCreateTag();
+    const { createTag, createTagErr, createTagLoading, resetCreateTag } =
+        useCreateTag();
 
+    const { colors } = useTheme();
     const [open, _setOpen] = useState(false);
     const [name, setName] = useState("");
     const [selectedColor, setSelectedColor] = useState(COLOR_OPTIONS[0]);
@@ -62,13 +64,12 @@ export function CreateTagDialog() {
 
     return (
         <Dialog open={open} onOpenChange={setOpen}>
-            <DialogTrigger asChild>
-                <Pressable className="absolute bottom-7 right-5 w-14 h-14 rounded-full bg-primary items-center justify-center shadow-lg shadow-black/30">
-                    <Text className="text-primary-foreground text-3xl font-light leading-9 mt-[-2px]">
-                        +
-                    </Text>
-                </Pressable>
-            </DialogTrigger>
+            <FloatingBubble
+                onPress={() => setOpen(true)}
+                accessibilityLabel="Create a new tag"
+            >
+                <Plus size={28} color={colors.background} />
+            </FloatingBubble>
 
             <DialogContent>
                 <DialogHeader>

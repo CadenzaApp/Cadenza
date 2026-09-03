@@ -1,8 +1,9 @@
 import { Funnel, ArrowDown, ArrowUp } from "lucide-react-native";
 import { useState } from "react";
-import { Modal, Pressable, useWindowDimensions, View } from "react-native";
+import { Modal, Pressable, useWindowDimensions } from "react-native";
 import { useTheme } from "expo-router/react-navigation";
 
+import { FloatingBubble } from "@/components/custom/floating-bubble";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { Text } from "@/components/ui/text";
@@ -34,26 +35,13 @@ export function MusicListSortButton({
 
     return (
         <>
-            <View
-                style={{
-                    position: "absolute",
-                    right: 24,
-                    bottom: 24,
-                    zIndex: 10,
-                    elevation: 10,
-                }}
+            <FloatingBubble
+                onPress={() => setIsOpen(true)}
+                accessibilityLabel={`Sort tracks by ${sortLabel}, ${sort.direction}`}
+                accessibilityState={{ expanded: isOpen }}
             >
-                <Button
-                    size="icon"
-                    className="h-14 w-14 rounded-full"
-                    style={{ backgroundColor: colors.text }}
-                    onPress={() => setIsOpen(true)}
-                    accessibilityLabel={`Sort tracks by ${sortLabel}, ${sort.direction}`}
-                    accessibilityState={{ expanded: isOpen }}
-                >
-                    <Funnel size={28} color={colors.background} />
-                </Button>
-            </View>
+                <Funnel size={28} color={colors.background} />
+            </FloatingBubble>
 
             <Modal
                 visible={isOpen}
