@@ -62,3 +62,30 @@ npx eslint modules/apple-musickit/index.ts modules/apple-musickit/src/*.ts
 
 Compile native targets with the `AppleMusicKitModule` Xcode scheme and Gradle's
 `:apple-musickit:compileDebugKotlin` task.
+
+## Files
+
+| file | role |
+| --- | --- |
+| `index.ts` | Public surface. This is what `@apple-musickit` resolves to. |
+| `src/index.ts` | Re-exports `Auth`, `MusicKit`, `Playback`. |
+| `src/AppleMusicKit.types.ts` | `MusicItem`, `AuthResult`, `AuthStatus`, and the rest of the shared types. |
+| `src/auth.ts` | Authorization and native token management. |
+| `src/library.ts` | Catalog search, library pages, playlist tracks, favorites. |
+| `src/playback.ts` | Native playback commands and the playback snapshot hooks. |
+| `src/mock-native-module.ts` | The `EXPO_PUBLIC_MOCK_MUSICKIT=1` implementation. Fixtures, paginated collections, simulated progress. |
+| `ios/AppleMusicKitModule.swift` | iOS native module. |
+| `android/src/main/java/.../AppleMusicKitModule.kt` | Android native module. |
+| `expo-module.config.json` | Autolinking config. Picked up via the `expo.autolinking.nativeModulesDir` entry in `client-app/package.json`. |
+
+## Connects to
+
+- `client-app/src/lib/apple-music-auth.tsx` owns the token lifecycle on top of `Auth`.
+- `client-app/src/lib/playback.tsx` wraps `Playback` and adds queue tracking.
+- `client-app/src/lib/musickit-hooks.ts` wraps `MusicKit` reads in SWR.
+
+Nothing outside `client-app/src/lib` should import `@apple-musickit` for data. Use the hooks.
+
+---
+Touching files in this directory? Update this README in the same change.
+See [../../../AGENT_GUIDE.md](../../../AGENT_GUIDE.md).
