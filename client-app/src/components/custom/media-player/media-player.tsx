@@ -91,11 +91,12 @@ export function MediaPlayer({
         ...tag,
         applied: appliedTagIds.has(tag.id),
     }));
+    const favoriteSongId = activeTrack?.catalogId ?? activeTrack?.id;
     const {
         favoriteStatus,
         favoriteStatusLoading: isFavoriteStatusLoading,
         setSongFavoriteStatus,
-    } = useSongFavoriteStatus(activeTrack?.id);
+    } = useSongFavoriteStatus(favoriteSongId);
 
     const artworkUrl = activeTrack?.artworkUrl?.trim();
     const fullArtworkUrl = activeTrack?.artworkUrlLarge?.trim() || artworkUrl;
@@ -108,7 +109,7 @@ export function MediaPlayer({
         fullArtworkUrl !== failedArtworkUrl &&
         /^https?:\/\//i.test(fullArtworkUrl);
     const duration = activeTrack?.songDuration ?? 0;
-    const isUpdatingFavorite = favoriteUpdateSongId === activeTrack?.id;
+    const isUpdatingFavorite = favoriteUpdateSongId === favoriteSongId;
     const displayedProgress = scrubPosition ?? progress;
     const availableArtworkSize =
         height -
@@ -407,7 +408,7 @@ export function MediaPlayer({
     }
 
     async function handleFavoriteToggle() {
-        const songId = activeTrack?.id;
+        const songId = favoriteSongId;
         if (!songId || !favoriteStatus || isUpdatingFavorite) return;
 
         const isFavorite = favoriteStatus.isFavorite;

@@ -1,4 +1,4 @@
-import { Plus } from "lucide-react-native";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTheme } from "expo-router/react-navigation";
 import { useState } from "react";
 import { ActivityIndicator, Pressable, View } from "react-native";
@@ -68,7 +68,7 @@ export function CreateTagDialog() {
                 onPress={() => setOpen(true)}
                 accessibilityLabel="Create a new tag"
             >
-                <Plus size={28} color={colors.background} />
+                <Ionicons name="add" size={28} color={colors.background} />
             </ScreenFloatingBubble>
 
             <DialogContent>

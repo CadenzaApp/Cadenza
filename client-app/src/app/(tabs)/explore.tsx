@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { Alert, Platform, View } from "react-native";
-import { type MusicItem as AppleMusicItem } from "@apple-musickit";
 import Ionicons from "@expo/vector-icons/Ionicons";
 
 import { Button } from "@/components/ui/button";
@@ -12,10 +11,8 @@ import {
     MUSIC_LIST_SORT_OPTIONS,
     type MusicListSort,
 } from "@/components/custom/music-list";
-import { SongDetailModal } from "@/components/custom/song-detail-modal";
-import { usePlayback } from "@/lib/playback";
 import { useAppleMusic } from "@/lib/apple-music-auth";
-import { getErrorDetails, getErrorMessage } from "@/lib/error-utils";
+import { getErrorMessage } from "@/lib/error-utils";
 import {
     useCatalogSongSearch,
     useTracksFromLibrary,
@@ -27,18 +24,14 @@ const DEFAULT_LIBRARY_SORT: MusicListSort = {
 };
 const LIBRARY_SORT_OPTIONS =
     Platform.OS === "ios" ? MUSIC_LIST_SORT_OPTIONS : ([] as const);
+const DEFAULT_MULTI_SELECT_CONFIG = {} as const;
 
 export default function ExploreScreen() {
     const [activeTab, setActiveTab] = useState("library");
     const [librarySort, setLibrarySort] =
         useState<MusicListSort>(DEFAULT_LIBRARY_SORT);
     const [searchQuery, setSearchQuery] = useState("");
-    const [selectedSong, setSelectedSong] = useState<AppleMusicItem | null>(
-        null,
-    );
-
     const { isInitializing, isConnected, ensureConnected } = useAppleMusic();
-    const { activeTrackId, isPlaying, togglePlayback } = usePlayback();
     const nativeLibrarySort = Platform.OS === "ios" ? librarySort : undefined;
     const {
         tracks,
@@ -81,27 +74,6 @@ export default function ExploreScreen() {
         searchCatalog(query);
     }
 
-    async function handleTogglePlayback(track: AppleMusicItem) {
-        if (!isConnected) {
-            Alert.alert(
-                "Apple Music Not Connected",
-                "Connect Apple Music from the Account tab before playing songs.",
-            );
-            return;
-        }
-
-        try {
-            await ensureConnected();
-            await togglePlayback(track);
-        } catch (error) {
-            console.error("Failed to toggle playback:", getErrorDetails(error));
-            Alert.alert(
-                "Playback Error",
-                `Failed to update playback state. ${getErrorMessage(error)}`,
-            );
-        }
-    }
-
     return (
         <View className="flex-1 bg-background pt-8">
             <Tabs
@@ -109,7 +81,7 @@ export default function ExploreScreen() {
                 onValueChange={setActiveTab}
                 className="flex-1 flex-col"
             >
-                <View className="px-6 mb-4">
+                <View className="mb-1 px-6">
                     <TabsList className="w-full flex-row">
                         <TabsTrigger value="library" className="flex-1">
                             <Text>My Library</Text>
@@ -130,16 +102,14 @@ export default function ExploreScreen() {
                     <MusicList
                         tracks={tracks}
                         isLoading={tracksLoading}
-                        activeTrackId={activeTrackId}
-                        isPlaying={isPlaying}
-                        onTogglePlayback={handleTogglePlayback}
-                        onSelectTrack={setSelectedSong}
                         hasNextPage={hasNextLibraryPage}
                         isLoadingNextPage={tracksLoadingNextPage}
                         onLoadNextPage={loadNextLibraryPage}
                         sortOptions={LIBRARY_SORT_OPTIONS}
                         sort={librarySort}
                         onSortChange={setLibrarySort}
+                        multiSelect={DEFAULT_MULTI_SELECT_CONFIG}
+                        fullBleedRows
                     />
                 </TabsContent>
 
@@ -184,29 +154,15 @@ export default function ExploreScreen() {
                     <MusicList
                         tracks={searchResults}
                         isLoading={searchCatalogLoading}
-                        activeTrackId={activeTrackId}
-                        isPlaying={isPlaying}
-                        onTogglePlayback={handleTogglePlayback}
-                        onSelectTrack={setSelectedSong}
                         hasNextPage={hasNextSearchPage}
                         isLoadingNextPage={isLoadingNextSearchPage}
                         onLoadNextPage={loadNextSearchPage}
                         showSort={false}
+                        multiSelect={DEFAULT_MULTI_SELECT_CONFIG}
+                        fullBleedRows
                     />
                 </TabsContent>
             </Tabs>
-
-            <SongDetailModal
-                open={selectedSong != null}
-                onClose={() => setSelectedSong(null)}
-                song={selectedSong}
-                onTogglePlayback={togglePlayback}
-                isThisTrackPlaying={Boolean(
-                    selectedSong?.id &&
-                    activeTrackId === selectedSong.id &&
-                    isPlaying,
-                )}
-            />
         </View>
     );
 }

@@ -58,6 +58,9 @@ export const THEME = {
     },
 };
 
+/** Named application colors that automatically resolve for light or dark mode. */
+export type ThemeColorToken = Exclude<keyof typeof THEME.light, "radius">;
+
 export const NAV_THEME: Record<"light" | "dark", Theme> = {
     light: {
         ...DefaultTheme,

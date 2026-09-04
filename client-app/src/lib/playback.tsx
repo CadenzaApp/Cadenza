@@ -9,6 +9,8 @@ import {
 import { Alert, AppState } from "react-native";
 import { MusicItem, Playback, PlaybackQueueType } from "@apple-musickit";
 
+import { useAppleMusic } from "./apple-music-auth";
+
 export type PlaybackQueue = {
     tracks: MusicItem[];
     startIndex?: number;
@@ -25,6 +27,7 @@ type PlaybackInfo = {
     canSkipToNext: boolean;
     canSkipToPrevious: boolean;
     playQueue: (queue: PlaybackQueue) => Promise<void>;
+    addToQueue: (tracks: readonly MusicItem[]) => Promise<void>;
     togglePlayback: (track: MusicItem) => Promise<void>;
     seekTo: (time: number) => Promise<void>;
     skipToNext: () => Promise<void>;
@@ -38,6 +41,7 @@ export function usePlayback() {
 }
 
 export function PlaybackProvider({ children }: { children: ReactNode }) {
+    const { isConnected, ensureConnected } = useAppleMusic();
     const snapshot = Playback.usePlaybackSnapshot();
     const [queue, setQueue] = useState<MusicItem[]>([]);
     const [queueIndex, setQueueIndex] = useState(-1);
@@ -94,27 +98,39 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     }
 
     async function playQueue({ tracks, startIndex = 0 }: PlaybackQueue) {
+        if (!isConnected) {
+            Alert.alert(
+                "Apple Music Not Connected",
+                "Connect Apple Music from the Account tab before playing songs.",
+            );
+            return;
+        }
+
         const playableTracks = tracks.filter((track) =>
             Boolean(track.playbackId ?? track.id),
         );
         if (playableTracks.length === 0) return;
 
-        const boundedIndex = Math.max(
-            0,
-            Math.min(startIndex, playableTracks.length - 1),
-        );
-        const requestRevision = ++queueRequestRevision.current;
-        setQueue(playableTracks);
-        setQueueIndex(boundedIndex);
-
+        let requestRevision: number | null = null;
         try {
+            await ensureConnected();
+            const boundedIndex = Math.max(
+                0,
+                Math.min(startIndex, playableTracks.length - 1),
+            );
+            requestRevision = ++queueRequestRevision.current;
+            setQueue(playableTracks);
+            setQueueIndex(boundedIndex);
             await startQueueTrack(
                 playableTracks,
                 boundedIndex,
                 requestRevision,
             );
         } catch (e) {
-            if (requestRevision === queueRequestRevision.current) {
+            if (
+                requestRevision === null ||
+                requestRevision === queueRequestRevision.current
+            ) {
                 setQueue([]);
                 setQueueIndex(-1);
             }
@@ -141,6 +157,44 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
         } catch (e) {
             console.error("Failed to toggle playback:", e);
             Alert.alert("Playback Error", "Failed to update playback state.");
+        }
+    }
+
+    async function addToQueue(tracks: readonly MusicItem[]) {
+        const playableTracks = tracks.filter((track) =>
+            Boolean(track.playbackId ?? track.id),
+        );
+        if (playableTracks.length === 0) return;
+
+        if (!isConnected) {
+            Alert.alert(
+                "Apple Music Not Connected",
+                "Connect Apple Music from the Account tab before adding songs to the queue.",
+            );
+            return;
+        }
+
+        try {
+            await ensureConnected();
+
+            if (queue.length > 0) {
+                setQueue((currentQueue) => [
+                    ...currentQueue,
+                    ...playableTracks,
+                ]);
+                return;
+            }
+
+            if (activeTrack) {
+                setQueue([activeTrack, ...playableTracks]);
+                setQueueIndex(0);
+                return;
+            }
+
+            await playQueue({ tracks: playableTracks });
+        } catch (e) {
+            console.error("Failed to add tracks to playback queue:", e);
+            Alert.alert("Playback Error", "Failed to add songs to the queue.");
         }
     }
 
@@ -195,6 +249,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
                 canSkipToNext: queueIndex >= 0 && queueIndex < queue.length - 1,
                 canSkipToPrevious: queueIndex > 0,
                 playQueue,
+                addToQueue,
                 togglePlayback,
                 seekTo,
                 skipToNext,

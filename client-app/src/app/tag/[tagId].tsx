@@ -1,14 +1,10 @@
-import { useState } from "react";
 import { View, Pressable } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { MusicItem as AppleMusicItem } from "@apple-musickit";
 import Ionicons from "@expo/vector-icons/Ionicons";
 
-import { usePlayback } from "@/lib/playback";
 import { Text } from "@/components/ui/text";
 import { TagPill } from "@/components/custom/tag-pill";
 import { MusicList } from "@/components/custom/music-list";
-import { SongDetailModal } from "@/components/custom/song-detail-modal";
 import { useTag } from "@/lib/routes/tags";
 import { useSongInfo } from "@/lib/musickit-hooks";
 
@@ -17,19 +13,11 @@ import { useSongInfo } from "@/lib/musickit-hooks";
 
 export default function TagDetailScreen() {
     const { tagId } = useLocalSearchParams<{ tagId: string }>();
-    const {tag, songIds} = useTag(Number(tagId));
-    const { songInfo: tracks = [], songInfoLoading: tracksLoading } = useSongInfo(songIds ?? []);
+    const { tag, songIds } = useTag(Number(tagId));
+    const { songInfo: tracks = [], songInfoLoading: tracksLoading } =
+        useSongInfo(songIds ?? []);
 
     const router = useRouter();
-
-    const { activeTrackId, isPlaying, togglePlayback } = usePlayback();
-
-    const [selectedSong, setSelectedSong] = useState<AppleMusicItem | null>(
-        null,
-    );
-    function handleTrackSelected(track: AppleMusicItem) {
-        setSelectedSong(track);
-    }
 
     // Scale the header pill down for longer tag names so it doesn't look weird
     const pillHeight = tag
@@ -67,22 +55,6 @@ export default function TagDetailScreen() {
                 tracks={tracks}
                 isLoading={tracksLoading}
                 anticipatedTrackCount={songIds?.length ?? 0}
-                activeTrackId={activeTrackId}
-                isPlaying={isPlaying}
-                onTogglePlayback={togglePlayback}
-                onSelectTrack={handleTrackSelected}
-            />
-
-            <SongDetailModal
-                open={selectedSong != null}
-                onClose={() => setSelectedSong(null)}
-                song={selectedSong}
-                onTogglePlayback={togglePlayback}
-                isThisTrackPlaying={Boolean(
-                    selectedSong?.id &&
-                    activeTrackId === selectedSong.id &&
-                    isPlaying,
-                )}
             />
         </View>
     );

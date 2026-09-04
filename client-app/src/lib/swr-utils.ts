@@ -3,11 +3,6 @@ import useSWRMutation from "swr/mutation";
 import { useAccount } from "./account";
 import { BACKEND_URL } from "./backend";
 
-/** invalidate all SWRs */
-export function clearCache() {
-    mutate(() => true, undefined, { revalidate: false });
-}
-
 /** Simplified wrapper around `useSWRMutation` with Input/Output types */
 export function useSimpleMutation<Input, Output>(
     key: any,
