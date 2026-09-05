@@ -20,7 +20,7 @@ import {Tag} from "@/lib/types";
 type MusicItemProps = {
     item: AppleMusicItem;
     isThisTrackPlaying: boolean;
-    onTogglePlayback: (trackId: string) => void;
+    onTogglePlayback: (track: AppleMusicItem) => void;
     tags?: Tag[];
     onPress?: (item: AppleMusicItem, tags: Tag[]) => void;
 };
@@ -147,7 +147,7 @@ export function MusicListItem({
             <Button
                 size="icon"
                 className="h-11 w-11 rounded-full shrink-0"
-                onPress={() => item.id && onTogglePlayback(item.id)}
+                onPress={() => item.id && onTogglePlayback(item)}
                 variant={isThisTrackPlaying ? "secondary" : "default"}
             >
                 <Text>

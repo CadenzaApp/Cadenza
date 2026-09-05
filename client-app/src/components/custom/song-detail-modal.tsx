@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Image, Modal, Pressable, ScrollView, View } from "react-native";
 import { MusicItem as AppleMusicItem } from "@apple-musickit";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -14,7 +14,7 @@ type SongDetailModalProps = {
     open: boolean;
     onClose: () => any;
     song: AppleMusicItem | null;
-    onTogglePlayback: (trackId: string) => void;
+    onTogglePlayback: (track: AppleMusicItem) => void;
     isThisTrackPlaying: boolean;
 };
 
@@ -27,7 +27,13 @@ function toDisplayString(value: unknown, fallback = "Unavailable") {
 
 const SUGGESTED_TAGS_COUNT = 5;
 
-export function SongDetailModal({
+export function SongDetailModal(props: SongDetailModalProps) {
+    return (
+        <SongDetailModalContent key={props.song?.id ?? "no-song"} {...props} />
+    );
+}
+
+function SongDetailModalContent({
     open,
     onClose,
     song,
@@ -63,11 +69,6 @@ export function SongDetailModal({
         // ignore suggested tags that are already on the song
         .filter((tag) => !tagsOnSong?.some((t) => t.name === tag.name));
 
-    useEffect(() => {
-        setArtworkFailed(false);
-        setActivePanel(null);
-    }, [song?.id, song?.artworkUrl]);
-
     const artworkUrl = song?.artworkUrl?.trim();
     const canRenderArtwork =
         !artworkFailed &&
@@ -98,7 +99,7 @@ export function SongDetailModal({
 
     function handlePlayPress() {
         if (!song?.id) return;
-        onTogglePlayback(song.id);
+        onTogglePlayback(song);
     }
 
     return (

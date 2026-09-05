@@ -1,20 +1,16 @@
 Pod::Spec.new do |s|
   s.name           = 'AppleMusicKitModule'
   s.version        = '0.1.0'
-  s.summary        = 'A sample project summary'
-  s.description    = 'A sample project description'
-  s.author         = ''
-  s.homepage       = 'https://docs.expo.dev/modules/'
-  s.platforms      = {
-    :ios => '15.1',
-    :tvos => '15.1'
-  }
-  s.source         = { git: '' }
+  s.summary        = 'Cadenza Apple Music authorization, library, and playback bridge'
+  s.description    = 'An Expo module that provides Apple Music authorization, catalog and library access, favorites, and native playback.'
+  s.author         = 'Cadenza'
+  s.homepage       = 'https://capstone.cs.utah.edu/cadenza/cadenza'
+  s.platforms      = { :ios => '16.4' }
+  s.source         = { :git => 'https://capstone.cs.utah.edu/cadenza/cadenza.git', :tag => s.version.to_s }
   s.static_framework = true
 
   s.dependency 'ExpoModulesCore'
 
-  # Swift/Objective-C compatibility
   s.pod_target_xcconfig = {
     'DEFINES_MODULE' => 'YES',
   }
