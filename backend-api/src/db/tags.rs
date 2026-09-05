@@ -13,10 +13,6 @@ use serde::Serialize;
 use crate::db::entity::*;
 use crate::err::CadenzaError;
 
-pub fn is_global_tag(tag: &tags::Model) -> bool {
-    tag.user_id.is_none()
-}
-
 pub async fn get_all_user_tags(
     db: &DatabaseConnection,
     user_id: Uuid,

@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 import { QueryJSONNode } from "@/features/query-builder/types";
 import { useAPIData, useAPIFetch } from "../api-actions";
 
@@ -14,6 +13,3 @@ export function useQueryResults() {
         resetQuery: x.reset,
     };
 }
-=======
-import { useAPIData } from "../swr-utils";
->>>>>>> main
