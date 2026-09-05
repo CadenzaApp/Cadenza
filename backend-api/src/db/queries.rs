@@ -70,8 +70,8 @@ fn decode_query(
     let sql = format!(
         r#"
             SELECT song_id, tag_id
-            FROM local_tags_applied
-            WHERE local_tags_applied.user_id=$1 AND {}
+            FROM user_tags_applied
+            WHERE user_tags_applied.user_id=$1 AND {}
         "#,
         where_clause
     );
@@ -93,8 +93,8 @@ fn decode_query_json_node(
         let mut exists_clause = format!(
             r#"
                 EXISTS (
-                    SELECT * FROM local_tags_applied AS exists_check
-                    WHERE exists_check.song_id=local_tags_applied.song_id AND exists_check.user_id = $1 AND exists_check.tag_id=${}
+                    SELECT * FROM user_tags_applied AS exists_check
+                    WHERE exists_check.song_id=user_tags_applied.song_id AND exists_check.user_id = $1 AND exists_check.tag_id=${}
                 )
             "#,
             param_counter,

@@ -66,6 +66,7 @@ export function useDeleteTag() {
 
 type SuggestTagsParams = {
     song_desc: string;
+    requested_tag_count: number;
 };
 export function useSuggestTags() {
     const x = useAPIFetch<SuggestTagsParams, string[]>("/tags/suggest");

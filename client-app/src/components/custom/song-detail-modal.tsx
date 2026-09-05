@@ -25,6 +25,8 @@ function toDisplayString(value: unknown, fallback = "Unavailable") {
     return fallback;
 }
 
+const SUGGESTED_TAGS_COUNT = 5;
+
 export function SongDetailModal({
     open,
     onClose,
@@ -39,8 +41,8 @@ export function SongDetailModal({
     const { tagsOnSong, tagsOnSongLoading, tagsOnSongErr } = useTagsOnSong(
         song?.id,
     );
-    const { userTags, userTagsLoading, userTagsErr } = useUserTags();
-    const userTagsNotOnSong =
+    const { userTags } = useUserTags();
+    const addableTags =
         userTags &&
         tagsOnSong &&
         userTags.filter(
@@ -52,13 +54,14 @@ export function SongDetailModal({
     const { applyTag } = useApplyTag();
     let { suggestedTagNames, suggestTags, suggestTagsErr, suggestTagsLoading } =
         useSuggestTags();
-    const suggestedTags: Tag[] | undefined = suggestedTagNames?.map(
-        (name, i) => ({
+    const suggestedTags: Tag[] | undefined = suggestedTagNames
+        ?.map((name, i) => ({
             id: -i,
             name,
             color: "#7c3aed",
-        }),
-    );
+        }))
+        // ignore suggested tags that are already on the song
+        .filter((tag) => !tagsOnSong?.some((t) => t.name === tag.name));
 
     useEffect(() => {
         setArtworkFailed(false);
@@ -83,8 +86,13 @@ export function SongDetailModal({
             return;
         }
 
+        if (suggestedTagNames != undefined) return;
         await suggestTags({
             song_desc: `${song?.title} by ${song?.artistName}`,
+            // request SUGGESTED_TAGS_COUNT + number of existing tags
+            // to guarantee that many new tags that aren't alr on the song
+            requested_tag_count:
+                (tagsOnSong?.length ?? 0) + SUGGESTED_TAGS_COUNT,
         });
     }
 
@@ -355,15 +363,15 @@ export function SongDetailModal({
                                             {JSON.stringify(tagsOnSongErr)}
                                         </Text>
                                     )}
-                                    {userTagsNotOnSong?.length === 0 && (
+                                    {addableTags?.length === 0 && (
                                         <Text className="text-sm text-muted-foreground">
                                             No tags to add.
                                         </Text>
                                     )}
-                                    {userTagsNotOnSong && userTagsNotOnSong.length !== 0 && (
-                                        <View className="flex-row flex-wrap gap-2">
-                                            {userTagsNotOnSong
-                                                .map((tag) => (
+                                    {addableTags &&
+                                        addableTags.length !== 0 && (
+                                            <View className="flex-row flex-wrap gap-2">
+                                                {addableTags.map((tag) => (
                                                     <Pressable
                                                         key={tag.id}
                                                         onPress={() =>
@@ -380,8 +388,8 @@ export function SongDetailModal({
                                                         />
                                                     </Pressable>
                                                 ))}
-                                        </View>
-                                    )}
+                                            </View>
+                                        )}
                                 </View>
                             )}
                         </ScrollView>
