@@ -1,8 +1,7 @@
-import { Icon } from "@/components/ui/icon";
 import { NativeOnlyAnimatedView } from "@/components/ui/native-only-animated-view";
 import { cn } from "@/lib/utils";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import * as DialogPrimitive from "@rn-primitives/dialog";
-import { X } from "lucide-react-native";
 import * as React from "react";
 import { Platform, Text, View, type ViewProps } from "react-native";
 import { FadeIn, FadeOut } from "react-native-reanimated";
@@ -85,12 +84,7 @@ function DialogContent({
                         )}
                         hitSlop={12}
                     >
-                        <Icon
-                            as={X}
-                            className={cn(
-                                "text-white web:pointer-events-none size-4 shrink-0",
-                            )}
-                        />
+                        <Ionicons name="close" size={16} color="white" />
                         <Text className="sr-only">Close</Text>
                     </DialogPrimitive.Close>
                 </DialogPrimitive.Content>
