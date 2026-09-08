@@ -45,6 +45,8 @@ export function TagPill({
         const compactBadge = (
             <Badge
                 pointerEvents="none"
+                accessible={!onRemove}
+                accessibilityLabel={tag.name}
                 style={{
                     width: diameter,
                     height: diameter,

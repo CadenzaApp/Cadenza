@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FlatList, View } from "react-native";
+import type { MusicItem } from "@apple-musickit";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
     Easing,
@@ -12,7 +13,7 @@ import Animated, {
 
 import { Text } from "@/components/ui/text";
 import { SongDetailModal } from "@/components/custom/song-detail-modal";
-import { usePlayback } from "@/lib/playback";
+import { usePlayback, usePlaybackCommands } from "@/lib/playback";
 import { useTagsOnSongs } from "@/lib/routes/songs";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 
@@ -32,8 +33,11 @@ const DEFAULT_SORT: MusicListSort = {
     option: "title",
     direction: "ascending",
 };
-const MUSIC_LIST_WINDOW_SIZE = 7;
-const MUSIC_LIST_RENDER_BATCH_SIZE = 10;
+const MUSIC_LIST_WINDOW_SIZE = 3;
+const MUSIC_LIST_RENDER_BATCH_SIZE = 8;
+// for multiselects, if you have a really long music list
+// the animation can get laggy.
+const MAX_ANIMATED_SELECTION_TRACKS = 100;
 const DENSITY_FADE_OUT_MS = 140;
 const DENSITY_ROW_FADE_IN_MS = 220;
 const DENSITY_ROW_STAGGER_MS = 32;
@@ -46,21 +50,22 @@ export function MusicList({
     trackMenuActions = [],
     multiSelect = null,
     fullBleedRows = false,
-    compact = false,
+    compact,
+    onCompactChange,
     anticipatedTrackCount = 8,
     hasNextPage = false,
     isLoadingNextPage = false,
     onLoadNextPage,
     showSort = true,
+    sortStrategy = "local",
     sortOptions = DEFAULT_MUSIC_LIST_SORT_OPTIONS,
     sort: controlledSort,
     defaultSort = DEFAULT_SORT,
     onSortChange,
 }: MusicListProps) {
-    const { activeTrackId, isPlaying, togglePlayback } = usePlayback();
-    const [compactGestureOverride, setCompactGestureOverride] = useState<
-        boolean | null
-    >(null);
+    const { togglePlayback } = usePlaybackCommands();
+    const [internalCompact, setInternalCompact] = useState(false);
+    const isCompact = compact ?? internalCompact;
     const [densityTransitionRevision, setDensityTransitionRevision] =
         useState(0);
     const [densityTransitioning, setDensityTransitioning] = useState(false);
@@ -77,6 +82,9 @@ export function MusicList({
     const sortingEnabled = showSort && sortOptions.length > 0;
     const isLoadingMoreRef = useRef(false);
     const listRef = useRef<FlatList<(typeof tracks)[number]>>(null);
+    const [revealTrackIds, setRevealTrackIds] = useState<ReadonlySet<string>>(
+        new Set(),
+    );
     const listOpacity = useSharedValue(1);
     const listTransitionStyle = useAnimatedStyle(() => ({
         opacity: listOpacity.get(),
@@ -87,34 +95,66 @@ export function MusicList({
         [tracks],
     );
     const { tagsBySong } = useTagsOnSongs(taggableIds);
+    const displayTagsBySong = useMemo(
+        () =>
+            Object.fromEntries(
+                Object.entries(tagsBySong).map(([songId, tags]) => [
+                    songId,
+                    [...tags.global, ...tags.local],
+                ]),
+            ),
+        [tagsBySong],
+    );
     const displayedTracks = useMemo(
-        () => (sortingEnabled ? sortTracks(tracks, sort) : tracks),
-        [sortingEnabled, sort, tracks],
+        () =>
+            sortingEnabled && sortStrategy === "local"
+                ? sortTracks(tracks, sort)
+                : tracks,
+        [sortStrategy, sortingEnabled, sort, tracks],
     );
     const selection = useMusicListSelection(displayedTracks, multiSelect);
+    const { isSelecting, toggleSelection } = selection;
+    const isSelectingRef = useRef(isSelecting);
+    const animateSelectionTransition =
+        displayedTracks.length <= MAX_ANIMATED_SELECTION_TRACKS;
     const selectionToolbarBottom = playerBottomInset + 12;
-    const isCompact = compactGestureOverride ?? compact;
     const contentBottomInset = selection.isSelecting
         ? selectionToolbarBottom + selectionToolbarHeight + 12
         : sortingEnabled
-          ? listBottomInset
-          : Math.max(40, playerBottomInset + 12);
+            ? listBottomInset
+            : Math.max(40, playerBottomInset + 12);
     const listExtraData = useMemo(
-        () => ({ isCompact, densityTransitionRevision, densityRevealActive }),
-        [densityRevealActive, densityTransitionRevision, isCompact],
+        () => ({
+            isCompact,
+            densityTransitionRevision,
+            densityRevealActive,
+            selectedIds: selection.selectedIds,
+        }),
+        [
+            densityRevealActive,
+            densityTransitionRevision,
+            isCompact,
+            selection.selectedIds,
+        ],
     );
 
-    const commitDensityTransition = useCallback((nextCompact: boolean) => {
-        setCompactGestureOverride(nextCompact);
-        setDensityTransitionRevision((revision) => revision + 1);
-        setDensityRevealActive(true);
-        setDensityTransitioning(false);
-    }, []);
+    const commitDensityTransition = useCallback(
+        (nextCompact: boolean) => {
+            if (compact === undefined) setInternalCompact(nextCompact);
+            onCompactChange?.(nextCompact);
+            setDensityTransitionRevision((revision) => revision + 1);
+            setDensityRevealActive(true);
+        },
+        [compact, onCompactChange],
+    );
     const beginDensityTransition = useCallback(
         (nextCompact: boolean) => {
             if (nextCompact === isCompact || densityTransitioning) {
                 return;
             }
+            setRevealTrackIds(
+                new Set(displayedTracks.map((track) => track.id)),
+            );
             setDensityTransitioning(true);
             listOpacity.set(
                 withTiming(
@@ -131,7 +171,13 @@ export function MusicList({
                 ),
             );
         },
-        [commitDensityTransition, densityTransitioning, isCompact, listOpacity],
+        [
+            commitDensityTransition,
+            densityTransitioning,
+            displayedTracks,
+            isCompact,
+            listOpacity,
+        ],
     );
     const pinchGesture = Gesture.Pinch().onEnd((event) => {
         if (event.scale <= 0.92) runOnJS(beginDensityTransition)(true);
@@ -142,16 +188,21 @@ export function MusicList({
         if (densityTransitionRevision === 0) return;
         listRef.current?.scrollToOffset({ offset: 0, animated: false });
         listOpacity.set(1);
-        const revealWindow = setTimeout(
-            () => setDensityRevealActive(false),
-            DENSITY_MAX_STAGGER_MS + DENSITY_ROW_FADE_IN_MS,
-        );
+        const revealWindow = setTimeout(() => {
+            setDensityRevealActive(false);
+            setDensityTransitioning(false);
+            setRevealTrackIds(new Set());
+        }, DENSITY_MAX_STAGGER_MS + DENSITY_ROW_FADE_IN_MS);
         return () => clearTimeout(revealWindow);
     }, [densityTransitionRevision, listOpacity]);
 
     useEffect(() => {
         isLoadingMoreRef.current = isLoadingNextPage;
     }, [isLoadingNextPage]);
+
+    useEffect(() => {
+        isSelectingRef.current = isSelecting;
+    }, [isSelecting]);
 
     function densityFadeDelay(index: number) {
         return Math.min(
@@ -188,8 +239,8 @@ export function MusicList({
 
     const handleTrackPress = useCallback(
         (track: (typeof tracks)[number]) => {
-            if (selection.isSelecting) {
-                selection.toggleSelection(track);
+            if (isSelectingRef.current) {
+                toggleSelection(track);
                 return;
             }
 
@@ -204,7 +255,7 @@ export function MusicList({
 
             void togglePlayback(track);
         },
-        [onTrackPressOverride, selection, togglePlayback],
+        [onTrackPressOverride, togglePlayback, toggleSelection],
     );
 
     return (
@@ -218,23 +269,12 @@ export function MusicList({
                         >
                             {Array.from({ length: anticipatedTrackCount }).map(
                                 (_, index) => (
-                                    <Animated.View
-                                        key={`${index}:${densityTransitionRevision}`}
-                                        entering={
-                                            densityRevealActive
-                                                ? FadeIn.delay(
-                                                      densityFadeDelay(index),
-                                                  ).duration(
-                                                      DENSITY_ROW_FADE_IN_MS,
-                                                  )
-                                                : undefined
-                                        }
-                                    >
+                                    <View key={index}>
                                         <MusicListItemSkeleton
                                             fullBleed={fullBleedRows}
                                             compact={isCompact}
                                         />
-                                    </Animated.View>
+                                    </View>
                                 ),
                             )}
                         </View>
@@ -251,10 +291,11 @@ export function MusicList({
                                 <Animated.View
                                     key={`${item.id}:${densityTransitionRevision}`}
                                     entering={
-                                        densityRevealActive
+                                        densityRevealActive &&
+                                            revealTrackIds.has(item.id)
                                             ? FadeIn.delay(
-                                                  densityFadeDelay(index),
-                                              ).duration(DENSITY_ROW_FADE_IN_MS)
+                                                densityFadeDelay(index),
+                                            ).duration(DENSITY_ROW_FADE_IN_MS)
                                             : undefined
                                     }
                                 >
@@ -265,16 +306,16 @@ export function MusicList({
                                         )}
                                         selectionMode={selection.isSelecting}
                                         multiSelectEnabled={selection.enabled}
+                                        animateSelectionTransition={
+                                            animateSelectionTransition
+                                        }
                                         fullBleed={fullBleedRows}
                                         compact={isCompact}
-                                        tags={[
-                                            ...(tagsBySong?.[
-                                                item.catalogId ?? item.id
-                                            ]?.global ?? []),
-                                            ...(tagsBySong?.[
-                                                item.catalogId ?? item.id
-                                            ]?.local ?? []),
-                                        ]}
+                                        tags={
+                                            displayTagsBySong[
+                                            item.catalogId ?? item.id
+                                            ]
+                                        }
                                         onPress={handleTrackPress}
                                         onLongPress={selection.beginSelection}
                                         onOpenMenu={setMenuTrack}
@@ -299,12 +340,6 @@ export function MusicList({
                                     <MusicListLoadingSkeletons
                                         fullBleed={fullBleedRows}
                                         compact={isCompact}
-                                        transitionRevision={
-                                            densityTransitionRevision
-                                        }
-                                        revealActive={densityRevealActive}
-                                        fadeDelay={densityFadeDelay}
-                                        startIndex={displayedTracks.length}
                                     />
                                 ) : null
                             }
@@ -340,54 +375,52 @@ export function MusicList({
                 actions={trackMenuActions}
             />
 
-            <SongDetailModal
-                open={detailsTrack != null}
+            <MusicListSongDetails
+                track={detailsTrack}
                 onClose={() => setDetailsTrack(null)}
-                song={detailsTrack}
-                onTogglePlayback={togglePlayback}
-                isThisTrackPlaying={Boolean(
-                    detailsTrack?.id &&
-                    activeTrackId === detailsTrack.id &&
-                    isPlaying,
-                )}
             />
         </View>
+    );
+}
+
+function MusicListSongDetails({
+    track,
+    onClose,
+}: {
+    track: MusicItem | null;
+    onClose: () => void;
+}) {
+    const { activeTrackId, isPlaying } = usePlayback();
+    const { togglePlayback } = usePlaybackCommands();
+    return (
+        <SongDetailModal
+            open={track != null}
+            onClose={onClose}
+            song={track}
+            onTogglePlayback={togglePlayback}
+            isThisTrackPlaying={Boolean(
+                track?.id && activeTrackId === track.id && isPlaying,
+            )}
+        />
     );
 }
 
 function MusicListLoadingSkeletons({
     fullBleed,
     compact,
-    transitionRevision,
-    revealActive,
-    fadeDelay,
-    startIndex,
 }: {
     fullBleed: boolean;
     compact: boolean;
-    transitionRevision: number;
-    revealActive: boolean;
-    fadeDelay: (index: number) => number;
-    startIndex: number;
 }) {
     return (
         <View>
             {Array.from({ length: 5 }).map((_, index) => (
-                <Animated.View
-                    key={`${index}:${transitionRevision}`}
-                    entering={
-                        revealActive
-                            ? FadeIn.delay(
-                                  fadeDelay(startIndex + index),
-                              ).duration(DENSITY_ROW_FADE_IN_MS)
-                            : undefined
-                    }
-                >
+                <View key={index}>
                     <MusicListItemSkeleton
                         fullBleed={fullBleed}
                         compact={compact}
                     />
-                </Animated.View>
+                </View>
             ))}
         </View>
     );

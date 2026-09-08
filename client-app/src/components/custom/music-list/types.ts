@@ -73,14 +73,18 @@ export type MusicListProps = {
     multiSelect?: MusicListMultiSelectConfig | null;
     /** Extends row backgrounds and dividers edge-to-edge while preserving content insets. */
     fullBleedRows?: boolean;
-    /** Uses smaller artwork, spacing, controls, and initial-only tag badges. */
+    /** Controlled compactness. Omit to let pinch gestures own the value. */
     compact?: boolean;
+    /** Receives compactness changes requested by pinch gestures. */
+    onCompactChange?: (compact: boolean) => void;
     anticipatedTrackCount?: number;
     hasNextPage?: boolean;
     isLoadingNextPage?: boolean;
     onLoadNextPage?: () => void | Promise<void>;
-    /** Enables client-side sorting and the sort-by control. */
+    /** Enables sorting and the sort-by control. */
     showSort?: boolean;
+    /** Remote sorting preserves the order returned across paginated pages. */
+    sortStrategy?: "local" | "remote";
     /** The fields available from this list's sort control. */
     sortOptions?: readonly MusicListSortOption[];
     /** Controlled sort value. */

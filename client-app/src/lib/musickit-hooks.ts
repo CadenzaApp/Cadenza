@@ -33,14 +33,19 @@ type SearchPageKey = readonly [
 
 /** Returns cached Apple Music metadata for the supplied song IDs. */
 export function useSongInfo(songIds?: readonly string[] | null) {
-    const { sessionRevision } = useAppleMusic();
+    const { isConnected, sessionRevision } = useAppleMusic();
     const normalizedIds = useMemo(
         () => [...new Set(songIds?.filter(Boolean) ?? [])],
         [songIds],
     );
-    const key = normalizedIds.length
-        ? (["MusicKit.getSongInfo", sessionRevision, normalizedIds] as const)
-        : null;
+    const key =
+        isConnected && normalizedIds.length
+            ? ([
+                  "MusicKit.getSongInfo",
+                  sessionRevision,
+                  normalizedIds,
+              ] as const)
+            : null;
     const x = useSWR(key, ([, , ids]) => MusicKit.getSongInfo([...ids]));
     return {
         songInfo: x.data ?? [],
@@ -54,28 +59,30 @@ export function useSongInfo(songIds?: readonly string[] | null) {
  * incremental pages. The query and all request parameters form the cache key.
  */
 export function useCatalogSongSearch(enabled = true) {
-    const { sessionRevision } = useAppleMusic();
+    const { isConnected, sessionRevision } = useAppleMusic();
     const [query, setQuery] = useState<string | null>(null);
     const x = useSWRInfinite<SearchResult>(
         (pageIndex, previousPage) => {
-            if (!enabled || !query) return null;
+            if (!enabled || !isConnected || !query) return null;
             if (pageIndex > 0 && !hasNextSearchPage(previousPage)) {
                 return null;
             }
 
+            const offset = pageIndex === 0 ? 0 : previousPage?.nextSongsOffset;
+            if (offset === undefined) return null;
             return [
                 "MusicKit.catalogSongSearch",
                 sessionRevision,
                 query,
                 MUSIC_LIST_PAGE_SIZE,
-                pageIndex,
+                offset,
             ] as const;
         },
         (key: SearchPageKey) => {
-            const [, , searchQuery, limit, pageIndex] = key;
+            const [, , searchQuery, limit, offset] = key;
             return MusicKit.catalogSearch(searchQuery, ["songs"], {
                 limit,
-                offset: pageIndex * limit,
+                offset,
             });
         },
     );
@@ -129,28 +136,30 @@ export function useTracksFromLibrary({
     enabled?: boolean;
     sort?: LibrarySongSort;
 } = {}) {
-    const { sessionRevision } = useAppleMusic();
+    const { isConnected, sessionRevision } = useAppleMusic();
     const x = useSWRInfinite<LibraryResult>(
         (pageIndex, previousPage) => {
-            if (!enabled) return null;
+            if (!enabled || !isConnected) return null;
             if (pageIndex > 0 && !hasNextLibraryPage(previousPage)) {
                 return null;
             }
 
+            const offset = pageIndex === 0 ? 0 : previousPage?.nextOffset;
+            if (offset === undefined) return null;
             return [
                 "MusicKit.getLibrarySongs",
                 sessionRevision,
                 MUSIC_LIST_PAGE_SIZE,
                 sort?.option ?? null,
                 sort?.direction ?? null,
-                pageIndex,
+                offset,
             ] as const;
         },
         (key: LibraryPageKey) => {
-            const [, , limit, sortOption, sortDirection, pageIndex] = key;
+            const [, , limit, sortOption, sortDirection, offset] = key;
             const options: LibrarySongOptions = {
                 limit,
-                offset: pageIndex * limit,
+                offset,
             };
 
             if (sortOption && sortDirection) {
@@ -194,9 +203,11 @@ export function useTracksFromLibrary({
 
 /** Returns cached Apple Music playlists for the supplied request options. */
 export function useUserPlaylists(options: MusicKitOptions = {}) {
-    const { sessionRevision } = useAppleMusic();
+    const { isConnected, sessionRevision } = useAppleMusic();
     const x = useSWR(
-        ["MusicKit.getUserPlaylists", sessionRevision, options],
+        isConnected
+            ? ["MusicKit.getUserPlaylists", sessionRevision, options]
+            : null,
         ([, , request]) => MusicKit.getUserPlaylists(request),
     );
     return {
@@ -208,10 +219,15 @@ export function useUserPlaylists(options: MusicKitOptions = {}) {
 
 /** Returns and updates the cached favorite status for one Apple Music song. */
 export function useSongFavoriteStatus(songId?: string) {
-    const { sessionRevision } = useAppleMusic();
-    const key = songId
-        ? (["MusicKit.getSongFavoriteStatus", sessionRevision, songId] as const)
-        : null;
+    const { isConnected, sessionRevision } = useAppleMusic();
+    const key =
+        isConnected && songId
+            ? ([
+                  "MusicKit.getSongFavoriteStatus",
+                  sessionRevision,
+                  songId,
+              ] as const)
+            : null;
     const x = useSWR<SongFavoriteStatus>(key, () =>
         MusicKit.getSongFavoriteStatus(songId!),
     );

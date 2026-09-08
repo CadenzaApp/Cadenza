@@ -4,7 +4,7 @@ import { Alert } from "react-native";
 
 import { ModalPopup } from "@/components/custom/modal-popup";
 import { useSongFavoriteStatus } from "@/lib/musickit-hooks";
-import { usePlayback } from "@/lib/playback";
+import { usePlaybackCommands } from "@/lib/playback";
 
 import { MusicListActionButton } from "./music-list-action-button";
 import type { MusicListTrackAction } from "./types";
@@ -22,7 +22,7 @@ export function MusicListTrackMenu({
     onShowDetails,
     actions,
 }: MusicListTrackMenuProps) {
-    const { addToQueue } = usePlayback();
+    const { addToQueue } = usePlaybackCommands();
     const favoriteId = track?.catalogId ?? track?.id;
     const {
         favoriteStatus,

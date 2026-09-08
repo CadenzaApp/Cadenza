@@ -10,6 +10,7 @@ import com.apple.android.sdk.authentication.TokenProvider
 import com.apple.android.music.playback.controller.MediaPlayerController
 import com.apple.android.music.playback.controller.MediaPlayerControllerFactory
 import com.apple.android.music.playback.queue.CatalogPlaybackQueueItemProvider
+import com.apple.android.music.playback.queue.PlaybackQueueInsertionType
 import com.apple.android.music.playback.model.MediaContainerType
 import com.apple.android.music.playback.model.MediaItemType
 import com.apple.android.music.playback.model.PlaybackState
@@ -352,6 +353,63 @@ class AppleMusicKitModule : Module() {
             }
         }
 
+        AsyncFunction("setSongPlaybackQueue") {
+            ids: List<String>, _types: List<String>, startIndex: Int, promise: Promise ->
+            val songIds = ids.toTypedArray()
+            if (songIds.isEmpty()) {
+                promise.reject("ERR_NOT_FOUND", "No queue songs were supplied", null)
+                return@AsyncFunction
+            }
+            val boundedIndex = startIndex.coerceIn(0, songIds.lastIndex)
+            val provider = CatalogPlaybackQueueItemProvider.Builder()
+                .items(MediaItemType.SONG, *songIds)
+                .startItemIndex(boundedIndex)
+                .build()
+
+            Handler(Looper.getMainLooper()).post {
+                try {
+                    val controller = getOrCreatePlayerController()
+                    if (controller == null) {
+                        promise.reject("ERR_PLAYER_UNAVAILABLE", "Apple Music player is unavailable", null)
+                    } else {
+                        controller.prepare(provider, true)
+                        promise.resolve(null)
+                    }
+                } catch (e: Exception) {
+                    promise.reject("PREPARE_ERROR", e.message, e)
+                }
+            }
+        }
+
+        AsyncFunction("appendSongPlaybackQueue") {
+            ids: List<String>, _types: List<String>, promise: Promise ->
+            val songIds = ids.toTypedArray()
+            if (songIds.isEmpty()) {
+                promise.resolve(null)
+                return@AsyncFunction
+            }
+            val provider = CatalogPlaybackQueueItemProvider.Builder()
+                .items(MediaItemType.SONG, *songIds)
+                .build()
+
+            Handler(Looper.getMainLooper()).post {
+                try {
+                    val controller = getOrCreatePlayerController()
+                    if (controller == null) {
+                        promise.reject("ERR_PLAYER_UNAVAILABLE", "Apple Music player is unavailable", null)
+                    } else {
+                        controller.addQueueItems(
+                            provider,
+                            PlaybackQueueInsertionType.INSERTION_TYPE_AT_END
+                        )
+                        promise.resolve(null)
+                    }
+                } catch (e: Exception) {
+                    promise.reject("QUEUE_APPEND_ERROR", e.message, e)
+                }
+            }
+        }
+
         AsyncFunction("getSongInfo") { ids: List<String> ->
             if (ids.isEmpty()) return@AsyncFunction emptyList<Map<String, Any>>()
 
@@ -413,12 +471,16 @@ class AppleMusicKitModule : Module() {
             val resultsObj = response["results"] as? Map<*, *>
             val songsObj = resultsObj?.get("songs") as? Map<*, *>
             val albumsObj = resultsObj?.get("albums") as? Map<*, *>
-            return@AsyncFunction mapOf(
+            val result = mutableMapOf<String, Any>(
                 "songs" to objectList(songsObj?.get("data")).map { formatMediaItem(it) },
                 "albums" to objectList(albumsObj?.get("data")).map { formatMediaItem(it) },
                 "hasNextSongs" to !songsObj?.get("next")?.toString().isNullOrBlank(),
                 "hasNextAlbums" to !albumsObj?.get("next")?.toString().isNullOrBlank()
             )
+            nextOffset(songsObj?.get("next")?.toString())?.let {
+                result["nextSongsOffset"] = it
+            }
+            return@AsyncFunction result
         }
 
         AsyncFunction("getUserPlaylists") { options: Map<String, Int> ->
@@ -485,10 +547,21 @@ class AppleMusicKitModule : Module() {
 
     private fun collectionResult(response: Map<String, Any>): Map<String, Any> {
         val data = objectList(response["data"])
-        return mapOf(
+        val result = mutableMapOf<String, Any>(
             "items" to data.map { formatMediaItem(it) },
             "hasNextPage" to !response["next"]?.toString().isNullOrBlank()
         )
+        nextOffset(response["next"]?.toString())?.let { result["nextOffset"] = it }
+        return result
+    }
+
+    private fun nextOffset(next: String?): Int? {
+        if (next == null) return null
+        return next.substringAfter('?', "")
+            .split("&")
+            .firstOrNull { it.startsWith("offset=") }
+            ?.substringAfter("offset=")
+            ?.toIntOrNull()
     }
 
     private fun encode(value: String): String = URLEncoder.encode(value, "UTF-8")

@@ -20,6 +20,13 @@ export interface PlaybackApi {
     playTrack(track: MusicItem, type?: PlaybackQueueType): Promise<void>;
     /** Replaces the native queue with the specified Apple Music item. */
     setPlaybackQueue(id: string, type: PlaybackQueueType): Promise<void>;
+    /** Replaces the native queue with songs and starts at the requested index. */
+    playSongQueue(
+        tracks: readonly MusicItem[],
+        startIndex?: number,
+    ): Promise<void>;
+    /** Appends songs to the native queue without interrupting playback. */
+    appendSongQueue(tracks: readonly MusicItem[]): Promise<void>;
     /** Starts playback of the current queue entry. */
     play(): Promise<void>;
     /** Pauses playback of the current queue entry. */
@@ -60,6 +67,9 @@ export const Playback: PlaybackApi = {
         ),
     setPlaybackQueue: (id, type) =>
         playbackImplementation.setPlaybackQueue(id, type),
+    playSongQueue: (tracks, startIndex = 0) =>
+        playbackImplementation.playSongQueue(tracks, startIndex),
+    appendSongQueue: (tracks) => playbackImplementation.appendSongQueue(tracks),
     play: () => playbackImplementation.play(),
     pause: () => playbackImplementation.pause(),
     togglePlayerState: () => playbackImplementation.togglePlayerState(),
@@ -92,7 +102,18 @@ interface PlaybackNativeModule {
     restartCurrentEntry(): Promise<void>;
     seekToTime(time: number): Promise<void>;
     setPlaybackQueue(id: string, type: string): Promise<void>;
+    setSongPlaybackQueue(
+        ids: readonly string[],
+        types: readonly string[],
+        startIndex: number,
+    ): Promise<void>;
+    appendSongPlaybackQueue(
+        ids: readonly string[],
+        types: readonly string[],
+    ): Promise<void>;
 }
+
+type NativeSongQueueItem = { id: string; type: string };
 
 let native: PlaybackNativeModule | null = null;
 
@@ -164,6 +185,11 @@ interface PlaybackImplementationApi {
     ): PlaybackSnapshot;
     /** Replaces the native queue with the specified Apple Music item. */
     setPlaybackQueue(id: string, type: PlaybackQueueType): Promise<void>;
+    playSongQueue(
+        tracks: readonly MusicItem[],
+        startIndex: number,
+    ): Promise<void>;
+    appendSongQueue(tracks: readonly MusicItem[]): Promise<void>;
     /** Atomically loads and plays one Apple Music item. */
     playTrack(track: MusicItem, type: PlaybackQueueType): Promise<void>;
     /** Starts playback of the current queue entry. */
@@ -439,6 +465,56 @@ const playbackImplementation: PlaybackImplementationApi = {
         await playbackImplementation.reconcilePlaybackSnapshot(commandRevision);
     },
 
+    playSongQueue: async (
+        tracks: readonly MusicItem[],
+        startIndex: number,
+    ): Promise<void> => {
+        const nativeModule = requirePlaybackNative();
+        const playableTracks = tracks.filter((track) =>
+            Boolean(track.playbackId ?? track.id),
+        );
+        const items = normalizeSongQueueItems(playableTracks);
+        if (items.length === 0) return;
+        const boundedIndex = Math.max(
+            0,
+            Math.min(startIndex, items.length - 1),
+        );
+        const expectedTrack = playableTracks[boundedIndex];
+        const expectation =
+            playbackImplementation.beginExpectedTrack(expectedTrack);
+
+        try {
+            await playbackImplementation.enqueuePlaybackCommand(async () => {
+                await nativeModule.setSongPlaybackQueue(
+                    items.map(({ id }) => id),
+                    items.map(({ type }) => type),
+                    boundedIndex,
+                );
+                await nativeModule.play();
+            });
+            await playbackImplementation.reconcilePlaybackSnapshot(
+                expectation.revision,
+            );
+        } catch (error) {
+            playbackImplementation.cancelExpectedCurrentTrack(
+                expectedTrack.id,
+                expectation,
+            );
+            throw error;
+        }
+    },
+
+    appendSongQueue: async (tracks: readonly MusicItem[]): Promise<void> => {
+        const items = normalizeSongQueueItems(tracks);
+        if (items.length === 0) return;
+        await playbackImplementation.enqueuePlaybackCommand(() =>
+            requirePlaybackNative().appendSongPlaybackQueue(
+                items.map(({ id }) => id),
+                items.map(({ type }) => type),
+            ),
+        );
+    },
+
     /** Atomically loads and plays one Apple Music item. */
     playTrack: async (
         track: MusicItem,
@@ -602,6 +678,16 @@ const playbackImplementation: PlaybackImplementationApi = {
         await playbackImplementation.reconcilePlaybackSnapshot(commandRevision);
     },
 };
+
+function normalizeSongQueueItems(
+    tracks: readonly MusicItem[],
+): NativeSongQueueItem[] {
+    return tracks.flatMap((track) => {
+        const id = track.playbackId ?? track.id;
+        if (!id) return [];
+        return [{ id, type: track.playbackType ?? PlaybackQueueType.Song }];
+    });
+}
 
 function requirePlaybackNative(): PlaybackNativeModule {
     if (!native) {

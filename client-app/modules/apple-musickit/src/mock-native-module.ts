@@ -488,6 +488,7 @@ function paginatedResult(
     return {
         items: pageItems,
         hasNextPage: nextOffset < items.length,
+        nextOffset: nextOffset < items.length ? nextOffset : undefined,
     };
 }
 
@@ -648,11 +649,16 @@ export function createMockNativeModule(): AppleMusicKitNativeModule {
             const albums = types.includes("albums")
                 ? MOCK_ALBUMS.filter((album) => matchesQuery(album, term))
                 : [];
+            const pageSongs = songs.slice(offset, offset + limit);
             return respond<SearchResult>({
-                songs: songs.slice(offset, offset + limit),
+                songs: pageSongs,
                 albums: albums.slice(offset, offset + limit),
                 hasNextSongs: offset + limit < songs.length,
                 hasNextAlbums: offset + limit < albums.length,
+                nextSongsOffset:
+                    offset + pageSongs.length < songs.length
+                        ? offset + pageSongs.length
+                        : undefined,
             });
         },
 
@@ -687,6 +693,33 @@ export function createMockNativeModule(): AppleMusicKitNativeModule {
             playbackTime = 0;
             playbackStartedAt = null;
             isPlaying = false;
+            return respond(undefined, COMMAND_LATENCY_MS);
+        },
+
+        setSongPlaybackQueue: (
+            ids: readonly string[],
+            types: readonly string[],
+            startIndex: number,
+        ) => {
+            queue = ids.flatMap((id, index) =>
+                buildQueue(id, types[index] ?? "song"),
+            );
+            queueIndex = Math.max(0, Math.min(startIndex, queue.length - 1));
+            playbackTime = 0;
+            playbackStartedAt = null;
+            isPlaying = false;
+            return respond(undefined, COMMAND_LATENCY_MS);
+        },
+
+        appendSongPlaybackQueue: (
+            ids: readonly string[],
+            types: readonly string[],
+        ) => {
+            queue.push(
+                ...ids.flatMap((id, index) =>
+                    buildQueue(id, types[index] ?? "song"),
+                ),
+            );
             return respond(undefined, COMMAND_LATENCY_MS);
         },
     };

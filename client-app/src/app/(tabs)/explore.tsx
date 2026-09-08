@@ -107,6 +107,7 @@ export default function ExploreScreen() {
                         onLoadNextPage={loadNextLibraryPage}
                         sortOptions={LIBRARY_SORT_OPTIONS}
                         sort={librarySort}
+                        sortStrategy="remote"
                         onSortChange={setLibrarySort}
                         multiSelect={DEFAULT_MULTI_SELECT_CONFIG}
                         fullBleedRows

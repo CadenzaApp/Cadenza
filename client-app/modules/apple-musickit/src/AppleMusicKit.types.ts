@@ -136,6 +136,8 @@ export interface SearchResult {
     hasNextSongs: boolean;
     /** Whether another page of matching albums is available. */
     hasNextAlbums: boolean;
+    /** Offset supplied by Apple for the next songs page. */
+    nextSongsOffset?: number;
 }
 
 /** A collection returned by an Apple Music library request. */
@@ -144,4 +146,6 @@ export interface LibraryResult {
     items: MusicItem[];
     /** Whether another page is available. Native modules normalize this value. */
     hasNextPage: boolean;
+    /** Offset supplied by Apple for the next page. */
+    nextOffset?: number;
 }

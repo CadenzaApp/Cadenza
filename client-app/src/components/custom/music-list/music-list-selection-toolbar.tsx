@@ -18,7 +18,7 @@ import Animated, {
 import { Button } from "@/components/ui/button";
 import { ModalPopup } from "@/components/custom/modal-popup";
 import { Text } from "@/components/ui/text";
-import { usePlayback } from "@/lib/playback";
+import { usePlaybackCommands } from "@/lib/playback";
 
 import { MusicListActionButton } from "./music-list-action-button";
 import type {
@@ -45,8 +45,9 @@ export function MusicListSelectionToolbar({
     onHeightChange,
 }: MusicListSelectionToolbarProps) {
     const [moreOpen, setMoreOpen] = useState(false);
+    const [pendingActionId, setPendingActionId] = useState<string | null>(null);
     const { colors } = useTheme();
-    const { addToQueue } = usePlayback();
+    const { addToQueue } = usePlaybackCommands();
     const translateX = useSharedValue(0);
     const swipeStyle = useAnimatedStyle(() => {
         const offset = translateX.get();
@@ -88,7 +89,7 @@ export function MusicListSelectionToolbar({
             }
         });
     const queueAction: MusicListSelectionAction = {
-        id: "add-to-queue",
+        id: "music-list:add-to-queue",
         label: "Add to queue",
         icon: "list-outline",
         onPress: addToQueue,
@@ -103,7 +104,7 @@ export function MusicListSelectionToolbar({
             ? [
                   ...actions.slice(0, 2),
                   {
-                      id: "more",
+                      id: "music-list:more",
                       label: "More",
                       icon: "ellipsis-horizontal" as const,
                       onPress: () => setMoreOpen(true),
@@ -112,9 +113,15 @@ export function MusicListSelectionToolbar({
             : actions;
 
     function runAction(action: MusicListSelectionAction) {
+        if (pendingActionId) return;
+        setPendingActionId(action.id);
         void Promise.resolve(action.onPress(tracks))
-            .then(onClear)
+            .then(() => {
+                setPendingActionId(null);
+                onClear();
+            })
             .catch((error) => {
+                setPendingActionId(null);
                 console.error(
                     `Music list selection action failed: ${action.id}`,
                     error,
@@ -176,6 +183,8 @@ export function MusicListSelectionToolbar({
                                         action={action}
                                         target={tracks}
                                         toolbar
+                                        busy={pendingActionId === action.id}
+                                        disabled={pendingActionId != null}
                                         onPress={() => {
                                             if (
                                                 overflowActions.length > 0 &&
@@ -206,6 +215,8 @@ export function MusicListSelectionToolbar({
                                     setMoreOpen(false);
                                     runAction(action);
                                 }}
+                                busy={pendingActionId === action.id}
+                                disabled={pendingActionId != null}
                             />
                         ))}
                     </ModalPopup>

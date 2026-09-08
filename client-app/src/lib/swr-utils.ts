@@ -1,7 +1,10 @@
+import { useEffect } from "react";
 import useSWR, { mutate } from "swr";
+import useSWRInfinite from "swr/infinite";
 import useSWRMutation from "swr/mutation";
 import { useAccount } from "./account";
 import { BACKEND_URL } from "./backend";
+import { matchesEndpoint, type CachedEndpoint } from "./swr-cache";
 
 /** Simplified wrapper around `useSWRMutation` with Input/Output types */
 export function useSimpleMutation<Input, Output>(
@@ -37,23 +40,18 @@ async function responseData(response: Response) {
     return text ? JSON.parse(text) : {};
 }
 
-type GETEndpoint = {
-    path: string;
-    params?: Record<string, any> | "*";
-};
-
 /** When triggered, invalidates the GET endpoint that matches this path, and optionally other GET endpoints too. */
 export function useAPIMutation<RequestBody, Response>(
     method: string,
     path: string,
     invalidatedEndpoints:
-        | ((body: RequestBody) => GETEndpoint[])
-        | GETEndpoint[] = [],
+        | ((body: RequestBody) => CachedEndpoint[])
+        | CachedEndpoint[] = [],
 ) {
     const { account } = useAccount();
 
     return useSWRMutation(
-        path, // need to put a key here, so just put any random value
+        [method, path, account?.id],
         async (_: any, { arg: body }: { arg: RequestBody }) => {
             const resp = await fetch(BACKEND_URL + path, {
                 method,
@@ -69,41 +67,16 @@ export function useAPIMutation<RequestBody, Response>(
                 throw data;
             }
 
-            const endpointsToInvalidate = Array.isArray(invalidatedEndpoints)
+            const configuredEndpoints = Array.isArray(invalidatedEndpoints)
                 ? invalidatedEndpoints
                 : invalidatedEndpoints(body);
-            endpointsToInvalidate.push({ path });
+            const endpointsToInvalidate = [...configuredEndpoints, { path }];
 
-            mutate((key: any) => {
-                if (!key.path) return false;
-
-                for (const invalidEndpoint of endpointsToInvalidate) {
-                    if (key.path !== invalidEndpoint.path) continue;
-
-                    // if no params, invalidate if key has no params
-                    if (!invalidEndpoint.params) {
-                        if (!key.params) {
-                            return true;
-                        } else continue;
-                    }
-
-                    // invalidate if params is a subset of the key's params
-                    if (invalidEndpoint.params !== "*") {
-                        for (const queryParam of Object.keys(
-                            invalidEndpoint.params,
-                        )) {
-                            if (
-                                key.params[queryParam] !==
-                                invalidEndpoint.params[queryParam]
-                            )
-                                continue;
-                        }
-                    }
-                    return true;
-                }
-
-                return false;
-            });
+            mutate((key: unknown) =>
+                endpointsToInvalidate.some((endpoint) =>
+                    matchesEndpoint(key, endpoint),
+                ),
+            );
 
             return data as Response;
         },
@@ -163,6 +136,44 @@ export function useAPIPostData<Input, Output>(path: string, body?: Input) {
             return json as Output;
         },
     );
+}
+
+/** Cached idempotent POST reads split into stable pages. */
+export function useAPIPostDataPages<Input, Output>(
+    path: string,
+    bodies: readonly Input[],
+) {
+    const { account } = useAccount();
+    const x = useSWRInfinite<Output>(
+        (pageIndex) => {
+            const body = bodies[pageIndex];
+            return body === undefined || !account
+                ? null
+                : { path, body, accountId: account.id, readMethod: "POST" };
+        },
+        async ({ body }: { body: Input }) => {
+            const resp = await fetch(BACKEND_URL + path, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${account?.jwt}`,
+                },
+                body: JSON.stringify(body),
+            });
+            const json = await responseData(resp);
+            if (!resp.ok) throw json;
+            return json as Output;
+        },
+    );
+    const { setSize, size } = x;
+
+    useEffect(() => {
+        if (bodies.length > 0 && size !== bodies.length) {
+            void setSize(bodies.length);
+        }
+    }, [bodies.length, setSize, size]);
+
+    return x;
 }
 
 /** GET/POST requests that only run upon triggered */

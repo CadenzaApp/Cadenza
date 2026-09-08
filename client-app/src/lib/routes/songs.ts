@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useAPIData, useAPIMutation, useAPIPostData } from "../swr-utils";
+import { useAPIData, useAPIMutation, useAPIPostDataPages } from "../swr-utils";
 import { Tag } from "@/lib/types";
 
 type UseTagsOnSongData = {
@@ -20,22 +20,35 @@ export function useTagsOnSong(songId?: string) {
 
 export function useTagsOnSongs(songIds: readonly string[]) {
     const normalizedIds = useMemo(
-        () => [...new Set(songIds.filter(Boolean))].sort(),
+        () => [...new Set(songIds.filter(Boolean))],
         [songIds],
     );
-    const x = useAPIPostData<
+    const batches = useMemo(
+        () => chunk(normalizedIds, 25).map((song_ids) => ({ song_ids })),
+        [normalizedIds],
+    );
+    const x = useAPIPostDataPages<
         { song_ids: string[] },
         Record<string, UseTagsOnSongData>
-    >(
-        "/songs/tags/batch",
-        normalizedIds.length ? { song_ids: normalizedIds } : undefined,
+    >("/songs/tags/batch", batches);
+    const tagsBySong = useMemo<Record<string, UseTagsOnSongData>>(
+        () => Object.assign({}, ...(x.data ?? [])),
+        [x.data],
     );
 
     return {
-        tagsBySong: x.data,
+        tagsBySong,
         tagsBySongLoading: x.isLoading,
         tagsBySongErr: x.error,
     };
+}
+
+function chunk<T>(values: readonly T[], size: number): T[][] {
+    const chunks: T[][] = [];
+    for (let index = 0; index < values.length; index += size) {
+        chunks.push(values.slice(index, index + size));
+    }
+    return chunks;
 }
 
 type ApplyTagPayload = {

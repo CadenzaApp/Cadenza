@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { memo, useRef, useState } from "react";
 import { Image, Pressable, ScrollView, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTheme } from "expo-router/react-navigation";
@@ -36,6 +36,7 @@ type MusicListItemProps = {
     selected: boolean;
     selectionMode: boolean;
     multiSelectEnabled: boolean;
+    animateSelectionTransition: boolean;
     fullBleed?: boolean;
     compact?: boolean;
     onPress: (item: MusicItem) => void;
@@ -43,12 +44,13 @@ type MusicListItemProps = {
     onOpenMenu: (item: MusicItem) => void;
 };
 
-export function MusicListItem({
+export const MusicListItem = memo(function MusicListItem({
     item,
     tags,
     selected,
     selectionMode,
     multiSelectEnabled,
+    animateSelectionTransition,
     fullBleed = false,
     compact = false,
     onPress,
@@ -80,15 +82,21 @@ export function MusicListItem({
         }),
         [selected, selectionColor],
     );
-    const animatedContentStyle = useAnimatedStyle(
-        () => ({
-            marginLeft: withTiming(selectionMode ? (fullBleed ? 28 : 52) : 0, {
-                duration: 200,
-                easing: Easing.out(Easing.cubic),
-            }),
-        }),
-        [fullBleed, selectionMode],
-    );
+    const animatedContentStyle = useAnimatedStyle(() => {
+        const translateX = selectionMode ? (fullBleed ? 28 : 52) : 0;
+        return {
+            transform: [
+                {
+                    translateX: animateSelectionTransition
+                        ? withTiming(translateX, {
+                              duration: 180,
+                              easing: Easing.out(Easing.cubic),
+                          })
+                        : translateX,
+                },
+            ],
+        };
+    }, [animateSelectionTransition, fullBleed, selectionMode]);
 
     return (
         <Animated.View
@@ -111,10 +119,18 @@ export function MusicListItem({
                 >
                     <Animated.View
                         key="selection-control"
-                        entering={FadeInLeft.duration(180).easing(
-                            Easing.out(Easing.cubic),
-                        )}
-                        exiting={FadeOutLeft.duration(120)}
+                        entering={
+                            animateSelectionTransition
+                                ? FadeInLeft.duration(160).easing(
+                                      Easing.out(Easing.cubic),
+                                  )
+                                : undefined
+                        }
+                        exiting={
+                            animateSelectionTransition
+                                ? FadeOutLeft.duration(100)
+                                : undefined
+                        }
                     >
                         <Button
                             size="icon"
@@ -301,8 +317,16 @@ export function MusicListItem({
             {!selectionMode ? (
                 <Animated.View
                     key="menu-control"
-                    entering={FadeIn.duration(160)}
-                    exiting={FadeOut.duration(100)}
+                    entering={
+                        animateSelectionTransition
+                            ? FadeIn.duration(140)
+                            : undefined
+                    }
+                    exiting={
+                        animateSelectionTransition
+                            ? FadeOut.duration(80)
+                            : undefined
+                    }
                 >
                     <Button
                         size="icon"
@@ -324,7 +348,7 @@ export function MusicListItem({
             ) : null}
         </Animated.View>
     );
-}
+});
 
 export function MusicListItemSkeleton({
     fullBleed = false,

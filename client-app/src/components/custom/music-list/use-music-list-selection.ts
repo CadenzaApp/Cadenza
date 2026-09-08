@@ -1,8 +1,12 @@
 import type { MusicItem } from "@apple-musickit";
 import * as Haptics from "expo-haptics";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { MusicListMultiSelectConfig } from "./types";
+import {
+    reduceMusicListSelection,
+    tracksSelectedInDisplayOrder,
+} from "./selection-utils";
 
 const EMPTY_SELECTION: ReadonlySet<string> = new Set();
 
@@ -15,32 +19,33 @@ export function useMusicListSelection(
     );
     const previousSelectedIdsRef = useRef<ReadonlySet<string>>(EMPTY_SELECTION);
     const enabled = config != null;
-    const displayedTrackIndex = useMemo(
-        () =>
-            new Map(
-                displayedTracks.map((track, index) => [
-                    track.id,
-                    { track, index },
-                ]),
-            ),
+    const displayedIds = useMemo(
+        () => new Set(displayedTracks.map((track) => track.id)),
         [displayedTracks],
     );
     const selectedTracks = useMemo(() => {
         if (!enabled) return [];
-        return [...selectedIds]
-            .flatMap((id) => {
-                const entry = displayedTrackIndex.get(id);
-                return entry ? [entry] : [];
-            })
-            .sort((left, right) => left.index - right.index)
-            .map(({ track }) => track);
-    }, [displayedTrackIndex, enabled, selectedIds]);
+        return tracksSelectedInDisplayOrder(displayedTracks, selectedIds);
+    }, [displayedTracks, enabled, selectedIds]);
     const isSelecting = selectedTracks.length > 0;
 
     const onSelectionChange = config?.onSelectionChange;
     useEffect(() => {
         onSelectionChange?.(selectedTracks);
     }, [onSelectionChange, selectedTracks]);
+
+    useEffect(() => {
+        // Selection is scoped to the currently displayed result set.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setSelectedIds((currentIds) =>
+            reduceMusicListSelection(
+                currentIds,
+                enabled
+                    ? { type: "reconcile", availableIds: displayedIds }
+                    : { type: "clear" },
+            ),
+        );
+    }, [displayedIds, enabled]);
 
     useEffect(() => {
         const previousIds = previousSelectedIdsRef.current;
@@ -58,29 +63,37 @@ export function useMusicListSelection(
         }
     }, [selectedIds]);
 
-    function beginSelection(track: MusicItem) {
-        if (!enabled) return;
-        setSelectedIds((currentIds) => {
-            if (currentIds.has(track.id)) return currentIds;
-            const nextIds = new Set(currentIds);
-            nextIds.add(track.id);
-            return nextIds;
-        });
-    }
+    const beginSelection = useCallback(
+        (track: MusicItem) => {
+            if (!enabled) return;
+            setSelectedIds((currentIds) =>
+                reduceMusicListSelection(currentIds, {
+                    type: "select",
+                    id: track.id,
+                }),
+            );
+        },
+        [enabled],
+    );
 
-    function toggleSelection(track: MusicItem) {
-        if (!enabled) return;
-        setSelectedIds((currentIds) => {
-            const nextIds = new Set(currentIds);
-            if (nextIds.has(track.id)) nextIds.delete(track.id);
-            else nextIds.add(track.id);
-            return nextIds;
-        });
-    }
+    const toggleSelection = useCallback(
+        (track: MusicItem) => {
+            if (!enabled) return;
+            setSelectedIds((currentIds) =>
+                reduceMusicListSelection(currentIds, {
+                    type: "toggle",
+                    id: track.id,
+                }),
+            );
+        },
+        [enabled],
+    );
 
-    function clearSelection() {
-        setSelectedIds(new Set());
-    }
+    const clearSelection = useCallback(() => {
+        setSelectedIds((currentIds) =>
+            reduceMusicListSelection(currentIds, { type: "clear" }),
+        );
+    }, []);
 
     return {
         enabled,

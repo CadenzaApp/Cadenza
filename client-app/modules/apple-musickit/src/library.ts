@@ -112,6 +112,7 @@ function normalizeLibraryResult(result: LibraryResult): LibraryResult {
     return {
         items: result.items,
         hasNextPage: result.hasNextPage === true,
+        nextOffset: result.nextOffset,
     };
 }
 
