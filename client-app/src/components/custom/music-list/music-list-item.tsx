@@ -37,6 +37,7 @@ type MusicListItemProps = {
     selectionMode: boolean;
     multiSelectEnabled: boolean;
     fullBleed?: boolean;
+    compact?: boolean;
     onPress: (item: MusicItem) => void;
     onLongPress?: (item: MusicItem) => void;
     onOpenMenu: (item: MusicItem) => void;
@@ -49,6 +50,7 @@ export function MusicListItem({
     selectionMode,
     multiSelectEnabled,
     fullBleed = false,
+    compact = false,
     onPress,
     onLongPress,
     onOpenMenu,
@@ -91,7 +93,8 @@ export function MusicListItem({
     return (
         <Animated.View
             className={cn(
-                "relative flex-row items-center justify-between py-3",
+                "relative flex-row items-center justify-between",
+                compact ? "py-2" : "py-3",
                 fullBleed ? "px-6" : "border-b border-border",
             )}
             style={animatedRowStyle}
@@ -115,7 +118,10 @@ export function MusicListItem({
                     >
                         <Button
                             size="icon"
-                            className="h-11 w-11 shrink-0 rounded-full"
+                            className={cn(
+                                "shrink-0 rounded-full",
+                                compact ? "h-9 w-9" : "h-11 w-11",
+                            )}
                             variant="ghost"
                             onPress={() => onPress(item)}
                             accessibilityLabel={
@@ -134,7 +140,7 @@ export function MusicListItem({
                                             ? "checkmark-circle"
                                             : "ellipse-outline"
                                     }
-                                    size={28}
+                                    size={compact ? 24 : 28}
                                     color={colors.text}
                                 />
                             </Animated.View>
@@ -145,7 +151,10 @@ export function MusicListItem({
 
             <Animated.View className="flex-1" style={animatedContentStyle}>
                 <Pressable
-                    className="flex-1 flex-row items-center mr-3 overflow-hidden"
+                    className={cn(
+                        "flex-1 flex-row items-center overflow-hidden",
+                        compact ? "mr-2" : "mr-3",
+                    )}
                     onPressIn={() => {
                         longPressConsumedRef.current = false;
                     }}
@@ -174,27 +183,46 @@ export function MusicListItem({
                     {canRenderArtwork ? (
                         <Image
                             source={{ uri: artworkUrl }}
-                            className="w-14 h-14 shrink-0 aspect-square rounded bg-muted mr-3"
+                            className={cn(
+                                "shrink-0 aspect-square rounded bg-muted",
+                                compact ? "h-11 w-11 mr-2" : "h-14 w-14 mr-3",
+                            )}
                             onError={() => setArtworkFailed(true)}
                         />
                     ) : (
-                        <View className="w-14 h-14 shrink-0 aspect-square rounded bg-muted mr-3 items-center justify-center">
+                        <View
+                            className={cn(
+                                "shrink-0 aspect-square items-center justify-center rounded bg-muted",
+                                compact ? "h-11 w-11 mr-2" : "h-14 w-14 mr-3",
+                            )}
+                        >
                             <Text className="text-xs text-muted-foreground text-center">
                                 No Art
                             </Text>
                         </View>
                     )}
 
-                    <View className="flex-1 flex-col justify-center gap-1.5 overflow-hidden">
+                    <View
+                        className={cn(
+                            "flex-1 flex-col justify-center overflow-hidden",
+                            compact ? "gap-0.5" : "gap-1.5",
+                        )}
+                    >
                         <View>
                             <Text
-                                className="text-base font-bold text-foreground leading-tight"
+                                className={cn(
+                                    "font-bold text-foreground leading-tight",
+                                    compact ? "text-sm" : "text-base",
+                                )}
                                 numberOfLines={1}
                             >
                                 {item.title}
                             </Text>
                             <Text
-                                className="text-sm text-muted-foreground mt-0.5 leading-tight"
+                                className={cn(
+                                    "text-muted-foreground leading-tight",
+                                    compact ? "text-xs" : "mt-0.5 text-sm",
+                                )}
                                 numberOfLines={1}
                             >
                                 {item.artistName}
@@ -207,15 +235,16 @@ export function MusicListItem({
                                     horizontal
                                     showsHorizontalScrollIndicator={false}
                                     contentContainerStyle={{
-                                        gap: 6,
-                                        paddingRight: 24,
+                                        gap: compact ? 4 : 6,
+                                        paddingRight: compact ? 16 : 24,
                                     }}
                                 >
                                     {itemTags.map((tag) => (
                                         <TagPill
                                             key={tag.id}
                                             tag={tag}
-                                            height={10}
+                                            height={compact ? 8 : 10}
+                                            compact={compact}
                                         />
                                     ))}
                                 </ScrollView>
@@ -226,7 +255,7 @@ export function MusicListItem({
                                         right: 0,
                                         top: 0,
                                         bottom: 0,
-                                        width: 24,
+                                        width: compact ? 16 : 24,
                                     }}
                                 >
                                     <Svg width="100%" height="100%">
@@ -277,14 +306,17 @@ export function MusicListItem({
                 >
                     <Button
                         size="icon"
-                        className="h-11 w-11 shrink-0 rounded-full"
+                        className={cn(
+                            "shrink-0 rounded-full",
+                            compact ? "h-9 w-9" : "h-11 w-11",
+                        )}
                         onPress={() => onOpenMenu(item)}
                         variant="ghost"
                         accessibilityLabel={`Options for ${item.title}`}
                     >
                         <Ionicons
                             name="ellipsis-horizontal"
-                            size={24}
+                            size={compact ? 20 : 24}
                             color={colors.text}
                         />
                     </Button>
@@ -296,27 +328,52 @@ export function MusicListItem({
 
 export function MusicListItemSkeleton({
     fullBleed = false,
+    compact = false,
 }: {
     fullBleed?: boolean;
+    compact?: boolean;
 }) {
     return (
         <View
             className={cn(
                 "relative flex-row items-center justify-between py-3",
+                compact && "py-2",
                 fullBleed ? "px-6" : "border-b border-border",
             )}
         >
             {fullBleed ? (
                 <View className="absolute bottom-0 left-6 right-6 border-b border-border" />
             ) : null}
-            <View className="flex-1 flex-row items-center mr-3 overflow-hidden">
-                <Skeleton className="w-14 h-14 shrink-0 aspect-square rounded mr-3" />
-                <View className="flex-1 flex-col justify-center gap-2 overflow-hidden">
-                    <Skeleton className="h-4 w-3/4" />
-                    <Skeleton className="h-3 w-1/2" />
+            <View
+                className={cn(
+                    "flex-1 flex-row items-center overflow-hidden",
+                    compact ? "mr-2" : "mr-3",
+                )}
+            >
+                <Skeleton
+                    className={cn(
+                        "shrink-0 aspect-square rounded",
+                        compact ? "h-11 w-11 mr-2" : "h-14 w-14 mr-3",
+                    )}
+                />
+                <View
+                    className={cn(
+                        "flex-1 flex-col justify-center overflow-hidden",
+                        compact ? "gap-1" : "gap-2",
+                    )}
+                >
+                    <Skeleton className={compact ? "h-3 w-3/4" : "h-4 w-3/4"} />
+                    <Skeleton
+                        className={compact ? "h-2.5 w-1/2" : "h-3 w-1/2"}
+                    />
                 </View>
             </View>
-            <Skeleton className="h-11 w-11 rounded-full shrink-0" />
+            <Skeleton
+                className={cn(
+                    "shrink-0 rounded-full",
+                    compact ? "h-9 w-9" : "h-11 w-11",
+                )}
+            />
         </View>
     );
 }

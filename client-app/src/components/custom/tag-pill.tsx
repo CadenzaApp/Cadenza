@@ -1,7 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import { Text } from "@/components/ui/text";
 import { Pressable, View } from "react-native";
-import { Tag } from "../../lib/types";
+import type { Tag } from "../../lib/types";
 
 // Helper to lighten hex colors
 function hexToRgba(hex: string, alpha: number) {
@@ -16,6 +16,7 @@ function hexToRgba(hex: string, alpha: number) {
  *
  * @param tag       - The tag object (id, name, hex color).
  * @param height    - Controls all sizing proportionally (font, dot, padding).
+ * @param compact   - Renders a solid circular badge containing the tag initial.
  * @param count     - If provided, renders a count badge on the right side.
  * @param onRemove  - If provided, renders an × button inside the pill.
  *                   Called when the user taps it and caller decides what to do.
@@ -25,17 +26,66 @@ export function TagPill({
     height,
     count,
     onRemove,
+    compact = false,
 }: {
     tag: Tag;
     height: number;
     count?: number;
     onRemove?: () => void;
+    compact?: boolean;
 }) {
     const dotSize = 0.8 * height;
     const fontSize = 1 * height;
     const countFontSize = 0.9 * height;
     const countPaddingHorizontal = 0.9 * height;
     const countPaddingVertical = 0.1 * height;
+
+    if (compact) {
+        const diameter = 1.8 * height;
+        const compactBadge = (
+            <Badge
+                pointerEvents="none"
+                style={{
+                    width: diameter,
+                    height: diameter,
+                    minWidth: diameter,
+                    borderRadius: diameter / 2,
+                    borderColor: "transparent",
+                    backgroundColor: tag.color,
+                    paddingHorizontal: 0,
+                    paddingVertical: 0,
+                    alignItems: "center",
+                    justifyContent: "center",
+                }}
+            >
+                <Text
+                    style={{
+                        color: readableTextColor(tag.color),
+                        fontSize: height,
+                        fontWeight: "700",
+                        lineHeight: diameter,
+                        textAlign: "center",
+                    }}
+                >
+                    {tag.name.trim().charAt(0).toLocaleUpperCase() || "?"}
+                </Text>
+            </Badge>
+        );
+
+        return onRemove ? (
+            <Pressable
+                onPress={onRemove}
+                accessibilityRole="button"
+                accessibilityLabel={`Remove ${tag.name} tag`}
+                hitSlop={6}
+                style={({ pressed }) => pressed && { opacity: 0.4 }}
+            >
+                {compactBadge}
+            </Pressable>
+        ) : (
+            compactBadge
+        );
+    }
 
     return (
         <Badge
@@ -116,4 +166,12 @@ export function TagPill({
             )}
         </Badge>
     );
+}
+
+function readableTextColor(hex: string) {
+    const red = parseInt(hex.slice(1, 3), 16);
+    const green = parseInt(hex.slice(3, 5), 16);
+    const blue = parseInt(hex.slice(5, 7), 16);
+    const luminance = (red * 299 + green * 587 + blue * 114) / 1000;
+    return luminance > 150 ? "#000000" : "#ffffff";
 }

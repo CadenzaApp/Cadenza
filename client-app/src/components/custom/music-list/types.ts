@@ -73,6 +73,8 @@ export type MusicListProps = {
     multiSelect?: MusicListMultiSelectConfig | null;
     /** Extends row backgrounds and dividers edge-to-edge while preserving content insets. */
     fullBleedRows?: boolean;
+    /** Uses smaller artwork, spacing, controls, and initial-only tag badges. */
+    compact?: boolean;
     anticipatedTrackCount?: number;
     hasNextPage?: boolean;
     isLoadingNextPage?: boolean;
