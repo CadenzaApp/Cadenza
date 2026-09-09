@@ -5,6 +5,15 @@ use std::sync::Arc;
 use sea_orm::prelude::async_trait::async_trait;
 
 use crate::err::CadenzaError;
+use serde::{Deserialize, Serialize};
+
+/// a tag produced by a [`TagGenerator`], with a color reflecting the mood the
+/// tag conveys
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GeneratedTag {
+    pub name: String,
+    pub color: String,
+}
 
 const DEFAULT_REQUESTED_TAG_COUNT: usize = 10;
 const MAX_REQUESTED_TAG_COUNT: usize = 20;
@@ -21,7 +30,7 @@ impl TagGenerationService {
         &self,
         song_descs: &[String],
         requested_tag_count: Option<usize>,
-    ) -> Result<Vec<Vec<String>>, CadenzaError> {
+    ) -> Result<Vec<Vec<GeneratedTag>>, CadenzaError> {
         self.0
             .generate_tags(
                 song_descs,
@@ -44,5 +53,5 @@ pub trait TagGenerator: Send + Sync {
         &self,
         song_descs: &[String],
         requested_tag_count: usize,
-    ) -> Result<Vec<Vec<String>>, String>;
+    ) -> Result<Vec<Vec<GeneratedTag>>, String>;
 }

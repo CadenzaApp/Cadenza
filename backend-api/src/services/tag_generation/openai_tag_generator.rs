@@ -1,17 +1,34 @@
-use crate::services::tag_generation::TagGenerator;
+use crate::services::tag_generation::{GeneratedTag, TagGenerator};
 use crate::services::tag_normalizer::normalize_tag_name;
 use dotenvy::dotenv;
 use reqwest::Client;
 use sea_orm::prelude::async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{Value, json};
+use std::collections::HashMap;
 use std::env;
 use std::time::Duration;
 
 const OPENAI_RESPONSES_URL: &str = "https://api.openai.com/v1/responses";
 const OPENAI_HTTP_TIMEOUT_SECS: u64 = 20;
 const OPENAI_MODEL: &str = "gpt-4o-mini";
-const TAG_GENERATION_SYSTEM_PROMPT: &str = r#"Generate one word music tags for each given song. The ordering of the returned 2d array must match the order of input songs. Generate `requested_tag_count` tags per song."#;
+const TAG_GENERATION_SYSTEM_PROMPT: &str = r#"Generate one word music tags for each given song. The ordering of the returned 2d array must match the order of input songs. Generate `requested_tag_count` tags per song. Separately, return `colors`: one entry per distinct tag name you used, giving that tag a `#RRGGBB` hex color that reflects what it evokes - its mood, energy, genre or era. Warm bright colors for energetic or happy tags, cool dark colors for somber or calm ones."#;
+
+/// color used when the model returns a color we can't parse
+const FALLBACK_TAG_COLOR: &str = "#808080";
+
+fn normalize_tag_color(color: &str) -> String {
+    let color = color.trim();
+
+    let is_hex_color = color.len() == 7
+        && color.starts_with('#')
+        && color[1..].chars().all(|c| c.is_ascii_hexdigit());
+
+    match is_hex_color {
+        true => color.to_lowercase(),
+        false => FALLBACK_TAG_COLOR.to_owned(),
+    }
+}
 const MAX_COMBINED_SONG_DESC_LENGTH: usize = 200;
 
 fn get_tag_generation_req_body(song_descs: &[String], requested_tag_count: usize) -> Value {
@@ -40,7 +57,7 @@ fn get_tag_generation_req_body(song_descs: &[String], requested_tag_count: usize
                 "strict": true,
                 "schema": {
                     "type": "object",
-                    "required": ["tags"],
+                    "required": ["tags", "colors"],
                     "additionalProperties": false,
                     "properties": {
                         "tags": {
@@ -49,6 +66,22 @@ fn get_tag_generation_req_body(song_descs: &[String], requested_tag_count: usize
                                 "type": "array",
                                 "items": {
                                     "type": "string"
+                                }
+                            }
+                        },
+                        "colors": {
+                            "type": "array",
+                            "description": "one entry per distinct tag name used in `tags`",
+                            "items": {
+                                "type": "object",
+                                "required": ["name", "color"],
+                                "additionalProperties": false,
+                                "properties": {
+                                    "name": { "type": "string" },
+                                    "color": {
+                                        "type": "string",
+                                        "description": "#RRGGBB hex color reflecting the tag's mood"
+                                    }
                                 }
                             }
                         }
@@ -97,6 +130,7 @@ struct ResponseOutputText {
 #[derive(Deserialize)]
 struct OpenAiGeneratedTags {
     tags: Vec<Vec<String>>,
+    colors: Vec<GeneratedTag>,
 }
 
 #[derive(Clone)]
@@ -124,7 +158,7 @@ impl TagGenerator for OpenAiTagGenerator {
         &self,
         song_descs: &[String],
         requested_tag_count: usize,
-    ) -> Result<Vec<Vec<String>>, String> {
+    ) -> Result<Vec<Vec<GeneratedTag>>, String> {
         if song_descs.is_empty() {
             return Ok(vec![]);
         }
@@ -156,20 +190,34 @@ impl TagGenerator for OpenAiTagGenerator {
             .map_err(|err| format!("openai returned malformed response: {}", err))?
             .into_text()?;
 
-        let mut generated_tags: OpenAiGeneratedTags =
+        let generated_tags: OpenAiGeneratedTags =
             serde_json::from_str(&resp_text).map_err(|e| e.to_string())?;
 
-        // normalize all generated tags (if more tags returned than requested, ignore them)
-        for tags in &mut generated_tags.tags {
-            if tags.len() > requested_tag_count {
-                *tags = tags[..requested_tag_count].to_vec();
-            }
-            for tag in tags.iter_mut() {
-                *tag = normalize_tag_name(tag);
-            }
-        }
+        let colors: HashMap<String, String> = generated_tags
+            .colors
+            .into_iter()
+            .map(|tag| (normalize_tag_name(&tag.name), normalize_tag_color(&tag.color)))
+            .collect();
 
-        Ok(generated_tags.tags)
+        // pair each generated tag with its color (if more tags returned than requested, ignore them)
+        Ok(generated_tags
+            .tags
+            .into_iter()
+            .map(|tags| {
+                tags.into_iter()
+                    .take(requested_tag_count)
+                    .map(|name| {
+                        let name = normalize_tag_name(&name);
+                        let color = colors
+                            .get(&name)
+                            .cloned()
+                            .unwrap_or_else(|| FALLBACK_TAG_COLOR.to_owned());
+
+                        GeneratedTag { name, color }
+                    })
+                    .collect()
+            })
+            .collect())
     }
 }
 
@@ -271,6 +319,6 @@ mod tests {
 
         assert_eq!(metallica_tags.len(), 1);
         assert_eq!(harry_tags.len(), 1);
-        assert_ne!(metallica_tags[0], harry_tags[0]);
+        assert_ne!(metallica_tags[0].name, harry_tags[0].name);
     }
 }

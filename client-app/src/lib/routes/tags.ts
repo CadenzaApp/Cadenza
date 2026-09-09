@@ -68,10 +68,15 @@ type SuggestTagsParams = {
     song_desc: string;
     requested_tag_count: number;
 };
+/** a tag suggested by the backend, with a color reflecting the tag's mood */
+export type SuggestedTag = {
+    name: string;
+    color: string;
+};
 export function useSuggestTags() {
-    const x = useAPIFetch<SuggestTagsParams, string[]>("/tags/suggest");
+    const x = useAPIFetch<SuggestTagsParams, SuggestedTag[]>("/tags/suggest");
     return {
-        suggestedTagNames: x.data,
+        suggestedTags: x.data,
         suggestTagsLoading: x.isMutating,
         suggestTagsErr: x.error,
         resetSuggestTags: x.reset,

@@ -58,13 +58,17 @@ function SongDetailModalContent({
 
     const { unapplyTag } = useUnapplyTag();
     const { applyTag } = useApplyTag();
-    let { suggestedTagNames, suggestTags, suggestTagsErr, suggestTagsLoading } =
-        useSuggestTags();
-    const suggestedTags: Tag[] | undefined = suggestedTagNames
-        ?.map((name, i) => ({
+    let {
+        suggestedTags: suggestedTagsFromApi,
+        suggestTags,
+        suggestTagsErr,
+        suggestTagsLoading,
+    } = useSuggestTags();
+    const suggestedTags: Tag[] | undefined = suggestedTagsFromApi
+        ?.map(({ name, color }, i) => ({
             id: -i,
             name,
-            color: "#7c3aed",
+            color,
         }))
         // ignore suggested tags that are already on the song
         .filter((tag) => !tagsOnSong?.some((t) => t.name === tag.name));
@@ -87,7 +91,7 @@ function SongDetailModalContent({
             return;
         }
 
-        if (suggestedTagNames != undefined) return;
+        if (suggestedTagsFromApi != undefined) return;
         await suggestTags({
             song_desc: `${song?.title} by ${song?.artistName}`,
             // request SUGGESTED_TAGS_COUNT + number of existing tags

@@ -1,17 +1,18 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use sea_orm::{
     ActiveModelTrait,
     ActiveValue::{NotSet, Set},
-    ColumnTrait, DatabaseConnection, DbBackend, EntityTrait, FromQueryResult, JoinType, ModelTrait,
-    QueryFilter, QuerySelect, RelationTrait,
+    ColumnTrait, DatabaseConnection, EntityTrait, FromQueryResult, JoinType, ModelTrait,
+    QueryFilter, QuerySelect,
     prelude::Uuid,
-    sea_query::{Expr, IntoCondition},
+    sea_query::OnConflict,
 };
 use serde::Serialize;
 
 use crate::db::entity::*;
 use crate::err::CadenzaError;
+use crate::services::tag_generation::GeneratedTag;
 
 pub async fn get_all_user_tags(
     db: &DatabaseConnection,
@@ -173,4 +174,103 @@ pub async fn unapply_user_tag(
     }
 
     Ok(())
+}
+
+
+pub async fn get_default_tags_on_songs(
+    db: &DatabaseConnection,
+    song_ids: &[String],
+) -> Result<HashMap<String, Vec<tags::Model>>, CadenzaError> {
+    let applied = default_tags_applied::Entity::find()
+        .filter(default_tags_applied::Column::SongId.is_in(song_ids))
+        .find_also_related(tags::Entity)
+        .all(db)
+        .await?;
+
+    let mut res: HashMap<String, Vec<tags::Model>> = HashMap::new();
+    for (applied, tag) in applied {
+        if let Some(tag) = tag {
+            res.entry(applied.song_id).or_default().push(tag);
+        }
+    }
+
+    Ok(res)
+}
+
+/// replaces the default tags on each given song with the given tags,
+/// creating tags that don't exist yet. returns the applied tags per song id.
+pub async fn set_default_tags_on_songs(
+    db: &DatabaseConnection,
+    tags_per_song: HashMap<String, Vec<GeneratedTag>>,
+) -> Result<HashMap<String, Vec<tags::Model>>, CadenzaError> {
+    let song_ids: Vec<&String> = tags_per_song.keys().collect();
+    let new_tags: HashMap<&str, &GeneratedTag> = tags_per_song
+        .values()
+        .flatten()
+        .map(|tag| (tag.name.as_str(), tag))
+        .collect();
+
+    let mut tags_by_name: HashMap<&str, tags::Model> = tags::Entity::find()
+        .filter(tags::Column::UserId.is_null())
+        .filter(tags::Column::Name.is_in(new_tags.keys().copied()))
+        .all(db)
+        .await?
+        .into_iter()
+        .filter_map(|tag| Some((*new_tags.get_key_value(tag.name.as_str())?.0, tag)))
+        .collect();
+
+    for (name, new_tag) in new_tags {
+        if tags_by_name.contains_key(name) {
+            continue;
+        }
+
+        let created = tags::ActiveModel {
+            tag_id: NotSet,
+            user_id: Set(None),
+            name: Set(new_tag.name.clone()),
+            color: Set(new_tag.color.clone()),
+        }
+        .insert(db)
+        .await?;
+
+        tags_by_name.insert(name, created);
+    }
+
+    default_tags_applied::Entity::delete_many()
+        .filter(default_tags_applied::Column::SongId.is_in(song_ids))
+        .exec(db)
+        .await?;
+
+    let res: HashMap<String, Vec<tags::Model>> = tags_per_song
+        .iter()
+        .map(|(song_id, tags)| {
+            let tags = tags
+                .iter()
+                .filter_map(|tag| tags_by_name.get(tag.name.as_str()).cloned())
+                .collect();
+            (song_id.clone(), tags)
+        })
+        .collect();
+
+    let new_relations = res.iter().flat_map(|(song_id, tags)| {
+        tags.iter().map(|tag| default_tags_applied::ActiveModel {
+            song_id: Set(song_id.clone()),
+            tag_id: Set(tag.tag_id),
+        })
+    });
+
+    default_tags_applied::Entity::insert_many(new_relations)
+        .on_empty_do_nothing()
+        .on_conflict(
+            OnConflict::columns([
+                default_tags_applied::Column::SongId,
+                default_tags_applied::Column::TagId,
+            ])
+            .do_nothing()
+            .to_owned(),
+        )
+        .exec_without_returning(db)
+        .await?;
+
+    Ok(res)
 }
