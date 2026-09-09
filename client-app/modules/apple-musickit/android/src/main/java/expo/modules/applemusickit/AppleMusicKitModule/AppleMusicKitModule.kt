@@ -10,6 +10,7 @@ import com.apple.android.sdk.authentication.TokenProvider
 import com.apple.android.music.playback.controller.MediaPlayerController
 import com.apple.android.music.playback.controller.MediaPlayerControllerFactory
 import com.apple.android.music.playback.queue.CatalogPlaybackQueueItemProvider
+import com.apple.android.music.playback.queue.PlaybackQueueInsertionType
 import com.apple.android.music.playback.model.MediaContainerType
 import com.apple.android.music.playback.model.MediaItemType
 import com.apple.android.music.playback.model.PlaybackState
@@ -348,6 +349,63 @@ class AppleMusicKitModule : Module() {
                 } catch (e: Exception) {
                     Log.e(TAG, "Error during prepare()", e)
                     promise.reject("PREPARE_ERROR", e.message, e)
+                }
+            }
+        }
+
+        AsyncFunction("setSongPlaybackQueue") {
+            ids: List<String>, _types: List<String>, startIndex: Int, promise: Promise ->
+            val songIds = ids.toTypedArray()
+            if (songIds.isEmpty()) {
+                promise.reject("ERR_NOT_FOUND", "No queue songs were supplied", null)
+                return@AsyncFunction
+            }
+            val boundedIndex = startIndex.coerceIn(0, songIds.lastIndex)
+            val provider = CatalogPlaybackQueueItemProvider.Builder()
+                .items(MediaItemType.SONG, *songIds)
+                .startItemIndex(boundedIndex)
+                .build()
+
+            Handler(Looper.getMainLooper()).post {
+                try {
+                    val controller = getOrCreatePlayerController()
+                    if (controller == null) {
+                        promise.reject("ERR_PLAYER_UNAVAILABLE", "Apple Music player is unavailable", null)
+                    } else {
+                        controller.prepare(provider, true)
+                        promise.resolve(null)
+                    }
+                } catch (e: Exception) {
+                    promise.reject("PREPARE_ERROR", e.message, e)
+                }
+            }
+        }
+
+        AsyncFunction("appendSongPlaybackQueue") {
+            ids: List<String>, _types: List<String>, promise: Promise ->
+            val songIds = ids.toTypedArray()
+            if (songIds.isEmpty()) {
+                promise.resolve(null)
+                return@AsyncFunction
+            }
+            val provider = CatalogPlaybackQueueItemProvider.Builder()
+                .items(MediaItemType.SONG, *songIds)
+                .build()
+
+            Handler(Looper.getMainLooper()).post {
+                try {
+                    val controller = getOrCreatePlayerController()
+                    if (controller == null) {
+                        promise.reject("ERR_PLAYER_UNAVAILABLE", "Apple Music player is unavailable", null)
+                    } else {
+                        controller.addQueueItems(
+                            provider,
+                            PlaybackQueueInsertionType.INSERTION_TYPE_AT_END
+                        )
+                        promise.resolve(null)
+                    }
+                } catch (e: Exception) {
+                    promise.reject("QUEUE_APPEND_ERROR", e.message, e)
                 }
             }
         }

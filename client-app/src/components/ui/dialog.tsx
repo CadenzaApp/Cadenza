@@ -1,6 +1,7 @@
 import { NativeOnlyAnimatedView } from "@/components/ui/native-only-animated-view";
 import { cn } from "@/lib/utils";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { useTheme } from "expo-router/react-navigation";
 import * as DialogPrimitive from "@rn-primitives/dialog";
 import * as React from "react";
 import { Platform, Text, View, type ViewProps } from "react-native";
@@ -61,6 +62,8 @@ function DialogContent({
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
     portalHost?: string;
 }) {
+    const { colors } = useTheme();
+
     return (
         <DialogPortal hostName={portalHost}>
             <DialogOverlay>
@@ -84,7 +87,7 @@ function DialogContent({
                         )}
                         hitSlop={12}
                     >
-                        <Ionicons name="close" size={16} color="white" />
+                        <Ionicons name="close" size={18} color={colors.text} />
                         <Text className="sr-only">Close</Text>
                     </DialogPrimitive.Close>
                 </DialogPrimitive.Content>

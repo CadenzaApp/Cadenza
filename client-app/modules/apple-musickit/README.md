@@ -81,7 +81,9 @@ Compile native targets with the `AppleMusicKitModule` Xcode scheme and Gradle's
 ## Connects to
 
 - `client-app/src/lib/apple-music-auth.tsx` owns the token lifecycle on top of `Auth`.
-- `client-app/src/lib/playback.tsx` wraps `Playback` and adds queue tracking.
+- `client-app/src/lib/playback.tsx` wraps `Playback`. The native player owns the queue now
+  (`playSongQueue`, `appendSongQueue`, `skipToNextEntry`); the provider mirrors it so the UI has
+  the track list and the current index.
 - `client-app/src/lib/musickit-hooks.ts` wraps `MusicKit` reads in SWR.
 
 Nothing outside `client-app/src/lib` should import `@apple-musickit` for data. Use the hooks.

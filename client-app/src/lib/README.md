@@ -18,7 +18,7 @@ native module directly.
 | `musickit-hooks.ts` | SWR over the native module: song info, catalog search, library, playlists, favorites. |
 | `account.tsx` | `AccountProvider` / `useAccount`. Supabase session and the JWT. |
 | `apple-music-auth.tsx` | `AppleMusicProvider` / `useAppleMusic`. Apple Music tokens, persisted in secure store. |
-| `playback.tsx` | `PlaybackProvider` / `usePlayback`. Queue and the native playback snapshot. |
+| `playback.tsx` | `PlaybackProvider`, `usePlayback` (state) and `usePlaybackCommands` (actions). Queue and the native playback snapshot. |
 | `supabase.ts` | The Supabase client, backed by AsyncStorage. |
 | `tag-generation.ts` | A standalone tag suggestion fetch. Does not use the wrappers. See gotchas. |
 | `theme.ts` | `NAV_THEME`, light and dark palettes for react-navigation. |
@@ -112,10 +112,16 @@ in the codebase, with `rollbackOnError`.
 - `AppleMusicProvider` owns the Apple Music developer and user tokens, restores them from
   `expo-secure-store` on mount, and pushes them into the native module. `isConnected` means
   authorized **and** holding a user token. `ensureConnected()` before any playback call.
-- `PlaybackProvider` wraps the native playback snapshot and layers the queue on top, since the
-  native side does not report queue position. It polls `refreshPlaybackSnapshot()` every 750ms
-  while the app is foregrounded. This is deliberately not SWR: it is a subscription to
-  continuously changing native state, not a cached read.
+- `PlaybackProvider` hands the queue to the native player (`playSongQueue`, `appendSongQueue`)
+  and mirrors it, since the snapshot reports the current track but not its position in the
+  queue. It finds the index by matching the snapshot track against the mirrored list, and falls
+  back to the last index it set. It polls `refreshPlaybackSnapshot()` every 750ms while the app
+  is foregrounded. This is deliberately not SWR: it is a subscription to continuously changing
+  native state, not a cached read.
+- The provider exposes two contexts on purpose. `usePlayback()` is the state, and re-renders
+  every 750ms as progress ticks. `usePlaybackCommands()` is the actions, and its identity never
+  changes, so a list row can hold a play handler without re-rendering on every tick. Reach for
+  `usePlaybackCommands` unless you actually need to read playback state.
 
 ## Connects to
 

@@ -695,5 +695,32 @@ export function createMockNativeModule(): AppleMusicKitNativeModule {
             isPlaying = false;
             return respond(undefined, COMMAND_LATENCY_MS);
         },
+
+        setSongPlaybackQueue: (
+            ids: readonly string[],
+            types: readonly string[],
+            startIndex: number,
+        ) => {
+            queue = ids.flatMap((id, index) =>
+                buildQueue(id, types[index] ?? "song"),
+            );
+            queueIndex = Math.max(0, Math.min(startIndex, queue.length - 1));
+            playbackTime = 0;
+            playbackStartedAt = null;
+            isPlaying = false;
+            return respond(undefined, COMMAND_LATENCY_MS);
+        },
+
+        appendSongPlaybackQueue: (
+            ids: readonly string[],
+            types: readonly string[],
+        ) => {
+            queue.push(
+                ...ids.flatMap((id, index) =>
+                    buildQueue(id, types[index] ?? "song"),
+                ),
+            );
+            return respond(undefined, COMMAND_LATENCY_MS);
+        },
     };
 }

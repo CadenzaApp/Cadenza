@@ -2,12 +2,15 @@ import {
     createContext,
     useContext,
     useEffect,
+    useMemo,
     useRef,
     useState,
     ReactNode,
 } from "react";
 import { Alert, AppState } from "react-native";
-import { MusicItem, Playback, PlaybackQueueType } from "@apple-musickit";
+import { MusicItem, Playback } from "@apple-musickit";
+
+import { useAppleMusic } from "./apple-music-auth";
 
 export type PlaybackQueue = {
     tracks: MusicItem[];
@@ -25,6 +28,7 @@ type PlaybackInfo = {
     canSkipToNext: boolean;
     canSkipToPrevious: boolean;
     playQueue: (queue: PlaybackQueue) => Promise<void>;
+    addToQueue: (tracks: readonly MusicItem[]) => Promise<void>;
     togglePlayback: (track: MusicItem) => Promise<void>;
     seekTo: (time: number) => Promise<void>;
     skipToNext: () => Promise<void>;
@@ -32,18 +36,39 @@ type PlaybackInfo = {
 };
 
 const PlaybackContext = createContext<PlaybackInfo | null>(null);
+type PlaybackCommands = Pick<
+    PlaybackInfo,
+    | "playQueue"
+    | "addToQueue"
+    | "togglePlayback"
+    | "seekTo"
+    | "skipToNext"
+    | "skipToPrevious"
+>;
+const PlaybackCommandsContext = createContext<PlaybackCommands | null>(null);
 
 export function usePlayback() {
     return useContext(PlaybackContext)!;
 }
 
+/** Playback commands whose identity is stable across progress updates. */
+export function usePlaybackCommands() {
+    return useContext(PlaybackCommandsContext)!;
+}
+
 export function PlaybackProvider({ children }: { children: ReactNode }) {
+    const { isConnected, ensureConnected } = useAppleMusic();
     const snapshot = Playback.usePlaybackSnapshot();
     const [queue, setQueue] = useState<MusicItem[]>([]);
     const [queueIndex, setQueueIndex] = useState(-1);
-    const queueRequestRevision = useRef(0);
+    const commandImplementationsRef = useRef<PlaybackCommands | null>(null);
     const snapshotTrack = snapshot.currentTrack ?? null;
-    const queuedTrack = queue[queueIndex];
+    const nativeQueueIndex = snapshotTrack
+        ? queue.findIndex((track) => samePlayableItem(track, snapshotTrack))
+        : -1;
+    const resolvedQueueIndex =
+        nativeQueueIndex >= 0 ? nativeQueueIndex : queueIndex;
+    const queuedTrack = queue[resolvedQueueIndex];
     const activeTrack =
         queuedTrack &&
         snapshotTrack &&
@@ -79,47 +104,41 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
         };
     }, []);
 
-    async function startQueueTrack(
-        tracks: MusicItem[],
-        index: number,
-        requestRevision: number,
-    ) {
-        const track = tracks[index];
-        if (!track?.id && !track?.playbackId) return;
-
-        const playbackType = track.playbackType ?? PlaybackQueueType.Song;
-
-        if (requestRevision !== queueRequestRevision.current) return;
-        await Playback.playTrack(track, playbackType);
-    }
-
     async function playQueue({ tracks, startIndex = 0 }: PlaybackQueue) {
+        if (!isConnected) {
+            Alert.alert(
+                "Apple Music Not Connected",
+                "Connect Apple Music from the Account tab before playing songs.",
+            );
+            return;
+        }
+
         const playableTracks = tracks.filter((track) =>
             Boolean(track.playbackId ?? track.id),
         );
         if (playableTracks.length === 0) return;
 
-        const boundedIndex = Math.max(
-            0,
-            Math.min(startIndex, playableTracks.length - 1),
-        );
-        const requestRevision = ++queueRequestRevision.current;
-        setQueue(playableTracks);
-        setQueueIndex(boundedIndex);
-
         try {
-            await startQueueTrack(
-                playableTracks,
-                boundedIndex,
-                requestRevision,
+            await ensureConnected();
+            const boundedIndex = Math.max(
+                0,
+                Math.min(startIndex, playableTracks.length - 1),
             );
-        } catch (e) {
-            if (requestRevision === queueRequestRevision.current) {
-                setQueue([]);
-                setQueueIndex(-1);
+            const previousQueue = queue;
+            const previousQueueIndex = queueIndex;
+            setQueue(playableTracks);
+            setQueueIndex(boundedIndex);
+            try {
+                await Playback.playSongQueue(playableTracks, boundedIndex);
+            } catch (error) {
+                setQueue(previousQueue);
+                setQueueIndex(previousQueueIndex);
+                throw error;
             }
+        } catch (e) {
             console.error("Failed to start playback queue:", e);
             Alert.alert("Playback Error", "Failed to start playback.");
+            throw e;
         }
     }
 
@@ -140,7 +159,53 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
             }
         } catch (e) {
             console.error("Failed to toggle playback:", e);
-            Alert.alert("Playback Error", "Failed to update playback state.");
+            if (!isNewTrack) {
+                Alert.alert(
+                    "Playback Error",
+                    "Failed to update playback state.",
+                );
+            }
+        }
+    }
+
+    async function addToQueue(tracks: readonly MusicItem[]) {
+        const playableTracks = tracks.filter((track) =>
+            Boolean(track.playbackId ?? track.id),
+        );
+        if (playableTracks.length === 0) return;
+
+        if (!isConnected) {
+            Alert.alert(
+                "Apple Music Not Connected",
+                "Connect Apple Music from the Account tab before adding songs to the queue.",
+            );
+            throw new Error("Apple Music is not connected.");
+        }
+
+        try {
+            await ensureConnected();
+
+            if (queue.length > 0 && nativeQueueIndex >= 0) {
+                await Playback.appendSongQueue(playableTracks);
+                setQueue((currentQueue) => [
+                    ...currentQueue,
+                    ...playableTracks,
+                ]);
+                return;
+            }
+
+            if (activeTrack) {
+                await Playback.appendSongQueue(playableTracks);
+                setQueue([activeTrack, ...playableTracks]);
+                setQueueIndex(0);
+                return;
+            }
+
+            await playQueue({ tracks: playableTracks });
+        } catch (e) {
+            console.error("Failed to add tracks to playback queue:", e);
+            Alert.alert("Playback Error", "Failed to add songs to the queue.");
+            throw e;
         }
     }
 
@@ -157,52 +222,76 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     }
 
     async function skipToNext() {
-        const nextIndex = queueIndex + 1;
+        const nextIndex = resolvedQueueIndex + 1;
         if (nextIndex >= queue.length) return;
 
         try {
-            const requestRevision = ++queueRequestRevision.current;
+            await Playback.skipToNextEntry();
             setQueueIndex(nextIndex);
-            await startQueueTrack(queue, nextIndex, requestRevision);
         } catch (e) {
             console.error("Failed to skip to the next track:", e);
         }
     }
 
     async function skipToPrevious() {
-        const previousIndex = queueIndex - 1;
+        const previousIndex = resolvedQueueIndex - 1;
         if (previousIndex < 0) return;
 
         try {
-            const requestRevision = ++queueRequestRevision.current;
+            await Playback.skipToPreviousEntry();
             setQueueIndex(previousIndex);
-            await startQueueTrack(queue, previousIndex, requestRevision);
         } catch (e) {
             console.error("Failed to skip to the previous track:", e);
         }
     }
 
+    useEffect(() => {
+        commandImplementationsRef.current = {
+            playQueue,
+            addToQueue,
+            togglePlayback,
+            seekTo,
+            skipToNext,
+            skipToPrevious,
+        };
+    });
+    const commands = useMemo<PlaybackCommands>(
+        () => ({
+            playQueue: (nextQueue) =>
+                commandImplementationsRef.current!.playQueue(nextQueue),
+            addToQueue: (tracks) =>
+                commandImplementationsRef.current!.addToQueue(tracks),
+            togglePlayback: (track) =>
+                commandImplementationsRef.current!.togglePlayback(track),
+            seekTo: (time) => commandImplementationsRef.current!.seekTo(time),
+            skipToNext: () => commandImplementationsRef.current!.skipToNext(),
+            skipToPrevious: () =>
+                commandImplementationsRef.current!.skipToPrevious(),
+        }),
+        [],
+    );
+
     return (
-        <PlaybackContext.Provider
-            value={{
-                activeTrackId,
-                activeTrack,
-                isPlaying: snapshot.isPlaying,
-                isLoading: snapshot.isLoading,
-                progress: snapshot.progress,
-                queue,
-                queueIndex,
-                canSkipToNext: queueIndex >= 0 && queueIndex < queue.length - 1,
-                canSkipToPrevious: queueIndex > 0,
-                playQueue,
-                togglePlayback,
-                seekTo,
-                skipToNext,
-                skipToPrevious,
-            }}
-        >
-            {children}
-        </PlaybackContext.Provider>
+        <PlaybackCommandsContext.Provider value={commands}>
+            <PlaybackContext.Provider
+                value={{
+                    activeTrackId,
+                    activeTrack,
+                    isPlaying: snapshot.isPlaying,
+                    isLoading: snapshot.isLoading,
+                    progress: snapshot.progress,
+                    queue,
+                    queueIndex: resolvedQueueIndex,
+                    canSkipToNext:
+                        resolvedQueueIndex >= 0 &&
+                        resolvedQueueIndex < queue.length - 1,
+                    canSkipToPrevious: resolvedQueueIndex > 0,
+                    ...commands,
+                }}
+            >
+                {children}
+            </PlaybackContext.Provider>
+        </PlaybackCommandsContext.Provider>
     );
 }
 
