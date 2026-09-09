@@ -1,6 +1,6 @@
 import { supabase } from "./supabase";
 import { useState, createContext, useContext } from "react";
-import { clearCache } from "./swr-utils";
+import { clearCache } from "./swr-cache";
 
 type Account = {
     id: string;

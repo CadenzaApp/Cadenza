@@ -7,13 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { Tag } from "@/lib/types";
 import { TagPill } from "@/components/custom/tag-pill";
-import {
-    useApplyTag,
-    useTagsOnSong,
-    useUnapplyTag,
-} from "@/lib/routes/songs";
+import { useApplyTag, useTagsOnSong, useUnapplyTag } from "@/lib/routes/songs";
 import { useSuggestTags } from "@/lib/routes/tags";
-
 
 type SongDetailModalProps = {
     open: boolean;
@@ -29,7 +24,6 @@ function toDisplayString(value: unknown, fallback = "Unavailable") {
     }
     return fallback;
 }
-
 
 export function SongDetailModal(props: SongDetailModalProps) {
     return (
@@ -48,21 +42,15 @@ function SongDetailModalContent({
     const [activePanel, setActivePanel] = useState<"addTag" | "aiTags" | null>(
         null,
     );
-    const {
-        tagsOnSong,
-        tagsOnSongLoading,
-        tagsOnSongErr,
-    } = useTagsOnSong(song?.id);
+    const { tagsOnSong, tagsOnSongLoading, tagsOnSongErr } = useTagsOnSong(
+        song?.catalogId ?? song?.id,
+    );
     const tags = tagsOnSong && [...tagsOnSong.global, ...tagsOnSong.local];
 
     const { unapplyTag } = useUnapplyTag();
     const { applyTag } = useApplyTag();
-    let {
-        suggestedTagNames,
-        suggestTags,
-        suggestTagsErr,
-        suggestTagsLoading,
-    } = useSuggestTags();
+    let { suggestedTagNames, suggestTags, suggestTagsErr, suggestTagsLoading } =
+        useSuggestTags();
     const suggestedTags: Tag[] | undefined = suggestedTagNames?.map(
         (name, i) => ({
             id: -i,
@@ -89,7 +77,9 @@ function SongDetailModalContent({
             return;
         }
 
-        await suggestTags({ song_desc: `${song?.title} by ${song?.artistName}` });
+        await suggestTags({
+            song_desc: `${song?.title} by ${song?.artistName}`,
+        });
     }
 
     function handlePlayPress() {
@@ -268,7 +258,9 @@ function SongDetailModalContent({
                                                 height={12}
                                                 onRemove={() =>
                                                     unapplyTag({
-                                                        song_id: song.id,
+                                                        song_id:
+                                                            song.catalogId ??
+                                                            song.id,
                                                         tag_id: tag.id,
                                                     })
                                                 }
@@ -380,6 +372,7 @@ function SongDetailModalContent({
                                                         onPress={() =>
                                                             applyTag({
                                                                 song_id:
+                                                                    song.catalogId ??
                                                                     song.id,
                                                                 tag_id: tag.id,
                                                             })

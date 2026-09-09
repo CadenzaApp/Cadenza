@@ -66,6 +66,7 @@ export default function TagDetailScreen() {
             <MusicList
                 tracks={tracks}
                 isLoading={tracksLoading}
+                pagination={null}
                 anticipatedTrackCount={songIds?.length ?? 0}
                 activeTrackId={activeTrackId}
                 isPlaying={isPlaying}

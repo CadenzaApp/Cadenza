@@ -39,11 +39,18 @@ export function usePlayback() {
 
 export function PlaybackProvider({ children }: { children: ReactNode }) {
     const snapshot = Playback.usePlaybackSnapshot();
-    const activeTrack = snapshot.currentTrack ?? null;
-    const activeTrackId = activeTrack?.id ?? null;
     const [queue, setQueue] = useState<MusicItem[]>([]);
     const [queueIndex, setQueueIndex] = useState(-1);
     const queueRequestRevision = useRef(0);
+    const snapshotTrack = snapshot.currentTrack ?? null;
+    const queuedTrack = queue[queueIndex];
+    const activeTrack =
+        queuedTrack &&
+        snapshotTrack &&
+        samePlayableItem(queuedTrack, snapshotTrack)
+            ? queuedTrack
+            : snapshotTrack;
+    const activeTrackId = activeTrack?.id ?? null;
 
     useEffect(() => {
         let active = true;
@@ -78,7 +85,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
         requestRevision: number,
     ) {
         const track = tracks[index];
-        if (!track?.id) return;
+        if (!track?.id && !track?.playbackId) return;
 
         const playbackType = track.playbackType ?? PlaybackQueueType.Song;
 
@@ -87,7 +94,9 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     }
 
     async function playQueue({ tracks, startIndex = 0 }: PlaybackQueue) {
-        const playableTracks = tracks.filter((track) => Boolean(track.id));
+        const playableTracks = tracks.filter((track) =>
+            Boolean(track.playbackId ?? track.id),
+        );
         if (playableTracks.length === 0) return;
 
         const boundedIndex = Math.max(
@@ -194,5 +203,16 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
         >
             {children}
         </PlaybackContext.Provider>
+    );
+}
+
+function samePlayableItem(left: MusicItem, right: MusicItem) {
+    const leftIds = new Set(
+        [left.id, left.playbackId, left.catalogId, left.libraryId].filter(
+            Boolean,
+        ),
+    );
+    return [right.id, right.playbackId, right.catalogId, right.libraryId].some(
+        (id) => id != null && leftIds.has(id),
     );
 }

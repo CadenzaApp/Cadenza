@@ -1,6 +1,7 @@
 import type {
     CatalogSearchType,
     LibraryResult,
+    LibrarySongOptions,
     MusicItem,
     MusicKitOptions,
     SearchResult,
@@ -24,11 +25,23 @@ export const MusicKit = {
     catalogSearch: async (
         query: string,
         types: CatalogSearchType[] = ["songs", "albums"],
+        options?: MusicKitOptions,
     ): Promise<SearchResult> => {
         const normalizedQuery = query.trim();
-        if (!normalizedQuery) return { songs: [], albums: [] };
+        if (!normalizedQuery) {
+            return {
+                songs: [],
+                albums: [],
+                hasNextSongs: false,
+                hasNextAlbums: false,
+            };
+        }
         const normalizedTypes = [...new Set(types)];
-        return requireNative().catalogSearch(normalizedQuery, normalizedTypes);
+        return requireNative().catalogSearch(
+            normalizedQuery,
+            normalizedTypes,
+            normalizeCatalogSearchOptions(options),
+        );
     },
 
     /** @deprecated Use `getLibrarySongs({ limit: 50 })`. */
@@ -40,14 +53,20 @@ export const MusicKit = {
     getUserPlaylists: async (
         options?: MusicKitOptions,
     ): Promise<LibraryResult> => {
-        return requireNative().getUserPlaylists(normalizeOptions(options));
+        return normalizeLibraryResult(
+            await requireNative().getUserPlaylists(normalizeOptions(options)),
+        );
     },
 
     /** Returns the user's library songs, optionally limited by result count. */
     getLibrarySongs: async (
-        options?: MusicKitOptions,
+        options?: LibrarySongOptions,
     ): Promise<LibraryResult> => {
-        return requireNative().getLibrarySongs(normalizeOptions(options));
+        return normalizeLibraryResult(
+            await requireNative().getLibrarySongs(
+                normalizeLibrarySongOptions(options),
+            ),
+        );
     },
 
     /** Returns the tracks contained in a library playlist. */
@@ -55,9 +74,11 @@ export const MusicKit = {
         playlistId: string,
         options?: MusicKitOptions,
     ): Promise<LibraryResult> => {
-        return requireNative().getPlaylistSongs(
-            requireIdentifier(playlistId, "playlist ID"),
-            normalizeOptions(options),
+        return normalizeLibraryResult(
+            await requireNative().getPlaylistSongs(
+                requireIdentifier(playlistId, "playlist ID"),
+                normalizeOptions(options),
+            ),
         );
     },
 
@@ -87,14 +108,23 @@ export function configureLibraryNative(
     native = nativeModule;
 }
 
+function normalizeLibraryResult(result: LibraryResult): LibraryResult {
+    return {
+        items: result.items,
+        hasNextPage: result.hasNextPage === true,
+        nextOffset: result.nextOffset,
+    };
+}
+
 interface LibraryNativeModule {
     getSongInfo(ids: string[]): Promise<MusicItem[]>;
     catalogSearch(
         query: string,
         types: CatalogSearchType[],
+        options: MusicKitOptions,
     ): Promise<SearchResult>;
     getUserPlaylists(options: MusicKitOptions): Promise<LibraryResult>;
-    getLibrarySongs(options: MusicKitOptions): Promise<LibraryResult>;
+    getLibrarySongs(options: LibrarySongOptions): Promise<LibraryResult>;
     getPlaylistSongs(
         playlistId: string,
         options: MusicKitOptions,
@@ -117,10 +147,26 @@ function requireNative(): LibraryNativeModule {
     return native;
 }
 
-function normalizeOptions(options?: MusicKitOptions): Required<MusicKitOptions> {
+function normalizeOptions(
+    options?: MusicKitOptions,
+): Required<MusicKitOptions> {
     const limit = Math.min(100, Math.max(1, Math.trunc(options?.limit ?? 50)));
     const offset = Math.max(0, Math.trunc(options?.offset ?? 0));
     return { limit, offset };
+}
+
+function normalizeCatalogSearchOptions(
+    options?: MusicKitOptions,
+): Required<MusicKitOptions> {
+    const { limit, offset } = normalizeOptions(options);
+    return { limit: Math.min(25, limit), offset };
+}
+
+function normalizeLibrarySongOptions(
+    options?: LibrarySongOptions,
+): LibrarySongOptions {
+    const normalized = normalizeOptions(options);
+    return options?.sort ? { ...normalized, sort: options.sort } : normalized;
 }
 
 function requireIdentifier(value: string, label: string): string {

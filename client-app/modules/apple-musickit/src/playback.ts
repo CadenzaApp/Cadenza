@@ -282,13 +282,19 @@ const playbackImplementation: PlaybackImplementationApi = {
         const isSameTrack =
             previousTrack &&
             nativeTrack &&
-            (!nativeTrack.id || nativeTrack.id === previousTrack.id);
+            musicItemsReferToSameResource(previousTrack, nativeTrack);
         const currentTrack = !nativeTrack
             ? previousTrack
             : isSameTrack
               ? {
                     ...previousTrack,
                     ...nativeTrack,
+                    id: previousTrack.id,
+                    source: previousTrack.source,
+                    libraryId: previousTrack.libraryId ?? nativeTrack.libraryId,
+                    catalogId: previousTrack.catalogId ?? nativeTrack.catalogId,
+                    playbackId:
+                        previousTrack.playbackId ?? nativeTrack.playbackId,
                     artworkUrl:
                         previousTrack.artworkUrl || nativeTrack.artworkUrl,
                     artworkUrlLarge:
@@ -439,7 +445,9 @@ const playbackImplementation: PlaybackImplementationApi = {
         type: PlaybackQueueType,
     ): Promise<void> => {
         const nativeModule = requirePlaybackNative();
-        requirePlaybackIdentifier(track.id);
+        const playbackId = requirePlaybackIdentifier(
+            track.playbackId ?? track.id,
+        );
 
         const expectation = playbackImplementation.beginExpectedTrack(track);
         playbackImplementation.updatePlaybackSnapshot({
@@ -449,7 +457,7 @@ const playbackImplementation: PlaybackImplementationApi = {
 
         try {
             await playbackImplementation.enqueuePlaybackCommand(async () => {
-                await nativeModule.setPlaybackQueue(track.id, type);
+                await nativeModule.setPlaybackQueue(playbackId, type);
                 await nativeModule.play();
             });
             await playbackImplementation.reconcilePlaybackSnapshot(
@@ -604,8 +612,16 @@ function requirePlaybackNative(): PlaybackNativeModule {
     return native;
 }
 
+function musicItemsReferToSameResource(left: MusicItem, right: MusicItem) {
+    const ids = [left.id, left.playbackId, left.catalogId, left.libraryId];
+    return [right.id, right.playbackId, right.catalogId, right.libraryId].some(
+        (id) => id != null && ids.includes(id),
+    );
+}
+
 function requirePlaybackIdentifier(id: string): string {
     const normalized = id.trim();
-    if (!normalized) throw new Error("Apple Music playback ID cannot be empty.");
+    if (!normalized)
+        throw new Error("Apple Music playback ID cannot be empty.");
     return normalized;
 }

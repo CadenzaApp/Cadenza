@@ -58,7 +58,9 @@ export function MediaPlayer({
     } = usePlayback();
     const { tagsWithMeta = [] } = useTags();
     const tags = tagsWithMeta.map(({ tag }) => tag);
-    const { tagsOnSong } = useTagsOnSong(activeTrack?.id);
+    const { tagsOnSong } = useTagsOnSong(
+        activeTrack?.catalogId ?? activeTrack?.id,
+    );
     const appliedTags = [
         ...(tagsOnSong?.global ?? []),
         ...(tagsOnSong?.local ?? []),
@@ -214,7 +216,7 @@ export function MediaPlayer({
     }
 
     async function toggleTag(tagId: number) {
-        const songId = activeTrack?.id;
+        const songId = activeTrack?.catalogId ?? activeTrack?.id;
         const tag = tags.find((candidate) => candidate.id === tagId);
         if (!songId || !tag) return;
 

@@ -1,75 +1,71 @@
 import { useState } from "react";
-import { View, Alert } from "react-native";
-import { MusicItem as AppleMusicItem } from "@apple-musickit";
+import { Alert, Platform, View } from "react-native";
+import { type MusicItem as AppleMusicItem } from "@apple-musickit";
 import Ionicons from "@expo/vector-icons/Ionicons";
 
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { MusicList } from "@/components/custom/music-list";
+import {
+    MusicList,
+    MUSIC_LIST_SORT_OPTIONS,
+    type MusicListSort,
+} from "@/components/custom/music-list";
 import { SongDetailModal } from "@/components/custom/song-detail-modal";
 import { usePlayback } from "@/lib/playback";
 import { useAppleMusic } from "@/lib/apple-music-auth";
-import { useCatalogSearch, useTracksFromLibrary } from "@/lib/musickit-hooks";
+import { getErrorDetails, getErrorMessage } from "@/lib/error-utils";
+import {
+    useCatalogSongSearch,
+    useTracksFromLibrary,
+} from "@/lib/musickit-hooks";
 
-function getErrorDetails(error: unknown) {
-    if (error instanceof Error) {
-        return {
-            message: error.message,
-            name: error.name,
-            code: (error as any).code,
-            nativeStackIOS: (error as any).nativeStackIOS,
-            cause: (error as any).cause,
-        };
-    }
-
-    if (typeof error === "object" && error !== null) {
-        return error;
-    }
-
-    return { message: String(error) };
-}
-
-function getErrorMessage(error: unknown) {
-    const details = getErrorDetails(error);
-
-    if (
-        typeof details === "object" &&
-        details !== null &&
-        "message" in details
-    ) {
-        return String(details.message);
-    }
-
-    return "Unknown error";
-}
+const DEFAULT_LIBRARY_SORT: MusicListSort = {
+    option: Platform.OS === "ios" ? "dateAdded" : "title",
+    direction: Platform.OS === "ios" ? "descending" : "ascending",
+};
+const LIBRARY_SORT_OPTIONS =
+    Platform.OS === "ios" ? MUSIC_LIST_SORT_OPTIONS : ([] as const);
 
 export default function ExploreScreen() {
-    // Tab State
     const [activeTab, setActiveTab] = useState("library");
-
-    // Library State
-    const { tracks, tracksLoading, tracksErr } = useTracksFromLibrary();
-
+    const [librarySort, setLibrarySort] =
+        useState<MusicListSort>(DEFAULT_LIBRARY_SORT);
     const [searchQuery, setSearchQuery] = useState("");
-    const {
-        searchResults,
-        searchCatalog,
-        searchCatalogLoading,
-        searchCatalogErr,
-    } = useCatalogSearch();
-
-    // Modal State
     const [selectedSong, setSelectedSong] = useState<AppleMusicItem | null>(
         null,
     );
 
     const { isInitializing, isConnected, ensureConnected } = useAppleMusic();
     const { activeTrackId, isPlaying, togglePlayback } = usePlayback();
+    const nativeLibrarySort = Platform.OS === "ios" ? librarySort : undefined;
+    const {
+        tracks,
+        tracksLoading,
+        tracksLoadingNextPage,
+        loadNextLibraryPage,
+        hasNextLibraryPage,
+        tracksErr,
+    } = useTracksFromLibrary({
+        enabled: isConnected,
+        sort: nativeLibrarySort,
+    });
+    const {
+        searchResults,
+        searchCatalog,
+        clearSearchCatalog,
+        loadNextSearchPage,
+        hasNextSearchPage,
+        searchCatalogLoading,
+        isLoadingNextSearchPage,
+        searchCatalogErr,
+    } = useCatalogSongSearch(isConnected);
 
     async function handleSearch() {
-        if (!searchQuery.trim()) {
+        const query = searchQuery.trim();
+        if (!query) {
+            clearSearchCatalog();
             return;
         }
 
@@ -82,7 +78,7 @@ export default function ExploreScreen() {
         }
 
         await ensureConnected();
-        await searchCatalog({ query: searchQuery, types: ["songs"] });
+        searchCatalog(query);
     }
 
     async function handleTogglePlayback(track: AppleMusicItem) {
@@ -97,11 +93,11 @@ export default function ExploreScreen() {
         try {
             await ensureConnected();
             await togglePlayback(track);
-        } catch (e) {
-            console.error("Failed to toggle playback:", getErrorDetails(e));
+        } catch (error) {
+            console.error("Failed to toggle playback:", getErrorDetails(error));
             Alert.alert(
                 "Playback Error",
-                `Failed to update playback state. ${getErrorMessage(e)}`,
+                `Failed to update playback state. ${getErrorMessage(error)}`,
             );
         }
     }
@@ -124,31 +120,34 @@ export default function ExploreScreen() {
                     </TabsList>
                 </View>
 
-                {/* --- LIBRARY TAB --- */}
                 <TabsContent value="library" className="flex-1">
-                    {tracksLoading && (
-                        <Text className="text-sm text-muted-foreground text-center my-2 px-6">
-                            Loading...
-                        </Text>
-                    )}
-
                     {tracksErr && (
                         <Text className="text-destructive text-center my-2 px-6">
-                            {JSON.stringify(tracksErr)}
+                            {getErrorMessage(tracksErr)}
                         </Text>
                     )}
 
                     <MusicList
-                        tracks={tracks?.items ?? []}
+                        tracks={tracks}
                         isLoading={tracksLoading}
                         activeTrackId={activeTrackId}
                         isPlaying={isPlaying}
                         onTogglePlayback={handleTogglePlayback}
                         onSelectTrack={setSelectedSong}
+                        pagination={{
+                            hasNextPage: hasNextLibraryPage,
+                            isLoadingNextPage: tracksLoadingNextPage,
+                            onLoadNextPage: loadNextLibraryPage,
+                        }}
+                        sorting={{
+                            options: LIBRARY_SORT_OPTIONS,
+                            value: librarySort,
+                            strategy: "remote",
+                            onChange: setLibrarySort,
+                        }}
                     />
                 </TabsContent>
 
-                {/* --- SEARCH TAB --- */}
                 <TabsContent value="search" className="flex-1">
                     <View className="px-6 mb-4 flex-row gap-2">
                         <Input
@@ -156,17 +155,18 @@ export default function ExploreScreen() {
                             placeholder="Search Apple Music..."
                             value={searchQuery}
                             onChangeText={setSearchQuery}
-                            onSubmitEditing={handleSearch}
+                            onSubmitEditing={() => void handleSearch()}
                             returnKeyType="search"
                             editable={!searchCatalogLoading}
                         />
                         <Button
                             size="icon"
                             className="rounded-full"
-                            onPress={handleSearch}
+                            onPress={() => void handleSearch()}
                             disabled={
                                 isInitializing ||
                                 searchCatalogLoading ||
+                                isLoadingNextSearchPage ||
                                 !isConnected
                             }
                         >
@@ -182,17 +182,22 @@ export default function ExploreScreen() {
 
                     {searchCatalogErr && (
                         <Text className="text-destructive text-center my-2 px-6">
-                            {JSON.stringify(searchCatalogErr)}
+                            {getErrorMessage(searchCatalogErr)}
                         </Text>
                     )}
 
                     <MusicList
-                        tracks={searchResults?.songs ?? []}
+                        tracks={searchResults}
                         isLoading={searchCatalogLoading}
                         activeTrackId={activeTrackId}
                         isPlaying={isPlaying}
                         onTogglePlayback={handleTogglePlayback}
                         onSelectTrack={setSelectedSong}
+                        pagination={{
+                            hasNextPage: hasNextSearchPage,
+                            isLoadingNextPage: isLoadingNextSearchPage,
+                            onLoadNextPage: loadNextSearchPage,
+                        }}
                     />
                 </TabsContent>
             </Tabs>
