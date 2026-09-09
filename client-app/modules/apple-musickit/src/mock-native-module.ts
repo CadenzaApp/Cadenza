@@ -10,6 +10,7 @@
 import type { AppleMusicKitNativeModule } from "./index";
 import {
     LibraryResult,
+    LibrarySongOptions,
     MusicItem,
     MusicKitOptions,
     SearchResult,
@@ -33,10 +34,13 @@ function normalizeMockItems(
         resourceKind,
         source,
         playbackType: item.playbackType ?? playbackType,
-        catalogId: source === "catalog" ? item.catalogId ?? item.id : item.catalogId,
-        libraryId: source === "library" ? item.libraryId ?? item.id : item.libraryId,
+        catalogId:
+            source === "catalog" ? (item.catalogId ?? item.id) : item.catalogId,
+        libraryId:
+            source === "library" ? (item.libraryId ?? item.id) : item.libraryId,
         artworkUrlLarge:
-            item.artworkUrlLarge ?? item.artworkUrl?.replace("/200/200", "/1200/1200"),
+            item.artworkUrlLarge ??
+            item.artworkUrl?.replace("/200/200", "/1200/1200"),
         shareUrl:
             item.shareUrl ??
             (source === "catalog"
@@ -332,7 +336,10 @@ export const MOCK_LIBRARY_SONGS = normalizeMockItems(
     "song",
     "library",
     PlaybackQueueType.LibrarySong,
-);
+).map((song, index) => ({
+    ...song,
+    libraryAddedDate: Date.UTC(2024, 0, index + 1),
+}));
 
 /** catalogSearch only fills id/title/artistName/artworkUrl for albums. */
 const RAW_MOCK_ALBUMS: MockItemInput[] = [
@@ -470,19 +477,42 @@ function matchesQuery(item: MusicItem, query: string) {
 function paginatedResult(
     items: MusicItem[],
     options: MusicKitOptions = {},
-    path: string,
 ): LibraryResult {
-    const limit = Math.min(100, Math.max(1, Math.trunc(options.limit ?? DEFAULT_LIBRARY_LIMIT)));
+    const limit = Math.min(
+        100,
+        Math.max(1, Math.trunc(options.limit ?? DEFAULT_LIBRARY_LIMIT)),
+    );
     const offset = Math.max(0, Math.trunc(options.offset ?? 0));
     const pageItems = items.slice(offset, offset + limit);
     const nextOffset = offset + pageItems.length;
     return {
         items: pageItems,
-        next:
-            nextOffset < items.length
-                ? `${path}?limit=${limit}&offset=${nextOffset}`
-                : undefined,
+        hasNextPage: nextOffset < items.length,
+        nextOffset: nextOffset < items.length ? nextOffset : undefined,
     };
+}
+
+function sortedLibrarySongs(options?: LibrarySongOptions) {
+    const sort = options?.sort;
+    if (!sort) return MOCK_LIBRARY_SONGS;
+    const direction = sort.direction === "ascending" ? 1 : -1;
+    return [...MOCK_LIBRARY_SONGS].sort((left, right) => {
+        if (sort.option === "dateAdded") {
+            return (
+                ((left.libraryAddedDate ?? 0) - (right.libraryAddedDate ?? 0)) *
+                direction
+            );
+        }
+
+        const field = {
+            title: "title",
+            artist: "artistName",
+            album: "albumName",
+        }[sort.option] as "title" | "artistName" | "albumName";
+        return (
+            (left[field] ?? "").localeCompare(right[field] ?? "") * direction
+        );
+    });
 }
 
 /** Mirrors setPlaybackQueue on the native side, down to its rejection of unknown types. */
@@ -602,46 +632,47 @@ export function createMockNativeModule(): AppleMusicKitNativeModule {
                     .filter((song) => song !== undefined),
             ),
 
-        catalogSearch: (query: string, types: string[]) => {
+        catalogSearch: (
+            query: string,
+            types: string[],
+            options: MusicKitOptions = {},
+        ) => {
             const term = query.trim().toLowerCase();
+            const limit = Math.min(
+                SEARCH_LIMIT,
+                Math.max(1, Math.trunc(options.limit ?? SEARCH_LIMIT)),
+            );
+            const offset = Math.max(0, Math.trunc(options.offset ?? 0));
+            const songs = types.includes("songs")
+                ? MOCK_CATALOG_SONGS.filter((song) => matchesQuery(song, term))
+                : [];
+            const albums = types.includes("albums")
+                ? MOCK_ALBUMS.filter((album) => matchesQuery(album, term))
+                : [];
+            const pageSongs = songs.slice(offset, offset + limit);
             return respond<SearchResult>({
-                songs: types.includes("songs")
-                    ? MOCK_CATALOG_SONGS.filter((song) =>
-                          matchesQuery(song, term),
-                      ).slice(0, SEARCH_LIMIT)
-                    : [],
-                albums: types.includes("albums")
-                    ? MOCK_ALBUMS.filter((album) =>
-                          matchesQuery(album, term),
-                      ).slice(0, SEARCH_LIMIT)
-                    : [],
+                songs: pageSongs,
+                albums: albums.slice(offset, offset + limit),
+                hasNextSongs: offset + limit < songs.length,
+                hasNextAlbums: offset + limit < albums.length,
+                nextSongsOffset:
+                    offset + pageSongs.length < songs.length
+                        ? offset + pageSongs.length
+                        : undefined,
             });
         },
 
         getUserPlaylists: (options?: MusicKitOptions) =>
-            respond(
-                paginatedResult(
-                    MOCK_PLAYLISTS,
-                    options,
-                    "/v1/me/library/playlists",
-                ),
-            ),
+            respond(paginatedResult(MOCK_PLAYLISTS, options)),
 
-        getLibrarySongs: (options?: MusicKitOptions) =>
-            respond(
-                paginatedResult(
-                    MOCK_LIBRARY_SONGS,
-                    options,
-                    "/v1/me/library/songs",
-                ),
-            ),
+        getLibrarySongs: (options?: LibrarySongOptions) =>
+            respond(paginatedResult(sortedLibrarySongs(options), options)),
 
         getPlaylistSongs: (playlistId: string, options?: MusicKitOptions) =>
             respond(
                 paginatedResult(
                     MOCK_PLAYLIST_TRACKS[playlistId] ?? [],
                     options,
-                    `/v1/me/library/playlists/${encodeURIComponent(playlistId)}/tracks`,
                 ),
             ),
 

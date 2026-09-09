@@ -404,17 +404,25 @@ class AppleMusicKitModule : Module() {
             return@AsyncFunction mapOf("isFavorite" to isFavorite)
         }
 
-        AsyncFunction("catalogSearch") { query: String, types: List<String> ->
+        AsyncFunction("catalogSearch") { query: String, types: List<String>, options: Map<String, Int> ->
             val encodedQuery = encode(query)
             val typesStr = types.joinToString(",")
-            val response = makeApiRequest("/v1/catalog/${currentStorefrontId()}/search?term=$encodedQuery&types=$typesStr&limit=20")
+            val response = makeApiRequest(
+                "/v1/catalog/${currentStorefrontId()}/search?term=$encodedQuery&types=$typesStr&${pageQuery(options)}"
+            )
             val resultsObj = response["results"] as? Map<*, *>
             val songsObj = resultsObj?.get("songs") as? Map<*, *>
             val albumsObj = resultsObj?.get("albums") as? Map<*, *>
-            return@AsyncFunction mapOf(
+            val result = mutableMapOf<String, Any>(
                 "songs" to objectList(songsObj?.get("data")).map { formatMediaItem(it) },
-                "albums" to objectList(albumsObj?.get("data")).map { formatMediaItem(it) }
+                "albums" to objectList(albumsObj?.get("data")).map { formatMediaItem(it) },
+                "hasNextSongs" to !songsObj?.get("next")?.toString().isNullOrBlank(),
+                "hasNextAlbums" to !albumsObj?.get("next")?.toString().isNullOrBlank()
             )
+            nextOffset(songsObj?.get("next")?.toString())?.let {
+                result["nextSongsOffset"] = it
+            }
+            return@AsyncFunction result
         }
 
         AsyncFunction("getUserPlaylists") { options: Map<String, Int> ->
@@ -422,9 +430,13 @@ class AppleMusicKitModule : Module() {
                 makeApiRequest("/v1/me/library/playlists?${pageQuery(options)}")
             )
         }
-        AsyncFunction("getLibrarySongs") { options: Map<String, Int> ->
+        AsyncFunction("getLibrarySongs") { options: Map<String, Any?> ->
+            val pageOptions = mapOf(
+                "limit" to ((options["limit"] as? Number)?.toInt() ?: 50),
+                "offset" to ((options["offset"] as? Number)?.toInt() ?: 0)
+            )
             return@AsyncFunction collectionResult(
-                makeApiRequest("/v1/me/library/songs?${pageQuery(options)}&include=albums")
+                makeApiRequest("/v1/me/library/songs?${pageQuery(pageOptions)}&include=albums")
             )
         }
         AsyncFunction("getPlaylistSongs") { playlistId: String, options: Map<String, Int> ->
@@ -477,11 +489,21 @@ class AppleMusicKitModule : Module() {
 
     private fun collectionResult(response: Map<String, Any>): Map<String, Any> {
         val data = objectList(response["data"])
-        val result = mutableMapOf<String, Any>("items" to data.map { formatMediaItem(it) })
-        response["next"]?.toString()?.takeIf { it.isNotBlank() }?.let {
-            result["next"] = it
-        }
+        val result = mutableMapOf<String, Any>(
+            "items" to data.map { formatMediaItem(it) },
+            "hasNextPage" to !response["next"]?.toString().isNullOrBlank()
+        )
+        nextOffset(response["next"]?.toString())?.let { result["nextOffset"] = it }
         return result
+    }
+
+    private fun nextOffset(next: String?): Int? {
+        if (next == null) return null
+        return next.substringAfter('?', "")
+            .split("&")
+            .firstOrNull { it.startsWith("offset=") }
+            ?.substringAfter("offset=")
+            ?.toIntOrNull()
     }
 
     private fun encode(value: String): String = URLEncoder.encode(value, "UTF-8")

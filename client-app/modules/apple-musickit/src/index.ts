@@ -4,6 +4,7 @@ import type {
     AuthResult,
     CatalogSearchType,
     LibraryResult,
+    LibrarySongOptions,
     MusicItem,
     MusicKitOptions,
     PlaybackSnapshot,
@@ -34,9 +35,10 @@ export interface AppleMusicKitNativeModule {
     catalogSearch(
         query: string,
         types: CatalogSearchType[],
+        options?: MusicKitOptions,
     ): Promise<SearchResult>;
     getUserPlaylists(options?: MusicKitOptions): Promise<LibraryResult>;
-    getLibrarySongs(options?: MusicKitOptions): Promise<LibraryResult>;
+    getLibrarySongs(options?: LibrarySongOptions): Promise<LibraryResult>;
     getPlaylistSongs(
         playlistId: string,
         options?: MusicKitOptions,

@@ -27,6 +27,7 @@ Every route below requires `Authorization: Bearer <supabase jwt>`.
 | DELETE | `/tags` | `{tag_id}` | empty. Silently no-ops if the tag is not yours |
 | GET | `/tags/suggest` | `?song_desc=...&requested_tag_count=N` | `["vocaloid", "japanese", ...]` |
 | GET | `/songs/tags` | `?song_id=...` | `[Tag]`, the user's tags on that song |
+| POST | `/songs/tags/batch` | `{song_ids: [...]}` | `{song_id: [Tag]}`, an entry per requested song |
 | POST | `/songs/tags` | `{song_id, tag_id}` | empty |
 | DELETE | `/songs/tags` | `{song_id, tag_id}` | empty |
 | GET | `/queries/results` | `?q=<query json>` | `["songid", ...]`, most relevant first |
@@ -75,6 +76,9 @@ api as JSON should have a type here rather than serializing an entity model dire
   on a DELETE.
 - `GET /songs/tags` returns only the user's own tags now. Default tags (`user_id IS NULL`) are
   not included, and nothing reads the `default_tags_applied` table yet.
+- `POST /songs/tags/batch` is a read, not a write. It is a POST only because the id list does
+  not belong in a query string. It caps out at 200 ids and answers `QueryFormatError` past that;
+  the client chunks at 25. Songs with no tags come back as an empty list, never missing.
 - `POST /songs/tags` inserts without checking first, so re-applying a tag relies on the unique
   violation mapping in `err.rs`. That mapping keys off the table name `applied_tags`, but the
   entity declares `user_tags_applied`, so it falls through to a generic `DatabaseError` instead

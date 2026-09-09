@@ -1,7 +1,10 @@
+import { useEffect } from "react";
 import useSWR, { mutate } from "swr";
+import useSWRInfinite from "swr/infinite";
 import useSWRMutation from "swr/mutation";
 import { useAccount } from "./account";
 import { BACKEND_URL } from "./backend";
+import { matchesEndpoint, type APIDataEndpoint } from "./api-endpoints";
 
 function queryParamsToStr(params?: Record<string, any>) {
     return !params || Object.keys(params).length === 0
@@ -15,11 +18,6 @@ async function responseData(response: Response) {
     return text ? JSON.parse(text) : {};
 }
 
-type APIDataEndpoint = {
-    path: string;
-    params?: Record<string, any>;
-};
-
 /** When triggered, invalidates `useAPIData`s using the given endpoints */
 export function useAPIMutation<RequestBody, Response>(
     method: string,
@@ -31,7 +29,7 @@ export function useAPIMutation<RequestBody, Response>(
     const { account } = useAccount();
 
     return useSWRMutation(
-        path, // need to put a key here, so just put any random value
+        [method, path, account?.id],
         async (_: any, { arg: body }: { arg: RequestBody }) => {
             const resp = await fetch(BACKEND_URL + path, {
                 method,
@@ -51,26 +49,11 @@ export function useAPIMutation<RequestBody, Response>(
                 ? invalidatedEndpoints
                 : invalidatedEndpoints(body);
 
-            mutate((key: any) => {
-                if (key.keyType !== "api-data") return false;
-                const endpoint = key as APIDataEndpoint;
-
-                for (const invalidEndpoint of endpointsToInvalidate) {
-                    if (endpoint.path !== invalidEndpoint.path) continue;
-
-                    const queryParams = endpoint.params ?? {};
-                    const invalidParams = invalidEndpoint.params ?? {};
-
-                    // invalidate if invalidParams is subset of queryParams
-                    const isInvalid = Object.keys(invalidParams).every(
-                        (field) => invalidParams[field] === queryParams[field],
-                    );
-
-                    if (isInvalid) return true;
-                }
-
-                return false;
-            });
+            mutate((key: unknown) =>
+                endpointsToInvalidate.some((endpoint) =>
+                    matchesEndpoint(key, endpoint),
+                ),
+            );
 
             return data as Response;
         },
@@ -82,25 +65,81 @@ export function useAPIData<Output>(path: string, params?: Record<string, any>) {
 
     // disable this query if any param value is null/undefined
     const enabled =
-        !params || !Object.values(params).some((val) => val == null);
+        Boolean(account) &&
+        (!params || !Object.values(params).some((val) => val == null));
 
-    return useSWR(enabled ? { keyType: "api-data", path, params } : null, async () => {
-        const resp = await fetch(
-            BACKEND_URL + path + queryParamsToStr(params),
-            {
+    return useSWR(
+        enabled
+            ? { keyType: "api-data", path, params, accountId: account?.id }
+            : null,
+        async () => {
+            const resp = await fetch(
+                BACKEND_URL + path + queryParamsToStr(params),
+                {
+                    headers: {
+                        Authorization: `Bearer ${account?.jwt}`,
+                    },
+                },
+            );
+            const json = await responseData(resp);
+
+            if (!resp.ok) {
+                throw json;
+            }
+
+            return json as Output;
+        },
+    );
+}
+
+/**
+ * Cached idempotent POST reads split into stable pages. One page per body, so
+ * a caller batches its request payload and gets a page of results back per batch.
+ */
+export function useAPIPostDataPages<Input, Output>(
+    path: string,
+    bodies: readonly Input[],
+) {
+    const { account } = useAccount();
+    const pages = useSWRInfinite<Output>(
+        (pageIndex) => {
+            const body = bodies[pageIndex];
+            return body === undefined || !account
+                ? null
+                : {
+                      keyType: "api-data",
+                      path,
+                      body,
+                      accountId: account.id,
+                  };
+        },
+        async ({ body }: { body: Input }) => {
+            const resp = await fetch(BACKEND_URL + path, {
+                method: "POST",
                 headers: {
+                    "Content-Type": "application/json",
                     Authorization: `Bearer ${account?.jwt}`,
                 },
-            },
-        );
-        const json = await responseData(resp);
+                body: JSON.stringify(body),
+            });
+            const json = await responseData(resp);
 
-        if (!resp.ok) {
-            throw json;
+            if (!resp.ok) {
+                throw json;
+            }
+
+            return json as Output;
+        },
+    );
+    const { setSize, size } = pages;
+
+    useEffect(() => {
+        if (bodies.length > 0 && size !== bodies.length) {
+            void setSize(bodies.length);
         }
+    }, [bodies.length, setSize, size]);
 
-        return json as Output;
-    });
+    return pages;
 }
 
 /** GET/POST requests that only run upon triggered */
@@ -131,3 +170,5 @@ export function useAPIFetch<Input extends Record<string, any>, Output>(
         },
     );
 }
+
+export { matchesEndpoint, type APIDataEndpoint };

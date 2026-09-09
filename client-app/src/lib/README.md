@@ -9,10 +9,11 @@ native module directly.
 | file | role |
 | --- | --- |
 | `backend.ts` | `BACKEND_URL`. One constant, currently hardcoded. |
-| `api-actions.ts` | The three generic SWR wrappers: `useAPIData`, `useAPIFetch`, `useAPIMutation`. |
+| `api-actions.ts` | The generic SWR wrappers: `useAPIData`, `useAPIPostDataPages`, `useAPIFetch`, `useAPIMutation`. |
+| `api-endpoints.ts` | `matchesEndpoint`, the cache-key matcher behind invalidation. Import-free so it can be unit tested. |
 | `swr-utils.ts` | `clearCache` and `useSimpleMutation`, for things that are not plain backend calls. |
 | `routes/tags.ts` | Hooks for `/tags`: `useUserTags`, `useTag`, `useCreateTag`, `useDeleteTag`, `useSuggestTags`. |
-| `routes/songs.ts` | Hooks for `/songs/tags`: `useTagsOnSong`, `useApplyTag`, `useUnapplyTag`. |
+| `routes/songs.ts` | Hooks for `/songs/tags`: `useTagsOnSong`, `useTagsOnSongs`, `useApplyTag`, `useUnapplyTag`. |
 | `routes/queries.ts` | Hook for `/queries/results`: `useQueryResults`. |
 | `musickit-hooks.ts` | SWR over the native module: song info, catalog search, library, playlists, favorites. |
 | `account.tsx` | `AccountProvider` / `useAccount`. Supabase session and the JWT. |
@@ -21,25 +22,37 @@ native module directly.
 | `supabase.ts` | The Supabase client, backed by AsyncStorage. |
 | `tag-generation.ts` | A standalone tag suggestion fetch. Does not use the wrappers. See gotchas. |
 | `theme.ts` | `NAV_THEME`, light and dark palettes for react-navigation. |
+| `error-utils.ts` | `getErrorDetails` / `getErrorMessage`, for unwrapping native and backend errors. |
+| `screen-overlay.ts` | `useScreenOverlayInsets`. How much bottom padding a screen owes the compact player and the floating button. |
 | `types.ts` | Shared wire types: `Tag` and `TagMetadata`. |
 | `utils.ts` | `cn()`, the clsx + tailwind-merge helper. |
 
 ## The SWR wrappers
 
-Three, in `api-actions.ts`, and picking the right one is most of the work:
+Four, in `api-actions.ts`, and picking the right one is most of the work:
 
 | wrapper | for | key |
 | --- | --- | --- |
-| `useAPIData<Output>(path, params?)` | idempotent reads, fetch on mount | `{ keyType: "api-data", path, params }` |
+| `useAPIData<Output>(path, params?)` | idempotent reads, fetch on mount | `{ keyType: "api-data", path, params, accountId }` |
+| `useAPIPostDataPages<In, Out>(path, bodies)` | an idempotent read whose payload is a list, split one page per batch | `{ keyType: "api-data", path, body, accountId }` per page |
 | `useAPIFetch<In, Out>(path)` | a GET you only want on demand (search, suggestions) | `path` string |
-| `useAPIMutation<Body, Res>(method, path, invalidates?)` | user-triggered writes | `path` string |
+| `useAPIMutation<Body, Res>(method, path, invalidates?)` | user-triggered writes | `[method, path, accountId]` |
 
-All three pull the JWT from `useAccount()` and send `Authorization: Bearer <jwt>`. All three
-tolerate an empty response body, and all three throw the parsed error body on a non-2xx, so a
+All four pull the JWT from `useAccount()` and send `Authorization: Bearer <jwt>`. All four
+tolerate an empty response body, and all four throw the parsed error body on a non-2xx, so a
 caught error is the backend's `{ error_type, message }` object, not an `Error`.
 
-`useAPIData` disables itself (passes a `null` key) if **any** param value is null or undefined.
-That is how `useTag(undefined)` and `useTagsOnSong(undefined)` stay dormant until an id arrives.
+The `accountId` in every key means a cached read can never be served to a different user, on
+top of the `clearCache()` that already runs on every account change.
+
+`useAPIData` disables itself (passes a `null` key) if there is no account, or if **any** param
+value is null or undefined. That is how `useTag(undefined)` and `useTagsOnSong(undefined)` stay
+dormant until an id arrives.
+
+`useAPIPostDataPages` exists for reads whose request is a list too long for a query string. The
+caller chunks its ids into one body per page and the hook keeps `useSWRInfinite`'s size pinned
+to the number of batches, so each chunk is cached separately and a growing list only fetches the
+new tail. `useTagsOnSongs` is the one caller.
 
 Invalidation is the part to get right, and it is entirely manual. `useAPIMutation` takes a list
 of `{ path, params? }` endpoints, or a function from the request body to that list when the key
@@ -71,6 +84,7 @@ One file per backend router, and every backend endpoint has at least one hook.
 | | `DELETE /tags` | `tags.ts` -> `useDeleteTag()` |
 | | `GET /tags/suggest` | `tags.ts` -> `useSuggestTags()` |
 | `routes/songs.rs` | `GET /songs/tags` | `songs.ts` -> `useTagsOnSong(songId)` |
+| | `POST /songs/tags/batch` | `songs.ts` -> `useTagsOnSongs(songIds)` |
 | | `POST /songs/tags` | `songs.ts` -> `useApplyTag()` |
 | | `DELETE /songs/tags` | `songs.ts` -> `useUnapplyTag()` |
 | `routes/queries.rs` | `GET /queries/results` | `queries.ts` -> `useQueryResults()` |
@@ -120,8 +134,10 @@ in the codebase, with `rollbackOnError`.
   the Expo host, then a platform default) and posts to `POST /tag-generation`. The backend has no
   such route; the real one is `GET /tags/suggest`, which `routes/tags.ts::useSuggestTags` already
   wraps correctly. Treat `tag-generation.ts` as dead or stale until proven otherwise.
-- `useAPIMutation` and `useAPIFetch` both use the bare `path` as their SWR key, so two hooks on
-  the same path share a mutation key.
+- `useAPIFetch` uses the bare `path` as its SWR key, so two `useAPIFetch` hooks on the same path
+  share a mutation key. `useAPIMutation` keys on `[method, path, accountId]`, so it does not.
+- Tags key on `catalogId ?? id`, not the library id, everywhere a song id crosses into the
+  backend. Library ids differ per user for the same song; catalog ids do not.
 - `api-actions.ts` reads `account?.jwt` at hook call time. A component rendered before the
   session is restored sends `Bearer undefined`.
 

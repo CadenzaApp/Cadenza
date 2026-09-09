@@ -45,7 +45,7 @@ function SongDetailModalContent({
         null,
     );
     const { tagsOnSong, tagsOnSongLoading, tagsOnSongErr } = useTagsOnSong(
-        song?.id,
+        song?.catalogId ?? song?.id,
     );
     const { userTags } = useUserTags();
     const addableTags =
@@ -273,7 +273,9 @@ function SongDetailModalContent({
                                                 height={12}
                                                 onRemove={() =>
                                                     unapplyTag({
-                                                        song_id: song.id,
+                                                        song_id:
+                                                            song.catalogId ??
+                                                            song.id,
                                                         tag_id: tag.id,
                                                     })
                                                 }
@@ -378,6 +380,7 @@ function SongDetailModalContent({
                                                         onPress={() =>
                                                             applyTag({
                                                                 song_id:
+                                                                    song.catalogId ??
                                                                     song.id,
                                                                 tag_id: tag.id,
                                                             })

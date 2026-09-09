@@ -57,7 +57,9 @@ export function MediaPlayer({
         canSkipToPrevious,
     } = usePlayback();
     const { userTags = [] } = useUserTags();
-    const { tagsOnSong = [] } = useTagsOnSong(activeTrack?.id);
+    const { tagsOnSong = [] } = useTagsOnSong(
+        activeTrack?.catalogId ?? activeTrack?.id,
+    );
     const { applyTag } = useApplyTag();
     const { unapplyTag } = useUnapplyTag();
     const { colors } = useTheme();
@@ -209,7 +211,7 @@ export function MediaPlayer({
     }
 
     async function toggleTag(tagId: number) {
-        const songId = activeTrack?.id;
+        const songId = activeTrack?.catalogId ?? activeTrack?.id;
         const tag = userTags.find((candidate) => candidate.id === tagId);
         if (!songId || !tag) return;
 

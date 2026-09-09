@@ -57,6 +57,7 @@ export default function QueryResults({
                 <MusicList
                     tracks={songs}
                     isLoading={isLoading}
+                    pagination={null}
                     anticipatedTrackCount={anticipatedTrackCount}
                     activeTrackId={activeTrackId}
                     isPlaying={isPlaying}
