@@ -3,7 +3,7 @@ use crate::{
     auth::SupabaseClaims,
     db::{
         self,
-        tags::{get_user_tags_on_song, is_global_tag},
+        tags::{get_user_tags_on_song},
     },
     err::CadenzaError,
     routes::json::{tag::Tag, vec_into},
