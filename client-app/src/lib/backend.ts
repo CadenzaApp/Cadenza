@@ -1,2 +1,1 @@
-// export const BACKEND_URL = "http://10.0.2.2:3000"; // ip for host machine from emulator
-export const BACKEND_URL = "http://localhost:3000";
+export const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_API_URL!;

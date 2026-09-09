@@ -10,14 +10,12 @@ use axum::{Router, extract::FromRef};
 use axum_jwt_auth::Decoder;
 use dotenvy::dotenv;
 use sea_orm::{Database, DatabaseConnection};
-use std::net::SocketAddr;
 use std::env;
+use std::net::SocketAddr;
 
 use crate::{
     auth::{SupabaseClaims, new_jwt_decoder},
-    routes::{
-        queries::get_queries_router, songs::get_songs_router, tags::get_tags_router
-    },
+    routes::{queries::get_queries_router, songs::get_songs_router, tags::get_tags_router},
     services::tag_generation::{TagGenerationService, openai_tag_generator::OpenAiTagGenerator},
 };
 
@@ -60,7 +58,7 @@ async fn main() {
         .with_state(app_state);
 
     // show time baby
-    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
+    let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
     println!("Running on http://{}", addr);
 
     axum_server::bind(addr)
