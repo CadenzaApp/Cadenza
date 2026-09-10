@@ -2,6 +2,7 @@ import { Badge } from "@/components/ui/badge";
 import { Text } from "@/components/ui/text";
 import { Pressable, View } from "react-native";
 import type { Tag } from "../../lib/types";
+import { formatTagValue } from "../../lib/tag-values";
 
 // Helper to lighten hex colors
 function hexToRgba(hex: string, alpha: number) {
@@ -14,22 +15,26 @@ function hexToRgba(hex: string, alpha: number) {
 /**
  * A pill shaped badge that represents a tag
  *
- * @param tag       - The tag object (id, name, hex color).
+ * @param tag       - The tag object (id, name, hex color, type).
  * @param height    - Controls all sizing proportionally (font, dot, padding).
- * @param compact   - Renders a solid circular badge containing the tag initial.
+ * @param value     - If provided, renders the attribute tag's value after the
+ *                   name, formatted for the tag's type.
  * @param count     - If provided, renders a count badge on the right side.
  * @param onRemove  - If provided, renders an × button inside the pill.
  *                   Called when the user taps it and caller decides what to do.
+ * @param compact   - Renders a solid circular badge containing the tag initial.
  */
 export function TagPill({
     tag,
     height,
+    value,
     count,
     onRemove,
     compact = false,
 }: {
     tag: Tag;
     height: number;
+    value?: string | null;
     count?: number;
     onRemove?: () => void;
     compact?: boolean;
@@ -39,6 +44,7 @@ export function TagPill({
     const countFontSize = 0.9 * height;
     const countPaddingHorizontal = 0.9 * height;
     const countPaddingVertical = 0.1 * height;
+    const displayedValue = formatTagValue(tag.type, value);
 
     if (compact) {
         const diameter = 1.8 * height;
@@ -121,6 +127,22 @@ export function TagPill({
             >
                 {tag.name}
             </Text>
+            {/* Value of an attribute tag, when it has one */}
+            {displayedValue !== "" && (
+                <Text
+                    numberOfLines={1}
+                    style={{
+                        color: tag.color,
+                        fontSize,
+                        fontWeight: "400",
+                        lineHeight: fontSize * 1.4,
+                        opacity: 0.75,
+                        maxWidth: 14 * height,
+                    }}
+                >
+                    {displayedValue}
+                </Text>
+            )}
             {/* Count of songs for that tag */}
             {count !== undefined && (
                 <View
