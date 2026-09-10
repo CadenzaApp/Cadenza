@@ -2,6 +2,7 @@
 
 use sea_orm::entity::prelude::*;
 
+#[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "default_tags_applied")]
 pub struct Model {
@@ -9,24 +10,14 @@ pub struct Model {
     pub song_id: String,
     #[sea_orm(primary_key, auto_increment = false)]
     pub tag_id: i64,
-}
-
-#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
-pub enum Relation {
     #[sea_orm(
-        belongs_to = "super::tags::Entity",
-        from = "Column::TagId",
-        to = "super::tags::Column::TagId",
+        belongs_to,
+        from = "tag_id",
+        to = "tag_id",
         on_update = "NoAction",
         on_delete = "Cascade"
     )]
-    Tags,
-}
-
-impl Related<super::tags::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::Tags.def()
-    }
+    pub tags: BelongsTo<super::tags::Entity>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

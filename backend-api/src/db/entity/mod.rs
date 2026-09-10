@@ -3,5 +3,6 @@
 pub mod prelude;
 
 pub mod default_tags_applied;
+pub mod sea_orm_active_enums;
 pub mod tags;
 pub mod user_tags_applied;
