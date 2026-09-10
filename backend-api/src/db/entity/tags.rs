@@ -3,7 +3,6 @@
 use super::sea_orm_active_enums::TagType;
 use sea_orm::entity::prelude::*;
 
-#[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "tags")]
 pub struct Model {
@@ -15,10 +14,26 @@ pub struct Model {
     #[sea_orm(column_type = "Text")]
     pub color: String,
     pub r#type: TagType,
-    #[sea_orm(has_many)]
-    pub default_tags_applieds: HasMany<super::default_tags_applied::Entity>,
-    #[sea_orm(has_many)]
-    pub user_tags_applieds: HasMany<super::user_tags_applied::Entity>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {
+    #[sea_orm(has_many = "super::default_tags_applied::Entity")]
+    DefaultTagsApplied,
+    #[sea_orm(has_many = "super::user_tags_applied::Entity")]
+    UserTagsApplied,
+}
+
+impl Related<super::default_tags_applied::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::DefaultTagsApplied.def()
+    }
+}
+
+impl Related<super::user_tags_applied::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::UserTagsApplied.def()
+    }
 }
 
 impl ActiveModelBehavior for ActiveModel {}

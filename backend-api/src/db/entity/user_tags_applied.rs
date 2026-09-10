@@ -2,7 +2,6 @@
 
 use sea_orm::entity::prelude::*;
 
-#[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "user_tags_applied")]
 pub struct Model {
@@ -14,14 +13,24 @@ pub struct Model {
     pub tag_id: i64,
     #[sea_orm(column_type = "Text", nullable)]
     pub value: Option<String>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {
     #[sea_orm(
-        belongs_to,
-        from = "tag_id",
-        to = "tag_id",
+        belongs_to = "super::tags::Entity",
+        from = "Column::TagId",
+        to = "super::tags::Column::TagId",
         on_update = "NoAction",
         on_delete = "Cascade"
     )]
-    pub tags: BelongsTo<super::tags::Entity>,
+    Tags,
+}
+
+impl Related<super::tags::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Tags.def()
+    }
 }
 
 impl ActiveModelBehavior for ActiveModel {}

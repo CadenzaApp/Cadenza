@@ -1,8 +1,8 @@
 import { useAPIData, useAPIMutation } from "../api-actions";
-import { Tag } from "@/lib/types";
+import { AppliedTag } from "@/lib/types";
 
 export function useTagsOnSong(songId?: string) {
-    const x = useAPIData<Tag[]>("/songs/tags", {
+    const x = useAPIData<AppliedTag[]>("/songs/tags", {
         song_id: songId,
     });
 
@@ -16,6 +16,8 @@ export function useTagsOnSong(songId?: string) {
 type ApplyTagPayload = {
     song_id: string;
     tag_id: number;
+    /** Only meaningful for attribute tags; omit to apply without a value. */
+    value?: string | null;
 };
 export function useApplyTag() {
     const x = useAPIMutation<ApplyTagPayload, void>(
@@ -34,7 +36,33 @@ export function useApplyTag() {
     };
 }
 
-type UnapplyTagPayload = ApplyTagPayload;
+type SetTagValuePayload = {
+    song_id: string;
+    tag_id: number;
+    /** null clears the value while leaving the tag applied. */
+    value: string | null;
+};
+export function useSetTagValue() {
+    const x = useAPIMutation<SetTagValuePayload, void>(
+        "PATCH",
+        "/songs/tags",
+        ({ song_id }) => [
+            { path: "/songs/tags", params: { song_id } },
+            { path: "/tags" },
+        ],
+    );
+    return {
+        setTagValueErr: x.error,
+        setTagValueLoading: x.isMutating,
+        resetSetTagValue: x.reset,
+        setTagValue: x.trigger,
+    };
+}
+
+type UnapplyTagPayload = {
+    song_id: string;
+    tag_id: number;
+};
 export function useUnapplyTag() {
     const x = useAPIMutation<UnapplyTagPayload, void>(
         "DELETE",

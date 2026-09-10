@@ -13,6 +13,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Text } from "@/components/ui/text";
 import { useCreateTag } from "@/lib/routes/tags";
+import {
+    TAG_TYPES,
+    TAG_TYPE_DESCRIPTIONS,
+    TAG_TYPE_LABELS,
+} from "@/lib/tag-values";
+import { TagType } from "@/lib/types";
 
 const COLOR_BOX_SIZE = 44;
 const COLOR_OPTIONS: string[] = [
@@ -38,11 +44,13 @@ export function CreateTagDialog() {
     const [open, _setOpen] = useState(false);
     const [name, setName] = useState("");
     const [selectedColor, setSelectedColor] = useState(COLOR_OPTIONS[0]);
+    const [selectedType, setSelectedType] = useState<TagType>("basic");
 
     function resetForm() {
         resetCreateTag();
         setName("");
         setSelectedColor(COLOR_OPTIONS[0]);
+        setSelectedType("basic");
     }
 
     function setOpen(val: boolean) {
@@ -56,6 +64,7 @@ export function CreateTagDialog() {
         await createTag({
             name: name.trim(),
             color: selectedColor,
+            type: selectedType,
         });
         setOpen(false);
     }
@@ -86,6 +95,40 @@ export function CreateTagDialog() {
                         placeholder="e.g. Instrumental"
                         returnKeyType="done"
                     />
+                </View>
+
+                <View className="gap-1.5 mb-4">
+                    <Label>Type</Label>
+                    <View className="flex-row flex-wrap gap-2">
+                        {TAG_TYPES.map((type) => {
+                            const isSelected = type === selectedType;
+                            return (
+                                <Pressable
+                                    key={type}
+                                    onPress={() => setSelectedType(type)}
+                                    className={`rounded-md border px-3 py-2 ${
+                                        isSelected
+                                            ? "border-foreground bg-secondary"
+                                            : "border-border"
+                                    }`}
+                                >
+                                    <Text
+                                        className={`text-sm ${
+                                            isSelected
+                                                ? "text-foreground font-medium"
+                                                : "text-muted-foreground"
+                                        }`}
+                                    >
+                                        {TAG_TYPE_LABELS[type]}
+                                    </Text>
+                                </Pressable>
+                            );
+                        })}
+                    </View>
+                    <Text className="text-muted-foreground text-xs">
+                        {TAG_TYPE_DESCRIPTIONS[selectedType]}. A tag's type
+                        cannot be changed later.
+                    </Text>
                 </View>
 
                 <View className="gap-1.5 mb-4">

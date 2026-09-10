@@ -3,7 +3,7 @@
 use sea_orm::entity::prelude::*;
 
 #[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
-#[sea_orm(rs_type = "Enum", db_type = "Enum", enum_name = "tag_type")]
+#[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "tag_type")]
 pub enum TagType {
     #[sea_orm(string_value = "basic")]
     Basic,

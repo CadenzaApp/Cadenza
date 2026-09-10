@@ -5,10 +5,17 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
-import { Tag } from "@/lib/types";
+import { AppliedTag, Tag } from "@/lib/types";
 import { TagPill } from "@/components/custom/tag-pill";
-import { useApplyTag, useTagsOnSong, useUnapplyTag } from "@/lib/routes/songs";
+import { TagValueDialog } from "@/components/custom/tag-value-dialog";
+import {
+    useApplyTag,
+    useSetTagValue,
+    useTagsOnSong,
+    useUnapplyTag,
+} from "@/lib/routes/songs";
 import { useSuggestTags, useUserTags } from "@/lib/routes/tags";
+import { isAttributeTag } from "@/lib/tag-values";
 
 type SongDetailModalProps = {
     open: boolean;
@@ -58,6 +65,15 @@ function SongDetailModalContent({
 
     const { unapplyTag } = useUnapplyTag();
     const { applyTag } = useApplyTag();
+    const { setTagValue } = useSetTagValue();
+
+    // the attribute tag whose value is being asked for, if any
+    const [valuePrompt, setValuePrompt] = useState<{
+        tag: Tag;
+        mode: "apply" | "edit";
+        initialValue: string | null;
+    } | null>(null);
+
     let { suggestedTagNames, suggestTags, suggestTagsErr, suggestTagsLoading } =
         useSuggestTags();
     const suggestedTags: Tag[] | undefined = suggestedTagNames
@@ -65,6 +81,7 @@ function SongDetailModalContent({
             id: -i,
             name,
             color: "#7c3aed",
+            type: "basic" as const,
         }))
         // ignore suggested tags that are already on the song
         .filter((tag) => !tagsOnSong?.some((t) => t.name === tag.name));
@@ -74,6 +91,35 @@ function SongDetailModalContent({
         !artworkFailed &&
         typeof artworkUrl === "string" &&
         /^https?:\/\//i.test(artworkUrl);
+
+    /** Basic tags go straight on, attribute tags ask for a value first. */
+    function handleAddTag(tag: Tag) {
+        if (!song?.id) return;
+        if (isAttributeTag(tag.type)) {
+            setValuePrompt({ tag, mode: "apply", initialValue: null });
+            return;
+        }
+        applyTag({ song_id: song.id, tag_id: tag.id });
+    }
+
+    function handleEditTag(tag: AppliedTag) {
+        if (!isAttributeTag(tag.type)) return;
+        setValuePrompt({ tag, mode: "edit", initialValue: tag.value });
+    }
+
+    function handleValueSubmit(value: string | null) {
+        if (!song?.id || !valuePrompt) return;
+        const payload = {
+            song_id: song.id,
+            tag_id: valuePrompt.tag.id,
+            value,
+        };
+
+        if (valuePrompt.mode === "apply") applyTag(payload);
+        else setTagValue(payload);
+
+        setValuePrompt(null);
+    }
 
     function handleAddTagPress() {
         setActivePanel((prev) => (prev === "addTag" ? null : "addTag"));
@@ -267,17 +313,27 @@ function SongDetailModalContent({
                                 {tagsOnSong ? (
                                     <View className="flex-row flex-wrap gap-2">
                                         {tagsOnSong.map((tag) => (
-                                            <TagPill
+                                            <Pressable
                                                 key={tag.id}
-                                                tag={tag}
-                                                height={12}
-                                                onRemove={() =>
-                                                    unapplyTag({
-                                                        song_id: song.id,
-                                                        tag_id: tag.id,
-                                                    })
+                                                onPress={() =>
+                                                    handleEditTag(tag)
                                                 }
-                                            />
+                                                disabled={
+                                                    !isAttributeTag(tag.type)
+                                                }
+                                            >
+                                                <TagPill
+                                                    tag={tag}
+                                                    height={12}
+                                                    value={tag.value}
+                                                    onRemove={() =>
+                                                        unapplyTag({
+                                                            song_id: song.id,
+                                                            tag_id: tag.id,
+                                                        })
+                                                    }
+                                                />
+                                            </Pressable>
                                         ))}
                                     </View>
                                 ) : (
@@ -376,11 +432,7 @@ function SongDetailModalContent({
                                                     <Pressable
                                                         key={tag.id}
                                                         onPress={() =>
-                                                            applyTag({
-                                                                song_id:
-                                                                    song.id,
-                                                                tag_id: tag.id,
-                                                            })
+                                                            handleAddTag(tag)
                                                         }
                                                     >
                                                         <TagPill
@@ -397,6 +449,15 @@ function SongDetailModalContent({
                     )}
                 </Pressable>
             </Pressable>
+
+            <TagValueDialog
+                open={valuePrompt != null}
+                tag={valuePrompt?.tag ?? null}
+                initialValue={valuePrompt?.initialValue}
+                mode={valuePrompt?.mode ?? "apply"}
+                onSubmit={handleValueSubmit}
+                onClose={() => setValuePrompt(null)}
+            />
         </Modal>
     );
 }

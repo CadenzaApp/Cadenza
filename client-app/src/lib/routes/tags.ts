@@ -1,5 +1,5 @@
 import { useAPIData, useAPIFetch, useAPIMutation } from "../api-actions";
-import { Tag, TagMetadata } from "@/lib/types";
+import { Tag, TagMetadata, TagType } from "@/lib/types";
 
 type UserTagsResponse = {
     All: { tags: Tag[]; metadata: Record<number, TagMetadata> };
@@ -37,6 +37,7 @@ export function useTag(tagId?: number) {
 type NewTagPayload = {
     name: string;
     color: string;
+    type: TagType;
 };
 export function useCreateTag() {
     const x = useAPIMutation<NewTagPayload, number>("POST", "/tags", [

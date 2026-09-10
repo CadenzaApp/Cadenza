@@ -26,9 +26,17 @@ import { MediaPlayerCompact } from "./compact";
 import { MediaPlayerPlaybackDetails } from "./playback-details";
 import { MediaPlayerTagEditor } from "./tag-editor";
 import { MediaPlayerTransport } from "./transport-controls";
+import { TagValueDialog } from "@/components/custom/tag-value-dialog";
 import { usePlayback } from "@/lib/playback";
 import { useUserTags } from "@/lib/routes/tags";
-import { useApplyTag, useTagsOnSong, useUnapplyTag } from "@/lib/routes/songs";
+import {
+    useApplyTag,
+    useSetTagValue,
+    useTagsOnSong,
+    useUnapplyTag,
+} from "@/lib/routes/songs";
+import { isAttributeTag } from "@/lib/tag-values";
+import { Tag } from "@/lib/types";
 import { MusicKit } from "@apple-musickit";
 import { useSongFavoriteStatus } from "@/lib/musickit-hooks";
 
@@ -60,6 +68,7 @@ export function MediaPlayer({
     const { tagsOnSong = [] } = useTagsOnSong(activeTrack?.id);
     const { applyTag } = useApplyTag();
     const { unapplyTag } = useUnapplyTag();
+    const { setTagValue } = useSetTagValue();
     const { colors } = useTheme();
     const insets = useSafeAreaInsets();
     const { width, height } = useWindowDimensions();
@@ -80,10 +89,20 @@ export function MediaPlayer({
     );
     const animatedPlaybackProgress = useSharedValue(progress);
     const appliedTagIds = new Set(tagsOnSong.map((tag) => tag.id));
+    const appliedTagValues = new Map(
+        tagsOnSong.map((tag) => [tag.id, tag.value]),
+    );
     const songTags = userTags.map((tag) => ({
         ...tag,
         applied: appliedTagIds.has(tag.id),
+        value: appliedTagValues.get(tag.id) ?? null,
     }));
+    // the attribute tag whose value is being asked for, if any
+    const [valuePrompt, setValuePrompt] = useState<{
+        tag: Tag;
+        mode: "apply" | "edit";
+        initialValue: string | null;
+    } | null>(null);
     const {
         favoriteStatus,
         favoriteStatusLoading: isFavoriteStatusLoading,
@@ -208,16 +227,50 @@ export function MediaPlayer({
         );
     }
 
-    async function toggleTag(tagId: number) {
+    /** Basic tags toggle on and off, attribute tags open their value editor. */
+    async function selectTag(tagId: number) {
         const songId = activeTrack?.id;
         const tag = userTags.find((candidate) => candidate.id === tagId);
         if (!songId || !tag) return;
 
-        const isApplied = tagsOnSong.some(
-            (appliedTag) => appliedTag.id === tagId,
+        const appliedTag = tagsOnSong.find(
+            (candidate) => candidate.id === tagId,
         );
-        if (isApplied) await unapplyTag({ song_id: songId, tag_id: tag.id });
+
+        if (isAttributeTag(tag.type)) {
+            setValuePrompt({
+                tag,
+                mode: appliedTag ? "edit" : "apply",
+                initialValue: appliedTag?.value ?? null,
+            });
+            return;
+        }
+
+        if (appliedTag) await unapplyTag({ song_id: songId, tag_id: tag.id });
         else await applyTag({ song_id: songId, tag_id: tag.id });
+    }
+
+    async function handleValueSubmit(value: string | null) {
+        const songId = activeTrack?.id;
+        if (!songId || !valuePrompt) return;
+        const payload = {
+            song_id: songId,
+            tag_id: valuePrompt.tag.id,
+            value,
+        };
+
+        setValuePrompt(null);
+        if (valuePrompt.mode === "apply") await applyTag(payload);
+        else await setTagValue(payload);
+    }
+
+    async function handleValueRemove() {
+        const songId = activeTrack?.id;
+        if (!songId || !valuePrompt) return;
+
+        const tagId = valuePrompt.tag.id;
+        setValuePrompt(null);
+        await unapplyTag({ song_id: songId, tag_id: tagId });
     }
 
     const dismissExpandedPlayer = Gesture.Tap().onEnd(() => {
@@ -653,8 +706,8 @@ export function MediaPlayer({
                                         <MediaPlayerTagEditor
                                             width={detailsPagerWidth}
                                             tags={songTags}
-                                            onToggleTag={(tagId) =>
-                                                void toggleTag(tagId)
+                                            onSelectTag={(tagId) =>
+                                                void selectTag(tagId)
                                             }
                                         />
                                     </Animated.View>
@@ -678,6 +731,16 @@ export function MediaPlayer({
                         </View>
                     </Animated.View>
                 </GestureDetector>
+
+                <TagValueDialog
+                    open={valuePrompt != null}
+                    tag={valuePrompt?.tag ?? null}
+                    initialValue={valuePrompt?.initialValue}
+                    mode={valuePrompt?.mode ?? "apply"}
+                    onSubmit={(value) => void handleValueSubmit(value)}
+                    onRemove={() => void handleValueRemove()}
+                    onClose={() => setValuePrompt(null)}
+                />
             </Modal>
         </>
     );

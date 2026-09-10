@@ -10,8 +10,10 @@ use sea_orm::{
 };
 use serde::Serialize;
 
+use crate::db::entity::sea_orm_active_enums::TagType;
 use crate::db::entity::*;
 use crate::err::CadenzaError;
+use crate::services::tag_values::canonicalize_tag_value;
 
 pub async fn get_all_user_tags(
     db: &DatabaseConnection,
@@ -28,6 +30,20 @@ pub async fn get_tag(
     tag_id: i64,
 ) -> Result<Option<tags::Model>, CadenzaError> {
     Ok(tags::Entity::find_by_id(tag_id).one(db).await?)
+}
+
+/// Fetches a tag belonging to the given user. Applying a tag needs its type in
+/// order to validate the value, so this doubles as the ownership check.
+async fn get_owned_tag(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+    tag_id: i64,
+) -> Result<tags::Model, CadenzaError> {
+    tags::Entity::find_by_id(tag_id)
+        .filter(tags::Column::UserId.eq(user_id))
+        .one(db)
+        .await?
+        .ok_or(CadenzaError::NotFound)
 }
 
 #[derive(FromQueryResult)]
@@ -75,17 +91,24 @@ pub async fn get_user_tags_metadata(
     Ok(res)
 }
 
+/// Returns each tag on the song paired with the value it was applied with.
+/// The value is always `None` for basic tags.
 pub async fn get_user_tags_on_song(
     db: &DatabaseConnection,
     user_id: Uuid,
     song_id: &str,
-) -> Result<Vec<tags::Model>, CadenzaError> {
-    Ok(tags::Entity::find()
-        .inner_join(user_tags_applied::Entity)
+) -> Result<Vec<(tags::Model, Option<String>)>, CadenzaError> {
+    let tags_with_applications = tags::Entity::find()
+        .find_also_related(user_tags_applied::Entity)
         .filter(user_tags_applied::Column::SongId.eq(song_id))
         .filter(user_tags_applied::Column::UserId.eq(user_id))
         .all(db)
-        .await?)
+        .await?;
+
+    Ok(tags_with_applications
+        .into_iter()
+        .map(|(tag, applied)| (tag, applied.and_then(|applied| applied.value)))
+        .collect())
 }
 
 pub async fn get_songs_with_user_tag(
@@ -110,12 +133,14 @@ pub async fn new_user_tag(
     user_id: Uuid,
     name: String,
     color: String,
+    tag_type: TagType,
 ) -> Result<i64, CadenzaError> {
     let new_tag = tags::ActiveModel {
         tag_id: NotSet,
         user_id: Set(Some(user_id)),
         name: Set(name),
         color: Set(color),
+        r#type: Set(tag_type),
     };
     let new_tag = new_tag.insert(&db).await?;
 
@@ -144,14 +169,45 @@ pub async fn apply_user_tag(
     user_id: Uuid,
     song_id: String,
     tag_id: i64,
+    value: Option<String>,
 ) -> Result<(), CadenzaError> {
+    let tag = get_owned_tag(&db, user_id, tag_id).await?;
+    let value = canonicalize_tag_value(&tag.r#type, value)?;
+
     let new_tag_relation = user_tags_applied::ActiveModel {
         user_id: Set(user_id),
         song_id: Set(song_id),
         tag_id: Set(tag_id),
+        value: Set(value),
     };
 
     new_tag_relation.insert(&db).await?;
+    Ok(())
+}
+
+/// Sets (or, with `None`, clears) the value of a tag already applied to a song.
+pub async fn set_user_tag_value(
+    db: DatabaseConnection,
+    user_id: Uuid,
+    song_id: String,
+    tag_id: i64,
+    value: Option<String>,
+) -> Result<(), CadenzaError> {
+    let tag = get_owned_tag(&db, user_id, tag_id).await?;
+    let value = canonicalize_tag_value(&tag.r#type, value)?;
+
+    let applied_tag = user_tags_applied::Entity::find()
+        .filter(user_tags_applied::Column::SongId.eq(song_id))
+        .filter(user_tags_applied::Column::UserId.eq(user_id))
+        .filter(user_tags_applied::Column::TagId.eq(tag_id))
+        .one(&db)
+        .await?
+        .ok_or(CadenzaError::NotFound)?;
+
+    let mut applied_tag: user_tags_applied::ActiveModel = applied_tag.into();
+    applied_tag.value = Set(value);
+    applied_tag.update(&db).await?;
+
     Ok(())
 }
 
