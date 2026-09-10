@@ -6,41 +6,30 @@ import { useAccount } from "@/lib/account";
 import { Text } from "@/components/ui/text";
 import { Redirect } from "expo-router";
 import QueryResults from "@/features/query-builder/QueryResults";
-import { useTags } from "@/lib/routes/tags";
+import { useUserTags } from "@/lib/routes/tags";
+import { useQueryResults } from "@/lib/routes/queries";
+import { QueryNode } from "@/features/query-builder/types";
+import { queryNodeToJSON } from "@/features/query-builder/QueryUtils";
 import { useSongInfo } from "@/lib/musickit-hooks";
 
 export default function QueryScreen() {
     const { account } = useAccount();
-    const { tagsWithMeta, tagsLoading, tagsErr } = useTags();
-    const tags = tagsWithMeta?.map((item) => item.tag);
+    const { userTags, userTagsLoading, userTagsErr } = useUserTags();
 
-    const [matchedSongIds, setMatchedSongIds] = useState<string[] | null>(null);
-    const {
-        songInfo: matchedSongs,
-        songInfoLoading: isFetchingMetadata,
-        songInfoErr,
-    } = useSongInfo(matchedSongIds);
+    const [root, setRoot] = useState<QueryNode | null>(null);
+    const {matchedSongIds, getQueryResults, resetQuery} = useQueryResults();
 
-    // Add state to track how many songs we expect to load
-    const [anticipatedCount, setAnticipatedCount] = useState<
-        number | undefined
-    >(undefined);
+    const {songInfo, songInfoLoading} = useSongInfo(matchedSongIds ?? [])
+    const matchedSongs = songInfo ?? [];
 
-    function onQueryReturn(songIds: string[]) {
-        console.log("matched songs:", songIds);
-
-        // Instantly store the known length before we start the network fetch
-        setAnticipatedCount(songIds.length);
-        setMatchedSongIds(songIds);
-    }
-
-    function returnToQueryBuilder() {
-        setMatchedSongIds(null);
+    function onQuery() {
+        if (root == null) return;
+        getQueryResults(queryNodeToJSON(root));
     }
 
     if (!account) return <Redirect href="/auth?initialMode=signin" />;
 
-    if (tagsLoading) {
+    if (userTagsLoading) {
         return (
             <SafeAreaView className="flex-1 bg-background items-center justify-center">
                 <ActivityIndicator size="large" className="text-primary" />
@@ -48,11 +37,11 @@ export default function QueryScreen() {
         );
     }
 
-    if (tagsErr) {
+    if (userTagsErr) {
         return (
             <SafeAreaView className="flex-1 bg-background items-center justify-center">
                 <Text className="text-destructive text-sm">
-                    {JSON.stringify(tagsErr)}
+                    {JSON.stringify(userTagsErr)}
                 </Text>
             </SafeAreaView>
         );
@@ -60,16 +49,15 @@ export default function QueryScreen() {
 
     return (
         <SafeAreaView className="flex-1 bg-background">
-            {matchedSongIds !== null ? (
+            {matchedSongs.length > 0 ? (
                 <QueryResults
                     songs={matchedSongs}
-                    isLoading={isFetchingMetadata}
-                    anticipatedTrackCount={anticipatedCount} // Pass down the count
-                    error={songInfoErr}
-                    onBackPress={returnToQueryBuilder}
+                    isLoading={songInfoLoading}
+                    anticipatedTrackCount={matchedSongIds?.length} // Pass down the count
+                    onBackPress={resetQuery}
                 />
             ) : (
-                <QueryBuilder tags={tags!} onQueryReturn={onQueryReturn} />
+                <QueryBuilder tags={userTags!} onSubmit={onQuery} root={root} setRoot={setRoot}/>
             )}
         </SafeAreaView>
     );

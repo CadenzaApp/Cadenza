@@ -2,6 +2,7 @@ import { supabase } from "./supabase";
 import { useState, createContext, useContext } from "react";
 import { clearCache } from "./swr-utils";
 
+
 type Account = {
     id: string;
     email: string;

@@ -3,14 +3,34 @@ use std::collections::{HashMap, HashSet};
 use crate::db;
 use crate::err::CadenzaError;
 use crate::{AppState, auth::SupabaseClaims};
+use axum::extract::Query;
+use axum::routing::get;
 use axum::{
     Router,
-    extract::{Json, State},
-    routing::post,
+    extract::State,
 };
 use axum_jwt_auth::Claims;
 use sea_orm::DatabaseConnection;
+use serde::Deserialize;
 use serde_json::{Value, json};
+
+#[derive(Deserialize)]
+struct QueryResultsParams {
+    query_id: Option<i64>,
+    q: Option<String>,
+}
+impl QueryResultsParams {
+    fn into_json_query(self) -> Result<Value, CadenzaError> {
+        if let Some(q) = self.q {
+            return match serde_json::from_str(&q) {
+                Ok(json_query) => Ok(json_query),
+                Err(_) => Err(CadenzaError::QueryFormatError("invalid json".to_string()))
+            }
+        }
+
+        todo!("get query json from query id (a saved query)")
+    }
+}
 
 /// Returns JSON array of ids of matching songs from the given query.
 ///
@@ -18,11 +38,13 @@ use serde_json::{Value, json};
 /// ```json
 /// [ 1, 2, 3, ... ]
 /// ```
-async fn run_json_query_handler(
+async fn query_results_handler(
     State(db): State<DatabaseConnection>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
-    json_query: Json<Value>,
+    Query(params): Query<QueryResultsParams>,
 ) -> Result<String, CadenzaError> {
+    let json_query = params.into_json_query()?;
+
     let matched_songs_and_tags =
         db::queries::run_json_query(&db, &json_query, claims.user_id).await?;
 
@@ -80,5 +102,5 @@ fn get_mentioned_tags(query: &Value, out: &mut HashSet<i64>) {
 }
 
 pub fn get_queries_router() -> Router<AppState> {
-    Router::new().route("/", post(run_json_query_handler))
+    Router::new().route("/results", get(query_results_handler))
 }

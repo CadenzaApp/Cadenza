@@ -1,25 +1,28 @@
-import { useAPIData, useAPIFetch, useAPIMutation } from "../swr-utils";
-import { Tag } from "@/lib/types";
+import { useAPIData, useAPIFetch, useAPIMutation } from "../api-actions";
+import { Tag, TagMetadata } from "@/lib/types";
 
-type TagsResponse = {
-    One?: {
-        tag: Tag;
-        song_ids: string[];
-    };
-    All?: { tag: Tag; count: number }[];
+type UserTagsResponse = {
+    All: { tags: Tag[]; metadata: Record<number, TagMetadata> };
 };
-export function useTags() {
-    const x = useAPIData<TagsResponse>("/tags");
+export function useUserTags() {
+    const x = useAPIData<UserTagsResponse>("/tags");
 
     return {
-        tagsWithMeta: x.data?.All,
-        tagsLoading: x.isLoading,
-        tagsErr: x.error,
+        userTags: x.data?.All.tags,
+        userTagsMeta: x.data?.All.metadata,
+        userTagsLoading: x.isLoading,
+        userTagsErr: x.error,
     };
 }
 
+type OneTagResponse = {
+    One: {
+        tag: Tag;
+        song_ids: string[];
+    };
+}
 export function useTag(tagId?: number) {
-    const x = useAPIData<TagsResponse>("/tags", {
+    const x = useAPIData<OneTagResponse>("/tags", {
         tag_id: tagId,
     });
 
@@ -36,7 +39,10 @@ type NewTagPayload = {
     color: string;
 };
 export function useCreateTag() {
-    const x = useAPIMutation<NewTagPayload, number>("POST", "/tags");
+    const x = useAPIMutation<NewTagPayload, number>("POST", "/tags", [
+        { path: "/songs/tags" },
+        { path: "/tags" },
+    ]);
     return {
         createTagErr: x.error,
         createTagLoading: x.isMutating,
@@ -47,7 +53,8 @@ export function useCreateTag() {
 
 export function useDeleteTag() {
     const x = useAPIMutation<{ tag_id: number }, void>("DELETE", "/tags", [
-        { path: "/songs/tags", params: "*" },
+        { path: "/songs/tags" },
+        { path: "/tags" },
     ]);
     return {
         deleteTagErr: x.error,
@@ -59,6 +66,7 @@ export function useDeleteTag() {
 
 type SuggestTagsParams = {
     song_desc: string;
+    requested_tag_count: number;
 };
 export function useSuggestTags() {
     const x = useAPIFetch<SuggestTagsParams, string[]>("/tags/suggest");

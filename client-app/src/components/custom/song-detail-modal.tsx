@@ -7,13 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { Tag } from "@/lib/types";
 import { TagPill } from "@/components/custom/tag-pill";
-import {
-    useApplyTag,
-    useTagsOnSong,
-    useUnapplyTag,
-} from "@/lib/routes/songs";
-import { useSuggestTags } from "@/lib/routes/tags";
-
+import { useApplyTag, useTagsOnSong, useUnapplyTag } from "@/lib/routes/songs";
+import { useSuggestTags, useUserTags } from "@/lib/routes/tags";
 
 type SongDetailModalProps = {
     open: boolean;
@@ -30,6 +25,7 @@ function toDisplayString(value: unknown, fallback = "Unavailable") {
     return fallback;
 }
 
+const SUGGESTED_TAGS_COUNT = 5;
 
 export function SongDetailModal(props: SongDetailModalProps) {
     return (
@@ -48,28 +44,30 @@ function SongDetailModalContent({
     const [activePanel, setActivePanel] = useState<"addTag" | "aiTags" | null>(
         null,
     );
-    const {
-        tagsOnSong,
-        tagsOnSongLoading,
-        tagsOnSongErr,
-    } = useTagsOnSong(song?.id);
-    const tags = tagsOnSong && [...tagsOnSong.global, ...tagsOnSong.local];
+    const { tagsOnSong, tagsOnSongLoading, tagsOnSongErr } = useTagsOnSong(
+        song?.id,
+    );
+    const { userTags } = useUserTags();
+    const addableTags =
+        userTags &&
+        tagsOnSong &&
+        userTags.filter(
+            (tag) =>
+                !tagsOnSong.some((existingTag) => existingTag.id === tag.id),
+        );
 
     const { unapplyTag } = useUnapplyTag();
     const { applyTag } = useApplyTag();
-    let {
-        suggestedTagNames,
-        suggestTags,
-        suggestTagsErr,
-        suggestTagsLoading,
-    } = useSuggestTags();
-    const suggestedTags: Tag[] | undefined = suggestedTagNames?.map(
-        (name, i) => ({
+    let { suggestedTagNames, suggestTags, suggestTagsErr, suggestTagsLoading } =
+        useSuggestTags();
+    const suggestedTags: Tag[] | undefined = suggestedTagNames
+        ?.map((name, i) => ({
             id: -i,
             name,
             color: "#7c3aed",
-        }),
-    );
+        }))
+        // ignore suggested tags that are already on the song
+        .filter((tag) => !tagsOnSong?.some((t) => t.name === tag.name));
 
     const artworkUrl = song?.artworkUrl?.trim();
     const canRenderArtwork =
@@ -89,7 +87,14 @@ function SongDetailModalContent({
             return;
         }
 
-        await suggestTags({ song_desc: `${song?.title} by ${song?.artistName}` });
+        if (suggestedTagNames != undefined) return;
+        await suggestTags({
+            song_desc: `${song?.title} by ${song?.artistName}`,
+            // request SUGGESTED_TAGS_COUNT + number of existing tags
+            // to guarantee that many new tags that aren't alr on the song
+            requested_tag_count:
+                (tagsOnSong?.length ?? 0) + SUGGESTED_TAGS_COUNT,
+        });
     }
 
     function handlePlayPress() {
@@ -259,9 +264,9 @@ function SongDetailModalContent({
                                     Tags
                                 </Text>
 
-                                {tags ? (
+                                {tagsOnSong ? (
                                     <View className="flex-row flex-wrap gap-2">
-                                        {tags.map((tag) => (
+                                        {tagsOnSong.map((tag) => (
                                             <TagPill
                                                 key={tag.id}
                                                 tag={tag}
@@ -359,22 +364,15 @@ function SongDetailModalContent({
                                             {JSON.stringify(tagsOnSongErr)}
                                         </Text>
                                     )}
-                                    {tags?.length === 0 && (
+                                    {addableTags?.length === 0 && (
                                         <Text className="text-sm text-muted-foreground">
-                                            No tags created yet.
+                                            No tags to add.
                                         </Text>
                                     )}
-                                    {tags && tags.length !== 0 && (
-                                        <View className="flex-row flex-wrap gap-2">
-                                            {tags
-                                                .filter(
-                                                    (tag) =>
-                                                        !tags.some(
-                                                            (t) =>
-                                                                t.id === tag.id,
-                                                        ),
-                                                )
-                                                .map((tag) => (
+                                    {addableTags &&
+                                        addableTags.length !== 0 && (
+                                            <View className="flex-row flex-wrap gap-2">
+                                                {addableTags.map((tag) => (
                                                     <Pressable
                                                         key={tag.id}
                                                         onPress={() =>
@@ -391,8 +389,8 @@ function SongDetailModalContent({
                                                         />
                                                     </Pressable>
                                                 ))}
-                                        </View>
-                                    )}
+                                            </View>
+                                        )}
                                 </View>
                             )}
                         </ScrollView>
