@@ -161,6 +161,9 @@ export default function AccountScreen() {
     return (
         <SafeAreaView className="flex-1 bg-background">
             <View className="h-16 flex-row items-center justify-between px-5">
+                <Text className="text-3xl font-bold tracking-tight">
+                    Account
+                </Text>
                 <Pressable
                     accessibilityRole="button"
                     accessibilityLabel="Close account"
@@ -173,9 +176,6 @@ export default function AccountScreen() {
                 >
                     <Ionicons name="close" size={22} color={colors.text} />
                 </Pressable>
-                <Text className="text-3xl font-bold tracking-tight">
-                    Account
-                </Text>
             </View>
 
             <ScrollView

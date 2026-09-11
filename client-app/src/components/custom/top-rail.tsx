@@ -22,6 +22,10 @@ export function TopRail({ title }: Props) {
             style={{ paddingTop: insets.top }}
         >
             <View className="h-16 flex-row items-center justify-between px-5">
+                <Text className="text-3xl font-bold tracking-tight">
+                    {title}
+                </Text>
+
                 <Pressable
                     accessibilityRole="button"
                     accessibilityLabel="Open account"
@@ -36,10 +40,6 @@ export function TopRail({ title }: Props) {
                         {getAccountInitials(account?.email)}
                     </Text>
                 </Pressable>
-
-                <Text className="text-3xl font-bold tracking-tight">
-                    {title}
-                </Text>
             </View>
         </View>
     );

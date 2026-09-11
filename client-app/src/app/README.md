@@ -54,8 +54,8 @@ The account modal has its own guard because it is a root stack route. The splash
 session restore, which is why `AccountProvider` has no loading state. Successful restore and
 authentication both land on `/library`.
 
-Every tab uses `TopRail` as its navigator header. The account initials button sits on the left,
-the page title sits on the right, and the button opens `/account`. The root stack presents that
+Every tab uses `TopRail` as its navigator header. The page title sits on the left, the account
+initials button sits on the right, and the button opens `/account`. The root stack presents that
 route with `fullScreenModal` and a bottom-up animation, so dismissing it returns to the same tab.
 
 ## Connects to
