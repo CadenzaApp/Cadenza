@@ -108,7 +108,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
         if (isConnected) return true;
         Alert.alert(
             "Apple Music Not Connected",
-            `Connect Apple Music from the Account tab ${action}.`,
+            `Open Account from the profile button and connect Apple Music ${action}.`,
         );
         return false;
     }

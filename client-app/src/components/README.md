@@ -31,6 +31,9 @@ variables), `tailwind.config.js`, and `global.css`. Class merging goes through
 | `tag-pill.tsx` | A tag chip, colored from `tag.color`. |
 | `create-tag-dialog.tsx` | Name + color picker, calls `useCreateTag`. |
 | `modal-popup.tsx` | Small anchored popup used by the track menu and the selection actions. |
+| `top-rail.tsx` | Shared tab header with account initials on the left and page title on the right. |
+| `account-initials.ts` | Pure email-to-initials helper, tested in `account-initials.test.ts`. |
+| `coming-soon-screen.tsx` | Data-driven preview surface used by stubbed product areas. |
 | `media-player/` | The global player. See [custom/media-player/README.md](custom/media-player/README.md). |
 
 ### custom/music-list/

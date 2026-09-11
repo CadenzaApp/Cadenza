@@ -36,6 +36,14 @@ export default function RootLayout() {
                                     options={{ headerShown: false }}
                                 />
                                 <Stack.Screen
+                                    name="account"
+                                    options={{
+                                        headerShown: false,
+                                        presentation: "fullScreenModal",
+                                        animation: "slide_from_bottom",
+                                    }}
+                                />
+                                <Stack.Screen
                                     name="auth/index"
                                     options={{ title: "Welcome" }}
                                 />

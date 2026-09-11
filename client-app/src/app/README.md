@@ -9,14 +9,15 @@ logic out.
 | file | route | role |
 | --- | --- | --- |
 | `_layout.tsx` | root | Provider stack, theme, the `Stack` navigator, `PortalHost`, `MediaPlayerHost`. |
-| `(splashscreen)/index.tsx` | `/` | Calls `tryRestoreSession()`, then replaces to `/home` or `/auth`. |
+| `(splashscreen)/index.tsx` | `/` | Calls `tryRestoreSession()`, then replaces to `/library` or `/auth`. |
 | `auth/index.tsx` | `/auth` | Sign in / sign up. Takes an `initialMode` search param. |
-| `(tabs)/_layout.tsx` | | Bottom tab bar, five tabs, Ionicons, colors from the nav theme. |
-| `(tabs)/home.tsx` | `/home` | Placeholder. Shows the email and a sign out button. |
+| `(tabs)/_layout.tsx` | | Protected tab group, shared top rail, and the five-tab bottom bar. |
+| `(tabs)/social.tsx` | `/social` | Static previews of planned social features. |
+| `(tabs)/analytics.tsx` | `/analytics` | Static previews of planned listening analytics. |
 | `(tabs)/cadenza.tsx` | `/cadenza` | Combined Query and Tags workspace. |
 | `(tabs)/library.tsx` | `/library` | The user's Apple Music library, with paging and sorting. |
 | `(tabs)/search.tsx` | `/search` | Apple Music catalog search and paged results. |
-| `(tabs)/account.tsx` | `/account` | Connect and disconnect Apple Music. |
+| `account.tsx` | `/account` | Full-screen account modal with Apple Music and session controls. |
 | `tag/[tagId].tsx` | `/tag/:tagId` | One tag and the songs carrying it. |
 | `+not-found.tsx` | | 404. |
 
@@ -42,15 +43,20 @@ navigation. `MediaPlayerHost` reads `useSegments()` and decides whether to rende
 what bottom offset to use: `54` under the tab bar, `0` on the `tag/` stack route, nothing
 anywhere else. Playback state itself is global regardless, since it lives in `PlaybackProvider`.
 
-Auth gating is per screen, not centralized. Each protected screen does:
+Auth gating for the five primary screens is centralized in `(tabs)/_layout.tsx`:
 
 ```tsx
 const { account } = useAccount();
 if (!account) return <Redirect href="/auth?initialMode=signin" />;
 ```
 
-The splash screen owns session restore, which is why `AccountProvider` has no loading state.
-Every other screen can assume the account is either there or not.
+The account modal has its own guard because it is a root stack route. The splash screen owns
+session restore, which is why `AccountProvider` has no loading state. Successful restore and
+authentication both land on `/library`.
+
+Every tab uses `TopRail` as its navigator header. The account initials button sits on the left,
+the page title sits on the right, and the button opens `/account`. The root stack presents that
+route with `fullScreenModal` and a bottom-up animation, so dismissing it returns to the same tab.
 
 ## Connects to
 
@@ -61,10 +67,10 @@ Every other screen can assume the account is either there or not.
 
 ## Gotchas
 
-- Adding a protected screen means adding the `Redirect` guard yourself. Nothing does it for you.
+- Routes inside `(tabs)` inherit the group's auth guard. Protected root stack routes still need
+  their own guard.
 - A new top-level route also needs a `Stack.Screen` entry in `_layout.tsx` if you want anything
   other than the default header, and a `MediaPlayerHost` case if the player should show there.
-- `home.tsx` is still a placeholder with a sign out button on it.
 - Tab order in the bar is set by the order of `Tabs.Screen` children, not by filename.
 
 ---
