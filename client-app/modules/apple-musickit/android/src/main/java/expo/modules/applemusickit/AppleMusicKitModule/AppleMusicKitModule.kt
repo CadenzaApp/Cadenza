@@ -10,6 +10,7 @@ import com.apple.android.sdk.authentication.TokenProvider
 import com.apple.android.music.playback.controller.MediaPlayerController
 import com.apple.android.music.playback.controller.MediaPlayerControllerFactory
 import com.apple.android.music.playback.queue.CatalogPlaybackQueueItemProvider
+import com.apple.android.music.playback.queue.PlaybackQueueInsertionType
 import com.apple.android.music.playback.model.MediaContainerType
 import com.apple.android.music.playback.model.MediaItemType
 import com.apple.android.music.playback.model.PlaybackState
@@ -352,6 +353,63 @@ class AppleMusicKitModule : Module() {
             }
         }
 
+        AsyncFunction("setSongPlaybackQueue") {
+            ids: List<String>, _types: List<String>, startIndex: Int, promise: Promise ->
+            val songIds = ids.toTypedArray()
+            if (songIds.isEmpty()) {
+                promise.reject("ERR_NOT_FOUND", "No queue songs were supplied", null)
+                return@AsyncFunction
+            }
+            val boundedIndex = startIndex.coerceIn(0, songIds.lastIndex)
+            val provider = CatalogPlaybackQueueItemProvider.Builder()
+                .items(MediaItemType.SONG, *songIds)
+                .startItemIndex(boundedIndex)
+                .build()
+
+            Handler(Looper.getMainLooper()).post {
+                try {
+                    val controller = getOrCreatePlayerController()
+                    if (controller == null) {
+                        promise.reject("ERR_PLAYER_UNAVAILABLE", "Apple Music player is unavailable", null)
+                    } else {
+                        controller.prepare(provider, true)
+                        promise.resolve(null)
+                    }
+                } catch (e: Exception) {
+                    promise.reject("PREPARE_ERROR", e.message, e)
+                }
+            }
+        }
+
+        AsyncFunction("appendSongPlaybackQueue") {
+            ids: List<String>, _types: List<String>, promise: Promise ->
+            val songIds = ids.toTypedArray()
+            if (songIds.isEmpty()) {
+                promise.resolve(null)
+                return@AsyncFunction
+            }
+            val provider = CatalogPlaybackQueueItemProvider.Builder()
+                .items(MediaItemType.SONG, *songIds)
+                .build()
+
+            Handler(Looper.getMainLooper()).post {
+                try {
+                    val controller = getOrCreatePlayerController()
+                    if (controller == null) {
+                        promise.reject("ERR_PLAYER_UNAVAILABLE", "Apple Music player is unavailable", null)
+                    } else {
+                        controller.addQueueItems(
+                            provider,
+                            PlaybackQueueInsertionType.INSERTION_TYPE_AT_END
+                        )
+                        promise.resolve(null)
+                    }
+                } catch (e: Exception) {
+                    promise.reject("QUEUE_APPEND_ERROR", e.message, e)
+                }
+            }
+        }
+
         AsyncFunction("getSongInfo") { ids: List<String> ->
             if (ids.isEmpty()) return@AsyncFunction emptyList<Map<String, Any>>()
 
@@ -404,17 +462,29 @@ class AppleMusicKitModule : Module() {
             return@AsyncFunction mapOf("isFavorite" to isFavorite)
         }
 
-        AsyncFunction("catalogSearch") { query: String, types: List<String> ->
+        AsyncFunction("catalogSearch") { query: String, types: List<String>, requestedLimit: Int, requestedOffset: Int ->
             val encodedQuery = encode(query)
             val typesStr = types.joinToString(",")
-            val response = makeApiRequest("/v1/catalog/${currentStorefrontId()}/search?term=$encodedQuery&types=$typesStr&limit=20")
+            val options = mapOf(
+                "limit" to requestedLimit.coerceIn(1, 25),
+                "offset" to requestedOffset.coerceAtLeast(0)
+            )
+            val response = makeApiRequest(
+                "/v1/catalog/${currentStorefrontId()}/search?term=$encodedQuery&types=$typesStr&${pageQuery(options)}"
+            )
             val resultsObj = response["results"] as? Map<*, *>
             val songsObj = resultsObj?.get("songs") as? Map<*, *>
             val albumsObj = resultsObj?.get("albums") as? Map<*, *>
-            return@AsyncFunction mapOf(
+            val result = mutableMapOf<String, Any>(
                 "songs" to objectList(songsObj?.get("data")).map { formatMediaItem(it) },
-                "albums" to objectList(albumsObj?.get("data")).map { formatMediaItem(it) }
+                "albums" to objectList(albumsObj?.get("data")).map { formatMediaItem(it) },
+                "hasNextSongs" to !songsObj?.get("next")?.toString().isNullOrBlank(),
+                "hasNextAlbums" to !albumsObj?.get("next")?.toString().isNullOrBlank()
             )
+            nextOffset(songsObj?.get("next")?.toString())?.let {
+                result["nextSongsOffset"] = it
+            }
+            return@AsyncFunction result
         }
 
         AsyncFunction("getUserPlaylists") { options: Map<String, Int> ->
@@ -422,9 +492,13 @@ class AppleMusicKitModule : Module() {
                 makeApiRequest("/v1/me/library/playlists?${pageQuery(options)}")
             )
         }
-        AsyncFunction("getLibrarySongs") { options: Map<String, Int> ->
+        AsyncFunction("getLibrarySongs") { options: Map<String, Any?> ->
+            val pageOptions = mapOf(
+                "limit" to ((options["limit"] as? Number)?.toInt() ?: 50),
+                "offset" to ((options["offset"] as? Number)?.toInt() ?: 0)
+            )
             return@AsyncFunction collectionResult(
-                makeApiRequest("/v1/me/library/songs?${pageQuery(options)}&include=albums")
+                makeApiRequest("/v1/me/library/songs?${pageQuery(pageOptions)}&include=albums")
             )
         }
         AsyncFunction("getPlaylistSongs") { playlistId: String, options: Map<String, Int> ->
@@ -477,11 +551,21 @@ class AppleMusicKitModule : Module() {
 
     private fun collectionResult(response: Map<String, Any>): Map<String, Any> {
         val data = objectList(response["data"])
-        val result = mutableMapOf<String, Any>("items" to data.map { formatMediaItem(it) })
-        response["next"]?.toString()?.takeIf { it.isNotBlank() }?.let {
-            result["next"] = it
-        }
+        val result = mutableMapOf<String, Any>(
+            "items" to data.map { formatMediaItem(it) },
+            "hasNextPage" to !response["next"]?.toString().isNullOrBlank()
+        )
+        nextOffset(response["next"]?.toString())?.let { result["nextOffset"] = it }
         return result
+    }
+
+    private fun nextOffset(next: String?): Int? {
+        if (next == null) return null
+        return next.substringAfter('?', "")
+            .split("&")
+            .firstOrNull { it.startsWith("offset=") }
+            ?.substringAfter("offset=")
+            ?.toIntOrNull()
     }
 
     private fun encode(value: String): String = URLEncoder.encode(value, "UTF-8")

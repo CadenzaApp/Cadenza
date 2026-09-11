@@ -269,9 +269,83 @@ public class AppleMusicKitModule: Module {
 
     private func collectionResult(_ response: [String: Any]) -> [String: Any] {
         let data = response["data"] as? [[String: Any]] ?? []
-        var result: [String: Any] = ["items": data.map(formatAPIResource)]
-        if let next = response["next"] as? String, !next.isEmpty {
-            result["next"] = next
+        let next = response["next"] as? String
+        var result: [String: Any] = [
+            "items": data.map(formatAPIResource),
+            "hasNextPage": !(next?.isEmpty ?? true),
+        ]
+        if let next,
+           let components = URLComponents(string: next),
+           let offset = components.queryItems?.first(where: { $0.name == "offset" })?.value,
+           let nextOffset = Int(offset)
+        {
+            result["nextOffset"] = nextOffset
+        }
+        return result
+    }
+
+    private func collectionResult(
+        _ response: MusicLibraryResponse<Song>,
+        offset: Int
+    ) async -> [String: Any] {
+        let songs = Array(response.items)
+        let libraryIDs = songs.map(\.id.rawValue)
+        var formattedByLibraryID: [String: [String: Any]] = [:]
+
+        // Preserve the existing REST representation when possible so playback,
+        // catalog identifiers, and already-applied tags remain compatible.
+        if !libraryIDs.isEmpty {
+            let encodedIDs = libraryIDs
+                .map {
+                    $0.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? $0
+                }
+                .joined(separator: ",")
+
+            do {
+                let apiResponse = try await makeAPIRequest(
+                    path: "/v1/me/library/songs?ids=\(encodedIDs)&include=albums")
+                for item in apiResponse["data"] as? [[String: Any]] ?? [] {
+                    guard let libraryID = item["id"] as? String else { continue }
+                    formattedByLibraryID[libraryID] = formatAPIResource(item)
+                }
+            } catch {
+                // Enrichment is optional: native MusicLibraryRequest data is
+                // sufficient to render and play the library page.
+                NSLog("AppleMusicKit: library song enrichment failed: %@", error.localizedDescription)
+            }
+        }
+
+        let items = songs.map { song -> [String: Any] in
+            var item = formattedByLibraryID[song.id.rawValue]
+                ?? formatSong(song, playbackType: "librarySong")
+
+            // A library row keeps its library identity even when optional REST
+            // enrichment resolves a catalog identifier. Playback has its own
+            // explicit identifier so hydration success cannot change list keys.
+            item["id"] = song.id.rawValue
+            item["libraryId"] = song.id.rawValue
+            item["source"] = "library"
+            if let catalogID = item["catalogId"] as? String {
+                item["playbackId"] = catalogID
+                item["playbackType"] = "song"
+            } else {
+                item["playbackId"] = song.id.rawValue
+                item["playbackType"] = "librarySong"
+            }
+
+            if let libraryAddedDate = song.libraryAddedDate {
+                item["libraryAddedDate"] = libraryAddedDate.timeIntervalSince1970 * 1000
+            }
+
+            return item
+        }
+
+        var result: [String: Any] = [
+            "items": items,
+            "hasNextPage": response.items.hasNextBatch,
+        ]
+        if response.items.hasNextBatch {
+            result["nextOffset"] = offset + items.count
         }
         return result
     }
@@ -332,6 +406,83 @@ public class AppleMusicKitModule: Module {
         }
 
         return snapshot
+    }
+
+    @available(iOS 16.0, *)
+    private func songsForQueue(_ ids: [String], types: [String]) async throws -> [Song] {
+        let queueItems = ids.enumerated().map { index, id in
+            (id: id, type: types.indices.contains(index) ? types[index] : "song")
+        }
+        let libraryIDs = queueItems.filter { $0.type == "librarySong" }.map(\.id)
+        let catalogIDs = queueItems.filter { $0.type != "librarySong" }.map(\.id)
+        var songsByID: [String: Song] = [:]
+
+        if !libraryIDs.isEmpty {
+            for song in try await librarySongs(libraryIDs) {
+                songsByID[song.id.rawValue] = song
+            }
+        }
+
+        if !catalogIDs.isEmpty {
+            let request = MusicCatalogResourceRequest<Song>(
+                matching: \.id,
+                memberOf: catalogIDs.map { MusicItemID($0) })
+            let response = try await request.response()
+            for song in response.items { songsByID[song.id.rawValue] = song }
+        }
+
+        return ids.compactMap { songsByID[$0] }
+    }
+
+    @available(iOS 16.0, *)
+    private func librarySongs(_ ids: [String]) async throws -> [Song] {
+        var results: [Song] = []
+        for batchStart in stride(from: 0, to: ids.count, by: 100) {
+            let batchEnd = min(batchStart + 100, ids.count)
+            let batchIDs = ids[batchStart..<batchEnd].map { MusicItemID($0) }
+            var request = MusicLibraryRequest<Song>()
+            request.filter(matching: \.id, memberOf: batchIDs)
+            request.limit = batchIDs.count
+            let response = try await request.response()
+            results.append(contentsOf: response.items)
+        }
+        return results
+    }
+
+    @available(iOS 16.0, *)
+    private func formattedLibrarySongs(_ ids: [String]) async throws -> [[String: Any]] {
+        try await librarySongs(ids).map {
+            formatSong($0, playbackType: "librarySong")
+        }
+    }
+
+    @available(iOS 16.0, *)
+    private func replaceSongPlaybackQueue(
+        ids: [String],
+        types: [String],
+        startIndex: Int
+    ) async throws {
+        let songs = try await songsForQueue(ids, types: types)
+        guard !songs.isEmpty else {
+            throw Exception(name: "ERR_NOT_FOUND", description: "No queue songs were found.")
+        }
+        // `songsForQueue` drops ids it could not resolve, so `startIndex`, which
+        // addresses the caller's list, cannot be used as a position here. Look
+        // up the id it points at and find that song in what actually resolved.
+        let requestedID = ids.indices.contains(startIndex) ? ids[startIndex] : ids.first
+        let startingSong =
+            songs.first(where: { $0.id.rawValue == requestedID }) ?? songs[0]
+        ApplicationMusicPlayer.shared.queue = ApplicationMusicPlayer.Queue(
+            for: songs,
+            startingAt: startingSong)
+    }
+
+    @available(iOS 16.0, *)
+    private func appendSongPlaybackQueue(ids: [String], types: [String]) async throws {
+        let songs = try await songsForQueue(ids, types: types)
+        if !songs.isEmpty {
+            try await ApplicationMusicPlayer.shared.queue.insert(songs, position: .tail)
+        }
     }
 
     public func definition() -> ModuleDefinition {
@@ -444,7 +595,7 @@ public class AppleMusicKitModule: Module {
         }
 
         AsyncFunction("catalogSearch") {
-            (query: String, types: [String]) async throws -> [String: Any] in
+            (query: String, types: [String], requestedLimit: Int, requestedOffset: Int) async throws -> [String: Any] in
             guard #available(iOS 15.0, *) else {
                 throw Exception(name: "ERR_UNSUPPORTED", description: "Requires iOS 15.0+")
             }
@@ -452,41 +603,65 @@ public class AppleMusicKitModule: Module {
             let requestedTypes = Set(types.map { $0.lowercased() })
             let searchSongs = requestedTypes.isEmpty || requestedTypes.contains("songs")
             let searchAlbums = requestedTypes.isEmpty || requestedTypes.contains("albums")
+            let limit = min(25, max(1, requestedLimit))
+            let offset = max(0, requestedOffset)
 
             // Passing extra result types can make MusicKit fail while decoding a
             // response the caller did not request. Match the requested types (as
             // Android does) instead of always including albums.
             if searchSongs && !searchAlbums {
                 var request = MusicCatalogSearchRequest(term: query, types: [Song.self])
-                request.limit = 20
+                request.limit = limit
+                request.offset = offset
                 let response = try await request.response()
-                return [
+                var result: [String: Any] = [
                     "songs": response.songs.map { formatSong($0, playbackType: "song") },
                     "albums": [],
+                    "hasNextSongs": response.songs.hasNextBatch,
+                    "hasNextAlbums": false,
                 ]
+                if response.songs.hasNextBatch {
+                    result["nextSongsOffset"] = offset + response.songs.count
+                }
+                return result
             }
 
             if searchAlbums && !searchSongs {
                 var request = MusicCatalogSearchRequest(term: query, types: [Album.self])
-                request.limit = 20
+                request.limit = limit
+                request.offset = offset
                 let response = try await request.response()
                 return [
                     "songs": [],
                     "albums": response.albums.map(formatAlbum),
+                    "hasNextSongs": false,
+                    "hasNextAlbums": response.albums.hasNextBatch,
                 ]
             }
 
             guard searchSongs || searchAlbums else {
-                return ["songs": [], "albums": []]
+                return [
+                    "songs": [],
+                    "albums": [],
+                    "hasNextSongs": false,
+                    "hasNextAlbums": false,
+                ]
             }
 
             var request = MusicCatalogSearchRequest(term: query, types: [Song.self, Album.self])
-            request.limit = 20
+            request.limit = limit
+            request.offset = offset
             let response = try await request.response()
-            return [
+            var result: [String: Any] = [
                 "songs": response.songs.map { formatSong($0, playbackType: "song") },
                 "albums": response.albums.map(formatAlbum),
+                "hasNextSongs": response.songs.hasNextBatch,
+                "hasNextAlbums": response.albums.hasNextBatch,
             ]
+            if response.songs.hasNextBatch {
+                result["nextSongsOffset"] = offset + response.songs.count
+            }
+            return result
         }
 
         AsyncFunction("getSongInfo") { (ids: [String]) async throws -> [[String: Any]] in
@@ -504,14 +679,8 @@ public class AppleMusicKitModule: Module {
             // Fetch Library Songs
             if !libraryIds.isEmpty {
                 if #available(iOS 16.0, *) {
-                    for id in libraryIds {
-                        var request = MusicLibraryRequest<Song>()
-                        request.filter(matching: \.id, equalTo: MusicItemID(id))
-                        let response = try await request.response()
-                        if let song = response.items.first {
-                            fetchedResults.append(self.formatSong(song, playbackType: "librarySong"))
-                        }
-                    }
+                    fetchedResults.append(
+                        contentsOf: try await self.formattedLibrarySongs(libraryIds))
                 } else {
                     throw Exception(name: "ERR_UNSUPPORTED", description: "iOS 16.0+ required for library songs.")
                 }
@@ -578,10 +747,36 @@ public class AppleMusicKitModule: Module {
             return self.collectionResult(response)
         }
 
-        AsyncFunction("getLibrarySongs") { (options: [String: Int]) async throws -> [String: Any] in
-            let response = try await self.makeAPIRequest(
-                path: "/v1/me/library/songs?\(self.pageQuery(options))&include=albums")
-            return self.collectionResult(response)
+        AsyncFunction("getLibrarySongs") { (options: [String: Any]) async throws -> [String: Any] in
+            guard #available(iOS 16.0, *) else {
+                throw Exception(name: "ERR_UNSUPPORTED", description: "Library songs require iOS 16.0+")
+            }
+
+            let limit = min(100, max(1, options["limit"] as? Int ?? 50))
+            let offset = max(0, options["offset"] as? Int ?? 0)
+            let sort = options["sort"] as? [String: Any]
+            var request = MusicLibraryRequest<Song>()
+            request.limit = limit
+            request.offset = offset
+
+            if let sortOption = sort?["option"] as? String {
+                let ascending = (sort?["direction"] as? String) != "descending"
+                switch sortOption {
+                case "title":
+                    request.sort(by: \.title, ascending: ascending)
+                case "artist":
+                    request.sort(by: \.artistName, ascending: ascending)
+                case "album":
+                    request.sort(by: \.albumTitle, ascending: ascending)
+                case "dateAdded":
+                    request.sort(by: \.libraryAddedDate, ascending: ascending)
+                default:
+                    break
+                }
+            }
+
+            let response = try await request.response()
+            return await self.collectionResult(response, offset: offset)
         }
 
         AsyncFunction("getPlaylistSongs") {
@@ -649,6 +844,27 @@ public class AppleMusicKitModule: Module {
             } else {
                 throw Exception(name: "ERR_INVALID_TYPE", description: "Unsupported queue type: \(type)")
             }
+        }
+
+        AsyncFunction("setSongPlaybackQueue") {
+            (ids: [String], types: [String], startIndex: Int) async throws -> Void in
+            guard #available(iOS 16.0, *) else {
+                throw Exception(
+                    name: "ERR_UNSUPPORTED",
+                    description: "Song queues require iOS 16.0+.")
+            }
+            try await self.replaceSongPlaybackQueue(
+                ids: ids, types: types, startIndex: startIndex)
+        }
+
+        AsyncFunction("appendSongPlaybackQueue") {
+            (ids: [String], types: [String]) async throws -> Void in
+            guard #available(iOS 16.0, *) else {
+                throw Exception(
+                    name: "ERR_UNSUPPORTED",
+                    description: "Song queues require iOS 16.0+.")
+            }
+            try await self.appendSongPlaybackQueue(ids: ids, types: types)
         }
     }
 }

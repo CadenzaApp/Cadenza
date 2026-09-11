@@ -8,7 +8,7 @@ The data access layer. Everything that touches postgres lives here, so handlers 
 | file | role |
 | --- | --- |
 | `mod.rs` | Declares `entity`, `queries`, `tags`. |
-| `tags.rs` | All tag reads and writes: list, look up, usage counts, tags on a song, songs with a tag, create, delete, apply, unapply. |
+| `tags.rs` | All tag reads and writes: list, look up, usage counts, tags on a song or on many songs, songs with a tag, create, delete, apply, unapply. |
 | `queries.rs` | Compiles a boolean tag query from JSON to SQL and runs it. |
 | `entity/` | sea-orm-codegen output. `tags`, `user_tags_applied`, `default_tags_applied`, plus `prelude` and `mod`. Do not hand edit. |
 
@@ -69,8 +69,10 @@ becomes `CadenzaError::QueryFormatError` (422).
   user's tag. The `song_ids` beside it are correctly user-scoped, so the leak is the tag name and
   color only. Worth fixing.
 - Everything here is user scoped and ignores default tags. `get_user_tags_on_song`,
-  `get_songs_with_user_tag`, `get_all_user_tags`, and `get_user_tags_metadata` all filter on
-  `user_id`, and nothing joins `default_tags_applied`.
+  `get_user_tags_on_songs`, `get_songs_with_user_tag`, `get_all_user_tags`, and
+  `get_user_tags_metadata` all filter on `user_id`, and nothing joins `default_tags_applied`.
+- `get_user_tags_on_songs` seeds its map from the requested ids first, so every song asked for
+  has an entry whether or not it has tags. Same idea as `get_user_tags_metadata`.
 - `delete_user_tag` and `unapply_user_tag` silently no-op when nothing matches, rather than
   returning `NotFound`.
 - `get_user_tags_metadata` returns a `HashMap<i64, TagMetadata>` keyed by tag id. Tags with no

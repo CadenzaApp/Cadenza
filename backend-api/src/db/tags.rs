@@ -88,6 +88,40 @@ pub async fn get_user_tags_on_song(
         .await?)
 }
 
+/// Same as `get_user_tags_on_song`, for many songs at once. Every requested
+/// song gets an entry, so songs with no tags come back as an empty list.
+pub async fn get_user_tags_on_songs(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+    song_ids: &[String],
+) -> Result<HashMap<String, Vec<tags::Model>>, CadenzaError> {
+    let mut tags_by_song: HashMap<String, Vec<tags::Model>> = song_ids
+        .iter()
+        .map(|song_id| (song_id.clone(), Vec::new()))
+        .collect();
+
+    if tags_by_song.is_empty() {
+        return Ok(tags_by_song);
+    }
+
+    let applied = user_tags_applied::Entity::find()
+        .filter(user_tags_applied::Column::UserId.eq(user_id))
+        .filter(user_tags_applied::Column::SongId.is_in(song_ids.iter().map(String::as_str)))
+        .find_also_related(tags::Entity)
+        .all(db)
+        .await?;
+
+    for (applied_tag, tag) in applied {
+        let Some(tag) = tag else { continue };
+        tags_by_song
+            .entry(applied_tag.song_id)
+            .or_default()
+            .push(tag);
+    }
+
+    Ok(tags_by_song)
+}
+
 pub async fn get_songs_with_user_tag(
     db: &DatabaseConnection,
     user_id: Uuid,

@@ -25,12 +25,41 @@ variables), `tailwind.config.js`, and `global.css`. Class merging goes through
 
 | file | role |
 | --- | --- |
-| `music-list.tsx` | Scrollable list of `MusicItem`s, with skeletons while loading. |
-| `music-list-item.tsx` | One row, plus `MusicListItemSkeleton`. |
+| `music-list/` | Scrollable list of `MusicItem`s, with skeletons, paging, and sorting. See below. |
+| `floating-bubble.tsx` | The round floating action button the list and tag screens sit under. |
 | `song-detail-modal.tsx` | Full song sheet: artwork, tags, favorite, play. |
 | `tag-pill.tsx` | A tag chip, colored from `tag.color`. |
 | `create-tag-dialog.tsx` | Name + color picker, calls `useCreateTag`. |
+| `modal-popup.tsx` | Small anchored popup used by the track menu and the selection actions. |
 | `media-player/` | The global player. See [custom/media-player/README.md](custom/media-player/README.md). |
+
+### custom/music-list/
+
+| file | role |
+| --- | --- |
+| `index.tsx` | The `MusicList` itself. Owns sort state, paging, selection, density, and the modals. |
+| `music-list-item.tsx` | One row, plus `MusicListItemSkeleton`. |
+| `music-list-sort-button.tsx` | The floating sort control. |
+| `music-list-action-button.tsx` | One button in the selection toolbar. |
+| `music-list-selection-toolbar.tsx` | The bar that slides up while rows are selected. |
+| `music-list-track-menu.tsx` | The per-row overflow menu. |
+| `use-music-list-selection.ts` | Selection state, haptics, and pruning. Tested in `use-music-list-selection.test.ts`. |
+| `selection-utils.ts` | `reduceMusicListSelection`, the pure reducer behind the hook. |
+| `sort-tracks.ts` | `sortTracks` / `nextSort`. Pure, unit tested in `sort-tracks.test.ts`. |
+| `types.ts` | `MusicListProps` and the sort types, so callers do not import from `index.tsx`. |
+
+Sorting is either `"local"` (this folder sorts the array it was handed) or `"remote"` (the
+caller refetches sorted and only wants the control rendered). The library screen uses
+`"remote"` on iOS, because `MusicLibraryRequest` sorts across the whole library rather than
+just the page that happens to be loaded.
+
+Paging is opt-in. Pass `pagination` to get `onEndReached` plus footer skeletons, or `null` for a
+list that is fully loaded up front, like a tag's songs or a query's results.
+
+Multi-select is opt-in too, via `multiSelect`. Selection is scoped to what is currently
+displayed: if paging or a filter drops a row, its id is pruned. A long press starts a selection,
+a tap toggles one, and clearing everything leaves selection mode. Pinching the list toggles
+compact rows; pass `compact` and `onCompactChange` to control that from outside.
 
 ## Connects to
 

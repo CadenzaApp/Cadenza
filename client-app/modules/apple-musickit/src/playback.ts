@@ -20,6 +20,13 @@ export interface PlaybackApi {
     playTrack(track: MusicItem, type?: PlaybackQueueType): Promise<void>;
     /** Replaces the native queue with the specified Apple Music item. */
     setPlaybackQueue(id: string, type: PlaybackQueueType): Promise<void>;
+    /** Replaces the native queue with songs and starts at the requested index. */
+    playSongQueue(
+        tracks: readonly MusicItem[],
+        startIndex?: number,
+    ): Promise<void>;
+    /** Appends songs to the native queue without interrupting playback. */
+    appendSongQueue(tracks: readonly MusicItem[]): Promise<void>;
     /** Starts playback of the current queue entry. */
     play(): Promise<void>;
     /** Pauses playback of the current queue entry. */
@@ -60,6 +67,9 @@ export const Playback: PlaybackApi = {
         ),
     setPlaybackQueue: (id, type) =>
         playbackImplementation.setPlaybackQueue(id, type),
+    playSongQueue: (tracks, startIndex = 0) =>
+        playbackImplementation.playSongQueue(tracks, startIndex),
+    appendSongQueue: (tracks) => playbackImplementation.appendSongQueue(tracks),
     play: () => playbackImplementation.play(),
     pause: () => playbackImplementation.pause(),
     togglePlayerState: () => playbackImplementation.togglePlayerState(),
@@ -92,7 +102,18 @@ interface PlaybackNativeModule {
     restartCurrentEntry(): Promise<void>;
     seekToTime(time: number): Promise<void>;
     setPlaybackQueue(id: string, type: string): Promise<void>;
+    setSongPlaybackQueue(
+        ids: readonly string[],
+        types: readonly string[],
+        startIndex: number,
+    ): Promise<void>;
+    appendSongPlaybackQueue(
+        ids: readonly string[],
+        types: readonly string[],
+    ): Promise<void>;
 }
+
+type NativeSongQueueItem = { id: string; type: string };
 
 let native: PlaybackNativeModule | null = null;
 
@@ -164,6 +185,11 @@ interface PlaybackImplementationApi {
     ): PlaybackSnapshot;
     /** Replaces the native queue with the specified Apple Music item. */
     setPlaybackQueue(id: string, type: PlaybackQueueType): Promise<void>;
+    playSongQueue(
+        tracks: readonly MusicItem[],
+        startIndex: number,
+    ): Promise<void>;
+    appendSongQueue(tracks: readonly MusicItem[]): Promise<void>;
     /** Atomically loads and plays one Apple Music item. */
     playTrack(track: MusicItem, type: PlaybackQueueType): Promise<void>;
     /** Starts playback of the current queue entry. */
@@ -282,13 +308,19 @@ const playbackImplementation: PlaybackImplementationApi = {
         const isSameTrack =
             previousTrack &&
             nativeTrack &&
-            (!nativeTrack.id || nativeTrack.id === previousTrack.id);
+            musicItemsReferToSameResource(previousTrack, nativeTrack);
         const currentTrack = !nativeTrack
             ? previousTrack
             : isSameTrack
               ? {
                     ...previousTrack,
                     ...nativeTrack,
+                    id: previousTrack.id,
+                    source: previousTrack.source,
+                    libraryId: previousTrack.libraryId ?? nativeTrack.libraryId,
+                    catalogId: previousTrack.catalogId ?? nativeTrack.catalogId,
+                    playbackId:
+                        previousTrack.playbackId ?? nativeTrack.playbackId,
                     artworkUrl:
                         previousTrack.artworkUrl || nativeTrack.artworkUrl,
                     artworkUrlLarge:
@@ -433,13 +465,70 @@ const playbackImplementation: PlaybackImplementationApi = {
         await playbackImplementation.reconcilePlaybackSnapshot(commandRevision);
     },
 
+    playSongQueue: async (
+        tracks: readonly MusicItem[],
+        startIndex: number,
+    ): Promise<void> => {
+        const nativeModule = requirePlaybackNative();
+        const playableTracks = tracks.filter((track) =>
+            Boolean(track.playbackId ?? track.id),
+        );
+        const items = normalizeSongQueueItems(playableTracks);
+        if (items.length === 0) return;
+        // `startIndex` addresses the caller's list. Resolve the track it means
+        // first, then find where that track ended up once unplayable entries
+        // were dropped, otherwise the wrong song starts.
+        const requestedTrack =
+            tracks[Math.max(0, Math.min(startIndex, tracks.length - 1))];
+        const requestedId =
+            requestedTrack && (requestedTrack.playbackId ?? requestedTrack.id);
+        const foundIndex = items.findIndex((item) => item.id === requestedId);
+        const boundedIndex = foundIndex >= 0 ? foundIndex : 0;
+        const expectedTrack = playableTracks[boundedIndex];
+        const expectation =
+            playbackImplementation.beginExpectedTrack(expectedTrack);
+
+        try {
+            await playbackImplementation.enqueuePlaybackCommand(async () => {
+                await nativeModule.setSongPlaybackQueue(
+                    items.map(({ id }) => id),
+                    items.map(({ type }) => type),
+                    boundedIndex,
+                );
+                await nativeModule.play();
+            });
+            await playbackImplementation.reconcilePlaybackSnapshot(
+                expectation.revision,
+            );
+        } catch (error) {
+            playbackImplementation.cancelExpectedCurrentTrack(
+                expectedTrack.id,
+                expectation,
+            );
+            throw error;
+        }
+    },
+
+    appendSongQueue: async (tracks: readonly MusicItem[]): Promise<void> => {
+        const items = normalizeSongQueueItems(tracks);
+        if (items.length === 0) return;
+        await playbackImplementation.enqueuePlaybackCommand(() =>
+            requirePlaybackNative().appendSongPlaybackQueue(
+                items.map(({ id }) => id),
+                items.map(({ type }) => type),
+            ),
+        );
+    },
+
     /** Atomically loads and plays one Apple Music item. */
     playTrack: async (
         track: MusicItem,
         type: PlaybackQueueType,
     ): Promise<void> => {
         const nativeModule = requirePlaybackNative();
-        requirePlaybackIdentifier(track.id);
+        const playbackId = requirePlaybackIdentifier(
+            track.playbackId ?? track.id,
+        );
 
         const expectation = playbackImplementation.beginExpectedTrack(track);
         playbackImplementation.updatePlaybackSnapshot({
@@ -449,7 +538,7 @@ const playbackImplementation: PlaybackImplementationApi = {
 
         try {
             await playbackImplementation.enqueuePlaybackCommand(async () => {
-                await nativeModule.setPlaybackQueue(track.id, type);
+                await nativeModule.setPlaybackQueue(playbackId, type);
                 await nativeModule.play();
             });
             await playbackImplementation.reconcilePlaybackSnapshot(
@@ -595,6 +684,16 @@ const playbackImplementation: PlaybackImplementationApi = {
     },
 };
 
+function normalizeSongQueueItems(
+    tracks: readonly MusicItem[],
+): NativeSongQueueItem[] {
+    return tracks.flatMap((track) => {
+        const id = track.playbackId ?? track.id;
+        if (!id) return [];
+        return [{ id, type: track.playbackType ?? PlaybackQueueType.Song }];
+    });
+}
+
 function requirePlaybackNative(): PlaybackNativeModule {
     if (!native) {
         throw new Error(
@@ -604,8 +703,28 @@ function requirePlaybackNative(): PlaybackNativeModule {
     return native;
 }
 
+/**
+ * Android reports a blank id for a library song with no catalog equivalent, so
+ * a snapshot can carry no usable identifier at all. Treat that as "same track"
+ * rather than as a different one, otherwise the optimistic metadata we already
+ * hold gets thrown away on the next poll.
+ */
+function musicItemsReferToSameResource(left: MusicItem, right: MusicItem) {
+    const leftIds = identifiersOf(left);
+    const rightIds = identifiersOf(right);
+    if (rightIds.length === 0 || leftIds.length === 0) return true;
+    return rightIds.some((id) => leftIds.includes(id));
+}
+
+function identifiersOf(item: MusicItem): string[] {
+    return [item.id, item.playbackId, item.catalogId, item.libraryId].filter(
+        (id): id is string => typeof id === "string" && id.trim() !== "",
+    );
+}
+
 function requirePlaybackIdentifier(id: string): string {
     const normalized = id.trim();
-    if (!normalized) throw new Error("Apple Music playback ID cannot be empty.");
+    if (!normalized)
+        throw new Error("Apple Music playback ID cannot be empty.");
     return normalized;
 }
