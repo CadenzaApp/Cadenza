@@ -60,7 +60,12 @@ async fn main() {
         .with_state(app_state);
 
     // show time baby
-    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
+    // Defaults to loopback. Set BIND_ADDR=0.0.0.0:3000 to accept connections
+    // from a phone or another machine on the network.
+    let addr: SocketAddr = env::var("BIND_ADDR")
+        .unwrap_or_else(|_| "127.0.0.1:3000".to_string())
+        .parse()
+        .expect("BIND_ADDR must look like 127.0.0.1:3000");
     println!("Running on http://{}", addr);
 
     axum_server::bind(addr)
