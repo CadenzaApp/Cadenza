@@ -133,7 +133,7 @@ export function findNodeById(
 }
 
 // throws string "incomplete query" if there are null spots in the query
-function queryNodeToJSON(node: QueryNode): QueryJSONNode {
+export function queryNodeToJSON(node: QueryNode): QueryJSONNode {
     if (node.kind === "tag") {
         return Number(node.tag.id);
     }

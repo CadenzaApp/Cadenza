@@ -1,5 +1,5 @@
 import { useAccount } from "@/lib/account";
-import { useTags } from "@/lib/routes/tags";
+import { useUserTags } from "@/lib/routes/tags";
 import { Redirect, useRouter } from "expo-router";
 import { Text } from "@/components/ui/text";
 import { TagPill } from "@/components/custom/tag-pill";
@@ -9,7 +9,7 @@ import { ScrollView, View, Pressable } from "react-native";
 export default function TagsScreen() {
     const router = useRouter();
     const { account } = useAccount();
-    const { tagsWithMeta, tagsLoading, tagsErr } = useTags();
+    const { userTags, userTagsMeta, userTagsLoading, userTagsErr } = useUserTags();
 
     if (!account) return <Redirect href="/auth?initialMode=signin" />;
 
@@ -21,23 +21,23 @@ export default function TagsScreen() {
                         Your Tags
                     </Text>
                     <Text className="text-muted-foreground text-lg mb-5">
-                        {tagsWithMeta?.length ?? '?'} {tagsWithMeta?.length === 1 ? "tag" : "tags"}
+                        {userTags?.length ?? '?'} {userTags?.length === 1 ? "tag" : "tags"}
                     </Text>
                 </View>
 
-                {tagsErr && (
+                {userTagsErr && (
                     <Text className="text-destructive text-sm mb-3">
-                        {JSON.stringify(tagsErr)}
+                        {JSON.stringify(userTagsErr)}
                     </Text>
                 )}
 
-                {tagsLoading ? (
+                {userTagsLoading ? (
                     <Text className="text-muted-foreground text-lg">
                         Loading...
                     </Text>
                 ) : (
                     <View className="flex-row flex-wrap gap-2.5">
-                        {tagsWithMeta?.map(({tag, count}) => (
+                        {userTags?.map(tag => (
                             <Pressable
                                 key={tag.id}
                                 onPress={() =>
@@ -53,7 +53,7 @@ export default function TagsScreen() {
                                 <TagPill
                                     tag={tag}
                                     height={14}
-                                    count={count}
+                                    count={userTagsMeta![tag.id].count}
                                 />
                             </Pressable>
                         ))}

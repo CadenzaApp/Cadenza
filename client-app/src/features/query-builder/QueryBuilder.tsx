@@ -9,7 +9,6 @@ import {
     insertAtSlot,
     removeNode,
     findNodeById,
-    getSongsFromQuery,
 } from "./QueryUtils";
 import { DragProvider } from "./DragContext";
 import { DragGhost } from "./DragGhost";
@@ -18,7 +17,6 @@ import { LogicNodeBox } from "./LogicNode";
 import { DropSlot } from "./DropSlot";
 import { Button } from "@/components/ui/button";
 import { Tag } from "@/lib/types";
-import { useAccount } from "@/lib/account";
 
 const LOGIC_ITEMS: PaletteItem[] = [
     { kind: "logic", operator: "and" },
@@ -28,11 +26,11 @@ const LOGIC_ITEMS: PaletteItem[] = [
 
 type Props = {
     tags: Tag[];
-    onQueryReturn: (matchedSongs: string[]) => any;
+    root: QueryNode | null,
+    setRoot: (root: QueryNode | null) => any,
+    onSubmit: () => any;
 };
-export function QueryBuilder({ tags, onQueryReturn }: Props) {
-    const { account } = useAccount();
-    const [root, setRoot] = useState<QueryNode | null>(null);
+export function QueryBuilder({ tags, root, setRoot, onSubmit }: Props) {
 
     const tagPaletteItems: PaletteItem[] = tags.map((t) => ({
         kind: "tag",
@@ -40,44 +38,21 @@ export function QueryBuilder({ tags, onQueryReturn }: Props) {
     }));
 
     function handleDrop(item: PaletteItem, address: SlotAddress) {
-        setRoot((prev) => {
-            if (item.kind === "logic" && address.nodeId !== "root") {
-                const targetNode = findNodeById(prev, address.nodeId);
-                if (
-                    targetNode?.kind === "logic" &&
-                    targetNode.operator === item.operator
-                ) {
-                    return prev;
-                }
+        // don't allow nesting same type of boolean operation
+        if (item.kind === "logic" && address.nodeId !== "root") {
+            const targetNode = findNodeById(root, address.nodeId);
+            if (
+                targetNode?.kind === "logic" &&
+                targetNode.operator === item.operator
+            ) {
+                return;
             }
-            const next = insertAtSlot(prev, address, item);
-            return next;
-        });
+        }
+        setRoot(insertAtSlot(root, address, item));
     }
 
     function handleRemove(id: string) {
-        setRoot((prev) => {
-            const next = removeNode(prev, id);
-            return next;
-        });
-    }
-
-    async function onSubmit() {
-        if (root == null) {
-            console.error("query is empty!");
-            return;
-        }
-        if (account == null) {
-            console.error("not signed in");
-            return;
-        }
-
-        try {
-            const matchedSongs = await getSongsFromQuery(root, account?.jwt);
-            onQueryReturn(matchedSongs);
-        } catch (e) {
-            console.error("error getting songs from query:", e);
-        }
+        setRoot(removeNode(root, id));
     }
 
     return (

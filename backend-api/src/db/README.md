@@ -10,19 +10,18 @@ The data access layer. Everything that touches postgres lives here, so handlers 
 | `mod.rs` | Declares `entity`, `queries`, `tags`. |
 | `tags.rs` | All tag reads and writes: list, look up, usage counts, tags on a song, songs with a tag, create, delete, apply, unapply. |
 | `queries.rs` | Compiles a boolean tag query from JSON to SQL and runs it. |
-| `entity/` | sea-orm-codegen output. `songs`, `tags`, `tags_applied`, plus `prelude` and `mod`. Do not hand edit. |
+| `entity/` | sea-orm-codegen output. `tags`, `user_tags_applied`, `default_tags_applied`, plus `prelude` and `mod`. Do not hand edit. |
 
 ## Schema
 
-Three tables, all keyed on ids that come from Apple Music.
+Three tables, keyed on song ids that come from Apple Music.
 
-- `songs` - `song_id` (text, pk) and an ignored pgvector `embedding` column. Nothing writes it
-  yet.
-- `tags` - `tag_id` (bigserial pk), `name`, `color`, nullable `user_id`, ignored `embedding`.
-  `(name, user_id)` is unique. **A null `user_id` means the tag is global**, shared by every
-  user. That is what `is_global_tag` checks.
-- `tags_applied` - the join. Composite pk of `(song_id, user_id, tag_id)`. Cascades on delete
-  from both `songs` and `tags`.
+- `tags` - `tag_id` (bigserial pk), `name`, `color`, nullable `user_id`. A null `user_id` means
+  the tag is a default, not owned by any user.
+- `user_tags_applied` - tags a user put on a song. Composite pk of `(song_id, user_id, tag_id)`.
+  Cascades on delete from `tags`. This is the only applied-tag table anything reads today.
+- `default_tags_applied` - default tags on a song, composite pk of `(song_id, tag_id)`, no user.
+  The entity exists but no code reads or writes it yet.
 
 ## The query compiler
 
@@ -36,8 +35,8 @@ number is a tag id:
 `decode_query` wraps it in:
 
 ```sql
-SELECT song_id, tag_id FROM local_tags_applied
-WHERE local_tags_applied.user_id = $1 AND <compiled where clause>
+SELECT song_id, tag_id FROM user_tags_applied
+WHERE user_tags_applied.user_id = $1 AND <compiled where clause>
 ```
 
 `decode_query_json_node` walks the tree and emits one correlated `EXISTS (...)` subquery per tag
@@ -62,20 +61,20 @@ becomes `CadenzaError::QueryFormatError` (422).
 
 ## Gotchas
 
-- **Three names for one table.** The entity declares `tags_applied`, the raw SQL in `queries.rs`
-  reads `local_tags_applied`, and the unique-violation mapping in `src/err.rs` matches on
-  `applied_tags` and `applied_tags_user_id_song_id_fkey`. At most two of these can be right.
-  Check the live schema before trusting any of them, and expect the `err.rs` mapping to be dead.
+- **The error mapping uses old table names.** `src/err.rs` matches on `applied_tags` and
+  `applied_tags_user_id_song_id_fkey`, but the table is `user_tags_applied`. So
+  `TagAlreadyApplied` and `SongNotInLibrary` never fire; those cases fall through to a generic
+  `DatabaseError`.
 - `get_tag` does **not** filter by user, so `GET /tags?tag_id=N` will happily return another
   user's tag. The `song_ids` beside it are correctly user-scoped, so the leak is the tag name and
   color only. Worth fixing.
-- `get_tags_on_song` and `get_songs_with_tag` include global tags (`user_id IS NULL`).
-  `get_all_local_tags` and `get_local_tag_usage_counts` do not. So the tags tab and the tags on a
-  song can disagree, by design.
-- `delete_local_tag` and `unapply_local_tag` silently no-op when nothing matches, rather than
+- Everything here is user scoped and ignores default tags. `get_user_tags_on_song`,
+  `get_songs_with_user_tag`, `get_all_user_tags`, and `get_user_tags_metadata` all filter on
+  `user_id`, and nothing joins `default_tags_applied`.
+- `delete_user_tag` and `unapply_user_tag` silently no-op when nothing matches, rather than
   returning `NotFound`.
-- `embedding` is `#[sea_orm(ignore)]` on both `songs` and `tags`, so it never round trips. It is
-  reserved for future similarity work.
+- `get_user_tags_metadata` returns a `HashMap<i64, TagMetadata>` keyed by tag id. Tags with no
+  applications still get an entry, with `count: 0`.
 
 ---
 Touching files in this directory? Update this README in the same change.

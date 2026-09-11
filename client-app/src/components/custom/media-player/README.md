@@ -28,7 +28,7 @@ artwork, transport, and a swipeable pager between song details and a tag editor.
 Playback state is unaffected either way, because it lives in `PlaybackProvider`, not here.
 
 `media-player.tsx` is the only stateful file. It pulls playback from `usePlayback()`, the user's
-tags from `useTags()`, and the current song's tags from `useTagsOnSong(activeTrack?.id)`, then
+tags from `useUserTags()`, and the current song's tags from `useTagsOnSong(activeTrack?.id)`, then
 merges them into `EditableSongTag[]` (every tag, each flagged `applied`) for the tag editor.
 Toggling a chip calls `useApplyTag` / `useUnapplyTag`, whose invalidation is scoped to that
 `song_id`. Favorites go through `useSongFavoriteStatus`, which updates optimistically.
@@ -45,7 +45,7 @@ snapshot polls, and scrubbing overrides it with `scrubPosition` until release.
 ## Connects to
 
 - `@/lib/playback::usePlayback` for all transport.
-- `@/lib/routes/tags::useTags` and `@/lib/routes/songs` for the tag editor.
+- `@/lib/routes/tags::useUserTags` and `@/lib/routes/songs` for the tag editor.
 - `@/lib/musickit-hooks::useSongFavoriteStatus` for the heart.
 - `@apple-musickit::MusicKit` directly for a few native calls.
 - Mounted by `src/app/_layout.tsx`.

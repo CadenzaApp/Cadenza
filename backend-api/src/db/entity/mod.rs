@@ -2,6 +2,6 @@
 
 pub mod prelude;
 
-pub mod songs;
+pub mod default_tags_applied;
 pub mod tags;
-pub mod tags_applied;
+pub mod user_tags_applied;

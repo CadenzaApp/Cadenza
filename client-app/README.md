@@ -27,6 +27,20 @@ Defined in `tsconfig.json`:
 
 Use them. Relative `../../` imports across directories are the exception, not the rule.
 
+## Data fetching
+
+Nothing in the UI calls `fetch` directly. Components call a hook out of `src/lib/routes/`, which
+is a one to one mirror of the axum routers in `backend-api/src/routes/`. Those hooks are built on
+the three wrappers in `src/lib/api-actions.ts`:
+
+- `useAPIData` for cached GETs that run on mount.
+- `useAPIFetch` for GETs that only run when the user asks.
+- `useAPIMutation` for writes, with an explicit list of caches to invalidate.
+
+There is no automatic invalidation. A mutation that lists nothing leaves stale data on screen.
+The rules, the cache key shape, and how to add an endpoint are in
+[src/lib/README.md](src/lib/README.md).
+
 ## Environment
 
 `client-app/.env`, gitignored. Expo inlines `EXPO_PUBLIC_*` at bundle time.

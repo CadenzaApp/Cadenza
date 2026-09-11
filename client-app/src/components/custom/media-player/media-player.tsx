@@ -27,7 +27,7 @@ import { MediaPlayerPlaybackDetails } from "./playback-details";
 import { MediaPlayerTagEditor } from "./tag-editor";
 import { MediaPlayerTransport } from "./transport-controls";
 import { usePlayback } from "@/lib/playback";
-import { useTags } from "@/lib/routes/tags";
+import { useUserTags } from "@/lib/routes/tags";
 import { useApplyTag, useTagsOnSong, useUnapplyTag } from "@/lib/routes/songs";
 import { MusicKit } from "@apple-musickit";
 import { useSongFavoriteStatus } from "@/lib/musickit-hooks";
@@ -56,13 +56,8 @@ export function MediaPlayer({
         canSkipToNext,
         canSkipToPrevious,
     } = usePlayback();
-    const { tagsWithMeta = [] } = useTags();
-    const tags = tagsWithMeta.map(({ tag }) => tag);
-    const { tagsOnSong } = useTagsOnSong(activeTrack?.id);
-    const appliedTags = [
-        ...(tagsOnSong?.global ?? []),
-        ...(tagsOnSong?.local ?? []),
-    ];
+    const { userTags = [] } = useUserTags();
+    const { tagsOnSong = [] } = useTagsOnSong(activeTrack?.id);
     const { applyTag } = useApplyTag();
     const { unapplyTag } = useUnapplyTag();
     const { colors } = useTheme();
@@ -84,8 +79,8 @@ export function MediaPlayer({
         null,
     );
     const animatedPlaybackProgress = useSharedValue(progress);
-    const appliedTagIds = new Set(appliedTags.map((tag) => tag.id));
-    const songTags = tags.map((tag) => ({
+    const appliedTagIds = new Set(tagsOnSong.map((tag) => tag.id));
+    const songTags = userTags.map((tag) => ({
         ...tag,
         applied: appliedTagIds.has(tag.id),
     }));
@@ -215,10 +210,10 @@ export function MediaPlayer({
 
     async function toggleTag(tagId: number) {
         const songId = activeTrack?.id;
-        const tag = tags.find((candidate) => candidate.id === tagId);
+        const tag = userTags.find((candidate) => candidate.id === tagId);
         if (!songId || !tag) return;
 
-        const isApplied = appliedTags.some(
+        const isApplied = tagsOnSong.some(
             (appliedTag) => appliedTag.id === tagId,
         );
         if (isApplied) await unapplyTag({ song_id: songId, tag_id: tag.id });

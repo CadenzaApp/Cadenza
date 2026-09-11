@@ -78,9 +78,9 @@ sea-orm-cli generate entity -o ./src/db/entity --entity-format dense
 
 ## Connects to
 
-- `client-app/src/lib/swr-utils.ts` is the client's only general path in here. It attaches
-  `Authorization: Bearer <supabase jwt>` to every call.
-- `client-app/src/features/query-builder/QueryUtils.ts` posts to `/queries` directly.
+- `client-app/src/lib/api-actions.ts` is the client's only path in here. It attaches
+  `Authorization: Bearer <supabase jwt>` to every call, and `client-app/src/lib/routes/` mirrors
+  this crate's `src/routes/` one to one.
 - OpenAI's responses api, from `src/services/tag_generation/openai_tag_generator.rs`.
 
 ## Gotchas

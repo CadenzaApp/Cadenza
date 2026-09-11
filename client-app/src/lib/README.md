@@ -9,10 +9,11 @@ native module directly.
 | file | role |
 | --- | --- |
 | `backend.ts` | `BACKEND_URL`. One constant, currently hardcoded. |
-| `swr-utils.ts` | The three generic SWR wrappers plus `clearCache` and `useSimpleMutation`. |
-| `routes/tags.ts` | Hooks for `/tags`: `useTags`, `useTag`, `useCreateTag`, `useDeleteTag`, `useSuggestTags`. |
+| `api-actions.ts` | The three generic SWR wrappers: `useAPIData`, `useAPIFetch`, `useAPIMutation`. |
+| `swr-utils.ts` | `clearCache` and `useSimpleMutation`, for things that are not plain backend calls. |
+| `routes/tags.ts` | Hooks for `/tags`: `useUserTags`, `useTag`, `useCreateTag`, `useDeleteTag`, `useSuggestTags`. |
 | `routes/songs.ts` | Hooks for `/songs/tags`: `useTagsOnSong`, `useApplyTag`, `useUnapplyTag`. |
-| `routes/queries.ts` | Empty except for one import. Query submission lives in the feature instead. |
+| `routes/queries.ts` | Hook for `/queries/results`: `useQueryResults`. |
 | `musickit-hooks.ts` | SWR over the native module: song info, catalog search, library, playlists, favorites. |
 | `account.tsx` | `AccountProvider` / `useAccount`. Supabase session and the JWT. |
 | `apple-music-auth.tsx` | `AppleMusicProvider` / `useAppleMusic`. Apple Music tokens, persisted in secure store. |
@@ -20,42 +21,69 @@ native module directly.
 | `supabase.ts` | The Supabase client, backed by AsyncStorage. |
 | `tag-generation.ts` | A standalone tag suggestion fetch. Does not use the wrappers. See gotchas. |
 | `theme.ts` | `NAV_THEME`, light and dark palettes for react-navigation. |
-| `types.ts` | Shared wire types. Just `Tag` today. |
+| `types.ts` | Shared wire types: `Tag` and `TagMetadata`. |
 | `utils.ts` | `cn()`, the clsx + tailwind-merge helper. |
 
 ## The SWR wrappers
 
-Three, and picking the right one is most of the work:
+Three, in `api-actions.ts`, and picking the right one is most of the work:
 
 | wrapper | for | key |
 | --- | --- | --- |
-| `useAPIData<Output>(path, params?)` | idempotent reads, fetch on mount | `{ path, params }` object |
+| `useAPIData<Output>(path, params?)` | idempotent reads, fetch on mount | `{ keyType: "api-data", path, params }` |
+| `useAPIFetch<In, Out>(path)` | a GET you only want on demand (search, suggestions) | `path` string |
 | `useAPIMutation<Body, Res>(method, path, invalidates?)` | user-triggered writes | `path` string |
-| `useAPIFetch<In, Out>(path, method?)` | a read you only want on demand | `path` string |
 
 All three pull the JWT from `useAccount()` and send `Authorization: Bearer <jwt>`. All three
-throw the parsed error body on a non-2xx, so a caught error is the backend's
-`{ error_type, message }` object, not an `Error`.
+tolerate an empty response body, and all three throw the parsed error body on a non-2xx, so a
+caught error is the backend's `{ error_type, message }` object, not an `Error`.
 
 `useAPIData` disables itself (passes a `null` key) if **any** param value is null or undefined.
 That is how `useTag(undefined)` and `useTagsOnSong(undefined)` stay dormant until an id arrives.
 
-Invalidation is the part to get right. `useAPIMutation` takes a list of `{ path, params }`
-endpoints to invalidate, or a function from the request body to that list, and always adds its
-own `path`. Matching is by `key.path`, with `params: "*"` meaning any params on that path. So:
+Invalidation is the part to get right, and it is entirely manual. `useAPIMutation` takes a list
+of `{ path, params? }` endpoints, or a function from the request body to that list when the key
+depends on what was just written. After a successful request it matches every `api-data` key
+whose `path` is equal and whose `params` are a **superset** of the listed ones. So a bare
+`{ path: "/songs/tags" }` invalidates the tags of every song, while
+`{ path: "/songs/tags", params: { song_id } }` invalidates just the one that changed.
 
 ```ts
-// invalidate only this song's tag list
+// invalidate only this song's tag list, plus the tag counts
 useAPIMutation<ApplyTagPayload, void>("POST", "/songs/tags",
-    ({ song_id }) => [{ path: "/songs/tags", params: { song_id } }]);
-
-// deleting a tag can affect every song, so wildcard
-useAPIMutation<{ tag_id: number }, void>("DELETE", "/tags",
-    [{ path: "/songs/tags", params: "*" }]);
+    ({ song_id }) => [
+        { path: "/songs/tags", params: { song_id } },
+        { path: "/tags" },
+    ]);
 ```
 
-Endpoint hooks in `routes/` wrap these and rename the returned fields to something readable
-(`tagsLoading`, `createTagErr`, and so on). Add a new endpoint there, not inline in a component.
+`invalidatedEndpoints` defaults to `[]`. A mutation that lists nothing leaves every cached
+`useAPIData` entry alone and the UI showing stale data, including caches in other route files.
+
+## `routes/` mirrors `backend-api/src/routes/`
+
+One file per backend router, and every backend endpoint has at least one hook.
+
+| backend | endpoint | hook |
+| --- | --- | --- |
+| `routes/tags.rs` | `GET /tags` | `tags.ts` -> `useUserTags()`, `useTag(tagId)` |
+| | `POST /tags` | `tags.ts` -> `useCreateTag()` |
+| | `DELETE /tags` | `tags.ts` -> `useDeleteTag()` |
+| | `GET /tags/suggest` | `tags.ts` -> `useSuggestTags()` |
+| `routes/songs.rs` | `GET /songs/tags` | `songs.ts` -> `useTagsOnSong(songId)` |
+| | `POST /songs/tags` | `songs.ts` -> `useApplyTag()` |
+| | `DELETE /songs/tags` | `songs.ts` -> `useUnapplyTag()` |
+| `routes/queries.rs` | `GET /queries/results` | `queries.ts` -> `useQueryResults()` |
+
+`GET /tags` has two hooks because the handler returns a tagged union: without `tag_id` it
+responds with `All { tags, metadata }`, with one it responds with `One { tag, song_ids }`.
+`useUserTags` and `useTag` each unwrap one variant.
+
+Adding an endpoint: add the route in `backend-api/src/routes/*.rs`, then add a hook in the
+matching `routes/*.ts` built on one of the three wrappers. For writes, list the endpoints the
+change invalidates. Rename the returned fields to something readable (`tagsOnSong`,
+`tagsOnSongLoading`, `tagsOnSongErr`) rather than re-exporting SWR's `data` / `error` /
+`isLoading`.
 
 `musickit-hooks.ts` does the same job for the native module, using plain `useSWR` with tuple
 keys like `["MusicKit.getSongInfo", ids]`. `useSongFavoriteStatus` is the one optimistic update
@@ -85,22 +113,17 @@ in the codebase, with `rollbackOnError`.
 ## Gotchas
 
 - **`BACKEND_URL` is hardcoded to `http://localhost:3000`.** On a physical device that is the
-  phone, so every SWR hook fails silently against a real backend. Change it to your machine's LAN
+  phone, so every hook fails silently against a real backend. Change it to your machine's LAN
   ip while developing on device. This contradicts `EXPO_PUBLIC_BACKEND_API_URL`, which only
   `tag-generation.ts` reads.
 - **`tag-generation.ts` is a second, parallel path.** It resolves its own base url (env var, then
   the Expo host, then a platform default) and posts to `POST /tag-generation`. The backend has no
   such route; the real one is `GET /tags/suggest`, which `routes/tags.ts::useSuggestTags` already
   wraps correctly. Treat `tag-generation.ts` as dead or stale until proven otherwise.
-- `routes/queries.ts` is effectively empty. Query submission is in
-  `@/features/query-builder/QueryUtils.ts::getSongsFromQuery`, which calls `fetch` directly and
-  therefore has no SWR cache and no invalidation. If you touch it, consider moving it here.
-- The wildcard in `params: "*"` only checks the path. Its per-key comparison loop `continue`s
-  without ever returning false, so a non-wildcard `params` match is looser than it reads.
-- `useAPIMutation` uses the bare `path` as its SWR key, so two hooks on the same path share a
-  mutation key.
-- `swr-utils.ts` reads `account?.jwt` at hook call time. A component rendered before the session
-  is restored sends `Bearer undefined`.
+- `useAPIMutation` and `useAPIFetch` both use the bare `path` as their SWR key, so two hooks on
+  the same path share a mutation key.
+- `api-actions.ts` reads `account?.jwt` at hook call time. A component rendered before the
+  session is restored sends `Bearer undefined`.
 
 ---
 Touching files in this directory? Update this README in the same change.
