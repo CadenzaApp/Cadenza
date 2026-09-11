@@ -3,7 +3,7 @@ import { AuthStatus, type AuthResult } from "@apple-musickit";
 import { Redirect, useRouter } from "expo-router";
 import { useTheme } from "expo-router/react-navigation";
 import { useState } from "react";
-import { Alert, Pressable, ScrollView, View } from "react-native";
+import { Alert, Platform, Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { getAccountInitials } from "@/components/custom/account-initials";
@@ -160,8 +160,13 @@ export default function AccountScreen() {
     }
 
     return (
-        <View className="flex-1 bg-background">
-            <View className="bg-background" style={{ paddingTop: insets.top }}>
+        <View className="flex-1 bg-card">
+            <View
+                className="bg-card"
+                style={{
+                    paddingTop: Platform.OS === "ios" ? 12 : insets.top,
+                }}
+            >
                 <View className="h-16 flex-row items-center justify-between px-5">
                     <Text className="text-3xl font-bold tracking-tight">
                         Account
@@ -189,7 +194,7 @@ export default function AccountScreen() {
                 }}
                 showsVerticalScrollIndicator={false}
             >
-                <Card className="gap-0 py-0">
+                <Card className="gap-0 bg-muted py-0">
                     <CardContent className="flex-row items-center gap-4 py-5">
                         <View className="h-16 w-16 items-center justify-center rounded-full bg-primary">
                             <Text className="text-xl font-semibold text-primary-foreground">
@@ -210,7 +215,7 @@ export default function AccountScreen() {
                     </CardContent>
                 </Card>
 
-                <Card className="gap-0 py-0">
+                <Card className="gap-0 bg-muted py-0">
                     <CardHeader className="py-5 pb-3">
                         <CardTitle className="text-xl">
                             Music Services
@@ -258,7 +263,7 @@ export default function AccountScreen() {
                     </CardContent>
                 </Card>
 
-                <Card className="gap-0 py-0">
+                <Card className="gap-0 bg-muted py-0">
                     <CardHeader className="py-5 pb-3">
                         <CardTitle className="text-xl">Session</CardTitle>
                     </CardHeader>

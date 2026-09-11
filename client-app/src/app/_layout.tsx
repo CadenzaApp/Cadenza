@@ -13,19 +13,14 @@ import "../../global.css";
 
 export default function RootLayout() {
     const { colorScheme } = useColorScheme();
+    const theme = colorScheme === "dark" ? NAV_THEME.dark : NAV_THEME.light;
 
     return (
         <GestureHandlerRootView style={{ flex: 1 }}>
             <AccountProvider>
                 <AppleMusicProvider>
                     <PlaybackProvider>
-                        <ThemeProvider
-                            value={
-                                colorScheme === "dark"
-                                    ? NAV_THEME.dark
-                                    : NAV_THEME.light
-                            }
-                        >
+                        <ThemeProvider value={theme}>
                             <Stack>
                                 <Stack.Screen
                                     name="(splashscreen)/index"
@@ -39,8 +34,16 @@ export default function RootLayout() {
                                     name="account"
                                     options={{
                                         headerShown: false,
-                                        presentation: "fullScreenModal",
-                                        animation: "slide_from_bottom",
+                                        presentation: "formSheet",
+                                        gestureEnabled: true,
+                                        sheetAllowedDetents: [0.94],
+                                        sheetCornerRadius: 28,
+                                        sheetExpandsWhenScrolledToEdge: false,
+                                        sheetGrabberVisible: true,
+                                        sheetInitialDetentIndex: 0,
+                                        contentStyle: {
+                                            backgroundColor: theme.colors.card,
+                                        },
                                     }}
                                 />
                                 <Stack.Screen

@@ -17,7 +17,7 @@ logic out.
 | `(tabs)/cadenza.tsx` | `/cadenza` | Combined Query and Tags workspace. |
 | `(tabs)/library.tsx` | `/library` | The user's Apple Music library, with paging and sorting. |
 | `(tabs)/search.tsx` | `/search` | Apple Music catalog search and paged results. |
-| `account.tsx` | `/account` | Full-screen account modal with Apple Music and session controls. |
+| `account.tsx` | `/account` | Draggable account sheet with Apple Music and session controls. |
 | `tag/[tagId].tsx` | `/tag/:tagId` | One tag and the songs carrying it. |
 | `+not-found.tsx` | | 404. |
 
@@ -56,7 +56,8 @@ authentication both land on `/library`.
 
 Every tab uses `TopRail` as its navigator header. The page title sits on the left, the account
 initials button sits on the right, and the button opens `/account`. The root stack presents that
-route with `fullScreenModal` and a bottom-up animation, so dismissing it returns to the same tab.
+route as a rounded `formSheet` with a visible grabber. It can be closed with the X or dragged
+down, and dismissing it returns to the same tab.
 
 ## Connects to
 
