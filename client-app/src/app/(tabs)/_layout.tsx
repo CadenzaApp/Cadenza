@@ -52,12 +52,25 @@ export default function TabLayout() {
                 }}
             />
             <Tabs.Screen
-                name="explore"
+                name="library"
                 options={{
-                    title: "Explore",
+                    title: "Library",
                     tabBarIcon: ({ color, focused }) => (
                         <Ionicons
-                            name={focused ? "compass-sharp" : "compass-outline"}
+                            name={focused ? "library-sharp" : "library-outline"}
+                            color={color}
+                            size={24}
+                        />
+                    ),
+                }}
+            />
+            <Tabs.Screen
+                name="search"
+                options={{
+                    title: "Search",
+                    tabBarIcon: ({ color, focused }) => (
+                        <Ionicons
+                            name={focused ? "search-sharp" : "search-outline"}
                             color={color}
                             size={24}
                         />

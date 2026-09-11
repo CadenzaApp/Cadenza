@@ -11,10 +11,11 @@ logic out.
 | `_layout.tsx` | root | Provider stack, theme, the `Stack` navigator, `PortalHost`, `MediaPlayerHost`. |
 | `(splashscreen)/index.tsx` | `/` | Calls `tryRestoreSession()`, then replaces to `/home` or `/auth`. |
 | `auth/index.tsx` | `/auth` | Sign in / sign up. Takes an `initialMode` search param. |
-| `(tabs)/_layout.tsx` | | Bottom tab bar, four tabs, Ionicons, colors from the nav theme. |
+| `(tabs)/_layout.tsx` | | Bottom tab bar, five tabs, Ionicons, colors from the nav theme. |
 | `(tabs)/home.tsx` | `/home` | Placeholder. Shows the email and a sign out button. |
 | `(tabs)/cadenza.tsx` | `/cadenza` | Combined Query and Tags workspace. |
-| `(tabs)/explore.tsx` | `/explore` | Apple Music catalog search and library browsing. |
+| `(tabs)/library.tsx` | `/library` | The user's Apple Music library, with paging and sorting. |
+| `(tabs)/search.tsx` | `/search` | Apple Music catalog search and paged results. |
 | `(tabs)/account.tsx` | `/account` | Connect and disconnect Apple Music. |
 | `tag/[tagId].tsx` | `/tag/:tagId` | One tag and the songs carrying it. |
 | `+not-found.tsx` | | 404. |
