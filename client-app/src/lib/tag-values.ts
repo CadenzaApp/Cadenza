@@ -99,7 +99,7 @@ export function formatTagValue(
         case "number":
             return value;
         case "checkbox":
-            return value === "true" ? "Yes" : "No";
+            return value === "true" ? "True" : "False";
         case "datetime": {
             const date = new Date(value);
             if (Number.isNaN(date.getTime())) return value;
