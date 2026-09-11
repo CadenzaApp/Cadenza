@@ -4,7 +4,7 @@ import { Redirect, useRouter } from "expo-router";
 import { useTheme } from "expo-router/react-navigation";
 import { useState } from "react";
 import { Alert, Pressable, ScrollView, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { getAccountInitials } from "@/components/custom/account-initials";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ import { useAppleMusic } from "@/lib/apple-music-auth";
 export default function AccountScreen() {
     const router = useRouter();
     const { colors } = useTheme();
+    const insets = useSafeAreaInsets();
     const { account, signOut } = useAccount();
     const { authResult, isConnected, connect, disconnect } = useAppleMusic();
     const [isConnecting, setIsConnecting] = useState(false);
@@ -159,28 +160,33 @@ export default function AccountScreen() {
     }
 
     return (
-        <SafeAreaView className="flex-1 bg-background">
-            <View className="h-16 flex-row items-center justify-between px-5">
-                <Text className="text-3xl font-bold tracking-tight">
-                    Account
-                </Text>
-                <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="Close account"
-                    hitSlop={8}
-                    onPress={() => router.back()}
-                    className="h-10 w-10 items-center justify-center rounded-full bg-muted"
-                    style={({ pressed }) =>
-                        pressed ? { opacity: 0.65 } : undefined
-                    }
-                >
-                    <Ionicons name="close" size={22} color={colors.text} />
-                </Pressable>
+        <View className="flex-1 bg-background">
+            <View className="bg-background" style={{ paddingTop: insets.top }}>
+                <View className="h-16 flex-row items-center justify-between px-5">
+                    <Text className="text-3xl font-bold tracking-tight">
+                        Account
+                    </Text>
+                    <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="Close account"
+                        hitSlop={8}
+                        onPress={() => router.back()}
+                        className="h-10 w-10 items-center justify-center rounded-full bg-muted"
+                        style={({ pressed }) =>
+                            pressed ? { opacity: 0.65 } : undefined
+                        }
+                    >
+                        <Ionicons name="close" size={22} color={colors.text} />
+                    </Pressable>
+                </View>
             </View>
 
             <ScrollView
                 className="flex-1"
-                contentContainerClassName="gap-4 px-5 pt-3 pb-8"
+                contentContainerClassName="gap-4 px-5 pt-3"
+                contentContainerStyle={{
+                    paddingBottom: Math.max(insets.bottom, 16) + 16,
+                }}
                 showsVerticalScrollIndicator={false}
             >
                 <Card className="gap-0 py-0">
@@ -270,6 +276,6 @@ export default function AccountScreen() {
                     </CardContent>
                 </Card>
             </ScrollView>
-        </SafeAreaView>
+        </View>
     );
 }
