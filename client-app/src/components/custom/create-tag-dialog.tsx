@@ -44,6 +44,11 @@ const DIALOG_BORDER = 1;
 const CHEVRON_SIZE = 16;
 const CHEVRON_GAP = 4;
 
+const HELP_ICON_SIZE = 16;
+const TYPE_HELP_TEXT =
+    "A tag's type decides what kind of value it holds, so you can give each " +
+    "song a value for this tag. A tag's type cannot be changed later.";
+
 const COLOR_COLUMNS = 5;
 const GRID_GAP = 8;
 
@@ -93,6 +98,7 @@ export function CreateTagDialog() {
     const [selectedColor, setSelectedColor] = useState(COLOR_OPTIONS[0]);
     const [selectedType, setSelectedType] = useState<TagType>("basic");
     const [showAdvanced, setShowAdvanced] = useState(false);
+    const [showTypeHelp, setShowTypeHelp] = useState(false);
 
     function resetForm() {
         resetCreateTag();
@@ -100,6 +106,7 @@ export function CreateTagDialog() {
         setSelectedColor(COLOR_OPTIONS[0]);
         setSelectedType("basic");
         setShowAdvanced(false);
+        setShowTypeHelp(false);
     }
 
     function setOpen(val: boolean) {
@@ -209,7 +216,48 @@ export function CreateTagDialog() {
                             className="gap-1.5 mt-1.5"
                             style={{ width: innerWidth }}
                         >
-                            <Label>Type</Label>
+                            <View
+                                className="flex-row items-center"
+                                style={{ gap: 6 }}
+                            >
+                                <Label>Type</Label>
+                                <Pressable
+                                    onPress={() =>
+                                        setShowTypeHelp((prev) => !prev)
+                                    }
+                                    onLongPress={() => setShowTypeHelp(true)}
+                                    hitSlop={10}
+                                    accessibilityRole="button"
+                                    accessibilityLabel="What are tag types?"
+                                    className="border-muted-foreground items-center justify-center rounded-full border"
+                                    style={{
+                                        width: HELP_ICON_SIZE,
+                                        height: HELP_ICON_SIZE,
+                                    }}
+                                >
+                                    <Text
+                                        className="text-muted-foreground font-bold"
+                                        style={{
+                                            fontSize: 10,
+                                            lineHeight: 12,
+                                        }}
+                                    >
+                                        ?
+                                    </Text>
+                                </Pressable>
+                            </View>
+
+                            {showTypeHelp && (
+                                <Pressable
+                                    onPress={() => setShowTypeHelp(false)}
+                                    className="border-border bg-secondary rounded-md border px-3 py-2"
+                                >
+                                    <Text className="text-muted-foreground text-xs">
+                                        {TYPE_HELP_TEXT}
+                                    </Text>
+                                </Pressable>
+                            )}
+
                             <ScrollView
                                 horizontal
                                 showsHorizontalScrollIndicator={false}
@@ -246,8 +294,7 @@ export function CreateTagDialog() {
                                 })}
                             </ScrollView>
                             <Text className="text-muted-foreground text-xs">
-                                {TAG_TYPE_DESCRIPTIONS[selectedType]}. A tag's
-                                type cannot be changed later.
+                                {TAG_TYPE_DESCRIPTIONS[selectedType]}
                             </Text>
                         </View>
                     )}
