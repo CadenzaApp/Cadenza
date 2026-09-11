@@ -47,19 +47,20 @@ mentions them, they are aspirational.
 Read the README for the area you are about to touch **before** you start grepping. Each one
 gives you the file map, the flow, and the gotchas.
 
-| README | Covers |
-| --- | --- |
-| [backend-api/README.md](backend-api/README.md) | Backend setup, env vars, `main.rs` wiring, auth, errors |
-| [backend-api/src/routes/README.md](backend-api/src/routes/README.md) | Every HTTP endpoint and its request/response shape |
-| [backend-api/src/db/README.md](backend-api/src/db/README.md) | Query layer, the tag schema, the boolean query compiler |
-| [backend-api/src/services/README.md](backend-api/src/services/README.md) | LLM tag generation, the `TagGenerator` trait, tag normalization |
-| [client-app/README.md](client-app/README.md) | Client setup, env vars, path aliases, scripts |
-| [client-app/src/app/README.md](client-app/src/app/README.md) | expo-router layout, provider nesting, the five tabs |
-| [client-app/src/lib/README.md](client-app/src/lib/README.md) | SWR wrappers, endpoint hooks, the four providers |
-| [client-app/src/components/README.md](client-app/src/components/README.md) | `ui/` vs `custom/`, and which one gets new code |
-| [client-app/src/components/custom/media-player/README.md](client-app/src/components/custom/media-player/README.md) | The global player surface |
-| [client-app/src/features/query-builder/README.md](client-app/src/features/query-builder/README.md) | The drag and drop boolean query tree |
-| [client-app/modules/apple-musickit/README.md](client-app/modules/apple-musickit/README.md) | Native Apple Music auth, catalog, library, playback, mock mode |
+| README                                                                                                             | Covers                                                          |
+| ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------- |
+| [backend-api/README.md](backend-api/README.md)                                                                     | Backend setup, env vars, `main.rs` wiring, auth, errors         |
+| [backend-api/src/routes/README.md](backend-api/src/routes/README.md)                                               | Every HTTP endpoint and its request/response shape              |
+| [backend-api/src/db/README.md](backend-api/src/db/README.md)                                                       | Query layer, the tag schema, the boolean query compiler         |
+| [backend-api/src/services/README.md](backend-api/src/services/README.md)                                           | LLM tag generation, the `TagGenerator` trait, tag normalization |
+| [client-app/README.md](client-app/README.md)                                                                       | Client setup, env vars, path aliases, scripts                   |
+| [client-app/src/app/README.md](client-app/src/app/README.md)                                                       | expo-router layout, provider nesting, the five tabs             |
+| [client-app/src/lib/README.md](client-app/src/lib/README.md)                                                       | SWR wrappers, endpoint hooks, the four providers                |
+| [client-app/src/components/README.md](client-app/src/components/README.md)                                         | `ui/` vs `custom/`, and which one gets new code                 |
+| [client-app/src/components/custom/media-player/README.md](client-app/src/components/custom/media-player/README.md) | The global player surface                                       |
+| [client-app/src/features/cadenza/README.md](client-app/src/features/cadenza/README.md)                             | Combined tag management and query workspace                     |
+| [client-app/src/features/query-builder/README.md](client-app/src/features/query-builder/README.md)                 | The drag and drop boolean query tree                            |
+| [client-app/modules/apple-musickit/README.md](client-app/modules/apple-musickit/README.md)                         | Native Apple Music auth, catalog, library, playback, mock mode  |
 
 ## Keeping the READMEs current
 

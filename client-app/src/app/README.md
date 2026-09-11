@@ -11,10 +11,9 @@ logic out.
 | `_layout.tsx` | root | Provider stack, theme, the `Stack` navigator, `PortalHost`, `MediaPlayerHost`. |
 | `(splashscreen)/index.tsx` | `/` | Calls `tryRestoreSession()`, then replaces to `/home` or `/auth`. |
 | `auth/index.tsx` | `/auth` | Sign in / sign up. Takes an `initialMode` search param. |
-| `(tabs)/_layout.tsx` | | Bottom tab bar, five tabs, Ionicons, colors from the nav theme. |
+| `(tabs)/_layout.tsx` | | Bottom tab bar, four tabs, Ionicons, colors from the nav theme. |
 | `(tabs)/home.tsx` | `/home` | Placeholder. Shows the email and a sign out button. |
-| `(tabs)/tags.tsx` | `/tags` | The user's tags as pills, with the create-tag dialog. |
-| `(tabs)/query.tsx` | `/query` | Hosts the query builder, then swaps to results. |
+| `(tabs)/cadenza.tsx` | `/cadenza` | Combined Query and Tags workspace. |
 | `(tabs)/explore.tsx` | `/explore` | Apple Music catalog search and library browsing. |
 | `(tabs)/account.tsx` | `/account` | Connect and disconnect Apple Music. |
 | `tag/[tagId].tsx` | `/tag/:tagId` | One tag and the songs carrying it. |
@@ -56,7 +55,7 @@ Every other screen can assume the account is either there or not.
 
 - `@/lib/account`, `@/lib/apple-music-auth`, `@/lib/playback` for the providers.
 - `@/lib/routes/*` and `@/lib/musickit-hooks` for data.
-- `@/features/query-builder` from the query tab.
+- `@/features/cadenza` from the Cadenza tab.
 - `@/components/custom` and `@/components/ui` for everything rendered.
 
 ## Gotchas

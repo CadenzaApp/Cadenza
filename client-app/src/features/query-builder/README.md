@@ -2,31 +2,35 @@
 
 Drag and drop boolean query building. The user drags tags and `AND` / `OR` / `NOT` blocks from a
 palette into a tree, hits submit, and gets back the song ids that match. Rendered by
-`src/app/(tabs)/query.tsx`, which owns the tree state and the fetch.
+`src/features/cadenza/CadenzaScreen.tsx`, which owns the tree state and the fetch.
 
 ## Files
 
-| file | role |
-| --- | --- |
-| `types.ts` | `QueryNode` tree, `PaletteItem`, `SlotAddress`, and `QueryJSONNode` (the wire format). |
-| `QueryBuilder.tsx` | Renders the tree. Takes `root` / `setRoot` / `onSubmit` as props, handles drop and remove. |
-| `QueryUtils.ts` | Pure tree operations plus `queryNodeToJSON`, which compiles the tree for the wire. |
-| `DragContext.tsx` | `DragProvider` / `useDrag`. Drag state, the drop-zone registry, and the node-operator registry. |
-| `DraggablePill.tsx` | A palette item you can pick up. |
-| `DragGhost.tsx` | The thing that follows your finger. |
-| `DropSlot.tsx` | A registered drop target. Highlights when hovered, rejects redundant drops. |
-| `LogicNode.tsx` | Renders an `AND` / `OR` / `NOT` box and its child slots. Exports `OPERATOR_COLORS`. |
-| `PaletteSection.tsx` | The tag palette and the operator palette. |
-| `QueryResults.tsx` | Post-submit view: the matched songs, playable, with the detail modal. |
+| file                 | role                                                                                            |
+| -------------------- | ----------------------------------------------------------------------------------------------- |
+| `types.ts`           | `QueryNode` tree, `PaletteItem`, `SlotAddress`, and `QueryJSONNode` (the wire format).          |
+| `QueryBuilder.tsx`   | Renders the tree. Takes `root` / `setRoot` / `onSubmit` as props, handles drop and remove.      |
+| `QueryUtils.ts`      | Pure tree operations plus `queryNodeToJSON`, which compiles the tree for the wire.              |
+| `DragContext.tsx`    | `DragProvider` / `useDrag`. Drag state, the drop-zone registry, and the node-operator registry. |
+| `DraggablePill.tsx`  | A palette item you can pick up.                                                                 |
+| `DragGhost.tsx`      | The thing that follows your finger.                                                             |
+| `DropSlot.tsx`       | A registered drop target. Highlights when hovered, rejects redundant drops.                     |
+| `LogicNode.tsx`      | Renders an `AND` / `OR` / `NOT` box and its child slots. Exports `OPERATOR_COLORS`.             |
+| `PaletteSection.tsx` | The tag palette and the operator palette.                                                       |
+| `QueryResults.tsx`   | Post-submit view: the matched songs, playable, with the detail modal.                           |
 
 ## The model
 
 A query is a tree of two node kinds:
 
 ```ts
-type QueryNodeTag   = { kind: "tag";   id: string; tag: Tag };
-type QueryNodeLogic = { kind: "logic"; id: string; operator: "and"|"or"|"not";
-                        children: (QueryNode | null)[] };
+type QueryNodeTag = { kind: "tag"; id: string; tag: Tag };
+type QueryNodeLogic = {
+    kind: "logic";
+    id: string;
+    operator: "and" | "or" | "not";
+    children: (QueryNode | null)[];
+};
 ```
 
 `null` children are the empty slots you can drop into. `not` always has exactly one slot.
@@ -56,15 +60,16 @@ checks the same thing again before inserting.
 a logic node becomes `{and: [...]}`, `{or: [...]}`, or `{not: child}`. Any remaining `null` slot
 throws the string `"incomplete query"`.
 
-`src/app/(tabs)/query.tsx` calls `queryNodeToJSON` and hands the result to `useQueryResults()`
-from `@/lib/routes/queries`, which sends it as the `q` param of `GET /queries/results`. Song ids
-come back ordered by relevance (the backend scores each song by how many of the queried tags it
-carries). The query tab feeds those ids to `useSongInfo` for Apple Music metadata, then renders
-`QueryResults`. `resetQuery` clears the results and drops you back on the builder.
+`src/features/cadenza/CadenzaScreen.tsx` calls `queryNodeToJSON` and hands the result to
+`useQueryResults()` from `@/lib/routes/queries`, which sends it as the `q` param of
+`GET /queries/results`. Song ids come back ordered by relevance (the backend scores each song
+by how many of the queried tags it carries). Cadenza feeds those ids to `useSongInfo` for Apple
+Music metadata, then renders `QueryResults`. `resetQuery` clears the results and drops you back
+on the builder.
 
 ## Connects to
 
-- `@/lib/types::Tag`, and `@/lib/routes/queries::useQueryResults` by way of the query tab.
+- `@/lib/types::Tag`, and `@/lib/routes/queries::useQueryResults` by way of Cadenza.
 - `@/components/custom/tag-pill`, `music-list`, `song-detail-modal`.
 - `@/lib/playback` and `@/lib/apple-music-auth` from `QueryResults`.
 - Backend: `GET /queries/results`, compiled to SQL in `backend-api/src/db/queries.rs`.
@@ -72,7 +77,7 @@ carries). The query tab feeds those ids to `useSongInfo` for Apple Music metadat
 ## Gotchas
 
 - `queryNodeToJSON` throws a bare **string**, not an `Error`, on an incomplete query. Nothing
-  catches it in `query.tsx`, so a half-built query throws out of the submit handler with no
+  catches it in Cadenza, so a half-built query throws out of the submit handler with no
   user-visible feedback.
 - `getSongsFromQuery` is still exported from `QueryUtils.ts` but nothing calls it. It posts to
   the old `POST /queries` route, which no longer exists. Dead code.
@@ -86,5 +91,6 @@ carries). The query tab feeds those ids to `useSongInfo` for Apple Music metadat
 - `removeNode` on the root returns `null`, which clears the whole query.
 
 ---
+
 Touching files in this directory? Update this README in the same change.
 See [../../../../AGENT_GUIDE.md](../../../../AGENT_GUIDE.md).

@@ -36,7 +36,9 @@ export default function TagDetailScreen() {
                     }
                 >
                     <Ionicons name="chevron-back" size={20} color="white" />
-                    <Text style={{ color: "white", fontSize: 16 }}>Tags</Text>
+                    <Text style={{ color: "white", fontSize: 16 }}>
+                        Cadenza
+                    </Text>
                 </Pressable>
 
                 {tag ? (
