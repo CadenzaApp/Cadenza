@@ -475,10 +475,15 @@ const playbackImplementation: PlaybackImplementationApi = {
         );
         const items = normalizeSongQueueItems(playableTracks);
         if (items.length === 0) return;
-        const boundedIndex = Math.max(
-            0,
-            Math.min(startIndex, items.length - 1),
-        );
+        // `startIndex` addresses the caller's list. Resolve the track it means
+        // first, then find where that track ended up once unplayable entries
+        // were dropped, otherwise the wrong song starts.
+        const requestedTrack =
+            tracks[Math.max(0, Math.min(startIndex, tracks.length - 1))];
+        const requestedId =
+            requestedTrack && (requestedTrack.playbackId ?? requestedTrack.id);
+        const foundIndex = items.findIndex((item) => item.id === requestedId);
+        const boundedIndex = foundIndex >= 0 ? foundIndex : 0;
         const expectedTrack = playableTracks[boundedIndex];
         const expectation =
             playbackImplementation.beginExpectedTrack(expectedTrack);
@@ -698,10 +703,22 @@ function requirePlaybackNative(): PlaybackNativeModule {
     return native;
 }
 
+/**
+ * Android reports a blank id for a library song with no catalog equivalent, so
+ * a snapshot can carry no usable identifier at all. Treat that as "same track"
+ * rather than as a different one, otherwise the optimistic metadata we already
+ * hold gets thrown away on the next poll.
+ */
 function musicItemsReferToSameResource(left: MusicItem, right: MusicItem) {
-    const ids = [left.id, left.playbackId, left.catalogId, left.libraryId];
-    return [right.id, right.playbackId, right.catalogId, right.libraryId].some(
-        (id) => id != null && ids.includes(id),
+    const leftIds = identifiersOf(left);
+    const rightIds = identifiersOf(right);
+    if (rightIds.length === 0 || leftIds.length === 0) return true;
+    return rightIds.some((id) => leftIds.includes(id));
+}
+
+function identifiersOf(item: MusicItem): string[] {
+    return [item.id, item.playbackId, item.catalogId, item.libraryId].filter(
+        (id): id is string => typeof id === "string" && id.trim() !== "",
     );
 }
 

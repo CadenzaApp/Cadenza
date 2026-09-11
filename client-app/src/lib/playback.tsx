@@ -104,37 +104,45 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
         };
     }, []);
 
-    async function playQueue({ tracks, startIndex = 0 }: PlaybackQueue) {
-        if (!isConnected) {
-            Alert.alert(
-                "Apple Music Not Connected",
-                "Connect Apple Music from the Account tab before playing songs.",
-            );
-            return;
-        }
+    function requireConnected(action: string) {
+        if (isConnected) return true;
+        Alert.alert(
+            "Apple Music Not Connected",
+            `Connect Apple Music from the Account tab ${action}.`,
+        );
+        return false;
+    }
 
+    /** Starts a queue and throws on failure. Callers own the user-facing alert. */
+    async function startQueue({ tracks, startIndex = 0 }: PlaybackQueue) {
         const playableTracks = tracks.filter((track) =>
             Boolean(track.playbackId ?? track.id),
         );
         if (playableTracks.length === 0) return;
 
+        await ensureConnected();
+        const boundedIndex = Math.max(
+            0,
+            Math.min(startIndex, playableTracks.length - 1),
+        );
+        const previousQueue = queue;
+        const previousQueueIndex = queueIndex;
+        setQueue(playableTracks);
+        setQueueIndex(boundedIndex);
         try {
-            await ensureConnected();
-            const boundedIndex = Math.max(
-                0,
-                Math.min(startIndex, playableTracks.length - 1),
-            );
-            const previousQueue = queue;
-            const previousQueueIndex = queueIndex;
-            setQueue(playableTracks);
-            setQueueIndex(boundedIndex);
-            try {
-                await Playback.playSongQueue(playableTracks, boundedIndex);
-            } catch (error) {
-                setQueue(previousQueue);
-                setQueueIndex(previousQueueIndex);
-                throw error;
-            }
+            await Playback.playSongQueue(playableTracks, boundedIndex);
+        } catch (error) {
+            setQueue(previousQueue);
+            setQueueIndex(previousQueueIndex);
+            throw error;
+        }
+    }
+
+    async function playQueue(nextQueue: PlaybackQueue) {
+        if (!requireConnected("before playing songs")) return;
+
+        try {
+            await startQueue(nextQueue);
         } catch (e) {
             console.error("Failed to start playback queue:", e);
             Alert.alert("Playback Error", "Failed to start playback.");
@@ -159,6 +167,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
             }
         } catch (e) {
             console.error("Failed to toggle playback:", e);
+            // playQueue already alerted on the new-track path.
             if (!isNewTrack) {
                 Alert.alert(
                     "Playback Error",
@@ -174,34 +183,33 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
         );
         if (playableTracks.length === 0) return;
 
-        if (!isConnected) {
-            Alert.alert(
-                "Apple Music Not Connected",
-                "Connect Apple Music from the Account tab before adding songs to the queue.",
-            );
+        if (!requireConnected("before adding songs to the queue")) {
             throw new Error("Apple Music is not connected.");
         }
 
         try {
             await ensureConnected();
 
-            if (queue.length > 0 && nativeQueueIndex >= 0) {
-                await Playback.appendSongQueue(playableTracks);
-                setQueue((currentQueue) => [
-                    ...currentQueue,
-                    ...playableTracks,
-                ]);
+            // Nothing is playing, so there is no queue to append to.
+            if (queue.length === 0 && !activeTrack) {
+                await startQueue({ tracks: playableTracks });
                 return;
             }
 
-            if (activeTrack) {
-                await Playback.appendSongQueue(playableTracks);
-                setQueue([activeTrack, ...playableTracks]);
-                setQueueIndex(0);
-                return;
-            }
-
-            await playQueue({ tracks: playableTracks });
+            await Playback.appendSongQueue(playableTracks);
+            setQueue((currentQueue) => {
+                // Keep whatever we already mirror. Falling back to just the
+                // active track would strand the tracks still queued natively,
+                // and skipToNext is bounded by this list.
+                const base =
+                    currentQueue.length > 0
+                        ? currentQueue
+                        : activeTrack
+                          ? [activeTrack]
+                          : [];
+                return [...base, ...playableTracks];
+            });
+            if (queueIndex < 0 && activeTrack) setQueueIndex(0);
         } catch (e) {
             console.error("Failed to add tracks to playback queue:", e);
             Alert.alert("Playback Error", "Failed to add songs to the queue.");
@@ -295,13 +303,20 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     );
 }
 
+/**
+ * Blank ids are dropped from both sides, so a snapshot that carried no usable
+ * identifier matches nothing and the caller falls back to the index it set.
+ * Matching it against an arbitrary queue entry would be worse than not knowing.
+ */
 function samePlayableItem(left: MusicItem, right: MusicItem) {
-    const leftIds = new Set(
-        [left.id, left.playbackId, left.catalogId, left.libraryId].filter(
-            Boolean,
+    const leftIds = playableIdentifiers(left);
+    return [...playableIdentifiers(right)].some((id) => leftIds.has(id));
+}
+
+function playableIdentifiers(item: MusicItem) {
+    return new Set(
+        [item.id, item.playbackId, item.catalogId, item.libraryId].filter(
+            (id): id is string => typeof id === "string" && id.trim() !== "",
         ),
-    );
-    return [right.id, right.playbackId, right.catalogId, right.libraryId].some(
-        (id) => id != null && leftIds.has(id),
     );
 }

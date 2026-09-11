@@ -33,7 +33,7 @@ type SearchPageKey = readonly [
 
 /** Returns cached Apple Music metadata for the supplied song IDs. */
 export function useSongInfo(songIds?: readonly string[] | null) {
-    const { isConnected, sessionRevision } = useAppleMusic();
+    const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
     const normalizedIds = useMemo(
         () => [...new Set(songIds?.filter(Boolean) ?? [])],
         [songIds],
@@ -49,7 +49,7 @@ export function useSongInfo(songIds?: readonly string[] | null) {
     const x = useSWR(key, ([, , ids]) => MusicKit.getSongInfo([...ids]));
     return {
         songInfo: x.data ?? [],
-        songInfoLoading: x.isLoading,
+        songInfoLoading: x.isLoading || isInitializing,
         songInfoErr: x.error,
     };
 }
@@ -59,7 +59,7 @@ export function useSongInfo(songIds?: readonly string[] | null) {
  * incremental pages. The query and all request parameters form the cache key.
  */
 export function useCatalogSongSearch(enabled = true) {
-    const { isConnected, sessionRevision } = useAppleMusic();
+    const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
     const [query, setQuery] = useState<string | null>(null);
     const x = useSWRInfinite<SearchResult>(
         (pageIndex, previousPage) => {
@@ -119,7 +119,7 @@ export function useCatalogSongSearch(enabled = true) {
         clearSearchCatalog,
         loadNextSearchPage,
         hasNextSearchPage: hasNextPage,
-        searchCatalogLoading: x.isLoading,
+        searchCatalogLoading: x.isLoading || isInitializing,
         isLoadingNextSearchPage: isLoadingNextPage,
         searchCatalogErr: x.error,
     };
@@ -136,7 +136,7 @@ export function useTracksFromLibrary({
     enabled?: boolean;
     sort?: LibrarySongSort;
 } = {}) {
-    const { isConnected, sessionRevision } = useAppleMusic();
+    const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
     const x = useSWRInfinite<LibraryResult>(
         (pageIndex, previousPage) => {
             if (!enabled || !isConnected) return null;
@@ -193,7 +193,7 @@ export function useTracksFromLibrary({
 
     return {
         tracks,
-        tracksLoading: x.isLoading,
+        tracksLoading: x.isLoading || isInitializing,
         tracksLoadingNextPage: isLoadingNextPage,
         loadNextLibraryPage,
         hasNextLibraryPage: hasNextPage,
@@ -203,7 +203,7 @@ export function useTracksFromLibrary({
 
 /** Returns cached Apple Music playlists for the supplied request options. */
 export function useUserPlaylists(options: MusicKitOptions = {}) {
-    const { isConnected, sessionRevision } = useAppleMusic();
+    const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
     const x = useSWR(
         isConnected
             ? ["MusicKit.getUserPlaylists", sessionRevision, options]
@@ -212,14 +212,14 @@ export function useUserPlaylists(options: MusicKitOptions = {}) {
     );
     return {
         playlists: x.data,
-        playlistsLoading: x.isLoading,
+        playlistsLoading: x.isLoading || isInitializing,
         playlistsErr: x.error,
     };
 }
 
 /** Returns and updates the cached favorite status for one Apple Music song. */
 export function useSongFavoriteStatus(songId?: string) {
-    const { isConnected, sessionRevision } = useAppleMusic();
+    const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
     const key =
         isConnected && songId
             ? ([
@@ -252,7 +252,7 @@ export function useSongFavoriteStatus(songId?: string) {
 
     return {
         favoriteStatus: x.data,
-        favoriteStatusLoading: x.isLoading,
+        favoriteStatusLoading: x.isLoading || isInitializing,
         favoriteStatusErr: x.error,
         setSongFavoriteStatus,
     };

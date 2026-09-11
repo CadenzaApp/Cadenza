@@ -35,7 +35,8 @@ export interface AppleMusicKitNativeModule {
     catalogSearch(
         query: string,
         types: CatalogSearchType[],
-        options?: MusicKitOptions,
+        limit: number,
+        offset: number,
     ): Promise<SearchResult>;
     getUserPlaylists(options?: MusicKitOptions): Promise<LibraryResult>;
     getLibrarySongs(options?: LibrarySongOptions): Promise<LibraryResult>;

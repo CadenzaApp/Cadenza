@@ -9,7 +9,7 @@ native module directly.
 | file | role |
 | --- | --- |
 | `backend.ts` | `BACKEND_URL`. One constant, currently hardcoded. |
-| `api-actions.ts` | The generic SWR wrappers: `useAPIData`, `useAPIPostDataPages`, `useAPIFetch`, `useAPIMutation`. |
+| `api-actions.ts` | The generic SWR wrappers: `useAPIData`, `useAPIPostDataBatched`, `useAPIFetch`, `useAPIMutation`. |
 | `api-endpoints.ts` | `matchesEndpoint`, the cache-key matcher behind invalidation. Import-free so it can be unit tested. |
 | `swr-utils.ts` | `clearCache` and `useSimpleMutation`, for things that are not plain backend calls. |
 | `routes/tags.ts` | Hooks for `/tags`: `useUserTags`, `useTag`, `useCreateTag`, `useDeleteTag`, `useSuggestTags`. |
@@ -34,7 +34,7 @@ Four, in `api-actions.ts`, and picking the right one is most of the work:
 | wrapper | for | key |
 | --- | --- | --- |
 | `useAPIData<Output>(path, params?)` | idempotent reads, fetch on mount | `{ keyType: "api-data", path, params, accountId }` |
-| `useAPIPostDataPages<In, Out>(path, bodies)` | an idempotent read whose payload is a list, split one page per batch | `{ keyType: "api-data", path, body, accountId }` per page |
+| `useAPIPostDataBatched<Item, Body, Out>(path, items, opts)` | an idempotent read whose payload is a list too long for a query string | `{ keyType: "api-data", path, items, accountId }` |
 | `useAPIFetch<In, Out>(path)` | a GET you only want on demand (search, suggestions) | `path` string |
 | `useAPIMutation<Body, Res>(method, path, invalidates?)` | user-triggered writes | `[method, path, accountId]` |
 
@@ -49,10 +49,14 @@ top of the `clearCache()` that already runs on every account change.
 value is null or undefined. That is how `useTag(undefined)` and `useTagsOnSong(undefined)` stay
 dormant until an id arrives.
 
-`useAPIPostDataPages` exists for reads whose request is a list too long for a query string. The
-caller chunks its ids into one body per page and the hook keeps `useSWRInfinite`'s size pinned
-to the number of batches, so each chunk is cached separately and a growing list only fetches the
-new tail. `useTagsOnSongs` is the one caller.
+`useAPIPostDataBatched` exists for reads whose request is a list too long for a query string. It
+splits the list into parallel requests and merges the responses, but stays **one** `api-data`
+key so invalidation works like every other read. `useTagsOnSongs` is the one caller.
+
+Do not reach for `useSWRInfinite` here. `mutate(filterFn)` skips `$inf$` keys outright, and the
+per-page keys it does visit have no subscribed revalidator, so a filtered `mutate` silently
+does nothing and the data goes stale forever. That is why this wrapper batches inside a single
+`useSWR` instead of paging.
 
 Invalidation is the part to get right, and it is entirely manual. `useAPIMutation` takes a list
 of `{ path, params? }` endpoints, or a function from the request body to that list when the key
@@ -107,8 +111,8 @@ in the codebase, with `rollbackOnError`.
 
 - `AccountProvider` owns the Supabase session. `signIn`, `signUp`, `signOut`, and
   `tryRestoreSession`. Every account change calls `clearCache()`, so switching users cannot leak
-  cached data. It has no loading state on purpose: the splash screen calls `tryRestoreSession`
-  before anything else renders.
+  cached data. It does not log session tokens or account details. It has no loading state on
+  purpose: the splash screen calls `tryRestoreSession` before anything else renders.
 - `AppleMusicProvider` owns the Apple Music developer and user tokens, restores them from
   `expo-secure-store` on mount, and pushes them into the native module. `isConnected` means
   authorized **and** holding a user token. `ensureConnected()` before any playback call.
@@ -132,10 +136,10 @@ in the codebase, with `rollbackOnError`.
 
 ## Gotchas
 
-- **`BACKEND_URL` is hardcoded to `http://localhost:3000`.** On a physical device that is the
-  phone, so every hook fails silently against a real backend. Change it to your machine's LAN
-  ip while developing on device. This contradicts `EXPO_PUBLIC_BACKEND_API_URL`, which only
-  `tag-generation.ts` reads.
+- **`BACKEND_URL` comes from `EXPO_PUBLIC_BACKEND_API_URL`**, falling back to
+  `http://localhost:3000`. On a physical device localhost is the phone, so that fallback only
+  works in a simulator. Metro inlines `EXPO_PUBLIC_*` at bundle time, so editing `.env` needs a
+  metro restart with `--clear`, not just a refresh.
 - **`tag-generation.ts` is a second, parallel path.** It resolves its own base url (env var, then
   the Expo host, then a platform default) and posts to `POST /tag-generation`. The backend has no
   such route; the real one is `GET /tags/suggest`, which `routes/tags.ts::useSuggestTags` already

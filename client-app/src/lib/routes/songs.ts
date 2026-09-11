@@ -1,8 +1,9 @@
 import { useMemo } from "react";
-import { useAPIData, useAPIMutation, useAPIPostDataPages } from "../api-actions";
+import { useAPIData, useAPIMutation, useAPIPostDataBatched } from "../api-actions";
 import { Tag } from "@/lib/types";
 
-const TAGS_ON_SONGS_BATCH_SIZE = 25;
+// the backend caps a batch at 200 ids
+const TAGS_ON_SONGS_BATCH_SIZE = 200;
 
 export function useTagsOnSong(songId?: string) {
     const x = useAPIData<Tag[]>("/songs/tags", {
@@ -22,21 +23,16 @@ export function useTagsOnSongs(songIds: readonly string[]) {
         () => [...new Set(songIds.filter(Boolean))],
         [songIds],
     );
-    const batches = useMemo(
-        () =>
-            chunk(normalizedIds, TAGS_ON_SONGS_BATCH_SIZE).map((song_ids) => ({
-                song_ids,
-            })),
-        [normalizedIds],
-    );
-    const x = useAPIPostDataPages<{ song_ids: string[] }, Record<string, Tag[]>>(
+    const x = useAPIPostDataBatched<string, { song_ids: string[] }, Record<string, Tag[]>>(
         "/songs/tags/batch",
-        batches,
+        normalizedIds,
+        {
+            batchSize: TAGS_ON_SONGS_BATCH_SIZE,
+            toBody: (song_ids) => ({ song_ids }),
+            merge: (responses) => Object.assign({}, ...responses),
+        },
     );
-    const tagsBySong = useMemo<Record<string, Tag[]>>(
-        () => Object.assign({}, ...(x.data ?? [])),
-        [x.data],
-    );
+    const tagsBySong = x.data ?? EMPTY_TAGS_BY_SONG;
 
     return {
         tagsBySong,
@@ -45,13 +41,7 @@ export function useTagsOnSongs(songIds: readonly string[]) {
     };
 }
 
-function chunk<T>(values: readonly T[], size: number): T[][] {
-    const chunks: T[][] = [];
-    for (let index = 0; index < values.length; index += size) {
-        chunks.push(values.slice(index, index + size));
-    }
-    return chunks;
-}
+const EMPTY_TAGS_BY_SONG: Record<string, Tag[]> = {};
 
 type ApplyTagPayload = {
     song_id: string;

@@ -466,10 +466,15 @@ public class AppleMusicKitModule: Module {
         guard !songs.isEmpty else {
             throw Exception(name: "ERR_NOT_FOUND", description: "No queue songs were found.")
         }
-        let boundedIndex = min(max(0, startIndex), songs.count - 1)
+        // `songsForQueue` drops ids it could not resolve, so `startIndex`, which
+        // addresses the caller's list, cannot be used as a position here. Look
+        // up the id it points at and find that song in what actually resolved.
+        let requestedID = ids.indices.contains(startIndex) ? ids[startIndex] : ids.first
+        let startingSong =
+            songs.first(where: { $0.id.rawValue == requestedID }) ?? songs[0]
         ApplicationMusicPlayer.shared.queue = ApplicationMusicPlayer.Queue(
             for: songs,
-            startingAt: songs[boundedIndex])
+            startingAt: startingSong)
     }
 
     @available(iOS 16.0, *)
@@ -590,7 +595,7 @@ public class AppleMusicKitModule: Module {
         }
 
         AsyncFunction("catalogSearch") {
-            (query: String, types: [String], options: [String: Int]) async throws -> [String: Any] in
+            (query: String, types: [String], requestedLimit: Int, requestedOffset: Int) async throws -> [String: Any] in
             guard #available(iOS 15.0, *) else {
                 throw Exception(name: "ERR_UNSUPPORTED", description: "Requires iOS 15.0+")
             }
@@ -598,8 +603,8 @@ public class AppleMusicKitModule: Module {
             let requestedTypes = Set(types.map { $0.lowercased() })
             let searchSongs = requestedTypes.isEmpty || requestedTypes.contains("songs")
             let searchAlbums = requestedTypes.isEmpty || requestedTypes.contains("albums")
-            let limit = min(25, max(1, options["limit"] ?? 25))
-            let offset = max(0, options["offset"] ?? 0)
+            let limit = min(25, max(1, requestedLimit))
+            let offset = max(0, requestedOffset)
 
             // Passing extra result types can make MusicKit fail while decoding a
             // response the caller did not request. Match the requested types (as

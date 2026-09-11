@@ -17,7 +17,13 @@ export function useMusicListSelection(
     const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(
         () => new Set(),
     );
-    const previousSelectedIdsRef = useRef<ReadonlySet<string>>(EMPTY_SELECTION);
+    const clearHapticRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    useEffect(
+        () => () => {
+            if (clearHapticRef.current) clearTimeout(clearHapticRef.current);
+        },
+        [],
+    );
     const enabled = config != null;
     const displayedIds = useMemo(
         () => new Set(displayedTracks.map((track) => track.id)),
@@ -47,25 +53,10 @@ export function useMusicListSelection(
         );
     }, [displayedIds, enabled]);
 
-    useEffect(() => {
-        const previousIds = previousSelectedIdsRef.current;
-        previousSelectedIdsRef.current = selectedIds;
-        const selectionChanged =
-            previousIds.size !== selectedIds.size ||
-            [...selectedIds].some((id) => !previousIds.has(id));
-
-        if (!selectionChanged) return;
-
-        triggerSelectionHaptic();
-        if (previousIds.size > 0 && selectedIds.size === 0) {
-            const secondTap = setTimeout(triggerSelectionHaptic, 150);
-            return () => clearTimeout(secondTap);
-        }
-    }, [selectedIds]);
-
     const beginSelection = useCallback(
         (track: MusicItem) => {
             if (!enabled) return;
+            triggerSelectionHaptic();
             setSelectedIds((currentIds) =>
                 reduceMusicListSelection(currentIds, {
                     type: "select",
@@ -79,6 +70,7 @@ export function useMusicListSelection(
     const toggleSelection = useCallback(
         (track: MusicItem) => {
             if (!enabled) return;
+            triggerSelectionHaptic();
             setSelectedIds((currentIds) =>
                 reduceMusicListSelection(currentIds, {
                     type: "toggle",
@@ -90,6 +82,10 @@ export function useMusicListSelection(
     );
 
     const clearSelection = useCallback(() => {
+        // Double tap, so leaving selection mode feels different from toggling.
+        triggerSelectionHaptic();
+        const secondTap = setTimeout(triggerSelectionHaptic, 150);
+        clearHapticRef.current = secondTap;
         setSelectedIds((currentIds) =>
             reduceMusicListSelection(currentIds, { type: "clear" }),
         );

@@ -1,6 +1,4 @@
-import { useEffect } from "react";
 import useSWR, { mutate } from "swr";
-import useSWRInfinite from "swr/infinite";
 import useSWRMutation from "swr/mutation";
 import { useAccount } from "./account";
 import { BACKEND_URL } from "./backend";
@@ -93,53 +91,65 @@ export function useAPIData<Output>(path: string, params?: Record<string, any>) {
 }
 
 /**
- * Cached idempotent POST reads split into stable pages. One page per body, so
- * a caller batches its request payload and gets a page of results back per batch.
+ * Cached idempotent read whose request payload is a list too long for a query
+ * string. The list is split into batches that run in parallel and are merged
+ * back together, but the whole read is one `api-data` key, so `useAPIMutation`
+ * invalidates it like any other read.
  */
-export function useAPIPostDataPages<Input, Output>(
+export function useAPIPostDataBatched<Item, Body, Output>(
     path: string,
-    bodies: readonly Input[],
+    items: readonly Item[],
+    {
+        batchSize,
+        toBody,
+        merge,
+    }: {
+        batchSize: number;
+        toBody: (batch: Item[]) => Body;
+        merge: (responses: Output[]) => Output;
+    },
 ) {
     const { account } = useAccount();
-    const pages = useSWRInfinite<Output>(
-        (pageIndex) => {
-            const body = bodies[pageIndex];
-            return body === undefined || !account
-                ? null
-                : {
-                      keyType: "api-data",
-                      path,
-                      body,
-                      accountId: account.id,
-                  };
-        },
-        async ({ body }: { body: Input }) => {
-            const resp = await fetch(BACKEND_URL + path, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${account?.jwt}`,
-                },
-                body: JSON.stringify(body),
-            });
-            const json = await responseData(resp);
 
-            if (!resp.ok) {
-                throw json;
-            }
+    return useSWR(
+        account
+            ? { keyType: "api-data", path, items, accountId: account.id }
+            : null,
+        async () => {
+            const responses = await Promise.all(
+                chunk(items, batchSize).map(async (batch) => {
+                    const resp = await fetch(BACKEND_URL + path, {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                            Authorization: `Bearer ${account?.jwt}`,
+                        },
+                        body: JSON.stringify(toBody(batch)),
+                    });
+                    const json = await responseData(resp);
 
-            return json as Output;
+                    if (!resp.ok) {
+                        throw json;
+                    }
+
+                    return json as Output;
+                }),
+            );
+
+            return merge(responses);
         },
+        // the id list grows as a screen pages in, so hold the last result
+        // rather than flashing empty on every new page
+        { keepPreviousData: true },
     );
-    const { setSize, size } = pages;
+}
 
-    useEffect(() => {
-        if (bodies.length > 0 && size !== bodies.length) {
-            void setSize(bodies.length);
-        }
-    }, [bodies.length, setSize, size]);
-
-    return pages;
+function chunk<T>(values: readonly T[], size: number): T[][] {
+    const chunks: T[][] = [];
+    for (let index = 0; index < values.length; index += size) {
+        chunks.push(values.slice(index, index + size));
+    }
+    return chunks;
 }
 
 /** GET/POST requests that only run upon triggered */
@@ -152,14 +162,14 @@ export function useAPIFetch<Input extends Record<string, any>, Output>(
         path,
         async (_: any, { arg: params }: { arg: Input }) => {
             // initialize args to fetch() depending on what method is used
-            path = BACKEND_URL + path + queryParamsToStr(params);
+            const requestPath = BACKEND_URL + path + queryParamsToStr(params);
             const fetchArgs: RequestInit = {
                 headers: {
                     Authorization: `Bearer ${account?.jwt}`,
                 },
             };
 
-            const resp = await fetch(path, fetchArgs);
+            const resp = await fetch(requestPath, fetchArgs);
             const json = await responseData(resp);
 
             if (!resp.ok) {

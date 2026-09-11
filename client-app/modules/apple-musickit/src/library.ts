@@ -37,10 +37,12 @@ export const MusicKit = {
             };
         }
         const normalizedTypes = [...new Set(types)];
+        const { limit, offset } = normalizeCatalogSearchOptions(options);
         return requireNative().catalogSearch(
             normalizedQuery,
             normalizedTypes,
-            normalizeCatalogSearchOptions(options),
+            limit,
+            offset,
         );
     },
 
@@ -121,7 +123,8 @@ interface LibraryNativeModule {
     catalogSearch(
         query: string,
         types: CatalogSearchType[],
-        options: MusicKitOptions,
+        limit: number,
+        offset: number,
     ): Promise<SearchResult>;
     getUserPlaylists(options: MusicKitOptions): Promise<LibraryResult>;
     getLibrarySongs(options: LibrarySongOptions): Promise<LibraryResult>;

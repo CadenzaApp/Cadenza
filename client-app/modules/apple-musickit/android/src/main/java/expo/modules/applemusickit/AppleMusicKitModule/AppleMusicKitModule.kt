@@ -462,9 +462,13 @@ class AppleMusicKitModule : Module() {
             return@AsyncFunction mapOf("isFavorite" to isFavorite)
         }
 
-        AsyncFunction("catalogSearch") { query: String, types: List<String>, options: Map<String, Int> ->
+        AsyncFunction("catalogSearch") { query: String, types: List<String>, requestedLimit: Int, requestedOffset: Int ->
             val encodedQuery = encode(query)
             val typesStr = types.joinToString(",")
+            val options = mapOf(
+                "limit" to requestedLimit.coerceIn(1, 25),
+                "offset" to requestedOffset.coerceAtLeast(0)
+            )
             val response = makeApiRequest(
                 "/v1/catalog/${currentStorefrontId()}/search?term=$encodedQuery&types=$typesStr&${pageQuery(options)}"
             )

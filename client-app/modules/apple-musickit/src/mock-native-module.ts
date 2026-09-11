@@ -635,14 +635,15 @@ export function createMockNativeModule(): AppleMusicKitNativeModule {
         catalogSearch: (
             query: string,
             types: string[],
-            options: MusicKitOptions = {},
+            requestedLimit: number,
+            requestedOffset: number,
         ) => {
             const term = query.trim().toLowerCase();
             const limit = Math.min(
                 SEARCH_LIMIT,
-                Math.max(1, Math.trunc(options.limit ?? SEARCH_LIMIT)),
+                Math.max(1, Math.trunc(requestedLimit)),
             );
-            const offset = Math.max(0, Math.trunc(options.offset ?? 0));
+            const offset = Math.max(0, Math.trunc(requestedOffset));
             const songs = types.includes("songs")
                 ? MOCK_CATALOG_SONGS.filter((song) => matchesQuery(song, term))
                 : [];

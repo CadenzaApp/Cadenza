@@ -21,6 +21,10 @@ Returned `MusicItem` values identify their `resourceKind`, `source`, canonical
 requests accept `limit` and `offset`; results expose Apple's `next` path when a
 later page exists.
 
+Catalog pagination is flattened to scalar `limit` and `offset` arguments at the
+native bridge. The public TypeScript API still accepts an options object. This
+avoids platform-specific object-to-dictionary conversion failures in ExpoModulesCore.
+
 Use `Auth.isAvailable()`, `MusicKit.isAvailable()`, or `Playback.isAvailable()`
 when rendering a surface that may run on web or in Expo Go.
 

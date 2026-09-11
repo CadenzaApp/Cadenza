@@ -139,6 +139,11 @@ export function MusicList({
         },
         [compact, onCompactChange],
     );
+    const abortDensityTransition = useCallback(() => {
+        listOpacity.set(1);
+        setDensityTransitioning(false);
+        setRevealTrackIds(new Set());
+    }, [listOpacity]);
     const beginDensityTransition = useCallback(
         (nextCompact: boolean) => {
             if (nextCompact === isCompact || densityTransitioning) {
@@ -158,12 +163,19 @@ export function MusicList({
                     (finished) => {
                         if (finished) {
                             runOnJS(commitDensityTransition)(nextCompact);
+                        } else {
+                            // Backgrounding the app cancels the fade. Without
+                            // this the revision never bumps, the cleanup effect
+                            // never runs, and the list stays dimmed with the
+                            // pinch guard latched on.
+                            runOnJS(abortDensityTransition)();
                         }
                     },
                 ),
             );
         },
         [
+            abortDensityTransition,
             commitDensityTransition,
             densityTransitioning,
             displayedTracks,
@@ -171,10 +183,18 @@ export function MusicList({
             listOpacity,
         ],
     );
-    const pinchGesture = Gesture.Pinch().onEnd((event) => {
-        if (event.scale <= 0.92) runOnJS(beginDensityTransition)(true);
-        else if (event.scale >= 1.08) runOnJS(beginDensityTransition)(false);
-    });
+    // Rebuilding this every render hands GestureDetector a new gesture ~1.3
+    // times a second, which can swap the handler out mid-pinch.
+    const pinchGesture = useMemo(
+        () =>
+            Gesture.Pinch().onEnd((event) => {
+                if (event.scale <= 0.92)
+                    runOnJS(beginDensityTransition)(true);
+                else if (event.scale >= 1.08)
+                    runOnJS(beginDensityTransition)(false);
+            }),
+        [beginDensityTransition],
+    );
 
     useEffect(() => {
         if (densityTransitionRevision === 0) return;
