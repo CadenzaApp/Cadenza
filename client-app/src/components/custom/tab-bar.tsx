@@ -136,14 +136,9 @@ export function TabBarGlass() {
  */
 function useTabProximity(index: number) {
     const { position } = useTabSelection();
-    return useAnimatedStyle(() => ({
-        opacity: interpolate(
-            Math.abs(position.value - index),
-            [0, 1],
-            [1, 0],
-            "clamp",
-        ),
-    }));
+    return useDerivedValue(() =>
+        interpolate(Math.abs(position.value - index), [0, 1], [1, 0], "clamp"),
+    );
 }
 
 type TabBarIconProps = {
@@ -160,15 +155,21 @@ type TabBarIconProps = {
  */
 export function TabBarIcon({ index, name, size = 24 }: TabBarIconProps) {
     const { colors } = useTheme();
-    const litStyle = useTabProximity(index);
+    const lit = useTabProximity(index);
+    // The two glyphs are not the same shape, so the unselected one has to fade
+    // out as the selected one fades in. Left up, it outlines the selected icon.
+    const unlitStyle = useAnimatedStyle(() => ({ opacity: 1 - lit.value }));
+    const litStyle = useAnimatedStyle(() => ({ opacity: lit.value }));
 
     return (
         <View>
-            <Ionicons
-                name={`${name}-outline` as never}
-                color={colors.text}
-                size={size}
-            />
+            <Animated.View style={unlitStyle}>
+                <Ionicons
+                    name={`${name}-outline` as never}
+                    color={colors.text}
+                    size={size}
+                />
+            </Animated.View>
             <Animated.View style={[StyleSheet.absoluteFill, litStyle]}>
                 <Ionicons
                     name={`${name}-sharp` as never}
@@ -192,15 +193,10 @@ export function TabBarLabel({
     children: ReactNode;
 }) {
     const { colors } = useTheme();
-    const { position } = useTabSelection();
+    const lit = useTabProximity(index);
     const tintStyle = useAnimatedStyle(() => ({
         color: interpolateColor(
-            interpolate(
-                Math.abs(position.value - index),
-                [0, 1],
-                [1, 0],
-                "clamp",
-            ),
+            lit.value,
             [0, 1],
             // The theme types colors as ColorValue; reanimated wants strings.
             [String(colors.text), String(colors.notification)],
