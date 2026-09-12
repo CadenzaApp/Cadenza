@@ -92,10 +92,9 @@ export const MusicKit = {
     getRecentlyAdded: async (
         options?: MusicKitOptions,
     ): Promise<LibraryResult> => {
+        const getRecentlyAdded = requireNativeMethod("getRecentlyAdded");
         return normalizeLibraryResult(
-            await requireNative().getRecentlyAdded(
-                normalizeRecentlyAddedOptions(options),
-            ),
+            await getRecentlyAdded(normalizeRecentlyAddedOptions(options)),
         );
     },
 
@@ -247,6 +246,24 @@ function requireNative(): LibraryNativeModule {
         );
     }
     return native;
+}
+
+/**
+ * Resolves a native call that the installed binary may predate. The JS bundle
+ * reloads on its own, the native module does not, so a method added after the
+ * dev build was compiled is missing rather than broken.
+ */
+function requireNativeMethod<K extends keyof LibraryNativeModule>(
+    name: K,
+): LibraryNativeModule[K] {
+    const nativeModule = requireNative();
+    const method = nativeModule[name];
+    if (typeof method !== "function") {
+        throw new Error(
+            `Apple Music ${String(name)} is missing from the installed native build. Rebuild the app (npx expo run:ios or run:android).`,
+        );
+    }
+    return method.bind(nativeModule) as LibraryNativeModule[K];
 }
 
 function normalizeOptions(
