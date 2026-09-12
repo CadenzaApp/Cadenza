@@ -1,7 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useNavigationState, useTheme } from "expo-router/react-navigation";
 import { createContext, useContext, useEffect, useState } from "react";
-import type { ReactNode } from "react";
+import type { ComponentProps, ReactNode } from "react";
 import { StyleSheet, View } from "react-native";
 import Animated, {
     Easing,
@@ -143,39 +143,32 @@ function useTabProximity(index: number) {
 
 type TabBarIconProps = {
     index: number;
-    /** Ionicons base name. The outline and sharp variants are derived. */
-    name: string;
+    name: ComponentProps<typeof Ionicons>["name"];
     size?: number;
 };
 
 /**
- * The tab icon as two stacked layers, the selected one fading in over the
- * unselected one. A crossfade rather than an animated color, because an icon
- * takes its color from a prop and also changes shape when selected.
+ * The tab icon in two stacked colors, the selected one fading in over the
+ * unselected one. An icon takes its color from a prop rather than from a style,
+ * so a crossfade is what stands in for interpolating it.
+ *
+ * Both layers are the same glyph on purpose. Fading between two different
+ * glyphs shows one through the other for the whole slide, which reads as a
+ * blink.
  */
 export function TabBarIcon({ index, name, size = 24 }: TabBarIconProps) {
     const { colors } = useTheme();
     const lit = useTabProximity(index);
-    // The two glyphs are not the same shape, so the unselected one has to fade
-    // out as the selected one fades in. Left up, it outlines the selected icon.
     const unlitStyle = useAnimatedStyle(() => ({ opacity: 1 - lit.value }));
     const litStyle = useAnimatedStyle(() => ({ opacity: lit.value }));
 
     return (
         <View>
             <Animated.View style={unlitStyle}>
-                <Ionicons
-                    name={`${name}-outline` as never}
-                    color={colors.text}
-                    size={size}
-                />
+                <Ionicons name={name} color={colors.text} size={size} />
             </Animated.View>
             <Animated.View style={[StyleSheet.absoluteFill, litStyle]}>
-                <Ionicons
-                    name={`${name}-sharp` as never}
-                    color={colors.notification}
-                    size={size}
-                />
+                <Ionicons name={name} color={colors.notification} size={size} />
             </Animated.View>
         </View>
     );

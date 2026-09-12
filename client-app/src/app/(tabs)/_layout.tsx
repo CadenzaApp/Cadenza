@@ -87,7 +87,7 @@ export default function TabLayout() {
                     options={{
                         title: "Social",
                         tabBarIcon: () => (
-                            <TabBarIcon index={0} name="people" />
+                            <TabBarIcon index={0} name="people-sharp" />
                         ),
                         tabBarLabel: () => (
                             <TabBarLabel index={0}>Social</TabBarLabel>
@@ -99,7 +99,7 @@ export default function TabLayout() {
                     options={{
                         title: "Analytics",
                         tabBarIcon: () => (
-                            <TabBarIcon index={1} name="stats-chart" />
+                            <TabBarIcon index={1} name="stats-chart-sharp" />
                         ),
                         tabBarLabel: () => (
                             <TabBarLabel index={1}>Analytics</TabBarLabel>
@@ -111,7 +111,7 @@ export default function TabLayout() {
                     options={{
                         title: "Cadenza",
                         tabBarIcon: () => (
-                            <TabBarIcon index={2} name="musical-notes" />
+                            <TabBarIcon index={2} name="musical-notes-sharp" />
                         ),
                         tabBarLabel: () => (
                             <TabBarLabel index={2}>Cadenza</TabBarLabel>
@@ -123,7 +123,7 @@ export default function TabLayout() {
                     options={{
                         title: "Library",
                         tabBarIcon: () => (
-                            <TabBarIcon index={3} name="library" />
+                            <TabBarIcon index={3} name="library-sharp" />
                         ),
                         tabBarLabel: () => (
                             <TabBarLabel index={3}>Library</TabBarLabel>
@@ -135,7 +135,7 @@ export default function TabLayout() {
                     options={{
                         title: "Search",
                         tabBarIcon: () => (
-                            <TabBarIcon index={4} name="search" />
+                            <TabBarIcon index={4} name="search-sharp" />
                         ),
                         tabBarLabel: () => (
                             <TabBarLabel index={4}>Search</TabBarLabel>

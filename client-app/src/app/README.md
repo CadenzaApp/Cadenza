@@ -83,7 +83,7 @@ Both pills are inset with `marginHorizontal: TAB_BAR_MARGIN`, not `left`/`right`
 The selected tab gets its own glass bubble, and the bubble slides between tabs rather than
 jumping. All of that is `@/components/custom/tab-bar`: `TabBarGlass` is the `tabBarBackground`
 and draws both the bar and the bubble, `TabBarIcon` and `TabBarLabel` tint off how close the
-bubble is, and `TabSelectionProvider` wraps the navigator so the three share one animated
+bubble is, so a tab is the same glyph throughout and only its color moves, and `TabSelectionProvider` wraps the navigator so the three share one animated
 position. The navigator's own `tabBarActiveBackgroundColor` cannot do this: it paints the item
 box square and it has no in-between state.
 
