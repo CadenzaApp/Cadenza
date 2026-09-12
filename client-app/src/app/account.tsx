@@ -1,21 +1,19 @@
-import Ionicons from "@expo/vector-icons/Ionicons";
 import { AuthStatus, type AuthResult } from "@apple-musickit";
 import { Redirect, useRouter } from "expo-router";
-import { useTheme } from "expo-router/react-navigation";
 import { useState } from "react";
-import { Alert, Platform, Pressable, ScrollView, View } from "react-native";
+import { Alert, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { getAccountInitials } from "@/components/custom/account-initials";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { SheetScreen } from "@/components/ui/sheet-screen";
 import { Text } from "@/components/ui/text";
 import { useAccount } from "@/lib/account";
 import { useAppleMusic } from "@/lib/apple-music-auth";
 
 export default function AccountScreen() {
     const router = useRouter();
-    const { colors } = useTheme();
     const insets = useSafeAreaInsets();
     const { account, signOut } = useAccount();
     const { authResult, isConnected, connect, disconnect } = useAppleMusic();
@@ -160,32 +158,7 @@ export default function AccountScreen() {
     }
 
     return (
-        <View className="flex-1 bg-card">
-            <View
-                className="bg-card"
-                style={{
-                    paddingTop: Platform.OS === "ios" ? 12 : insets.top,
-                }}
-            >
-                <View className="h-16 flex-row items-center justify-between px-5">
-                    <Text className="text-3xl font-bold tracking-tight">
-                        Account
-                    </Text>
-                    <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel="Close account"
-                        hitSlop={8}
-                        onPress={() => router.back()}
-                        className="h-10 w-10 items-center justify-center rounded-full bg-muted"
-                        style={({ pressed }) =>
-                            pressed ? { opacity: 0.65 } : undefined
-                        }
-                    >
-                        <Ionicons name="close" size={22} color={colors.text} />
-                    </Pressable>
-                </View>
-            </View>
-
+        <SheetScreen title="Account">
             <ScrollView
                 className="flex-1"
                 contentContainerClassName="gap-4 px-5 pt-3"
@@ -281,6 +254,6 @@ export default function AccountScreen() {
                     </CardContent>
                 </Card>
             </ScrollView>
-        </View>
+        </SheetScreen>
     );
 }

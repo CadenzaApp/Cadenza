@@ -15,15 +15,16 @@ native module directly.
 | `routes/tags.ts` | Hooks for `/tags`: `useUserTags`, `useTag`, `useCreateTag`, `useDeleteTag`, `useSuggestTags`. |
 | `routes/songs.ts` | Hooks for `/songs/tags`: `useTagsOnSong`, `useTagsOnSongs`, `useApplyTag`, `useUnapplyTag`. |
 | `routes/queries.ts` | Hook for `/queries/results`: `useQueryResults`. |
-| `musickit-hooks.ts` | SWR over the native module: song info, catalog search, library, playlists, favorites. |
+| `musickit-hooks.ts` | SWR over the native module: song info, catalog search, library songs, albums, playlists, collection contents, favorites, artists, playlist writes. |
 | `account.tsx` | `AccountProvider` / `useAccount`. Supabase session and the JWT. |
 | `apple-music-auth.tsx` | `AppleMusicProvider` / `useAppleMusic`. Apple Music tokens, persisted in secure store. |
 | `playback.tsx` | `PlaybackProvider`, `usePlayback` (state) and `usePlaybackCommands` (actions). Queue and the native playback snapshot. |
+| `queue-order.ts` | Pure index math for the queue mirror. Tested in `queue-order.test.ts`. |
 | `supabase.ts` | The Supabase client, backed by AsyncStorage. |
 | `tag-generation.ts` | A standalone tag suggestion fetch. Does not use the wrappers. See gotchas. |
-| `theme.ts` | `NAV_THEME`, light and dark palettes for react-navigation. |
+| `theme.ts` | `NAV_THEME`, light and dark palettes for react-navigation, and `sheetScreenOptions` for sheet routes. |
 | `error-utils.ts` | `getErrorDetails` / `getErrorMessage`, for unwrapping native and backend errors. |
-| `screen-overlay.ts` | `useScreenOverlayInsets`. How much bottom padding a screen owes the compact player and the floating button. |
+| `screen-overlay.ts` | `useScreenOverlayInsets`, plus the geometry constants for both floating bottom bars. Also `useBaseRouteSegment`, the root segment ignoring any sheet presented on top. |
 | `types.ts` | Shared wire types: `Tag` and `TagMetadata`. |
 | `utils.ts` | `cn()`, the clsx + tailwind-merge helper. |
 
@@ -105,7 +106,35 @@ change invalidates. Rename the returned fields to something readable (`tagsOnSon
 
 `musickit-hooks.ts` does the same job for the native module, using plain `useSWR` with tuple
 keys like `["MusicKit.getSongInfo", ids]`. `useSongFavoriteStatus` is the one optimistic update
-in the codebase, with `rollbackOnError`.
+in the codebase, with `rollbackOnError`. `usePlaylistMutations` is the exception to the wrapper
+rule: playlist writes are not backend calls, so they are plain async functions that invalidate
+every cached playlist key by predicate afterwards.
+
+Every paged library read goes through one internal hook, `usePagedLibraryResult`. It owns the
+offset loop (request a page, read `nextOffset`, stop when the native side says there is no next
+page), so `useTracksFromLibrary`, `useLibraryAlbums`, `useUserPlaylists`, and
+`useCollectionSongs` are each only a key builder and a fetch. Adding another paged library read
+means writing those two things and nothing else.
+
+`useCollectionSongs(kind, id)` takes `"album" | "playlist"` rather than splitting into two
+hooks, so a screen that renders either does not branch. Pass the collection's `libraryId`.
+
+## Bottom overlay geometry
+
+`screen-overlay.ts` owns where the two floating bottom bars sit, because both the bars and the
+padding screens leave for them have to come from the same numbers.
+
+Neither bar is in the layout: the tab bar is `position: "absolute"` and the compact player is
+positioned by `compactPlayerBottom`. **Nothing reserves space for them**, so every scrolling
+surface owes itself `contentBottomInset` (or `listBottomInset` when a floating button is also
+over it), or its last row hides under a bar.
+
+Sheet content is the exception. `SheetScreen` puts `InsideSheetContext` around its body, and the
+hook then returns sheet-local numbers: no tab bar, no compact player, just the safe area. A
+`MusicList` inside a sheet would otherwise leave a tab bar's worth of dead space at the bottom.
+
+`TAB_BAR_HEIGHT` and `TAB_BAR_MARGIN` are also what `(tabs)/_layout.tsx` styles the bar with.
+Change one and the other has to match.
 
 ## The providers
 
@@ -118,10 +147,20 @@ in the codebase, with `rollbackOnError`.
   authorized **and** holding a user token. `ensureConnected()` before any playback call.
 - `PlaybackProvider` hands the queue to the native player (`playSongQueue`, `appendSongQueue`)
   and mirrors it, since the snapshot reports the current track but not its position in the
-  queue. It finds the index by matching the snapshot track against the mirrored list, and falls
-  back to the last index it set. It polls `refreshPlaybackSnapshot()` every 750ms while the app
-  is foregrounded. This is deliberately not SWR: it is a subscription to continuously changing
-  native state, not a cached read.
+  queue. It finds the index by matching the snapshot track against the mirrored list, searching
+  outward from the index it already believes in, and falls back to the last index it set.
+  Searching outward is what makes a queue holding the same song twice work. It polls
+  `refreshPlaybackSnapshot()` every 750ms while the app is foregrounded. This is deliberately
+  not SWR: it is a subscription to continuously changing native state, not a cached read.
+- Queue edits (`moveQueueItem`, `removeQueueItem`, `playQueueItem`, `playNext`) go through one
+  internal `mutateQueue`, which moves the mirror first so the list does not lag the drag, then
+  applies the native command and rolls the mirror back if it throws. A mirror that disagrees
+  with native would send every later index-addressed command to the wrong song, so it must never
+  be allowed to drift. The math itself is in `queue-order.ts`, which the mock native module
+  mirrors, so the two cannot diverge silently.
+- Positions in `usePlayback()` address the whole queue, counting the song that is playing. That
+  is the index space the native module takes. `upcoming` is a convenience slice, and a caller
+  working in its positions owes itself the conversion.
 - The provider exposes two contexts on purpose. `usePlayback()` is the state, and re-renders
   every 750ms as progress ticks. `usePlaybackCommands()` is the actions, and its identity never
   changes, so a list row can hold a play handler without re-rendering on every tick. Reach for

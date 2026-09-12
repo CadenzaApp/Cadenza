@@ -59,6 +59,7 @@ gives you the file map, the flow, and the gotchas.
 | [client-app/src/components/README.md](client-app/src/components/README.md)                                         | `ui/` vs `custom/`, and which one gets new code                 |
 | [client-app/src/components/custom/media-player/README.md](client-app/src/components/custom/media-player/README.md) | The global player surface                                       |
 | [client-app/src/features/cadenza/README.md](client-app/src/features/cadenza/README.md)                             | Combined tag management and query workspace                     |
+| [client-app/src/features/library/README.md](client-app/src/features/library/README.md)                             | The library type filter in the top rail                         |
 | [client-app/src/features/query-builder/README.md](client-app/src/features/query-builder/README.md)                 | The drag and drop boolean query tree                            |
 | [client-app/modules/apple-musickit/README.md](client-app/modules/apple-musickit/README.md)                         | Native Apple Music auth, catalog, library, playback, mock mode  |
 

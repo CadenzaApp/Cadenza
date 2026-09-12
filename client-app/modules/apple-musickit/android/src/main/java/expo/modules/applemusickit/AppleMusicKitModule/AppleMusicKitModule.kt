@@ -13,6 +13,9 @@ import com.apple.android.music.playback.queue.CatalogPlaybackQueueItemProvider
 import com.apple.android.music.playback.queue.PlaybackQueueInsertionType
 import com.apple.android.music.playback.model.MediaContainerType
 import com.apple.android.music.playback.model.MediaItemType
+import com.apple.android.music.playback.model.PlaybackQueueMoveTargetType
+import com.apple.android.music.playback.model.PlaybackRepeatMode
+import com.apple.android.music.playback.model.PlaybackShuffleMode
 import com.apple.android.music.playback.model.PlaybackState
 import com.apple.android.music.playback.model.PlayerMediaItem
 import expo.modules.kotlin.Promise
@@ -147,6 +150,15 @@ class AppleMusicKitModule : Module() {
         if (durationMs > 0) snapshot["duration"] = durationMs / 1000.0
         controller.currentItem?.item?.let {
             snapshot["currentTrack"] = formatPlayerMediaItem(it)
+        }
+        snapshot["shuffleMode"] = when (controller.shuffleMode) {
+            PlaybackShuffleMode.SHUFFLE_MODE_SONGS -> "songs"
+            else -> "off"
+        }
+        snapshot["repeatMode"] = when (controller.repeatMode) {
+            PlaybackRepeatMode.REPEAT_MODE_ONE -> "one"
+            PlaybackRepeatMode.REPEAT_MODE_ALL -> "all"
+            else -> "off"
         }
 
         return snapshot
@@ -506,6 +518,250 @@ class AppleMusicKitModule : Module() {
                 makeApiRequest("/v1/me/library/playlists/${encode(playlistId)}/tracks?${pageQuery(options)}&include=albums")
             )
         }
+        AsyncFunction("getLibraryAlbums") { options: Map<String, Int> ->
+            return@AsyncFunction collectionResult(
+                makeApiRequest("/v1/me/library/albums?${pageQuery(options)}")
+            )
+        }
+        AsyncFunction("getRecentlyAdded") { options: Map<String, Int> ->
+            // Apple's own recently added feed: albums, playlists, and loose
+            // songs in one list, already grouped the way Music groups them.
+            return@AsyncFunction collectionResult(
+                makeApiRequest("/v1/me/library/recently-added?${pageQuery(options)}")
+            )
+        }
+        AsyncFunction("getAlbumSongs") { albumId: String, options: Map<String, Int> ->
+            // Library album ids carry a prefix; a bare one came from the
+            // catalog, which is what a song's albumID is, and lives elsewhere.
+            val path = if (albumId.contains(".")) {
+                "/v1/me/library/albums/${encode(albumId)}/tracks?${pageQuery(options)}&include=albums"
+            } else {
+                "/v1/catalog/${currentStorefrontId()}/albums/${encode(albumId)}/tracks?${pageQuery(options)}&include=albums"
+            }
+            return@AsyncFunction collectionResult(makeApiRequest(path))
+        }
+
+        AsyncFunction("insertSongsNextInQueue") {
+            ids: List<String>, _types: List<String>, promise: Promise ->
+            val songIds = ids.toTypedArray()
+            if (songIds.isEmpty()) {
+                promise.resolve(null)
+                return@AsyncFunction
+            }
+            val provider = CatalogPlaybackQueueItemProvider.Builder()
+                .items(MediaItemType.SONG, *songIds)
+                .build()
+
+            Handler(Looper.getMainLooper()).post {
+                withController(promise) { controller ->
+                    controller.addQueueItems(
+                        provider,
+                        PlaybackQueueInsertionType.INSERTION_TYPE_AFTER_CURRENT_ITEM
+                    )
+                }
+            }
+        }
+
+        AsyncFunction("moveQueueItem") { fromIndex: Int, toIndex: Int, promise: Promise ->
+            Handler(Looper.getMainLooper()).post {
+                withController(promise) { controller ->
+                    val items = controller.queueItems
+                    if (fromIndex !in items.indices || toIndex !in items.indices ||
+                        fromIndex == toIndex
+                    ) {
+                        return@withController
+                    }
+
+                    // The SDK moves relative to another entry rather than to an
+                    // index, so which side of the target depends on direction.
+                    val target = if (fromIndex < toIndex) {
+                        PlaybackQueueMoveTargetType.MOVE_AFTER_TARGET
+                    } else {
+                        PlaybackQueueMoveTargetType.MOVE_BEFORE_TARGET
+                    }
+                    controller.moveQueueItemWithId(
+                        items[fromIndex].playbackQueueId,
+                        items[toIndex].playbackQueueId,
+                        target
+                    )
+                }
+            }
+        }
+
+        AsyncFunction("removeQueueItem") { index: Int, promise: Promise ->
+            Handler(Looper.getMainLooper()).post {
+                withController(promise) { controller ->
+                    val items = controller.queueItems
+                    if (index in items.indices) {
+                        controller.removeQueueItemWithId(items[index].playbackQueueId)
+                    }
+                }
+            }
+        }
+
+        AsyncFunction("playQueueItem") { index: Int, promise: Promise ->
+            Handler(Looper.getMainLooper()).post {
+                withController(promise) { controller ->
+                    val items = controller.queueItems
+                    if (index !in items.indices) return@withController
+
+                    val current = controller.playbackQueueIndex
+                    if (index == current) return@withController
+
+                    // Skipping forward drops what was skipped over, which is
+                    // what iOS does and what the JS queue mirror expects.
+                    if (index > current && current >= 0) {
+                        for (position in (current + 1) until index) {
+                            controller.removeQueueItemWithId(
+                                items[position].playbackQueueId
+                            )
+                        }
+                    }
+                    controller.skipToQueueItemWithId(items[index].playbackQueueId)
+                }
+            }
+        }
+
+        AsyncFunction("setShuffleMode") { mode: String, promise: Promise ->
+            Handler(Looper.getMainLooper()).post {
+                withController(promise) { controller ->
+                    if (!controller.canSetShuffleMode()) {
+                        throw Exception("Apple Music cannot shuffle this queue.")
+                    }
+                    controller.setShuffleMode(
+                        if (mode == "songs") PlaybackShuffleMode.SHUFFLE_MODE_SONGS
+                        else PlaybackShuffleMode.SHUFFLE_MODE_OFF
+                    )
+                }
+            }
+        }
+
+        AsyncFunction("setRepeatMode") { mode: String, promise: Promise ->
+            Handler(Looper.getMainLooper()).post {
+                withController(promise) { controller ->
+                    if (!controller.canSetRepeatMode()) {
+                        throw Exception("Apple Music cannot repeat this queue.")
+                    }
+                    controller.setRepeatMode(
+                        when (mode) {
+                            "one" -> PlaybackRepeatMode.REPEAT_MODE_ONE
+                            "all" -> PlaybackRepeatMode.REPEAT_MODE_ALL
+                            else -> PlaybackRepeatMode.REPEAT_MODE_OFF
+                        }
+                    )
+                }
+            }
+        }
+
+        AsyncFunction("addSongsToPlaylist") { playlistId: String, ids: List<String> ->
+            val trackData = playlistTrackData(ids)
+            if (trackData.isNotEmpty()) {
+                makeApiRequest(
+                    "/v1/me/library/playlists/${encode(playlistId)}/tracks",
+                    "POST",
+                    JSONObject(mapOf("data" to JSONArray(trackData))).toString()
+                )
+            }
+            return@AsyncFunction null
+        }
+
+        AsyncFunction("createPlaylist") { name: String, ids: List<String> ->
+            val payload = JSONObject()
+            payload.put("attributes", JSONObject(mapOf("name" to name)))
+            val trackData = playlistTrackData(ids)
+            if (trackData.isNotEmpty()) {
+                payload.put(
+                    "relationships",
+                    JSONObject(
+                        mapOf(
+                            "tracks" to JSONObject(
+                                mapOf("data" to JSONArray(trackData))
+                            )
+                        )
+                    )
+                )
+            }
+
+            val response = makeApiRequest(
+                "/v1/me/library/playlists", "POST", payload.toString()
+            )
+            val playlist = objectList(response["data"]).firstOrNull()
+                ?: throw Exception("Apple Music did not return the new playlist.")
+            return@AsyncFunction formatMediaItem(playlist)
+        }
+
+        AsyncFunction("getSongArtists") { songId: String ->
+            val catalogId = resolveCatalogSongId(songId)
+            val response = makeApiRequest(
+                "/v1/catalog/${currentStorefrontId()}/songs/${encode(catalogId)}?include=artists"
+            )
+            val song = objectList(response["data"]).firstOrNull()
+            val relationships = song?.get("relationships") as? Map<*, *>
+            val artists = relationships?.get("artists") as? Map<*, *>
+            return@AsyncFunction objectList(artists?.get("data")).mapNotNull {
+                it["id"]?.toString()
+            }
+        }
+
+        AsyncFunction("getArtist") { artistId: String ->
+            val response = makeApiRequest(
+                "/v1/catalog/${currentStorefrontId()}/artists/${encode(artistId)}" +
+                    "?views=top-songs,full-albums"
+            )
+            val artist = objectList(response["data"]).firstOrNull()
+                ?: throw Exception("No Apple Music artist with ID $artistId.")
+            val attributes = artist["attributes"] as? Map<*, *>
+            val views = artist["views"] as? Map<*, *>
+
+            val result = mutableMapOf<String, Any>(
+                "id" to (artist["id"]?.toString() ?: artistId),
+                "name" to (attributes?.get("name") ?: "Unknown Artist"),
+                "topSongs" to viewResources(views?.get("top-songs")),
+                "albums" to viewResources(views?.get("full-albums"))
+            )
+            attributes?.get("genreNames")?.let { result["genres"] = it }
+            attributes?.get("url")?.toString()?.takeIf { it.isNotBlank() }?.let {
+                result["shareUrl"] = it
+            }
+            val artwork = attributes?.get("artwork") as? Map<*, *>
+            artwork?.get("url")?.toString()?.let {
+                result["artworkUrl"] = it.replace("{w}", "600").replace("{h}", "600")
+            }
+            return@AsyncFunction result
+        }
+    }
+
+    /**
+     * Runs a queue command against the player, rejecting rather than silently
+     * doing nothing when there is no player yet. Every one of these commands
+     * has to be posted to the main looper, so they all look the same.
+     */
+    private fun withController(promise: Promise, body: (MediaPlayerController) -> Unit) {
+        val controller = getOrCreatePlayerController()
+        if (controller == null) {
+            promise.reject("ERR_PLAYER_UNAVAILABLE", "Apple Music player is unavailable", null)
+            return
+        }
+        try {
+            body(controller)
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("ERR_QUEUE_COMMAND", e.message, e)
+        }
+    }
+
+    /**
+     * Playlist writes address catalog songs, so a library-only id has to be
+     * resolved first or Apple rejects the whole request.
+     */
+    private fun playlistTrackData(ids: List<String>): List<JSONObject> =
+        ids.map { id ->
+            JSONObject(mapOf("id" to resolveCatalogSongId(id), "type" to "songs"))
+        }
+
+    private fun viewResources(view: Any?): List<Map<String, Any>> {
+        val data = (view as? Map<*, *>)?.get("data")
+        return objectList(data).map { formatMediaItem(it) }
     }
 
     private fun resolveCatalogSongId(id: String): String {
@@ -692,6 +948,10 @@ class AppleMusicKitModule : Module() {
         if (albumId != null) {
             result["albumID"] = albumId
         }
+
+        val artistsData = (relationships?.get("artists") as? Map<*, *>)?.get("data") as? List<*>
+        val firstArtist = artistsData?.firstOrNull() as? Map<*, *>
+        firstArtist?.get("id")?.toString()?.let { result["artistId"] = it }
 
         return result
     }

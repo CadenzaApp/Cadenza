@@ -1,37 +1,45 @@
 import { useRouter } from "expo-router";
 import { Pressable, ScrollView, View } from "react-native";
 
-import { CreateTagDialog } from "@/components/custom/create-tag-dialog";
+import { CreateTagBubble } from "@/components/custom/create-tag-dialog";
 import { TagPill } from "@/components/custom/tag-pill";
 import { Text } from "@/components/ui/text";
-import type { Tag, TagMetadata } from "@/lib/types";
+import { useUserTags } from "@/lib/routes/tags";
+import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 
-type Props = {
-    tags?: Tag[];
-    metadata?: Record<number, TagMetadata>;
-    isLoading: boolean;
-    error?: unknown;
-};
-
-export function TagsView({ tags, metadata, isLoading, error }: Props) {
+/**
+ * Every tag the user has, as pills that open the tag's songs. Fetches its own
+ * tags rather than taking them as props, because its only caller is the Tags
+ * library sheet. SWR dedupes against anyone else reading the same list.
+ */
+export function TagsView() {
     const router = useRouter();
+    const {
+        userTags: tags,
+        userTagsMeta: metadata,
+        userTagsLoading: isLoading,
+        userTagsErr: error,
+    } = useUserTags();
+    // The create-tag bubble floats over this list, and so do both bottom bars.
+    const { listBottomInset } = useScreenOverlayInsets();
 
     return (
-        <View className="flex-1 bg-background">
+        <View className="flex-1">
             <ScrollView
                 className="flex-1"
-                contentContainerClassName="px-4 pt-4"
+                // One source for the content padding. Splitting it across
+                // `contentContainerClassName` and `contentContainerStyle`
+                // leaves two things to keep in sync for no gain.
+                contentContainerStyle={{
+                    paddingHorizontal: 16,
+                    paddingTop: 16,
+                    paddingBottom: listBottomInset,
+                }}
                 showsVerticalScrollIndicator={false}
             >
-                <View className="mb-2">
-                    <Text variant="h2" className="mb-1 border-b-0">
-                        Your Tags
-                    </Text>
-                    <Text className="mb-5 text-lg text-muted-foreground">
-                        {tags?.length ?? "?"}{" "}
-                        {tags?.length === 1 ? "tag" : "tags"}
-                    </Text>
-                </View>
+                <Text className="mb-5 text-lg text-muted-foreground">
+                    {tags?.length ?? "?"} {tags?.length === 1 ? "tag" : "tags"}
+                </Text>
 
                 {error ? (
                     <Text className="mb-3 text-sm text-destructive">
@@ -69,7 +77,7 @@ export function TagsView({ tags, metadata, isLoading, error }: Props) {
                 )}
             </ScrollView>
 
-            <CreateTagDialog />
+            <CreateTagBubble />
         </View>
     );
 }

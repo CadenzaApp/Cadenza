@@ -1,5 +1,6 @@
 import { MusicList } from "@/components/custom/music-list";
 import { Button } from "@/components/ui/button";
+import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { MusicItem } from "@apple-musickit";
 import { View, Text, StyleSheet } from "react-native";
 
@@ -18,8 +19,17 @@ export default function QueryResults({
     anticipatedTrackCount,
     onBackPress,
 }: Props) {
+    const { contentBottomInset } = useScreenOverlayInsets();
+
     return (
-        <View style={styles.container}>
+        <View
+            style={[
+                styles.container,
+                // The tab bar floats over this screen, and the back button
+                // sits at the very bottom.
+                { paddingBottom: contentBottomInset },
+            ]}
+        >
             <Text style={styles.headerText} className="text-foreground">
                 Your Mix
             </Text>

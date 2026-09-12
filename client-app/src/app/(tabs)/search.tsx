@@ -4,6 +4,7 @@ import { Alert, View } from "react-native";
 
 import { MusicList } from "@/components/custom/music-list";
 import { Button } from "@/components/ui/button";
+import { GlassSurface } from "@/components/ui/glass-surface";
 import { Input } from "@/components/ui/input";
 import { Text } from "@/components/ui/text";
 import { useAppleMusic } from "@/lib/apple-music-auth";
@@ -11,6 +12,7 @@ import { getErrorMessage } from "@/lib/error-utils";
 import { useCatalogSongSearch } from "@/lib/musickit-hooks";
 
 const DEFAULT_MULTI_SELECT_CONFIG = {} as const;
+const SEARCH_FIELD_RADIUS = 22;
 
 export default function SearchScreen() {
     const [searchQuery, setSearchQuery] = useState("");
@@ -47,19 +49,30 @@ export default function SearchScreen() {
 
     return (
         <View className="flex-1 bg-background pt-3">
-            <View className="mb-4 flex-row gap-2 px-6">
-                <Input
-                    className="mr-2 flex-1 rounded-full bg-input pl-4"
-                    placeholder="Search Apple Music..."
-                    value={searchQuery}
-                    onChangeText={setSearchQuery}
-                    onSubmitEditing={() => void handleSearch()}
-                    returnKeyType="search"
-                    editable={!searchCatalogLoading}
-                />
+            <View className="mb-4 flex-row items-center gap-2 px-6">
+                {/* The field is the glass, not the input, so the blur clips to
+                    the pill and the text input stays transparent over it. */}
+                <GlassSurface
+                    variant="clear"
+                    className="mr-2 flex-1"
+                    style={{
+                        borderRadius: SEARCH_FIELD_RADIUS,
+                        overflow: "hidden",
+                    }}
+                >
+                    <Input
+                        className="h-11 w-full border-0 bg-transparent pl-5 shadow-none"
+                        placeholder="Search Apple Music..."
+                        value={searchQuery}
+                        onChangeText={setSearchQuery}
+                        onSubmitEditing={() => void handleSearch()}
+                        returnKeyType="search"
+                        editable={!searchCatalogLoading}
+                    />
+                </GlassSurface>
                 <Button
                     size="icon"
-                    className="rounded-full"
+                    className="h-11 w-11 rounded-full"
                     onPress={() => void handleSearch()}
                     disabled={
                         isInitializing ||

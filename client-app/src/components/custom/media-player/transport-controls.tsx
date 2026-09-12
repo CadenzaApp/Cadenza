@@ -1,4 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { ShuffleMode } from "@apple-musickit";
 import {
     ActivityIndicator,
     Pressable,
@@ -6,43 +7,58 @@ import {
     type ColorValue,
 } from "react-native";
 
+/**
+ * The bottom row: shuffle, skip, play, skip, queue.
+ *
+ * Repeat is not here. It lives on the queue view, next to shuffle, which is
+ * where Apple Music keeps it and what leaves the bottom-right slot for the
+ * queue button.
+ */
 export function MediaPlayerTransport({
     isPlaying,
     isLoading,
     canSkipToNext,
     canSkipToPrevious,
+    shuffleMode,
+    queueOpen,
     textColor,
-    controlColor,
+    accentColor,
     onTogglePlayback,
     onSkipToNext,
     onSkipToPrevious,
-    onUnavailable,
+    onToggleShuffle,
+    onToggleQueue,
 }: {
     isPlaying: boolean;
     isLoading: boolean;
     canSkipToNext: boolean;
     canSkipToPrevious: boolean;
+    shuffleMode: ShuffleMode;
+    queueOpen: boolean;
     textColor: ColorValue;
-    controlColor: ColorValue;
+    accentColor: ColorValue;
     onTogglePlayback: () => void;
     onSkipToNext: () => void;
     onSkipToPrevious: () => void;
-    onUnavailable: (feature: string, futureBehavior: string) => void;
+    onToggleShuffle: () => void;
+    onToggleQueue: () => void;
 }) {
+    const shuffleOn = shuffleMode !== ShuffleMode.Off;
+
     return (
         <View className="flex-row items-center justify-between px-2">
             <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Shuffle"
-                onPress={() =>
-                    onUnavailable(
-                        "Shuffle",
-                        "It will randomize the current playback queue.",
-                    )
-                }
-                className="w-12 h-12 items-center justify-center"
+                accessibilityState={{ selected: shuffleOn }}
+                onPress={onToggleShuffle}
+                className="h-12 w-12 items-center justify-center active:opacity-60"
             >
-                <Ionicons name="shuffle" size={24} color={textColor} />
+                <Ionicons
+                    name="shuffle"
+                    size={24}
+                    color={shuffleOn ? accentColor : textColor}
+                />
             </Pressable>
             <Pressable
                 accessibilityRole="button"
@@ -50,7 +66,7 @@ export function MediaPlayerTransport({
                 accessibilityState={{ disabled: !canSkipToPrevious }}
                 disabled={!canSkipToPrevious}
                 onPress={onSkipToPrevious}
-                className={`w-14 h-14 items-center justify-center ${canSkipToPrevious ? "" : "opacity-30"}`}
+                className={`h-14 w-14 items-center justify-center active:opacity-60 ${canSkipToPrevious ? "" : "opacity-30"}`}
             >
                 <Ionicons name="play-skip-back" size={31} color={textColor} />
             </Pressable>
@@ -62,16 +78,15 @@ export function MediaPlayerTransport({
                 accessibilityState={{ busy: isLoading }}
                 disabled={isLoading}
                 onPress={onTogglePlayback}
-                className="w-20 h-20 rounded-full bg-primary items-center justify-center"
+                className="h-20 w-20 items-center justify-center active:opacity-60"
             >
                 {isLoading ? (
-                    <ActivityIndicator size="large" color={controlColor} />
+                    <ActivityIndicator size="large" color={textColor} />
                 ) : (
                     <Ionicons
                         name={isPlaying ? "pause" : "play"}
-                        size={38}
-                        color={controlColor}
-                        style={{ marginLeft: isPlaying ? 0 : 4 }}
+                        size={52}
+                        color={textColor}
                     />
                 )}
             </Pressable>
@@ -81,7 +96,7 @@ export function MediaPlayerTransport({
                 accessibilityState={{ disabled: !canSkipToNext }}
                 disabled={!canSkipToNext}
                 onPress={onSkipToNext}
-                className={`w-14 h-14 items-center justify-center ${canSkipToNext ? "" : "opacity-30"}`}
+                className={`h-14 w-14 items-center justify-center active:opacity-60 ${canSkipToNext ? "" : "opacity-30"}`}
             >
                 <Ionicons
                     name="play-skip-forward"
@@ -91,16 +106,16 @@ export function MediaPlayerTransport({
             </Pressable>
             <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="Repeat"
-                onPress={() =>
-                    onUnavailable(
-                        "Repeat",
-                        "It will cycle repeat modes for the current playback queue.",
-                    )
-                }
-                className="w-12 h-12 items-center justify-center"
+                accessibilityLabel={queueOpen ? "Hide queue" : "Show queue"}
+                accessibilityState={{ selected: queueOpen }}
+                onPress={onToggleQueue}
+                className="h-12 w-12 items-center justify-center active:opacity-60"
             >
-                <Ionicons name="repeat" size={24} color={textColor} />
+                <Ionicons
+                    name="list"
+                    size={26}
+                    color={queueOpen ? accentColor : textColor}
+                />
             </Pressable>
         </View>
     );

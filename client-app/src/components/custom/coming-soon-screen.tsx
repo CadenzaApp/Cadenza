@@ -11,6 +11,7 @@ import {
     CardTitle,
 } from "@/components/ui/card";
 import { Text } from "@/components/ui/text";
+import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 
 type IoniconName = keyof typeof Ionicons.glyphMap;
 
@@ -36,11 +37,13 @@ export function ComingSoonScreen({
     features,
 }: Props) {
     const { colors } = useTheme();
+    const { contentBottomInset } = useScreenOverlayInsets();
 
     return (
         <ScrollView
             className="flex-1 bg-background"
-            contentContainerClassName="gap-4 px-5 pt-5 pb-32"
+            contentContainerClassName="gap-4 px-5 pt-5"
+            contentContainerStyle={{ paddingBottom: contentBottomInset }}
             showsVerticalScrollIndicator={false}
         >
             <Card className="gap-0 overflow-hidden border-0 bg-foreground py-0">

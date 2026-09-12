@@ -4,12 +4,16 @@ import {
     ActivityIndicator,
     Image,
     Pressable,
+    StyleSheet,
     View,
     type ColorValue,
 } from "react-native";
 
+import { GlassSurface } from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
-import { COMPACT_PLAYER_HEIGHT } from "@/lib/screen-overlay";
+import { COMPACT_PLAYER_HEIGHT, TAB_BAR_MARGIN } from "@/lib/screen-overlay";
+
+const COMPACT_PLAYER_RADIUS = 22;
 
 type Props = {
     track: MusicItem;
@@ -45,10 +49,14 @@ export function MediaPlayerCompact({
             accessibilityRole="button"
             accessibilityLabel="Open now playing"
             onPress={onExpand}
-            className="absolute left-3 right-3 rounded-xl border border-border bg-card flex-row items-center px-3"
+            className="absolute inset-x-0 flex-row items-center px-3"
             style={{
+                // Same gutter as the tab bar pill, from the same constant, so
+                // the two bars are always exactly as wide as each other.
+                marginHorizontal: TAB_BAR_MARGIN,
                 bottom,
                 height: COMPACT_PLAYER_HEIGHT,
+                borderRadius: COMPACT_PLAYER_RADIUS,
                 shadowColor: "#000",
                 shadowOpacity: 0.18,
                 shadowRadius: 10,
@@ -56,6 +64,19 @@ export function MediaPlayerCompact({
                 elevation: 8,
             }}
         >
+            {/* Background layer rather than a background color, so the bar is
+                translucent. It clips itself, which is why it cannot be the
+                same view as the shadow above. */}
+            <GlassSurface
+                style={[
+                    StyleSheet.absoluteFill,
+                    {
+                        borderRadius: COMPACT_PLAYER_RADIUS,
+                        overflow: "hidden",
+                    },
+                ]}
+            />
+
             {canRenderArtwork ? (
                 <Image
                     source={{ uri: artworkUrl }}

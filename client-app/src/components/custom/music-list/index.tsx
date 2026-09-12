@@ -343,7 +343,7 @@ export function MusicList({
                             ListEmptyComponent={
                                 !isLoading ? (
                                     <Text className="text-muted-foreground text-center mt-10">
-                                        No tracks.
+                                        Search for Artists, Songs, Lyrics, and More.
                                     </Text>
                                 ) : null
                             }

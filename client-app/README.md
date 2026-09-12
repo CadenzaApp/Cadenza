@@ -10,7 +10,7 @@ over HTTP.
 | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
 | `src/app/`                                            | expo-router routes. See [src/app/README.md](src/app/README.md).                                                                      |
 | `src/lib/`                                            | Data layer and providers. See [src/lib/README.md](src/lib/README.md).                                                                |
-| `src/features/`                                       | Self-contained features. Today: [cadenza](src/features/cadenza/README.md) and [query-builder](src/features/query-builder/README.md). |
+| `src/features/`                                       | Self-contained features. Today: [cadenza](src/features/cadenza/README.md), [library](src/features/library/README.md), and [query-builder](src/features/query-builder/README.md). |
 | `src/components/`                                     | UI. See [src/components/README.md](src/components/README.md).                                                                        |
 | `modules/apple-musickit/`                             | Local native Expo module. See [modules/apple-musickit/README.md](modules/apple-musickit/README.md).                                  |
 | `app.json`, `eas.json`                                | Expo app config and build profiles.                                                                                                  |
@@ -81,6 +81,12 @@ npx tsc --noEmit   # typecheck
 - The backend defaults to binding loopback. To reach it from a phone, set `BIND_ADDR=0.0.0.0:3000`
   in `backend-api/.env`.
 - `ios/` is prebuild output. Native changes go in `app.json` plugins or `modules/`, then rebuild.
+- The floating bars need `expo-blur` and `expo-glass-effect`, both native. If you pulled this
+  change without rebuilding, `npm run ios` rather than `npm start`.
+- Liquid glass only renders on iOS 26. The deployment target is 16.4, so
+  `components/ui/glass-surface.tsx` falls back to a blur below that and a flat translucent card
+  on web. Android gets the flat fill too: real blur there needs a `BlurTargetView` wrapped
+  around the content behind the bar, which a global overlay cannot have.
 - `nanoid` is imported by `src/features/query-builder/QueryUtils.ts` but is not in
   `package.json`. It resolves today only as a transitive dependency.
 

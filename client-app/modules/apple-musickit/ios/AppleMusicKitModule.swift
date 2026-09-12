@@ -258,6 +258,11 @@ public class AppleMusicKitModule: Module {
         if let albumID = albumData?.first?["id"] as? String {
             result["albumID"] = albumID
         }
+        let artists = relationships?["artists"] as? [String: Any]
+        let artistData = artists?["data"] as? [[String: Any]]
+        if let artistID = artistData?.first?["id"] as? String {
+            result["artistId"] = artistID
+        }
         return result
     }
 
@@ -383,10 +388,20 @@ public class AppleMusicKitModule: Module {
     private func playbackSnapshot() -> [String: Any] {
         let player = ApplicationMusicPlayer.shared
         let rawProgress = player.playbackTime
+        // Compared rather than named: `MusicPlayer` is ambiguous for type
+        // lookup here, so let the compiler infer both mode types.
+        let repeatMode: String
+        switch player.state.repeatMode {
+        case .one: repeatMode = "one"
+        case .all: repeatMode = "all"
+        default: repeatMode = "off"
+        }
         var snapshot: [String: Any] = [
             "isPlaying": player.state.playbackStatus == .playing,
             "isLoading": false,
-            "progress": rawProgress.isFinite ? max(0, rawProgress) : 0
+            "progress": rawProgress.isFinite ? max(0, rawProgress) : 0,
+            "shuffleMode": player.state.shuffleMode == .songs ? "songs" : "off",
+            "repeatMode": repeatMode
         ]
 
         guard let item = player.queue.currentEntry?.item else { return snapshot }
@@ -454,6 +469,15 @@ public class AppleMusicKitModule: Module {
         try await librarySongs(ids).map {
             formatSong($0, playbackType: "librarySong")
         }
+    }
+
+    /// Position of the entry that is playing inside the whole queue, which is
+    /// the index space every queue command here takes.
+    @available(iOS 16.0, *)
+    private func currentQueueIndex() -> Int? {
+        let queue = ApplicationMusicPlayer.shared.queue
+        guard let current = queue.currentEntry else { return nil }
+        return queue.entries.firstIndex(where: { $0.id == current.id })
     }
 
     @available(iOS 16.0, *)
@@ -747,6 +771,41 @@ public class AppleMusicKitModule: Module {
             return self.collectionResult(response)
         }
 
+        AsyncFunction("getLibraryAlbums") {
+            (options: [String: Int]) async throws -> [String: Any] in
+            let response = try await self.makeAPIRequest(
+                path: "/v1/me/library/albums?\(self.pageQuery(options))")
+            return self.collectionResult(response)
+        }
+
+        AsyncFunction("getRecentlyAdded") {
+            (options: [String: Int]) async throws -> [String: Any] in
+            // Apple's own recently added feed: albums, playlists, and loose
+            // songs in one list, already grouped the way Music groups them.
+            let response = try await self.makeAPIRequest(
+                path: "/v1/me/library/recently-added?\(self.pageQuery(options))")
+            return self.collectionResult(response)
+        }
+
+        AsyncFunction("getAlbumSongs") {
+            (albumId: String, options: [String: Int]) async throws -> [String: Any] in
+            let encodedID = albumId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)
+                ?? albumId
+            // Library album IDs are prefixed ("l."); a bare one came from the
+            // catalog, which is what a song's albumID is, and lives elsewhere.
+            if self.isLibraryIdentifier(albumId) {
+                let response = try await self.makeAPIRequest(
+                    path: "/v1/me/library/albums/\(encodedID)/tracks?\(self.pageQuery(options))")
+                return self.collectionResult(response)
+            }
+
+            let storefront = try await self.currentStorefrontID()
+            let response = try await self.makeAPIRequest(
+                path:
+                    "/v1/catalog/\(storefront)/albums/\(encodedID)/tracks?\(self.pageQuery(options))")
+            return self.collectionResult(response)
+        }
+
         AsyncFunction("getLibrarySongs") { (options: [String: Any]) async throws -> [String: Any] in
             guard #available(iOS 16.0, *) else {
                 throw Exception(name: "ERR_UNSUPPORTED", description: "Library songs require iOS 16.0+")
@@ -866,5 +925,206 @@ public class AppleMusicKitModule: Module {
             }
             try await self.appendSongPlaybackQueue(ids: ids, types: types)
         }
+
+        AsyncFunction("insertSongsNextInQueue") {
+            (ids: [String], types: [String]) async throws -> Void in
+            guard #available(iOS 16.0, *) else {
+                throw Exception(
+                    name: "ERR_UNSUPPORTED",
+                    description: "Song queues require iOS 16.0+.")
+            }
+            let songs = try await self.songsForQueue(ids, types: types)
+            guard !songs.isEmpty else { return }
+            try await ApplicationMusicPlayer.shared.queue.insert(
+                songs, position: .afterCurrentEntry)
+        }
+
+        AsyncFunction("moveQueueItem") { (fromIndex: Int, toIndex: Int) throws -> Void in
+            guard #available(iOS 16.0, *) else {
+                throw Exception(
+                    name: "ERR_UNSUPPORTED",
+                    description: "Queue editing requires iOS 16.0+.")
+            }
+            let player = ApplicationMusicPlayer.shared
+            let count = player.queue.entries.count
+            guard fromIndex >= 0, fromIndex < count, toIndex >= 0, toIndex < count,
+                  fromIndex != toIndex
+            else { return }
+
+            let entry = player.queue.entries[fromIndex]
+            player.queue.entries.remove(at: fromIndex)
+            player.queue.entries.insert(entry, at: toIndex)
+        }
+
+        AsyncFunction("removeQueueItem") { (index: Int) throws -> Void in
+            guard #available(iOS 16.0, *) else {
+                throw Exception(
+                    name: "ERR_UNSUPPORTED",
+                    description: "Queue editing requires iOS 16.0+.")
+            }
+            let player = ApplicationMusicPlayer.shared
+            guard index >= 0, index < player.queue.entries.count else { return }
+            player.queue.entries.remove(at: index)
+        }
+
+        AsyncFunction("playQueueItem") { (index: Int) async throws -> Void in
+            guard #available(iOS 16.0, *) else {
+                throw Exception(
+                    name: "ERR_UNSUPPORTED",
+                    description: "Queue editing requires iOS 16.0+.")
+            }
+            let player = ApplicationMusicPlayer.shared
+            guard index >= 0, index < player.queue.entries.count,
+                  let current = self.currentQueueIndex(), current != index
+            else { return }
+
+            if index < current {
+                // MusicKit will not move the cursor directly, so walk it back.
+                for _ in 0..<(current - index) {
+                    try await player.skipToPreviousEntry()
+                }
+                return
+            }
+
+            // Forward is one skip once everything in between is gone, which is
+            // also what Apple Music's up-next list does to the songs skipped.
+            if index > current + 1 {
+                player.queue.entries.removeSubrange((current + 1)..<index)
+            }
+            try await player.skipToNextEntry()
+        }
+
+        AsyncFunction("setShuffleMode") { (mode: String) throws -> Void in
+            guard #available(iOS 16.0, *) else {
+                throw Exception(
+                    name: "ERR_UNSUPPORTED",
+                    description: "Shuffle requires iOS 16.0+.")
+            }
+            ApplicationMusicPlayer.shared.state.shuffleMode =
+                mode == "songs" ? .songs : .off
+        }
+
+        AsyncFunction("setRepeatMode") { (mode: String) throws -> Void in
+            guard #available(iOS 16.0, *) else {
+                throw Exception(
+                    name: "ERR_UNSUPPORTED",
+                    description: "Repeat requires iOS 16.0+.")
+            }
+            switch mode {
+            case "one": ApplicationMusicPlayer.shared.state.repeatMode = .one
+            case "all": ApplicationMusicPlayer.shared.state.repeatMode = .all
+            // Module-qualified: bare `.none` would resolve to Optional.none.
+            default:
+                ApplicationMusicPlayer.shared.state.repeatMode =
+                    MusicKit.MusicPlayer.RepeatMode.none
+            }
+        }
+
+        AsyncFunction("addSongsToPlaylist") {
+            (playlistId: String, ids: [String]) async throws -> Void in
+            let trackData = try await self.playlistTrackData(ids)
+            guard !trackData.isEmpty else { return }
+
+            let body = try JSONSerialization.data(withJSONObject: ["data": trackData])
+            let encodedID =
+                playlistId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)
+                ?? playlistId
+            _ = try await self.makeAPIRequest(
+                path: "/v1/me/library/playlists/\(encodedID)/tracks",
+                method: "POST",
+                body: body)
+        }
+
+        AsyncFunction("createPlaylist") {
+            (name: String, ids: [String]) async throws -> [String: Any] in
+            let trackData = try await self.playlistTrackData(ids)
+            var payload: [String: Any] = ["attributes": ["name": name]]
+            if !trackData.isEmpty {
+                payload["relationships"] = ["tracks": ["data": trackData]]
+            }
+
+            let body = try JSONSerialization.data(withJSONObject: payload)
+            let response = try await self.makeAPIRequest(
+                path: "/v1/me/library/playlists", method: "POST", body: body)
+            guard let playlist = (response["data"] as? [[String: Any]])?.first else {
+                throw Exception(
+                    name: "ERR_APPLE_MUSIC_API",
+                    description: "Apple Music did not return the new playlist.")
+            }
+            return self.formatAPIResource(playlist)
+        }
+
+        AsyncFunction("getSongArtists") { (songId: String) async throws -> [String] in
+            let catalogID = try await self.resolveCatalogSongID(songId)
+            let storefront = try await self.currentStorefrontID()
+            let encodedID =
+                catalogID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)
+                ?? catalogID
+            let response = try await self.makeAPIRequest(
+                path: "/v1/catalog/\(storefront)/songs/\(encodedID)?include=artists")
+            let song = (response["data"] as? [[String: Any]])?.first
+            let relationships = song?["relationships"] as? [String: Any]
+            let artists = relationships?["artists"] as? [String: Any]
+            let data = artists?["data"] as? [[String: Any]] ?? []
+            return data.compactMap { $0["id"] as? String }
+        }
+
+        AsyncFunction("getArtist") { (artistId: String) async throws -> [String: Any] in
+            let storefront = try await self.currentStorefrontID()
+            let encodedID =
+                artistId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)
+                ?? artistId
+            let response = try await self.makeAPIRequest(
+                path:
+                    "/v1/catalog/\(storefront)/artists/\(encodedID)?views=top-songs,full-albums")
+            guard let artist = (response["data"] as? [[String: Any]])?.first else {
+                throw Exception(
+                    name: "ERR_NOT_FOUND",
+                    description: "No Apple Music artist with ID \(artistId).")
+            }
+
+            let attributes = artist["attributes"] as? [String: Any] ?? [:]
+            let views = artist["views"] as? [String: Any] ?? [:]
+            var result: [String: Any] = [
+                "id": artist["id"] as? String ?? artistId,
+                "name": attributes["name"] as? String ?? "Unknown Artist",
+                "topSongs": self.viewResources(views["top-songs"]),
+                "albums": self.viewResources(views["full-albums"]),
+            ]
+            if let genres = attributes["genreNames"] as? [String] {
+                result["genres"] = genres
+            }
+            if let shareURL = attributes["url"] as? String, !shareURL.isEmpty {
+                result["shareUrl"] = shareURL
+            }
+            if let artwork = attributes["artwork"] as? [String: Any],
+               let template = artwork["url"] as? String
+            {
+                result["artworkUrl"] = self.artworkURL(template, width: 600, height: 600)
+            }
+            return result
+        }
+    }
+
+    /// Apple prefixes every library identifier. A bare numeric ID is a catalog
+    /// one, and the two live at different API paths.
+    private func isLibraryIdentifier(_ id: String) -> Bool {
+        id.contains(".")
+    }
+
+    /// Playlist writes address catalog songs, so a library-only ID has to be
+    /// resolved first or Apple rejects the whole request.
+    private func playlistTrackData(_ ids: [String]) async throws -> [[String: String]] {
+        var trackData: [[String: String]] = []
+        for id in ids {
+            let catalogID = try await resolveCatalogSongID(id)
+            trackData.append(["id": catalogID, "type": "songs"])
+        }
+        return trackData
+    }
+
+    private func viewResources(_ view: Any?) -> [[String: Any]] {
+        let data = (view as? [String: Any])?["data"] as? [[String: Any]] ?? []
+        return data.map(formatAPIResource)
     }
 }

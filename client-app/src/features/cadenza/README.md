@@ -1,33 +1,38 @@
 # cadenza
 
-The combined tag and boolean-query workspace rendered by the Cadenza tab. The screen owns the
-shared tag request and query state so switching views does not discard an in-progress mix.
+The boolean-query workspace rendered by the Cadenza tab. It owns the tag request and the query
+state, so an in-progress mix survives switching tabs.
+
+Tags used to share this screen behind a Query / Tags segmented control. They are a library
+category now, opened from the library screen, so this tab is only the query builder. See
+[../library/README.md](../library/README.md).
 
 ## Files
 
 | file                | role                                                                    |
 | ------------------- | ----------------------------------------------------------------------- |
-| `CadenzaScreen.tsx` | Segmented Query and Tags screen, shared data, query state, and results. |
-| `TagsView.tsx`      | Tag count, tag pills, tag-detail navigation, and tag creation.          |
+| `CadenzaScreen.tsx` | The query builder, its tag data, the query state, and the results. |
 
 ## How it works
 
-`CadenzaScreen` fetches the user's tags once. Query is the default view. Its tree and fetched
-results live above the segmented content, so they remain available after visiting Tags. The
-Tags view renders the same tag management surface and links each pill to `/tag/:tagId`.
+`CadenzaScreen` fetches the user's tags once and hands them to `QueryBuilder` as the palette. The
+query tree and its fetched results live on the screen, so they survive navigating away and back.
+Running a query swaps the builder for `QueryResults`; the back button there clears the result and
+returns to the tree.
 
 ## Connects to
 
 - `@/features/query-builder` for query construction and results.
 - `@/lib/routes/tags` and `@/lib/routes/queries` for backend data.
 - `@/lib/musickit-hooks` for query-result song metadata.
-- `@/components/custom` for tag pills and tag creation.
+- `@/features/library` owns tags now, including tag creation.
 
 ## Gotchas
 
 - Query state lasts for the lifetime of the mounted Cadenza tab. It is not persisted across app
   launches.
-- The Create Tag dialog is mounted only while the Tags view is selected.
+- Tag creation lives in the Tags library sheet, not here. Query needs tags to exist before it is
+  useful, so a user with no tags has to go make one from the library first.
 
 ---
 

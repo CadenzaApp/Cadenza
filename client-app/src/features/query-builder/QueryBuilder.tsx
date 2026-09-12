@@ -16,6 +16,7 @@ import { PaletteSection } from "./PaletteSection";
 import { LogicNodeBox } from "./LogicNode";
 import { DropSlot } from "./DropSlot";
 import { Button } from "@/components/ui/button";
+import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { Tag } from "@/lib/types";
 
 const LOGIC_ITEMS: PaletteItem[] = [
@@ -31,6 +32,7 @@ type Props = {
     onSubmit: () => any;
 };
 export function QueryBuilder({ tags, root, setRoot, onSubmit }: Props) {
+    const { contentBottomInset } = useScreenOverlayInsets();
 
     const tagPaletteItems: PaletteItem[] = tags.map((t) => ({
         kind: "tag",
@@ -58,7 +60,14 @@ export function QueryBuilder({ tags, root, setRoot, onSubmit }: Props) {
     return (
         <GestureHandlerRootView style={styles.root} className="bg-background">
             <DragProvider>
-                <View style={styles.container}>
+                <View
+                    style={[
+                        styles.container,
+                        // The tab bar floats over this screen, and the
+                        // "Create mix" button sits at the very bottom.
+                        { paddingBottom: contentBottomInset },
+                    ]}
+                >
                     {/* Palette */}
                     <View style={styles.palette}>
                         <PaletteSection

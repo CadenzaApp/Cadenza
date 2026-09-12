@@ -1,10 +1,11 @@
-import { NAV_THEME } from "@/lib/theme";
+import { NAV_THEME, sheetScreenOptions } from "@/lib/theme";
 import { ThemeProvider } from "expo-router/react-navigation";
 import { Stack } from "expo-router";
 import AccountProvider from "@/lib/account";
 import { AppleMusicProvider } from "@/lib/apple-music-auth";
 import { PlaybackProvider } from "@/lib/playback";
 import { MediaPlayerHost } from "@/components/custom/media-player";
+import { LibraryCategoriesProvider } from "@/features/library/library-categories";
 import { PortalHost } from "@rn-primitives/portal";
 import { useColorScheme } from "nativewind";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -21,42 +22,56 @@ export default function RootLayout() {
                 <AppleMusicProvider>
                     <PlaybackProvider>
                         <ThemeProvider value={theme}>
-                            <Stack>
-                                <Stack.Screen
-                                    name="(splashscreen)/index"
-                                    options={{ headerShown: false }}
-                                />
-                                <Stack.Screen
-                                    name="(tabs)"
-                                    options={{ headerShown: false }}
-                                />
-                                <Stack.Screen
-                                    name="account"
-                                    options={{
-                                        headerShown: false,
-                                        presentation: "formSheet",
-                                        gestureEnabled: true,
-                                        sheetAllowedDetents: [0.94],
-                                        sheetCornerRadius: 28,
-                                        sheetExpandsWhenScrolledToEdge: false,
-                                        sheetGrabberVisible: true,
-                                        sheetInitialDetentIndex: 0,
-                                        contentStyle: {
-                                            backgroundColor: theme.colors.card,
-                                        },
-                                    }}
-                                />
-                                <Stack.Screen
-                                    name="auth/index"
-                                    options={{ title: "Welcome" }}
-                                />
-                                <Stack.Screen
-                                    name="tag/[tagId]"
-                                    options={{ headerShown: false }}
-                                />
-                            </Stack>
-                            <PortalHost />
-                            <MediaPlayerHost />
+                            <LibraryCategoriesProvider>
+                                <Stack>
+                                    <Stack.Screen
+                                        name="(splashscreen)/index"
+                                        options={{ headerShown: false }}
+                                    />
+                                    <Stack.Screen
+                                        name="(tabs)"
+                                        options={{ headerShown: false }}
+                                    />
+                                    <Stack.Screen
+                                        name="account"
+                                        options={sheetScreenOptions(theme)}
+                                    />
+                                    <Stack.Screen
+                                        name="player"
+                                        options={sheetScreenOptions(theme)}
+                                    />
+                                    <Stack.Screen
+                                        name="auth/index"
+                                        options={{ title: "Welcome" }}
+                                    />
+                                    <Stack.Screen
+                                        name="library-categories"
+                                        options={sheetScreenOptions(theme)}
+                                    />
+                                    <Stack.Screen
+                                        name="category/[kind]"
+                                        options={sheetScreenOptions(theme)}
+                                    />
+                                    <Stack.Screen
+                                        name="collection/[kind]/[id]"
+                                        options={sheetScreenOptions(theme)}
+                                    />
+                                    <Stack.Screen
+                                        name="tag/[tagId]"
+                                        options={sheetScreenOptions(theme)}
+                                    />
+                                    <Stack.Screen
+                                        name="artist/[id]"
+                                        options={sheetScreenOptions(theme)}
+                                    />
+                                    <Stack.Screen
+                                        name="add-to-playlist"
+                                        options={sheetScreenOptions(theme)}
+                                    />
+                                </Stack>
+                                <PortalHost />
+                                <MediaPlayerHost />
+                            </LibraryCategoriesProvider>
                         </ThemeProvider>
                     </PlaybackProvider>
                 </AppleMusicProvider>
