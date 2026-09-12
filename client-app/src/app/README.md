@@ -80,11 +80,15 @@ Both pills are inset with `marginHorizontal: TAB_BAR_MARGIN`, not `left`/`right`
 `BottomTabBar`'s own style sets `start: 0, end: 0`, and in Yoga those beat `left`/`right`, so a
 `left`/`right` inset in `tabBarStyle` is silently ignored and the bar spans the full width.
 
-The selected tab gets its own `GlassSurface` bubble behind the icon and label, glass on glass,
-the way Music marks its tab. It comes from a custom `tabBarButton`, because the navigator's own
-`tabBarActiveBackgroundColor` paints the whole item box square. The button only sees
-`aria-selected`, so that is what the bubble keys off. It is pinned to the top of the item box,
-not centered in it, because the item packs its icon and label to the top.
+The selected tab gets its own glass bubble, and the bubble slides between tabs rather than
+jumping. All of that is `@/components/custom/tab-bar`: `TabBarGlass` is the `tabBarBackground`
+and draws both the bar and the bubble, `TabBarIcon` and `TabBarLabel` tint off how close the
+bubble is, and `TabSelectionProvider` wraps the navigator so the three share one animated
+position. The navigator's own `tabBarActiveBackgroundColor` cannot do this: it paints the item
+box square and it has no in-between state.
+
+Each `Tabs.Screen` passes its own `index` to the icon and the label. That index is the tab's
+position in this file, so reordering the screens means renumbering them.
 
 ## The top rail
 
