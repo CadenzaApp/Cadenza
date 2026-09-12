@@ -16,6 +16,12 @@ export const COMPACT_PLAYER_HEIGHT = 64;
 export const FLOATING_ACTION_SIZE = 56;
 
 const OVERLAY_GAP = 12;
+/**
+ * Gap between the tab bar and the compact player. Smaller than `OVERLAY_GAP`
+ * because `bottomBarInset` already carries `TAB_BAR_MARGIN` above the bar, so
+ * the two add up to what you actually see between the pills.
+ */
+const COMPACT_PLAYER_GAP = 7;
 
 /** Root segments presented as a sheet rather than as a screen of their own. */
 const SHEET_SEGMENTS = new Set([
@@ -80,7 +86,7 @@ export function useScreenOverlayInsets() {
           ? insets.bottom
           : 0;
 
-    const compactPlayerBottom = bottomBarInset + OVERLAY_GAP;
+    const compactPlayerBottom = bottomBarInset + COMPACT_PLAYER_GAP;
     const playerBottomInset = compactPlayerVisible
         ? compactPlayerBottom + COMPACT_PLAYER_HEIGHT
         : bottomBarInset;
