@@ -11,7 +11,7 @@ Which rows appear is the user's choice.
 | `categories.ts`           | `LibraryCategory`, the display order, labels, and icons. No React.      |
 | `library-categories.tsx`  | `LibraryCategoriesProvider` / `useLibraryCategories`. Which rows show.  |
 | `category-row.tsx`        | One row of the index.                                                   |
-| `recently-added.tsx`      | The artwork grid under the rows.                                        |
+| `recently-added.tsx`      | `RecentlyAddedGrid`, the paged artwork grid that owns the screen scroll. |
 | `tags-view.tsx`           | Every tag as a pill, opening `/tag/:tagId`. The Tags category's body.   |
 
 ## How it works
@@ -20,7 +20,7 @@ Four categories: `playlist`, `album`, `song`, `tag`. `LIBRARY_CATEGORY_ORDER` is
 order and is the only place that order is written down.
 
 ```
-/library               the index: a CategoryRow per enabled category, then RecentlyAdded
+/library               the index: a CategoryRow per enabled category, then RecentlyAddedGrid
   -> /library-categories   sheet, toggles which categories are enabled
   -> /category/:kind       sheet, that category's contents
        -> /collection/:kind/:id   sheet, one album's or playlist's songs
@@ -40,9 +40,12 @@ its sorting control and paging), albums and playlists through `CollectionList`, 
 `TagsView`. Only the requested category's hook is enabled, so opening Albums does not fetch
 songs.
 
-`RecentlyAdded` shows library **songs** sorted by `dateAdded`, not albums as Apple does, because
-`dateAdded` ordering is only available on `getLibrarySongs`. That sort is iOS-only, so the
-section is hidden on Android.
+`RecentlyAddedGrid` renders Apple's own recently added feed, so a tile is an album, a playlist,
+or a song that was added on its own. A whole album added at once is one tile, not twelve. Albums
+and playlists open `/collection/:kind/:id`; songs play. It pages as you scroll, 24 items a time.
+
+The grid is the library screen's scroll container, not a section inside one: a paging list cannot
+live in a `ScrollView`, so the category rows are handed to it as `header`.
 
 ## Connects to
 

@@ -13,6 +13,8 @@ import useSWRInfinite from "swr/infinite";
 import { useAppleMusic } from "./apple-music-auth";
 
 const MUSIC_LIST_PAGE_SIZE = 25;
+/** Even number so the recently added grid never ends on a half row. */
+const RECENTLY_ADDED_PAGE_SIZE = 24;
 
 /** A library collection that contains songs. */
 export type LibraryCollectionKind = "album" | "playlist";
@@ -28,6 +30,12 @@ type LibraryPageKey = readonly [
 ];
 type CollectionPageKey = readonly [
     "MusicKit.getLibraryAlbums" | "MusicKit.getUserPlaylists",
+    number,
+    number,
+    number,
+];
+type RecentlyAddedPageKey = readonly [
+    "MusicKit.getRecentlyAdded",
     number,
     number,
     number,
@@ -291,6 +299,37 @@ export function useUserPlaylists(enabled = true) {
         loadNextPlaylistPage: page.loadNextPage,
         hasNextPlaylistPage: page.hasNextPage,
         playlistsErr: page.error,
+    };
+}
+
+/**
+ * Returns the user's recently added library items, newest first. Mixed kinds:
+ * albums, playlists, and songs added on their own, the way Apple Music groups
+ * them, so a whole album added at once is one item and not twelve.
+ */
+export function useRecentlyAdded(enabled = true) {
+    const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
+    const page = usePagedLibraryResult(
+        (offset) =>
+            enabled && isConnected
+                ? ([
+                      "MusicKit.getRecentlyAdded",
+                      sessionRevision,
+                      RECENTLY_ADDED_PAGE_SIZE,
+                      offset,
+                  ] as const)
+                : null,
+        ([, , limit, offset]: RecentlyAddedPageKey) =>
+            MusicKit.getRecentlyAdded({ limit, offset }),
+    );
+
+    return {
+        recentlyAdded: page.items,
+        recentlyAddedLoading: page.isLoading || isInitializing,
+        recentlyAddedLoadingNextPage: page.isLoadingNextPage,
+        loadNextRecentlyAddedPage: page.loadNextPage,
+        hasNextRecentlyAddedPage: page.hasNextPage,
+        recentlyAddedErr: page.error,
     };
 }
 

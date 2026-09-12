@@ -101,6 +101,7 @@ result, stop when `hasNextPage` is false.
 | `getUserPlaylists(options)` | Library playlists. |
 | `getAlbumSongs(albumId, options)` | The songs on one library album. |
 | `getPlaylistSongs(playlistId, options)` | The songs in one library playlist. |
+| `getRecentlyAdded(options)` | Recently added library items, newest first. Mixed albums, playlists, and loose songs. Apple caps `limit` at 25. |
 
 Albums and playlists come back as `MusicItem`s with `resourceKind` set to
 `"album"` or `"playlist"`, so the same item type describes all three. Pass the

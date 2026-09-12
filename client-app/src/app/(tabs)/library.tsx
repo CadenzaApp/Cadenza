@@ -1,37 +1,28 @@
+import type { MusicItem } from "@apple-musickit";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useNavigation, useRouter } from "expo-router";
 import { useTheme } from "expo-router/react-navigation";
 import { useLayoutEffect } from "react";
-import { Platform, ScrollView, View } from "react-native";
+import { View } from "react-native";
 
 import { GlassIconButton } from "@/components/ui/glass-icon-button";
 import { Text } from "@/components/ui/text";
 import type { LibraryCategory } from "@/features/library/categories";
 import { CategoryRow } from "@/features/library/category-row";
 import { useLibraryCategories } from "@/features/library/library-categories";
-import { RecentlyAdded } from "@/features/library/recently-added";
+import { RecentlyAddedGrid } from "@/features/library/recently-added";
 import { useAppleMusic } from "@/lib/apple-music-auth";
 import { getErrorMessage } from "@/lib/error-utils";
-import { useTracksFromLibrary } from "@/lib/musickit-hooks";
-import { useScreenOverlayInsets } from "@/lib/screen-overlay";
-
-const RECENTLY_ADDED_COUNT = 6;
-/** Android's library request ignores sort, so there is nothing recent to show. */
-const SUPPORTS_RECENTLY_ADDED = Platform.OS === "ios";
-const RECENTLY_ADDED_SORT = {
-    option: "dateAdded",
-    direction: "descending",
-} as const;
+import { useRecentlyAdded } from "@/lib/musickit-hooks";
 
 /**
- * The library index. A row per enabled category, then what was added most
- * recently. Tapping a row opens that category as a sheet; the top rail button
- * opens the sheet that picks which rows appear.
+ * The library index. A row per enabled category, then the recently added feed.
+ * Tapping a row opens that category as a sheet; the top rail button opens the
+ * sheet that picks which rows appear.
  */
 export default function LibraryScreen() {
     const { enabled } = useLibraryCategories();
     const { isConnected } = useAppleMusic();
-    const { contentBottomInset } = useScreenOverlayInsets();
     const navigation = useNavigation();
     const router = useRouter();
     const { colors } = useTheme();
@@ -53,10 +44,14 @@ export default function LibraryScreen() {
         });
     }, [navigation, router, colors.text]);
 
-    const { tracks, tracksLoading, tracksErr } = useTracksFromLibrary({
-        enabled: isConnected && SUPPORTS_RECENTLY_ADDED,
-        sort: RECENTLY_ADDED_SORT,
-    });
+    const {
+        recentlyAdded,
+        recentlyAddedLoading,
+        recentlyAddedLoadingNextPage,
+        loadNextRecentlyAddedPage,
+        hasNextRecentlyAddedPage,
+        recentlyAddedErr,
+    } = useRecentlyAdded(isConnected);
 
     function openCategory(category: LibraryCategory) {
         router.push({
@@ -65,34 +60,46 @@ export default function LibraryScreen() {
         });
     }
 
+    function openCollection(collection: MusicItem) {
+        router.push({
+            // Collections are addressed by their library id; the plain id is
+            // the catalog one when Apple knows of a catalog equivalent.
+            pathname: "/collection/[kind]/[id]",
+            params: {
+                kind: collection.resourceKind,
+                id: collection.libraryId ?? collection.id,
+                title: collection.title,
+            },
+        });
+    }
+
     return (
-        <ScrollView
-            className="flex-1 bg-background"
-            contentContainerStyle={{ paddingBottom: contentBottomInset }}
-            showsVerticalScrollIndicator={false}
-        >
-            {tracksErr ? (
-                <Text className="my-2 px-6 text-center text-destructive">
-                    {getErrorMessage(tracksErr)}
-                </Text>
-            ) : null}
+        <RecentlyAddedGrid
+            items={recentlyAdded}
+            isLoading={recentlyAddedLoading}
+            isLoadingNextPage={recentlyAddedLoadingNextPage}
+            hasNextPage={hasNextRecentlyAddedPage}
+            onLoadNextPage={loadNextRecentlyAddedPage}
+            onOpenCollection={openCollection}
+            header={
+                <View>
+                    {recentlyAddedErr ? (
+                        <Text className="my-2 px-6 text-center text-destructive">
+                            {getErrorMessage(recentlyAddedErr)}
+                        </Text>
+                    ) : null}
 
-            <View className="px-6 pt-2">
-                {enabled.map((category) => (
-                    <CategoryRow
-                        key={category}
-                        category={category}
-                        onPress={openCategory}
-                    />
-                ))}
-            </View>
-
-            {SUPPORTS_RECENTLY_ADDED ? (
-                <RecentlyAdded
-                    tracks={tracks.slice(0, RECENTLY_ADDED_COUNT)}
-                    isLoading={tracksLoading}
-                />
-            ) : null}
-        </ScrollView>
+                    <View className="px-6 pt-2">
+                        {enabled.map((category) => (
+                            <CategoryRow
+                                key={category}
+                                category={category}
+                                onPress={openCategory}
+                            />
+                        ))}
+                    </View>
+                </View>
+            }
+        />
     );
 }

@@ -112,9 +112,9 @@ every cached playlist key by predicate afterwards.
 
 Every paged library read goes through one internal hook, `usePagedLibraryResult`. It owns the
 offset loop (request a page, read `nextOffset`, stop when the native side says there is no next
-page), so `useTracksFromLibrary`, `useLibraryAlbums`, `useUserPlaylists`, and
-`useCollectionSongs` are each only a key builder and a fetch. Adding another paged library read
-means writing those two things and nothing else.
+page), so `useTracksFromLibrary`, `useLibraryAlbums`, `useUserPlaylists`,
+`useRecentlyAdded`, and `useCollectionSongs` are each only a key builder and a fetch. Adding
+another paged library read means writing those two things and nothing else.
 
 `useCollectionSongs(kind, id)` takes `"album" | "playlist"` rather than splitting into two
 hooks, so a screen that renders either does not branch. Pass the collection's `libraryId`.
