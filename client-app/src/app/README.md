@@ -80,10 +80,11 @@ Both pills are inset with `marginHorizontal: TAB_BAR_MARGIN`, not `left`/`right`
 `BottomTabBar`'s own style sets `start: 0, end: 0`, and in Yoga those beat `left`/`right`, so a
 `left`/`right` inset in `tabBarStyle` is silently ignored and the bar spans the full width.
 
-The selected tab gets a dark bubble behind its icon and label, the way Music marks its tab. It
-comes from a custom `tabBarButton`, because the navigator's own `tabBarActiveBackgroundColor`
-paints the whole item box square. The button only sees `aria-selected`, so that is what the
-bubble keys off.
+The selected tab gets its own `GlassSurface` bubble behind the icon and label, glass on glass,
+the way Music marks its tab. It comes from a custom `tabBarButton`, because the navigator's own
+`tabBarActiveBackgroundColor` paints the whole item box square. The button only sees
+`aria-selected`, so that is what the bubble keys off. It is pinned to the top of the item box,
+not centered in it, because the item packs its icon and label to the top.
 
 ## The top rail
 

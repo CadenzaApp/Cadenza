@@ -1,9 +1,8 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Redirect, Tabs } from "expo-router";
 import { useTheme } from "expo-router/react-navigation";
-import { useColorScheme } from "nativewind";
 import type { ReactNode } from "react";
-import { Pressable, StyleSheet, View, type PressableProps } from "react-native";
+import { Pressable, StyleSheet, type PressableProps } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { TopRail } from "@/components/custom/top-rail";
@@ -19,15 +18,14 @@ const TAB_BAR_RADIUS = TAB_BAR_HEIGHT / 2;
  */
 const TAB_ITEM_NUDGE = 3;
 
-/** The bubble behind the selected tab. Inset from the item box, not the bar. */
+/**
+ * The bubble behind the selected tab. It hangs off the top of the item box
+ * rather than filling it: the item packs its icon and label to the top, so a
+ * centered bubble would sit low and swallow empty space under the label.
+ */
 const TAB_PILL_INSET_X = 6;
-const TAB_PILL_INSET_Y = 8;
-const TAB_PILL_RADIUS = 18;
-/** Darker than the glass behind it, the way Music's selected tab reads. */
-const TAB_PILL_TINT = {
-    light: "rgba(0,0,0,0.08)",
-    dark: "rgba(0,0,0,0.28)",
-} as const;
+const TAB_PILL_HEIGHT = 46;
+const TAB_PILL_RADIUS = 20;
 
 type TabBarButtonProps = Omit<PressableProps, "children"> & {
     children?: ReactNode;
@@ -35,31 +33,27 @@ type TabBarButtonProps = Omit<PressableProps, "children"> & {
 };
 
 /**
- * A tab item with a dark bubble behind it while it is selected. The navigator
- * only hands the button `aria-selected`, so that is what drives the bubble.
+ * A tab item with a second piece of glass behind it while it is selected. The
+ * navigator only hands the button `aria-selected`, so that is what drives it.
  */
 function TabBarButton({ children, ...props }: TabBarButtonProps) {
-    const { colorScheme } = useColorScheme();
     const focused = props["aria-selected"] === true;
 
     return (
         <Pressable {...props}>
             {focused ? (
-                <View
+                <GlassSurface
                     pointerEvents="none"
-                    style={[
-                        StyleSheet.absoluteFill,
-                        {
-                            marginHorizontal: TAB_PILL_INSET_X,
-                            marginVertical: TAB_PILL_INSET_Y,
-                            borderRadius: TAB_PILL_RADIUS,
-                            borderCurve: "continuous",
-                            backgroundColor:
-                                TAB_PILL_TINT[
-                                    colorScheme === "dark" ? "dark" : "light"
-                                ],
-                        },
-                    ]}
+                    style={{
+                        position: "absolute",
+                        top: 0,
+                        left: TAB_PILL_INSET_X,
+                        right: TAB_PILL_INSET_X,
+                        height: TAB_PILL_HEIGHT,
+                        borderRadius: TAB_PILL_RADIUS,
+                        borderCurve: "continuous",
+                        overflow: "hidden",
+                    }}
                 />
             ) : null}
             {children}
