@@ -1,7 +1,9 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Redirect, Tabs } from "expo-router";
 import { useTheme } from "expo-router/react-navigation";
-import { StyleSheet } from "react-native";
+import { useColorScheme } from "nativewind";
+import type { ReactNode } from "react";
+import { Pressable, StyleSheet, View, type PressableProps } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { TopRail } from "@/components/custom/top-rail";
@@ -16,6 +18,54 @@ const TAB_BAR_RADIUS = TAB_BAR_HEIGHT / 2;
  * center still reads high.
  */
 const TAB_ITEM_NUDGE = 3;
+
+/** The bubble behind the selected tab. Inset from the item box, not the bar. */
+const TAB_PILL_INSET_X = 6;
+const TAB_PILL_INSET_Y = 8;
+const TAB_PILL_RADIUS = 18;
+/** Darker than the glass behind it, the way Music's selected tab reads. */
+const TAB_PILL_TINT = {
+    light: "rgba(0,0,0,0.08)",
+    dark: "rgba(0,0,0,0.28)",
+} as const;
+
+type TabBarButtonProps = Omit<PressableProps, "children"> & {
+    children?: ReactNode;
+    "aria-selected"?: boolean;
+};
+
+/**
+ * A tab item with a dark bubble behind it while it is selected. The navigator
+ * only hands the button `aria-selected`, so that is what drives the bubble.
+ */
+function TabBarButton({ children, ...props }: TabBarButtonProps) {
+    const { colorScheme } = useColorScheme();
+    const focused = props["aria-selected"] === true;
+
+    return (
+        <Pressable {...props}>
+            {focused ? (
+                <View
+                    pointerEvents="none"
+                    style={[
+                        StyleSheet.absoluteFill,
+                        {
+                            marginHorizontal: TAB_PILL_INSET_X,
+                            marginVertical: TAB_PILL_INSET_Y,
+                            borderRadius: TAB_PILL_RADIUS,
+                            borderCurve: "continuous",
+                            backgroundColor:
+                                TAB_PILL_TINT[
+                                    colorScheme === "dark" ? "dark" : "light"
+                                ],
+                        },
+                    ]}
+                />
+            ) : null}
+            {children}
+        </Pressable>
+    );
+}
 
 export default function TabLayout() {
     const { colors } = useTheme();
@@ -64,6 +114,11 @@ export default function TabLayout() {
                 // leaves the icons crowding it. Center them, then nudge.
                 // A transform rather than padding, because the item carries
                 // its own padding and the two would have to be kept in sync.
+                // The navigator hands the button a few web and hover props a
+                // plain Pressable has no use for. It ignores the extras.
+                tabBarButton: (props) => (
+                    <TabBarButton {...(props as TabBarButtonProps)} />
+                ),
                 tabBarItemStyle: {
                     justifyContent: "center",
                     transform: [{ translateY: TAB_ITEM_NUDGE }],
