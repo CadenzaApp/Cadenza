@@ -250,8 +250,6 @@ function TabBarGlass() {
         );
         return {
             transform: [{ translateX: x }],
-            // Nothing to place until the bar has been measured.
-            opacity: slotWidth > 0 ? 1 : 0,
         };
     });
 
@@ -275,28 +273,30 @@ function TabBarGlass() {
                     },
                 ]}
             />
-            <Animated.View
-                style={[
-                    {
-                        position: "absolute",
-                        top: PILL_TOP,
-                        left: 0,
-                        width: slotWidth,
-                        height: PILL_HEIGHT,
-                        paddingHorizontal: PILL_INSET_X,
-                    },
-                    bubbleStyle,
-                ]}
-            >
-                <GlassSurface
-                    style={{
-                        flex: 1,
-                        borderRadius: PILL_RADIUS,
-                        borderCurve: "continuous",
-                        overflow: "hidden",
-                    }}
-                />
-            </Animated.View>
+            {slotWidth > 0 ? (
+                <Animated.View
+                    style={[
+                        {
+                            position: "absolute",
+                            top: PILL_TOP,
+                            left: 0,
+                            width: slotWidth,
+                            height: PILL_HEIGHT,
+                            paddingHorizontal: PILL_INSET_X,
+                        },
+                        bubbleStyle,
+                    ]}
+                >
+                    <GlassSurface
+                        style={{
+                            flex: 1,
+                            borderRadius: PILL_RADIUS,
+                            borderCurve: "continuous",
+                            overflow: "hidden",
+                        }}
+                    />
+                </Animated.View>
+            ) : null}
         </View>
     );
 }

@@ -80,7 +80,7 @@ variables), `tailwind.config.js`, and `global.css`. Class merging goes through
 | `tag-pill.tsx` | A tag chip, colored from `tag.color`. Also exports `readableTextColor`. |
 | `create-tag-dialog.tsx` | `CreateTagDialog` (controlled name + color picker, calls `useCreateTag`) and `CreateTagBubble` (floating trigger + dialog). |
 | `modal-popup.tsx` | Small anchored popup used by the track menu and the selection actions. |
-| `tab-bar.tsx` | The whole floating tab bar: `TABS`, `TabBarHost`, `TabSelectionProvider`, the sliding glass bubble, and the items that move aside for the docked player. Mounted at the root, not in the navigator. |
+| `tab-bar.tsx` | The whole floating tab bar: `TABS`, `TabBarHost`, `TabSelectionProvider`, the selection bubble, and the items that move aside for the docked player. The bubble mounts after the bar is measured so native glass starts at its real size. Mounted at the root, not in the navigator. |
 | `top-rail.tsx` | Shared tab header: page title on the left, an optional `actions` slot and the account initials on the right. |
 | `account-initials.ts` | Pure email-to-initials helper, tested in `account-initials.test.ts`. |
 | `coming-soon-screen.tsx` | Data-driven preview surface used by stubbed product areas. |
