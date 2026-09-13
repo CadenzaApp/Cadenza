@@ -53,6 +53,12 @@ export default function RootLayout() {
                                                     )}
                                                 />
                                                 <Stack.Screen
+                                                    name="appearance"
+                                                    options={sheetScreenOptions(
+                                                        theme,
+                                                    )}
+                                                />
+                                                <Stack.Screen
                                                     name="player"
                                                     options={sheetScreenOptions(
                                                         theme,

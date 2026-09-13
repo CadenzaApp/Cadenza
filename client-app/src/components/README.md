@@ -14,7 +14,8 @@ importing `@/lib/routes/*` into a file under `ui/`, it belongs in `custom/`.
 
 ### ui/
 
-`badge`, `button`, `card`, `dialog`, `glass-surface`, `glass-icon-button`, `icon`, `input`,
+`badge`, `button`, `card`, `dialog`, `glass-surface`, `glass-button`, `glass-confirm-dialog`,
+`glass-icon-button`, `icon`, `input`,
 `label`, `separator`, `skeleton`, `tabs`, `text`, `native-only-animated-view`, `detail-screen`,
 `tint-backdrop`, `floating-close-button`, plus `sign-in-form` and `sign-up-form`.
 
@@ -26,7 +27,11 @@ the controller lives in the `ZoomDismissScreen` that screen renders.
 `glass-surface.tsx` exports `GlassSurface`, the translucent background layer behind both
 floating bottom bars. It renders liquid glass on iOS 26, an `expo-blur` `BlurView` on anything
 older, and a flat translucent card on web, all behind one component. It paints a background and
-nothing else; the caller supplies size, radius, and `overflow: "hidden"`.
+nothing else; the caller supplies size, radius, and `overflow: "hidden"`. Its optional
+`tintColor` reaches native liquid glass and gets a translucent approximation on fallbacks.
+
+`glass-button.tsx` and `glass-confirm-dialog.tsx` provide regular and destructive glass actions,
+plus the accessible confirmation used by both Account sign-out flows.
 
 `glass-icon-button.tsx` exports `GlassIconButton`, a round icon button built on it. The account
 button and the library type button in the top rail are the callers. Reach for it rather than
@@ -51,8 +56,9 @@ are not a tab. A pushed one wraps its body in `ZoomDismissScreen`, so it minimiz
 a sheet does not, since it already has a native dismiss. `/artist/:id` and `/collection/:kind/:id` opt out: both draw a hero of their own
 and float their own X. It draws the title, an optional
 `headerRight`, and the X, then renders its children in a clipped flex body below them. One
-`presentation` prop (`"screen"` by default, `"sheet"` for `/account` and `/player`) decides the
-top inset and whether the body counts the bottom bars. The caller keeps its own scrolling and bottom inset, and owes the body a definite
+`presentation` prop (`"screen"` by default, `"sheet"` for `/account`, `/appearance`, and
+`/player`) decides the top inset and whether the body counts the bottom bars. The caller keeps
+its own scrolling and bottom inset, and owes the body a definite
 height (`flex-1` on the scrolling child), because a content-sized list in a sheet grows past
 its box while the sheet animates. The header paints and hit-tests above the body, so a body
 that gets this wrong can no longer cover the close button. It also wraps the body in `InsideSheetContext`, so

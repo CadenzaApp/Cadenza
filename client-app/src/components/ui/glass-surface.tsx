@@ -1,7 +1,13 @@
 import { BlurView, type BlurTint } from "expo-blur";
 import { GlassView, isLiquidGlassAvailable } from "expo-glass-effect";
 import { useColorScheme } from "nativewind";
-import { Platform, View, type ViewProps } from "react-native";
+import {
+    Platform,
+    StyleSheet,
+    View,
+    type ColorValue,
+    type ViewProps,
+} from "react-native";
 
 import { cn } from "@/lib/utils";
 
@@ -13,6 +19,8 @@ export type GlassSurfaceVariant = "regular" | "clear";
 
 type GlassSurfaceProps = ViewProps & {
     variant?: GlassSurfaceVariant;
+    /** Optional color washed into the glass. */
+    tintColor?: ColorValue;
     /** Blur strength for the fallback path. Ignored when liquid glass renders. */
     intensity?: number;
 };
@@ -40,6 +48,7 @@ const FALLBACK_INTENSITY: Record<GlassSurfaceVariant, number> = {
  */
 export function GlassSurface({
     variant = "regular",
+    tintColor,
     intensity,
     className,
     children,
@@ -51,6 +60,7 @@ export function GlassSurface({
     if (Platform.OS === "web") {
         return (
             <View className={cn("bg-card/80", className)} {...rest}>
+                <FallbackTint color={tintColor} />
                 {children}
             </View>
         );
@@ -61,6 +71,7 @@ export function GlassSurface({
             <GlassView
                 glassEffectStyle={variant}
                 colorScheme={scheme}
+                tintColor={tintColor}
                 className={className}
                 {...rest}
             >
@@ -80,7 +91,23 @@ export function GlassSurface({
             className={className}
             {...rest}
         >
+            <FallbackTint color={tintColor} />
             {children}
         </BlurView>
+    );
+}
+
+/** Approximates a custom glass tint where native liquid glass is unavailable. */
+function FallbackTint({ color }: { color?: ColorValue }) {
+    if (color == null) return null;
+
+    return (
+        <View
+            pointerEvents="none"
+            style={[
+                StyleSheet.absoluteFill,
+                { backgroundColor: color, opacity: 0.18 },
+            ]}
+        />
     );
 }

@@ -17,7 +17,8 @@ logic out.
 | `(tabs)/cadenza.tsx` | `/cadenza` | The boolean query workspace. |
 | `(tabs)/library.tsx` | `/library` | Library index: a row per category, then Recently Added. |
 | `(tabs)/search.tsx` | `/search` | Search. A tag shelf until you tap the field, then recents, a scope switch, and results (artists, then songs). |
-| `account.tsx` | `/account` | Account sheet with Apple Music and session controls. |
+| `account.tsx` | `/account` | Account sheet. Wires `AccountSettingsScreen`. |
+| `appearance.tsx` | `/appearance` | Appearance preview sheet. Wires `AppearanceSettingsScreen`. |
 | `player.tsx` | `/player` | Now playing sheet. Renders `MediaPlayerExpanded`. |
 | `library-categories.tsx` | `/library-categories` | Picks which rows the library shows. |
 | `category/[kind].tsx` | `/category/:kind` | One library category's contents. |
@@ -66,7 +67,7 @@ const { account } = useAccount();
 if (!account) return <Redirect href="/auth?initialMode=signin" />;
 ```
 
-The account modal has its own guard because it is a root stack route. The splash screen owns
+The Account and Appearance sheets have their own guards because they are root stack routes. The splash screen owns
 session restore, which is why `AccountProvider` has no loading state. Successful restore and
 authentication both land on `/library`.
 
@@ -134,9 +135,9 @@ is the one caller, adding the button that opens `/library-categories`.
 
 ## Sheets
 
-**Two** routes are sheets: `/account` and `/player`. A sheet is a native surface over the whole
-app, so both bottom bars are behind it and unreachable from it, and that is exactly why those
-two are sheets: they are screens you finish with before going anywhere else. They are presented
+**Three** routes are sheets: `/account`, `/appearance`, and `/player`. A sheet is a native surface
+over the whole app, so both bottom bars are behind it and unreachable from it. Appearance stacks
+from Account and keeps the same modal context. They are presented
 with `sheetScreenOptions` from `@/lib/theme`, the single definition of what a sheet looks like:
 a rounded `formSheet` at the `SHEET_DETENT` detent with a visible native grabber. That detent is
 `1`, the system's large one, so a sheet is full width, runs to the bottom edge, and stops just
@@ -186,6 +187,7 @@ song fetch lands.
 
 - `@/lib/account`, `@/lib/apple-music-auth`, `@/lib/playback` for the providers.
 - `@/lib/routes/*` and `@/lib/musickit-hooks` for data.
+- `@/features/account` from the Account and Appearance sheets.
 - `@/features/cadenza` from the Cadenza tab.
 - `@/components/custom` and `@/components/ui` for everything rendered.
 

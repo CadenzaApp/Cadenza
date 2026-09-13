@@ -10,7 +10,7 @@ over HTTP.
 | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
 | `src/app/`                                            | expo-router routes. See [src/app/README.md](src/app/README.md).                                                                      |
 | `src/lib/`                                            | Data layer and providers. See [src/lib/README.md](src/lib/README.md).                                                                |
-| `src/features/`                                       | Self-contained features. Today: [cadenza](src/features/cadenza/README.md), [library](src/features/library/README.md), and [query-builder](src/features/query-builder/README.md). |
+| `src/features/`                                       | Self-contained features. See [account](src/features/account/README.md), [cadenza](src/features/cadenza/README.md), [library](src/features/library/README.md), [query-builder](src/features/query-builder/README.md), and [search](src/features/search/README.md). |
 | `src/components/`                                     | UI. See [src/components/README.md](src/components/README.md).                                                                        |
 | `modules/apple-musickit/`                             | Local native Expo module. See [modules/apple-musickit/README.md](modules/apple-musickit/README.md).                                  |
 | `modules/image-color/`                                | Local native artwork color module. See [modules/image-color/README.md](modules/image-color/README.md).                              |

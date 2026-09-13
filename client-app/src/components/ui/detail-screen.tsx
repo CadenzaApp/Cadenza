@@ -29,7 +29,7 @@ type DetailScreenProps = {
      * it the flat card color.
      */
     tint?: string | null;
-    /** Defaults to a pushed screen. Only `/account` and `/player` are sheets. */
+    /** Defaults to a pushed screen. Account, Appearance, and Player are sheets. */
     presentation?: DetailPresentation;
     children: ReactNode;
 };

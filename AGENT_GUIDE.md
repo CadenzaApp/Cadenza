@@ -60,6 +60,7 @@ gives you the file map, the flow, and the gotchas.
 | [client-app/src/components/README.md](client-app/src/components/README.md)                                         | `ui/` vs `custom/`, and which one gets new code                 |
 | [client-app/src/components/custom/media-player/README.md](client-app/src/components/custom/media-player/README.md) | The global player surface                                       |
 | [client-app/src/features/cadenza/README.md](client-app/src/features/cadenza/README.md)                             | Combined tag management and query workspace                     |
+| [client-app/src/features/account/README.md](client-app/src/features/account/README.md)                             | Account, Apple Music, and Appearance settings                    |
 | [client-app/src/features/library/README.md](client-app/src/features/library/README.md)                             | The library type filter in the top rail                         |
 | [client-app/src/features/query-builder/README.md](client-app/src/features/query-builder/README.md)                 | The drag and drop boolean query tree                            |
 | [client-app/src/features/search/README.md](client-app/src/features/search/README.md)                               | Search tab recents and the tag shelf                            |

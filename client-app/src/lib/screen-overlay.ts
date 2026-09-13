@@ -33,11 +33,11 @@ const COMPACT_PLAYER_GAP = 3;
 /**
  * Root segments presented as a sheet rather than as a screen of their own. A
  * sheet is a native surface over the whole app, so both bottom bars are behind
- * it and neither can be reached from it. That is the point of the two that are
- * left: the account sheet and the now playing sheet are the screens you are
- * meant to finish with before going anywhere.
+ * it and neither can be reached from it. Account and Player are screens you
+ * finish with before going anywhere. Appearance stacks from Account and keeps
+ * that same modal context.
  */
-const SHEET_SEGMENTS = new Set(["account", "player"]);
+const SHEET_SEGMENTS = new Set(["account", "appearance", "player"]);
 
 /**
  * Root segments pushed as a full screen that the bars float over, exactly as

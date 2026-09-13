@@ -149,8 +149,8 @@ over it), or its last row hides under a bar.
 
 Sheet content is the exception. `DetailScreen` puts `InsideSheetContext` around its body when it
 is presented as a sheet, and the hook then returns sheet-local numbers: no tab bar, no compact
-player, just the safe area. A `MusicList` inside a sheet would otherwise leave a tab bar's worth
-of dead space at the bottom.
+player, just the safe area. Account, Appearance, and Player are the current sheets. A `MusicList`
+inside one would otherwise leave a tab bar's worth of dead space at the bottom.
 
 `TAB_BAR_HEIGHT`, `TAB_BAR_MARGIN`, and `bottomBarBottom` are what `@/components/custom/tab-bar`
 positions itself with, so the bar and the padding screens leave for it cannot drift.
