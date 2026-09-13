@@ -1,75 +1,233 @@
 import {
-    CatalogSearchType,
+    type LibraryResult,
+    type LibrarySongOptions,
     MusicKit,
-    MusicKitOptions,
-    SongFavoriteStatus,
+    type MusicItem,
+    type MusicKitOptions,
+    type SearchResult,
+    type SongFavoriteStatus,
 } from "@apple-musickit";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import useSWR from "swr";
+import useSWRInfinite from "swr/infinite";
+import { useAppleMusic } from "./apple-music-auth";
+
+const MUSIC_LIST_PAGE_SIZE = 25;
+
+type LibrarySongSort = NonNullable<LibrarySongOptions["sort"]>;
+type LibraryPageKey = readonly [
+    "MusicKit.getLibrarySongs",
+    number,
+    number,
+    LibrarySongSort["option"] | null,
+    LibrarySongSort["direction"] | null,
+    number,
+];
+type SearchPageKey = readonly [
+    "MusicKit.catalogSongSearch",
+    number,
+    string,
+    number,
+    number,
+];
 
 /** Returns cached Apple Music metadata for the supplied song IDs. */
 export function useSongInfo(songIds?: readonly string[] | null) {
-    const key = songIds?.length
-        ? (["MusicKit.getSongInfo", [...songIds]] as const)
-        : null;
-    const x = useSWR(key, ([, ids]) => MusicKit.getSongInfo([...ids]));
+    const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
+    const normalizedIds = useMemo(
+        () => [...new Set(songIds?.filter(Boolean) ?? [])],
+        [songIds],
+    );
+    const key =
+        isConnected && normalizedIds.length
+            ? ([
+                  "MusicKit.getSongInfo",
+                  sessionRevision,
+                  normalizedIds,
+              ] as const)
+            : null;
+    const x = useSWR(key, ([, , ids]) => MusicKit.getSongInfo([...ids]));
     return {
         songInfo: x.data ?? [],
-        songInfoLoading: x.isLoading,
+        songInfoLoading: x.isLoading || isInitializing,
         songInfoErr: x.error,
     };
 }
 
-/** Provides an explicitly triggered, query-keyed Apple Music catalog search. */
-export function useCatalogSearch() {
-    const [request, setRequest] = useState<{
-        query: string;
-        types: CatalogSearchType[];
-    } | null>(null);
-    const key = request
-        ? (["MusicKit.catalogSearch", request.query, request.types] as const)
-        : null;
-    const x = useSWR(key, ([, query, types]) =>
-        MusicKit.catalogSearch(query, [...types]),
+/**
+ * Provides an explicitly triggered, cached Apple Music catalog search with
+ * incremental pages. The query and all request parameters form the cache key.
+ */
+export function useCatalogSongSearch(enabled = true) {
+    const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
+    const [query, setQuery] = useState<string | null>(null);
+    const x = useSWRInfinite<SearchResult>(
+        (pageIndex, previousPage) => {
+            if (!enabled || !isConnected || !query) return null;
+            if (pageIndex > 0 && !hasNextSearchPage(previousPage)) {
+                return null;
+            }
+
+            const offset = pageIndex === 0 ? 0 : previousPage?.nextSongsOffset;
+            if (offset === undefined) return null;
+            return [
+                "MusicKit.catalogSongSearch",
+                sessionRevision,
+                query,
+                MUSIC_LIST_PAGE_SIZE,
+                offset,
+            ] as const;
+        },
+        (key: SearchPageKey) => {
+            const [, , searchQuery, limit, offset] = key;
+            return MusicKit.catalogSearch(searchQuery, ["songs"], {
+                limit,
+                offset,
+            });
+        },
     );
+    const searchResults = useMemo(
+        () =>
+            appendTracksWithoutDuplicates(
+                x.data?.flatMap((page) => page.songs) ?? [],
+            ),
+        [x.data],
+    );
+    const lastPage = x.data?.[x.data.length - 1];
+    const hasNextPage = hasNextSearchPage(lastPage);
+    const isLoadingNextPage =
+        x.isValidating &&
+        Boolean(x.data?.length) &&
+        x.size > (x.data?.length ?? 0);
+
+    function searchCatalog(nextQuery: string) {
+        setQuery(nextQuery.trim() || null);
+    }
+
+    async function loadNextSearchPage() {
+        if (!hasNextPage || isLoadingNextPage) return;
+        await x.setSize((size) => size + 1);
+    }
+
+    function clearSearchCatalog() {
+        setQuery(null);
+    }
 
     return {
-        searchResults: x.data,
-        searchCatalog: setRequest,
-        searchCatalogLoading: x.isLoading,
+        searchResults,
+        searchCatalog,
+        clearSearchCatalog,
+        loadNextSearchPage,
+        hasNextSearchPage: hasNextPage,
+        searchCatalogLoading: x.isLoading || isInitializing,
+        isLoadingNextSearchPage: isLoadingNextPage,
         searchCatalogErr: x.error,
     };
 }
 
-/** Returns the cached songs in the user's Apple Music library. */
-export function useTracksFromLibrary() {
-    const x = useSWR(["MusicKit.getTracksFromLibrary"], () =>
-        MusicKit.getTracksFromLibrary(),
+/**
+ * Returns paginated library songs. iOS native sorting is included in the key,
+ * allowing MusicLibraryRequest to retain its global ordering across pages.
+ */
+export function useTracksFromLibrary({
+    enabled = true,
+    sort,
+}: {
+    enabled?: boolean;
+    sort?: LibrarySongSort;
+} = {}) {
+    const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
+    const x = useSWRInfinite<LibraryResult>(
+        (pageIndex, previousPage) => {
+            if (!enabled || !isConnected) return null;
+            if (pageIndex > 0 && !hasNextLibraryPage(previousPage)) {
+                return null;
+            }
+
+            const offset = pageIndex === 0 ? 0 : previousPage?.nextOffset;
+            if (offset === undefined) return null;
+            return [
+                "MusicKit.getLibrarySongs",
+                sessionRevision,
+                MUSIC_LIST_PAGE_SIZE,
+                sort?.option ?? null,
+                sort?.direction ?? null,
+                offset,
+            ] as const;
+        },
+        (key: LibraryPageKey) => {
+            const [, , limit, sortOption, sortDirection, offset] = key;
+            const options: LibrarySongOptions = {
+                limit,
+                offset,
+            };
+
+            if (sortOption && sortDirection) {
+                options.sort = {
+                    option: sortOption,
+                    direction: sortDirection,
+                };
+            }
+
+            return MusicKit.getLibrarySongs(options);
+        },
     );
+    const tracks = useMemo(
+        () =>
+            appendTracksWithoutDuplicates(
+                x.data?.flatMap((page) => page.items) ?? [],
+            ),
+        [x.data],
+    );
+    const lastPage = x.data?.[x.data.length - 1];
+    const hasNextPage = hasNextLibraryPage(lastPage);
+    const isLoadingNextPage =
+        x.isValidating &&
+        Boolean(x.data?.length) &&
+        x.size > (x.data?.length ?? 0);
+
+    async function loadNextLibraryPage() {
+        if (!hasNextPage || isLoadingNextPage) return;
+        await x.setSize((size) => size + 1);
+    }
+
     return {
-        tracks: x.data,
-        tracksLoading: x.isLoading,
+        tracks,
+        tracksLoading: x.isLoading || isInitializing,
+        tracksLoadingNextPage: isLoadingNextPage,
+        loadNextLibraryPage,
+        hasNextLibraryPage: hasNextPage,
         tracksErr: x.error,
     };
 }
 
 /** Returns cached Apple Music playlists for the supplied request options. */
 export function useUserPlaylists(options: MusicKitOptions = {}) {
-    const x = useSWR(["MusicKit.getUserPlaylists", options], ([, request]) =>
-        MusicKit.getUserPlaylists(request),
+    const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
+    const x = useSWR(
+        isConnected
+            ? ["MusicKit.getUserPlaylists", sessionRevision, options]
+            : null,
+        ([, , request]) => MusicKit.getUserPlaylists(request),
     );
     return {
         playlists: x.data,
-        playlistsLoading: x.isLoading,
+        playlistsLoading: x.isLoading || isInitializing,
         playlistsErr: x.error,
     };
 }
 
 /** Returns and updates the cached favorite status for one Apple Music song. */
 export function useSongFavoriteStatus(songId?: string) {
-    const key = songId
-        ? (["MusicKit.getSongFavoriteStatus", songId] as const)
-        : null;
+    const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
+    const key =
+        isConnected && songId
+            ? ([
+                  "MusicKit.getSongFavoriteStatus",
+                  sessionRevision,
+                  songId,
+              ] as const)
+            : null;
     const x = useSWR<SongFavoriteStatus>(key, () =>
         MusicKit.getSongFavoriteStatus(songId!),
     );
@@ -94,8 +252,25 @@ export function useSongFavoriteStatus(songId?: string) {
 
     return {
         favoriteStatus: x.data,
-        favoriteStatusLoading: x.isLoading,
+        favoriteStatusLoading: x.isLoading || isInitializing,
         favoriteStatusErr: x.error,
         setSongFavoriteStatus,
     };
+}
+
+function hasNextLibraryPage(page?: LibraryResult | null) {
+    return Boolean(page?.items.length && page.hasNextPage);
+}
+
+function hasNextSearchPage(page?: SearchResult | null) {
+    return Boolean(page?.songs.length && page.hasNextSongs);
+}
+
+function appendTracksWithoutDuplicates(tracks: MusicItem[]) {
+    const seenTrackIDs = new Set<string>();
+    return tracks.filter((track) => {
+        if (seenTrackIDs.has(track.id)) return false;
+        seenTrackIDs.add(track.id);
+        return true;
+    });
 }

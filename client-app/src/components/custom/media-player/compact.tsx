@@ -9,6 +9,7 @@ import {
 } from "react-native";
 
 import { Text } from "@/components/ui/text";
+import { COMPACT_PLAYER_HEIGHT } from "@/lib/screen-overlay";
 
 type Props = {
     track: MusicItem;
@@ -47,7 +48,7 @@ export function MediaPlayerCompact({
             className="absolute left-3 right-3 rounded-xl border border-border bg-card flex-row items-center px-3"
             style={{
                 bottom,
-                height: 64,
+                height: COMPACT_PLAYER_HEIGHT,
                 shadowColor: "#000",
                 shadowOpacity: 0.18,
                 shadowRadius: 10,

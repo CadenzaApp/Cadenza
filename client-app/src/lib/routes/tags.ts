@@ -41,6 +41,7 @@ type NewTagPayload = {
 export function useCreateTag() {
     const x = useAPIMutation<NewTagPayload, number>("POST", "/tags", [
         { path: "/songs/tags" },
+        { path: "/songs/tags/batch" },
         { path: "/tags" },
     ]);
     return {
@@ -54,6 +55,7 @@ export function useCreateTag() {
 export function useDeleteTag() {
     const x = useAPIMutation<{ tag_id: number }, void>("DELETE", "/tags", [
         { path: "/songs/tags" },
+        { path: "/songs/tags/batch" },
         { path: "/tags" },
     ]);
     return {

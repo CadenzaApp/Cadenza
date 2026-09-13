@@ -14,6 +14,8 @@ type AppleMusicContextType = {
     isInitializing: boolean;
     isConnected: boolean;
     hasUserToken: boolean;
+    /** Non-secret cache namespace that changes whenever MusicKit auth changes. */
+    sessionRevision: number;
     ensureConnected: () => Promise<AuthResult | null>;
     connect: () => Promise<AuthResult | null>;
     disconnect: () => Promise<void>;
@@ -34,20 +36,24 @@ export function useAppleMusic() {
 export function AppleMusicProvider({ children }: { children: ReactNode }) {
     const [authResult, setAuthResult] = useState<AuthResult | null>(null);
     const [isInitializing, setIsInitializing] = useState(true);
+    const [sessionRevision, setSessionRevision] = useState(0);
 
     const hasUserToken = Boolean(authResult?.userToken);
     const isConnected =
         authResult?.status === AuthStatus.Authorized && hasUserToken;
 
-    const restoreNativeTokens = useCallback(async (result: AuthResult | null) => {
-        const developerToken = getDeveloperToken();
-        if (result?.status === AuthStatus.Authorized && result.userToken) {
-            await Auth.setTokens(developerToken, result.userToken);
-            return;
-        }
+    const restoreNativeTokens = useCallback(
+        async (result: AuthResult | null) => {
+            const developerToken = getDeveloperToken();
+            if (result?.status === AuthStatus.Authorized && result.userToken) {
+                await Auth.setTokens(developerToken, result.userToken);
+                return;
+            }
 
-        await Auth.setTokens(developerToken, null);
-    }, []);
+            await Auth.setTokens(developerToken, null);
+        },
+        [],
+    );
 
     // Initialize tokens on app load
     useEffect(() => {
@@ -61,6 +67,7 @@ export function AppleMusicProvider({ children }: { children: ReactNode }) {
                     ) {
                         await restoreNativeTokens(savedAuth);
                         setAuthResult(savedAuth);
+                        setSessionRevision((revision) => revision + 1);
                     } else {
                         await clearStoredAuth();
                         await restoreNativeTokens(null);
@@ -98,6 +105,7 @@ export function AppleMusicProvider({ children }: { children: ReactNode }) {
                 await restoreNativeTokens(null);
             }
             setAuthResult(result);
+            setSessionRevision((revision) => revision + 1);
             return result;
         } catch (error) {
             console.error("Apple Music authorization error:", error);
@@ -122,6 +130,7 @@ export function AppleMusicProvider({ children }: { children: ReactNode }) {
      */
     async function disconnect() {
         setAuthResult(null);
+        setSessionRevision((revision) => revision + 1);
         await clearStoredAuth();
 
         // Explicitly pass null to overwrite the userToken in the native module
@@ -135,6 +144,7 @@ export function AppleMusicProvider({ children }: { children: ReactNode }) {
                 isInitializing,
                 isConnected,
                 hasUserToken,
+                sessionRevision,
                 ensureConnected,
                 connect,
                 disconnect,

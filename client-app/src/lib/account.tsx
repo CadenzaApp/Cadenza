@@ -50,9 +50,6 @@ export default function AccountProvider({ children }: Props) {
         if (error) throw error;
 
         if (data.session != null) {
-            console.log("session restored:", data.session.user.email);
-            console.log("current jwt:", data.session.access_token);
-
             setAccount({
                 id: data.session.user.id,
                 email: data.session.user.email!,
@@ -60,9 +57,7 @@ export default function AccountProvider({ children }: Props) {
             });
             return true;
         }
-        console.log("no session");
         return false;
-
     }
 
     async function signIn(email: string, password: string) {

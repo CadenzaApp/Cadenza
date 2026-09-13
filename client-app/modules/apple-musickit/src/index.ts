@@ -4,6 +4,7 @@ import type {
     AuthResult,
     CatalogSearchType,
     LibraryResult,
+    LibrarySongOptions,
     MusicItem,
     MusicKitOptions,
     PlaybackSnapshot,
@@ -34,9 +35,11 @@ export interface AppleMusicKitNativeModule {
     catalogSearch(
         query: string,
         types: CatalogSearchType[],
+        limit: number,
+        offset: number,
     ): Promise<SearchResult>;
     getUserPlaylists(options?: MusicKitOptions): Promise<LibraryResult>;
-    getLibrarySongs(options?: MusicKitOptions): Promise<LibraryResult>;
+    getLibrarySongs(options?: LibrarySongOptions): Promise<LibraryResult>;
     getPlaylistSongs(
         playlistId: string,
         options?: MusicKitOptions,
@@ -47,6 +50,15 @@ export interface AppleMusicKitNativeModule {
         isFavorite: boolean,
     ): Promise<SongFavoriteStatus>;
     setPlaybackQueue(id: string, type: string): Promise<void>;
+    setSongPlaybackQueue(
+        ids: readonly string[],
+        types: readonly string[],
+        startIndex: number,
+    ): Promise<void>;
+    appendSongPlaybackQueue(
+        ids: readonly string[],
+        types: readonly string[],
+    ): Promise<void>;
 }
 
 // Set EXPO_PUBLIC_MOCK_MUSICKIT=1 to answer from ./mock-native instead of the

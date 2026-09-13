@@ -55,9 +55,20 @@ export interface MusicKitOptions {
     offset?: number;
 }
 
+/** A server-side library-song order available through native iOS MusicKit. */
+export interface LibrarySongSort {
+    option: "title" | "artist" | "album" | "dateAdded";
+    direction: "ascending" | "descending";
+}
+
+/** Options for retrieving library songs. Android ignores `sort`. */
+export interface LibrarySongOptions extends MusicKitOptions {
+    sort?: LibrarySongSort;
+}
+
 /** Normalized metadata for an Apple Music song, album, or playlist. */
 export interface MusicItem {
-    /** Apple Music catalog or library identifier. */
+    /** Stable identifier from the collection that produced this item. */
     id: string;
     /** The kind of Apple Music resource represented by this item. */
     resourceKind: MusicResourceKind;
@@ -67,6 +78,8 @@ export interface MusicItem {
     catalogId?: string;
     /** Apple Music library identifier, when one is available. */
     libraryId?: string;
+    /** Identifier sent to the native playback queue when it differs from `id`. */
+    playbackId?: string;
     /** Display title for the item. */
     title: string;
     /** Display name of the primary artist. */
@@ -85,6 +98,8 @@ export interface MusicItem {
     songDuration?: number;
     /** Release date represented as Unix epoch milliseconds. */
     releaseDate?: number;
+    /** Date the song was added to the user's library, as Unix epoch milliseconds. */
+    libraryAddedDate?: number;
     /** Genre names associated with the item. */
     genres?: string[];
     /** Canonical Apple Music URL suitable for sharing outside the app. */
@@ -117,12 +132,20 @@ export interface SearchResult {
     songs: MusicItem[];
     /** Albums matching the search query. */
     albums: MusicItem[];
+    /** Whether another page of matching songs is available. */
+    hasNextSongs: boolean;
+    /** Whether another page of matching albums is available. */
+    hasNextAlbums: boolean;
+    /** Offset supplied by Apple for the next songs page. */
+    nextSongsOffset?: number;
 }
 
 /** A collection returned by an Apple Music library request. */
 export interface LibraryResult {
     /** Normalized items returned by the request. */
     items: MusicItem[];
-    /** Apple Music API path for the next page, when another page is available. */
-    next?: string;
+    /** Whether another page is available. Native modules normalize this value. */
+    hasNextPage: boolean;
+    /** Offset supplied by Apple for the next page. */
+    nextOffset?: number;
 }
