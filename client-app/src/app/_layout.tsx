@@ -6,6 +6,7 @@ import { AppleMusicProvider } from "@/lib/apple-music-auth";
 import { PlaybackProvider } from "@/lib/playback";
 import { MediaPlayerHost } from "@/components/custom/media-player";
 import { LibraryCategoriesProvider } from "@/features/library/library-categories";
+import { PlayerDockProvider } from "@/lib/player-dock";
 import { PortalHost } from "@rn-primitives/portal";
 import { useColorScheme } from "nativewind";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -23,54 +24,56 @@ export default function RootLayout() {
                     <PlaybackProvider>
                         <ThemeProvider value={theme}>
                             <LibraryCategoriesProvider>
-                                <Stack>
-                                    <Stack.Screen
-                                        name="(splashscreen)/index"
-                                        options={{ headerShown: false }}
-                                    />
-                                    <Stack.Screen
-                                        name="(tabs)"
-                                        options={{ headerShown: false }}
-                                    />
-                                    <Stack.Screen
-                                        name="account"
-                                        options={sheetScreenOptions(theme)}
-                                    />
-                                    <Stack.Screen
-                                        name="player"
-                                        options={sheetScreenOptions(theme)}
-                                    />
-                                    <Stack.Screen
-                                        name="auth/index"
-                                        options={{ title: "Welcome" }}
-                                    />
-                                    <Stack.Screen
-                                        name="library-categories"
-                                        options={sheetScreenOptions(theme)}
-                                    />
-                                    <Stack.Screen
-                                        name="category/[kind]"
-                                        options={sheetScreenOptions(theme)}
-                                    />
-                                    <Stack.Screen
-                                        name="collection/[kind]/[id]"
-                                        options={sheetScreenOptions(theme)}
-                                    />
-                                    <Stack.Screen
-                                        name="tag/[tagId]"
-                                        options={sheetScreenOptions(theme)}
-                                    />
-                                    <Stack.Screen
-                                        name="artist/[id]"
-                                        options={sheetScreenOptions(theme)}
-                                    />
-                                    <Stack.Screen
-                                        name="add-to-playlist"
-                                        options={sheetScreenOptions(theme)}
-                                    />
-                                </Stack>
-                                <PortalHost />
-                                <MediaPlayerHost />
+                                <PlayerDockProvider>
+                                    <Stack>
+                                        <Stack.Screen
+                                            name="(splashscreen)/index"
+                                            options={{ headerShown: false }}
+                                        />
+                                        <Stack.Screen
+                                            name="(tabs)"
+                                            options={{ headerShown: false }}
+                                        />
+                                        <Stack.Screen
+                                            name="account"
+                                            options={sheetScreenOptions(theme)}
+                                        />
+                                        <Stack.Screen
+                                            name="player"
+                                            options={sheetScreenOptions(theme)}
+                                        />
+                                        <Stack.Screen
+                                            name="auth/index"
+                                            options={{ title: "Welcome" }}
+                                        />
+                                        <Stack.Screen
+                                            name="library-categories"
+                                            options={sheetScreenOptions(theme)}
+                                        />
+                                        <Stack.Screen
+                                            name="category/[kind]"
+                                            options={sheetScreenOptions(theme)}
+                                        />
+                                        <Stack.Screen
+                                            name="collection/[kind]/[id]"
+                                            options={sheetScreenOptions(theme)}
+                                        />
+                                        <Stack.Screen
+                                            name="tag/[tagId]"
+                                            options={sheetScreenOptions(theme)}
+                                        />
+                                        <Stack.Screen
+                                            name="artist/[id]"
+                                            options={sheetScreenOptions(theme)}
+                                        />
+                                        <Stack.Screen
+                                            name="add-to-playlist"
+                                            options={sheetScreenOptions(theme)}
+                                        />
+                                    </Stack>
+                                    <PortalHost />
+                                    <MediaPlayerHost />
+                                </PlayerDockProvider>
                             </LibraryCategoriesProvider>
                         </ThemeProvider>
                     </PlaybackProvider>

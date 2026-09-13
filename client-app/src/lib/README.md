@@ -25,6 +25,8 @@ native module directly.
 | `theme.ts` | `NAV_THEME`, light and dark palettes for react-navigation, and `sheetScreenOptions` for sheet routes. |
 | `error-utils.ts` | `getErrorDetails` / `getErrorMessage`, for unwrapping native and backend errors. |
 | `screen-overlay.ts` | `useScreenOverlayInsets`, plus the geometry constants for both floating bottom bars. Also `useBaseRouteSegment`, the root segment ignoring any sheet presented on top. |
+| `player-dock.tsx` | `PlayerDockProvider` / `usePlayerDock`. Whether the mini player floats above the tab bar or sits docked inside it. |
+| `screen-scroll.ts` | `useScreenScroll`, the props a tab screen's top-level scroller spreads to get tab-press-scrolls-to-top and scroll-docks-the-player. |
 | `types.ts` | Shared wire types: `Tag` and `TagMetadata`. |
 | `utils.ts` | `cn()`, the clsx + tailwind-merge helper. |
 
@@ -134,7 +136,32 @@ hook then returns sheet-local numbers: no tab bar, no compact player, just the s
 `MusicList` inside a sheet would otherwise leave a tab bar's worth of dead space at the bottom.
 
 `TAB_BAR_HEIGHT` and `TAB_BAR_MARGIN` are also what `(tabs)/_layout.tsx` styles the bar with.
-Change one and the other has to match.
+Change one and the other has to match. `TAB_BAR_ITEM_INSET` and `DOCKED_PLAYER_HEIGHT` are the
+box *inside* the bar, shared by the selection bubble and the docked player so they line up.
+
+## Docking the player
+
+`player-dock.tsx` holds one animated `progress`: 0 floating above the bar, 1 docked inside it
+over the middle tab slots, fractional while a finger is dragging it. Three things move it.
+
+- `screen-scroll.ts`, when the focused screen scrolls away from the top, and back at the top.
+- The drag on the player itself, in `media-player.tsx`.
+- Leaving a screen, which floats it again.
+
+It also carries the tab bar's measured width and tab count, which `TabBarGlass` reports and the
+player uses to size itself to three slots. Docking changes nothing about the insets screens pad
+with: it is an overlay on the bar, so a page cannot reflow underneath a scroll that caused it.
+
+`useScreenScroll()` is what a tab screen's top-level scroller spreads:
+
+```tsx
+const scroll = useScreenScroll();
+<Animated.FlatList {...scroll} ... />
+```
+
+It has to be an `Animated.FlatList` / `Animated.ScrollView`, because the offset is read on the UI
+thread. Tab-press-scrolls-to-top comes free with it, through react-navigation's `useScrollToTop`.
+A surface that skips the hook keeps the player floating and ignores tab presses.
 
 ## The providers
 

@@ -16,6 +16,7 @@ import { SongDetailModal } from "@/components/custom/song-detail-modal";
 import { usePlayback, usePlaybackCommands } from "@/lib/playback";
 import { useTagsOnSongs } from "@/lib/routes/songs";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
+import { useScreenScroll } from "@/lib/screen-scroll";
 
 import { MusicListItem, MusicListItemSkeleton } from "./music-list-item";
 import { MusicListSelectionToolbar } from "./music-list-selection-toolbar";
@@ -83,7 +84,7 @@ export function MusicList({
     const isLoadingNextPage = pagination?.isLoadingNextPage ?? false;
     const onLoadNextPage = pagination?.onLoadNextPage;
     const isLoadingMoreRef = useRef(false);
-    const listRef = useRef<FlatList<(typeof tracks)[number]>>(null);
+    const scroll = useScreenScroll<FlatList<(typeof tracks)[number]>>();
     const [revealTrackIds, setRevealTrackIds] = useState<ReadonlySet<string>>(
         new Set(),
     );
@@ -188,8 +189,7 @@ export function MusicList({
     const pinchGesture = useMemo(
         () =>
             Gesture.Pinch().onEnd((event) => {
-                if (event.scale <= 0.92)
-                    runOnJS(beginDensityTransition)(true);
+                if (event.scale <= 0.92) runOnJS(beginDensityTransition)(true);
                 else if (event.scale >= 1.08)
                     runOnJS(beginDensityTransition)(false);
             }),
@@ -198,7 +198,7 @@ export function MusicList({
 
     useEffect(() => {
         if (densityTransitionRevision === 0) return;
-        listRef.current?.scrollToOffset({ offset: 0, animated: false });
+        scroll.ref.current?.scrollToOffset({ offset: 0, animated: false });
         listOpacity.set(1);
         const revealWindow = setTimeout(() => {
             setDensityRevealActive(false);
@@ -206,7 +206,7 @@ export function MusicList({
             setRevealTrackIds(new Set());
         }, DENSITY_MAX_STAGGER_MS + DENSITY_ROW_FADE_IN_MS);
         return () => clearTimeout(revealWindow);
-    }, [densityTransitionRevision, listOpacity]);
+    }, [densityTransitionRevision, listOpacity, scroll.ref]);
 
     useEffect(() => {
         isLoadingMoreRef.current = isLoadingNextPage;
@@ -291,8 +291,8 @@ export function MusicList({
                             )}
                         </View>
                     ) : (
-                        <FlatList
-                            ref={listRef}
+                        <Animated.FlatList
+                            {...scroll}
                             data={displayedTracks}
                             extraData={listExtraData}
                             initialNumToRender={MUSIC_LIST_RENDER_BATCH_SIZE}
@@ -343,7 +343,8 @@ export function MusicList({
                             ListEmptyComponent={
                                 !isLoading ? (
                                     <Text className="text-muted-foreground text-center mt-10">
-                                        Search for Artists, Songs, Lyrics, and More.
+                                        Search for Artists, Songs, Lyrics, and
+                                        More.
                                     </Text>
                                 ) : null
                             }

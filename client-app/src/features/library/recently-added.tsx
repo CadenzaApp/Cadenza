@@ -3,10 +3,12 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTheme } from "expo-router/react-navigation";
 import type { ReactNode } from "react";
 import { FlatList, Image, Pressable, View } from "react-native";
+import Animated from "react-native-reanimated";
 
 import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
+import { useScreenScroll } from "@/lib/screen-scroll";
 import { usePlaybackCommands } from "@/lib/playback";
 
 const SKELETON_TILE_COUNT = 6;
@@ -43,11 +45,13 @@ export function RecentlyAddedGrid({
     header,
 }: RecentlyAddedGridProps) {
     const { listBottomInset } = useScreenOverlayInsets();
+    const scroll = useScreenScroll<FlatList<MusicItem>>();
     const { togglePlayback } = usePlaybackCommands();
     const showSkeletons = isLoading && items.length === 0;
 
     return (
-        <FlatList
+        <Animated.FlatList
+            {...scroll}
             className="flex-1 bg-background"
             data={items}
             numColumns={COLUMN_COUNT}

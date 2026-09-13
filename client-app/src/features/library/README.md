@@ -11,7 +11,7 @@ Which rows appear is the user's choice.
 | `categories.ts`           | `LibraryCategory`, the display order, labels, and icons. No React.      |
 | `library-categories.tsx`  | `LibraryCategoriesProvider` / `useLibraryCategories`. Which rows show.  |
 | `category-row.tsx`        | One row of the index.                                                   |
-| `recently-added.tsx`      | `RecentlyAddedGrid`, the paged artwork grid that owns the screen scroll. |
+| `recently-added.tsx`      | `RecentlyAddedGrid`, the paged artwork grid that owns the screen scroll and reports it with `useScreenScroll`. |
 | `tags-view.tsx`           | Every tag as a pill, opening `/tag/:tagId`. The Tags category's body.   |
 
 ## How it works

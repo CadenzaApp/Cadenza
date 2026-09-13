@@ -11,9 +11,9 @@ owns.
 | --- | --- |
 | `index.ts` | Public surface. Exports `MediaPlayerHost` and nothing else. |
 | `media-player-host.tsx` | Decides whether to render at all. Nothing else. |
-| `media-player.tsx` | The mini player: playback wiring, the swipe-up gesture, and `router.push("/player")`. |
+| `media-player.tsx` | The mini player: playback wiring, the drag between floating and docked, the swipe-up gesture, and `router.push("/player")`. |
 | `expanded.tsx` | `MediaPlayerExpanded`, the body of the now playing sheet. Rendered by `app/player.tsx`. |
-| `compact.tsx` | The collapsed bar. Presentational, all props. |
+| `compact.tsx` | The collapsed bar, and the animation between its floating and docked rects. Presentational, all props. |
 | `playback-details.tsx` | `MediaPlayerTrackHeading` (title, artist, favorite, `...`) and `MediaPlayerProgress` (scrubber and timestamps). |
 | `queue-view.tsx` | What replaces the artwork when the queue is open: compact heading, shuffle and repeat pills, the reorderable up-next list. |
 | `track-menu.tsx` | The `...` menu. Favorite, Share, Edit Tags, Add to Playlist, Go to Album, Go to Artist. |
@@ -32,6 +32,13 @@ That hook works off the *base* route segment rather than `useSegments()[0]`, so 
 presented on top of a screen does not move or unmount the bar underneath it.
 
 Playback state is unaffected either way, because it lives in `PlaybackProvider`, not here.
+
+The bar has two resting places. Floating above the tab bar, and docked inside it over the middle
+three tab slots, which is where scrolling a page sends it and where a downward drag puts it.
+`media-player.tsx` builds both rects out of `useScreenOverlayInsets` and the bar metrics on
+`usePlayerDock`, and `compact.tsx` interpolates between them off `dockProgress`. Skip is the
+control that gives way while docked; artwork, title, and play stay. See the docking section of
+[../../../lib/README.md](../../../lib/README.md) for what drives the progress.
 
 The two halves are split by what they render into. `media-player.tsx` owns the bar and holds
 almost no state: playback from `usePlayback()`, an artwork fallback, and the gesture that pushes
@@ -86,9 +93,13 @@ the 750ms native snapshot polls, and scrubbing overrides it with `scrubPosition`
 - Bottom geometry lives entirely in `@/lib/screen-overlay`. Nothing in this directory should
   hardcode a bar height or an offset.
 - The bar's background is a `GlassSurface`, which clips itself. The shadow has to stay on the
-  `Pressable` around it, because a clipping view does not cast one on iOS.
-- Its side gutter is `marginHorizontal: TAB_BAR_MARGIN`, the same constant the tab bar pill
-  uses, so the two bars stay the same width. Do not replace it with a hardcoded inset.
+  animated container around it, because a clipping view does not cast one on iOS.
+- The drag gesture is built by `createDockGesture`, a plain function rather than a hook, so the
+  shared values arrive as arguments. Writing a shared value that came out of a hook in the same
+  component is what `react-hooks/immutability` rejects.
+- Floating, its side gutter is `TAB_BAR_MARGIN`, the same constant the tab bar pill uses, so the
+  two bars stay the same width. Docked, it is that plus however many tab slots it leaves alone.
+  Both come from the rects in `media-player.tsx`; do not hardcode an inset in `compact.tsx`.
 - The artwork size is derived from the sheet body measured by `onLayout`, not the window, because
   the sheet leaves out the status bar and the header. `SHEET_DETENT` (imported from
   `@/lib/theme`, so it cannot drift from `sheetScreenOptions`) and `SHEET_HEADER_HEIGHT` in

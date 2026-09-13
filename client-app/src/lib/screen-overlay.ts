@@ -13,15 +13,21 @@ export const TAB_BAR_HEIGHT = 60;
  */
 export const TAB_BAR_MARGIN = 12;
 export const COMPACT_PLAYER_HEIGHT = 64;
+/**
+ * Inset of anything drawn inside the tab bar pill: the selection bubble, and
+ * the mini player once it docks. Both read it from here so they line up.
+ */
+export const TAB_BAR_ITEM_INSET = 3;
+export const DOCKED_PLAYER_HEIGHT = TAB_BAR_HEIGHT - TAB_BAR_ITEM_INSET * 2;
 export const FLOATING_ACTION_SIZE = 56;
 
 const OVERLAY_GAP = 12;
 /**
- * Gap between the tab bar and the compact player. Smaller than `OVERLAY_GAP`
- * because `bottomBarInset` already carries `TAB_BAR_MARGIN` above the bar, so
- * the two add up to what you actually see between the pills.
+ * Gap between the tab bar and the compact player. `bottomBarInset` already
+ * carries `TAB_BAR_MARGIN` above the bar, so this plus that is the 15pt you
+ * actually see between the two pills.
  */
-const COMPACT_PLAYER_GAP = 7;
+const COMPACT_PLAYER_GAP = 3;
 
 /** Root segments presented as a sheet rather than as a screen of their own. */
 const SHEET_SEGMENTS = new Set([
@@ -87,6 +93,8 @@ export function useScreenOverlayInsets() {
           : 0;
 
     const compactPlayerBottom = bottomBarInset + COMPACT_PLAYER_GAP;
+    // Where the player sits once it docks: inside the bar rather than above it.
+    const dockedPlayerBottom = insets.bottom + TAB_BAR_ITEM_INSET;
     const playerBottomInset = compactPlayerVisible
         ? compactPlayerBottom + COMPACT_PLAYER_HEIGHT
         : bottomBarInset;
@@ -94,8 +102,10 @@ export function useScreenOverlayInsets() {
 
     return {
         compactPlayerVisible,
-        /** Where the compact player pins itself. */
+        /** Where the compact player pins itself while it floats. */
         compactPlayerBottom,
+        /** Where it pins itself once it is docked inside the tab bar. */
+        dockedPlayerBottom,
         playerBottomInset,
         floatingActionBottom,
         /** Bottom padding for a scrolling surface with no floating button. */

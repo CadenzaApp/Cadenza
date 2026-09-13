@@ -2,6 +2,7 @@ import { Redirect, Tabs } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import {
+    TabBarButton,
     TabBarGlass,
     TabBarIcon,
     TabBarLabel,
@@ -92,6 +93,9 @@ export default function TabLayout() {
                         tabBarLabel: () => (
                             <TabBarLabel index={0}>Social</TabBarLabel>
                         ),
+                        tabBarButton: (props) => (
+                            <TabBarButton index={0} {...props} />
+                        ),
                     }}
                 />
                 <Tabs.Screen
@@ -103,6 +107,9 @@ export default function TabLayout() {
                         ),
                         tabBarLabel: () => (
                             <TabBarLabel index={1}>Analytics</TabBarLabel>
+                        ),
+                        tabBarButton: (props) => (
+                            <TabBarButton index={1} {...props} />
                         ),
                     }}
                 />
@@ -116,6 +123,9 @@ export default function TabLayout() {
                         tabBarLabel: () => (
                             <TabBarLabel index={2}>Cadenza</TabBarLabel>
                         ),
+                        tabBarButton: (props) => (
+                            <TabBarButton index={2} {...props} />
+                        ),
                     }}
                 />
                 <Tabs.Screen
@@ -128,6 +138,9 @@ export default function TabLayout() {
                         tabBarLabel: () => (
                             <TabBarLabel index={3}>Library</TabBarLabel>
                         ),
+                        tabBarButton: (props) => (
+                            <TabBarButton index={3} {...props} />
+                        ),
                     }}
                 />
                 <Tabs.Screen
@@ -139,6 +152,9 @@ export default function TabLayout() {
                         ),
                         tabBarLabel: () => (
                             <TabBarLabel index={4}>Search</TabBarLabel>
+                        ),
+                        tabBarButton: (props) => (
+                            <TabBarButton index={4} {...props} />
                         ),
                     }}
                 />

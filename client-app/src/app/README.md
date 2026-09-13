@@ -87,8 +87,17 @@ bubble is, so a tab is the same glyph throughout and only its color moves, and `
 position. The navigator's own `tabBarActiveBackgroundColor` cannot do this: it paints the item
 box square and it has no in-between state.
 
-Each `Tabs.Screen` passes its own `index` to the icon and the label. That index is the tab's
+Each `Tabs.Screen` passes its own `index` to its icon, label, and button. That index is the tab's
 position in this file, so reordering the screens means renumbering them.
+
+Scrolling a page down docks the mini player into the bar: it takes the middle three slots, the
+tab you are on slides to the far left, Search holds the right, and the rest fade out and stop
+taking presses. Scrolling back to the top floats it again, and it can be dragged either way at
+any time. The state is `@/lib/player-dock`; screens opt in by spreading `useScreenScroll()`
+(`@/lib/screen-scroll`) onto their top-level scroller, which is also what makes pressing the
+current tab scroll it to the top.
+
+`TabBarButton` carries the whole item, not just the icon, so a moved tab is hit where it is seen.
 
 ## The top rail
 

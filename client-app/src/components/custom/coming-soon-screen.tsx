@@ -1,6 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTheme } from "expo-router/react-navigation";
-import { ScrollView, View } from "react-native";
+import { View } from "react-native";
+import Animated from "react-native-reanimated";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,6 +13,7 @@ import {
 } from "@/components/ui/card";
 import { Text } from "@/components/ui/text";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
+import { useScreenScroll } from "@/lib/screen-scroll";
 
 type IoniconName = keyof typeof Ionicons.glyphMap;
 
@@ -38,9 +40,11 @@ export function ComingSoonScreen({
 }: Props) {
     const { colors } = useTheme();
     const { contentBottomInset } = useScreenOverlayInsets();
+    const scroll = useScreenScroll();
 
     return (
-        <ScrollView
+        <Animated.ScrollView
+            {...scroll}
             className="flex-1 bg-background"
             contentContainerClassName="gap-4 px-5 pt-5"
             contentContainerStyle={{ paddingBottom: contentBottomInset }}
@@ -103,6 +107,6 @@ export function ComingSoonScreen({
                     </Card>
                 ))}
             </View>
-        </ScrollView>
+        </Animated.ScrollView>
     );
 }

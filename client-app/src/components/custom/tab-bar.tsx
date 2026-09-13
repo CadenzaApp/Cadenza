@@ -2,7 +2,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useNavigationState, useTheme } from "expo-router/react-navigation";
 import { createContext, useContext, useEffect, useState } from "react";
 import type { ComponentProps, ReactNode } from "react";
-import { StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, View, type PressableProps } from "react-native";
 import Animated, {
     Easing,
     interpolate,
@@ -14,12 +14,20 @@ import Animated, {
 } from "react-native-reanimated";
 
 import { GlassSurface } from "@/components/ui/glass-surface";
-import { TAB_BAR_HEIGHT } from "@/lib/screen-overlay";
+import { usePlayerDock } from "@/lib/player-dock";
+import {
+    DOCKED_PLAYER_HEIGHT,
+    TAB_BAR_HEIGHT,
+    TAB_BAR_ITEM_INSET,
+} from "@/lib/screen-overlay";
 
-/** The bubble behind the selected tab, measured from the top of the bar. */
+/**
+ * The bubble behind the selected tab. It shares its box with the docked player,
+ * so its inset and height come from `screen-overlay` rather than from here.
+ */
 const PILL_INSET_X = 6;
-const PILL_TOP = 3;
-const PILL_HEIGHT = 54;
+const PILL_TOP = TAB_BAR_ITEM_INSET;
+const PILL_HEIGHT = DOCKED_PLAYER_HEIGHT;
 const PILL_RADIUS = 22;
 
 const SLIDE = { duration: 260, easing: Easing.out(Easing.cubic) };
@@ -74,25 +82,41 @@ function useTabSelection() {
  */
 export function TabBarGlass() {
     const { position, setIndex } = useTabSelection();
+    const { progress, setBarMetrics, barWidth, tabCount } = usePlayerDock();
     const index = useNavigationState((state) => state.index);
-    const tabCount = useNavigationState((state) => state.routes.length);
-    const [barWidth, setBarWidth] = useState(0);
+    const routeCount = useNavigationState((state) => state.routes.length);
     const slotWidth = tabCount > 0 ? barWidth / tabCount : 0;
 
     useEffect(() => {
         setIndex(index);
     }, [index, setIndex]);
 
-    const bubbleStyle = useAnimatedStyle(() => ({
-        transform: [{ translateX: position.value * slotWidth }],
-        // Nothing to place until the bar has been measured.
-        opacity: slotWidth > 0 ? 1 : 0,
-    }));
+    const bubbleStyle = useAnimatedStyle(() => {
+        // Docked, the selected tab rides to the far left and the bubble goes
+        // with it. Search is the exception: it keeps its slot, because it is
+        // the tab the dock leaves reachable.
+        const dockedIndex = index === routeCount - 1 ? routeCount - 1 : 0;
+        const x = interpolate(
+            progress.value,
+            [0, 1],
+            [position.value * slotWidth, dockedIndex * slotWidth],
+        );
+        return {
+            transform: [{ translateX: x }],
+            // Nothing to place until the bar has been measured.
+            opacity: slotWidth > 0 ? 1 : 0,
+        };
+    });
 
     return (
         <View
             style={StyleSheet.absoluteFill}
-            onLayout={(event) => setBarWidth(event.nativeEvent.layout.width)}
+            onLayout={(event) =>
+                setBarMetrics({
+                    width: event.nativeEvent.layout.width,
+                    tabCount: routeCount,
+                })
+            }
         >
             <GlassSurface
                 style={[
@@ -128,6 +152,32 @@ export function TabBarGlass() {
             </Animated.View>
         </View>
     );
+}
+
+/**
+ * Where a tab sits while the player is docked, and whether it is there at all.
+ * The selected tab slides to the far left, Search holds its slot on the right,
+ * and the three in between fade out to leave room for the player.
+ */
+function useDockedTabStyle(index: number) {
+    const { progress, barWidth, tabCount } = usePlayerDock();
+    const activeIndex = useNavigationState((state) => state.index);
+    const lastIndex = useNavigationState((state) => state.routes.length - 1);
+    const slotWidth = tabCount > 0 ? barWidth / tabCount : 0;
+    const isLast = index === lastIndex;
+    const isActive = index === activeIndex;
+
+    return useAnimatedStyle(() => ({
+        transform: [
+            {
+                translateX:
+                    isActive && !isLast
+                        ? -index * slotWidth * progress.value
+                        : 0,
+            },
+        ],
+        opacity: isActive || isLast ? 1 : 1 - progress.value,
+    }));
 }
 
 /**
@@ -200,5 +250,38 @@ export function TabBarLabel({
         <Animated.Text style={[{ fontSize: 10 }, tintStyle]}>
             {children}
         </Animated.Text>
+    );
+}
+
+type TabBarButtonProps = Omit<PressableProps, "children"> & {
+    children?: ReactNode;
+    "aria-selected"?: boolean;
+};
+
+/**
+ * One tab item, and the thing that moves while the player docks. The whole item
+ * travels rather than just its icon, so the tab you can see is the tab you hit:
+ * a transform moves the touch target with the pixels.
+ *
+ * A tab the docked player covers is faded out and disabled. An invisible tab
+ * that still navigates is worse than no tab.
+ */
+export function TabBarButton({
+    index,
+    children,
+    ...props
+}: TabBarButtonProps & { index: number }) {
+    const { docked } = usePlayerDock();
+    const activeIndex = useNavigationState((state) => state.index);
+    const lastIndex = useNavigationState((state) => state.routes.length - 1);
+    const dockStyle = useDockedTabStyle(index);
+    const covered = docked && index !== activeIndex && index !== lastIndex;
+
+    return (
+        <Animated.View style={[{ flex: 1 }, dockStyle]}>
+            <Pressable {...props} disabled={covered}>
+                {children}
+            </Pressable>
+        </Animated.View>
     );
 }
