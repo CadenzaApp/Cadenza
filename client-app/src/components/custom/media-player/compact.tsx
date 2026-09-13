@@ -62,28 +62,52 @@ export function MediaPlayerCompact({
     onTogglePlayback,
     onSkipToNext,
 }: Props) {
-    const between = (from: number, to: number) => {
-        "worklet";
-        return interpolate(dockProgress.value, [0, 1], [from, to]);
-    };
+    // Every one of these reads `dockProgress.value` itself rather than through a
+    // shared helper. Reanimated works out what a style depends on from what its
+    // own body touches, so a helper in between leaves the style frozen.
+    const barStyle = useAnimatedStyle(() => {
+        const p = dockProgress.value;
+        return {
+            bottom: interpolate(
+                p,
+                [0, 1],
+                [floatingRect.bottom, dockedRect.bottom],
+            ),
+            left: interpolate(
+                p,
+                [0, 1],
+                [floatingRect.inset, dockedRect.inset],
+            ),
+            right: interpolate(
+                p,
+                [0, 1],
+                [floatingRect.inset, dockedRect.inset],
+            ),
+            height: interpolate(
+                p,
+                [0, 1],
+                [floatingRect.height, dockedRect.height],
+            ),
+        };
+    });
 
-    const barStyle = useAnimatedStyle(() => ({
-        bottom: between(floatingRect.bottom, dockedRect.bottom),
-        left: between(floatingRect.inset, dockedRect.inset),
-        right: between(floatingRect.inset, dockedRect.inset),
-        height: between(floatingRect.height, dockedRect.height),
-    }));
-
-    const artworkStyle = useAnimatedStyle(() => ({
-        width: between(ARTWORK_SIZE.floating, ARTWORK_SIZE.docked),
-        height: between(ARTWORK_SIZE.floating, ARTWORK_SIZE.docked),
-    }));
+    const artworkStyle = useAnimatedStyle(() => {
+        const size = interpolate(
+            dockProgress.value,
+            [0, 1],
+            [ARTWORK_SIZE.floating, ARTWORK_SIZE.docked],
+        );
+        return { width: size, height: size };
+    });
 
     // Docked, the bar is three tab slots wide. Skip is what gives way.
-    const skipStyle = useAnimatedStyle(() => ({
-        width: between(SKIP_WIDTH, 0),
-        opacity: between(1, 0),
-    }));
+    const skipStyle = useAnimatedStyle(() => {
+        const p = dockProgress.value;
+        return {
+            width: interpolate(p, [0, 1], [SKIP_WIDTH, 0]),
+            opacity: interpolate(p, [0, 1], [1, 0]),
+        };
+    });
 
     return (
         <Animated.View

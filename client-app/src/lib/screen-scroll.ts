@@ -10,6 +10,7 @@ import type Animated from "react-native-reanimated";
 import type { Component } from "react";
 
 import { usePlayerDock } from "./player-dock";
+import { useScreenOverlayInsets } from "./screen-overlay";
 
 /** Scrolled past this, the player docks. */
 const DOCK_OFFSET = 8;
@@ -41,6 +42,7 @@ export function useScreenScroll<
 >(): ScreenScrollProps<T> {
     const ref = useAnimatedRef<T>();
     const { dock, float } = usePlayerDock();
+    const { compactPlayerVisible } = useScreenOverlayInsets();
     const isFocused = useIsFocused();
 
     // `useScrollToTop` types itself against the navigation scrollables rather
@@ -48,21 +50,26 @@ export function useScreenScroll<
     useScrollToTop(ref as never);
 
     // A tab keeps scrolling for a moment after you leave it, and an unfocused
-    // screen has no business moving the player.
+    // screen has no business moving the player. Neither does any screen when
+    // there is no player: the tab bar would clear a space for nothing.
     const setDocked = useCallback(
         (docked: boolean) => {
-            if (!isFocused) return;
+            if (!isFocused || !compactPlayerVisible) return;
             if (docked) dock();
             else float();
         },
-        [isFocused, dock, float],
+        [isFocused, compactPlayerVisible, dock, float],
     );
 
-    // A screen left behind should not keep the player docked for the next one.
+    // A screen left behind should not keep the player docked for the next one,
+    // and neither should a song that stopped playing.
     useEffect(() => {
-        if (!isFocused) return;
+        if (!isFocused || !compactPlayerVisible) {
+            float();
+            return;
+        }
         return () => float();
-    }, [isFocused, float]);
+    }, [isFocused, compactPlayerVisible, float]);
 
     const onScroll = useAnimatedScrollHandler(
         {
