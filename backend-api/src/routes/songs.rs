@@ -5,7 +5,7 @@ use crate::{
     auth::SupabaseClaims,
     db::{
         self,
-        tags::{get_default_tags_on_songs, get_user_tags_on_song, set_default_tags_on_songs},
+        tags::{get_default_tags_on_songs, get_user_tags_on_song, get_user_tags_on_songs, set_default_tags_on_songs},
     },
     err::CadenzaError,
     routes::json::{tag::Tag, vec_into}, services::tag_generation::{GeneratedTag, TagGenerationService},
@@ -16,7 +16,6 @@ use axum::{
     routing::{delete, get, post},
 };
 use axum_jwt_auth::Claims;
-use std::collections::HashMap;
 use sea_orm::DatabaseConnection;
 use serde::Deserialize;
 

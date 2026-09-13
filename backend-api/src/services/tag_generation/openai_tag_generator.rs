@@ -222,12 +222,47 @@ impl TagGenerator for OpenAiTagGenerator {
 }
 
 // ---------------------------------------------------------------------------------------------
-// These tests call the OpenAI API and use tokens! Remove #[ignore] to run them.
+// These tests call the OpenAI API and use tokens! Use `cargo test -- --ignored` to run them.
 // Last ran: Jul 26
 // ---------------------------------------------------------------------------------------------
 mod tests {
     use super::*;
     use crate::test_utils::string_of_length;
+
+    /// true if `color` is a lowercase `#rrggbb` hex color
+    fn is_normalized_hex_color(color: &str) -> bool {
+        color.len() == 7
+            && color.starts_with('#')
+            && color[1..]
+                .chars()
+                .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
+    }
+
+    // ----- normalize_tag_color, no api calls -----
+
+    #[test]
+    fn normalize_tag_color_keeps_hex_colors() {
+        assert_eq!(normalize_tag_color("#1a2b3c"), "#1a2b3c");
+        assert_eq!(normalize_tag_color("#FF0000"), "#ff0000");
+        assert_eq!(normalize_tag_color("  #00ff00  "), "#00ff00");
+    }
+
+    #[test]
+    fn normalize_tag_color_falls_back_on_bad_input() {
+        for bad in ["", "red", "#12345", "#1234567", "#ggghhh", "1a2b3c", "#1a2b3g"] {
+            assert_eq!(
+                normalize_tag_color(bad),
+                FALLBACK_TAG_COLOR,
+                "expected fallback for {:?}",
+                bad
+            );
+        }
+    }
+
+    #[test]
+    fn fallback_tag_color_is_normalized() {
+        assert!(is_normalized_hex_color(FALLBACK_TAG_COLOR));
+    }
 
     #[tokio::test]
     #[ignore]
@@ -246,7 +281,18 @@ mod tests {
 
         assert_eq!(res.len(), 2);
         assert_eq!(res[0].len(), 3);
-        assert_eq!(res[0].len(), 3);
+        assert_eq!(res[1].len(), 3);
+
+        // every tag gets a usable color
+        for tags in &res {
+            for tag in tags {
+                assert!(
+                    is_normalized_hex_color(&tag.color),
+                    "{:?} is not a #rrggbb color",
+                    tag
+                );
+            }
+        }
 
         println!(
             "generate_tags_works -- Into The Night by YOASOBI: {:?}, As It Was by Harry Styles: {:?}",
@@ -320,5 +366,16 @@ mod tests {
         assert_eq!(metallica_tags.len(), 1);
         assert_eq!(harry_tags.len(), 1);
         assert_ne!(metallica_tags[0].name, harry_tags[0].name);
+    }
+
+    /// requesting zero tags means no colors to assign
+    #[tokio::test]
+    #[ignore]
+    async fn colors_absent_when_no_tags() {
+        let g = OpenAiTagGenerator::new();
+        let res = g.generate_tags(&["One by Metallica".into()], 0).await.unwrap();
+
+        assert_eq!(res.len(), 1);
+        assert!(res[0].is_empty());
     }
 }
