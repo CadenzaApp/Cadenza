@@ -13,9 +13,10 @@ native module directly.
 | `api-endpoints.ts` | `matchesEndpoint`, the cache-key matcher behind invalidation. Import-free so it can be unit tested. |
 | `swr-utils.ts` | `clearCache` and `useSimpleMutation`, for things that are not plain backend calls. |
 | `routes/tags.ts` | Hooks for `/tags`: `useUserTags`, `useTag`, `useCreateTag`, `useDeleteTag`, `useSuggestTags`. |
-| `routes/songs.ts` | Hooks for `/songs/tags`: `useTagsOnSong`, `useTagsOnSongs`, `useApplyTag`, `useUnapplyTag`. |
+| `routes/songs.ts` | Hooks for `/songs`: `useTagsOnSong`, `useTagsOnSongs`, `useApplyTag`, `useUnapplyTag`, `useGetUntaggedSongs`, `useSetDefaultTags`. |
 | `routes/queries.ts` | Hook for `/queries/results`: `useQueryResults`. |
 | `musickit-hooks.ts` | SWR over the native module: song info, catalog search, library, playlists, favorites. |
+| `default-tags.ts` | `useSetDefaultTagsOnStartup`, the job that gives untagged library songs generated default tags. |
 | `account.tsx` | `AccountProvider` / `useAccount`. Supabase session and the JWT. |
 | `apple-music-auth.tsx` | `AppleMusicProvider` / `useAppleMusic`. Apple Music tokens, persisted in secure store. |
 | `playback.tsx` | `PlaybackProvider`, `usePlayback` (state) and `usePlaybackCommands` (actions). Queue and the native playback snapshot. |
@@ -89,6 +90,8 @@ One file per backend router, and every backend endpoint has at least one hook.
 | | `GET /tags/suggest` | `tags.ts` -> `useSuggestTags()` |
 | `routes/songs.rs` | `GET /songs/tags` | `songs.ts` -> `useTagsOnSong(songId)` |
 | | `POST /songs/tags/batch` | `songs.ts` -> `useTagsOnSongs(songIds)` |
+| | `POST /songs/untagged` | `songs.ts` -> `useGetUntaggedSongs()` |
+| | `POST /songs/default-tags` | `songs.ts` -> `useSetDefaultTags()` |
 | | `POST /songs/tags` | `songs.ts` -> `useApplyTag()` |
 | | `DELETE /songs/tags` | `songs.ts` -> `useUnapplyTag()` |
 | `routes/queries.rs` | `GET /queries/results` | `queries.ts` -> `useQueryResults()` |
@@ -98,7 +101,7 @@ responds with `All { tags, metadata }`, with one it responds with `One { tag, so
 `useUserTags` and `useTag` each unwrap one variant.
 
 Adding an endpoint: add the route in `backend-api/src/routes/*.rs`, then add a hook in the
-matching `routes/*.ts` built on one of the three wrappers. For writes, list the endpoints the
+matching `routes/*.ts` built on one of the four wrappers. For writes, list the endpoints the
 change invalidates. Rename the returned fields to something readable (`tagsOnSong`,
 `tagsOnSongLoading`, `tagsOnSongErr`) rather than re-exporting SWR's `data` / `error` /
 `isLoading`.
@@ -127,11 +130,26 @@ in the codebase, with `rollbackOnError`.
   changes, so a list row can hold a play handler without re-rendering on every tick. Reach for
   `usePlaybackCommands` unless you actually need to read playback state.
 
+## The default tags job
+
+`default-tags.ts::useSetDefaultTagsOnStartup` is mounted once, from the root layout. It starts
+when there is an account and a connected Apple Music session, and starts over if either changes.
+It pages through the library 100 songs at a time with `MusicKit.getLibrarySongs`. For each page it
+asks `POST /songs/untagged` which songs have no tags, describes those as `"title by artist"` using
+the metadata already on the page, and posts them to `POST /songs/default-tags`. That write
+invalidates both song tag reads, so open lists pick up the new tags page by page.
+
+It is deliberately not SWR. It is a one-off background job that reads only to decide what to
+write, and nothing renders its result, so it calls the two `useAPIMutation` triggers from an
+effect. A failed `POST /songs/default-tags` is logged and the job moves on to the next page. A
+failed library read or `POST /songs/untagged` stops the job until it next starts.
+
 ## Connects to
 
 - `backend-api`, through `BACKEND_URL`.
 - Supabase auth, through `supabase.ts`.
-- `@apple-musickit`, from `musickit-hooks.ts`, `apple-music-auth.tsx`, and `playback.tsx`.
+- `@apple-musickit`, from `musickit-hooks.ts`, `apple-music-auth.tsx`, `playback.tsx`, and
+  `default-tags.ts`.
 - Consumed by everything in `src/app`, `src/features`, and `src/components/custom`.
 
 ## Gotchas
@@ -150,6 +168,10 @@ in the codebase, with `rollbackOnError`.
   backend. Library ids differ per user for the same song; catalog ids do not.
 - `api-actions.ts` reads `account?.jwt` at hook call time. A component rendered before the
   session is restored sends `Bearer undefined`.
+- `useTagsOnSong` and `useTagsOnSongs` return a song's default tags when the user has none on it.
+  Default tags are not in `useUserTags`, and `useUnapplyTag` on one silently does nothing.
+- The default tags job spends OpenAI calls. A big library that has never been tagged means a lot
+  of them on first launch, and a song the model returned no tags for is retried on every launch.
 
 ---
 Touching files in this directory? Update this README in the same change.

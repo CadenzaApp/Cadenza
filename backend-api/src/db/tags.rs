@@ -76,35 +76,26 @@ pub async fn get_user_tags_metadata(
     Ok(res)
 }
 
-pub async fn get_user_tags_on_song(
-    db: &DatabaseConnection,
-    user_id: Uuid,
-    song_id: &str,
-) -> Result<Vec<tags::Model>, CadenzaError> {
-    Ok(tags::Entity::find()
-        .inner_join(user_tags_applied::Entity)
-        .filter(user_tags_applied::Column::SongId.eq(song_id))
-        .filter(user_tags_applied::Column::UserId.eq(user_id))
-        .all(db)
-        .await?)
-}
-
-/// Same as `get_user_tags_on_song`, for many songs at once. Every requested
-/// song gets an entry, so songs with no tags come back as an empty list.
+/// Returns the tags on each requested song. A song with none of the user's tags
+/// gets its default tags instead. Every requested song gets an entry, so a song
+/// with no tags of either kind comes back as an empty list.
 pub async fn get_user_tags_on_songs(
     db: &DatabaseConnection,
     user_id: Uuid,
     song_ids: &[String],
 ) -> Result<HashMap<String, Vec<tags::Model>>, CadenzaError> {
+    // start every requested song off with no tags
     let mut tags_by_song: HashMap<String, Vec<tags::Model>> = song_ids
         .iter()
         .map(|song_id| (song_id.clone(), Vec::new()))
         .collect();
 
+    // no songs requested, so nothing to look up
     if tags_by_song.is_empty() {
         return Ok(tags_by_song);
     }
 
+    // fill in the tags the user put on each song
     let applied = user_tags_applied::Entity::find()
         .filter(user_tags_applied::Column::UserId.eq(user_id))
         .filter(user_tags_applied::Column::SongId.is_in(song_ids.iter().map(String::as_str)))
@@ -120,7 +111,36 @@ pub async fn get_user_tags_on_songs(
             .push(tag);
     }
 
+    // songs the user hasn't tagged fall back to their default tags, if they have any
+    let songs_without_user_tags: Vec<String> = tags_by_song
+        .iter()
+        .filter(|(_, tags)| tags.is_empty())
+        .map(|(song_id, _)| song_id.clone())
+        .collect();
+
+    if !songs_without_user_tags.is_empty() {
+        tags_by_song.extend(get_default_tags_on_songs(db, &songs_without_user_tags).await?);
+    }
+
     Ok(tags_by_song)
+}
+
+/// Returns the requested songs that have no tags at all, meaning none of the
+/// user's tags and no default tags. Keeps the order the ids were given in.
+pub async fn get_untagged_songs(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+    song_ids: &[String],
+) -> Result<Vec<String>, CadenzaError> {
+    // tags on each song, already falling back to default tags
+    let tags_by_song = get_user_tags_on_songs(db, user_id, song_ids).await?;
+
+    // keep the songs that came back with none
+    Ok(song_ids
+        .iter()
+        .filter(|song_id| tags_by_song.get(*song_id).is_none_or(Vec::is_empty))
+        .cloned()
+        .collect())
 }
 
 pub async fn get_songs_with_user_tag(

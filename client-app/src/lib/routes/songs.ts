@@ -83,3 +83,40 @@ export function useUnapplyTag() {
         unapplyTag: x.trigger,
     };
 }
+
+/**
+ * Which of the given songs have no tags at all, neither the user's nor default
+ * tags. A read, but triggered on demand by the default tags job instead of
+ * cached for rendering, so it goes through `useAPIMutation`.
+ */
+export function useGetUntaggedSongs() {
+    const x = useAPIMutation<{ song_ids: string[] }, string[]>(
+        "POST",
+        "/songs/untagged",
+    );
+    return {
+        getUntaggedSongsErr: x.error,
+        getUntaggedSongsLoading: x.isMutating,
+        getUntaggedSongs: x.trigger,
+    };
+}
+
+export type SongIdAndDesc = {
+    song_id: string;
+    /** used to generate the song's tags, e.g. "Override by Yoshida Yasei" */
+    desc: string;
+};
+/** Generates and stores default tags for the given songs that don't have any yet. */
+export function useSetDefaultTags() {
+    const x = useAPIMutation<SongIdAndDesc[], void>(
+        "POST",
+        "/songs/default-tags",
+        // a song without user tags shows its default tags, so any song's tags may change
+        [{ path: "/songs/tags" }, { path: "/songs/tags/batch" }],
+    );
+    return {
+        setDefaultTagsErr: x.error,
+        setDefaultTagsLoading: x.isMutating,
+        setDefaultTags: x.trigger,
+    };
+}

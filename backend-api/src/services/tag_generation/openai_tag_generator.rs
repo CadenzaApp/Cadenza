@@ -1,4 +1,4 @@
-use crate::services::tag_generation::{GeneratedTag, TagGenerator};
+use crate::services::tag_generation::{GeneratedTag, MAX_COMBINED_SONG_DESC_LENGTH, TagGenerator};
 use crate::services::tag_normalizer::normalize_tag_name;
 use dotenvy::dotenv;
 use reqwest::Client;
@@ -29,7 +29,6 @@ fn normalize_tag_color(color: &str) -> String {
         false => FALLBACK_TAG_COLOR.to_owned(),
     }
 }
-const MAX_COMBINED_SONG_DESC_LENGTH: usize = 200;
 
 fn get_tag_generation_req_body(song_descs: &[String], requested_tag_count: usize) -> Value {
     let user_content = format!(

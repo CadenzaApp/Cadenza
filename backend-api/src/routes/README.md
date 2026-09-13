@@ -10,7 +10,7 @@ call into `src/db/` or `src/services/`, and shape the response.
 | --- | --- |
 | `mod.rs` | Declares `json`, `queries`, `tags`, `songs`. |
 | `tags.rs` | Tag CRUD for the signed-in user, plus LLM tag suggestion. Mounted at `/tags`. |
-| `songs.rs` | Reading and changing which tags are on a song. Mounted at `/songs`. |
+| `songs.rs` | Reading and changing which tags are on a song, finding untagged songs, and generating default tags. Mounted at `/songs`. |
 | `queries.rs` | Runs a boolean tag query and returns song ids by relevance. Mounted at `/queries`. |
 | `json/mod.rs` | `vec_into`, a small `Vec<A> -> Vec<B>` helper. |
 | `json/tag.rs` | `Tag`, the wire shape of a tag. `From<tags::Model>` drops `user_id`. |
@@ -25,9 +25,11 @@ Every route below requires `Authorization: Bearer <supabase jwt>`.
 | GET | `/tags?tag_id=N` | query param | `{"One": {tag, song_ids}}`, 404 if the tag does not exist |
 | POST | `/tags` | `{name, color}` | the new tag id, as a bare number in the body |
 | DELETE | `/tags` | `{tag_id}` | empty. Silently no-ops if the tag is not yours |
-| GET | `/tags/suggest` | `?song_desc=...&requested_tag_count=N` | `["vocaloid", "japanese", ...]` |
-| GET | `/songs/tags` | `?song_id=...` | `[Tag]`, the user's tags on that song |
-| POST | `/songs/tags/batch` | `{song_ids: [...]}` | `{song_id: [Tag]}`, an entry per requested song |
+| GET | `/tags/suggest` | `?song_desc=...&requested_tag_count=N` | `[{name, color}, ...]` |
+| GET | `/songs/tags` | `?song_id=...` | `[Tag]`, the user's tags on that song, or its default tags if the user has none on it |
+| POST | `/songs/tags/batch` | `{song_ids: [...]}` | `{song_id: [Tag]}`, an entry per requested song, with the same fallback |
+| POST | `/songs/untagged` | `{song_ids: [...]}` | `["songid", ...]`, the requested songs with no user tags and no default tags, in request order |
+| POST | `/songs/default-tags` | `[{song_id, desc}]` | empty. Generates and stores default tags for the songs that have none |
 | POST | `/songs/tags` | `{song_id, tag_id}` | empty |
 | DELETE | `/songs/tags` | `{song_id, tag_id}` | empty |
 | GET | `/queries/results` | `?q=<query json>` | `["songid", ...]`, most relevant first |
@@ -44,9 +46,19 @@ count without walking the list.
 Handlers take what they need out of `AppState` by `FromRef`, so most take
 `State(db): State<DatabaseConnection>` and nothing else. `tags.rs::suggest_tags_handler` takes
 `State(tag_gen_service)` instead, plus a bare `_: Claims<SupabaseClaims>` purely to force
-authentication without using the claims.
+authentication without using the claims. `songs.rs::set_default_tags_on_songs_handler` does the
+same with both `db` and `tag_gen_service`, since default tags belong to no user.
 
-`queries.rs` is the only one with real logic in the route, and it is ranking, not data access.
+Song tag reads never generate anything. `GET /songs/tags`, `POST /songs/tags/batch`, and
+`POST /songs/untagged` all go through `db::tags::get_user_tags_on_songs`, which only falls back to
+default tags that already exist. The client creates them: on startup it pages through the user's
+library, sends each page to `POST /songs/untagged`, and posts those songs' descriptions to
+`POST /songs/default-tags`. That handler drops songs that already have default tags, generates
+tags for the rest with `TagGenerationService::generate_tags`, and stores them with
+`db::tags::set_default_tags_on_songs`.
+
+`set_default_tags_on_songs_handler` and `queries.rs` are the two places with real logic in a
+route. The default tags one is the orchestration above. `queries.rs` is ranking, not data access.
 The query tree arrives as a `q` query param holding JSON. `QueryResultsParams::into_json_query`
 parses it, and a bad parse is `QueryFormatError`. `db::queries::run_json_query` returns
 `song id -> its matched tag ids`. The handler walks the original query JSON to collect every tag
@@ -59,9 +71,12 @@ api as JSON should have a type here rather than serializing an entity model dire
 ## Connects to
 
 - `crate::db::tags` and `crate::db::queries` for all data access.
-- `crate::services::tag_generation::TagGenerationService` for `/tags/suggest`.
+- `crate::services::tag_generation::TagGenerationService` for `/tags/suggest` and
+  `/songs/default-tags`.
 - `crate::err::CadenzaError` for every error path.
-- Client side: `client-app/src/lib/routes/*.ts` wraps every one of these in an SWR hook.
+- Client side: `client-app/src/lib/routes/*.ts` wraps every one of these in an SWR hook, and
+  `client-app/src/lib/default-tags.ts` drives `/songs/untagged` and `/songs/default-tags` on
+  startup.
 
 ## Gotchas
 
@@ -74,11 +89,16 @@ api as JSON should have a type here rather than serializing an entity model dire
 - `POST /tags` returns the id as a bare string body, not JSON.
 - `DELETE /tags` and `DELETE /songs/tags` take a JSON body. Some HTTP clients will not send one
   on a DELETE.
-- `GET /songs/tags` returns only the user's own tags now. Default tags (`user_id IS NULL`) are
-  not included, and nothing reads the `default_tags_applied` table yet.
-- `POST /songs/tags/batch` is a read, not a write. It is a POST only because the id list does
-  not belong in a query string. It caps out at 200 ids and answers `QueryFormatError` past that;
-  the client chunks at 25. Songs with no tags come back as an empty list, never missing.
+- The default tag fallback is per song and all or nothing. A song with even one of the user's
+  tags shows only those. Default tags come back looking like any other `Tag`, but
+  `DELETE /songs/tags` on one silently does nothing.
+- `POST /songs/tags/batch` and `POST /songs/untagged` are reads, not writes. They are POSTs only
+  because the id list does not belong in a query string. Both, plus `POST /songs/default-tags`,
+  cap out at 200 songs and answer `QueryFormatError` past that. The batch returns songs with no
+  tags as an empty list, never missing.
+- `POST /songs/default-tags` can be slow, since one request becomes several OpenAI calls in a
+  row. A song the model returns no tags for gets no default tags, so it stays untagged and the
+  client retries it on its next startup.
 - `POST /songs/tags` inserts without checking first, so re-applying a tag relies on the unique
   violation mapping in `err.rs`. That mapping keys off the table name `applied_tags`, but the
   entity declares `user_tags_applied`, so it falls through to a generic `DatabaseError` instead

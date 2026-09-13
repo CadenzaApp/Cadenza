@@ -8,7 +8,7 @@ logic out.
 
 | file | route | role |
 | --- | --- | --- |
-| `_layout.tsx` | root | Provider stack, theme, the `Stack` navigator, `PortalHost`, `MediaPlayerHost`. |
+| `_layout.tsx` | root | Provider stack, theme, the `Stack` navigator, `PortalHost`, `MediaPlayerHost`, and `DefaultTagsOnStartup`. |
 | `(splashscreen)/index.tsx` | `/` | Calls `tryRestoreSession()`, then replaces to `/home` or `/auth`. |
 | `auth/index.tsx` | `/auth` | Sign in / sign up. Takes an `initialMode` search param. |
 | `(tabs)/_layout.tsx` | | Bottom tab bar, five tabs, Ionicons, colors from the nav theme. |
@@ -35,12 +35,15 @@ GestureHandlerRootView
           Stack            the routes
           PortalHost       where dialogs and modals render
           MediaPlayerHost  the global player
+          DefaultTagsOnStartup  runs the default tags job, renders nothing
 ```
 
 `PortalHost` and `MediaPlayerHost` sit as siblings of `Stack`, not inside it, so both survive
 navigation. `MediaPlayerHost` reads `useSegments()` and decides whether to render the player and
 what bottom offset to use: `54` under the tab bar, `0` on the `tag/` stack route, nothing
 anywhere else. Playback state itself is global regardless, since it lives in `PlaybackProvider`.
+`DefaultTagsOnStartup` sits there too, only because the job needs the account and Apple Music
+providers above it. The job itself lives in `@/lib/default-tags`.
 
 Auth gating is per screen, not centralized. Each protected screen does:
 
@@ -55,6 +58,7 @@ Every other screen can assume the account is either there or not.
 ## Connects to
 
 - `@/lib/account`, `@/lib/apple-music-auth`, `@/lib/playback` for the providers.
+- `@/lib/default-tags` for the startup default tags job.
 - `@/lib/routes/*` and `@/lib/musickit-hooks` for data.
 - `@/features/query-builder` from the query tab.
 - `@/components/custom` and `@/components/ui` for everything rendered.

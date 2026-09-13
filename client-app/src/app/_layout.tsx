@@ -3,6 +3,7 @@ import { ThemeProvider } from "expo-router/react-navigation";
 import { Stack } from "expo-router";
 import AccountProvider from "@/lib/account";
 import { AppleMusicProvider } from "@/lib/apple-music-auth";
+import { useSetDefaultTagsOnStartup } from "@/lib/default-tags";
 import { PlaybackProvider } from "@/lib/playback";
 import { MediaPlayerHost } from "@/components/custom/media-player";
 import { PortalHost } from "@rn-primitives/portal";
@@ -46,10 +47,20 @@ export default function RootLayout() {
                             </Stack>
                             <PortalHost />
                             <MediaPlayerHost />
+                            <DefaultTagsOnStartup />
                         </ThemeProvider>
                     </PlaybackProvider>
                 </AppleMusicProvider>
             </AccountProvider>
         </GestureHandlerRootView>
     );
+}
+
+/**
+ * Runs the default tags job. Renders nothing, and sits under the providers
+ * because the job needs the account and Apple Music.
+ */
+function DefaultTagsOnStartup() {
+    useSetDefaultTagsOnStartup();
+    return null;
 }

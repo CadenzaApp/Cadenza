@@ -1,7 +1,7 @@
 # services
 
-Business logic that is not data access. Right now that means turning a song description into
-tags with an LLM, and normalizing tag names.
+Business logic that is not data access. Right now that means turning song descriptions into tags
+with an LLM, and normalizing tag names.
 
 ## Files
 
@@ -9,7 +9,7 @@ tags with an LLM, and normalizing tag names.
 | --- | --- |
 | `mod.rs` | Declares `tag_normalizer` and `tag_generation`. |
 | `tag_normalizer.rs` | `normalize_tag_name`: trim, collapse whitespace, truncate to 50 chars, lowercase. Unit tested. |
-| `tag_generation/mod.rs` | The `TagGenerator` trait and the `TagGenerationService` wrapper. |
+| `tag_generation/mod.rs` | The `TagGenerator` trait, the `TagGenerationService` wrapper, and `MAX_COMBINED_SONG_DESC_LENGTH`. Unit tested against a fake generator. |
 | `tag_generation/openai_tag_generator.rs` | The OpenAI implementation, color normalization, unit tests plus ignored integration tests. |
 
 ## How it works
@@ -26,30 +26,39 @@ pub trait TagGenerator: Send + Sync {
 ```
 
 `TagGenerationService` is a newtype over `Arc<Box<dyn TagGenerator>>`, so it is `Clone` and lives
-in `AppState`. It does two things on top of the trait: clamps `requested_tag_count` to
-`DEFAULT_REQUESTED_TAG_COUNT` (10) when `None` and `MAX_REQUESTED_TAG_COUNT` (20) as a ceiling,
-and converts the generator's `String` error into `CadenzaError::TagGenerationErr` (500).
+in `AppState`. On top of the trait it:
+
+- clamps `requested_tag_count` to `DEFAULT_REQUESTED_TAG_COUNT` (10) when `None` and
+  `MAX_REQUESTED_TAG_COUNT` (20) as a ceiling.
+- cuts any one description longer than `MAX_COMBINED_SONG_DESC_LENGTH` (200 bytes) down to fit, on
+  a char boundary.
+- splits the descriptions into consecutive chunks that each fit under that limit, and calls the
+  generator once per chunk, one after another.
+- pads or trims each chunk's result to the chunk's length, so a model that returns the wrong
+  number of lists cannot shift later songs onto the wrong tags. A padded song gets no tags.
+- converts the generator's `String` error into `CadenzaError::TagGenerationErr` (500).
 
 A `GeneratedTag` is a tag `name` plus a `#rrggbb` `color` reflecting the tag's mood.
 
-Input is a list of song descriptions, output is a list of tag lists in the same order. It is
-batch-shaped even though the only caller today (`GET /tags/suggest`) passes exactly one song and
-takes `result[0]`.
+Input is a list of song descriptions, output is a list of tag lists in the same order.
+`GET /tags/suggest` passes one song and takes `result[0]`. `POST /songs/default-tags` passes every
+song in its request that has no default tags yet.
 
 `OpenAiTagGenerator` posts to the OpenAI responses api (`gpt-4o-mini`, 20 second timeout) with a
 schema-constrained system prompt, then parses a `{"tags": [[...], ...], "colors": [{"name", "color"}]}`
 payload. `colors` carries one entry per distinct tag name, which the generator joins back onto the
 tags by normalized name. A color that is not a `#RRGGBB` hex string, or a tag name with no color
-entry, falls back to `FALLBACK_TAG_COLOR` (`#808080`). It short
-circuits on an empty input list or a zero tag count, rejects combined descriptions over 200
-characters, truncates any over-long tag list from the model, and runs every tag through
-`normalize_tag_name` before returning.
+entry, falls back to `FALLBACK_TAG_COLOR` (`#808080`). It short circuits on an empty input list or
+a zero tag count, rejects combined descriptions over `MAX_COMBINED_SONG_DESC_LENGTH` bytes (the
+service never sends that much), truncates any over-long tag list from the model, and runs every
+tag through `normalize_tag_name` before returning.
 
 ## Connects to
 
 - Constructed in `src/main.rs` as `TagGenerationService::new(OpenAiTagGenerator::new())` and
   stored in `AppState`.
-- Consumed by `src/routes/tags.rs::suggest_tags_handler`.
+- Consumed by `src/routes/tags.rs::suggest_tags_handler` and
+  `src/routes/songs.rs::set_default_tags_on_songs_handler`.
 - `normalize_tag_name` is called from the OpenAI generator. Note that it is **not** applied to
   user-created tag names coming through `POST /tags`.
 
@@ -57,14 +66,19 @@ characters, truncates any over-long tag list from the model, and runs every tag 
 
 - `OpenAiTagGenerator::new()` calls `dotenv().unwrap()` and then `expect`s `OPENAI_API_KEY`, so a
   missing `.env` or key panics during server startup, not at first use.
-- `MAX_COMBINED_SONG_DESC_LENGTH` is 200 characters across the whole batch, not per song. Batch a
-  handful of songs and it fails on length.
+- `MAX_COMBINED_SONG_DESC_LENGTH` counts bytes (`str::len`), not characters, so a chunk holds fewer
+  songs with non-Latin titles. Only the service splits and truncates. Calling a `TagGenerator`
+  directly with too much text still fails on length.
+- A large batch through the service is many OpenAI calls in a row, each with its own 20 second
+  timeout, and one failed chunk fails the whole call.
 - The integration tests in `openai_tag_generator.rs` are `#[ignore]`d because they spend real
   tokens. Comment header says last run Jul 26. The `normalize_tag_color` tests in the same module
   are plain unit tests and do run.
 - The trait returns `Result<_, String>`, so error detail is free text with no structure.
 - Adding a provider means one new file next to `openai_tag_generator.rs`, an `impl TagGenerator`,
-  and a one-line change in `main.rs`. Nothing else should need to know.
+  and a one-line change in `main.rs`. Nothing else should need to know. The service still chunks
+  by `MAX_COMBINED_SONG_DESC_LENGTH`, so a provider with a different limit means changing that
+  constant.
 
 ---
 Touching files in this directory? Update this README in the same change.

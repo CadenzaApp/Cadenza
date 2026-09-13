@@ -8,7 +8,7 @@ The data access layer. Everything that touches postgres lives here, so handlers 
 | file | role |
 | --- | --- |
 | `mod.rs` | Declares `entity`, `queries`, `tags`. |
-| `tags.rs` | All tag reads and writes: list, look up, usage counts, tags on a song or on many songs, songs with a tag, create, delete, apply, unapply. |
+| `tags.rs` | All tag reads and writes: list, look up, usage counts, tags on many songs, untagged songs, songs with a tag, create, delete, apply, unapply, and reading and replacing default tags. |
 | `queries.rs` | Compiles a boolean tag query from JSON to SQL and runs it. |
 | `entity/` | sea-orm-codegen output. `tags`, `user_tags_applied`, `default_tags_applied`, plus `prelude` and `mod`. Do not hand edit. |
 
@@ -19,9 +19,21 @@ Three tables, keyed on song ids that come from Apple Music.
 - `tags` - `tag_id` (bigserial pk), `name`, `color`, nullable `user_id`. A null `user_id` means
   the tag is a default, not owned by any user.
 - `user_tags_applied` - tags a user put on a song. Composite pk of `(song_id, user_id, tag_id)`.
-  Cascades on delete from `tags`. This is the only applied-tag table anything reads today.
-- `default_tags_applied` - default tags on a song, composite pk of `(song_id, tag_id)`, no user.
-  The entity exists but no code reads or writes it yet.
+  Cascades on delete from `tags`. The query compiler reads only this table.
+- `default_tags_applied` - default tags on a song, composite pk of `(song_id, tag_id)`, no user,
+  so every user sees the same ones. `get_default_tags_on_songs` reads it, and
+  `set_default_tags_on_songs` replaces a song's rows, creating any default tag it names that does
+  not exist yet.
+
+## Default tags
+
+`get_user_tags_on_songs` is the one read behind every song tag endpoint. It seeds an empty list
+for each requested song, fills in the user's tags, then calls `get_default_tags_on_songs` for the
+songs still empty. `get_untagged_songs` calls it and keeps the songs that came back empty.
+
+Nothing in this directory generates tags. `routes/songs.rs` does that for
+`POST /songs/default-tags`, using `get_default_tags_on_songs` to skip songs that already have
+defaults and `set_default_tags_on_songs` to store the rest.
 
 ## The query compiler
 
@@ -56,6 +68,8 @@ becomes `CadenzaError::QueryFormatError` (422).
 
 - Called by `src/routes/tags.rs`, `src/routes/songs.rs`, `src/routes/queries.rs`.
 - Models convert to wire types through `From<tags::Model> for routes::json::tag::Tag`.
+- `set_default_tags_on_songs` takes `services::tag_generation::GeneratedTag` straight from the
+  generator.
 - Client side, the JSON tree is produced by
   `client-app/src/features/query-builder/QueryUtils.ts::queryNodeToJSON`.
 
@@ -68,13 +82,17 @@ becomes `CadenzaError::QueryFormatError` (422).
 - `get_tag` does **not** filter by user, so `GET /tags?tag_id=N` will happily return another
   user's tag. The `song_ids` beside it are correctly user-scoped, so the leak is the tag name and
   color only. Worth fixing.
-- Everything here is user scoped and ignores default tags. `get_user_tags_on_song`,
-  `get_user_tags_on_songs`, `get_songs_with_user_tag`, `get_all_user_tags`, and
-  `get_user_tags_metadata` all filter on `user_id`, and nothing joins `default_tags_applied`.
+- The default tag fallback is all or nothing per song. A song with even one of the user's tags
+  gets only the user's tags. So "untagged" in `get_untagged_songs` means no tags of either kind.
+- Default tags are only read through `get_user_tags_on_songs`. `get_songs_with_user_tag`,
+  `get_all_user_tags`, `get_user_tags_metadata`, and the query compiler are user scoped and ignore
+  them, so a song showing only default tags will not match a query or add to a tag's count.
 - `get_user_tags_on_songs` seeds its map from the requested ids first, so every song asked for
   has an entry whether or not it has tags. Same idea as `get_user_tags_metadata`.
 - `delete_user_tag` and `unapply_user_tag` silently no-op when nothing matches, rather than
-  returning `NotFound`.
+  returning `NotFound`. That includes being asked to unapply a default tag.
+- `set_default_tags_on_songs` matches existing default tags by name, and deletes a song's old rows
+  before inserting the new ones without a transaction.
 - `get_user_tags_metadata` returns a `HashMap<i64, TagMetadata>` keyed by tag id. Tags with no
   applications still get an entry, with `count: 0`.
 
