@@ -30,6 +30,7 @@ native module directly.
 | `player-dock.tsx` | `PlayerDockProvider` / `usePlayerDock`. Whether the mini player floats above the tab bar or sits docked inside it. |
 | `screen-scroll.ts` | `useScreenScroll`, the props a screen's top-level scroller spreads to get tab-press-scrolls-to-top, scroll-docks-the-player, and pull-down-to-close. |
 | `zoom-dismiss.tsx` | `ZoomOriginProvider`, `useZoomSource`, `ZoomDismissScreen`, `useCloseScreen`. Closing a pushed screen by shrinking it back into the artwork that opened it. |
+| `zoom-dismiss-geometry.ts` | Pure pull, transform, timing, and corner math for `zoom-dismiss`, tested without React Native. |
 | `types.ts` | Shared wire types: `Tag` and `TagMetadata`. |
 | `utils.ts` | `cn()`, the clsx + tailwind-merge helper. |
 
@@ -210,11 +211,13 @@ It has to be an `Animated.FlatList` / `Animated.ScrollView`, because the offset 
 thread. Tab-press-scrolls-to-top comes free with it, through react-navigation's `useScrollToTop`.
 A surface that skips the hook keeps the player floating and ignores tab presses.
 
-It also drives the close of a pushed detail screen. Overscroll at the top feeds `DRAG_PROGRESS`
-worth of the minimize live, and letting go past `DISMISS_PULL` finishes it; short of that it
-springs back. Gated on `useIsPushedDetailScreen` from `screen-overlay`: a sheet already drags down
-natively and a tab has nowhere to go, so only the pushed routes wire it up. Android does not
-overscroll past the top by default, so the pull is an iOS gesture and the X is the way out on both.
+It also drives the close of a pushed detail screen. Overscroll at the top feeds the minimize
+continuously, and letting go past the shared threshold finishes it; short of that it springs
+back. While a zoom card is active, the hook counters iOS's downward rubber band so the hero stays
+anchored inside the shrinking card. Gated on `useIsPushedDetailScreen` from `screen-overlay`: a
+sheet already drags down natively and a tab has nowhere to go, so only the pushed routes wire it
+up. Android does not overscroll past the top by default, so the pull is an iOS gesture and the X
+is the way out on both.
 
 ## The minimize
 
@@ -232,13 +235,19 @@ nothing about each other:
 The card runs both directions of the transition: it starts minimized and grows on mount, and
 shrinks back on close. That is why those routes carry `pushedScreenOptions()`, which presents them
 as transparent modals with no native animation. The screen that opened this one is still on
-display underneath, so the card animates over it and its rounded corners show it at rest.
+display underneath. The card's top-left corner follows the artwork's top-left corner, while its
+width sets a uniform scale. Its native continuous corners compensate for that scale, so they stay
+visibly rounded instead of tightening as the card gets smaller.
 
 Every close goes through `useCloseScreen`, so the X and the pull play the same animation, and a
 screen with no card falls back to a plain `router.back()`. With no recorded rect the card shrinks
 toward the bottom of the window rather than doing nothing, which is what a deep link gets. A rect
 older than `ORIGIN_MAX_AGE` at mount counts as none: a screen opened by something that records
 nothing must not grow out of whatever row was tapped a minute ago.
+
+The pull owns progress continuously instead of stopping at the close threshold. Releasing past
+it claims the animation on the UI thread before the scroll view rebounds, then finishes only the
+remaining distance. A short pull still springs back to full size.
 
 ## The providers
 

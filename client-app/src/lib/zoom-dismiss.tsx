@@ -1,4 +1,4 @@
-import { useNavigation, useRouter } from "expo-router";
+import { useRouter } from "expo-router";
 import {
     createContext,
     useCallback,
@@ -16,6 +16,7 @@ import {
     type View as RNView,
 } from "react-native";
 import Animated, {
+    Easing,
     runOnJS,
     useAnimatedStyle,
     useSharedValue,
@@ -23,6 +24,13 @@ import Animated, {
     withTiming,
     type SharedValue,
 } from "react-native-reanimated";
+
+import {
+    zoomCloseDuration,
+    zoomGeometry,
+    ZOOM_OPEN_DURATION,
+    type ZoomRect,
+} from "./zoom-dismiss-geometry";
 
 /**
  * Closing a pushed screen by shrinking it back into whatever opened it.
@@ -37,29 +45,12 @@ import Animated, {
  * the scroll handler, and the pop only happens once the animation finishes.
  */
 
-export type ZoomOrigin = {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
+export type ZoomOrigin = ZoomRect & {
     /** When it was measured. See `ORIGIN_MAX_AGE`. */
     at: number;
 };
 
-/**
- * The card's corners, at rest and minimized alike. A screen is a card over the
- * one that opened it, so it is a squircle the whole time rather than a
- * rectangle that rounds off on the way out.
- */
-const CARD_RADIUS = 28;
-/** How long the minimize takes before the screen actually pops. */
-const CLOSE_DURATION = 280;
-/** How long the card takes to grow out of the artwork on the way in. */
-const OPEN_DURATION = 320;
-/** Where a screen with no recorded origin shrinks to, as a fraction of itself. */
-const FALLBACK_SCALE = 0.7;
-/** A rect smaller than this fraction of the window still reads as a target. */
-const MIN_SCALE = 0.12;
+const ZOOM_EASING = Easing.bezier(0.32, 0.72, 0, 1);
 /**
  * How stale a rect may be, relative to when the screen mounted, and still count
  * as the thing that opened it. Without this a screen opened by something that
@@ -83,6 +74,8 @@ export type ZoomDismissController = {
     closing: SharedValue<boolean>;
     /** Runs the minimize, then pops. */
     close: () => void;
+    /** Finishes a close already committed by the UI-thread scroll handler. */
+    finishGestureClose: () => void;
 };
 
 const ZoomDismissContext = createContext<ZoomDismissController | null>(null);
@@ -176,40 +169,57 @@ export function useCloseScreen() {
 export function ZoomDismissScreen({ children }: { children: ReactNode }) {
     const store = useContext(ZoomOriginContext);
     const router = useRouter();
-    const navigation = useNavigation();
     const { width, height } = useWindowDimensions();
     // Starts minimized and grows, so the first frame is the artwork rather
     // than a full screen that then has to be animated down.
     const [mountedAt] = useState(() => Date.now());
     const progress = useSharedValue(1);
     const closing = useSharedValue(false);
+    const cardVisible = useSharedValue(1);
     const origin = store?.origin;
 
     useEffect(() => {
-        progress.set(withTiming(0, { duration: OPEN_DURATION }));
-    }, [progress]);
+        cardVisible.set(1);
+        progress.set(
+            withTiming(0, {
+                duration: ZOOM_OPEN_DURATION,
+                easing: ZOOM_EASING,
+            }),
+        );
+    }, [cardVisible, progress]);
 
     const pop = useCallback(() => {
         if (router.canGoBack()) router.back();
     }, [router]);
 
+    const runCloseAnimation = useCallback(() => {
+        const duration = zoomCloseDuration(progress.get());
+        progress.set(
+            withTiming(1, { duration, easing: ZOOM_EASING }, (finished) => {
+                if (!finished) return;
+                // Reveal the source immediately. A delayed JS pop cannot
+                // leave the minimized card hovering over the artwork.
+                cardVisible.set(0);
+                runOnJS(pop)();
+            }),
+        );
+    }, [cardVisible, pop, progress]);
+
     const close = useCallback(() => {
         if (closing.get()) return;
         closing.set(true);
-        // The minimize *is* the transition. The pushed routes already come in
-        // with no native animation; this covers any other screen that wraps
-        // itself in a card, where the pop would otherwise play over the top.
-        navigation.setOptions({ animation: "none" } as never);
-        progress.set(
-            withTiming(1, { duration: CLOSE_DURATION }, (finished) => {
-                if (finished) runOnJS(pop)();
-            }),
-        );
-    }, [closing, navigation, pop, progress]);
+        runCloseAnimation();
+    }, [closing, runCloseAnimation]);
+
+    const finishGestureClose = useCallback(() => {
+        // The scroll handler sets `closing` before returning to iOS, so the
+        // rebound cannot pull progress back toward zero during this handoff.
+        runCloseAnimation();
+    }, [runCloseAnimation]);
 
     const controller = useMemo(
-        () => ({ progress, closing, close }),
-        [progress, closing, close],
+        () => ({ progress, closing, close, finishGestureClose }),
+        [progress, closing, close, finishGestureClose],
     );
 
     const cardStyle = useAnimatedStyle(() => {
@@ -219,20 +229,15 @@ export function ZoomDismissScreen({ children }: { children: ReactNode }) {
             recorded && recorded.at >= mountedAt - ORIGIN_MAX_AGE
                 ? recorded
                 : null;
-        // Shrink toward the row that opened this screen. With nothing recorded,
-        // shrink toward the bottom of the window, which is where a tap that
-        // opened it most likely came from.
-        const scale = rect
-            ? Math.max(rect.width / width, MIN_SCALE)
-            : FALLBACK_SCALE;
-        const centerX = rect ? rect.x + rect.width / 2 : width / 2;
-        const centerY = rect ? rect.y + rect.height / 2 : height * 0.8;
+        const geometry = zoomGeometry(width, height, rect, p);
 
         return {
+            opacity: cardVisible.get(),
+            borderRadius: geometry.borderRadius,
             transform: [
-                { translateX: (centerX - width / 2) * p },
-                { translateY: (centerY - height / 2) * p },
-                { scale: 1 - p * (1 - scale) },
+                { translateX: geometry.translateX },
+                { translateY: geometry.translateY },
+                { scale: geometry.scale },
             ],
             // No fade. A card you can see the old screen through while it
             // shrinks reads as muddy rather than as depth.
@@ -258,12 +263,10 @@ export function resetZoomProgress(progress: SharedValue<number>) {
 
 const styles = StyleSheet.create({
     root: { flex: 1 },
-    // Every one of these is in the stylesheet rather than a class: the clip is
-    // what makes the corners visible at all, and `borderCurve` is what makes
-    // them Apple's squircle rather than a quarter circle.
+    // The animated radius compensates for the card's scale. `borderCurve` is
+    // what makes the result a continuous squircle rather than a quarter circle.
     card: {
         flex: 1,
-        borderRadius: CARD_RADIUS,
         borderCurve: "continuous",
         overflow: "hidden",
     },

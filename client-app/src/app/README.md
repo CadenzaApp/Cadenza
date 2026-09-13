@@ -109,18 +109,21 @@ current tab scroll it to the top.
 A pushed detail route does not slide in or out. It grows out of the artwork that opened it and
 shrinks back into it, the way Music does, over the screen it came from. The X plays the same
 animation as the pull. Overscrolling at the top previews the shrink under your finger; letting go
-past the threshold finishes it and pops.
+past the threshold finishes from that exact progress and pops. The pull does not stop moving at
+the threshold while the finger continues down.
 
 Because it is a card over another screen rather than a rectangle replacing it, it keeps rounded
-corners the whole time it is open, and it stays fully opaque while it shrinks.
+continuous corners while it shrinks. The visible corner size is compensated for the card's scale,
+and the card lands its top-left edge on the artwork rather than hovering around its center.
 
 Both hero screens paint the artwork tint as their own background rather than leaving it to the
-gradient inside the list. Overscrolling at the top pulls the list content down, and without it
-that uncovers the flat card color above the artwork.
+gradient inside the list. During the close, the list counters iOS's downward overscroll so the
+hero stays anchored near the card's top edge instead of opening a large empty area above it.
 
 That is `@/lib/zoom-dismiss`: rows record where their artwork is before they navigate, the screen
-wraps itself in a card that shrinks toward that rect, and `useCloseScreen` is what both the X and
-the pull call. `useScreenScroll` drives the pull, and `useIsPushedDetailScreen`
+wraps itself in a card that shrinks toward that rect, and `useCloseScreen` is what the X calls.
+The artist album rail records its covers too, so an album opened from an artist returns to the
+right tile. `useScreenScroll` drives the pull through the same controller, and `useIsPushedDetailScreen`
 (`@/lib/screen-overlay`) keeps all of it off the tabs and off the sheets, which drag down natively
 already.
 

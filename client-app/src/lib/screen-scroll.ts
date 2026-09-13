@@ -3,13 +3,16 @@ import { useIsFocused, useScrollToTop } from "expo-router/react-navigation";
 import { useCallback, useEffect } from "react";
 import {
     useAnimatedRef,
+    useAnimatedStyle,
     useAnimatedScrollHandler,
     runOnJS,
     useSharedValue,
+    type AnimatedStyle,
     type AnimatedRef,
 } from "react-native-reanimated";
 import type Animated from "react-native-reanimated";
 import type { Component } from "react";
+import type { ViewStyle } from "react-native";
 
 import { usePlayerDock } from "./player-dock";
 import {
@@ -17,28 +20,20 @@ import {
     useScreenOverlayInsets,
 } from "./screen-overlay";
 import { resetZoomProgress, useZoomDismiss } from "./zoom-dismiss";
+import {
+    shouldDismissZoom,
+    zoomProgressForScrollOffset,
+} from "./zoom-dismiss-geometry";
 
 /** Scrolled past this, the player docks. */
 const DOCK_OFFSET = 8;
 /** Back within this of the top, it floats again. */
 const TOP_OFFSET = 2;
-/**
- * Overscroll past this at the top, then let go, and a pushed detail screen
- * closes. Far enough that it takes a deliberate pull rather than a bouncy
- * flick back to the top.
- */
-const DISMISS_PULL = 110;
-/**
- * How far into the minimize a full pull gets you while your finger is still
- * down. The rest plays out on release, so the drag previews the animation
- * rather than performing it.
- */
-const DRAG_PROGRESS = 0.22;
-
 type ScreenScrollProps<T extends Component> = {
     ref: AnimatedRef<T>;
     onScroll: ReturnType<typeof useAnimatedScrollHandler>;
     scrollEventThrottle: number;
+    style: AnimatedStyle<ViewStyle>;
 };
 
 /**
@@ -71,8 +66,10 @@ export function useScreenScroll<
     // the handler can stay one shape rather than two.
     const spareProgress = useSharedValue(0);
     const spareClosing = useSharedValue(false);
+    const pullOffset = useSharedValue(0);
     const progress = zoom?.progress ?? spareProgress;
     const closing = zoom?.closing ?? spareClosing;
+    const compensatesZoomPull = canPullToDismiss && zoom != null;
 
     // `useScrollToTop` types itself against the navigation scrollables rather
     // than an animated ref. It only ever calls a scroll method on it.
@@ -105,7 +102,7 @@ export function useScreenScroll<
     const dismiss = useCallback(() => {
         if (!isFocused || !canPullToDismiss) return;
         if (zoom) {
-            zoom.close();
+            zoom.finishGestureClose();
             return;
         }
         if (router.canGoBack()) router.back();
@@ -118,19 +115,47 @@ export function useScreenScroll<
                 if (offset > DOCK_OFFSET) runOnJS(setDocked)(true);
                 else if (offset <= TOP_OFFSET) runOnJS(setDocked)(false);
 
+                // iOS moves the scroll content down while overscrolling. Move
+                // the scroll view up by the same amount so the hero stays
+                // anchored inside the shrinking card instead of growing a
+                // large empty area above it.
+                pullOffset.set(compensatesZoomPull ? Math.min(offset, 0) : 0);
+
                 // Once the close is committed the animation owns progress.
                 if (!canPullToDismiss || closing.get()) return;
-                const pull = Math.max(0, -offset);
-                progress.set(Math.min(pull / DISMISS_PULL, 1) * DRAG_PROGRESS);
+                progress.set(zoomProgressForScrollOffset(offset));
             },
             onEndDrag: (event) => {
                 if (!canPullToDismiss || closing.get()) return;
-                if (event.contentOffset.y < -DISMISS_PULL) runOnJS(dismiss)();
-                else resetZoomProgress(progress);
+                if (shouldDismissZoom(event.contentOffset.y)) {
+                    // Claim the animation before iOS starts rebounding the
+                    // scroll view. The JS callback only finishes the close.
+                    closing.set(true);
+                    runOnJS(dismiss)();
+                    return;
+                }
+                resetZoomProgress(progress);
             },
         },
-        [setDocked, dismiss, canPullToDismiss, closing, progress],
+        [
+            setDocked,
+            dismiss,
+            canPullToDismiss,
+            compensatesZoomPull,
+            closing,
+            progress,
+            pullOffset,
+        ],
     );
 
-    return { ref, onScroll, scrollEventThrottle: 16 };
+    const pullCompensationStyle = useAnimatedStyle(() => ({
+        transform: [{ translateY: pullOffset.get() }],
+    }));
+
+    return {
+        ref,
+        onScroll,
+        scrollEventThrottle: 16,
+        style: pullCompensationStyle,
+    };
 }

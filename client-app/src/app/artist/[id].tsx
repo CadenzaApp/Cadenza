@@ -20,7 +20,7 @@ import { Text } from "@/components/ui/text";
 import { TintBackdrop } from "@/components/ui/tint-backdrop";
 import { darken, useArtworkTint, withAlpha } from "@/lib/artwork-color";
 import { getErrorMessage } from "@/lib/error-utils";
-import { ZoomDismissScreen } from "@/lib/zoom-dismiss";
+import { useZoomSource, ZoomDismissScreen } from "@/lib/zoom-dismiss";
 import { collectionRoute } from "@/lib/music-routes";
 import { useArtist } from "@/lib/musickit-hooks";
 import { usePlaybackCommands } from "@/lib/playback";
@@ -321,6 +321,7 @@ function AlbumTile({
     onPress: () => void;
 }) {
     const { colors } = useTheme();
+    const { ref: zoomRef, capture: captureZoom } = useZoomSource();
     const artworkUrl = album.artworkUrl?.trim();
     const canRenderArtwork =
         typeof artworkUrl === "string" && /^https?:\/\//i.test(artworkUrl);
@@ -329,20 +330,29 @@ function AlbumTile({
         <Pressable
             accessibilityRole="button"
             accessibilityLabel={`Open ${album.title}`}
-            onPress={onPress}
+            onPress={() => {
+                captureZoom();
+                onPress();
+            }}
             style={{ width: ALBUM_TILE_WIDTH }}
             className="active:opacity-80"
         >
-            {canRenderArtwork ? (
-                <RNImage
-                    source={{ uri: artworkUrl }}
-                    className="aspect-square w-full rounded-lg bg-muted"
-                />
-            ) : (
-                <View className="aspect-square w-full items-center justify-center rounded-lg bg-muted">
-                    <Ionicons name="disc" size={28} color={colors.text} />
-                </View>
-            )}
+            <View
+                ref={zoomRef}
+                collapsable={false}
+                className="aspect-square w-full"
+            >
+                {canRenderArtwork ? (
+                    <RNImage
+                        source={{ uri: artworkUrl }}
+                        className="h-full w-full rounded-lg bg-muted"
+                    />
+                ) : (
+                    <View className="h-full w-full items-center justify-center rounded-lg bg-muted">
+                        <Ionicons name="disc" size={28} color={colors.text} />
+                    </View>
+                )}
+            </View>
             <Text
                 className="mt-2 text-sm font-semibold text-foreground"
                 numberOfLines={2}
