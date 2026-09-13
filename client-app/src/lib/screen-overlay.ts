@@ -1,5 +1,6 @@
 import { useRootNavigationState, useSegments } from "expo-router";
-import { createContext, useContext } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
+import { Keyboard, Platform } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { usePlayback } from "./playback";
@@ -29,22 +30,63 @@ const OVERLAY_GAP = 12;
  */
 const COMPACT_PLAYER_GAP = 3;
 
-/** Root segments presented as a sheet rather than as a screen of their own. */
-const SHEET_SEGMENTS = new Set([
-    "account",
-    "player",
-    "library-categories",
-    "category",
-    "collection",
-    "tag",
+/**
+ * Root segments presented as a sheet rather than as a screen of their own. A
+ * sheet is a native surface over the whole app, so both bottom bars are behind
+ * it and neither can be reached from it. That is the point of the two that are
+ * left: the account sheet and the now playing sheet are the screens you are
+ * meant to finish with before going anywhere.
+ */
+const SHEET_SEGMENTS = new Set(["account", "player"]);
+
+/**
+ * Root segments pushed as a full screen that the bars float over, exactly as
+ * they float over a tab. Drilling into an album or an artist keeps the bar you
+ * navigate with, which is the whole reason these are not sheets.
+ */
+const FULL_SCREEN_BAR_SEGMENTS = new Set([
     "artist",
+    "collection",
+    "category",
+    "tag",
+    "library-categories",
     "add-to-playlist",
 ]);
 
 /**
+ * Whether a keyboard is on screen.
+ *
+ * Both bottom bars are positioned off the bottom edge rather than laid out, so
+ * a keyboard covers them instead of pushing them up. They hide while it is
+ * open, which is also what Music does: what is being typed into is the whole
+ * point of the screen at that moment.
+ */
+export function useKeyboardVisible() {
+    const [visible, setVisible] = useState(false);
+
+    useEffect(() => {
+        // iOS reports the frame change before the animation, Android only ever
+        // fires the plain events.
+        const showEvent =
+            Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+        const hideEvent =
+            Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+        const show = Keyboard.addListener(showEvent, () => setVisible(true));
+        const hide = Keyboard.addListener(hideEvent, () => setVisible(false));
+
+        return () => {
+            show.remove();
+            hide.remove();
+        };
+    }, []);
+
+    return visible;
+}
+
+/**
  * True for content rendered inside a presented sheet. A sheet is its own
  * surface: the tab bar and the compact player are behind it, not over it, so
- * its content owes them nothing. `SheetScreen` is what sets this.
+ * its content owes them nothing. `DetailScreen` sets it for a sheet presentation.
  */
 export const InsideSheetContext = createContext(false);
 
@@ -69,6 +111,24 @@ export function useBaseRouteSegment() {
 }
 
 /**
+ * Whether the screen on top is one of the pushed detail routes.
+ *
+ * Those are the ones with no native dismiss of their own: a sheet drags down
+ * because iOS makes it, and a tab has nowhere to go. Only these need the pull
+ * at the top wired up by hand.
+ */
+export function useIsPushedDetailScreen() {
+    const segments = useSegments();
+    const rootSegment: string | undefined = segments[0];
+    const insideSheet = useContext(InsideSheetContext);
+    return (
+        !insideSheet &&
+        rootSegment !== undefined &&
+        FULL_SCREEN_BAR_SEGMENTS.has(rootSegment)
+    );
+}
+
+/**
  * Insets expressed in the coordinate space of the active screen content.
  *
  * Both bottom bars float over the content rather than sitting in the layout, so
@@ -80,13 +140,20 @@ export function useScreenOverlayInsets() {
     const insets = useSafeAreaInsets();
     const rootSegment = useBaseRouteSegment();
     const insideSheet = useContext(InsideSheetContext);
-    const isTabScreen = !insideSheet && rootSegment === "(tabs)";
-    const compactPlayerVisible = activeTrack != null && isTabScreen;
+    const keyboardVisible = useKeyboardVisible();
+    // The tabs and the screens pushed over them are the same surface as far as
+    // the bars are concerned: both float over it, in the same place.
+    const hasBars =
+        !insideSheet &&
+        rootSegment !== undefined &&
+        (rootSegment === "(tabs)" || FULL_SCREEN_BAR_SEGMENTS.has(rootSegment));
+    const bottomBarsVisible = hasBars && !keyboardVisible;
+    const compactPlayerVisible = bottomBarsVisible && activeTrack != null;
 
-    // What the bottom of the surface is already spending. Under the tabs that
-    // is the floating pill and the safe area it clears. Inside a sheet it is
-    // only the safe area, because the bars are behind the sheet.
-    const bottomBarInset = isTabScreen
+    // What the bottom of the surface is already spending. Where the bars are,
+    // that is the floating pill and the safe area it clears. Inside a sheet it
+    // is only the safe area, because the bars are behind the sheet.
+    const bottomBarInset = hasBars
         ? insets.bottom + TAB_BAR_MARGIN + TAB_BAR_HEIGHT
         : insideSheet
           ? insets.bottom
@@ -101,7 +168,13 @@ export function useScreenOverlayInsets() {
     const floatingActionBottom = playerBottomInset + OVERLAY_GAP;
 
     return {
+        /** Whether the tab bar renders. `TabBarHost` is the one caller. */
+        bottomBarsVisible,
+        /** Where the tab bar pins itself. The player measures its dock off it. */
+        bottomBarBottom: insets.bottom,
         compactPlayerVisible,
+        /** Whether there is a tab bar under the player to dock into. */
+        playerCanDock: bottomBarsVisible,
         /** Where the compact player pins itself while it floats. */
         compactPlayerBottom,
         /** Where it pins itself once it is docked inside the tab bar. */

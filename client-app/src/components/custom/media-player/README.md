@@ -64,8 +64,9 @@ That includes the `...` menu: it does not open its own copy of the favorite or a
 because `expanded.tsx` already has both. Keep it that way.
 
 Sheet presentation, the grabber, the drag to dismiss, and the header are **not** in this
-directory. They come from `sheetScreenOptions` (`@/lib/theme`) and `SheetScreen`
-(`@/components/ui/sheet-screen`), shared with the account sheet.
+directory. They come from `sheetScreenOptions` (`@/lib/theme`) and `DetailScreen`
+(`@/components/ui/detail-screen`), shared with the account sheet. Those two routes are the only
+sheets left; every other detail route is pushed with the bars over it.
 
 What is left of the animation is content, not presentation: a horizontal drag inside the sheet
 pages between details and the tag editor via `detailsTranslateX` / `detailsPage`. Progress is
@@ -80,7 +81,11 @@ the 750ms native snapshot polls, and scrubbing overrides it with `scrubPosition`
 - `@/lib/screen-overlay::useScreenOverlayInsets` for the route gate and every offset.
 - `@apple-musickit::MusicKit` directly for a few native calls.
 - `@/components/custom/reorderable-list::ReorderableList` for the up-next list.
-- `/artist/[id]` and `/add-to-playlist`, pushed from the `...` menu.
+- `/artist/[id]`, `/collection/[kind]/[id]`, and `/add-to-playlist`, from the `...` menu. All
+  three dismiss the sheet before they push, because they are full screen routes and a push from
+  inside a presented sheet would land inside its box. Go to Album goes through
+  `@/lib/music-routes::albumRouteForTrack`, so the album screen arrives already knowing the cover
+  and its color.
 - Mounted by `src/app/_layout.tsx`; the sheet body is rendered by `src/app/player.tsx`.
 
 ## Gotchas
@@ -88,8 +93,11 @@ the 750ms native snapshot polls, and scrubbing overrides it with `scrubPosition`
 - Only `MediaPlayerHost` is exported from `index.ts`. Import the mini player through the host.
   `app/player.tsx` is the one caller allowed to import `expanded.tsx` directly.
 - A new top-level route will not show the player until its segment is added to
-  `PLAYER_STACK_SEGMENTS` in `@/lib/screen-overlay`. A new *sheet* route goes in
+  `FULL_SCREEN_BAR_SEGMENTS` in `@/lib/screen-overlay`. A new *sheet* route goes in
   `SHEET_SEGMENTS` in the same file instead, or it will read as a route change and drop the bar.
+- The player and the tab bar are mounted side by side at the root, and both are gated by the
+  same hook, so wherever one shows the other does. `playerCanDock` follows from that: there is
+  always a bar under the player when the player is visible.
 - Bottom geometry lives entirely in `@/lib/screen-overlay`. Nothing in this directory should
   hardcode a bar height or an offset.
 - The bar's background is a `GlassSurface`, which clips itself. The shadow has to stay on the
@@ -104,11 +112,14 @@ the 750ms native snapshot polls, and scrubbing overrides it with `scrubPosition`
   the sheet leaves out the status bar and the header. `SHEET_DETENT` (imported from
   `@/lib/theme`, so it cannot drift from `sheetScreenOptions`) and `SHEET_HEADER_HEIGHT` in
   `expanded.tsx` only seed the first frame before that measurement lands. `SHEET_HEADER_HEIGHT`
-  still mirrors `SheetScreen` by hand and has to be updated if that header changes.
+  still mirrors `DetailScreen` by hand and has to be updated if that header changes.
 - The pager gesture deliberately claims horizontal drags only (`activeOffsetX` / `failOffsetY`).
   Widen it and a vertical pull stops reaching the native sheet, which breaks drag to dismiss.
 - Repeat is deliberately not on the transport row. It lives on the queue view next to shuffle,
   which is where Apple keeps it and what frees the bottom-right slot for the queue button.
+- Both mode pills are glass while they are off and invert to a solid white pill with a dark glyph
+  while they are on. Off and on differing only by icon color did not read, since `secondary` and
+  `muted` are the same value in the dark palette.
 - Tapping a queue row **discards** the rows above it. That is not a shortcut, it is the only
   thing either native player can do; see the queue section of the module README.
 - The artist for the `...` menu is only resolved while the menu is open. Resolving it eagerly

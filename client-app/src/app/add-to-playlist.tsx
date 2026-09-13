@@ -6,7 +6,7 @@ import { ActivityIndicator, Alert, Pressable, View } from "react-native";
 
 import { CollectionList } from "@/components/custom/collection-list";
 import { Input } from "@/components/ui/input";
-import { SheetScreen } from "@/components/ui/sheet-screen";
+import { DetailScreen } from "@/components/ui/detail-screen";
 import { Text } from "@/components/ui/text";
 import { getErrorMessage } from "@/lib/error-utils";
 import { usePlaylistMutations, useUserPlaylists } from "@/lib/musickit-hooks";
@@ -81,7 +81,7 @@ export default function AddToPlaylistScreen() {
     }
 
     return (
-        <SheetScreen title="Add to Playlist">
+        <DetailScreen title="Add to Playlist">
             {title ? (
                 <Text
                     className="px-6 pb-2 text-base text-muted-foreground"
@@ -136,6 +136,6 @@ export default function AddToPlaylistScreen() {
                     emptyLabel="No playlists in your library yet."
                 />
             </View>
-        </SheetScreen>
+        </DetailScreen>
     );
 }

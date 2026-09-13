@@ -55,6 +55,8 @@ export function MusicList({
     onCompactChange,
     anticipatedTrackCount = 8,
     header,
+    footer,
+    onContentSizeChange,
     pagination,
     sorting,
 }: MusicListProps) {
@@ -291,10 +293,15 @@ export function MusicList({
                                     </View>
                                 ),
                             )}
+                            {footer}
                         </View>
                     ) : (
                         <Animated.FlatList
                             {...scroll}
+                            // Overscrolling at the top is how a detail screen
+                            // closes, and an indicator flicking in over the
+                            // shrinking card is noise.
+                            showsVerticalScrollIndicator={false}
                             data={displayedTracks}
                             extraData={listExtraData}
                             initialNumToRender={MUSIC_LIST_RENDER_BATCH_SIZE}
@@ -352,13 +359,17 @@ export function MusicList({
                                 ) : null
                             }
                             ListFooterComponent={
-                                isLoadingNextPage ? (
-                                    <MusicListLoadingSkeletons
-                                        fullBleed={fullBleedRows}
-                                        compact={isCompact}
-                                    />
-                                ) : null
+                                <>
+                                    {isLoadingNextPage ? (
+                                        <MusicListLoadingSkeletons
+                                            fullBleed={fullBleedRows}
+                                            compact={isCompact}
+                                        />
+                                    ) : null}
+                                    {footer}
+                                </>
                             }
+                            onContentSizeChange={onContentSizeChange}
                             onEndReached={handleEndReached}
                             onEndReachedThreshold={0.1}
                         />

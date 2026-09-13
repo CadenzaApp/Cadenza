@@ -1,25 +1,29 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTheme } from "expo-router/react-navigation";
-import { Pressable, ScrollView, View } from "react-native";
+import { Pressable, View } from "react-native";
+import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { SheetScreen } from "@/components/ui/sheet-screen";
+import { DetailScreen } from "@/components/ui/detail-screen";
 import { Text } from "@/components/ui/text";
 import {
     LIBRARY_CATEGORY_META,
     LIBRARY_CATEGORY_ORDER,
 } from "@/features/library/categories";
 import { useLibraryCategories } from "@/features/library/library-categories";
+import { useScreenScroll } from "@/lib/screen-scroll";
 
 /** Picks which sections appear on the library screen. Any number of them. */
 export default function LibraryCategoriesScreen() {
     const insets = useSafeAreaInsets();
     const { colors } = useTheme();
     const { isEnabled, toggle } = useLibraryCategories();
+    const scroll = useScreenScroll();
 
     return (
-        <SheetScreen title="Library">
-            <ScrollView
+        <DetailScreen title="Library">
+            <Animated.ScrollView
+                {...scroll}
                 className="flex-1"
                 contentContainerClassName="px-5 pt-2"
                 contentContainerStyle={{
@@ -68,7 +72,7 @@ export default function LibraryCategoriesScreen() {
                         </Pressable>
                     );
                 })}
-            </ScrollView>
-        </SheetScreen>
+            </Animated.ScrollView>
+        </DetailScreen>
     );
 }

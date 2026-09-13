@@ -5,16 +5,27 @@ import {
     type MusicItem,
     type SongFavoriteStatus,
 } from "@apple-musickit";
-import { useTheme } from "expo-router/react-navigation";
-import { Image, Pressable, View, type ColorValue } from "react-native";
+import {
+    Image,
+    Pressable,
+    StyleSheet,
+    View,
+    type ColorValue,
+} from "react-native";
 
 import { ReorderableList } from "@/components/custom/reorderable-list";
+import { GlassSurface } from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
 
 import { MediaPlayerTrackHeading } from "./playback-details";
 
 /** Row height the reorderable list positions against. */
 const QUEUE_ROW_HEIGHT = 60;
+/** Height of the two mode pills, and so their radius. */
+const MODE_PILL_HEIGHT = 44;
+/** What the on state inverts to: a solid white pill with a dark glyph. */
+const MODE_PILL_ACTIVE_BG = "#ffffff";
+const MODE_PILL_ACTIVE_FG = "#000000";
 
 type MediaPlayerQueueProps = {
     track: MusicItem;
@@ -33,7 +44,10 @@ type MediaPlayerQueueProps = {
     /** Positions address the upcoming list, not the whole queue. */
     onPlayUpcoming: (upcomingIndex: number) => void;
     onRemoveUpcoming: (upcomingIndex: number) => void;
-    onMoveUpcoming: (fromUpcomingIndex: number, toUpcomingIndex: number) => void;
+    onMoveUpcoming: (
+        fromUpcomingIndex: number,
+        toUpcomingIndex: number,
+    ) => void;
 };
 
 /**
@@ -62,7 +76,6 @@ export function MediaPlayerQueue({
     onRemoveUpcoming,
     onMoveUpcoming,
 }: MediaPlayerQueueProps) {
-    const { colors } = useTheme();
     const shuffleOn = shuffleMode !== ShuffleMode.Off;
     const repeatOn = repeatMode !== RepeatMode.Off;
 
@@ -84,18 +97,18 @@ export function MediaPlayerQueue({
                     label="Shuffle"
                     icon="shuffle"
                     active={shuffleOn}
-                    activeColor={colors.notification}
                     textColor={textColor}
                     onPress={onToggleShuffle}
                 />
                 <ModePill
                     label={repeatLabel(repeatMode)}
                     icon={
-                        repeatMode === RepeatMode.One ? "repeat-outline" : "repeat"
+                        repeatMode === RepeatMode.One
+                            ? "repeat-outline"
+                            : "repeat"
                     }
                     badge={repeatMode === RepeatMode.One ? "1" : undefined}
                     active={repeatOn}
-                    activeColor={colors.notification}
                     textColor={textColor}
                     onPress={onCycleRepeat}
                 />
@@ -135,12 +148,16 @@ function repeatLabel(mode: RepeatMode) {
     return "Repeat";
 }
 
+/**
+ * One of the two playback mode toggles. Off it is glass, like every other
+ * floating control in the app. On it inverts to a solid white pill with a dark
+ * glyph, so the state reads at a glance rather than from a tint difference.
+ */
 function ModePill({
     label,
     icon,
     badge,
     active,
-    activeColor,
     textColor,
     onPress,
 }: {
@@ -148,36 +165,72 @@ function ModePill({
     icon: React.ComponentProps<typeof Ionicons>["name"];
     badge?: string;
     active: boolean;
-    activeColor: ColorValue;
     textColor: ColorValue;
     onPress: () => void;
 }) {
+    const foreground = active ? MODE_PILL_ACTIVE_FG : textColor;
+
+    // The width lives on a wrapper: a nativewind class and a `style` function
+    // on the same pressable fight, and putting the `flex: 1` inside the
+    // function instead leaves the pill sized to its icon. Same split the glass
+    // icon button uses.
     return (
-        <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={label}
-            accessibilityState={{ selected: active }}
-            onPress={onPress}
-            // On and off differ by icon color, not by fill: `secondary` and
-            // `muted` are the same value in the dark palette.
-            className="h-11 flex-1 flex-row items-center justify-center gap-1 rounded-full bg-secondary active:opacity-70"
-        >
-            <Ionicons
-                name={icon}
-                size={20}
-                color={active ? activeColor : textColor}
-            />
-            {badge ? (
-                <Text
-                    className="text-xs font-bold"
-                    style={{ color: active ? activeColor : textColor }}
+        <View className="flex-1">
+            <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={label}
+                accessibilityState={{ selected: active }}
+                onPress={onPress}
+                style={({ pressed }) => (pressed ? styles.pressed : null)}
+            >
+                <View
+                    className="flex-row items-center justify-center gap-1 border border-border"
+                    style={{
+                        height: MODE_PILL_HEIGHT,
+                        borderRadius: MODE_PILL_HEIGHT / 2,
+                        overflow: "hidden",
+                        backgroundColor: active
+                            ? MODE_PILL_ACTIVE_BG
+                            : "transparent",
+                    }}
                 >
-                    {badge}
-                </Text>
-            ) : null}
-        </Pressable>
+                    {/* Off only. The glass layer is a plain view away from the
+                    touch path, and the solid on state has nothing to show
+                    through it anyway. */}
+                    {active ? null : (
+                        <View
+                            pointerEvents="none"
+                            style={StyleSheet.absoluteFill}
+                        >
+                            <GlassSurface
+                                style={[
+                                    StyleSheet.absoluteFill,
+                                    {
+                                        borderRadius: MODE_PILL_HEIGHT / 2 - 1,
+                                        overflow: "hidden",
+                                    },
+                                ]}
+                            />
+                        </View>
+                    )}
+                    <Ionicons name={icon} size={20} color={foreground} />
+                    {badge ? (
+                        <Text
+                            className="text-xs font-bold"
+                            style={{ color: foreground }}
+                        >
+                            {badge}
+                        </Text>
+                    ) : null}
+                </View>
+            </Pressable>
+        </View>
     );
 }
+
+const styles = StyleSheet.create({
+    pressed: { opacity: 0.65 },
+});
 
 function QueueRow({
     track,

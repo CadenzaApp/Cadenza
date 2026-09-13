@@ -22,11 +22,14 @@ native module directly.
 | `queue-order.ts` | Pure index math for the queue mirror. Tested in `queue-order.test.ts`. |
 | `supabase.ts` | The Supabase client, backed by AsyncStorage. |
 | `tag-generation.ts` | A standalone tag suggestion fetch. Does not use the wrappers. See gotchas. |
-| `theme.ts` | `NAV_THEME`, light and dark palettes for react-navigation, and `sheetScreenOptions` for sheet routes. |
+| `theme.ts` | `NAV_THEME`, light and dark palettes for react-navigation, `sheetScreenOptions` for sheet routes, and `pushedScreenOptions` for the pushed detail routes. |
 | `error-utils.ts` | `getErrorDetails` / `getErrorMessage`, for unwrapping native and backend errors. |
-| `screen-overlay.ts` | `useScreenOverlayInsets`, plus the geometry constants for both floating bottom bars. Also `useBaseRouteSegment`, the root segment ignoring any sheet presented on top. |
+| `artwork-color.ts` | `useArtworkTint`, the color a surface paints itself with, plus `withAlpha`. |
+| `music-routes.ts` | `collectionRoute` / `albumRouteForTrack`. Hrefs into the resource screens, params and all. |
+| `screen-overlay.ts` | `useScreenOverlayInsets`, plus the geometry constants for both floating bottom bars. Also `useBaseRouteSegment`, the root segment ignoring any sheet presented on top, and which routes keep the compact player. |
 | `player-dock.tsx` | `PlayerDockProvider` / `usePlayerDock`. Whether the mini player floats above the tab bar or sits docked inside it. |
-| `screen-scroll.ts` | `useScreenScroll`, the props a tab screen's top-level scroller spreads to get tab-press-scrolls-to-top and scroll-docks-the-player. |
+| `screen-scroll.ts` | `useScreenScroll`, the props a screen's top-level scroller spreads to get tab-press-scrolls-to-top, scroll-docks-the-player, and pull-down-to-close. |
+| `zoom-dismiss.tsx` | `ZoomOriginProvider`, `useZoomSource`, `ZoomDismissScreen`, `useCloseScreen`. Closing a pushed screen by shrinking it back into the artwork that opened it. |
 | `types.ts` | Shared wire types: `Tag` and `TagMetadata`. |
 | `utils.ts` | `cn()`, the clsx + tailwind-merge helper. |
 
@@ -144,13 +147,44 @@ positioned by `compactPlayerBottom`. **Nothing reserves space for them**, so eve
 surface owes itself `contentBottomInset` (or `listBottomInset` when a floating button is also
 over it), or its last row hides under a bar.
 
-Sheet content is the exception. `SheetScreen` puts `InsideSheetContext` around its body, and the
-hook then returns sheet-local numbers: no tab bar, no compact player, just the safe area. A
-`MusicList` inside a sheet would otherwise leave a tab bar's worth of dead space at the bottom.
+Sheet content is the exception. `DetailScreen` puts `InsideSheetContext` around its body when it
+is presented as a sheet, and the hook then returns sheet-local numbers: no tab bar, no compact
+player, just the safe area. A `MusicList` inside a sheet would otherwise leave a tab bar's worth
+of dead space at the bottom.
 
-`TAB_BAR_HEIGHT` and `TAB_BAR_MARGIN` are also what `(tabs)/_layout.tsx` styles the bar with.
-Change one and the other has to match. `TAB_BAR_ITEM_INSET` and `DOCKED_PLAYER_HEIGHT` are the
-box *inside* the bar, shared by the selection bubble and the docked player so they line up.
+`TAB_BAR_HEIGHT`, `TAB_BAR_MARGIN`, and `bottomBarBottom` are what `@/components/custom/tab-bar`
+positions itself with, so the bar and the padding screens leave for it cannot drift.
+`TAB_BAR_ITEM_INSET` and `DOCKED_PLAYER_HEIGHT` are the box *inside* the bar, shared by the
+selection bubble and the docked player so they line up.
+
+This hook decides **whether either bar renders at all**, and both follow the same answer:
+`bottomBarsVisible` for the tab bar, that plus a playing track for the player. It is true on the
+tabs and on the pushed routes in `FULL_SCREEN_BAR_SEGMENTS`, and false inside a sheet, on auth
+and splash, and while a keyboard is open. Both bars sit on the bottom edge rather than in the
+layout, so a keyboard would otherwise cover them; `useKeyboardVisible` in this file is what
+notices.
+
+## Artwork color
+
+`artwork-color.ts::useArtworkTint` gives a surface the color it paints itself with, from its own
+artwork. Two sources, in order:
+
+1. `artworkColor` off the item, which is Apple's own and is what Music tints with. Free, and
+   synchronous.
+2. Failing that, the average of the image, through `@image-color`. A download and a decode, so
+   it goes through SWR keyed on the artwork URL.
+
+Library artwork usually has no color of its own, which is the only reason the second path
+exists. Expo Go has no native module for it and returns null, and a null tint renders untinted.
+
+`@/components/ui/tint-backdrop::TintBackdrop` is what actually paints it: the color at the top,
+darkening down the page and bottoming out at `depth` of its brightness rather than at black.
+The player sheet, the collection screen, and the artist screen all go through those two.
+
+Hand `useArtworkTint` the **small** artwork. Averaging only needs a thumbnail, and a hero-sized
+one costs a megabyte to reach the same answer. `ArtworkSource.artworkUrlSmall` wins over
+`artworkUrl` for that reason, and `music-routes.ts` passes the small URL as `artworkUrl` and the
+hero-sized one separately as `artworkUrlLarge`, which the collection screen draws its cover from.
 
 ## Docking the player
 
@@ -175,6 +209,36 @@ const scroll = useScreenScroll();
 It has to be an `Animated.FlatList` / `Animated.ScrollView`, because the offset is read on the UI
 thread. Tab-press-scrolls-to-top comes free with it, through react-navigation's `useScrollToTop`.
 A surface that skips the hook keeps the player floating and ignores tab presses.
+
+It also drives the close of a pushed detail screen. Overscroll at the top feeds `DRAG_PROGRESS`
+worth of the minimize live, and letting go past `DISMISS_PULL` finishes it; short of that it
+springs back. Gated on `useIsPushedDetailScreen` from `screen-overlay`: a sheet already drags down
+natively and a tab has nowhere to go, so only the pushed routes wire it up. Android does not
+overscroll past the top by default, so the pull is an iOS gesture and the X is the way out on both.
+
+## The minimize
+
+`zoom-dismiss.tsx` is the two halves of Apple's close-back-into-the-artwork transition, which know
+nothing about each other:
+
+- A row measures its artwork just before it navigates, through `useZoomSource`. One rect is stored
+  at a time, in `ZoomOriginProvider` at the root, because only the screen on top is ever closing.
+  The rect is a shared value rather than a snapshot, since `measureInWindow` is asynchronous and
+  can land after the push.
+- `ZoomDismissScreen` wraps a pushed screen's content in the card that shrinks toward that rect.
+  `DetailScreen` does it for every route that uses it; `/artist/:id` and `/collection/:kind/:id`
+  render it themselves, since they draw their own header.
+
+The card runs both directions of the transition: it starts minimized and grows on mount, and
+shrinks back on close. That is why those routes carry `pushedScreenOptions()`, which presents them
+as transparent modals with no native animation. The screen that opened this one is still on
+display underneath, so the card animates over it and its rounded corners show it at rest.
+
+Every close goes through `useCloseScreen`, so the X and the pull play the same animation, and a
+screen with no card falls back to a plain `router.back()`. With no recorded rect the card shrinks
+toward the bottom of the window rather than doing nothing, which is what a deep link gets. A rect
+older than `ORIGIN_MAX_AGE` at mount counts as none: a screen opened by something that records
+nothing must not grow out of whatever row was tapped a minute ago.
 
 ## The providers
 
@@ -211,6 +275,7 @@ A surface that skips the hook keeps the player floating and ignores tab presses.
 - `backend-api`, through `BACKEND_URL`.
 - Supabase auth, through `supabase.ts`.
 - `@apple-musickit`, from `musickit-hooks.ts`, `apple-music-auth.tsx`, and `playback.tsx`.
+- `@image-color`, from `artwork-color.ts` and nowhere else.
 - Consumed by everything in `src/app`, `src/features`, and `src/components/custom`.
 
 ## Gotchas

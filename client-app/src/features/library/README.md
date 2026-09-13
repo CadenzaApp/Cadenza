@@ -10,8 +10,8 @@ Which rows appear is the user's choice.
 | ------------------------- | ---------------------------------------------------------------------- |
 | `categories.ts`           | `LibraryCategory`, the display order, labels, and icons. No React.      |
 | `library-categories.tsx`  | `LibraryCategoriesProvider` / `useLibraryCategories`. Which rows show.  |
-| `category-row.tsx`        | One row of the index.                                                   |
-| `recently-added.tsx`      | `RecentlyAddedGrid`, the paged artwork grid that owns the screen scroll and reports it with `useScreenScroll`. |
+| `category-row.tsx`        | One row of the index. Records itself as the zoom origin before it opens. |
+| `recently-added.tsx`      | `RecentlyAddedGrid`, the paged artwork grid that owns the screen scroll and reports it with `useScreenScroll`. Tiles record themselves as zoom origins. |
 | `tags-view.tsx`           | Every tag as a pill, opening `/tag/:tagId`. The Tags category's body.   |
 
 ## How it works
@@ -21,15 +21,16 @@ display order and is the only place that order is written down.
 
 ```
 /library               the index: a CategoryRow per enabled category, then RecentlyAddedGrid
-  -> /library-categories   sheet, toggles which categories are enabled
-  -> /category/:kind       sheet, that category's contents
-       -> /collection/:kind/:id   sheet, one album's or playlist's songs
-       -> /artist/:id             sheet, one catalog artist
-       -> /tag/:tagId             sheet, one tag's songs
+  -> /library-categories   toggles which categories are enabled
+  -> /category/:kind       that category's contents
+       -> /collection/:kind/:id   one album's or playlist's songs
+       -> /artist/:id             one catalog artist, image full bleed
+       -> /tag/:tagId             one tag's songs
 ```
 
-Every one of those is a sheet, so browsing into the library never leaves the tab and the bottom
-bars stay put behind it.
+Every one of those is pushed full screen with the tab bar and the mini player floating over it,
+so browsing into the library never loses the bar you navigate with. Their segments are listed in
+`FULL_SCREEN_BAR_SEGMENTS` in `@/lib/screen-overlay`.
 
 `LibraryCategoriesProvider` is mounted in `src/app/_layout.tsx`, above the navigator, because the
 screen that reads the selection and the sheet that edits it are separate routes. The selection is
@@ -74,9 +75,10 @@ live in a `ScrollView`, so the category rows are handed to it as `header`.
   `LEGACY_KNOWN_CATEGORIES`: it is a record of what already shipped, not a list to keep current.
 - Tags used to be a segmented view on the Cadenza tab. That switch is gone; Cadenza is only the
   query builder now.
-- Everything here renders inside a sheet. `SheetScreen` flags that through
-  `InsideSheetContext`, which is what stops `useScreenOverlayInsets` from padding sheet content
-  for a tab bar that is behind the sheet, not under it.
+- Everything here renders inside `DetailScreen`, pushed rather than presented as a sheet, so the
+  tab bar and the mini player float over it and its lists pay them a bottom inset. Only
+  `/account` and `/player` are sheets now; `InsideSheetContext` is how that difference reaches
+  `useScreenOverlayInsets`.
 
 ---
 Touching files in this directory? Update this README in the same change.

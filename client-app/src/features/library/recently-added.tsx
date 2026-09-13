@@ -10,6 +10,7 @@ import { Text } from "@/components/ui/text";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { useScreenScroll } from "@/lib/screen-scroll";
 import { usePlaybackCommands } from "@/lib/playback";
+import { useZoomSource } from "@/lib/zoom-dismiss";
 
 const SKELETON_TILE_COUNT = 6;
 const COLUMN_COUNT = 2;
@@ -124,6 +125,7 @@ function RecentlyAddedTile({
     onPress: () => void;
 }) {
     const { colors } = useTheme();
+    const { ref: zoomRef, capture: captureZoom } = useZoomSource();
     const artworkUrl = item.artworkUrlLarge?.trim() ?? item.artworkUrl?.trim();
     const canRenderArtwork =
         typeof artworkUrl === "string" && /^https?:\/\//i.test(artworkUrl);
@@ -138,23 +140,33 @@ function RecentlyAddedTile({
                     ? `Play ${item.title}`
                     : `Open ${item.title}`
             }
-            onPress={onPress}
+            onPress={() => {
+                // What the collection screen minimizes back into.
+                captureZoom();
+                onPress();
+            }}
             className="mb-5 w-[48%] active:opacity-80"
         >
-            {canRenderArtwork ? (
-                <Image
-                    source={{ uri: artworkUrl }}
-                    className="aspect-square w-full rounded-lg bg-muted"
-                />
-            ) : (
-                <View className="aspect-square w-full items-center justify-center rounded-lg bg-muted">
-                    <Ionicons
-                        name={KIND_ICON[item.resourceKind]}
-                        size={28}
-                        color={colors.text}
+            <View
+                ref={zoomRef}
+                collapsable={false}
+                className="aspect-square w-full"
+            >
+                {canRenderArtwork ? (
+                    <Image
+                        source={{ uri: artworkUrl }}
+                        className="h-full w-full rounded-lg bg-muted"
                     />
-                </View>
-            )}
+                ) : (
+                    <View className="h-full w-full items-center justify-center rounded-lg bg-muted">
+                        <Ionicons
+                            name={KIND_ICON[item.resourceKind]}
+                            size={28}
+                            color={colors.text}
+                        />
+                    </View>
+                )}
+            </View>
             <Text
                 className="mt-2 font-semibold leading-tight"
                 numberOfLines={1}

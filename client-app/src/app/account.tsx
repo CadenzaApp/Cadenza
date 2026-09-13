@@ -7,7 +7,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getAccountInitials } from "@/components/custom/account-initials";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { SheetScreen } from "@/components/ui/sheet-screen";
+import { DetailScreen } from "@/components/ui/detail-screen";
 import { Text } from "@/components/ui/text";
 import { useAccount } from "@/lib/account";
 import { useAppleMusic } from "@/lib/apple-music-auth";
@@ -158,7 +158,7 @@ export default function AccountScreen() {
     }
 
     return (
-        <SheetScreen title="Account">
+        <DetailScreen presentation="sheet" title="Account">
             <ScrollView
                 className="flex-1"
                 contentContainerClassName="gap-4 px-5 pt-3"
@@ -254,6 +254,6 @@ export default function AccountScreen() {
                     </CardContent>
                 </Card>
             </ScrollView>
-        </SheetScreen>
+        </DetailScreen>
     );
 }

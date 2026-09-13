@@ -95,7 +95,7 @@ export function MediaPlayer() {
     } = usePlayback();
     const router = useRouter();
     const { colors } = useTheme();
-    const { compactPlayerBottom, dockedPlayerBottom } =
+    const { compactPlayerBottom, dockedPlayerBottom, playerCanDock } =
         useScreenOverlayInsets();
     const { progress, dock, float, barWidth, tabCount } = usePlayerDock();
     const [failedArtworkUrl, setFailedArtworkUrl] = useState<string | null>(
@@ -121,7 +121,9 @@ export function MediaPlayer() {
     // has measured itself there are no slots, so it stays where it is.
     const slotWidth = tabCount > 0 ? barWidth / tabCount : 0;
     const sideSlots = (tabCount - DOCKED_PLAYER_SLOTS) / 2;
-    const dockable = sideSlots > 0 && slotWidth > 0;
+    // A sheet hides the bar while leaving its last measurement in context.
+    // Do not dock into geometry that is currently behind the sheet.
+    const dockable = playerCanDock && sideSlots > 0 && slotWidth > 0;
     const dockedRect: PlayerRect = dockable
         ? {
               bottom: dockedPlayerBottom,

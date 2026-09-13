@@ -2,11 +2,14 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import type { ArtistItem } from "@apple-musickit";
 import { useTheme } from "expo-router/react-navigation";
 import { FlatList, Image, Pressable, ScrollView, View } from "react-native";
+import Animated from "react-native-reanimated";
 
 import { MusicListItemSkeleton } from "@/components/custom/music-list/music-list-item";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
+import { useScreenScroll } from "@/lib/screen-scroll";
+import { useZoomSource } from "@/lib/zoom-dismiss";
 import { cn } from "@/lib/utils";
 
 const SKELETON_ROW_COUNT = 8;
@@ -16,7 +19,7 @@ const RAIL_PLACEHOLDER_COUNT = 4;
 /**
  * Whether this artist can open the artist screen. `/artist/[id]` reads the
  * catalog, so a library artist Apple knows no catalog equivalent for has
- * nowhere to go and renders inert rather than opening an empty sheet.
+ * nowhere to go and renders inert rather than opening an empty screen.
  */
 export function canOpenArtist(artist: ArtistItem): boolean {
     return Boolean(artist.catalogId);
@@ -48,6 +51,7 @@ export function ArtistList({
     emptyLabel,
 }: ArtistListProps) {
     const { listBottomInset } = useScreenOverlayInsets();
+    const scroll = useScreenScroll<FlatList<ArtistItem>>();
 
     if (isLoading && artists.length === 0) {
         return (
@@ -60,7 +64,8 @@ export function ArtistList({
     }
 
     return (
-        <FlatList
+        <Animated.FlatList
+            {...scroll}
             className="flex-1"
             data={artists}
             keyExtractor={(artist) => artist.id}
@@ -129,17 +134,27 @@ function ArtistTile({
     onPress: (artist: ArtistItem) => void;
 }) {
     const openable = canOpenArtist(artist);
+    const { ref: zoomRef, capture: captureZoom } = useZoomSource();
 
     return (
         <Pressable
             accessibilityRole="button"
             accessibilityLabel={`Open ${artist.name}`}
             disabled={!openable}
-            onPress={() => onPress(artist)}
+            onPress={() => {
+                captureZoom();
+                onPress(artist);
+            }}
             style={{ width: RAIL_TILE_WIDTH }}
             className="active:opacity-80"
         >
-            <ArtistArtwork artist={artist} className="h-24 w-24" iconSize={32} />
+            <View ref={zoomRef} collapsable={false} className="h-24 w-24">
+                <ArtistArtwork
+                    artist={artist}
+                    className="h-full w-full"
+                    iconSize={32}
+                />
+            </View>
             <Text
                 numberOfLines={1}
                 className="mt-2 text-center text-sm text-foreground"
@@ -158,22 +173,28 @@ function ArtistRow({
     onPress: (artist: ArtistItem) => void;
 }) {
     const openable = canOpenArtist(artist);
+    const { ref: zoomRef, capture: captureZoom } = useZoomSource();
 
     return (
         <Pressable
             accessibilityRole="button"
             accessibilityLabel={`Open ${artist.name}`}
             disabled={!openable}
-            onPress={() => onPress(artist)}
+            onPress={() => {
+                captureZoom();
+                onPress(artist);
+            }}
             className="relative flex-row items-center px-6 py-3 active:opacity-80"
         >
             <View className="absolute bottom-0 left-6 right-6 border-b border-border" />
 
-            <ArtistArtwork
-                artist={artist}
-                className="mr-3 h-14 w-14"
-                iconSize={22}
-            />
+            <View ref={zoomRef} collapsable={false} className="mr-3 h-14 w-14">
+                <ArtistArtwork
+                    artist={artist}
+                    className="h-full w-full"
+                    iconSize={22}
+                />
+            </View>
             <Text
                 numberOfLines={1}
                 className="flex-1 text-base text-foreground"

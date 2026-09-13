@@ -3,13 +3,7 @@ import { MusicKit, RepeatMode, ShuffleMode } from "@apple-musickit";
 import { useRouter } from "expo-router";
 import { useTheme } from "expo-router/react-navigation";
 import { useEffect, useRef, useState } from "react";
-import {
-    Alert,
-    Image,
-    Share,
-    useWindowDimensions,
-    View,
-} from "react-native";
+import { Alert, Image, Share, useWindowDimensions, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
     cancelAnimation,
@@ -22,6 +16,7 @@ import Animated, {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { CreateTagDialog } from "@/components/custom/create-tag-dialog";
+import { albumRouteForTrack } from "@/lib/music-routes";
 import { usePlayback } from "@/lib/playback";
 import { useSongArtists, useSongFavoriteStatus } from "@/lib/musickit-hooks";
 import { useApplyTag, useTagsOnSong, useUnapplyTag } from "@/lib/routes/songs";
@@ -44,7 +39,7 @@ const TRANSPORT_ROW_HEIGHT = 80;
 const SECTION_GAPS = 40;
 const MIN_DETAILS_HEIGHT = 160;
 
-/** Mirrors the `SheetScreen` header, for estimates. */
+/** Mirrors the `DetailScreen` header, for estimates. */
 const SHEET_HEADER_HEIGHT = 76;
 
 /** What the sheet shows above the scrubber. */
@@ -323,21 +318,25 @@ export function MediaPlayerExpanded() {
         }
     }
 
+    /**
+     * Puts the sheet away, then goes. Everything the menu leads to is a full
+     * screen route with the bottom bars over it, and pushing one from inside a
+     * presented sheet would render it in the sheet's box. Music does the same:
+     * picking Go to Artist dismisses now playing first.
+     */
+    function leaveFor(href: Parameters<typeof router.push>[0]) {
+        router.back();
+        router.push(href);
+    }
+
     function openAlbum() {
-        if (!track.albumID) return;
-        router.push({
-            pathname: "/collection/[kind]/[id]",
-            params: {
-                kind: "album",
-                id: track.albumID,
-                title: track.albumName ?? "Album",
-            },
-        });
+        const route = albumRouteForTrack(track);
+        if (route) leaveFor(route);
     }
 
     function openArtist() {
         if (!artistId) return;
-        router.push({
+        leaveFor({
             pathname: "/artist/[id]",
             params: { id: artistId, name: track.artistName ?? "Artist" },
         });
@@ -345,7 +344,7 @@ export function MediaPlayerExpanded() {
 
     function openAddToPlaylist() {
         const songId = track.catalogId ?? track.id;
-        router.push({
+        leaveFor({
             pathname: "/add-to-playlist",
             params: { songId, title: track.title },
         });

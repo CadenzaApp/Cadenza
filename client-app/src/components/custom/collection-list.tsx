@@ -2,10 +2,13 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import type { MusicItem } from "@apple-musickit";
 import { useTheme } from "expo-router/react-navigation";
 import { FlatList, Image, Pressable, View } from "react-native";
+import Animated from "react-native-reanimated";
 
 import { MusicListItemSkeleton } from "@/components/custom/music-list/music-list-item";
 import { Text } from "@/components/ui/text";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
+import { useScreenScroll } from "@/lib/screen-scroll";
+import { useZoomSource } from "@/lib/zoom-dismiss";
 import { cn } from "@/lib/utils";
 
 const SKELETON_ROW_COUNT = 8;
@@ -37,6 +40,7 @@ export function CollectionList({
     emptyLabel,
 }: CollectionListProps) {
     const { listBottomInset } = useScreenOverlayInsets();
+    const scroll = useScreenScroll<FlatList<MusicItem>>();
 
     if (isLoading && collections.length === 0) {
         return (
@@ -49,7 +53,8 @@ export function CollectionList({
     }
 
     return (
-        <FlatList
+        <Animated.FlatList
+            {...scroll}
             className="flex-1"
             data={collections}
             keyExtractor={(collection) => collection.id}
@@ -82,6 +87,7 @@ function CollectionListItem({
     onPress: (collection: MusicItem) => void;
 }) {
     const { colors } = useTheme();
+    const { ref: zoomRef, capture: captureZoom } = useZoomSource();
     const artworkUrl = collection.artworkUrl?.trim();
     const canRenderArtwork =
         typeof artworkUrl === "string" && /^https?:\/\//i.test(artworkUrl);
@@ -94,33 +100,46 @@ function CollectionListItem({
         <Pressable
             accessibilityRole="button"
             accessibilityLabel={`Open ${collection.title}`}
-            onPress={() => onPress(collection)}
+            onPress={() => {
+                // The screen that opens minimizes back into this artwork, so
+                // the rect has to be measured before the push.
+                captureZoom();
+                onPress(collection);
+            }}
             className="relative flex-row items-center px-6 py-3 active:opacity-80"
         >
             <View className="absolute bottom-0 left-6 right-6 border-b border-border" />
 
-            {canRenderArtwork ? (
-                <Image
-                    source={{ uri: artworkUrl }}
-                    className="mr-3 h-14 w-14 shrink-0 aspect-square rounded bg-muted"
-                />
-            ) : (
-                <View
-                    className={cn(
-                        "mr-3 h-14 w-14 shrink-0 aspect-square items-center justify-center rounded bg-muted",
-                    )}
-                >
-                    <Ionicons
-                        name={
-                            collection.resourceKind === "playlist"
-                                ? "list"
-                                : "disc"
-                        }
-                        size={22}
-                        color={colors.text}
+            {/* `collapsable={false}` keeps the view around on Android, which
+                is what `measureInWindow` needs to have something to measure. */}
+            <View
+                ref={zoomRef}
+                collapsable={false}
+                className="mr-3 h-14 w-14 shrink-0"
+            >
+                {canRenderArtwork ? (
+                    <Image
+                        source={{ uri: artworkUrl }}
+                        className="h-full w-full aspect-square rounded bg-muted"
                     />
-                </View>
-            )}
+                ) : (
+                    <View
+                        className={cn(
+                            "h-full w-full aspect-square items-center justify-center rounded bg-muted",
+                        )}
+                    >
+                        <Ionicons
+                            name={
+                                collection.resourceKind === "playlist"
+                                    ? "list"
+                                    : "disc"
+                            }
+                            size={22}
+                            color={colors.text}
+                        />
+                    </View>
+                )}
+            </View>
 
             <View className="flex-1 overflow-hidden">
                 <Text

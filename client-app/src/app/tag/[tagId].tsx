@@ -3,7 +3,7 @@ import { View } from "react-native";
 
 import { MusicList } from "@/components/custom/music-list";
 import { TagPill } from "@/components/custom/tag-pill";
-import { SheetScreen } from "@/components/ui/sheet-screen";
+import { DetailScreen } from "@/components/ui/detail-screen";
 import { Text } from "@/components/ui/text";
 import { useSongInfo } from "@/lib/musickit-hooks";
 import { useTag } from "@/lib/routes/tags";
@@ -24,7 +24,7 @@ export default function TagDetailScreen() {
         : 36;
 
     return (
-        <SheetScreen title={tag?.name ?? "Tag"}>
+        <DetailScreen title={tag?.name ?? "Tag"}>
             <View className="border-b border-border px-6 pb-5">
                 {tag ? (
                     <TagPill
@@ -45,6 +45,6 @@ export default function TagDetailScreen() {
                     anticipatedTrackCount={songIds?.length ?? 0}
                 />
             </View>
-        </SheetScreen>
+        </DetailScreen>
     );
 }

@@ -101,6 +101,17 @@ export type MusicListProps = {
      * `MusicList` owns its scroll, so a section above it cannot be a sibling.
      */
     header?: ReactNode;
+    /**
+     * Rendered below the last row, for the same reason as `header`. It sits
+     * under the pagination skeleton, so a paging list keeps loading into it.
+     */
+    footer?: ReactNode;
+    /**
+     * Reports the scrolled content's size. For a surface that has to draw
+     * something the height of its own content, such as a backdrop behind every
+     * row rather than behind the screen.
+     */
+    onContentSizeChange?: (width: number, height: number) => void;
     /** Required pagination intent. Pass null for a non-paginated list. */
     pagination: MusicListPagination | null;
     /** Sorting is disabled when omitted or null. Pass an object to enable it. */

@@ -13,6 +13,7 @@ import { useLibraryCategories } from "@/features/library/library-categories";
 import { RecentlyAddedGrid } from "@/features/library/recently-added";
 import { useAppleMusic } from "@/lib/apple-music-auth";
 import { getErrorMessage } from "@/lib/error-utils";
+import { collectionRoute } from "@/lib/music-routes";
 import { useRecentlyAdded } from "@/lib/musickit-hooks";
 
 /**
@@ -61,16 +62,7 @@ export default function LibraryScreen() {
     }
 
     function openCollection(collection: MusicItem) {
-        router.push({
-            // Collections are addressed by their library id; the plain id is
-            // the catalog one when Apple knows of a catalog equivalent.
-            pathname: "/collection/[kind]/[id]",
-            params: {
-                kind: collection.resourceKind,
-                id: collection.libraryId ?? collection.id,
-                title: collection.title,
-            },
-        });
+        router.push(collectionRoute(collection));
     }
 
     return (

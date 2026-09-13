@@ -9,7 +9,7 @@ import {
     MUSIC_LIST_SORT_OPTIONS,
     type MusicListSort,
 } from "@/components/custom/music-list";
-import { SheetScreen } from "@/components/ui/sheet-screen";
+import { DetailScreen } from "@/components/ui/detail-screen";
 import { Text } from "@/components/ui/text";
 import {
     LIBRARY_CATEGORY_META,
@@ -18,6 +18,7 @@ import {
 import { TagsView } from "@/features/library/tags-view";
 import { useAppleMusic } from "@/lib/apple-music-auth";
 import { getErrorMessage } from "@/lib/error-utils";
+import { collectionRoute } from "@/lib/music-routes";
 import {
     useLibraryAlbums,
     useLibraryArtists,
@@ -65,25 +66,16 @@ export default function LibraryCategoryScreen() {
     }
 
     function openCollection(collection: MusicItem) {
-        router.push({
-            // Collections are addressed by their library id; the plain id is
-            // the catalog one when Apple knows of a catalog equivalent.
-            pathname: "/collection/[kind]/[id]",
-            params: {
-                kind: collection.resourceKind,
-                id: collection.libraryId ?? collection.id,
-                title: collection.title,
-            },
-        });
+        router.push(collectionRoute(collection));
     }
 
     if (!category) {
         return (
-            <SheetScreen title="Library">
+            <DetailScreen title="Library">
                 <Text className="px-5 py-10 text-center text-muted-foreground">
                     Unknown library section.
                 </Text>
-            </SheetScreen>
+            </DetailScreen>
         );
     }
 
@@ -99,7 +91,7 @@ export default function LibraryCategoryScreen() {
                   : undefined;
 
     return (
-        <SheetScreen title={LIBRARY_CATEGORY_META[category].label}>
+        <DetailScreen title={LIBRARY_CATEGORY_META[category].label}>
             {error ? (
                 <Text className="my-2 px-6 text-center text-destructive">
                     {getErrorMessage(error)}
@@ -159,6 +151,6 @@ export default function LibraryCategoryScreen() {
                     />
                 )}
             </View>
-        </SheetScreen>
+        </DetailScreen>
     );
 }

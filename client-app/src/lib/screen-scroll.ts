@@ -1,21 +1,39 @@
+import { useRouter } from "expo-router";
 import { useIsFocused, useScrollToTop } from "expo-router/react-navigation";
 import { useCallback, useEffect } from "react";
 import {
     useAnimatedRef,
     useAnimatedScrollHandler,
     runOnJS,
+    useSharedValue,
     type AnimatedRef,
 } from "react-native-reanimated";
 import type Animated from "react-native-reanimated";
 import type { Component } from "react";
 
 import { usePlayerDock } from "./player-dock";
-import { useScreenOverlayInsets } from "./screen-overlay";
+import {
+    useIsPushedDetailScreen,
+    useScreenOverlayInsets,
+} from "./screen-overlay";
+import { resetZoomProgress, useZoomDismiss } from "./zoom-dismiss";
 
 /** Scrolled past this, the player docks. */
 const DOCK_OFFSET = 8;
 /** Back within this of the top, it floats again. */
 const TOP_OFFSET = 2;
+/**
+ * Overscroll past this at the top, then let go, and a pushed detail screen
+ * closes. Far enough that it takes a deliberate pull rather than a bouncy
+ * flick back to the top.
+ */
+const DISMISS_PULL = 110;
+/**
+ * How far into the minimize a full pull gets you while your finger is still
+ * down. The rest plays out on release, so the drag previews the animation
+ * rather than performing it.
+ */
+const DRAG_PROGRESS = 0.22;
 
 type ScreenScrollProps<T extends Component> = {
     ref: AnimatedRef<T>;
@@ -32,10 +50,12 @@ type ScreenScrollProps<T extends Component> = {
  * <Animated.FlatList {...scroll} ... />
  * ```
  *
- * It buys two things. Pressing the tab you are already on scrolls back to the
- * top, and scrolling away from the top docks the mini player into the tab bar.
- * A surface that skips this hook keeps the player floating and does nothing on
- * a tab press, which is the old behavior rather than a broken one.
+ * It buys three things. Pressing the tab you are already on scrolls back to the
+ * top, scrolling away from the top docks the mini player into the tab bar, and
+ * on a pushed detail screen a pull down at the top shrinks it and then closes
+ * it, the same minimize the X plays. A surface that skips this hook keeps the
+ * player floating and does nothing on a tab press, which is the old behavior
+ * rather than a broken one.
  */
 export function useScreenScroll<
     T extends Component = Animated.ScrollView,
@@ -44,6 +64,15 @@ export function useScreenScroll<
     const { dock, float } = usePlayerDock();
     const { compactPlayerVisible } = useScreenOverlayInsets();
     const isFocused = useIsFocused();
+    const router = useRouter();
+    const canPullToDismiss = useIsPushedDetailScreen();
+    const zoom = useZoomDismiss();
+    // A screen with no zoom card still needs somewhere to write the pull, so
+    // the handler can stay one shape rather than two.
+    const spareProgress = useSharedValue(0);
+    const spareClosing = useSharedValue(false);
+    const progress = zoom?.progress ?? spareProgress;
+    const closing = zoom?.closing ?? spareClosing;
 
     // `useScrollToTop` types itself against the navigation scrollables rather
     // than an animated ref. It only ever calls a scroll method on it.
@@ -71,15 +100,36 @@ export function useScreenScroll<
         return () => float();
     }, [isFocused, compactPlayerVisible, float]);
 
+    // Android does not overscroll past the top by default, so the pull is an
+    // iOS gesture. The X is on every one of these screens regardless.
+    const dismiss = useCallback(() => {
+        if (!isFocused || !canPullToDismiss) return;
+        if (zoom) {
+            zoom.close();
+            return;
+        }
+        if (router.canGoBack()) router.back();
+    }, [isFocused, canPullToDismiss, zoom, router]);
+
     const onScroll = useAnimatedScrollHandler(
         {
             onScroll: (event) => {
                 const offset = event.contentOffset.y;
                 if (offset > DOCK_OFFSET) runOnJS(setDocked)(true);
                 else if (offset <= TOP_OFFSET) runOnJS(setDocked)(false);
+
+                // Once the close is committed the animation owns progress.
+                if (!canPullToDismiss || closing.get()) return;
+                const pull = Math.max(0, -offset);
+                progress.set(Math.min(pull / DISMISS_PULL, 1) * DRAG_PROGRESS);
+            },
+            onEndDrag: (event) => {
+                if (!canPullToDismiss || closing.get()) return;
+                if (event.contentOffset.y < -DISMISS_PULL) runOnJS(dismiss)();
+                else resetZoomProgress(progress);
             },
         },
-        [setDocked],
+        [setDocked, dismiss, canPullToDismiss, closing, progress],
     );
 
     return { ref, onScroll, scrollEventThrottle: 16 };

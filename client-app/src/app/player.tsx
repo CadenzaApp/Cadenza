@@ -2,12 +2,14 @@ import { useRouter } from "expo-router";
 import { useEffect } from "react";
 
 import { MediaPlayerExpanded } from "@/components/custom/media-player/expanded";
-import { SheetScreen } from "@/components/ui/sheet-screen";
+import { DetailScreen } from "@/components/ui/detail-screen";
+import { useArtworkTint } from "@/lib/artwork-color";
 import { usePlayback } from "@/lib/playback";
 
 export default function PlayerScreen() {
     const router = useRouter();
     const { activeTrack } = usePlayback();
+    const { tint } = useArtworkTint(activeTrack);
 
     // Playback can stop while the sheet is open. Close rather than sit here
     // showing an empty sheet.
@@ -18,8 +20,8 @@ export default function PlayerScreen() {
     if (!activeTrack) return null;
 
     return (
-        <SheetScreen title="Now Playing">
+        <DetailScreen presentation="sheet" title="Now Playing" tint={tint}>
             <MediaPlayerExpanded />
-        </SheetScreen>
+        </DetailScreen>
     );
 }
