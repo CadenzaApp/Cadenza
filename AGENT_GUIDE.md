@@ -110,6 +110,13 @@ next agent trusts it.
 - Screens go in `src/app/`. Anything with real logic belongs in `src/features/` or `src/lib/`,
   and the screen just wires it up.
 
+### Visual verification
+
+- Do not launch the app, a simulator, or an emulator unless the user explicitly asks the agent
+  to inspect the UI with its own tools.
+- Run code checks, then let the user verify UI changes on a real device. The simulator setup is
+  slower and less representative than the user's device.
+
 ### SWR and data fetching
 
 - Prefer SWR for hooks that read idempotent asynchronous data from the backend, Apple Music, or
