@@ -98,7 +98,7 @@ export default function ArtistScreen() {
                     multiSelect={DEFAULT_MULTI_SELECT_CONFIG}
                     fullBleedRows
                     onContentSizeChange={(_, height) =>
-                        setContentHeight(height)
+                        setContentHeight(Math.max(windowHeight, height))
                     }
                     header={
                         <>

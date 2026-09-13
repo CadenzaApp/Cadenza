@@ -118,7 +118,9 @@ and the card lands its top-left edge on the artwork rather than hovering around 
 
 Both hero screens paint the artwork tint as their own background rather than leaving it to the
 gradient inside the list. During the close, the list counters iOS's downward overscroll so the
-hero stays anchored near the card's top edge instead of opening a large empty area above it.
+hero stays anchored near the card's top edge instead of opening a large empty area above it. The
+gradient is always at least one viewport tall, so short albums and playlists do not end in a flat
+color band.
 
 That is `@/lib/zoom-dismiss`: rows record where their artwork is before they navigate, the screen
 wraps itself in a card that shrinks toward that rect, and `useCloseScreen` is what the X calls.
