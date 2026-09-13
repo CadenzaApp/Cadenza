@@ -9,7 +9,7 @@ use crate::{
     },
     err::CadenzaError,
     routes::json::{tag::Tag, vec_into},
-    services::tag_generation::{GeneratedTag, TagGenerationService},
+    services::tag_generation::{TagSpecs, TagGenerationService},
 };
 use axum::{
     Json, Router,
@@ -121,7 +121,7 @@ async fn suggest_tags_handler(
     _: Claims<SupabaseClaims>, // must have credentials to use this route
     State(tag_gen_service): State<TagGenerationService>,
     Query(payload): Query<TagSuggestionQueryParams>,
-) -> Result<Json<Vec<GeneratedTag>>, CadenzaError> {
+) -> Result<Json<Vec<TagSpecs>>, CadenzaError> {
     let mut suggested_tags = tag_gen_service
         .generate_tags(&[payload.song_desc], Some(payload.requested_tag_count))
         .await?;

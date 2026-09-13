@@ -92,7 +92,7 @@ async function setDefaultTagsOnLibrary(
         // describe each untagged song with the metadata MusicKit already returned
         const untaggedSongs: SongIdAndDesc[] = untaggedIds.flatMap((songId) => {
             const song = songsById.get(songId);
-            return song ? [{ song_id: songId, desc: describeSong(song) }] : [];
+            return song ? [{ song_id: songId, desc: getSongDescription(song) }] : [];
         });
 
         // generate and store their default tags. a failed page is logged and
@@ -117,6 +117,6 @@ async function setDefaultTagsOnLibrary(
 }
 
 /** Describes a song for tag generation, e.g. "Override by Yoshida Yasei". */
-function describeSong(song: MusicItem) {
+function getSongDescription(song: MusicItem) {
     return song.artistName ? `${song.title} by ${song.artistName}` : song.title;
 }

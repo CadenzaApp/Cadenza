@@ -12,7 +12,7 @@ use serde::Serialize;
 
 use crate::db::entity::*;
 use crate::err::CadenzaError;
-use crate::services::tag_generation::GeneratedTag;
+use crate::services::tag_generation::TagSpecs;
 
 pub async fn get_all_user_tags(
     db: &DatabaseConnection,
@@ -77,22 +77,24 @@ pub async fn get_user_tags_metadata(
 }
 
 /// Returns the tags on each requested song. A song with none of the user's tags
-/// gets its default tags instead. Every requested song gets an entry, so a song
-/// with no tags of either kind comes back as an empty list.
+/// gets its default tags instead, and those default tags are copied into
+/// `user_tags_applied` for the user, so later reads find them as the user's own.
+/// Every requested song gets an entry, so a song with no tags of either kind
+/// comes back as an empty list.
 pub async fn get_user_tags_on_songs(
     db: &DatabaseConnection,
     user_id: Uuid,
     song_ids: &[String],
 ) -> Result<HashMap<String, Vec<tags::Model>>, CadenzaError> {
     // start every requested song off with no tags
-    let mut tags_by_song: HashMap<String, Vec<tags::Model>> = song_ids
+    let mut songs_to_tags: HashMap<String, Vec<tags::Model>> = song_ids
         .iter()
         .map(|song_id| (song_id.clone(), Vec::new()))
         .collect();
 
     // no songs requested, so nothing to look up
-    if tags_by_song.is_empty() {
-        return Ok(tags_by_song);
+    if songs_to_tags.is_empty() {
+        return Ok(songs_to_tags);
     }
 
     // fill in the tags the user put on each song
@@ -105,24 +107,51 @@ pub async fn get_user_tags_on_songs(
 
     for (applied_tag, tag) in applied {
         let Some(tag) = tag else { continue };
-        tags_by_song
+        songs_to_tags
             .entry(applied_tag.song_id)
             .or_default()
             .push(tag);
     }
 
-    // songs the user hasn't tagged fall back to their default tags, if they have any
-    let songs_without_user_tags: Vec<String> = tags_by_song
+    // if user doesn't have any tags for these songs, get the default ones
+    let songs_without_user_tags: Vec<String> = songs_to_tags
         .iter()
         .filter(|(_, tags)| tags.is_empty())
         .map(|(song_id, _)| song_id.clone())
         .collect();
 
     if !songs_without_user_tags.is_empty() {
-        tags_by_song.extend(get_default_tags_on_songs(db, &songs_without_user_tags).await?);
+        let default_tags = get_default_tags_on_songs(db, &songs_without_user_tags).await?;
+
+        // copy the default tags into user_tags_applied, so they become the user's tags on these
+        // songs. rows that already exist are skipped, in case two reads race
+        if !default_tags.is_empty() {
+            let copied_tags = default_tags.iter().flat_map(|(song_id, tags)| {
+                tags.iter().map(|tag| user_tags_applied::ActiveModel {
+                    song_id: Set(song_id.clone()),
+                    user_id: Set(user_id),
+                    tag_id: Set(tag.tag_id),
+                })
+            });
+
+            user_tags_applied::Entity::insert_many(copied_tags)
+                .on_conflict(
+                    OnConflict::columns([
+                        user_tags_applied::Column::SongId,
+                        user_tags_applied::Column::UserId,
+                        user_tags_applied::Column::TagId,
+                    ])
+                    .do_nothing()
+                    .to_owned(),
+                )
+                .exec_without_returning(db)
+                .await?;
+        }
+
+        songs_to_tags.extend(default_tags);
     }
 
-    Ok(tags_by_song)
+    Ok(songs_to_tags)
 }
 
 /// Returns the requested songs that have no tags at all, meaning none of the
@@ -255,16 +284,16 @@ pub async fn get_default_tags_on_songs(
 /// creating tags that don't exist yet. returns the applied tags per song id.
 pub async fn set_default_tags_on_songs(
     db: &DatabaseConnection,
-    tags_per_song: HashMap<String, Vec<GeneratedTag>>,
+    song_to_tags: HashMap<String, Vec<TagSpecs>>,
 ) -> Result<HashMap<String, Vec<tags::Model>>, CadenzaError> {
-    let song_ids: Vec<&String> = tags_per_song.keys().collect();
-    let new_tags: HashMap<&str, &GeneratedTag> = tags_per_song
+    let song_ids: Vec<&String> = song_to_tags.keys().collect();
+    let new_tags: HashMap<&str, &TagSpecs> = song_to_tags
         .values()
         .flatten()
         .map(|tag| (tag.name.as_str(), tag))
         .collect();
 
-    let mut tags_by_name: HashMap<&str, tags::Model> = tags::Entity::find()
+    let mut name_to_tag: HashMap<&str, tags::Model> = tags::Entity::find()
         .filter(tags::Column::UserId.is_null())
         .filter(tags::Column::Name.is_in(new_tags.keys().copied()))
         .all(db)
@@ -274,7 +303,7 @@ pub async fn set_default_tags_on_songs(
         .collect();
 
     for (name, new_tag) in new_tags {
-        if tags_by_name.contains_key(name) {
+        if name_to_tag.contains_key(name) {
             continue;
         }
 
@@ -287,7 +316,7 @@ pub async fn set_default_tags_on_songs(
         .insert(db)
         .await?;
 
-        tags_by_name.insert(name, created);
+        name_to_tag.insert(name, created);
     }
 
     default_tags_applied::Entity::delete_many()
@@ -295,12 +324,12 @@ pub async fn set_default_tags_on_songs(
         .exec(db)
         .await?;
 
-    let res: HashMap<String, Vec<tags::Model>> = tags_per_song
+    let res: HashMap<String, Vec<tags::Model>> = song_to_tags
         .iter()
         .map(|(song_id, tags)| {
             let tags = tags
                 .iter()
-                .filter_map(|tag| tags_by_name.get(tag.name.as_str()).cloned())
+                .filter_map(|tag| name_to_tag.get(tag.name.as_str()).cloned())
                 .collect();
             (song_id.clone(), tags)
         })
@@ -314,7 +343,6 @@ pub async fn set_default_tags_on_songs(
     });
 
     default_tags_applied::Entity::insert_many(new_relations)
-        .on_empty_do_nothing()
         .on_conflict(
             OnConflict::columns([
                 default_tags_applied::Column::SongId,

@@ -8,7 +8,7 @@ use crate::{
         tags::{get_default_tags_on_songs, get_untagged_songs, get_user_tags_on_songs, set_default_tags_on_songs},
     },
     err::CadenzaError,
-    routes::json::{tag::Tag, vec_into}, services::tag_generation::{GeneratedTag, TagGenerationService},
+    routes::json::{tag::Tag, vec_into}, services::tag_generation::{TagSpecs, TagGenerationService},
 };
 use axum::{
     Json, Router,
@@ -37,12 +37,11 @@ async fn get_tags_on_song_handler(
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Query(params): Query<GetTagsOnSongQueryParams>,
 ) -> Result<Json<Vec<Tag>>, CadenzaError> {
-    // look the song up as a batch of one
-    let mut tags_by_song =
+    let mut song_to_tags =
         get_user_tags_on_songs(&db, claims.user_id, std::slice::from_ref(&params.song_id)).await?;
 
     // every requested song gets an entry, so the default is never used
-    let tags = tags_by_song.remove(&params.song_id).unwrap_or_default();
+    let tags = song_to_tags.remove(&params.song_id).unwrap_or_default();
     Ok(Json(vec_into(tags)))
 }
 
@@ -79,13 +78,11 @@ async fn get_tags_on_songs_handler(
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Json(payload): Json<SongIdsPayload>,
 ) -> Result<Json<HashMap<String, Vec<Tag>>>, CadenzaError> {
-    // refuse oversized batches before touching the db
     check_batch_size(payload.song_ids.len())?;
 
     // the tags on each song, falling back to default tags
     let tags_by_song = get_user_tags_on_songs(&db, claims.user_id, &payload.song_ids).await?;
 
-    // convert each song's tags to their wire shape
     Ok(Json(
         tags_by_song
             .into_iter()
@@ -106,7 +103,6 @@ async fn get_untagged_songs_handler(
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Json(payload): Json<SongIdsPayload>,
 ) -> Result<Json<Vec<String>>, CadenzaError> {
-    // refuse oversized batches before touching the db
     check_batch_size(payload.song_ids.len())?;
 
     Ok(Json(
@@ -130,14 +126,13 @@ async fn set_default_tags_on_songs_handler(
     State(tag_gen_service): State<TagGenerationService>,
     Json(songs): Json<Vec<SongIdAndDesc>>,
 ) -> Result<(), CadenzaError> {
-    // every song costs tag generation, so cap the batch like the reads
     check_batch_size(songs.len())?;
 
     // find which of the songs already have default tags
     let song_ids: Vec<String> = songs.iter().map(|song| song.song_id.clone()).collect();
     let existing_default_tags = get_default_tags_on_songs(&db, &song_ids).await?;
 
-    // only songs without default tags need any. if every song has them, there is nothing to do
+    // only songs without default tags need any
     let songs_without_defaults: Vec<&SongIdAndDesc> = songs
         .iter()
         .filter(|song| !existing_default_tags.contains_key(&song.song_id))
@@ -155,7 +150,7 @@ async fn set_default_tags_on_songs_handler(
     let generated = tag_gen_service.generate_tags(&descs, None).await?;
 
     // pair each song with its generated tags and store them as its defaults
-    let generated_tags: HashMap<String, Vec<GeneratedTag>> = songs_without_defaults
+    let generated_tags: HashMap<String, Vec<TagSpecs>> = songs_without_defaults
         .iter()
         .zip(generated)
         .map(|(song, tags)| (song.song_id.clone(), tags))

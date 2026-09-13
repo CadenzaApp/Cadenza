@@ -7,10 +7,8 @@ use sea_orm::prelude::async_trait::async_trait;
 use crate::err::CadenzaError;
 use serde::{Deserialize, Serialize};
 
-/// a tag produced by a [`TagGenerator`], with a color reflecting the mood the
-/// tag conveys
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct GeneratedTag {
+pub struct TagSpecs {
     pub name: String,
     pub color: String,
 }
@@ -19,7 +17,7 @@ const DEFAULT_REQUESTED_TAG_COUNT: usize = 10;
 const MAX_REQUESTED_TAG_COUNT: usize = 20;
 
 /// the most bytes of song descriptions a [`TagGenerator`] is given in one call
-pub const MAX_COMBINED_SONG_DESC_LENGTH: usize = 200;
+pub const MAX_COMBINED_SONG_DESC_LENGTH: usize = 2000;
 
 #[derive(Clone)]
 pub struct TagGenerationService(Arc<Box<dyn TagGenerator>>);
@@ -37,7 +35,7 @@ impl TagGenerationService {
         &self,
         song_descs: &[String],
         requested_tag_count: Option<usize>,
-    ) -> Result<Vec<Vec<GeneratedTag>>, CadenzaError> {
+    ) -> Result<Vec<Vec<TagSpecs>>, CadenzaError> {
         // use the default count when none is given, and never go over the max
         let requested_tag_count = requested_tag_count
             .unwrap_or(DEFAULT_REQUESTED_TAG_COUNT)
@@ -107,7 +105,7 @@ pub trait TagGenerator: Send + Sync {
         &self,
         song_descs: &[String],
         requested_tag_count: usize,
-    ) -> Result<Vec<Vec<GeneratedTag>>, String>;
+    ) -> Result<Vec<Vec<TagSpecs>>, String>;
 }
 
 #[cfg(test)]
@@ -127,17 +125,17 @@ mod tests {
             &self,
             song_descs: &[String],
             _: usize,
-        ) -> Result<Vec<Vec<GeneratedTag>>, String> {
+        ) -> Result<Vec<Vec<TagSpecs>>, String> {
             // same length check as the real generator
             if song_descs.iter().map(String::len).sum::<usize>() > MAX_COMBINED_SONG_DESC_LENGTH {
                 return Err("song descriptions are too long!".into());
             }
 
             // one tag per song, named after its description
-            let mut tags: Vec<Vec<GeneratedTag>> = song_descs
+            let mut tags: Vec<Vec<TagSpecs>> = song_descs
                 .iter()
                 .map(|desc| {
-                    vec![GeneratedTag {
+                    vec![TagSpecs {
                         name: desc.clone(),
                         color: "#808080".into(),
                     }]
@@ -153,16 +151,25 @@ mod tests {
         }
     }
 
-    /// 25 byte descriptions, numbered so they can be told apart
+    /// byte length of every description from [`numbered_descs`]
+    const NUMBERED_DESC_LENGTH: usize = 25;
+
+    /// how many numbered descriptions fit in one call
+    const DESCS_PER_CHUNK: usize = MAX_COMBINED_SONG_DESC_LENGTH / NUMBERED_DESC_LENGTH;
+
+    /// 25 byte descriptions, numbered so they can be told apart: a 4 digit number
+    /// and a space, then padding
     fn numbered_descs(count: usize) -> Vec<String> {
-        (0..count).map(|i| format!("{i:02} {}", "a".repeat(22))).collect()
+        (0..count)
+            .map(|i| format!("{i:04} {}", "a".repeat(NUMBERED_DESC_LENGTH - 5)))
+            .collect()
     }
 
     #[tokio::test]
     async fn generate_tags_splits_batches_over_the_limit() {
-        // 30 descriptions of 25 bytes each need several calls
+        // three full chunks and part of a fourth, so several calls are needed
         let service = TagGenerationService::new(EchoTagGenerator { drop_last: false });
-        let descs = numbered_descs(30);
+        let descs = numbered_descs(DESCS_PER_CHUNK * 3 + 1);
 
         let res = service.generate_tags(&descs, None).await.unwrap();
 
@@ -173,21 +180,21 @@ mod tests {
 
     #[tokio::test]
     async fn generate_tags_keeps_songs_aligned_when_a_chunk_comes_back_short() {
-        // 16 descriptions of 25 bytes each make two chunks of 8
+        // exactly two full chunks
         let service = TagGenerationService::new(EchoTagGenerator { drop_last: true });
-        let descs = numbered_descs(16);
+        let descs = numbered_descs(DESCS_PER_CHUNK * 2);
 
         let res = service.generate_tags(&descs, None).await.unwrap();
 
         // the last song of each chunk gets no tags, and the second chunk still lines up
-        assert_eq!(res.len(), 16);
-        assert!(res[7].is_empty());
-        assert_eq!(res[8][0].name, descs[8]);
-        assert!(res[15].is_empty());
+        assert_eq!(res.len(), DESCS_PER_CHUNK * 2);
+        assert!(res[DESCS_PER_CHUNK - 1].is_empty());
+        assert_eq!(res[DESCS_PER_CHUNK][0].name, descs[DESCS_PER_CHUNK]);
+        assert!(res[DESCS_PER_CHUNK * 2 - 1].is_empty());
     }
 
     #[tokio::test]
-    async fn generate_tags_truncates_a_description_over_the_limit() {
+    async fn generate_tags_truncates_descriptions_over_the_limit() {
         // one byte, then 2 byte chars, so the limit falls in the middle of a char
         let service = TagGenerationService::new(EchoTagGenerator { drop_last: false });
         let descs = vec![format!("a{}", "\u{e9}".repeat(MAX_COMBINED_SONG_DESC_LENGTH))];

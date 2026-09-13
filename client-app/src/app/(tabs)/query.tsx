@@ -4,6 +4,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { QueryBuilder } from "../../features/query-builder/QueryBuilder";
 import { useAccount } from "@/lib/account";
 import { Text } from "@/components/ui/text";
+import { TagGenerationNotice } from "@/components/custom/tag-generation-notice";
 import { Redirect } from "expo-router";
 import QueryResults from "@/features/query-builder/QueryResults";
 import { useUserTags } from "@/lib/routes/tags";
@@ -49,6 +50,7 @@ export default function QueryScreen() {
 
     return (
         <SafeAreaView className="flex-1 bg-background">
+            <TagGenerationNotice className="mx-4 mt-4" />
             {matchedSongs.length > 0 ? (
                 <QueryResults
                     songs={matchedSongs}

@@ -1,4 +1,4 @@
-use crate::services::tag_generation::{GeneratedTag, MAX_COMBINED_SONG_DESC_LENGTH, TagGenerator};
+use crate::services::tag_generation::{TagSpecs, MAX_COMBINED_SONG_DESC_LENGTH, TagGenerator};
 use crate::services::tag_normalizer::normalize_tag_name;
 use dotenvy::dotenv;
 use reqwest::Client;
@@ -129,7 +129,7 @@ struct ResponseOutputText {
 #[derive(Deserialize)]
 struct OpenAiGeneratedTags {
     tags: Vec<Vec<String>>,
-    colors: Vec<GeneratedTag>,
+    colors: Vec<TagSpecs>,
 }
 
 #[derive(Clone)]
@@ -157,7 +157,7 @@ impl TagGenerator for OpenAiTagGenerator {
         &self,
         song_descs: &[String],
         requested_tag_count: usize,
-    ) -> Result<Vec<Vec<GeneratedTag>>, String> {
+    ) -> Result<Vec<Vec<TagSpecs>>, String> {
         if song_descs.is_empty() {
             return Ok(vec![]);
         }
@@ -212,7 +212,7 @@ impl TagGenerator for OpenAiTagGenerator {
                             .cloned()
                             .unwrap_or_else(|| FALLBACK_TAG_COLOR.to_owned());
 
-                        GeneratedTag { name, color }
+                        TagSpecs { name, color }
                     })
                     .collect()
             })

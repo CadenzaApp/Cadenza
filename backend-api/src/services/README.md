@@ -21,7 +21,7 @@ caller:
 #[async_trait]
 pub trait TagGenerator: Send + Sync {
     async fn generate_tags(&self, song_descs: &[String], requested_tag_count: usize)
-        -> Result<Vec<Vec<GeneratedTag>>, String>;
+        -> Result<Vec<Vec<TagSpecs>>, String>;
 }
 ```
 
@@ -30,7 +30,7 @@ in `AppState`. On top of the trait it:
 
 - clamps `requested_tag_count` to `DEFAULT_REQUESTED_TAG_COUNT` (10) when `None` and
   `MAX_REQUESTED_TAG_COUNT` (20) as a ceiling.
-- cuts any one description longer than `MAX_COMBINED_SONG_DESC_LENGTH` (200 bytes) down to fit, on
+- cuts any one description longer than `MAX_COMBINED_SONG_DESC_LENGTH` (2000 bytes) down to fit, on
   a char boundary.
 - splits the descriptions into consecutive chunks that each fit under that limit, and calls the
   generator once per chunk, one after another.
@@ -38,7 +38,7 @@ in `AppState`. On top of the trait it:
   number of lists cannot shift later songs onto the wrong tags. A padded song gets no tags.
 - converts the generator's `String` error into `CadenzaError::TagGenerationErr` (500).
 
-A `GeneratedTag` is a tag `name` plus a `#rrggbb` `color` reflecting the tag's mood.
+A `TagSpecs` is a tag `name` plus a `#rrggbb` `color` reflecting the tag's mood.
 
 Input is a list of song descriptions, output is a list of tag lists in the same order.
 `GET /tags/suggest` passes one song and takes `result[0]`. `POST /songs/default-tags` passes every
@@ -69,8 +69,10 @@ tag through `normalize_tag_name` before returning.
 - `MAX_COMBINED_SONG_DESC_LENGTH` counts bytes (`str::len`), not characters, so a chunk holds fewer
   songs with non-Latin titles. Only the service splits and truncates. Calling a `TagGenerator`
   directly with too much text still fails on length.
-- A large batch through the service is many OpenAI calls in a row, each with its own 20 second
-  timeout, and one failed chunk fails the whole call.
+- A large batch through the service is several OpenAI calls in a row, each with its own 20 second
+  timeout, and one failed chunk fails the whole call. A full chunk is dozens of songs in one
+  reply, so it is the call most likely to hit that timeout or `gpt-4o-mini`'s 16,384 output token
+  cap.
 - The integration tests in `openai_tag_generator.rs` are `#[ignore]`d because they spend real
   tokens. Comment header says last run Jul 26. The `normalize_tag_color` tests in the same module
   are plain unit tests and do run.

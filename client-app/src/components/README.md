@@ -29,6 +29,7 @@ variables), `tailwind.config.js`, and `global.css`. Class merging goes through
 | `floating-bubble.tsx` | The round floating action button the list and tag screens sit under. |
 | `song-detail-modal.tsx` | Full song sheet: artwork, tags, favorite, play. |
 | `tag-pill.tsx` | A tag chip, colored from `tag.color`. |
+| `tag-generation-notice.tsx` | Amber banner on the query tab: tags are still generating, so queries may miss songs. Static and always shown for now. |
 | `create-tag-dialog.tsx` | Name + color picker, calls `useCreateTag`. |
 | `modal-popup.tsx` | Small anchored popup used by the track menu and the selection actions. |
 | `media-player/` | The global player. See [custom/media-player/README.md](custom/media-player/README.md). |

@@ -14,7 +14,7 @@ logic out.
 | `(tabs)/_layout.tsx` | | Bottom tab bar, five tabs, Ionicons, colors from the nav theme. |
 | `(tabs)/home.tsx` | `/home` | Placeholder. Shows the email and a sign out button. |
 | `(tabs)/tags.tsx` | `/tags` | The user's tags as pills, with the create-tag dialog. |
-| `(tabs)/query.tsx` | `/query` | Hosts the query builder, then swaps to results. |
+| `(tabs)/query.tsx` | `/query` | Hosts the query builder, then swaps to results. `TagGenerationNotice` sits above both. |
 | `(tabs)/explore.tsx` | `/explore` | Apple Music catalog search and library browsing. |
 | `(tabs)/account.tsx` | `/account` | Connect and disconnect Apple Music. |
 | `tag/[tagId].tsx` | `/tag/:tagId` | One tag and the songs carrying it. |
