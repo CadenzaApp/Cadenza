@@ -45,7 +45,7 @@ export type MusicResourceKind = "song" | "album" | "playlist";
 export type MusicResourceSource = "catalog" | "library";
 
 /** Catalog resource types supported by search. */
-export type CatalogSearchType = "songs" | "albums";
+export type CatalogSearchType = "songs" | "albums" | "artists";
 
 /** Options shared by paginated Apple Music library requests. */
 export interface MusicKitOptions {
@@ -160,6 +160,10 @@ export interface SearchResult {
     hasNextSongs: boolean;
     /** Whether another page of matching albums is available. */
     hasNextAlbums: boolean;
+    /** Artists matching the search query. */
+    artists: ArtistItem[];
+    /** Whether another page of matching artists is available. */
+    hasNextArtists: boolean;
     /** Offset supplied by Apple for the next songs page. */
     nextSongsOffset?: number;
 }
@@ -168,6 +172,36 @@ export interface SearchResult {
 export interface LibraryResult {
     /** Normalized items returned by the request. */
     items: MusicItem[];
+    /** Whether another page is available. Native modules normalize this value. */
+    hasNextPage: boolean;
+    /** Offset supplied by Apple for the next page. */
+    nextOffset?: number;
+}
+
+/**
+ * An Apple Music artist as it appears in a list. Deliberately not a `MusicItem`:
+ * an artist is not queueable, so it has no `playbackType` and `MusicResourceKind`
+ * stays free of an `"artist"` case.
+ */
+export interface ArtistItem {
+    /** Canonical identifier. The catalog ID when one is known, the library ID otherwise. */
+    id: string;
+    /** Display name of the artist. */
+    name: string;
+    /** Artwork URL, when Apple has one. Library artists often do not. */
+    artworkUrl?: string;
+    /** Whether the artist came from the catalog or the user's library. */
+    source: MusicResourceSource;
+    /** Apple Music catalog identifier, when one is available. */
+    catalogId?: string;
+    /** Apple Music library identifier, when one is available. */
+    libraryId?: string;
+}
+
+/** A page of artists returned by a library or search request. */
+export interface ArtistResult {
+    /** Normalized artists returned by the request. */
+    items: ArtistItem[];
     /** Whether another page is available. Native modules normalize this value. */
     hasNextPage: boolean;
     /** Offset supplied by Apple for the next page. */

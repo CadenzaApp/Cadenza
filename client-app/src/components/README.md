@@ -55,7 +55,7 @@ variables), `tailwind.config.js`, and `global.css`. Class merging goes through
 | `music-list/` | Scrollable list of `MusicItem`s, with skeletons, paging, and sorting. See below. |
 | `floating-bubble.tsx` | The round floating action button the list and tag screens sit under. |
 | `song-detail-modal.tsx` | Full song sheet: artwork, tags, favorite, play. |
-| `tag-pill.tsx` | A tag chip, colored from `tag.color`. |
+| `tag-pill.tsx` | A tag chip, colored from `tag.color`. Also exports `readableTextColor`. |
 | `create-tag-dialog.tsx` | `CreateTagDialog` (controlled name + color picker, calls `useCreateTag`) and `CreateTagBubble` (floating trigger + dialog). |
 | `modal-popup.tsx` | Small anchored popup used by the track menu and the selection actions. |
 | `tab-bar.tsx` | The floating tab bar's chrome: sliding glass bubble, icons and labels that tint as it passes, and the items that move aside for the docked player. |
@@ -63,6 +63,7 @@ variables), `tailwind.config.js`, and `global.css`. Class merging goes through
 | `account-initials.ts` | Pure email-to-initials helper, tested in `account-initials.test.ts`. |
 | `coming-soon-screen.tsx` | Data-driven preview surface used by stubbed product areas. |
 | `collection-list.tsx` | Paged list of albums or playlists. Tapping a row opens it. |
+| `artist-list.tsx` | `ArtistList` (paged rows) and `ArtistRail` (a sideways strip of tiles). |
 | `reorderable-list.tsx` | Generic drag-to-reorder list. Fixed row height, hands back two indices on drop. |
 | `media-player/` | The mini player and the now playing sheet body. See [custom/media-player/README.md](custom/media-player/README.md). |
 
@@ -98,6 +99,16 @@ compact rows; pass `compact` and `onCompactChange` to control that from outside.
 track menu all describe songs; none of them mean anything for an album, so the collection list
 is its own small component rather than `MusicList` with five features switched off. It does
 reuse `MusicListItemSkeleton` for its loading rows.
+
+`artist-list.tsx` is the same idea for artists, which are `ArtistItem`s and not `MusicItem`s at
+all. It draws round artwork, since that is how every music app draws a person, and exports
+`canOpenArtist`: `/artist/[id]` reads the catalog, so an artist without a `catalogId` renders
+inert instead of opening an empty sheet. `ArtistRail` is the horizontal form, for a section
+sitting above a list that owns the scroll.
+
+`MusicList` takes a `header` for exactly that case. It owns its own `FlatList`, so anything
+above the first row has to go inside it rather than beside it. The search tab's Artists section
+is the current user; `RecentlyAddedGrid` takes a `header` for the same reason.
 
 ## Connects to
 

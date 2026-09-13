@@ -16,7 +16,7 @@ logic out.
 | `(tabs)/analytics.tsx` | `/analytics` | Static previews of planned listening analytics. |
 | `(tabs)/cadenza.tsx` | `/cadenza` | The boolean query workspace. |
 | `(tabs)/library.tsx` | `/library` | Library index: a row per category, then Recently Added. |
-| `(tabs)/search.tsx` | `/search` | Apple Music catalog search and paged results. |
+| `(tabs)/search.tsx` | `/search` | Search. A tag shelf until you tap the field, then recents, a scope switch, and results (artists, then songs). |
 | `account.tsx` | `/account` | Account sheet with Apple Music and session controls. |
 | `player.tsx` | `/player` | Now playing sheet. Renders `MediaPlayerExpanded`. |
 | `library-categories.tsx` | `/library-categories` | Sheet. Picks which rows the library shows. |
@@ -92,7 +92,8 @@ position in this file, so reordering the screens means renumbering them.
 
 Scrolling a page down docks the mini player into the bar: it takes the middle three slots, the
 tab you are on slides to the far left, Search holds the right, and the rest fade out and stop
-taking presses. Scrolling back to the top floats it again, and it can be dragged either way at
+taking presses. On Search both ends would be the same tab, so the left slot shows the tab you
+came from instead, unlit. `TabSelectionProvider` is what remembers it. Scrolling back to the top floats it again, and it can be dragged either way at
 any time. The state is `@/lib/player-dock`; screens opt in by spreading `useScreenScroll()`
 (`@/lib/screen-scroll`) onto their top-level scroller, which is also what makes pressing the
 current tab scroll it to the top.
@@ -111,8 +112,10 @@ is the one caller, adding the button that opens `/library-categories`.
 ## Sheets
 
 Eight routes are sheets: `/account`, `/player`, `/library-categories`, `/category/:kind`,
-`/collection/:kind/:id`, `/tag/:tagId`, `/artist/:id`, and `/add-to-playlist`. The last two are
-opened from the now playing sheet's `...` menu, so they stack on top of `/player`. All are root stack routes presented with
+`/collection/:kind/:id`, `/tag/:tagId`, `/artist/:id`, and `/add-to-playlist`. Both of those last
+two open from the now playing sheet's `...` menu, so they stack on top of `/player`;
+`/artist/:id` is also reached from the Search tab's Artists section and from the library's
+Artists category, where it stacks normally. All are root stack routes presented with
 `sheetScreenOptions` from `@/lib/theme`, the single definition of what a sheet looks like: a
 rounded `formSheet` at the `SHEET_DETENT` detent with a visible native grabber. That detent is
 `1`, the system's large one, so a sheet is full width, runs to the bottom edge, and stops just

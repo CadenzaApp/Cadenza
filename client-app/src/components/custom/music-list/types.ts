@@ -1,6 +1,6 @@
 import type Ionicons from "@expo/vector-icons/Ionicons";
 import type { MusicItem } from "@apple-musickit";
-import type { ComponentProps } from "react";
+import type { ComponentProps, ReactNode } from "react";
 
 import type { ThemeColorToken } from "@/lib/theme";
 
@@ -96,6 +96,11 @@ export type MusicListProps = {
     /** Receives compactness changes requested by pinch gestures. */
     onCompactChange?: (compact: boolean) => void;
     anticipatedTrackCount?: number;
+    /**
+     * Rendered above the first row, inside the list's own scroll container.
+     * `MusicList` owns its scroll, so a section above it cannot be a sibling.
+     */
+    header?: ReactNode;
     /** Required pagination intent. Pass null for a non-paginated list. */
     pagination: MusicListPagination | null;
     /** Sorting is disabled when omitted or null. Pass an object to enable it. */

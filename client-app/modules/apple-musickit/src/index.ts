@@ -2,6 +2,7 @@ import { requireOptionalNativeModule } from "expo-modules-core";
 
 import type {
     ArtistDetail,
+    ArtistResult,
     AuthResult,
     CatalogSearchType,
     LibraryResult,
@@ -43,11 +44,20 @@ export interface AppleMusicKitNativeModule {
     ): Promise<SearchResult>;
     getUserPlaylists(options?: MusicKitOptions): Promise<LibraryResult>;
     getLibrarySongs(options?: LibrarySongOptions): Promise<LibraryResult>;
+    searchLibrarySongs(
+        term: string,
+        options?: MusicKitOptions,
+    ): Promise<LibraryResult>;
     getPlaylistSongs(
         playlistId: string,
         options?: MusicKitOptions,
     ): Promise<LibraryResult>;
     getLibraryAlbums(options?: MusicKitOptions): Promise<LibraryResult>;
+    getLibraryArtists(options?: MusicKitOptions): Promise<ArtistResult>;
+    searchLibraryArtists(
+        term: string,
+        options?: MusicKitOptions,
+    ): Promise<ArtistResult>;
     getRecentlyAdded(options?: MusicKitOptions): Promise<LibraryResult>;
     getAlbumSongs(
         albumId: string,

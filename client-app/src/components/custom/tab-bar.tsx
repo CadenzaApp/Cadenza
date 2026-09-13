@@ -1,6 +1,13 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useNavigationState, useTheme } from "expo-router/react-navigation";
-import { createContext, useContext, useEffect, useState } from "react";
+import {
+    createContext,
+    useCallback,
+    useContext,
+    useEffect,
+    useMemo,
+    useState,
+} from "react";
 import type { ComponentProps, ReactNode } from "react";
 import { Pressable, StyleSheet, View, type PressableProps } from "react-native";
 import Animated, {
@@ -40,6 +47,8 @@ const SLIDE = { duration: 260, easing: Easing.out(Easing.cubic) };
 type TabSelection = {
     /** Fractional tab index, animated. */
     position: SharedValue<number>;
+    /** The tab visited before the current one. */
+    previousIndex: number;
     /** Points the selection at a tab index. The slide is the animation of it. */
     setIndex: (index: number) => void;
 };
@@ -51,13 +60,30 @@ const TabSelectionContext = createContext<TabSelection | null>(null);
  * bubble, and the items, which tint off it. Wrap the navigator in it.
  */
 export function TabSelectionProvider({ children }: { children: ReactNode }) {
-    const [index, setIndex] = useState(0);
+    // The tab you came from is kept because the docked bar needs a tab for its
+    // left slot, and on Search the selected tab is already holding the right.
+    const [selection, setSelection] = useState({ index: 0, previous: 0 });
+    const setIndex = useCallback((next: number) => {
+        setSelection((current) =>
+            current.index === next
+                ? current
+                : { index: next, previous: current.index },
+        );
+    }, []);
     // Derived rather than assigned, so the slide is a consequence of the
     // selected index rather than something a caller has to remember to run.
-    const position = useDerivedValue(() => withTiming(index, SLIDE), [index]);
+    const position = useDerivedValue(
+        () => withTiming(selection.index, SLIDE),
+        [selection.index],
+    );
+
+    const value = useMemo(
+        () => ({ position, previousIndex: selection.previous, setIndex }),
+        [position, selection.previous, setIndex],
+    );
 
     return (
-        <TabSelectionContext.Provider value={{ position, setIndex }}>
+        <TabSelectionContext.Provider value={value}>
             {children}
         </TabSelectionContext.Provider>
     );
@@ -155,28 +181,41 @@ export function TabBarGlass() {
 }
 
 /**
+ * Which tab rides to the far left while the player is docked. Normally the
+ * selected one. On Search it is the tab you came from, unlit, because Search
+ * is already holding the right slot and the left one would otherwise sit empty.
+ */
+function useDockedLeftIndex() {
+    const { previousIndex } = useTabSelection();
+    const activeIndex = useNavigationState((state) => state.index);
+    const lastIndex = useNavigationState((state) => state.routes.length - 1);
+
+    if (activeIndex !== lastIndex) return activeIndex;
+    // Nothing to come back from on a cold start into Search.
+    return previousIndex === lastIndex ? 0 : previousIndex;
+}
+
+/**
  * Where a tab sits while the player is docked, and whether it is there at all.
- * The selected tab slides to the far left, Search holds its slot on the right,
- * and the three in between fade out to leave room for the player.
+ * One tab slides to the far left, Search holds its slot on the right, and the
+ * three in between fade out to leave room for the player.
  */
 function useDockedTabStyle(index: number) {
     const { progress, barWidth, tabCount } = usePlayerDock();
-    const activeIndex = useNavigationState((state) => state.index);
     const lastIndex = useNavigationState((state) => state.routes.length - 1);
+    const leftIndex = useDockedLeftIndex();
     const slotWidth = tabCount > 0 ? barWidth / tabCount : 0;
     const isLast = index === lastIndex;
-    const isActive = index === activeIndex;
+    const isLeft = index === leftIndex;
 
     return useAnimatedStyle(() => ({
         transform: [
             {
                 translateX:
-                    isActive && !isLast
-                        ? -index * slotWidth * progress.value
-                        : 0,
+                    isLeft && !isLast ? -index * slotWidth * progress.value : 0,
             },
         ],
-        opacity: isActive || isLast ? 1 : 1 - progress.value,
+        opacity: isLeft || isLast ? 1 : 1 - progress.value,
     }));
 }
 
@@ -272,10 +311,10 @@ export function TabBarButton({
     ...props
 }: TabBarButtonProps & { index: number }) {
     const { docked } = usePlayerDock();
-    const activeIndex = useNavigationState((state) => state.index);
     const lastIndex = useNavigationState((state) => state.routes.length - 1);
+    const leftIndex = useDockedLeftIndex();
     const dockStyle = useDockedTabStyle(index);
-    const covered = docked && index !== activeIndex && index !== lastIndex;
+    const covered = docked && index !== leftIndex && index !== lastIndex;
 
     return (
         <Animated.View style={[{ flex: 1 }, dockStyle]}>

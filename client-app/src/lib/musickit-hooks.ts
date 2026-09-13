@@ -1,6 +1,7 @@
 import {
     type ArtistDetail,
-    type LibraryResult,
+    type ArtistItem,
+    type ArtistResult,
     type LibrarySongOptions,
     MusicKit,
     type MusicItem,
@@ -13,11 +14,33 @@ import useSWRInfinite from "swr/infinite";
 import { useAppleMusic } from "./apple-music-auth";
 
 const MUSIC_LIST_PAGE_SIZE = 25;
+/** The artist sections are rails, not paged lists, so one page is the whole thing. */
+const ARTIST_SEARCH_LIMIT = 12;
 /** Even number so the recently added grid never ends on a half row. */
 const RECENTLY_ADDED_PAGE_SIZE = 24;
 
 /** A library collection that contains songs. */
 export type LibraryCollectionKind = "album" | "playlist";
+
+/**
+ * The shape every paginated Apple Music read comes back in. `LibraryResult`
+ * and `ArtistResult` both satisfy it, so one pager serves both.
+ */
+type PagedResult<Item> = {
+    items: Item[];
+    hasNextPage: boolean;
+    nextOffset?: number;
+};
+
+/** Stable reference so an empty result does not re-render the rail every time. */
+const EMPTY_ARTISTS: ArtistItem[] = [];
+
+type LibraryArtistPageKey = readonly [
+    "MusicKit.getLibraryArtists",
+    number,
+    number,
+    number,
+];
 
 type LibrarySongSort = NonNullable<LibrarySongOptions["sort"]>;
 type LibraryPageKey = readonly [
@@ -50,6 +73,13 @@ type CollectionSongsPageKey = readonly [
 ];
 type SearchPageKey = readonly [
     "MusicKit.catalogSongSearch",
+    number,
+    string,
+    number,
+    number,
+];
+type LibrarySearchPageKey = readonly [
+    "MusicKit.searchLibrarySongs",
     number,
     string,
     number,
@@ -113,7 +143,7 @@ export function useCatalogSongSearch(enabled = true) {
     );
     const searchResults = useMemo(
         () =>
-            appendTracksWithoutDuplicates(
+            appendWithoutDuplicates(
                 x.data?.flatMap((page) => page.songs) ?? [],
             ),
         [x.data],
@@ -151,6 +181,51 @@ export function useCatalogSongSearch(enabled = true) {
 }
 
 /**
+ * Searches the user's own library rather than the catalog. Mirrors
+ * `useCatalogSongSearch`: it holds the term itself and the caller only submits
+ * one, so a screen can swap between the two scopes without changing shape.
+ */
+export function useLibrarySongSearch(enabled = true) {
+    const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
+    const [term, setTerm] = useState<string | null>(null);
+    const page = usePagedLibraryResult(
+        (offset) =>
+            enabled && isConnected && term
+                ? ([
+                      "MusicKit.searchLibrarySongs",
+                      sessionRevision,
+                      term,
+                      MUSIC_LIST_PAGE_SIZE,
+                      offset,
+                  ] as const)
+                : null,
+        (key: LibrarySearchPageKey) => {
+            const [, , searchTerm, limit, offset] = key;
+            return MusicKit.searchLibrarySongs(searchTerm, { limit, offset });
+        },
+    );
+
+    function searchLibrary(nextTerm: string) {
+        setTerm(nextTerm.trim() || null);
+    }
+
+    function clearLibrarySearch() {
+        setTerm(null);
+    }
+
+    return {
+        librarySearchResults: page.items,
+        searchLibrary,
+        clearLibrarySearch,
+        loadNextLibrarySearchPage: page.loadNextPage,
+        hasNextLibrarySearchPage: page.hasNextPage,
+        librarySearchLoading: page.isLoading || isInitializing,
+        isLoadingNextLibrarySearchPage: page.isLoadingNextPage,
+        librarySearchErr: page.error,
+    };
+}
+
+/**
  * Pages through any Apple Music library collection. `getKey` is handed the
  * offset of the page being requested and returns the SWR key for it, or null
  * when the read is not authorized or its inputs are missing.
@@ -159,12 +234,15 @@ export function useCatalogSongSearch(enabled = true) {
  * it, stop when the native side says there is no next page. This owns that
  * loop so the individual hooks are only a key and a fetch.
  */
-function usePagedLibraryResult<Key extends readonly unknown[]>(
+function usePagedLibraryResult<
+    Key extends readonly unknown[],
+    Item extends { id: string } = MusicItem,
+>(
     getKey: (offset: number) => Key | null,
-    fetchPage: (key: Key) => Promise<LibraryResult>,
+    fetchPage: (key: Key) => Promise<PagedResult<Item>>,
 ) {
-    const x = useSWRInfinite<LibraryResult>(
-        (pageIndex, previousPage: LibraryResult | null) => {
+    const x = useSWRInfinite<PagedResult<Item>>(
+        (pageIndex, previousPage: PagedResult<Item> | null) => {
             if (pageIndex > 0 && !hasNextLibraryPage(previousPage)) return null;
             const offset = pageIndex === 0 ? 0 : previousPage?.nextOffset;
             if (offset === undefined) return null;
@@ -174,10 +252,7 @@ function usePagedLibraryResult<Key extends readonly unknown[]>(
     );
 
     const items = useMemo(
-        () =>
-            appendTracksWithoutDuplicates(
-                x.data?.flatMap((page) => page.items) ?? [],
-            ),
+        () => appendWithoutDuplicates(x.data?.flatMap((page) => page.items) ?? []),
         [x.data],
     );
     const hasNextPage = hasNextLibraryPage(x.data?.[x.data.length - 1]);
@@ -276,6 +351,92 @@ export function useLibraryAlbums(enabled = true) {
 }
 
 /** Returns the user's paginated library playlists. */
+/** Returns the user's paginated library artists. */
+export function useLibraryArtists(enabled = true) {
+    const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
+    const page = usePagedLibraryResult<LibraryArtistPageKey, ArtistItem>(
+        (offset) =>
+            enabled && isConnected
+                ? ([
+                      "MusicKit.getLibraryArtists",
+                      sessionRevision,
+                      MUSIC_LIST_PAGE_SIZE,
+                      offset,
+                  ] as const)
+                : null,
+        (key: LibraryArtistPageKey) => {
+            const [, , limit, offset] = key;
+            return MusicKit.getLibraryArtists({ limit, offset });
+        },
+    );
+
+    return {
+        artists: page.items,
+        artistsLoading: page.isLoading || isInitializing,
+        artistsLoadingNextPage: page.isLoadingNextPage,
+        loadNextArtistsPage: page.loadNextPage,
+        hasNextArtistsPage: page.hasNextPage,
+        artistsErr: page.error,
+    };
+}
+
+/**
+ * Catalog artists matching a term. Unlike the two song searches, this takes the
+ * term as an argument rather than holding it: the caller already owns the
+ * submitted term, and a second copy in here would be one more thing to keep in
+ * sync. One page only, because the results render as a rail.
+ */
+export function useCatalogArtistSearch(term?: string, enabled = true) {
+    const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
+    const normalizedTerm = term?.trim();
+    const key =
+        enabled && isConnected && normalizedTerm
+            ? ([
+                  "MusicKit.catalogArtistSearch",
+                  sessionRevision,
+                  normalizedTerm,
+                  ARTIST_SEARCH_LIMIT,
+              ] as const)
+            : null;
+    const x = useSWR<SearchResult>(key, () =>
+        MusicKit.catalogSearch(normalizedTerm!, ["artists"], {
+            limit: ARTIST_SEARCH_LIMIT,
+        }),
+    );
+
+    return {
+        artists: x.data?.artists ?? EMPTY_ARTISTS,
+        artistsLoading: x.isLoading || isInitializing,
+        artistsErr: x.error,
+    };
+}
+
+/** The library counterpart to `useCatalogArtistSearch`. Same surface. */
+export function useLibraryArtistSearch(term?: string, enabled = true) {
+    const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
+    const normalizedTerm = term?.trim();
+    const key =
+        enabled && isConnected && normalizedTerm
+            ? ([
+                  "MusicKit.searchLibraryArtists",
+                  sessionRevision,
+                  normalizedTerm,
+                  ARTIST_SEARCH_LIMIT,
+              ] as const)
+            : null;
+    const x = useSWR<ArtistResult>(key, () =>
+        MusicKit.searchLibraryArtists(normalizedTerm!, {
+            limit: ARTIST_SEARCH_LIMIT,
+        }),
+    );
+
+    return {
+        artists: x.data?.items ?? EMPTY_ARTISTS,
+        artistsLoading: x.isLoading || isInitializing,
+        artistsErr: x.error,
+    };
+}
+
 export function useUserPlaylists(enabled = true) {
     const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
     const page = usePagedLibraryResult(
@@ -484,7 +645,7 @@ export function usePlaylistMutations() {
     return { addSongsToPlaylist, createPlaylist };
 }
 
-function hasNextLibraryPage(page?: LibraryResult | null) {
+function hasNextLibraryPage(page?: PagedResult<{ id: string }> | null) {
     return Boolean(page?.items.length && page.hasNextPage);
 }
 
@@ -492,11 +653,11 @@ function hasNextSearchPage(page?: SearchResult | null) {
     return Boolean(page?.songs.length && page.hasNextSongs);
 }
 
-function appendTracksWithoutDuplicates(tracks: MusicItem[]) {
-    const seenTrackIDs = new Set<string>();
-    return tracks.filter((track) => {
-        if (seenTrackIDs.has(track.id)) return false;
-        seenTrackIDs.add(track.id);
+function appendWithoutDuplicates<Item extends { id: string }>(items: Item[]) {
+    const seenIDs = new Set<string>();
+    return items.filter((item) => {
+        if (seenIDs.has(item.id)) return false;
+        seenIDs.add(item.id);
         return true;
     });
 }

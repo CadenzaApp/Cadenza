@@ -15,7 +15,7 @@ native module directly.
 | `routes/tags.ts` | Hooks for `/tags`: `useUserTags`, `useTag`, `useCreateTag`, `useDeleteTag`, `useSuggestTags`. |
 | `routes/songs.ts` | Hooks for `/songs/tags`: `useTagsOnSong`, `useTagsOnSongs`, `useApplyTag`, `useUnapplyTag`. |
 | `routes/queries.ts` | Hook for `/queries/results`: `useQueryResults`. |
-| `musickit-hooks.ts` | SWR over the native module: song info, catalog search, library songs, albums, playlists, collection contents, favorites, artists, playlist writes. |
+| `musickit-hooks.ts` | SWR over the native module: song info, catalog search, library search, library songs, albums, artists, playlists, collection contents, favorites, artist search, playlist writes. |
 | `account.tsx` | `AccountProvider` / `useAccount`. Supabase session and the JWT. |
 | `apple-music-auth.tsx` | `AppleMusicProvider` / `useAppleMusic`. Apple Music tokens, persisted in secure store. |
 | `playback.tsx` | `PlaybackProvider`, `usePlayback` (state) and `usePlaybackCommands` (actions). Queue and the native playback snapshot. |
@@ -114,9 +114,22 @@ every cached playlist key by predicate afterwards.
 
 Every paged library read goes through one internal hook, `usePagedLibraryResult`. It owns the
 offset loop (request a page, read `nextOffset`, stop when the native side says there is no next
-page), so `useTracksFromLibrary`, `useLibraryAlbums`, `useUserPlaylists`,
-`useRecentlyAdded`, and `useCollectionSongs` are each only a key builder and a fetch. Adding
-another paged library read means writing those two things and nothing else.
+page), so `useTracksFromLibrary`, `useLibraryAlbums`, `useUserPlaylists`, `useLibraryArtists`,
+`useRecentlyAdded`, `useLibrarySongSearch`, and `useCollectionSongs` are each only a key
+builder and a fetch. Adding
+another paged library read means writing those two things and nothing else. It is generic over
+the item type, so it pages `ArtistItem`s as happily as `MusicItem`s; both results have the same
+`items` / `hasNextPage` / `nextOffset` shape.
+
+`useCatalogSongSearch` and `useLibrarySongSearch` are the two search scopes and present the
+same surface: each holds its own term and takes a submitted one, so a screen switching between
+Apple Music and the user's library does not change shape.
+
+`useCatalogArtistSearch` and `useLibraryArtistSearch` are the artist half of those two scopes.
+They break the pattern on purpose: the term is an argument, not internal state. The caller
+already owns the submitted term, and a third and fourth copy in here would be two more things
+to keep in sync. They fetch one page, because the results render as a rail rather than a
+scrolling list.
 
 `useCollectionSongs(kind, id)` takes `"album" | "playlist"` rather than splitting into two
 hooks, so a screen that renders either does not branch. Pass the collection's `libraryId`.

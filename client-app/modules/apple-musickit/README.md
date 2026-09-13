@@ -13,7 +13,7 @@ Import `Auth`, `MusicKit`, `Playback`, and their public types from
 - `Auth` authorizes the current user and restores or clears native tokens.
 - `MusicKit` searches the catalog, reads library pages and playlist tracks,
   reads or changes song favorite state, writes to library playlists, and reads
-  catalog artists.
+  catalog and library artists.
 - `Playback` exposes native commands plus React hooks for the shared playback
   snapshot.
 
@@ -42,9 +42,11 @@ collections, album and playlist contents, mutable favorite state, the full queue
 surface (reorder, remove, jump, play next, shuffle, repeat), playlist writes,
 artists, and playback snapshots with simulated progress. Mock artist ids are
 derived from the artist name, so every fixture has one without the fixtures
-carrying it. Library albums are
-derived from the library song fixtures rather than written out, so every album
-the mock lists has tracks behind it. It does not play audio and does not
+carrying it. Library albums and both artist lists are
+derived from the song fixtures rather than written out, so every album the mock
+lists has tracks behind it and every artist it lists has songs. Mock library
+artists always carry a `catalogId`, so the tap into the artist screen is
+exercisable in Expo Go. It does not play audio and does not
 require `EXPO_PUBLIC_MUSICKIT_DEVELOPER_TOKEN`.
 
 Unset `EXPO_PUBLIC_MOCK_MUSICKIT` for native MusicKit builds. The mock switch is
@@ -79,7 +81,7 @@ Compile native targets with the `AppleMusicKitModule` Xcode scheme and Gradle's
 | --- | --- |
 | `index.ts` | Public surface. This is what `@apple-musickit` resolves to. |
 | `src/index.ts` | Re-exports `Auth`, `MusicKit`, `Playback`. |
-| `src/AppleMusicKit.types.ts` | `MusicItem`, `AuthResult`, `AuthStatus`, `ShuffleMode`, `RepeatMode`, `ArtistDetail`, and the rest of the shared types. |
+| `src/AppleMusicKit.types.ts` | `MusicItem`, `AuthResult`, `AuthStatus`, `ShuffleMode`, `RepeatMode`, `ArtistItem`, `ArtistResult`, `ArtistDetail`, and the rest of the shared types. |
 | `src/auth.ts` | Authorization and native token management. |
 | `src/library.ts` | Catalog search, library pages, album and playlist tracks, favorites, playlist writes, artists. |
 | `src/playback.ts` | Native playback commands and the playback snapshot hooks. |
@@ -102,6 +104,9 @@ result, stop when `hasNextPage` is false.
 | `getAlbumSongs(albumId, options)` | The songs on one library album. |
 | `getPlaylistSongs(playlistId, options)` | The songs in one library playlist. |
 | `getRecentlyAdded(options)` | Recently added library items, newest first. Mixed albums, playlists, and loose songs. Apple caps `limit` at 25. |
+| `searchLibrarySongs(term, options)` | Library songs matching a text term. Added after the first dev builds shipped, so a stale binary throws "rebuild the app" rather than crashing. |
+| `getLibraryArtists(options)` | Library artists. Same stale-binary guard as `searchLibrarySongs`. |
+| `searchLibraryArtists(term, options)` | Library artists matching a text term. Same guard. |
 
 Albums and playlists come back as `MusicItem`s with `resourceKind` set to
 `"album"` or `"playlist"`, so the same item type describes all three. Pass the
@@ -131,11 +136,25 @@ otherwise.
 | --- | --- |
 | `getSongArtists(songId)` | Catalog artist ids credited on a song, most prominent first. |
 | `getArtist(artistId)` | An `ArtistDetail`: name, artwork, genres, top songs, albums. |
+| `getLibraryArtists(options)` | A page of `ArtistItem`s from the user's library. |
+| `searchLibraryArtists(term, options)` | Library artists matching a term. |
+| `catalogSearch(term, ["artists"], options)` | Catalog artists, on `SearchResult.artists`. |
 
-Catalog only. A library song with no catalog equivalent resolves to no artists
-at all, and `MusicItem.artistId` is absent for it. `MusicResourceKind` still has
-no `"artist"` and `PlaybackQueueType` still has no artist case, because an
-artist is not a thing you can queue.
+An artist in a list is an `ArtistItem`, not a `MusicItem`. `MusicResourceKind`
+still has no `"artist"` and `PlaybackQueueType` still has no artist case,
+because an artist is not a thing you can queue, and `MusicItem.playbackType` is
+required. `ArtistItem` follows the same `id` / `catalogId` / `libraryId`
+convention as `MusicItem` otherwise.
+
+`getSongArtists` and `getArtist` are catalog only. A library song with no
+catalog equivalent resolves to no artists at all, and `MusicItem.artistId` is
+absent for it.
+
+`getLibraryArtists` requests Apple's `catalog` relationship inline
+(`include=catalog`), so a library artist arrives already carrying the
+`catalogId` needed to open it. A library artist Apple knows no catalog
+equivalent for has no `catalogId`, and there is nowhere to open it: the client
+disables that row rather than pushing an empty artist screen.
 
 ## Queue control
 
@@ -168,7 +187,8 @@ guessing, and `src/playback.ts` keeps the last value it set.
   (`playSongQueue`, `appendSongQueue`, `skipToNextEntry`); the provider mirrors it so the UI has
   the track list and the current index.
 - `client-app/src/lib/musickit-hooks.ts` wraps `MusicKit` reads in SWR, including
-  `useArtist`, `useSongArtists`, and `usePlaylistMutations`.
+  `useArtist`, `useSongArtists`, `useLibraryArtists`, `useCatalogArtistSearch`,
+  `useLibraryArtistSearch`, and `usePlaylistMutations`.
 - `client-app/src/lib/queue-order.ts` holds the index math the mirror and the
   native players have to agree on.
 

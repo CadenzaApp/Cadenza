@@ -2,6 +2,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
 import { Platform, View } from "react-native";
 
+import { ArtistList } from "@/components/custom/artist-list";
 import { CollectionList } from "@/components/custom/collection-list";
 import {
     MusicList,
@@ -19,10 +20,11 @@ import { useAppleMusic } from "@/lib/apple-music-auth";
 import { getErrorMessage } from "@/lib/error-utils";
 import {
     useLibraryAlbums,
+    useLibraryArtists,
     useTracksFromLibrary,
     useUserPlaylists,
 } from "@/lib/musickit-hooks";
-import type { MusicItem } from "@apple-musickit";
+import type { ArtistItem, MusicItem } from "@apple-musickit";
 
 const DEFAULT_LIBRARY_SORT: MusicListSort = {
     option: Platform.OS === "ios" ? "dateAdded" : "title",
@@ -51,6 +53,16 @@ export default function LibraryCategoryScreen() {
     });
     const albums = useLibraryAlbums(category === "album");
     const playlists = useUserPlaylists(category === "playlist");
+    const artists = useLibraryArtists(category === "artist");
+
+    function openArtist(artist: ArtistItem) {
+        // Catalog only; ArtistList already disables a row without a catalog id.
+        if (!artist.catalogId) return;
+        router.push({
+            pathname: "/artist/[id]",
+            params: { id: artist.catalogId, name: artist.name },
+        });
+    }
 
     function openCollection(collection: MusicItem) {
         router.push({
@@ -82,7 +94,9 @@ export default function LibraryCategoryScreen() {
               ? albums.albumsErr
               : category === "playlist"
                 ? playlists.playlistsErr
-                : undefined;
+                : category === "artist"
+                  ? artists.artistsErr
+                  : undefined;
 
     return (
         <SheetScreen title={LIBRARY_CATEGORY_META[category].label}>
@@ -112,6 +126,16 @@ export default function LibraryCategoryScreen() {
                         }}
                         multiSelect={DEFAULT_MULTI_SELECT_CONFIG}
                         fullBleedRows
+                    />
+                ) : category === "artist" ? (
+                    <ArtistList
+                        artists={artists.artists}
+                        isLoading={artists.artistsLoading}
+                        isLoadingNextPage={artists.artistsLoadingNextPage}
+                        hasNextPage={artists.hasNextArtistsPage}
+                        onLoadNextPage={artists.loadNextArtistsPage}
+                        onSelect={openArtist}
+                        emptyLabel="No artists in your library yet."
                     />
                 ) : category === "album" ? (
                     <CollectionList

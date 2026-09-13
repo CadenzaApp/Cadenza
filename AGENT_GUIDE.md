@@ -61,6 +61,7 @@ gives you the file map, the flow, and the gotchas.
 | [client-app/src/features/cadenza/README.md](client-app/src/features/cadenza/README.md)                             | Combined tag management and query workspace                     |
 | [client-app/src/features/library/README.md](client-app/src/features/library/README.md)                             | The library type filter in the top rail                         |
 | [client-app/src/features/query-builder/README.md](client-app/src/features/query-builder/README.md)                 | The drag and drop boolean query tree                            |
+| [client-app/src/features/search/README.md](client-app/src/features/search/README.md)                               | Search tab recents and the tag shelf                            |
 | [client-app/modules/apple-musickit/README.md](client-app/modules/apple-musickit/README.md)                         | Native Apple Music auth, catalog, library, playback, mock mode  |
 
 ## Keeping the READMEs current

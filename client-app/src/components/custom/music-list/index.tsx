@@ -54,6 +54,7 @@ export function MusicList({
     compact,
     onCompactChange,
     anticipatedTrackCount = 8,
+    header,
     pagination,
     sorting,
 }: MusicListProps) {
@@ -279,6 +280,7 @@ export function MusicList({
                             className={fullBleedRows ? undefined : "px-6"}
                             style={{ paddingBottom: contentBottomInset }}
                         >
+                            {header}
                             {Array.from({ length: anticipatedTrackCount }).map(
                                 (_, index) => (
                                     <View key={index}>
@@ -340,6 +342,7 @@ export function MusicList({
                             contentContainerStyle={{
                                 paddingBottom: contentBottomInset,
                             }}
+                            ListHeaderComponent={header ? <>{header}</> : null}
                             ListEmptyComponent={
                                 !isLoading ? (
                                     <Text className="text-muted-foreground text-center mt-10">

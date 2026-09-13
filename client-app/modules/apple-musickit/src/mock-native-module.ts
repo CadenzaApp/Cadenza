@@ -10,10 +10,13 @@
 import type { AppleMusicKitNativeModule } from "./index";
 import {
     ArtistDetail,
+    ArtistItem,
+    ArtistResult,
     LibraryResult,
     LibrarySongOptions,
     MusicItem,
     MusicKitOptions,
+    MusicResourceSource,
     RepeatMode,
     SearchResult,
     ShuffleMode,
@@ -515,6 +518,62 @@ const MOCK_FAVORITE_IDS = new Set<string>([
     MOCK_LIBRARY_SONGS[1].id,
 ]);
 
+/**
+ * Artists, derived from the song fixtures the same way the library albums are.
+ * `mockArtistId` already stamps every song with an id built from its artist
+ * name, so uniquing on that id gives one artist per name without the fixtures
+ * carrying an artist list that could drift.
+ */
+function deriveMockArtists(
+    songs: MusicItem[],
+    source: MusicResourceSource,
+): ArtistItem[] {
+    const byId = new Map<string, ArtistItem>();
+    for (const song of songs) {
+        if (!song.artistId || !song.artistName) continue;
+        if (byId.has(song.artistId)) continue;
+        byId.set(song.artistId, {
+            id: song.artistId,
+            name: song.artistName,
+            artworkUrl: song.artworkUrl,
+            source,
+            // Mock library artists always resolve, so the tap path into the
+            // catalog artist screen is exercisable in Expo Go.
+            catalogId: song.artistId,
+            libraryId:
+                source === "library" ? `r.${song.artistId}` : undefined,
+        });
+    }
+    return [...byId.values()];
+}
+
+const MOCK_CATALOG_ARTISTS = deriveMockArtists(MOCK_CATALOG_SONGS, "catalog");
+const MOCK_LIBRARY_ARTISTS = deriveMockArtists(MOCK_LIBRARY_SONGS, "library");
+
+function matchesArtistQuery(artist: ArtistItem, query: string) {
+    return artist.name.toLowerCase().includes(query);
+}
+
+/** The artist counterpart to `paginatedResult`. */
+function paginatedArtistResult(
+    artists: ArtistItem[],
+    options?: MusicKitOptions,
+): ArtistResult {
+    const limit = Math.max(
+        1,
+        Math.trunc(options?.limit ?? DEFAULT_LIBRARY_LIMIT),
+    );
+    const offset = Math.max(0, Math.trunc(options?.offset ?? 0));
+    const items = artists.slice(offset, offset + limit);
+    const nextOffset = offset + items.length;
+    const hasNextPage = nextOffset < artists.length;
+    return {
+        items,
+        hasNextPage,
+        nextOffset: hasNextPage ? nextOffset : undefined,
+    };
+}
+
 function respond<T>(value: T, latency = QUERY_LATENCY_MS): Promise<T> {
     return new Promise((resolve) => setTimeout(() => resolve(value), latency));
 }
@@ -721,12 +780,19 @@ export function createMockNativeModule(): AppleMusicKitNativeModule {
             const albums = types.includes("albums")
                 ? MOCK_ALBUMS.filter((album) => matchesQuery(album, term))
                 : [];
+            const artists = types.includes("artists")
+                ? MOCK_CATALOG_ARTISTS.filter((artist) =>
+                      matchesArtistQuery(artist, term),
+                  )
+                : [];
             const pageSongs = songs.slice(offset, offset + limit);
             return respond<SearchResult>({
                 songs: pageSongs,
                 albums: albums.slice(offset, offset + limit),
                 hasNextSongs: offset + limit < songs.length,
                 hasNextAlbums: offset + limit < albums.length,
+                artists: artists.slice(offset, offset + limit),
+                hasNextArtists: offset + limit < artists.length,
                 nextSongsOffset:
                     offset + pageSongs.length < songs.length
                         ? offset + pageSongs.length
@@ -739,6 +805,29 @@ export function createMockNativeModule(): AppleMusicKitNativeModule {
 
         getLibrarySongs: (options?: LibrarySongOptions) =>
             respond(paginatedResult(sortedLibrarySongs(options), options)),
+
+        searchLibrarySongs: (term: string, options?: MusicKitOptions) =>
+            respond(
+                paginatedResult(
+                    MOCK_LIBRARY_SONGS.filter((song) =>
+                        matchesQuery(song, term.trim().toLowerCase()),
+                    ),
+                    options,
+                ),
+            ),
+
+        getLibraryArtists: (options?: MusicKitOptions) =>
+            respond(paginatedArtistResult(MOCK_LIBRARY_ARTISTS, options)),
+
+        searchLibraryArtists: (term: string, options?: MusicKitOptions) =>
+            respond(
+                paginatedArtistResult(
+                    MOCK_LIBRARY_ARTISTS.filter((artist) =>
+                        matchesArtistQuery(artist, term.trim().toLowerCase()),
+                    ),
+                    options,
+                ),
+            ),
 
         getPlaylistSongs: (playlistId: string, options?: MusicKitOptions) =>
             respond(

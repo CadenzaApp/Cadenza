@@ -25,7 +25,7 @@ export function TopRail({ title, actions }: Props) {
             className="border-b border-border bg-background"
             style={{ paddingTop: insets.top }}
         >
-            <View className="h-16 flex-row items-center justify-between px-5">
+            <View className="h-14 flex-row items-center justify-between px-5">
                 <Text
                     className="flex-1 text-3xl font-bold tracking-tight"
                     numberOfLines={1}

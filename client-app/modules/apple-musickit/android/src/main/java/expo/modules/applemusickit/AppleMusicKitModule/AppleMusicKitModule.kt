@@ -487,11 +487,14 @@ class AppleMusicKitModule : Module() {
             val resultsObj = response["results"] as? Map<*, *>
             val songsObj = resultsObj?.get("songs") as? Map<*, *>
             val albumsObj = resultsObj?.get("albums") as? Map<*, *>
+            val artistsObj = resultsObj?.get("artists") as? Map<*, *>
             val result = mutableMapOf<String, Any>(
                 "songs" to objectList(songsObj?.get("data")).map { formatMediaItem(it) },
                 "albums" to objectList(albumsObj?.get("data")).map { formatMediaItem(it) },
+                "artists" to objectList(artistsObj?.get("data")).map { formatArtist(it) },
                 "hasNextSongs" to !songsObj?.get("next")?.toString().isNullOrBlank(),
-                "hasNextAlbums" to !albumsObj?.get("next")?.toString().isNullOrBlank()
+                "hasNextAlbums" to !albumsObj?.get("next")?.toString().isNullOrBlank(),
+                "hasNextArtists" to !artistsObj?.get("next")?.toString().isNullOrBlank()
             )
             nextOffset(songsObj?.get("next")?.toString())?.let {
                 result["nextSongsOffset"] = it
@@ -513,6 +516,21 @@ class AppleMusicKitModule : Module() {
                 makeApiRequest("/v1/me/library/songs?${pageQuery(pageOptions)}&include=albums")
             )
         }
+        // Same endpoint iOS uses, so both platforms page identically. The
+        // payload nests one level deeper than the plain library reads.
+        AsyncFunction("searchLibrarySongs") { term: String, options: Map<String, Any?> ->
+            val pageOptions = mapOf(
+                "limit" to ((options["limit"] as? Number)?.toInt() ?: 50),
+                "offset" to ((options["offset"] as? Number)?.toInt() ?: 0)
+            )
+            val response = makeApiRequest(
+                "/v1/me/library/search?term=${encode(term)}&types=library-songs&${pageQuery(pageOptions)}"
+            )
+            return@AsyncFunction collectionResult(
+                librarySearchPage(response, "library-songs")
+            )
+        }
+
         AsyncFunction("getPlaylistSongs") { playlistId: String, options: Map<String, Int> ->
             return@AsyncFunction collectionResult(
                 makeApiRequest("/v1/me/library/playlists/${encode(playlistId)}/tracks?${pageQuery(options)}&include=albums")
@@ -521,6 +539,25 @@ class AppleMusicKitModule : Module() {
         AsyncFunction("getLibraryAlbums") { options: Map<String, Int> ->
             return@AsyncFunction collectionResult(
                 makeApiRequest("/v1/me/library/albums?${pageQuery(options)}")
+            )
+        }
+        // include=catalog so a library artist arrives already carrying the
+        // catalog ID the artist screen needs, rather than costing a second
+        // request per row before it can be opened.
+        AsyncFunction("getLibraryArtists") { options: Map<String, Int> ->
+            return@AsyncFunction artistCollectionResult(
+                makeApiRequest("/v1/me/library/artists?include=catalog&${pageQuery(options)}")
+            )
+        }
+        // The library search payload nests one level deeper than a plain
+        // library read, the same way searchLibrarySongs has to unwrap it.
+        AsyncFunction("searchLibraryArtists") { term: String, options: Map<String, Int> ->
+            val response = makeApiRequest(
+                "/v1/me/library/search?term=${encode(term)}&types=library-artists" +
+                    "&${pageQuery(options)}"
+            )
+            return@AsyncFunction artistCollectionResult(
+                librarySearchPage(response, "library-artists")
             )
         }
         AsyncFunction("getRecentlyAdded") { options: Map<String, Int> ->
@@ -812,6 +849,70 @@ class AppleMusicKitModule : Module() {
             "hasNextPage" to !response["next"]?.toString().isNullOrBlank()
         )
         nextOffset(response["next"]?.toString())?.let { result["nextOffset"] = it }
+        return result
+    }
+
+    /**
+     * Unwraps one type's page out of a `/v1/me/library/search` payload, which
+     * nests one level deeper than a plain library read.
+     */
+    private fun librarySearchPage(
+        response: Map<String, Any>,
+        type: String
+    ): Map<String, Any> {
+        val results = response["results"] as? Map<*, *>
+        return (results?.get(type) as? Map<*, *>)
+            ?.entries
+            ?.mapNotNull { (key, value) ->
+                val stringKey = key as? String ?: return@mapNotNull null
+                value?.let { stringKey to it }
+            }
+            ?.toMap()
+            ?: emptyMap()
+    }
+
+    /** The artist counterpart to [collectionResult]. Same paging, different rows. */
+    private fun artistCollectionResult(response: Map<String, Any>): Map<String, Any> {
+        val data = objectList(response["data"])
+        val result = mutableMapOf<String, Any>(
+            "items" to data.map { formatArtist(it) },
+            "hasNextPage" to !response["next"]?.toString().isNullOrBlank()
+        )
+        nextOffset(response["next"]?.toString())?.let { result["nextOffset"] = it }
+        return result
+    }
+
+    /**
+     * One artist from the API, catalog or library. A library artist carries its
+     * catalog equivalent under the `catalog` relationship when Apple knows of
+     * one; `id` prefers that catalog ID so the artist screen can open directly.
+     */
+    private fun formatArtist(item: Map<String, Any>): Map<String, Any> {
+        val attributes = item["attributes"] as? Map<*, *> ?: emptyMap<String, Any>()
+        val type = (item["type"]?.toString() ?: "artists").lowercase()
+        val source = if (type.startsWith("library-")) "library" else "catalog"
+        val rawId = item["id"]?.toString() ?: ""
+
+        val relationships = item["relationships"] as? Map<*, *>
+        val catalogData = (relationships?.get("catalog") as? Map<*, *>)?.get("data") as? List<*>
+        val catalogItem = catalogData?.firstOrNull() as? Map<*, *>
+        val catalogId = if (source == "library") catalogItem?.get("id")?.toString() else rawId
+
+        val result = mutableMapOf<String, Any>(
+            "id" to (catalogId ?: rawId),
+            "name" to (attributes["name"]?.toString() ?: "Unknown Artist"),
+            "source" to source
+        )
+        catalogId?.let { result["catalogId"] = it }
+        if (source == "library") result["libraryId"] = rawId
+
+        // Library artists have no artwork of their own; the catalog artist the
+        // relationship points at usually does.
+        val artworkSource = (catalogItem?.get("attributes") as? Map<*, *>) ?: attributes
+        val artwork = artworkSource["artwork"] as? Map<*, *>
+        artwork?.get("url")?.toString()?.let {
+            result["artworkUrl"] = it.replace("{w}", "200").replace("{h}", "200")
+        }
         return result
     }
 

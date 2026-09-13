@@ -17,6 +17,18 @@ import {
 
 const STORAGE_KEY = "cadenza.library.categories";
 
+/**
+ * The categories that existed before the stored value started recording its
+ * own `known` list. A historical fact, so it never changes: it is what a bare
+ * legacy array was choosing among.
+ */
+const LEGACY_KNOWN_CATEGORIES: readonly LibraryCategory[] = [
+    "playlist",
+    "album",
+    "song",
+    "tag",
+];
+
 type LibraryCategoriesValue = {
     /** Enabled categories, always in `LIBRARY_CATEGORY_ORDER`. */
     enabled: LibraryCategory[];
@@ -70,7 +82,7 @@ export function LibraryCategoriesProvider({
             const next = new Set(current);
             if (next.has(category)) next.delete(category);
             else next.add(category);
-            void AsyncStorage.setItem(STORAGE_KEY, JSON.stringify([...next]));
+            void AsyncStorage.setItem(STORAGE_KEY, serializeCategories(next));
             return next;
         });
     }, []);
@@ -94,19 +106,47 @@ export function LibraryCategoriesProvider({
 }
 
 /** Tolerates anything in storage; a bad value just falls back to the default. */
+/**
+ * The stored value records both what is enabled and which categories existed
+ * when it was written. A category the user was never offered cannot have been
+ * deliberately turned off, so it comes back enabled rather than silently
+ * missing for everyone who saved a selection before it shipped.
+ */
+function serializeCategories(enabled: Set<LibraryCategory>) {
+    return JSON.stringify({
+        enabled: [...enabled],
+        known: [...LIBRARY_CATEGORY_ORDER],
+    });
+}
+
 function parseStoredCategories(stored: string) {
     try {
         const parsed: unknown = JSON.parse(stored);
-        if (!Array.isArray(parsed)) return null;
-        const categories = parsed
-            .map((entry) =>
-                typeof entry === "string"
-                    ? parseLibraryCategory(entry)
-                    : undefined,
-            )
-            .filter((entry) => entry !== undefined);
-        return new Set(categories);
+        // The legacy shape was a bare array, written before `known` existed.
+        const isLegacy = Array.isArray(parsed);
+        const raw = parsed as { enabled?: unknown; known?: unknown };
+        const enabledInput = isLegacy ? parsed : raw.enabled;
+        if (!Array.isArray(enabledInput)) return null;
+
+        const enabled = new Set(readCategories(enabledInput));
+        const known = new Set(
+            isLegacy || !Array.isArray(raw.known)
+                ? LEGACY_KNOWN_CATEGORIES
+                : readCategories(raw.known),
+        );
+        for (const category of LIBRARY_CATEGORY_ORDER) {
+            if (!known.has(category)) enabled.add(category);
+        }
+        return enabled;
     } catch {
         return null;
     }
+}
+
+function readCategories(entries: unknown[]) {
+    return entries
+        .map((entry) =>
+            typeof entry === "string" ? parseLibraryCategory(entry) : undefined,
+        )
+        .filter((entry) => entry !== undefined);
 }

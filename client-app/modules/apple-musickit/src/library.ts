@@ -1,5 +1,6 @@
 import type {
     ArtistDetail,
+    ArtistResult,
     CatalogSearchType,
     LibraryResult,
     LibrarySongOptions,
@@ -38,6 +39,8 @@ export const MusicKit = {
                 albums: [],
                 hasNextSongs: false,
                 hasNextAlbums: false,
+                artists: [],
+                hasNextArtists: false,
             };
         }
         const normalizedTypes = [...new Set(types)];
@@ -75,12 +78,62 @@ export const MusicKit = {
         );
     },
 
+    /**
+     * Searches the user's own library for songs matching a term. Separate from
+     * `catalogSearch`, which only ever sees the Apple Music catalog.
+     */
+    searchLibrarySongs: async (
+        term: string,
+        options?: MusicKitOptions,
+    ): Promise<LibraryResult> => {
+        const normalizedTerm = term.trim();
+        if (!normalizedTerm) {
+            return { items: [], hasNextPage: false };
+        }
+        const searchLibrarySongs = requireNativeMethod("searchLibrarySongs");
+        return normalizeLibraryResult(
+            await searchLibrarySongs(normalizedTerm, normalizeOptions(options)),
+        );
+    },
+
     /** Returns the user's library albums, optionally limited by result count. */
     getLibraryAlbums: async (
         options?: MusicKitOptions,
     ): Promise<LibraryResult> => {
         return normalizeLibraryResult(
             await requireNative().getLibraryAlbums(normalizeOptions(options)),
+        );
+    },
+
+    /**
+     * Returns the artists in the user's library. Apple's `catalog` relationship
+     * is requested inline, so a row that has a catalog equivalent carries its
+     * `catalogId` and needs no second round trip to open.
+     */
+    getLibraryArtists: async (
+        options?: MusicKitOptions,
+    ): Promise<ArtistResult> => {
+        const getLibraryArtists = requireNativeMethod("getLibraryArtists");
+        return normalizeArtistResult(
+            await getLibraryArtists(normalizeOptions(options)),
+        );
+    },
+
+    /**
+     * Searches the user's own library for artists matching a term. The artist
+     * counterpart to `searchLibrarySongs`.
+     */
+    searchLibraryArtists: async (
+        term: string,
+        options?: MusicKitOptions,
+    ): Promise<ArtistResult> => {
+        const normalizedTerm = term.trim();
+        if (!normalizedTerm) {
+            return { items: [], hasNextPage: false };
+        }
+        const searchLibraryArtists = requireNativeMethod("searchLibraryArtists");
+        return normalizeArtistResult(
+            await searchLibraryArtists(normalizedTerm, normalizeOptions(options)),
         );
     },
 
@@ -203,6 +256,14 @@ function normalizeLibraryResult(result: LibraryResult): LibraryResult {
     };
 }
 
+function normalizeArtistResult(result: ArtistResult): ArtistResult {
+    return {
+        items: result.items ?? [],
+        hasNextPage: result.hasNextPage === true,
+        nextOffset: result.nextOffset,
+    };
+}
+
 interface LibraryNativeModule {
     getSongInfo(ids: string[]): Promise<MusicItem[]>;
     catalogSearch(
@@ -213,11 +274,20 @@ interface LibraryNativeModule {
     ): Promise<SearchResult>;
     getUserPlaylists(options: MusicKitOptions): Promise<LibraryResult>;
     getLibrarySongs(options: LibrarySongOptions): Promise<LibraryResult>;
+    searchLibrarySongs(
+        term: string,
+        options: MusicKitOptions,
+    ): Promise<LibraryResult>;
     getPlaylistSongs(
         playlistId: string,
         options: MusicKitOptions,
     ): Promise<LibraryResult>;
     getLibraryAlbums(options: MusicKitOptions): Promise<LibraryResult>;
+    getLibraryArtists(options: MusicKitOptions): Promise<ArtistResult>;
+    searchLibraryArtists(
+        term: string,
+        options: MusicKitOptions,
+    ): Promise<ArtistResult>;
     getRecentlyAdded(options: MusicKitOptions): Promise<LibraryResult>;
     getAlbumSongs(
         albumId: string,

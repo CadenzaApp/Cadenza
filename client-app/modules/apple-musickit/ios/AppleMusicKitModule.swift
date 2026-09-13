@@ -162,6 +162,16 @@ public class AppleMusicKitModule: Module {
         ]
     }
 
+    private func formatArtist(_ artist: Artist) -> [String: Any] {
+        [
+            "id": artist.id.rawValue,
+            "catalogId": artist.id.rawValue,
+            "name": artist.name,
+            "source": "catalog",
+            "artworkUrl": artworkURLString(from: artist.artwork),
+        ]
+    }
+
     private func formatPlaylist(_ playlist: Playlist, source: String) -> [String: Any] {
         var result: [String: Any] = [
             "id": playlist.id.rawValue,
@@ -266,25 +276,78 @@ public class AppleMusicKitModule: Module {
         return result
     }
 
+    /// One artist from the raw API, catalog or library. A library artist carries
+    /// its catalog equivalent under the `catalog` relationship when Apple knows
+    /// of one; `id` prefers that catalog ID so callers can open the artist
+    /// screen without a second round trip.
+    private func formatAPIArtist(_ item: [String: Any]) -> [String: Any] {
+        let attributes = item["attributes"] as? [String: Any] ?? [:]
+        let type = (item["type"] as? String ?? "artists").lowercased()
+        let source = type.hasPrefix("library-") ? "library" : "catalog"
+        let rawID = item["id"] as? String ?? ""
+
+        let relationships = item["relationships"] as? [String: Any]
+        let catalog = relationships?["catalog"] as? [String: Any]
+        let catalogData = catalog?["data"] as? [[String: Any]]
+        let catalogID = source == "library"
+            ? catalogData?.first?["id"] as? String
+            : rawID
+
+        var result: [String: Any] = [
+            "id": catalogID ?? rawID,
+            "name": attributes["name"] as? String ?? "Unknown Artist",
+            "source": source,
+        ]
+        if let catalogID { result["catalogId"] = catalogID }
+        if source == "library" { result["libraryId"] = rawID }
+
+        // Library artists have no artwork of their own. The catalog artist the
+        // relationship points at usually does.
+        let artworkAttributes = (catalogData?.first?["attributes"] as? [String: Any]) ?? attributes
+        if let artwork = artworkAttributes["artwork"] as? [String: Any],
+           let template = artwork["url"] as? String
+        {
+            result["artworkUrl"] = artworkURL(template, width: 200, height: 200)
+        }
+        return result
+    }
+
     private func artworkURL(_ template: String, width: Int, height: Int) -> String {
         template
             .replacingOccurrences(of: "{w}", with: String(width))
             .replacingOccurrences(of: "{h}", with: String(height))
     }
 
+    /// The `offset` Apple puts on a paging `next` path, when there is one.
+    private func nextOffset(from next: String?) -> Int? {
+        guard let next,
+              let components = URLComponents(string: next),
+              let offset = components.queryItems?.first(where: { $0.name == "offset" })?.value
+        else { return nil }
+        return Int(offset)
+    }
+
     private func collectionResult(_ response: [String: Any]) -> [String: Any] {
+        pagedResult(response, format: formatAPIResource)
+    }
+
+    /// The artist counterpart to `collectionResult`. Same paging, different rows.
+    private func artistCollectionResult(_ response: [String: Any]) -> [String: Any] {
+        pagedResult(response, format: formatAPIArtist)
+    }
+
+    private func pagedResult(
+        _ response: [String: Any],
+        format: ([String: Any]) -> [String: Any]
+    ) -> [String: Any] {
         let data = response["data"] as? [[String: Any]] ?? []
         let next = response["next"] as? String
         var result: [String: Any] = [
-            "items": data.map(formatAPIResource),
+            "items": data.map(format),
             "hasNextPage": !(next?.isEmpty ?? true),
         ]
-        if let next,
-           let components = URLComponents(string: next),
-           let offset = components.queryItems?.first(where: { $0.name == "offset" })?.value,
-           let nextOffset = Int(offset)
-        {
-            result["nextOffset"] = nextOffset
+        if let offset = nextOffset(from: next) {
+            result["nextOffset"] = offset
         }
         return result
     }
@@ -625,65 +688,47 @@ public class AppleMusicKitModule: Module {
             }
 
             let requestedTypes = Set(types.map { $0.lowercased() })
-            let searchSongs = requestedTypes.isEmpty || requestedTypes.contains("songs")
-            let searchAlbums = requestedTypes.isEmpty || requestedTypes.contains("albums")
             let limit = min(25, max(1, requestedLimit))
             let offset = max(0, requestedOffset)
 
-            // Passing extra result types can make MusicKit fail while decoding a
-            // response the caller did not request. Match the requested types (as
-            // Android does) instead of always including albums.
-            if searchSongs && !searchAlbums {
-                var request = MusicCatalogSearchRequest(term: query, types: [Song.self])
-                request.limit = limit
-                request.offset = offset
-                let response = try await request.response()
-                var result: [String: Any] = [
-                    "songs": response.songs.map { formatSong($0, playbackType: "song") },
-                    "albums": [],
-                    "hasNextSongs": response.songs.hasNextBatch,
-                    "hasNextAlbums": false,
-                ]
-                if response.songs.hasNextBatch {
-                    result["nextSongsOffset"] = offset + response.songs.count
-                }
-                return result
-            }
+            // Passing a result type the caller did not ask for can make MusicKit
+            // fail while decoding it, so the request carries exactly the
+            // requested types (as Android does) and nothing more. An empty set
+            // means an empty result rather than "everything".
+            var searchTypes: [any MusicCatalogSearchable.Type] = []
+            if requestedTypes.contains("songs") { searchTypes.append(Song.self) }
+            if requestedTypes.contains("albums") { searchTypes.append(Album.self) }
+            if requestedTypes.contains("artists") { searchTypes.append(Artist.self) }
 
-            if searchAlbums && !searchSongs {
-                var request = MusicCatalogSearchRequest(term: query, types: [Album.self])
-                request.limit = limit
-                request.offset = offset
-                let response = try await request.response()
-                return [
-                    "songs": [],
-                    "albums": response.albums.map(formatAlbum),
-                    "hasNextSongs": false,
-                    "hasNextAlbums": response.albums.hasNextBatch,
-                ]
-            }
+            var result: [String: Any] = [
+                "songs": [],
+                "albums": [],
+                "artists": [],
+                "hasNextSongs": false,
+                "hasNextAlbums": false,
+                "hasNextArtists": false,
+            ]
+            guard !searchTypes.isEmpty else { return result }
 
-            guard searchSongs || searchAlbums else {
-                return [
-                    "songs": [],
-                    "albums": [],
-                    "hasNextSongs": false,
-                    "hasNextAlbums": false,
-                ]
-            }
-
-            var request = MusicCatalogSearchRequest(term: query, types: [Song.self, Album.self])
+            var request = MusicCatalogSearchRequest(term: query, types: searchTypes)
             request.limit = limit
             request.offset = offset
             let response = try await request.response()
-            var result: [String: Any] = [
-                "songs": response.songs.map { formatSong($0, playbackType: "song") },
-                "albums": response.albums.map(formatAlbum),
-                "hasNextSongs": response.songs.hasNextBatch,
-                "hasNextAlbums": response.albums.hasNextBatch,
-            ]
-            if response.songs.hasNextBatch {
-                result["nextSongsOffset"] = offset + response.songs.count
+
+            if requestedTypes.contains("songs") {
+                result["songs"] = response.songs.map { formatSong($0, playbackType: "song") }
+                result["hasNextSongs"] = response.songs.hasNextBatch
+                if response.songs.hasNextBatch {
+                    result["nextSongsOffset"] = offset + response.songs.count
+                }
+            }
+            if requestedTypes.contains("albums") {
+                result["albums"] = response.albums.map(formatAlbum)
+                result["hasNextAlbums"] = response.albums.hasNextBatch
+            }
+            if requestedTypes.contains("artists") {
+                result["artists"] = response.artists.map(formatArtist)
+                result["hasNextArtists"] = response.artists.hasNextBatch
             }
             return result
         }
@@ -778,6 +823,30 @@ public class AppleMusicKitModule: Module {
             return self.collectionResult(response)
         }
 
+        AsyncFunction("getLibraryArtists") {
+            (options: [String: Int]) async throws -> [String: Any] in
+            // include=catalog so a library artist arrives already carrying the
+            // catalog ID the artist screen needs. Without it every row would
+            // cost a second request before it could be opened.
+            let response = try await self.makeAPIRequest(
+                path: "/v1/me/library/artists?include=catalog&\(self.pageQuery(options))")
+            return self.artistCollectionResult(response)
+        }
+
+        AsyncFunction("searchLibraryArtists") {
+            (term: String, options: [String: Int]) async throws -> [String: Any] in
+            let encodedTerm = term.addingPercentEncoding(
+                withAllowedCharacters: .urlQueryAllowed) ?? term
+            let response = try await self.makeAPIRequest(
+                path: "/v1/me/library/search?term=\(encodedTerm)&types=library-artists"
+                    + "&\(self.pageQuery(options))")
+            // The library search payload nests one level deeper than a plain
+            // library read, the same way searchLibrarySongs has to unwrap it.
+            let results = response["results"] as? [String: Any] ?? [:]
+            let artists = results["library-artists"] as? [String: Any] ?? [:]
+            return self.artistCollectionResult(artists)
+        }
+
         AsyncFunction("getRecentlyAdded") {
             (options: [String: Int]) async throws -> [String: Any] in
             // Apple's own recently added feed: albums, playlists, and loose
@@ -836,6 +905,20 @@ public class AppleMusicKitModule: Module {
 
             let response = try await request.response()
             return await self.collectionResult(response, offset: offset)
+        }
+
+        // Apple's library search endpoint rather than MusicLibrarySearchRequest,
+        // which takes a limit but no offset and so cannot page. This is the same
+        // call Android makes, so both platforms return the same shape.
+        AsyncFunction("searchLibrarySongs") {
+            (term: String, options: [String: Int]) async throws -> [String: Any] in
+            let encodedTerm = term.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)
+                ?? term
+            let response = try await self.makeAPIRequest(
+                path: "/v1/me/library/search?term=\(encodedTerm)&types=library-songs&\(self.pageQuery(options))")
+            let results = response["results"] as? [String: Any] ?? [:]
+            let songs = results["library-songs"] as? [String: Any] ?? [:]
+            return self.collectionResult(songs)
         }
 
         AsyncFunction("getPlaylistSongs") {
