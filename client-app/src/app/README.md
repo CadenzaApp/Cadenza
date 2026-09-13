@@ -8,7 +8,7 @@ logic out.
 
 | file | route | role |
 | --- | --- | --- |
-| `_layout.tsx` | root | Provider stack, theme, the `Stack` navigator, `PortalHost`, `TabBarHost`, `MediaPlayerHost`. |
+| `_layout.tsx` | root | Provider stack, theme, the `Stack` navigator, `PortalHost`, and `BottomBarsOverlay`. |
 | `(splashscreen)/index.tsx` | `/` | Calls `tryRestoreSession()`, then replaces to `/library` or `/auth`. |
 | `auth/index.tsx` | `/auth` | Sign in / sign up. Takes an `initialMode` search param. |
 | `(tabs)/_layout.tsx` | | Protected tab group and the shared top rail. The bar itself is mounted at the root. |
@@ -40,11 +40,11 @@ GestureHandlerRootView
     AppleMusicProvider     apple music auth, restored from secure store
       PlaybackProvider     reads the native playback snapshot
         ThemeProvider      light/dark nav theme from nativewind's colorScheme
-          ZoomOriginProvider   the rect a pushed screen minimizes back into
-            Stack              the routes
-            PortalHost         where dialogs and modals render
-            TabBarHost         the floating tab bar
-            MediaPlayerHost    the global player
+          BottomBarVisibilityProvider   temporary visibility exceptions
+            ZoomOriginProvider          the rect a pushed screen minimizes back into
+              Stack                     the routes
+              PortalHost                where dialogs and modals render
+              BottomBarsOverlay         the tab bar and mini player above native screens
 ```
 
 `LibraryCategoriesProvider` (`@/features/library`) sits inside `ThemeProvider` and wraps both
@@ -55,10 +55,10 @@ GestureHandlerRootView
 both bars are mounted beside `Stack` rather than inside it, and both need state that survives
 navigation.
 
-`PortalHost` and `MediaPlayerHost` sit as siblings of `Stack`, not inside it, so both survive
-navigation. `MediaPlayerHost` only decides whether the player renders; every offset comes from
-`@/lib/screen-overlay`. Playback state itself is global regardless, since it lives in
-`PlaybackProvider`.
+`PortalHost` and `BottomBarsOverlay` sit as siblings of `Stack`, not inside it, so they survive
+navigation. The overlay contains `TabBarHost` and `MediaPlayerHost`; every offset and visibility
+decision comes from `@/lib/screen-overlay`. Playback state itself is global regardless, since it
+lives in `PlaybackProvider`.
 
 Auth gating for the five primary screens is centralized in `(tabs)/_layout.tsx`:
 
@@ -73,10 +73,11 @@ authentication both land on `/library`.
 
 ## The floating bottom bars
 
-**Neither bar is inside the navigator.** `TabBarHost` and `MediaPlayerHost` are siblings of
-`Stack` in `_layout.tsx`, so both float over whatever route is on top: a tab, or a detail screen
-pushed over one. `(tabs)/_layout.tsx` passes `tabBar={() => null}` and renders no bar at all.
-That is what lets drilling into an album or an artist keep the bar you navigate with.
+**Neither bar is inside the navigator.** `BottomBarsOverlay` is a sibling of `Stack` in
+`_layout.tsx` and contains both hosts. On iOS it uses `FullWindowOverlay`, so native transparent
+detail screens cannot cover the bars. `(tabs)/_layout.tsx` passes `tabBar={() => null}` and
+renders no bar of its own. That is what lets drilling into an album or an artist keep the same
+bars you navigate with.
 
 The tab bar is `position: "absolute"`, a rounded pill inset from the edges, drawn on a
 `GlassSurface`. The compact media player floats as a matching pill above it. Content scrolls
@@ -85,8 +86,8 @@ The tab bar is `position: "absolute"`, a rounded pill inset from the edges, draw
 Because neither bar is in the layout, nothing reserves space for them. Every scrolling surface
 has to pad itself with `contentBottomInset` or `listBottomInset` from
 `@/lib/screen-overlay::useScreenOverlayInsets`. Miss it on a new screen and its last row hides
-under the pill. That hook also decides whether the bars render at all, off the route segment and
-whether a keyboard is open.
+under the pill. Bars render by default on authenticated app routes. Account sheets and focused
+Search suppress them explicitly.
 
 The selected tab gets its own glass bubble, and the bubble slides between tabs rather than
 jumping. All of that is `@/components/custom/tab-bar`, which owns the tab order in `TABS`,
@@ -141,19 +142,17 @@ is the one caller, adding the button that opens `/library-categories`.
 ## Sheets
 
 **Three** routes are sheets: `/account`, `/appearance`, and `/player`. A sheet is a native surface
-over the whole app, so both bottom bars are behind it and unreachable from it. Appearance stacks
-from Account and keeps the same modal context. They are presented
+over the whole app, so both bottom bars hide while it is open. Appearance stacks from Account and
+keeps the same modal context. They are presented
 with `sheetScreenOptions` from `@/lib/theme`, the single definition of what a sheet looks like:
 a rounded `formSheet` at the `SHEET_DETENT` detent with a visible native grabber. That detent is
 `1`, the system's large one, so a sheet is full width, runs to the bottom edge, and stops just
 below the status bar. Anything smaller gets iOS 26's inset card, which leaves gaps down the
 sides and along the bottom. Either closes with the X or a drag down.
 
-Every other detail route covers the screen full bleed with the bars floating over it:
-`/collection/:kind/:id`, `/category/:kind`, `/tag/:tagId`, `/artist/:id`, `/library-categories`,
-and `/add-to-playlist`. Their segments are listed in `FULL_SCREEN_BAR_SEGMENTS` in
-`@/lib/screen-overlay`, which is what turns the bars on over them. Drilling into an album keeps
-the tab bar and the mini player, the way Music does.
+Every other authenticated route shows the bars by default, including full-bleed detail routes.
+`PUSHED_DETAIL_SEGMENTS` in `@/lib/screen-overlay` only identifies routes that need the custom
+pull-down close. It is not a bar visibility allowlist.
 
 All six take `pushedScreenOptions()` from `@/lib/theme`: a transparent modal with **no native
 animation**. That is what the zoom below needs, since it has to grow out of and shrink back into a
@@ -203,8 +202,8 @@ song fetch lands.
 - A new top-level route also needs a `Stack.Screen` entry in `_layout.tsx` if you want anything
   other than the default header. A new **sheet** route additionally needs its segment in
   `SHEET_SEGMENTS` in `@/lib/screen-overlay`, or presenting it will relayout the screen it
-  covers. A new **pushed** route that should show the bars needs its segment in
-  `FULL_SCREEN_BAR_SEGMENTS` in the same file, or it renders with neither.
+  covers. A new **pushed** route needs its segment in `PUSHED_DETAIL_SEGMENTS` only if it uses the
+  custom pull-down close. Bar visibility is the default.
 - Reordering the tabs happens in `TABS` in `@/components/custom/tab-bar`, not here. This file
   only maps over it.
 - A new scrolling screen has to apply a bottom inset from `useScreenOverlayInsets`. The bars do

@@ -1,6 +1,15 @@
 import { useRootNavigationState, useSegments } from "expo-router";
-import { createContext, useContext, useEffect, useState } from "react";
-import { Keyboard, Platform } from "react-native";
+import {
+    createContext,
+    createElement,
+    useCallback,
+    useContext,
+    useId,
+    useLayoutEffect,
+    useMemo,
+    useState,
+    type ReactNode,
+} from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { usePlayback } from "./playback";
@@ -32,10 +41,9 @@ const COMPACT_PLAYER_GAP = 3;
 
 /**
  * Root segments presented as a sheet rather than as a screen of their own. A
- * sheet is a native surface over the whole app, so both bottom bars are behind
- * it and neither can be reached from it. Account and Player are screens you
- * finish with before going anywhere. Appearance stacks from Account and keeps
- * that same modal context.
+ * sheet is a native surface over the whole app, so both bottom bars hide while
+ * it is open. Account and Player are screens you finish with before going
+ * anywhere. Appearance stacks from Account and keeps that same modal context.
  */
 const SHEET_SEGMENTS = new Set(["account", "appearance", "player"]);
 
@@ -44,7 +52,7 @@ const SHEET_SEGMENTS = new Set(["account", "appearance", "player"]);
  * they float over a tab. Drilling into an album or an artist keeps the bar you
  * navigate with, which is the whole reason these are not sheets.
  */
-const FULL_SCREEN_BAR_SEGMENTS = new Set([
+const PUSHED_DETAIL_SEGMENTS = new Set([
     "artist",
     "collection",
     "category",
@@ -53,40 +61,69 @@ const FULL_SCREEN_BAR_SEGMENTS = new Set([
     "add-to-playlist",
 ]);
 
-/**
- * Whether a keyboard is on screen.
- *
- * Both bottom bars are positioned off the bottom edge rather than laid out, so
- * a keyboard covers them instead of pushing them up. They hide while it is
- * open, which is also what Music does: what is being typed into is the whole
- * point of the screen at that moment.
- */
-export function useKeyboardVisible() {
-    const [visible, setVisible] = useState(false);
+/** Routes that never have the app's navigation bars underneath them. */
+const BARLESS_BASE_SEGMENTS = new Set(["(splashscreen)", "auth"]);
 
-    useEffect(() => {
-        // iOS reports the frame change before the animation, Android only ever
-        // fires the plain events.
-        const showEvent =
-            Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
-        const hideEvent =
-            Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
-        const show = Keyboard.addListener(showEvent, () => setVisible(true));
-        const hide = Keyboard.addListener(hideEvent, () => setVisible(false));
+type BottomBarVisibility = {
+    suppressed: boolean;
+    setSuppressed: (token: string, suppressed: boolean) => void;
+};
 
-        return () => {
-            show.remove();
-            hide.remove();
-        };
+const BottomBarVisibilityContext = createContext<BottomBarVisibility | null>(
+    null,
+);
+
+/** Shares temporary visibility exceptions, such as focused search. */
+export function BottomBarVisibilityProvider({
+    children,
+}: {
+    children: ReactNode;
+}) {
+    const [tokens, setTokens] = useState<ReadonlySet<string>>(() => new Set());
+    const setSuppressed = useCallback((token: string, suppressed: boolean) => {
+        setTokens((current) => {
+            if (current.has(token) === suppressed) return current;
+
+            const next = new Set(current);
+            if (suppressed) next.add(token);
+            else next.delete(token);
+            return next;
+        });
     }, []);
+    const value = useMemo(
+        () => ({ suppressed: tokens.size > 0, setSuppressed }),
+        [setSuppressed, tokens],
+    );
 
-    return visible;
+    return createElement(
+        BottomBarVisibilityContext.Provider,
+        { value },
+        children,
+    );
+}
+
+/** Hides both bottom bars while this caller's condition is true. */
+export function useSuppressBottomBars(suppressed: boolean) {
+    const visibility = useContext(BottomBarVisibilityContext);
+    const token = useId();
+    const setSuppressed = visibility?.setSuppressed;
+    useLayoutEffect(() => {
+        if (!setSuppressed) return;
+        setSuppressed(token, suppressed);
+        return () => setSuppressed(token, false);
+    }, [setSuppressed, suppressed, token]);
+
+    if (!visibility) {
+        throw new Error(
+            "useSuppressBottomBars must run inside BottomBarVisibilityProvider",
+        );
+    }
 }
 
 /**
  * True for content rendered inside a presented sheet. A sheet is its own
- * surface: the tab bar and the compact player are behind it, not over it, so
- * its content owes them nothing. `DetailScreen` sets it for a sheet presentation.
+ * surface: the tab bar and the compact player do not render over it, so its
+ * content owes them nothing. `DetailScreen` sets it for a sheet presentation.
  */
 export const InsideSheetContext = createContext(false);
 
@@ -124,7 +161,7 @@ export function useIsPushedDetailScreen() {
     return (
         !insideSheet &&
         rootSegment !== undefined &&
-        FULL_SCREEN_BAR_SEGMENTS.has(rootSegment)
+        PUSHED_DETAIL_SEGMENTS.has(rootSegment)
     );
 }
 
@@ -138,16 +175,23 @@ export function useIsPushedDetailScreen() {
 export function useScreenOverlayInsets() {
     const { activeTrack } = usePlayback();
     const insets = useSafeAreaInsets();
+    const segments = useSegments();
     const rootSegment = useBaseRouteSegment();
     const insideSheet = useContext(InsideSheetContext);
-    const keyboardVisible = useKeyboardVisible();
-    // The tabs and the screens pushed over them are the same surface as far as
-    // the bars are concerned: both float over it, in the same place.
+    const visibility = useContext(BottomBarVisibilityContext);
+    const topSegment = segments[0];
+    // Bars are the default for every authenticated app route. New detail
+    // screens inherit them without another allowlist entry.
     const hasBars =
         !insideSheet &&
         rootSegment !== undefined &&
-        (rootSegment === "(tabs)" || FULL_SCREEN_BAR_SEGMENTS.has(rootSegment));
-    const bottomBarsVisible = hasBars && !keyboardVisible;
+        !BARLESS_BASE_SEGMENTS.has(rootSegment);
+    // Native sheets own the whole visible surface. Focused search is the one
+    // in-place screen state that suppresses the bars.
+    const coveredBySheet =
+        topSegment !== undefined && SHEET_SEGMENTS.has(topSegment);
+    const bottomBarsVisible =
+        hasBars && !coveredBySheet && !(visibility?.suppressed ?? false);
     const compactPlayerVisible = bottomBarsVisible && activeTrack != null;
 
     // What the bottom of the surface is already spending. Where the bars are,

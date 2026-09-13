@@ -22,14 +22,15 @@ owns.
 
 ## How it works
 
-`MediaPlayerHost` is rendered once in `src/app/_layout.tsx`, as a sibling of `Stack`. It reads
-`compactPlayerVisible` from `useScreenOverlayInsets()` and renders `<MediaPlayer />` or nothing.
-That is the whole file. Where the bar sits is not its business: `media-player.tsx` reads
-`compactPlayerBottom` from the same hook, so the bar and the padding screens leave for it come
-from one place and cannot disagree.
+`MediaPlayerHost` is rendered once inside `BottomBarsOverlay`, beside `Stack` in
+`src/app/_layout.tsx`. It reads `compactPlayerVisible` from `useScreenOverlayInsets()` and renders
+`<MediaPlayer />` or nothing. That is the whole file. Where the bar sits is not its business:
+`media-player.tsx` reads `compactPlayerBottom` from the same hook, so the bar and the padding
+screens leave for it come from one place and cannot disagree.
 
-That hook works off the *base* route segment rather than `useSegments()[0]`, so a sheet
-presented on top of a screen does not move or unmount the bar underneath it.
+On iOS, `BottomBarsOverlay` uses `FullWindowOverlay` so native transparent detail screens cannot
+cover it. The shared visibility hook hides both bars for account sheets, the expanded player,
+and focused Search.
 
 Playback state is unaffected either way, because it lives in `PlaybackProvider`, not here.
 
@@ -92,9 +93,9 @@ the 750ms native snapshot polls, and scrubbing overrides it with `scrubPosition`
 
 - Only `MediaPlayerHost` is exported from `index.ts`. Import the mini player through the host.
   `app/player.tsx` is the one caller allowed to import `expanded.tsx` directly.
-- A new top-level route will not show the player until its segment is added to
-  `FULL_SCREEN_BAR_SEGMENTS` in `@/lib/screen-overlay`. A new *sheet* route goes in
-  `SHEET_SEGMENTS` in the same file instead, or it will read as a route change and drop the bar.
+- Authenticated routes show the bars by default. Add a route to `PUSHED_DETAIL_SEGMENTS` only if
+  it uses the custom pull-down close. Add a new sheet to `SHEET_SEGMENTS` so it hides the overlay
+  and receives sheet-local insets.
 - The player and the tab bar are mounted side by side at the root, and both are gated by the
   same hook, so wherever one shows the other does. `playerCanDock` follows from that: there is
   always a bar under the player when the player is visible.

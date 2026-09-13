@@ -29,8 +29,9 @@ display order and is the only place that order is written down.
 ```
 
 Every one of those is pushed full screen with the tab bar and the mini player floating over it,
-so browsing into the library never loses the bar you navigate with. Their segments are listed in
-`FULL_SCREEN_BAR_SEGMENTS` in `@/lib/screen-overlay`.
+so browsing into the library never loses the bar you navigate with. Authenticated routes show the
+bars by default. Their segments are listed in `PUSHED_DETAIL_SEGMENTS` only to enable the custom
+pull-down close.
 
 `LibraryCategoriesProvider` is mounted in `src/app/_layout.tsx`, above the navigator, because the
 screen that reads the selection and the sheet that edits it are separate routes. The selection is
@@ -77,8 +78,8 @@ live in a `ScrollView`, so the category rows are handed to it as `header`.
   query builder now.
 - Everything here renders inside `DetailScreen`, pushed rather than presented as a sheet, so the
   tab bar and the mini player float over it and its lists pay them a bottom inset. Only
-  `/account` and `/player` are sheets now; `InsideSheetContext` is how that difference reaches
-  `useScreenOverlayInsets`.
+  `/account`, `/appearance`, and `/player` are sheets; `InsideSheetContext` is how that difference
+  reaches `useScreenOverlayInsets`.
 
 ---
 Touching files in this directory? Update this README in the same change.

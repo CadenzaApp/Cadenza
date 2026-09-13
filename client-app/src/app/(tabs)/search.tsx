@@ -2,7 +2,7 @@ import type { ArtistItem } from "@apple-musickit";
 import { MusicKit } from "@apple-musickit";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useNavigation, useRouter } from "expo-router";
-import { useTheme } from "expo-router/react-navigation";
+import { useIsFocused, useTheme } from "expo-router/react-navigation";
 import { useLayoutEffect, useState } from "react";
 import { Alert, Keyboard, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -27,6 +27,7 @@ import {
     useLibrarySongSearch,
 } from "@/lib/musickit-hooks";
 import { usePlaybackCommands } from "@/lib/playback";
+import { useSuppressBottomBars } from "@/lib/screen-overlay";
 
 const DEFAULT_MULTI_SELECT_CONFIG = {} as const;
 
@@ -44,6 +45,8 @@ export default function SearchScreen() {
     // every keystroke; the artist hooks key off this one so they do not refetch
     // while the user is still typing.
     const [submittedTerm, setSubmittedTerm] = useState("");
+    const isFocused = useIsFocused();
+    useSuppressBottomBars(focused && isFocused);
     const navigation = useNavigation();
     const router = useRouter();
     const insets = useSafeAreaInsets();
@@ -133,6 +136,7 @@ export default function SearchScreen() {
     function openArtist(artist: ArtistItem) {
         // Catalog only; ArtistRail already disables a row without a catalog id.
         if (!artist.catalogId) return;
+        Keyboard.dismiss();
         router.push({
             pathname: "/artist/[id]",
             params: { id: artist.catalogId, name: artist.name },

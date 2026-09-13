@@ -160,8 +160,8 @@ function DetailScreenBody({
             </View>
 
             {/* Inside a sheet, overlay insets stop counting the tab bar and
-                the compact player: both are behind it rather than over it. A
-                pushed screen has them over its content and pads for them. */}
+                the compact player: neither renders over it. A pushed screen
+                has them over its content and pads for them. */}
             <InsideSheetContext.Provider value={isSheet}>
                 <View className="flex-1 overflow-hidden">{children}</View>
             </InsideSheetContext.Provider>

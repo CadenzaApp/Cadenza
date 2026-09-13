@@ -26,7 +26,7 @@ native module directly.
 | `error-utils.ts` | `getErrorDetails` / `getErrorMessage`, for unwrapping native and backend errors. |
 | `artwork-color.ts` | `useArtworkTint`, the color a surface paints itself with, plus `withAlpha`. |
 | `music-routes.ts` | `collectionRoute` / `albumRouteForTrack`. Hrefs into the resource screens, params and all. |
-| `screen-overlay.ts` | `useScreenOverlayInsets`, plus the geometry constants for both floating bottom bars. Also `useBaseRouteSegment`, the root segment ignoring any sheet presented on top, and which routes keep the compact player. |
+| `screen-overlay.ts` | `useScreenOverlayInsets`, bottom bar geometry and visibility, `BottomBarVisibilityProvider`, focused-screen suppression, and pushed-screen detection. |
 | `player-dock.tsx` | `PlayerDockProvider` / `usePlayerDock`. Whether the mini player floats above the tab bar or sits docked inside it. |
 | `screen-scroll.ts` | `useScreenScroll`, the props a screen's top-level scroller spreads to get tab-press-scrolls-to-top, scroll-docks-the-player, and pull-down-to-close. |
 | `zoom-dismiss.tsx` | `ZoomOriginProvider`, `useZoomSource`, `ZoomDismissScreen`, `useCloseScreen`. Closing a pushed screen by shrinking it back into the artwork that opened it. |
@@ -159,11 +159,10 @@ positions itself with, so the bar and the padding screens leave for it cannot dr
 selection bubble and the docked player so they line up.
 
 This hook decides **whether either bar renders at all**, and both follow the same answer:
-`bottomBarsVisible` for the tab bar, that plus a playing track for the player. It is true on the
-tabs and on the pushed routes in `FULL_SCREEN_BAR_SEGMENTS`, and false inside a sheet, on auth
-and splash, and while a keyboard is open. Both bars sit on the bottom edge rather than in the
-layout, so a keyboard would otherwise cover them; `useKeyboardVisible` in this file is what
-notices.
+`bottomBarsVisible` for the tab bar, that plus a playing track for the player. Auth and splash
+are the only barless base routes. Native sheets hide the overlay while open. An in-place screen
+state can call `useSuppressBottomBars`; focused Search is the current caller. Suppression uses a
+token set, so overlapping callers cannot reveal the bars until all of them release their token.
 
 ## Artwork color
 
