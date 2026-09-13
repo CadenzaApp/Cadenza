@@ -131,9 +131,14 @@ export const MusicKit = {
         if (!normalizedTerm) {
             return { items: [], hasNextPage: false };
         }
-        const searchLibraryArtists = requireNativeMethod("searchLibraryArtists");
+        const searchLibraryArtists = requireNativeMethod(
+            "searchLibraryArtists",
+        );
         return normalizeArtistResult(
-            await searchLibraryArtists(normalizedTerm, normalizeOptions(options)),
+            await searchLibraryArtists(
+                normalizedTerm,
+                normalizeOptions(options),
+            ),
         );
     },
 

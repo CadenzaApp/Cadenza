@@ -48,6 +48,11 @@ function normalizeMockItems(
         artworkUrlLarge:
             item.artworkUrlLarge ??
             item.artworkUrl?.replace("/200/200", "/1200/1200"),
+        // Catalog only, the way Apple ships it: library artwork carries no
+        // bgColor, so the client falls back to averaging the image itself.
+        artworkColor:
+            item.artworkColor ??
+            (source === "catalog" ? mockArtworkColor(item.id) : undefined),
         shareUrl:
             item.shareUrl ??
             (source === "catalog"
@@ -69,6 +74,19 @@ function mockArtistId(artistName?: string): string | undefined {
 
 function mockArtworkUrl(seed: string) {
     return `https://picsum.photos/seed/${seed}/200/200`;
+}
+
+/**
+ * A stable color per fixture, so the tinted surfaces are exercisable in Expo
+ * Go. Hashed rather than listed, for the same reason `mockArtistId` is derived:
+ * the fixtures should not have to carry one each.
+ */
+function mockArtworkColor(seed: string) {
+    let hash = 0;
+    for (const character of seed) {
+        hash = (hash * 31 + character.charCodeAt(0)) % 0xffffff;
+    }
+    return `#${hash.toString(16).padStart(6, "0")}`;
 }
 
 export const MOCK_AUTH_RESULT: AuthResult = {
@@ -536,12 +554,12 @@ function deriveMockArtists(
             id: song.artistId,
             name: song.artistName,
             artworkUrl: song.artworkUrl,
+            artworkColor: song.artworkColor,
             source,
             // Mock library artists always resolve, so the tap path into the
             // catalog artist screen is exercisable in Expo Go.
             catalogId: song.artistId,
-            libraryId:
-                source === "library" ? `r.${song.artistId}` : undefined,
+            libraryId: source === "library" ? `r.${song.artistId}` : undefined,
         });
     }
     return [...byId.values()];
@@ -1010,6 +1028,8 @@ export function createMockNativeModule(): AppleMusicKitNativeModule {
                 id: artistId,
                 name: songs[0]?.artistName ?? "Unknown Artist",
                 artworkUrl: songs[0]?.artworkUrlLarge ?? songs[0]?.artworkUrl,
+                artworkUrlSmall: songs[0]?.artworkUrl,
+                artworkColor: songs[0]?.artworkColor,
                 topSongs: songs.slice(0, 10),
                 albums: MOCK_ALBUMS.filter((album) => albumIds.has(album.id)),
             };

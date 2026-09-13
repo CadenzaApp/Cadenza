@@ -13,6 +13,7 @@ over HTTP.
 | `src/features/`                                       | Self-contained features. Today: [cadenza](src/features/cadenza/README.md), [library](src/features/library/README.md), and [query-builder](src/features/query-builder/README.md). |
 | `src/components/`                                     | UI. See [src/components/README.md](src/components/README.md).                                                                        |
 | `modules/apple-musickit/`                             | Local native Expo module. See [modules/apple-musickit/README.md](modules/apple-musickit/README.md).                                  |
+| `modules/image-color/`                                | Local native artwork color module. See [modules/image-color/README.md](modules/image-color/README.md).                              |
 | `app.json`, `eas.json`                                | Expo app config and build profiles.                                                                                                  |
 | `tailwind.config.js`, `global.css`, `components.json` | nativewind / tailwind and shadcn-style generator config.                                                                             |
 | `metro.config.js`, `babel.config.js`, `tsconfig.json` | Bundler, transform, and path aliases.                                                                                                |
@@ -24,6 +25,7 @@ Defined in `tsconfig.json`:
 
 - `@/*` -> `client-app/src/*`
 - `@apple-musickit` -> `client-app/modules/apple-musickit/index`
+- `@image-color` -> `client-app/modules/image-color/index`
 
 Use them. Relative `../../` imports across directories are the exception, not the rule.
 

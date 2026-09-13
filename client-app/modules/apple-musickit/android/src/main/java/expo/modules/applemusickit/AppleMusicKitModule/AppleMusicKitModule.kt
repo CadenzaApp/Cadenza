@@ -554,7 +554,7 @@ class AppleMusicKitModule : Module() {
         AsyncFunction("searchLibraryArtists") { term: String, options: Map<String, Int> ->
             val response = makeApiRequest(
                 "/v1/me/library/search?term=${encode(term)}&types=library-artists" +
-                    "&${pageQuery(options)}"
+                    "&include[library-artists]=catalog&${pageQuery(options)}"
             )
             return@AsyncFunction artistCollectionResult(
                 librarySearchPage(response, "library-artists")
@@ -762,8 +762,13 @@ class AppleMusicKitModule : Module() {
             }
             val artwork = attributes?.get("artwork") as? Map<*, *>
             artwork?.get("url")?.toString()?.let {
-                result["artworkUrl"] = it.replace("{w}", "600").replace("{h}", "600")
+                // The artist screen runs this full bleed behind its header, so
+                // it is asked for at hero size rather than tile size. The small
+                // one is what it shows until that arrives.
+                result["artworkUrl"] = it.replace("{w}", "1200").replace("{h}", "1200")
+                result["artworkUrlSmall"] = it.replace("{w}", "300").replace("{h}", "300")
             }
+            artworkColorHex(artwork)?.let { result["artworkColor"] = it }
             return@AsyncFunction result
         }
     }
@@ -913,7 +918,20 @@ class AppleMusicKitModule : Module() {
         artwork?.get("url")?.toString()?.let {
             result["artworkUrl"] = it.replace("{w}", "200").replace("{h}", "200")
         }
+        artworkColorHex(artwork)?.let { result["artworkColor"] = it }
         return result
+    }
+
+    /**
+     * Apple's own representative color for an artwork, as `#rrggbb`. It ships
+     * as a bare hex string under `bgColor`, and library artwork usually has
+     * none, in which case the client computes an average itself.
+     */
+    private fun artworkColorHex(artwork: Map<*, *>?): String? {
+        val raw = artwork?.get("bgColor")?.toString() ?: return null
+        val trimmed = raw.removePrefix("#")
+        if (trimmed.length != 6 && trimmed.length != 8) return null
+        return "#" + trimmed.substring(0, 6)
     }
 
     private fun nextOffset(next: String?): Int? {
@@ -1016,6 +1034,7 @@ class AppleMusicKitModule : Module() {
             ?.replace("{w}", "1200")
             ?.replace("{h}", "1200")
             ?: ""
+        artworkColorHex(artworkObj)?.let { result["artworkColor"] = it }
 
         attributes?.get("albumName")?.let { result["albumName"] = it }
         attributes?.get("genreNames")?.let { result["genres"] = it }

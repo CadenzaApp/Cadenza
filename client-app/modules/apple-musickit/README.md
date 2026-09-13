@@ -146,15 +146,41 @@ because an artist is not a thing you can queue, and `MusicItem.playbackType` is
 required. `ArtistItem` follows the same `id` / `catalogId` / `libraryId`
 convention as `MusicItem` otherwise.
 
+`getArtist` asks Apple for 1200x1200 artwork, because the artist screen runs it
+full bleed behind its header, and for 300x300 alongside it as
+`artworkUrlSmall`. The screen shows the small one while the big one downloads,
+so the hero is never a blank rectangle with the tint already painted around it.
+The artist lists ask for 200x200, which is tile size.
+
 `getSongArtists` and `getArtist` are catalog only. A library song with no
 catalog equivalent resolves to no artists at all, and `MusicItem.artistId` is
 absent for it.
 
 `getLibraryArtists` requests Apple's `catalog` relationship inline
-(`include=catalog`), so a library artist arrives already carrying the
-`catalogId` needed to open it. A library artist Apple knows no catalog
-equivalent for has no `catalogId`, and there is nowhere to open it: the client
-disables that row rather than pushing an empty artist screen.
+(`include=catalog`), and `searchLibraryArtists` does the same with the
+type-scoped form the library search endpoint wants
+(`include[library-artists]=catalog`). Either way a library artist arrives
+already carrying the `catalogId` needed to open it, plus the catalog artist's
+artwork, which a library artist has none of on its own. A library artist Apple
+knows no catalog equivalent for has no `catalogId`, and there is nowhere to
+open it: the client disables that row rather than pushing an empty artist
+screen.
+
+## Artwork color
+
+Every artwork Apple ships carries a representative color alongside its URL, and
+it is what Music tints its own artist, album, and now playing screens with. It
+arrives as `artworkColor` on `MusicItem`, `ArtistItem`, and `ArtistDetail`,
+normalized to `#rrggbb`.
+
+Two sources end up in that one field. MusicKit objects on iOS expose it as
+`Artwork.backgroundColor`, a `CGColor`. The raw Apple Music API ships it as a
+bare hex string under `artwork.bgColor`, which is the only path Android has.
+`artworkColorHex` on each platform is the only place that difference exists.
+
+Library artwork usually has no color at all. `artworkColor` is absent for it,
+and the client averages the image itself through `modules/image-color` rather
+than this module. Nothing here decodes an image.
 
 ## Queue control
 

@@ -90,6 +90,11 @@ export interface MusicItem {
     artworkUrl?: string;
     /** High-resolution artwork for immersive playback surfaces. */
     artworkUrlLarge?: string;
+    /**
+     * Representative color of the artwork, as `#rrggbb`. Apple's own, when it
+     * ships one. Library artwork often has none.
+     */
+    artworkColor?: string;
     /** Resource type to use when creating a playback queue. */
     playbackType: PlaybackQueueType;
     /** Apple Music identifier of the containing album. */
@@ -190,6 +195,8 @@ export interface ArtistItem {
     name: string;
     /** Artwork URL, when Apple has one. Library artists often do not. */
     artworkUrl?: string;
+    /** Representative color of the artwork, as `#rrggbb`, when Apple ships one. */
+    artworkColor?: string;
     /** Whether the artist came from the catalog or the user's library. */
     source: MusicResourceSource;
     /** Apple Music catalog identifier, when one is available. */
@@ -214,8 +221,15 @@ export interface ArtistDetail {
     id: string;
     /** Display name of the artist. */
     name: string;
-    /** Artwork URL suitable for an artist header. */
+    /** Artwork URL suitable for an artist header, at hero resolution. */
     artworkUrl?: string;
+    /**
+     * The same artwork, small. Shown while the hero one downloads, so the page
+     * is never a blank rectangle.
+     */
+    artworkUrlSmall?: string;
+    /** Representative color of the artwork, as `#rrggbb`, when Apple ships one. */
+    artworkColor?: string;
     /** Genre names Apple associates with the artist. */
     genres?: string[];
     /** The artist's most popular songs, in Apple's order. */

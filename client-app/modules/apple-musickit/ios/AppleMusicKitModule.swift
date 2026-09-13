@@ -107,6 +107,31 @@ public class AppleMusicKitModule: Module {
         return "https://is1-ssl.mzstatic.com/image/thumb/\(encodedAssetPath)/\(width)x\(height)bb.jpg"
     }
 
+    /// Apple's own representative color for an artwork, as `#rrggbb`. MusicKit
+    /// hands it over as a `CGColor`; the raw API ships it as a bare hex string
+    /// under `bgColor`. Both end up here so callers never see the difference.
+    private func artworkColorHex(from artwork: Artwork?) -> String? {
+        guard let color = artwork?.backgroundColor,
+              let components = color.components,
+              components.count >= 3
+        else { return nil }
+
+        let channel = { (value: CGFloat) in
+            Int((max(0, min(1, value)) * 255).rounded())
+        }
+        return String(
+            format: "#%02x%02x%02x",
+            channel(components[0]), channel(components[1]), channel(components[2]))
+    }
+
+    /// The raw API counterpart. Apple writes `bgColor` without the leading `#`.
+    private func artworkColorHex(_ artwork: [String: Any]?) -> String? {
+        guard let raw = artwork?["bgColor"] as? String else { return nil }
+        let trimmed = raw.hasPrefix("#") ? String(raw.dropFirst()) : raw
+        guard trimmed.count == 6 || trimmed.count == 8 else { return nil }
+        return "#" + trimmed.prefix(6)
+    }
+
     private func formatSong(_ song: Song, playbackType: String) -> [String: Any] {
         let isLibrary = playbackType == "librarySong"
         var dict: [String: Any] = [
@@ -119,6 +144,10 @@ public class AppleMusicKitModule: Module {
             "artworkUrl": artworkURLString(from: song.artwork, width: 200, height: 200),
             "artworkUrlLarge": artworkURLString(from: song.artwork, width: 1200, height: 1200)
         ]
+
+        if let artworkColor = artworkColorHex(from: song.artwork) {
+            dict["artworkColor"] = artworkColor
+        }
 
         if isLibrary {
             dict["libraryId"] = song.id.rawValue
@@ -149,7 +178,7 @@ public class AppleMusicKitModule: Module {
     }
 
     private func formatAlbum(_ album: Album) -> [String: Any] {
-        [
+        var result: [String: Any] = [
             "id": album.id.rawValue,
             "catalogId": album.id.rawValue,
             "resourceKind": "album",
@@ -160,16 +189,24 @@ public class AppleMusicKitModule: Module {
             "artworkUrl": artworkURLString(from: album.artwork),
             "artworkUrlLarge": artworkURLString(from: album.artwork, width: 1200, height: 1200),
         ]
+        if let artworkColor = artworkColorHex(from: album.artwork) {
+            result["artworkColor"] = artworkColor
+        }
+        return result
     }
 
     private func formatArtist(_ artist: Artist) -> [String: Any] {
-        [
+        var result: [String: Any] = [
             "id": artist.id.rawValue,
             "catalogId": artist.id.rawValue,
             "name": artist.name,
             "source": "catalog",
             "artworkUrl": artworkURLString(from: artist.artwork),
         ]
+        if let artworkColor = artworkColorHex(from: artist.artwork) {
+            result["artworkColor"] = artworkColor
+        }
+        return result
     }
 
     private func formatPlaylist(_ playlist: Playlist, source: String) -> [String: Any] {
@@ -189,6 +226,9 @@ public class AppleMusicKitModule: Module {
         }
         if let curatorName = playlist.curatorName {
             result["artistName"] = curatorName
+        }
+        if let artworkColor = artworkColorHex(from: playlist.artwork) {
+            result["artworkColor"] = artworkColor
         }
         return result
     }
@@ -249,11 +289,14 @@ public class AppleMusicKitModule: Module {
             result["songDuration"] = duration.doubleValue / 1000
         }
 
-        if let artwork = attributes["artwork"] as? [String: Any],
-           let template = artwork["url"] as? String
-        {
-            result["artworkUrl"] = artworkURL(template, width: 200, height: 200)
-            result["artworkUrlLarge"] = artworkURL(template, width: 1200, height: 1200)
+        if let artwork = attributes["artwork"] as? [String: Any] {
+            if let template = artwork["url"] as? String {
+                result["artworkUrl"] = artworkURL(template, width: 200, height: 200)
+                result["artworkUrlLarge"] = artworkURL(template, width: 1200, height: 1200)
+            }
+            if let artworkColor = artworkColorHex(artwork) {
+                result["artworkColor"] = artworkColor
+            }
         }
 
         if let releaseDate = attributes["releaseDate"] as? String,
@@ -304,10 +347,13 @@ public class AppleMusicKitModule: Module {
         // Library artists have no artwork of their own. The catalog artist the
         // relationship points at usually does.
         let artworkAttributes = (catalogData?.first?["attributes"] as? [String: Any]) ?? attributes
-        if let artwork = artworkAttributes["artwork"] as? [String: Any],
-           let template = artwork["url"] as? String
-        {
-            result["artworkUrl"] = artworkURL(template, width: 200, height: 200)
+        if let artwork = artworkAttributes["artwork"] as? [String: Any] {
+            if let template = artwork["url"] as? String {
+                result["artworkUrl"] = artworkURL(template, width: 200, height: 200)
+            }
+            if let artworkColor = artworkColorHex(artwork) {
+                result["artworkColor"] = artworkColor
+            }
         }
         return result
     }
@@ -837,9 +883,14 @@ public class AppleMusicKitModule: Module {
             (term: String, options: [String: Int]) async throws -> [String: Any] in
             let encodedTerm = term.addingPercentEncoding(
                 withAllowedCharacters: .urlQueryAllowed) ?? term
+            // include[library-artists]=catalog for the same reason
+            // getLibraryArtists asks for it: without the catalog relationship a
+            // searched library artist arrives with no catalog ID and no
+            // artwork, so its tile is inert and the artist screen is
+            // unreachable from library search.
             let response = try await self.makeAPIRequest(
                 path: "/v1/me/library/search?term=\(encodedTerm)&types=library-artists"
-                    + "&\(self.pageQuery(options))")
+                    + "&include[library-artists]=catalog&\(self.pageQuery(options))")
             // The library search payload nests one level deeper than a plain
             // library read, the same way searchLibrarySongs has to unwrap it.
             let results = response["results"] as? [String: Any] ?? [:]
@@ -1180,10 +1231,17 @@ public class AppleMusicKitModule: Module {
             if let shareURL = attributes["url"] as? String, !shareURL.isEmpty {
                 result["shareUrl"] = shareURL
             }
-            if let artwork = attributes["artwork"] as? [String: Any],
-               let template = artwork["url"] as? String
-            {
-                result["artworkUrl"] = self.artworkURL(template, width: 600, height: 600)
+            if let artwork = attributes["artwork"] as? [String: Any] {
+                if let template = artwork["url"] as? String {
+                    // The artist screen runs this full bleed behind its header,
+                    // so it is asked for at hero size rather than tile size.
+                    // The small one is what it shows until that arrives.
+                    result["artworkUrl"] = self.artworkURL(template, width: 1200, height: 1200)
+                    result["artworkUrlSmall"] = self.artworkURL(template, width: 300, height: 300)
+                }
+                if let artworkColor = self.artworkColorHex(artwork) {
+                    result["artworkColor"] = artworkColor
+                }
             }
             return result
         }
