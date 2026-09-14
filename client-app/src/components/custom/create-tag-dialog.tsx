@@ -20,8 +20,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Text } from "@/components/ui/text";
-import { Icon } from "@/components/ui/icon";
-import { ChevronDown, ChevronRight } from "lucide-react-native";
 import { useCreateTag } from "@/lib/routes/tags";
 import {
     TAG_TYPES,
@@ -204,11 +202,12 @@ export function CreateTagDialog() {
                         >
                             Advanced
                         </Text>
-                        <Icon
-                            as={showAdvanced ? ChevronDown : ChevronRight}
+                        <Ionicons
+                            name={
+                                showAdvanced ? "chevron-down" : "chevron-forward"
+                            }
                             size={CHEVRON_SIZE}
                             color={ADVANCED_COLOR}
-                            style={{ color: ADVANCED_COLOR }}
                         />
                     </Pressable>
 

@@ -14,8 +14,10 @@ importing `@/lib/routes/*` into a file under `ui/`, it belongs in `custom/`.
 
 ### ui/
 
-`badge`, `button`, `card`, `dialog`, `icon`, `input`, `label`, `separator`, `skeleton`, `tabs`,
+`badge`, `button`, `card`, `dialog`, `input`, `label`, `separator`, `skeleton`, `tabs`,
 `text`, `native-only-animated-view`, plus `sign-in-form` and `sign-up-form`.
+
+There is no `icon` primitive. Icons come straight from `@expo/vector-icons/Ionicons`.
 
 Config lives in `client-app/components.json` (shadcn "new-york", base color neutral, css
 variables), `tailwind.config.js`, and `global.css`. Class merging goes through
