@@ -4,7 +4,7 @@ import {
     useAPIMutation,
     useAPIPostDataBatched,
 } from "../api-actions";
-import { AppliedTag, Tag } from "@/lib/types";
+import { AppliedTag } from "@/lib/types";
 
 // the backend caps a batch at 200 ids
 const TAGS_ON_SONGS_BATCH_SIZE = 200;
@@ -27,15 +27,15 @@ export function useTagsOnSongs(songIds: readonly string[]) {
         () => [...new Set(songIds.filter(Boolean))],
         [songIds],
     );
-    const x = useAPIPostDataBatched<string, { song_ids: string[] }, Record<string, Tag[]>>(
-        "/songs/tags/batch",
-        normalizedIds,
-        {
-            batchSize: TAGS_ON_SONGS_BATCH_SIZE,
-            toBody: (song_ids) => ({ song_ids }),
-            merge: (responses) => Object.assign({}, ...responses),
-        },
-    );
+    const x = useAPIPostDataBatched<
+        string,
+        { song_ids: string[] },
+        Record<string, AppliedTag[]>
+    >("/songs/tags/batch", normalizedIds, {
+        batchSize: TAGS_ON_SONGS_BATCH_SIZE,
+        toBody: (song_ids) => ({ song_ids }),
+        merge: (responses) => Object.assign({}, ...responses),
+    });
     const tagsBySong = x.data ?? EMPTY_TAGS_BY_SONG;
 
     return {
@@ -45,7 +45,7 @@ export function useTagsOnSongs(songIds: readonly string[]) {
     };
 }
 
-const EMPTY_TAGS_BY_SONG: Record<string, Tag[]> = {};
+const EMPTY_TAGS_BY_SONG: Record<string, AppliedTag[]> = {};
 
 type ApplyTagPayload = {
     song_id: string;

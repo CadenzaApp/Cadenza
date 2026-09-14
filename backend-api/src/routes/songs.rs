@@ -48,7 +48,7 @@ async fn get_tags_on_songs_handler(
     State(db): State<DatabaseConnection>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Json(payload): Json<GetTagsOnSongsPayload>,
-) -> Result<Json<HashMap<String, Vec<Tag>>>, CadenzaError> {
+) -> Result<Json<HashMap<String, Vec<AppliedTag>>>, CadenzaError> {
     if payload.song_ids.len() > MAX_BATCH_SONG_IDS {
         return Err(CadenzaError::QueryFormatError(format!(
             "song_ids is limited to {MAX_BATCH_SONG_IDS} songs per request"

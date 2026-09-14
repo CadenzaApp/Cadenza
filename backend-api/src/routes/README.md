@@ -13,7 +13,7 @@ call into `src/db/` or `src/services/`, and shape the response.
 | `songs.rs` | Reading and changing which tags are on a song. Mounted at `/songs`. |
 | `queries.rs` | Runs a boolean tag query and returns song ids by relevance. Mounted at `/queries`. |
 | `json/mod.rs` | `vec_into`, a small `Vec<A> -> Vec<B>` helper. |
-| `json/tag.rs` | `Tag`, the wire shape of a tag. `From<tags::Model>` drops `user_id`. |
+| `json/tag.rs` | `TagType`, `Tag`, and `AppliedTag`, the wire shapes of a tag. `From<tags::Model>` drops `user_id`. |
 
 ## Endpoints
 
@@ -26,9 +26,10 @@ Every route below requires `Authorization: Bearer <supabase jwt>`.
 | POST | `/tags` | `{name, color}` | the new tag id, as a bare number in the body |
 | DELETE | `/tags` | `{tag_id}` | empty. Silently no-ops if the tag is not yours |
 | GET | `/tags/suggest` | `?song_desc=...&requested_tag_count=N` | `["vocaloid", "japanese", ...]` |
-| GET | `/songs/tags` | `?song_id=...` | `[Tag]`, the user's tags on that song |
-| POST | `/songs/tags/batch` | `{song_ids: [...]}` | `{song_id: [Tag]}`, an entry per requested song |
-| POST | `/songs/tags` | `{song_id, tag_id}` | empty |
+| GET | `/songs/tags` | `?song_id=...` | `[AppliedTag]`, the user's tags on that song |
+| POST | `/songs/tags/batch` | `{song_ids: [...]}` | `{song_id: [AppliedTag]}`, an entry per requested song |
+| POST | `/songs/tags` | `{song_id, tag_id, value?}` | empty |
+| PATCH | `/songs/tags` | `{song_id, tag_id, value}` | empty. A null value clears it |
 | DELETE | `/songs/tags` | `{song_id, tag_id}` | empty |
 | GET | `/queries/results` | `?q=<query json>` | `["songid", ...]`, most relevant first |
 | GET | `/test` | none | `server is reachable`. Defined inline in `main.rs`, not here |
@@ -38,6 +39,10 @@ Every route below requires `Authorization: Bearer <supabase jwt>`.
 
 `metadata` is keyed by tag id, separate from the `tags` array, so the client can look up a
 count without walking the list.
+
+`AppliedTag` is a `Tag` with the applied value flattened in, so it serializes as the tag's own
+fields plus `value`. Both reads that return tags on a song use it. `value` is always null for a
+basic tag, and null for an attribute tag applied without one.
 
 ## How it works
 

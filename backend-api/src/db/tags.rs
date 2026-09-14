@@ -111,14 +111,15 @@ pub async fn get_user_tags_on_song(
         .collect())
 }
 
-/// Same as `get_user_tags_on_song`, for many songs at once. Every requested
-/// song gets an entry, so songs with no tags come back as an empty list.
+/// Same as `get_user_tags_on_song`, for many songs at once, so each tag comes
+/// back paired with the value it was applied with. Every requested song gets an
+/// entry, so songs with no tags come back as an empty list.
 pub async fn get_user_tags_on_songs(
     db: &DatabaseConnection,
     user_id: Uuid,
     song_ids: &[String],
-) -> Result<HashMap<String, Vec<tags::Model>>, CadenzaError> {
-    let mut tags_by_song: HashMap<String, Vec<tags::Model>> = song_ids
+) -> Result<HashMap<String, Vec<(tags::Model, Option<String>)>>, CadenzaError> {
+    let mut tags_by_song: HashMap<String, Vec<(tags::Model, Option<String>)>> = song_ids
         .iter()
         .map(|song_id| (song_id.clone(), Vec::new()))
         .collect();
@@ -136,10 +137,8 @@ pub async fn get_user_tags_on_songs(
 
     for (applied_tag, tag) in applied {
         let Some(tag) = tag else { continue };
-        tags_by_song
-            .entry(applied_tag.song_id)
-            .or_default()
-            .push(tag);
+        let user_tags_applied::Model { song_id, value, .. } = applied_tag;
+        tags_by_song.entry(song_id).or_default().push((tag, value));
     }
 
     Ok(tags_by_song)

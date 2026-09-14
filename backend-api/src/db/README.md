@@ -55,7 +55,9 @@ becomes `CadenzaError::QueryFormatError` (422).
 ## Connects to
 
 - Called by `src/routes/tags.rs`, `src/routes/songs.rs`, `src/routes/queries.rs`.
-- Models convert to wire types through `From<tags::Model> for routes::json::tag::Tag`.
+- Models convert to wire types through `From<tags::Model> for routes::json::tag::Tag`, and a
+  model paired with its applied value through `From<(tags::Model, Option<String>)> for
+  routes::json::tag::AppliedTag`.
 - Client side, the JSON tree is produced by
   `client-app/src/features/query-builder/QueryUtils.ts::queryNodeToJSON`.
 
@@ -73,6 +75,8 @@ becomes `CadenzaError::QueryFormatError` (422).
   `get_user_tags_metadata` all filter on `user_id`, and nothing joins `default_tags_applied`.
 - `get_user_tags_on_songs` seeds its map from the requested ids first, so every song asked for
   has an entry whether or not it has tags. Same idea as `get_user_tags_metadata`.
+- `get_user_tags_on_song` and `get_user_tags_on_songs` both return `(tags::Model, Option<String>)`
+  pairs, not bare models, because the value lives on the application row rather than on the tag.
 - `delete_user_tag` and `unapply_user_tag` silently no-op when nothing matches, rather than
   returning `NotFound`.
 - `get_user_tags_metadata` returns a `HashMap<i64, TagMetadata>` keyed by tag id. Tags with no

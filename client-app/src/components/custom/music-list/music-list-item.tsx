@@ -27,12 +27,12 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
 import { THEME } from "@/lib/theme";
-import type { Tag } from "@/lib/types";
+import type { AppliedTag } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 type MusicListItemProps = {
     item: MusicItem;
-    tags?: Tag[];
+    tags?: AppliedTag[];
     selected: boolean;
     selectionMode: boolean;
     multiSelectEnabled: boolean;
@@ -259,6 +259,7 @@ export const MusicListItem = memo(function MusicListItem({
                                         <TagPill
                                             key={tag.id}
                                             tag={tag}
+                                            value={tag.value}
                                             height={compact ? 8 : 10}
                                             compact={compact}
                                         />

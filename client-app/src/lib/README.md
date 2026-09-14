@@ -13,7 +13,7 @@ native module directly.
 | `api-endpoints.ts` | `matchesEndpoint`, the cache-key matcher behind invalidation. Import-free so it can be unit tested. |
 | `swr-utils.ts` | `clearCache` and `useSimpleMutation`, for things that are not plain backend calls. |
 | `routes/tags.ts` | Hooks for `/tags`: `useUserTags`, `useTag`, `useCreateTag`, `useDeleteTag`, `useSuggestTags`. |
-| `routes/songs.ts` | Hooks for `/songs/tags`: `useTagsOnSong`, `useTagsOnSongs`, `useApplyTag`, `useUnapplyTag`. |
+| `routes/songs.ts` | Hooks for `/songs/tags`: `useTagsOnSong`, `useTagsOnSongs`, `useApplyTag`, `useSetTagValue`, `useUnapplyTag`. |
 | `routes/queries.ts` | Hook for `/queries/results`: `useQueryResults`. |
 | `musickit-hooks.ts` | SWR over the native module: song info, catalog search, library, playlists, favorites. |
 | `account.tsx` | `AccountProvider` / `useAccount`. Supabase session and the JWT. |
@@ -24,7 +24,7 @@ native module directly.
 | `theme.ts` | `NAV_THEME`, light and dark palettes for react-navigation. |
 | `error-utils.ts` | `getErrorDetails` / `getErrorMessage`, for unwrapping native and backend errors. |
 | `screen-overlay.ts` | `useScreenOverlayInsets`. How much bottom padding a screen owes the compact player and the floating button. |
-| `types.ts` | Shared wire types: `Tag` and `TagMetadata`. |
+| `types.ts` | Shared wire types: `TagType`, `Tag`, `AppliedTag` and `TagMetadata`. |
 | `utils.ts` | `cn()`, the clsx + tailwind-merge helper. |
 
 ## The SWR wrappers
@@ -90,6 +90,7 @@ One file per backend router, and every backend endpoint has at least one hook.
 | `routes/songs.rs` | `GET /songs/tags` | `songs.ts` -> `useTagsOnSong(songId)` |
 | | `POST /songs/tags/batch` | `songs.ts` -> `useTagsOnSongs(songIds)` |
 | | `POST /songs/tags` | `songs.ts` -> `useApplyTag()` |
+| | `PATCH /songs/tags` | `songs.ts` -> `useSetTagValue()` |
 | | `DELETE /songs/tags` | `songs.ts` -> `useUnapplyTag()` |
 | `routes/queries.rs` | `GET /queries/results` | `queries.ts` -> `useQueryResults()` |
 
