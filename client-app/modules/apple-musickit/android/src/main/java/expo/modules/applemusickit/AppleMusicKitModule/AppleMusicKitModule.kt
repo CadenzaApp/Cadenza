@@ -474,6 +474,54 @@ class AppleMusicKitModule : Module() {
             return@AsyncFunction mapOf("isFavorite" to isFavorite)
         }
 
+        AsyncFunction("getCollectionFavoriteStatus") { kind: String, id: String ->
+            val catalogId = resolveCatalogId(id, kind)
+            val encodedId = URLEncoder.encode(catalogId, "UTF-8")
+            val response = makeApiRequest("/v1/catalog/${currentStorefrontId()}/$kind/$encodedId?extend=inFavorites")
+            val resource = (response["data"] as? List<*>)?.firstOrNull() as? Map<*, *>
+            val attributes = resource?.get("attributes") as? Map<*, *>
+            return@AsyncFunction mapOf("isFavorite" to (attributes?.get("inFavorites") as? Boolean ?: false))
+        }
+
+        AsyncFunction("setCollectionFavoriteStatus") { kind: String, id: String, isFavorite: Boolean ->
+            val catalogId = resolveCatalogId(id, kind)
+            val encodedId = URLEncoder.encode(catalogId, "UTF-8")
+            makeApiRequest(
+                "/v1/me/ratings/$kind/$encodedId",
+                if (isFavorite) "PUT" else "DELETE",
+                if (isFavorite) favoriteRatingBody else null
+            )
+            return@AsyncFunction mapOf("isFavorite" to isFavorite)
+        }
+
+        AsyncFunction("getCollectionInfo") { kind: String, ids: List<String> ->
+            if (ids.isEmpty()) return@AsyncFunction emptyList<Map<String, Any>>()
+
+            val libraryIds = ids.filter { it.contains(".") }
+            val catalogIds = ids.filter { !it.contains(".") }
+            val fetchedResults = mutableListOf<Map<String, Any>>()
+
+            if (libraryIds.isNotEmpty()) {
+                val idsParam = libraryIds.joinToString(",") { encode(it) }
+                val response = makeApiRequest("/v1/me/library/$kind?ids=$idsParam")
+                fetchedResults.addAll(objectList(response["data"]).map { formatMediaItem(it) })
+            }
+
+            if (catalogIds.isNotEmpty()) {
+                val idsParam = catalogIds.joinToString(",") { encode(it) }
+                val response = makeApiRequest("/v1/catalog/${currentStorefrontId()}/$kind?ids=$idsParam")
+                fetchedResults.addAll(objectList(response["data"]).map { formatMediaItem(it) })
+            }
+
+            val resultsMap = mutableMapOf<String, Map<String, Any>>()
+            fetchedResults.forEach { result ->
+                listOf(result["id"], result["catalogId"], result["libraryId"])
+                    .filterIsInstance<String>()
+                    .forEach { resultsMap[it] = result }
+            }
+            return@AsyncFunction ids.mapNotNull { resultsMap[it] }
+        }
+
         AsyncFunction("catalogSearch") { query: String, types: List<String>, requestedLimit: Int, requestedOffset: Int ->
             val encodedQuery = encode(query)
             val typesStr = types.joinToString(",")
@@ -816,6 +864,23 @@ class AppleMusicKitModule : Module() {
         val playParams = attributes?.get("playParams") as? Map<*, *>
         return playParams?.get("catalogId")?.toString()
             ?: throw Exception("No catalog ID is available for library song $id.")
+    }
+
+    /**
+     * The same resolution as [resolveCatalogSongId], generalized to any
+     * ratable resource type. A purely personal album/playlist never published
+     * to the catalog has no catalog ID, so this can legitimately fail for one.
+     */
+    private fun resolveCatalogId(id: String, resourceKind: String): String {
+        if (!id.contains(".")) return id
+
+        val encodedId = URLEncoder.encode(id, "UTF-8")
+        val response = makeApiRequest("/v1/me/library/$resourceKind/$encodedId")
+        val resource = (response["data"] as? List<*>)?.firstOrNull() as? Map<*, *>
+        val attributes = resource?.get("attributes") as? Map<*, *>
+        val playParams = attributes?.get("playParams") as? Map<*, *>
+        return playParams?.get("catalogId")?.toString()
+            ?: throw Exception("No catalog ID is available for library $resourceKind $id.")
     }
 
     private fun getSongFavoriteStatus(id: String): Map<String, Any> {

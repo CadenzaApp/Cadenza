@@ -5,6 +5,8 @@ import type {
     ArtistResult,
     AuthResult,
     CatalogSearchType,
+    CollectionFavoriteKind,
+    FavoriteStatus,
     LibraryResult,
     LibrarySongOptions,
     MusicItem,
@@ -94,6 +96,19 @@ export interface AppleMusicKitNativeModule {
     createPlaylist(name: string, ids: readonly string[]): Promise<MusicItem>;
     getSongArtists(songId: string): Promise<string[]>;
     getArtist(artistId: string): Promise<ArtistDetail>;
+    getCollectionFavoriteStatus(
+        kind: CollectionFavoriteKind,
+        id: string,
+    ): Promise<FavoriteStatus>;
+    setCollectionFavoriteStatus(
+        kind: CollectionFavoriteKind,
+        id: string,
+        isFavorite: boolean,
+    ): Promise<FavoriteStatus>;
+    getCollectionInfo(
+        kind: CollectionFavoriteKind,
+        ids: string[],
+    ): Promise<MusicItem[]>;
 }
 
 // Set EXPO_PUBLIC_MOCK_MUSICKIT=1 to answer from ./mock-native instead of the

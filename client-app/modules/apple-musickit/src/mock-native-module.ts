@@ -12,6 +12,8 @@ import {
     ArtistDetail,
     ArtistItem,
     ArtistResult,
+    CollectionFavoriteKind,
+    FavoriteStatus,
     LibraryResult,
     LibrarySongOptions,
     MusicItem,
@@ -536,6 +538,18 @@ const MOCK_FAVORITE_IDS = new Set<string>([
     MOCK_LIBRARY_SONGS[1].id,
 ]);
 
+const ALL_MOCK_COLLECTIONS = [...MOCK_LIBRARY_ALBUMS, ...MOCK_PLAYLISTS];
+const MOCK_COLLECTIONS_BY_ID = new Map<string, MusicItem>();
+for (const collection of ALL_MOCK_COLLECTIONS) {
+    for (const id of [collection.id, collection.catalogId, collection.libraryId]) {
+        if (id) MOCK_COLLECTIONS_BY_ID.set(id, collection);
+    }
+}
+/** Favoriting a personal (library-only) playlist has no catalog counterpart to rate. */
+const MOCK_COLLECTION_FAVORITE_IDS = new Set<string>(
+    MOCK_LIBRARY_ALBUMS[0] ? [MOCK_LIBRARY_ALBUMS[0].id] : [],
+);
+
 /**
  * Artists, derived from the song fixtures the same way the library albums are.
  * `mockArtistId` already stamps every song with an id built from its artist
@@ -878,6 +892,31 @@ export function createMockNativeModule(): AppleMusicKitNativeModule {
             if (isFavorite) MOCK_FAVORITE_IDS.add(id);
             else MOCK_FAVORITE_IDS.delete(id);
             return respond<SongFavoriteStatus>({ isFavorite });
+        },
+
+        getCollectionInfo: (kind: CollectionFavoriteKind, ids: string[]) =>
+            respond(
+                ids
+                    .map((id) => MOCK_COLLECTIONS_BY_ID.get(id))
+                    .filter((collection) => collection !== undefined),
+            ),
+
+        getCollectionFavoriteStatus: (
+            kind: CollectionFavoriteKind,
+            id: string,
+        ) =>
+            respond<FavoriteStatus>({
+                isFavorite: MOCK_COLLECTION_FAVORITE_IDS.has(id),
+            }),
+
+        setCollectionFavoriteStatus: (
+            kind: CollectionFavoriteKind,
+            id: string,
+            isFavorite: boolean,
+        ) => {
+            if (isFavorite) MOCK_COLLECTION_FAVORITE_IDS.add(id);
+            else MOCK_COLLECTION_FAVORITE_IDS.delete(id);
+            return respond<FavoriteStatus>({ isFavorite });
         },
 
         setPlaybackQueue: (id: string, type: string) => {

@@ -12,8 +12,8 @@ Import `Auth`, `MusicKit`, `Playback`, and their public types from
 
 - `Auth` authorizes the current user and restores or clears native tokens.
 - `MusicKit` searches the catalog, reads library pages and playlist tracks,
-  reads or changes song favorite state, writes to library playlists, and reads
-  catalog and library artists.
+  reads or changes favorite state for songs, albums, and playlists, writes to
+  library playlists, and reads catalog and library artists.
 - `Playback` exposes native commands plus React hooks for the shared playback
   snapshot.
 
@@ -38,7 +38,8 @@ EXPO_PUBLIC_MOCK_MUSICKIT=1
 ```
 
 Mock mode supplies authorization, catalog and library fixtures, paginated
-collections, album and playlist contents, mutable favorite state, the full queue
+collections, album and playlist contents, mutable favorite state for songs and
+collections, the full queue
 surface (reorder, remove, jump, play next, shuffle, repeat), playlist writes,
 artists, and playback snapshots with simulated progress. Mock artist ids are
 derived from the artist name, so every fixture has one without the fixtures
@@ -130,6 +131,31 @@ either native SDK, because neither SDK edits playlists. Library-only song ids
 are resolved to their catalog equivalent first; Apple rejects the request
 otherwise.
 
+## Favorites and collection info
+
+| call | does |
+| --- | --- |
+| `getSongFavoriteStatus(id)` / `setSongFavoriteStatus(id, isFavorite)` | Reads or writes a song's favorite state. |
+| `getCollectionFavoriteStatus(kind, id)` / `setCollectionFavoriteStatus(kind, id, isFavorite)` | The same, for an album or playlist. `kind` is `"albums"` or `"playlists"`, matching the Apple Music API path segment directly rather than the app's singular `LibraryCollectionKind`. |
+| `getCollectionInfo(kind, ids)` | Metadata (title, artwork, `shareUrl`) for the album or playlist itself, mirroring `getSongInfo`. |
+
+All three favorite calls resolve a library-only id to its catalog equivalent
+first (`resolveCatalogSongID` for songs, the generalized `resolveCatalogID` for
+albums/playlists), then read or write Apple's rating endpoint
+(`/v1/catalog/{storefront}/{type}/{id}?extend=inFavorites` to read,
+`/v1/me/ratings/{type}/{id}` to write). A purely personal playlist that was
+never published to the catalog has no catalog id to resolve to; both platforms
+throw `ERR_CATALOG_ID_UNAVAILABLE` in that case, and the client treats it as
+"favorite unavailable" rather than a hard failure.
+
+`getCollectionInfo` did not exist before the options-menu rework: the
+collection screen previously only ever fetched a collection's songs, never the
+collection itself. It follows `getSongInfo`'s shape (library/catalog split,
+original order preserved) but goes through the raw REST `formatAPIResource`
+(iOS) / `formatMediaItem` (Android) path rather than the typed MusicKit
+framework calls `getSongInfo` uses for catalog songs, since there is no typed
+album/playlist equivalent needed elsewhere in this module.
+
 ## Artists
 
 | call | returns |
@@ -214,7 +240,8 @@ guessing, and `src/playback.ts` keeps the last value it set.
   the track list and the current index.
 - `client-app/src/lib/musickit-hooks.ts` wraps `MusicKit` reads in SWR, including
   `useArtist`, `useSongArtists`, `useLibraryArtists`, `useCatalogArtistSearch`,
-  `useLibraryArtistSearch`, and `usePlaylistMutations`.
+  `useLibraryArtistSearch`, `usePlaylistMutations`,
+  `useCollectionFavoriteStatus`, and `useCollectionInfo`.
 - `client-app/src/lib/queue-order.ts` holds the index math the mirror and the
   native players have to agree on.
 

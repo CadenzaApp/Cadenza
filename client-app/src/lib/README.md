@@ -15,7 +15,7 @@ native module directly.
 | `routes/tags.ts` | Hooks for `/tags`: `useUserTags`, `useTag`, `useCreateTag`, `useDeleteTag`, `useSuggestTags`. |
 | `routes/songs.ts` | Hooks for `/songs/tags`: `useTagsOnSong`, `useTagsOnSongs`, `useApplyTag`, `useUnapplyTag`. |
 | `routes/queries.ts` | Hook for `/queries/results`: `useQueryResults`. |
-| `musickit-hooks.ts` | SWR over the native module: song info, catalog search, library search, library songs, albums, artists, playlists, collection contents, favorites, artist search, playlist writes. |
+| `musickit-hooks.ts` | SWR over the native module: song info, catalog search, library search, library songs, albums, artists, playlists, collection contents and metadata, song and collection favorites, artist search, playlist writes. |
 | `account.tsx` | `AccountProvider` / `useAccount`. Supabase session and the JWT. |
 | `apple-music-auth.tsx` | `AppleMusicProvider` / `useAppleMusic`. Apple Music tokens, persisted in secure store. |
 | `playback.tsx` | `PlaybackProvider`, `usePlayback` (state) and `usePlaybackCommands` (actions). Queue and the native playback snapshot. |
@@ -111,8 +111,10 @@ change invalidates. Rename the returned fields to something readable (`tagsOnSon
 `isLoading`.
 
 `musickit-hooks.ts` does the same job for the native module, using plain `useSWR` with tuple
-keys like `["MusicKit.getSongInfo", ids]`. `useSongFavoriteStatus` is the one optimistic update
-in the codebase, with `rollbackOnError`. `usePlaylistMutations` is the exception to the wrapper
+keys like `["MusicKit.getSongInfo", ids]`. `useSongFavoriteStatus` and `useCollectionFavoriteStatus`
+are the optimistic updates in the codebase, both with `rollbackOnError`. `useCollectionInfo`
+fetches an album/playlist's own metadata (title, artwork, `shareUrl`) - `useCollectionSongs`
+only ever fetches its songs. `usePlaylistMutations` is the exception to the wrapper
 rule: playlist writes are not backend calls, so they are plain async functions that invalidate
 every cached playlist key by predicate afterwards.
 

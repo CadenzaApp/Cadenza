@@ -80,6 +80,26 @@ public class AppleMusicKitModule: Module {
         return catalogID
     }
 
+    /// The same resolution as `resolveCatalogSongID`, generalized to any
+    /// ratable resource type. Unlike songs, an album or playlist that is
+    /// purely personal (never published to the catalog) has no catalog ID at
+    /// all, so this can legitimately fail for a library-only playlist.
+    private func resolveCatalogID(_ id: String, resourceKind: String) async throws -> String {
+        guard isLibraryIdentifier(id) else { return id }
+
+        let encodedID = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+        let response = try await makeAPIRequest(path: "/v1/me/library/\(resourceKind)/\(encodedID)")
+        let resource = (response["data"] as? [[String: Any]])?.first
+        let attributes = resource?["attributes"] as? [String: Any]
+        let playParams = attributes?["playParams"] as? [String: Any]
+        guard let catalogID = playParams?["catalogId"] as? String else {
+            throw Exception(
+                name: "ERR_CATALOG_ID_UNAVAILABLE",
+                description: "No catalog ID is available for library \(resourceKind) \(id).")
+        }
+        return catalogID
+    }
+
     private func artworkURLString(from artwork: Artwork?, width: Int = 200, height: Int = 200) -> String {
         guard let url = artwork?.url(width: width, height: height) else { return "" }
 
@@ -853,6 +873,79 @@ public class AppleMusicKitModule: Module {
                 method: isFavorite ? "PUT" : "DELETE",
                 body: ratingBody)
             return ["isFavorite": isFavorite]
+        }
+
+        AsyncFunction("getCollectionFavoriteStatus") {
+            (kind: String, id: String) async throws -> [String: Any] in
+            let catalogID = try await self.resolveCatalogID(id, resourceKind: kind)
+            let storefrontID = try await self.currentStorefrontID()
+            let encodedID = catalogID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)
+                ?? catalogID
+            let response = try await self.makeAPIRequest(
+                path: "/v1/catalog/\(storefrontID)/\(kind)/\(encodedID)?extend=inFavorites")
+            let resource = (response["data"] as? [[String: Any]])?.first
+            let attributes = resource?["attributes"] as? [String: Any]
+            return ["isFavorite": attributes?["inFavorites"] as? Bool ?? false]
+        }
+
+        AsyncFunction("setCollectionFavoriteStatus") {
+            (kind: String, id: String, isFavorite: Bool) async throws -> [String: Any] in
+            let catalogID = try await self.resolveCatalogID(id, resourceKind: kind)
+            let encodedID = catalogID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)
+                ?? catalogID
+            let ratingBody = isFavorite
+                ? try JSONSerialization.data(withJSONObject: [
+                    "type": "rating",
+                    "attributes": ["value": 1]
+                ])
+                : nil
+            _ = try await self.makeAPIRequest(
+                path: "/v1/me/ratings/\(kind)/\(encodedID)",
+                method: isFavorite ? "PUT" : "DELETE",
+                body: ratingBody)
+            return ["isFavorite": isFavorite]
+        }
+
+        AsyncFunction("getCollectionInfo") {
+            (kind: String, ids: [String]) async throws -> [[String: Any]] in
+            if ids.isEmpty { return [] }
+
+            let libraryIds = ids.filter { self.isLibraryIdentifier($0) }
+            let catalogIds = ids.filter { !self.isLibraryIdentifier($0) }
+            var fetchedResults: [[String: Any]] = []
+
+            if !libraryIds.isEmpty {
+                let encodedIds = libraryIds
+                    .map { $0.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? $0 }
+                    .joined(separator: ",")
+                let response = try await self.makeAPIRequest(
+                    path: "/v1/me/library/\(kind)?ids=\(encodedIds)")
+                for item in response["data"] as? [[String: Any]] ?? [] {
+                    fetchedResults.append(self.formatAPIResource(item))
+                }
+            }
+
+            if !catalogIds.isEmpty {
+                let storefrontID = try await self.currentStorefrontID()
+                let encodedIds = catalogIds
+                    .map { $0.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? $0 }
+                    .joined(separator: ",")
+                let response = try await self.makeAPIRequest(
+                    path: "/v1/catalog/\(storefrontID)/\(kind)?ids=\(encodedIds)")
+                for item in response["data"] as? [[String: Any]] ?? [] {
+                    fetchedResults.append(self.formatAPIResource(item))
+                }
+            }
+
+            var resultsDict: [String: [String: Any]] = [:]
+            for result in fetchedResults {
+                for key in ["id", "catalogId", "libraryId"] {
+                    if let id = result[key] as? String {
+                        resultsDict[id] = result
+                    }
+                }
+            }
+            return ids.compactMap { resultsDict[$0] }
         }
 
         AsyncFunction("getUserPlaylists") {

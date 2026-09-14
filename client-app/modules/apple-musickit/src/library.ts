@@ -2,6 +2,8 @@ import type {
     ArtistDetail,
     ArtistResult,
     CatalogSearchType,
+    CollectionFavoriteKind,
+    FavoriteStatus,
     LibraryResult,
     LibrarySongOptions,
     MusicItem,
@@ -244,6 +246,44 @@ export const MusicKit = {
             requireIdentifier(artistId, "artist ID"),
         );
     },
+
+    /**
+     * Returns whether the user has favorited a library or catalog album or
+     * playlist. Rejects for a purely personal playlist, which has no catalog
+     * identifier to rate.
+     */
+    getCollectionFavoriteStatus: async (
+        kind: CollectionFavoriteKind,
+        id: string,
+    ): Promise<FavoriteStatus> => {
+        return requireNative().getCollectionFavoriteStatus(
+            kind,
+            requireIdentifier(id, `${kind} ID`),
+        );
+    },
+
+    /** Adds or removes an album or playlist from the user's favorites. */
+    setCollectionFavoriteStatus: async (
+        kind: CollectionFavoriteKind,
+        id: string,
+        isFavorite: boolean,
+    ): Promise<FavoriteStatus> => {
+        return requireNative().setCollectionFavoriteStatus(
+            kind,
+            requireIdentifier(id, `${kind} ID`),
+            isFavorite,
+        );
+    },
+
+    /** Retrieves full metadata for catalog or library album/playlist IDs, in the requested order. */
+    getCollectionInfo: async (
+        kind: CollectionFavoriteKind,
+        ids: string[],
+    ): Promise<MusicItem[]> => {
+        if (ids.length === 0) return [];
+        const normalizedIds = ids.map((id) => requireIdentifier(id, `${kind} ID`));
+        return requireNative().getCollectionInfo(kind, normalizedIds);
+    },
 };
 
 /** @internal Supplies the native catalog and library implementation. */
@@ -310,6 +350,19 @@ interface LibraryNativeModule {
     createPlaylist(name: string, ids: readonly string[]): Promise<MusicItem>;
     getSongArtists(songId: string): Promise<string[]>;
     getArtist(artistId: string): Promise<ArtistDetail>;
+    getCollectionFavoriteStatus(
+        kind: CollectionFavoriteKind,
+        id: string,
+    ): Promise<FavoriteStatus>;
+    setCollectionFavoriteStatus(
+        kind: CollectionFavoriteKind,
+        id: string,
+        isFavorite: boolean,
+    ): Promise<FavoriteStatus>;
+    getCollectionInfo(
+        kind: CollectionFavoriteKind,
+        ids: string[],
+    ): Promise<MusicItem[]>;
 }
 
 let native: LibraryNativeModule | null = null;

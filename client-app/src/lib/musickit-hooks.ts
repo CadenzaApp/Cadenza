@@ -2,6 +2,8 @@ import {
     type ArtistDetail,
     type ArtistItem,
     type ArtistResult,
+    type CollectionFavoriteKind,
+    type FavoriteStatus,
     type LibrarySongOptions,
     MusicKit,
     type MusicItem,
@@ -570,6 +572,89 @@ export function useSongFavoriteStatus(songId?: string) {
         favoriteStatusLoading: x.isLoading || isInitializing,
         favoriteStatusErr: x.error,
         setSongFavoriteStatus,
+    };
+}
+
+function collectionFavoriteKind(
+    kind: LibraryCollectionKind,
+): CollectionFavoriteKind {
+    return kind === "album" ? "albums" : "playlists";
+}
+
+/** Returns and updates the cached favorite status for one album or playlist. */
+export function useCollectionFavoriteStatus(
+    kind: LibraryCollectionKind,
+    collectionId?: string,
+) {
+    const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
+    const apiKind = collectionFavoriteKind(kind);
+    const key =
+        isConnected && collectionId
+            ? ([
+                  "MusicKit.getCollectionFavoriteStatus",
+                  sessionRevision,
+                  apiKind,
+                  collectionId,
+              ] as const)
+            : null;
+    const x = useSWR<FavoriteStatus>(key, () =>
+        MusicKit.getCollectionFavoriteStatus(apiKind, collectionId!),
+    );
+
+    async function setCollectionFavoriteStatus(
+        isFavorite: boolean,
+    ): Promise<FavoriteStatus> {
+        if (!collectionId) throw new Error("A collection ID is required.");
+
+        const update = MusicKit.setCollectionFavoriteStatus(
+            apiKind,
+            collectionId,
+            isFavorite,
+        );
+        const nextStatus = await x.mutate(update, {
+            optimisticData: { isFavorite },
+            rollbackOnError: true,
+            populateCache: true,
+            revalidate: false,
+        });
+        if (!nextStatus) {
+            throw new Error("Apple Music did not return a favorite status.");
+        }
+        return nextStatus;
+    }
+
+    return {
+        favoriteStatus: x.data,
+        favoriteStatusLoading: x.isLoading || isInitializing,
+        favoriteStatusErr: x.error,
+        setCollectionFavoriteStatus,
+    };
+}
+
+/** Returns metadata (title, artwork, share URL) for the album or playlist itself. */
+export function useCollectionInfo(
+    kind: LibraryCollectionKind,
+    collectionId?: string,
+) {
+    const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
+    const apiKind = collectionFavoriteKind(kind);
+    const key =
+        isConnected && collectionId
+            ? ([
+                  "MusicKit.getCollectionInfo",
+                  sessionRevision,
+                  apiKind,
+                  collectionId,
+              ] as const)
+            : null;
+    const x = useSWR<MusicItem[]>(key, () =>
+        MusicKit.getCollectionInfo(apiKind, [collectionId!]),
+    );
+
+    return {
+        collection: x.data?.[0],
+        collectionLoading: x.isLoading || isInitializing,
+        collectionErr: x.error,
     };
 }
 

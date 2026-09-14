@@ -149,11 +149,23 @@ export interface PlaybackSnapshot {
     repeatMode?: RepeatMode;
 }
 
-/** The user's favorite state for an Apple Music catalog song. */
-export interface SongFavoriteStatus {
-    /** Whether the song is currently in the user's favorites. */
+/** The user's favorite state for an Apple Music resource. */
+export interface FavoriteStatus {
+    /** Whether the resource is currently in the user's favorites. */
     isFavorite: boolean;
 }
+
+/** The user's favorite state for an Apple Music catalog song. */
+export type SongFavoriteStatus = FavoriteStatus;
+
+/** The user's favorite state for an Apple Music album. */
+export type AlbumFavoriteStatus = FavoriteStatus;
+
+/** The user's favorite state for an Apple Music playlist. */
+export type PlaylistFavoriteStatus = FavoriteStatus;
+
+/** Which library collection kind a `MusicItem` or a favorite call refers to. */
+export type CollectionFavoriteKind = "albums" | "playlists";
 
 /** Catalog search results grouped by Apple Music resource type. */
 export interface SearchResult {
