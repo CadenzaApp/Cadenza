@@ -97,6 +97,10 @@ api as JSON should have a type here rather than serializing an entity model dire
 - Only `POST /songs/tags` and `DELETE /songs/tags` vote. `DELETE /tags` takes the tag off every
   song through the cascade without adding any no votes, and song reads that copy default tags add
   no yes votes.
+- A vote from either of those can add a default tag to the song, once the tag name has at least
+  10 votes there and more than 1.5 times as many yes as no. A song whose first default tag comes
+  from votes counts as having default tags, so `POST /songs/default-tags` skips it and
+  `POST /songs/untagged` stops returning it.
 - A user gets a song's default tags at most once, when the song is initialized: on the first read
   that finds it with default tags, or when the user tags it. The copies are the user's own tags,
   so they show up in `GET /tags`, and `DELETE /songs/tags` and `DELETE /tags` treat them like any

@@ -4,7 +4,7 @@ use sea_orm::{
     ActiveModelTrait,
     ActiveValue::{NotSet, Set},
     ColumnTrait, ConnectionTrait, DatabaseConnection, DbBackend, EntityTrait, FromQueryResult,
-    JoinType, ModelTrait, QueryFilter, QuerySelect, Statement, TransactionTrait,
+    JoinType, ModelTrait, QueryFilter, QueryOrder, QuerySelect, Statement, TransactionTrait,
     prelude::Uuid,
     sea_query::OnConflict,
 };
@@ -425,7 +425,8 @@ pub async fn delete_user_tag(
 /// Puts one of the user's tags on a song, and initializes the song for the user
 /// if it isn't yet. Otherwise removing this tag would leave the song
 /// uninitialized, and the next read would copy its default tags onto it. Also
-/// votes yes on the tag's name for the song (see [`record_tag_vote`]).
+/// votes yes on the tag's name for the song, which can make the name a default
+/// tag there (see [`record_tag_vote`]).
 pub async fn apply_user_tag(
     db: DatabaseConnection,
     votes: &TagVoteCache,
@@ -445,24 +446,22 @@ pub async fn apply_user_tag(
     new_tag_relation.insert(&txn).await?;
 
     // the user put this tag on the song, so its name gets a yes vote
-    let tag_name: Option<String> = tags::Entity::find_by_id(tag_id)
-        .select_only()
-        .column(tags::Column::Name)
-        .into_tuple()
-        .one(&txn)
-        .await?;
-    if let Some(tag_name) = &tag_name {
-        record_tag_vote(&txn, votes, user_id, &song_id, tag_name, TagVote::Yes).await?;
-    }
+    let tag = tags::Entity::find_by_id(tag_id).one(&txn).await?;
+    let recorded = match &tag {
+        Some(tag) => {
+            Some(record_tag_vote(&txn, votes, user_id, &song_id, tag, TagVote::Yes).await?)
+        }
+        None => None,
+    };
 
     // the song has a tag of the user's now, so it counts as initialized
-    insert_song_meta(&txn, user_id, [song_id.clone()]).await?;
+    insert_song_meta(&txn, user_id, [song_id]).await?;
 
     txn.commit().await?;
 
-    // cache the vote only once it is committed
-    if let Some(tag_name) = tag_name {
-        votes.remember(user_id, song_id, tag_name, TagVote::Yes);
+    // update the vote cache only once the vote is committed
+    if let Some(recorded) = recorded {
+        votes.remember(recorded);
     }
     Ok(())
 }
@@ -487,23 +486,76 @@ pub async fn unapply_user_tag(
         .one(&txn)
         .await?;
 
-    // the name this request voted no on, if it is the one that removed the tag
-    let mut voted_tag_name = None;
+    // the vote this request cast, if it is the one that removed the tag
+    let mut recorded = None;
     if let Some((applied_tag, tag)) = applied {
         // a racing request may have removed it first, so only vote if this delete did
         let deleted = applied_tag.delete(&txn).await?;
         if let (1.., Some(tag)) = (deleted.rows_affected, tag) {
-            record_tag_vote(&txn, votes, user_id, &song_id, &tag.name, TagVote::No).await?;
-            voted_tag_name = Some(tag.name);
+            recorded =
+                Some(record_tag_vote(&txn, votes, user_id, &song_id, &tag, TagVote::No).await?);
         }
     }
 
     txn.commit().await?;
 
-    // cache the vote only once it is committed
-    if let Some(tag_name) = voted_tag_name {
-        votes.remember(user_id, song_id, tag_name, TagVote::No);
+    // update the vote cache only once the vote is committed
+    if let Some(recorded) = recorded {
+        votes.remember(recorded);
     }
+    Ok(())
+}
+
+/// Puts the default tag with the given name on the song, creating that default
+/// tag with the given color if there isn't one. Only touches default tags, so
+/// users who already initialized the song don't get it. Songs that already have
+/// it are left alone.
+pub async fn add_default_tag_to_song(
+    db: &impl ConnectionTrait,
+    song_id: &str,
+    name: &str,
+    color: &str,
+) -> Result<(), CadenzaError> {
+    // reuse the default tag with this name, the oldest if there are several
+    let existing = tags::Entity::find()
+        .filter(tags::Column::UserId.is_null())
+        .filter(tags::Column::Name.eq(name))
+        .order_by_asc(tags::Column::TagId)
+        .one(db)
+        .await?;
+
+    // or create it
+    let tag_id = match existing {
+        Some(tag) => tag.tag_id,
+        None => {
+            let created = tags::ActiveModel {
+                tag_id: NotSet,
+                user_id: Set(None),
+                name: Set(name.to_owned()),
+                color: Set(color.to_owned()),
+                r#type: NotSet,
+            }
+            .insert(db)
+            .await?;
+            created.tag_id
+        }
+    };
+
+    default_tags_applied::Entity::insert(default_tags_applied::ActiveModel {
+        song_id: Set(song_id.to_owned()),
+        tag_id: Set(tag_id),
+    })
+    .on_conflict(
+        OnConflict::columns([
+            default_tags_applied::Column::SongId,
+            default_tags_applied::Column::TagId,
+        ])
+        .do_nothing()
+        .to_owned(),
+    )
+    .exec_without_returning(db)
+    .await?;
+
     Ok(())
 }
 

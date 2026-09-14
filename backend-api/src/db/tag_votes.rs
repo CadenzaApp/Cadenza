@@ -6,16 +6,21 @@ use std::{
 use lru::LruCache;
 use sea_orm::{
     ActiveValue::Set,
-    ConnectionTrait, EntityTrait, Insert,
+    ConnectionTrait, EntityTrait, Insert, ModelTrait,
     prelude::Uuid,
     sea_query::{Expr, ExprTrait, OnConflict},
 };
 
-use crate::db::entity::default_tag_votes;
+use crate::db::entity::{default_tag_votes, tags};
+use crate::db::tags::add_default_tag_to_song;
 use crate::err::CadenzaError;
 
 /// The most votes [`TagVoteCache`] remembers.
 const MAX_CACHED_VOTES: NonZeroUsize = NonZeroUsize::new(4000).unwrap();
+
+/// The fewest votes, yes and no together, a tag name needs on a song before it
+/// can become one of the song's default tags.
+const MIN_VOTES_TO_PROMOTE: i32 = 10;
 
 /// Which count in `default_tag_votes` a vote goes to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -60,20 +65,52 @@ impl TagVoteCache {
             .copied()
     }
 
-    /// Remembers the user's vote on the tag name on the song. Call it once the
-    /// vote's transaction commits, so a rolled back vote is never cached. Evicts
-    /// the least recently used vote when the cache is full.
-    pub fn remember(&self, user_id: Uuid, song_id: String, tag_name: String, vote: TagVote) {
+    /// Updates the cache with a vote once its transaction commits. Remembers the
+    /// vote, evicting the least recently used one when the cache is full. If the
+    /// vote made its tag name a default tag on the song, the votes row it counted
+    /// toward is gone, so this forgets every cached vote on that tag name and
+    /// song instead.
+    pub fn remember(&self, recorded: RecordedVote) {
         let mut cache = self.0.lock().unwrap_or_else(PoisonError::into_inner);
-        cache.put((user_id, song_id, tag_name), vote);
+
+        if recorded.promoted {
+            cache.retain(|(_, song_id, tag_name), _| {
+                *song_id != recorded.song_id || *tag_name != recorded.tag_name
+            });
+        } else {
+            cache.put(
+                (recorded.user_id, recorded.song_id, recorded.tag_name),
+                recorded.vote,
+            );
+        }
     }
 }
 
-/// Counts the user's vote on the tag name on the song in `default_tag_votes`,
+/// A vote [`record_tag_vote`] wrote in a transaction that has not committed yet.
+/// Hand it to [`TagVoteCache::remember`] once the transaction commits, so a
+/// rolled back vote never reaches the cache.
+#[must_use]
+pub struct RecordedVote {
+    user_id: Uuid,
+    song_id: String,
+    tag_name: String,
+    vote: TagVote,
+    /// Whether the vote made the tag name a default tag on the song, which
+    /// deleted its votes row.
+    promoted: bool,
+}
+
+/// Counts the user's vote on the tag's name on the song in `default_tag_votes`,
 /// creating the row if there isn't one. Checks `votes` first: with no cached
 /// vote this adds one to the vote's count, with the other vote cached it moves
 /// one count over from that side, and with the same vote cached it changes
-/// nothing. Does not update `votes`, see [`TagVoteCache::remember`].
+/// nothing.
+///
+/// If the new counts pass [`votes_promote_tag`], deletes the row and puts the
+/// name on the song as a default tag with `tags::add_default_tag_to_song`. Users'
+/// tags are left alone.
+///
+/// Returns the vote to hand to [`TagVoteCache::remember`] after the commit.
 ///
 /// Only `tags::apply_user_tag` and `tags::unapply_user_tag` vote. Copying a
 /// song's default tags to a user when it is initialized is not a vote.
@@ -82,21 +119,47 @@ pub async fn record_tag_vote(
     votes: &TagVoteCache,
     user_id: Uuid,
     song_id: &str,
-    tag_name: &str,
+    tag: &tags::Model,
     vote: TagVote,
-) -> Result<(), CadenzaError> {
-    let previous = votes.get(user_id, song_id, tag_name);
+) -> Result<RecordedVote, CadenzaError> {
+    let mut recorded = RecordedVote {
+        user_id,
+        song_id: song_id.to_owned(),
+        tag_name: tag.name.clone(),
+        vote,
+        promoted: false,
+    };
+
+    let previous = votes.get(user_id, song_id, &tag.name);
 
     // the user already cast this vote, so it is counted
     if previous == Some(vote) {
-        return Ok(());
+        return Ok(recorded);
     }
 
-    vote_upsert(song_id, tag_name, vote, previous)
-        .exec_without_returning(db)
+    let counts = vote_upsert(song_id, &tag.name, vote, previous)
+        .exec_with_returning(db)
         .await?;
 
-    Ok(())
+    // enough users agree on the name, so it becomes one of the song's default
+    // tags, and its votes start over
+    if votes_promote_tag(counts.votes_yes, counts.votes_no) {
+        counts.delete(db).await?;
+        add_default_tag_to_song(db, song_id, &tag.name, &tag.color).await?;
+        recorded.promoted = true;
+    }
+
+    Ok(recorded)
+}
+
+/// Returns whether a tag name's votes on a song make it one of the song's
+/// default tags: at least [`MIN_VOTES_TO_PROMOTE`] votes, and more than 1.5
+/// times as many yes votes as no votes.
+fn votes_promote_tag(votes_yes: i32, votes_no: i32) -> bool {
+    let (votes_yes, votes_no) = (i64::from(votes_yes), i64::from(votes_no));
+
+    // yes > 1.5 * no, kept in integers
+    votes_yes + votes_no >= i64::from(MIN_VOTES_TO_PROMOTE) && 2 * votes_yes > 3 * votes_no
 }
 
 /// Returns the upsert that counts `vote`. `switched_from` is the user's earlier,
@@ -142,13 +205,24 @@ mod tests {
 
     use super::*;
 
+    /// A committed vote that did not promote its tag name.
+    fn recorded(user_id: Uuid, song_id: &str, tag_name: &str, vote: TagVote) -> RecordedVote {
+        RecordedVote {
+            user_id,
+            song_id: song_id.to_owned(),
+            tag_name: tag_name.to_owned(),
+            vote,
+            promoted: false,
+        }
+    }
+
     #[test]
     fn cache_keeps_votes_per_user_song_and_tag_name() {
         let votes = TagVoteCache::new();
         let user_id = Uuid::new_v4();
 
-        votes.remember(user_id, "song".into(), "rock".into(), TagVote::Yes);
-        votes.remember(user_id, "song".into(), "jazz".into(), TagVote::No);
+        votes.remember(recorded(user_id, "song", "rock", TagVote::Yes));
+        votes.remember(recorded(user_id, "song", "jazz", TagVote::No));
 
         // each tag name on the song keeps its own vote
         assert_eq!(votes.get(user_id, "song", "rock"), Some(TagVote::Yes));
@@ -165,8 +239,8 @@ mod tests {
         let votes = TagVoteCache::new();
         let user_id = Uuid::new_v4();
 
-        votes.remember(user_id, "song".into(), "rock".into(), TagVote::Yes);
-        votes.remember(user_id, "song".into(), "rock".into(), TagVote::No);
+        votes.remember(recorded(user_id, "song", "rock", TagVote::Yes));
+        votes.remember(recorded(user_id, "song", "rock", TagVote::No));
 
         assert_eq!(votes.get(user_id, "song", "rock"), Some(TagVote::No));
     }
@@ -178,7 +252,7 @@ mod tests {
 
         // fill the cache with one vote per song
         for i in 0..MAX_CACHED_VOTES.get() {
-            votes.remember(user_id, i.to_string(), "rock".into(), TagVote::Yes);
+            votes.remember(recorded(user_id, &i.to_string(), "rock", TagVote::Yes));
         }
 
         // reading song 0's vote makes song 1's the least recently used
@@ -186,12 +260,51 @@ mod tests {
 
         // a second tag name on song 0 is a vote of its own, so it takes a slot and
         // evicts song 1's vote, and only that one
-        votes.remember(user_id, "0".into(), "jazz".into(), TagVote::Yes);
+        votes.remember(recorded(user_id, "0", "jazz", TagVote::Yes));
 
         assert_eq!(votes.get(user_id, "1", "rock"), None);
         assert_eq!(votes.get(user_id, "2", "rock"), Some(TagVote::Yes));
         assert_eq!(votes.get(user_id, "0", "rock"), Some(TagVote::Yes));
         assert_eq!(votes.get(user_id, "0", "jazz"), Some(TagVote::Yes));
+    }
+
+    #[test]
+    fn cache_forgets_every_vote_on_a_promoted_tag_name_and_song() {
+        let votes = TagVoteCache::new();
+        let (user_1, user_2) = (Uuid::new_v4(), Uuid::new_v4());
+
+        votes.remember(recorded(user_1, "song", "rock", TagVote::Yes));
+        votes.remember(recorded(user_1, "song", "jazz", TagVote::Yes));
+        votes.remember(recorded(user_1, "other song", "rock", TagVote::Yes));
+
+        // user 2's vote makes rock a default tag on the song
+        votes.remember(RecordedVote {
+            promoted: true,
+            ..recorded(user_2, "song", "rock", TagVote::Yes)
+        });
+
+        // no vote on rock for that song is cached, including the promoting one
+        assert_eq!(votes.get(user_1, "song", "rock"), None);
+        assert_eq!(votes.get(user_2, "song", "rock"), None);
+
+        // votes on another tag name or song stay
+        assert_eq!(votes.get(user_1, "song", "jazz"), Some(TagVote::Yes));
+        assert_eq!(votes.get(user_1, "other song", "rock"), Some(TagVote::Yes));
+    }
+
+    #[test]
+    fn votes_promote_tag_needs_ten_votes_and_over_one_and_a_half_times_as_many_yes() {
+        // too few votes, however many are yes
+        assert!(!votes_promote_tag(9, 0));
+
+        // enough votes, with yes over 1.5 times no
+        assert!(votes_promote_tag(10, 0));
+        assert!(votes_promote_tag(9, 1));
+        assert!(votes_promote_tag(7, 4));
+
+        // exactly 1.5 times is not more than it
+        assert!(!votes_promote_tag(6, 4));
+        assert!(!votes_promote_tag(3, 7));
     }
 
     #[test]

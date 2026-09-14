@@ -8,8 +8,8 @@ The data access layer. Everything that touches postgres lives here, so handlers 
 | file | role |
 | --- | --- |
 | `mod.rs` | Declares `entity`, `queries`, `tag_votes`, `tags`. |
-| `tags.rs` | All tag reads and writes: list, look up, usage counts, tags on many songs, untagged songs, songs with a tag, create, delete, apply, unapply, reading and replacing default tags, and initializing a user's songs. Apply and unapply vote through `tag_votes.rs`. |
-| `tag_votes.rs` | `record_tag_vote`, which counts a vote in `default_tag_votes`, and `TagVoteCache`, the in-memory LRU of recent votes, keyed by user, song, and tag name. |
+| `tags.rs` | All tag reads and writes: list, look up, usage counts, tags on many songs, untagged songs, songs with a tag, create, delete, apply, unapply, reading and replacing default tags, adding one default tag to a song, and initializing a user's songs. Apply and unapply vote through `tag_votes.rs`. |
+| `tag_votes.rs` | `record_tag_vote`, which counts a vote in `default_tag_votes` and makes the tag name a default tag on the song once its votes pass the threshold, and `TagVoteCache`, the in-memory LRU of recent votes, keyed by user, song, and tag name. |
 | `queries.rs` | Compiles a boolean tag query from JSON to SQL and runs it. |
 | `entity/` | sea-orm-codegen output in the compact format. `tags`, `user_tags_applied`, `default_tags_applied`, `song_meta`, `default_tag_votes`, `sea_orm_active_enums` (the `TagType` enum), plus `prelude` and `mod`. Do not hand edit. |
 
@@ -27,13 +27,14 @@ Five tables, keyed on song ids that come from Apple Music.
 - `default_tags_applied` - default tags on a song, composite pk of `(song_id, tag_id)`, no user,
   so every user sees the same ones. `get_default_tags_on_songs` reads it, and
   `set_default_tags_on_songs` replaces a song's rows, creating any default tag it names that does
-  not exist yet.
+  not exist yet. `add_default_tag_to_song` adds one row the same way, for a tag name votes chose.
 - `song_meta` - one row per song a user has been initialized on. Composite pk of
   `(song_id, user_id)`, with a cascading fk to `auth.users`. Also `times_listened`, which defaults
   to 0 and nothing writes yet.
 - `default_tag_votes` - how users responded to a tag name on a song. Composite pk of
   `(song_id, tag_name)`, plus `votes_yes` and `votes_no`, both defaulting to 0. No user and no fk to
-  `tags`, so it counts across every user by name. See Tag votes below. Nothing reads it yet.
+  `tags`, so it counts across every user by name. A row is deleted once its votes make the name a
+  default tag on the song. See Tag votes below.
 
 ## Tag votes
 
@@ -51,8 +52,16 @@ of one song take several slots. It is the `lru` crate behind a mutex, held in `A
 - the other vote cached: add one to this count and take one off the other, switching the vote.
 - the same vote cached: write nothing.
 
-The caller hands the vote to `TagVoteCache::remember` after the commit, so a rolled back vote is
-never cached.
+`record_tag_vote` returns a `RecordedVote`, and the caller hands it to `TagVoteCache::remember`
+after the commit, so a rolled back vote is never cached.
+
+A vote can make its tag name a default tag on the song. When the upsert leaves the row with at
+least 10 votes and more than 1.5 times as many yes votes as no votes, `record_tag_vote` deletes the
+row and calls `tags::add_default_tag_to_song` in the same transaction. That puts the default tag
+with the name on the song, creating one with the voting tag's color if no default tag has the
+name. It never touches `user_tags_applied` or users' tags. After the commit, `remember` forgets
+every cached vote on that tag name and song instead of caching this one, since the row they
+counted toward is gone. Later votes start a new row.
 
 ## Default tags
 
@@ -81,7 +90,8 @@ all of its tags.
 
 Nothing in this directory generates tags. `routes/songs.rs` does that for
 `POST /songs/default-tags`, using `get_default_tags_on_songs` to skip songs that already have
-defaults and `set_default_tags_on_songs` to store the rest.
+defaults and `set_default_tags_on_songs` to store the rest. Votes can also add a default tag to a
+song, see Tag votes above.
 
 ## The query compiler
 
@@ -156,6 +166,13 @@ becomes `CadenzaError::QueryFormatError` (422).
   song can both miss the cache the same way.
 - `delete_user_tag` removes a tag from all its songs through the cascade and adds no votes.
 - Votes key on the tag's exact name, so a user tag `Rock` never counts toward a default `rock`.
+- A default tag created by votes takes the color of the tag whose vote passed the threshold, so
+  one user's color for it.
+- A song whose first default tag comes from votes counts as having default tags, so
+  `POST /songs/default-tags` never generates tags for it.
+- `add_default_tag_to_song`, like `set_default_tags_on_songs`, finds default tags by name with no
+  unique constraint or lock, so two racing calls can each create a default tag with one name. It
+  reuses the oldest one after that.
 - `set_default_tags_on_songs` matches existing default tags by name, and deletes a song's old rows
   before inserting the new ones without a transaction.
 - `get_user_tags_metadata` returns a `HashMap<i64, TagMetadata>` keyed by tag id. Tags with no
