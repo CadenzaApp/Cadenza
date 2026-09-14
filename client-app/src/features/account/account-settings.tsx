@@ -130,7 +130,6 @@ export function AccountSettingsScreen() {
                                 >
                                     <GlassSurface
                                         variant="regular"
-                                        tintColor={colors.notification}
                                         style={StyleSheet.absoluteFill}
                                     />
                                 </View>

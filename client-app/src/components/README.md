@@ -30,8 +30,9 @@ older, and a flat translucent card on web, all behind one component. It paints a
 nothing else; the caller supplies size, radius, and `overflow: "hidden"`. Its optional
 `tintColor` reaches native liquid glass and gets a translucent approximation on fallbacks.
 
-`glass-button.tsx` and `glass-confirm-dialog.tsx` provide regular and destructive glass actions,
-plus the accessible confirmation used by both Account sign-out flows.
+`glass-button.tsx` and `glass-confirm-dialog.tsx` provide regular and destructive glass actions.
+Destructive actions keep neutral glass and use red foreground content. The confirmation is used
+by both Account sign-out flows.
 
 `glass-icon-button.tsx` exports `GlassIconButton`, a round icon button built on it. The account
 button and the library type button in the top rail are the callers. Reach for it rather than

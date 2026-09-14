@@ -17,6 +17,9 @@ Both routes stay standard `DetailScreen` sheets. Signing out of Cadenza uses the
 Supabase provider. Signing out of Apple Music clears only the local MusicKit authorization.
 Both destructive actions go through the same glass confirmation dialog.
 
+The account avatar and action surfaces use neutral glass. Destructive button labels and icons
+carry the red treatment without tinting the entire surface.
+
 The explicit-content toggle and all Appearance selections live only in component state. Sync
 shows local unavailable feedback and does not call MusicKit or the backend.
 

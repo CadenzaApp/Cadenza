@@ -1,4 +1,3 @@
-import { useTheme } from "expo-router/react-navigation";
 import type { ReactNode } from "react";
 import { Pressable, StyleSheet, View, type PressableProps } from "react-native";
 
@@ -22,7 +21,6 @@ export function GlassButton({
     disabled,
     ...props
 }: GlassButtonProps) {
-    const { colors } = useTheme();
     const destructive = variant === "destructive";
 
     return (
@@ -47,9 +45,6 @@ export function GlassButton({
                     <View pointerEvents="none" style={StyleSheet.absoluteFill}>
                         <GlassSurface
                             variant="regular"
-                            tintColor={
-                                destructive ? colors.notification : undefined
-                            }
                             style={StyleSheet.absoluteFill}
                         />
                     </View>
