@@ -22,12 +22,13 @@ It does not store song metadata. A song is just an id string that came from Appl
 ## How it works
 
 `main.rs` loads `.env`, opens the db connection, builds the JWKS decoder, constructs the tag
-generation service, and packs all three into `AppState`. `AppState` derives `FromRef`, so a
-handler can extract just the piece it needs:
+generation service and the in-memory tag vote cache, and packs all four into `AppState`.
+`AppState` derives `FromRef`, so a handler can extract just the piece it needs:
 
 ```rust
 State(db): State<DatabaseConnection>
 State(tag_gen_service): State<TagGenerationService>
+State(tag_votes): State<TagVoteCache>
 ```
 
 Three routers get nested, plus a health route:
@@ -99,3 +100,9 @@ fields in the dense format.
 ---
 Touching files in this directory? Update this README in the same change.
 See [../AGENT_GUIDE.md](../AGENT_GUIDE.md).
+
+- The server is stateful. `AppState` holds an in-memory LRU cache of which users voted on which
+  tags of which songs, capped at 4000 votes. It is lost on restart and not shared between
+  instances. A user whose vote is not in the cache, because of a restart, an eviction, or a
+  request to a different instance, gets a new vote counted instead of their old one switched, so
+  `default_tag_votes` can overcount. Running more than one instance makes this worse.

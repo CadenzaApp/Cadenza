@@ -30,8 +30,8 @@ Every route below requires `Authorization: Bearer <supabase jwt>`.
 | POST | `/songs/tags/batch` | `{song_ids: [...]}` | `{song_id: [Tag]}`, an entry per requested song, with the same copying |
 | POST | `/songs/untagged` | `{song_ids: [...]}` | `["songid", ...]`, the requested songs with no user tags and no default tags, in request order |
 | POST | `/songs/default-tags` | `[{song_id, desc}]` | empty. Generates and stores default tags for the songs that have none |
-| POST | `/songs/tags` | `{song_id, tag_id}` | empty. Also marks the song initialized for the user |
-| DELETE | `/songs/tags` | `{song_id, tag_id}` | empty |
+| POST | `/songs/tags` | `{song_id, tag_id}` | empty. Also marks the song initialized for the user, and votes yes on the tag's name for the song |
+| DELETE | `/songs/tags` | `{song_id, tag_id}` | empty. Votes no on the tag's name for the song, if the tag was on it |
 | GET | `/queries/results` | `?q=<query json>` | `["songid", ...]`, most relevant first |
 | GET | `/test` | none | `server is reachable`. Defined inline in `main.rs`, not here |
 
@@ -44,7 +44,9 @@ count without walking the list.
 ## How it works
 
 Handlers take what they need out of `AppState` by `FromRef`, so most take
-`State(db): State<DatabaseConnection>` and nothing else. `tags.rs::suggest_tags_handler` takes
+`State(db): State<DatabaseConnection>` and nothing else. `songs.rs::apply_user_tag_handler` and
+`unapply_user_tag_handler` also take `State(tag_votes): State<TagVoteCache>`, the vote cache
+described in `../db/README.md`. `tags.rs::suggest_tags_handler` takes
 `State(tag_gen_service)` instead, plus a bare `_: Claims<SupabaseClaims>` purely to force
 authentication without using the claims. `songs.rs::set_default_tags_on_songs_handler` does the
 same with both `db` and `tag_gen_service`, since default tags belong to no user.
@@ -92,6 +94,9 @@ api as JSON should have a type here rather than serializing an entity model dire
 - `POST /tags` returns the id as a bare string body, not JSON.
 - `DELETE /tags` and `DELETE /songs/tags` take a JSON body. Some HTTP clients will not send one
   on a DELETE.
+- Only `POST /songs/tags` and `DELETE /songs/tags` vote. `DELETE /tags` takes the tag off every
+  song through the cascade without adding any no votes, and song reads that copy default tags add
+  no yes votes.
 - A user gets a song's default tags at most once, when the song is initialized: on the first read
   that finds it with default tags, or when the user tags it. The copies are the user's own tags,
   so they show up in `GET /tags`, and `DELETE /songs/tags` and `DELETE /tags` treat them like any

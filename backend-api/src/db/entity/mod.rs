@@ -2,6 +2,7 @@
 
 pub mod prelude;
 
+pub mod default_tag_votes;
 pub mod default_tags_applied;
 pub mod sea_orm_active_enums;
 pub mod song_meta;

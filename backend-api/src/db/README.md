@@ -7,14 +7,15 @@ The data access layer. Everything that touches postgres lives here, so handlers 
 
 | file | role |
 | --- | --- |
-| `mod.rs` | Declares `entity`, `queries`, `tags`. |
-| `tags.rs` | All tag reads and writes: list, look up, usage counts, tags on many songs, untagged songs, songs with a tag, create, delete, apply, unapply, reading and replacing default tags, and initializing a user's songs. |
+| `mod.rs` | Declares `entity`, `queries`, `tag_votes`, `tags`. |
+| `tags.rs` | All tag reads and writes: list, look up, usage counts, tags on many songs, untagged songs, songs with a tag, create, delete, apply, unapply, reading and replacing default tags, and initializing a user's songs. Apply and unapply vote through `tag_votes.rs`. |
+| `tag_votes.rs` | `record_tag_vote`, which counts a vote in `default_tag_votes`, and `TagVoteCache`, the in-memory LRU of recent votes, keyed by user, song, and tag name. |
 | `queries.rs` | Compiles a boolean tag query from JSON to SQL and runs it. |
-| `entity/` | sea-orm-codegen output in the compact format. `tags`, `user_tags_applied`, `default_tags_applied`, `song_meta`, `sea_orm_active_enums` (the `TagType` enum), plus `prelude` and `mod`. Do not hand edit. |
+| `entity/` | sea-orm-codegen output in the compact format. `tags`, `user_tags_applied`, `default_tags_applied`, `song_meta`, `default_tag_votes`, `sea_orm_active_enums` (the `TagType` enum), plus `prelude` and `mod`. Do not hand edit. |
 
 ## Schema
 
-Four tables, keyed on song ids that come from Apple Music.
+Five tables, keyed on song ids that come from Apple Music.
 
 - `tags` - `tag_id` (bigserial pk), `name`, `color`, `type`, nullable `user_id`. A null `user_id`
   means the tag is a default, not owned by any user. `type` is the `tag_type` enum (`basic`,
@@ -30,6 +31,28 @@ Four tables, keyed on song ids that come from Apple Music.
 - `song_meta` - one row per song a user has been initialized on. Composite pk of
   `(song_id, user_id)`, with a cascading fk to `auth.users`. Also `times_listened`, which defaults
   to 0 and nothing writes yet.
+- `default_tag_votes` - how users responded to a tag name on a song. Composite pk of
+  `(song_id, tag_name)`, plus `votes_yes` and `votes_no`, both defaulting to 0. No user and no fk to
+  `tags`, so it counts across every user by name. See Tag votes below. Nothing reads it yet.
+
+## Tag votes
+
+`apply_user_tag` votes yes on the tag's name for the song, and `unapply_user_tag` votes no, both
+through `tag_votes::record_tag_vote` in the same transaction as the tag change. `unapply_user_tag`
+only votes when its own delete removed the row. Copying default tags during initialization does
+not vote.
+
+`TagVoteCache` remembers the last vote each user cast on each tag name of a song, for the 4000
+votes used most recently. Each user, song, and tag name is its own entry, so votes on several tags
+of one song take several slots. It is the `lru` crate behind a mutex, held in `AppState`.
+`record_tag_vote` checks it before writing:
+
+- no cached vote: add one to this vote's count.
+- the other vote cached: add one to this count and take one off the other, switching the vote.
+- the same vote cached: write nothing.
+
+The caller hands the vote to `TagVoteCache::remember` after the commit, so a rolled back vote is
+never cached.
 
 ## Default tags
 
@@ -127,6 +150,12 @@ becomes `CadenzaError::QueryFormatError` (422).
   has an entry whether or not it has tags. Same idea as `get_user_tags_metadata`.
 - `delete_user_tag` and `unapply_user_tag` silently no-op when nothing matches, rather than
   returning `NotFound`.
+- `TagVoteCache` is per process and best effort. After a restart or an eviction, or on another
+  server instance, a user's next vote on that tag name and song counts as new instead of
+  switching, so `default_tag_votes` can overcount. Two racing requests on the same tag name and
+  song can both miss the cache the same way.
+- `delete_user_tag` removes a tag from all its songs through the cascade and adds no votes.
+- Votes key on the tag's exact name, so a user tag `Rock` never counts toward a default `rock`.
 - `set_default_tags_on_songs` matches existing default tags by name, and deletes a song's old rows
   before inserting the new ones without a transaction.
 - `get_user_tags_metadata` returns a `HashMap<i64, TagMetadata>` keyed by tag id. Tags with no

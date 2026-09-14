@@ -5,6 +5,7 @@ use crate::{
     auth::SupabaseClaims,
     db::{
         self,
+        tag_votes::TagVoteCache,
         tags::{get_default_tags_on_songs, get_untagged_songs, get_user_tags_on_songs, set_default_tags_on_songs},
     },
     err::CadenzaError,
@@ -170,10 +171,11 @@ pub struct ApplyTagPayload {
 
 async fn apply_user_tag_handler(
     State(db): State<DatabaseConnection>,
+    State(tag_votes): State<TagVoteCache>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Json(payload): Json<ApplyTagPayload>,
 ) -> Result<(), CadenzaError> {
-    db::tags::apply_user_tag(db, claims.user_id, payload.song_id, payload.tag_id).await
+    db::tags::apply_user_tag(db, &tag_votes, claims.user_id, payload.song_id, payload.tag_id).await
 }
 
 #[derive(Deserialize)]
@@ -183,10 +185,12 @@ pub struct UnapplyTagPayload {
 }
 async fn unapply_user_tag_handler(
     State(db): State<DatabaseConnection>,
+    State(tag_votes): State<TagVoteCache>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Json(payload): Json<UnapplyTagPayload>,
 ) -> Result<(), CadenzaError> {
-    db::tags::unapply_user_tag(db, claims.user_id, payload.song_id, payload.tag_id).await
+    db::tags::unapply_user_tag(db, &tag_votes, claims.user_id, payload.song_id, payload.tag_id)
+        .await
 }
 
 

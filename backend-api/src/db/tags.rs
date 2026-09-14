@@ -11,6 +11,7 @@ use sea_orm::{
 use serde::Serialize;
 
 use crate::db::entity::*;
+use crate::db::tag_votes::{TagVote, TagVoteCache, record_tag_vote};
 use crate::err::CadenzaError;
 use crate::services::tag_generation::TagSpecs;
 
@@ -423,9 +424,11 @@ pub async fn delete_user_tag(
 
 /// Puts one of the user's tags on a song, and initializes the song for the user
 /// if it isn't yet. Otherwise removing this tag would leave the song
-/// uninitialized, and the next read would copy its default tags onto it.
+/// uninitialized, and the next read would copy its default tags onto it. Also
+/// votes yes on the tag's name for the song (see [`record_tag_vote`]).
 pub async fn apply_user_tag(
     db: DatabaseConnection,
+    votes: &TagVoteCache,
     user_id: Uuid,
     song_id: String,
     tag_id: i64,
@@ -441,30 +444,66 @@ pub async fn apply_user_tag(
     };
     new_tag_relation.insert(&txn).await?;
 
+    // the user put this tag on the song, so its name gets a yes vote
+    let tag_name: Option<String> = tags::Entity::find_by_id(tag_id)
+        .select_only()
+        .column(tags::Column::Name)
+        .into_tuple()
+        .one(&txn)
+        .await?;
+    if let Some(tag_name) = &tag_name {
+        record_tag_vote(&txn, votes, user_id, &song_id, tag_name, TagVote::Yes).await?;
+    }
+
     // the song has a tag of the user's now, so it counts as initialized
-    insert_song_meta(&txn, user_id, [song_id]).await?;
+    insert_song_meta(&txn, user_id, [song_id.clone()]).await?;
 
     txn.commit().await?;
+
+    // cache the vote only once it is committed
+    if let Some(tag_name) = tag_name {
+        votes.remember(user_id, song_id, tag_name, TagVote::Yes);
+    }
     Ok(())
 }
 
+/// Takes one of the user's tags off a song, and votes no on the tag's name for
+/// the song (see [`record_tag_vote`]). No-ops if the tag isn't on the song.
 pub async fn unapply_user_tag(
     db: DatabaseConnection,
+    votes: &TagVoteCache,
     user_id: Uuid,
     song_id: String,
     tag_id: i64,
 ) -> Result<(), CadenzaError> {
-    let applied_tag = user_tags_applied::Entity::find()
-        .filter(user_tags_applied::Column::SongId.eq(song_id))
+    let txn = db.begin().await?;
+
+    // the tag on the song, along with the tag itself for its name
+    let applied = user_tags_applied::Entity::find()
+        .filter(user_tags_applied::Column::SongId.eq(song_id.as_str()))
         .filter(user_tags_applied::Column::UserId.eq(user_id))
         .filter(user_tags_applied::Column::TagId.eq(tag_id))
-        .one(&db)
+        .find_also_related(tags::Entity)
+        .one(&txn)
         .await?;
 
-    if let Some(applied_tag) = applied_tag {
-        applied_tag.delete(&db).await?;
+    // the name this request voted no on, if it is the one that removed the tag
+    let mut voted_tag_name = None;
+    if let Some((applied_tag, tag)) = applied {
+        // a racing request may have removed it first, so only vote if this delete did
+        let deleted = applied_tag.delete(&txn).await?;
+        if let (1.., Some(tag)) = (deleted.rows_affected, tag) {
+            record_tag_vote(&txn, votes, user_id, &song_id, &tag.name, TagVote::No).await?;
+            voted_tag_name = Some(tag.name);
+        }
     }
 
+    txn.commit().await?;
+
+    // cache the vote only once it is committed
+    if let Some(tag_name) = voted_tag_name {
+        votes.remember(user_id, song_id, tag_name, TagVote::No);
+    }
     Ok(())
 }
 
