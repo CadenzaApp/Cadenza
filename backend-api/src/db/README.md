@@ -53,7 +53,15 @@ of one song take several slots. It is the `lru` crate behind a mutex, held in `A
 - the same vote cached: write nothing.
 
 `record_tag_vote` returns a `RecordedVote`, and the caller hands it to `TagVoteCache::remember`
-after the commit, so a rolled back vote is never cached.
+after the commit, so a rolled back vote is never cached or logged. `remember` prints one line to
+stdout per vote:
+
+```
+tag vote: user 5f0c... voted no on "rock" for song 1440857781, switched from yes, now 2 yes 2 no
+```
+
+A vote the user had already cast ends in `already counted` instead of the counts, and a vote that
+made the name a default tag ends in `made it a default tag`.
 
 A vote can make its tag name a default tag on the song. When the upsert leaves the row with at
 least 10 votes and more than 1.5 times as many yes votes as no votes, `record_tag_vote` deletes the

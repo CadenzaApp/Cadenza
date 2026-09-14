@@ -1,4 +1,5 @@
 use std::{
+    fmt,
     num::NonZeroUsize,
     sync::{Arc, Mutex, PoisonError},
 };
@@ -41,6 +42,16 @@ impl TagVote {
     }
 }
 
+/// Formats the vote as `yes` or `no`.
+impl fmt::Display for TagVote {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            TagVote::Yes => "yes",
+            TagVote::No => "no",
+        })
+    }
+}
+
 /// Remembers the last vote each user cast on each tag name of a song, for the
 /// [`MAX_CACHED_VOTES`] votes used most recently. Each user, song, and tag name
 /// is its own entry. Lets [`record_tag_vote`] switch a user's vote instead of
@@ -65,12 +76,15 @@ impl TagVoteCache {
             .copied()
     }
 
-    /// Updates the cache with a vote once its transaction commits. Remembers the
-    /// vote, evicting the least recently used one when the cache is full. If the
-    /// vote made its tag name a default tag on the song, the votes row it counted
-    /// toward is gone, so this forgets every cached vote on that tag name and
-    /// song instead.
+    /// Logs a vote once its transaction commits, and updates the cache with it.
+    /// Remembers the vote, evicting the least recently used one when the cache is
+    /// full. If the vote made its tag name a default tag on the song, the votes
+    /// row it counted toward is gone, so this forgets every cached vote on that
+    /// tag name and song instead.
     pub fn remember(&self, recorded: RecordedVote) {
+        // logged here, after the commit, so a rolled back vote never shows up
+        println!("{recorded}");
+
         let mut cache = self.0.lock().unwrap_or_else(PoisonError::into_inner);
 
         if recorded.promoted {
@@ -88,16 +102,57 @@ impl TagVoteCache {
 
 /// A vote [`record_tag_vote`] wrote in a transaction that has not committed yet.
 /// Hand it to [`TagVoteCache::remember`] once the transaction commits, so a
-/// rolled back vote never reaches the cache.
+/// rolled back vote never reaches the cache or the log.
 #[must_use]
 pub struct RecordedVote {
     user_id: Uuid,
     song_id: String,
     tag_name: String,
     vote: TagVote,
+    /// The user's earlier, different vote this one replaced, if it was cached.
+    switched_from: Option<TagVote>,
+    /// The row's yes and no counts after the vote, or `None` if the user had
+    /// already cast this vote and nothing was written.
+    counts: Option<(i32, i32)>,
     /// Whether the vote made the tag name a default tag on the song, which
     /// deleted its votes row.
     promoted: bool,
+}
+
+/// Formats the vote as the line [`TagVoteCache::remember`] logs, e.g.
+/// `tag vote: user 5f0c... voted no on "rock" for song 1440857781, switched from yes, now 2 yes 2 no`
+impl fmt::Display for RecordedVote {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let RecordedVote {
+            user_id,
+            song_id,
+            tag_name,
+            vote,
+            switched_from,
+            counts,
+            promoted,
+        } = self;
+
+        write!(
+            f,
+            "tag vote: user {user_id} voted {vote} on {tag_name:?} for song {song_id}"
+        )?;
+
+        if let Some(switched_from) = switched_from {
+            write!(f, ", switched from {switched_from}")?;
+        }
+
+        match counts {
+            Some((votes_yes, votes_no)) => write!(f, ", now {votes_yes} yes {votes_no} no")?,
+            None => write!(f, ", already counted")?,
+        }
+
+        if *promoted {
+            write!(f, ", made it a default tag")?;
+        }
+
+        Ok(())
+    }
 }
 
 /// Counts the user's vote on the tag's name on the song in `default_tag_votes`,
@@ -127,6 +182,8 @@ pub async fn record_tag_vote(
         song_id: song_id.to_owned(),
         tag_name: tag.name.clone(),
         vote,
+        switched_from: None,
+        counts: None,
         promoted: false,
     };
 
@@ -140,6 +197,8 @@ pub async fn record_tag_vote(
     let counts = vote_upsert(song_id, &tag.name, vote, previous)
         .exec_with_returning(db)
         .await?;
+    recorded.switched_from = previous;
+    recorded.counts = Some((counts.votes_yes, counts.votes_no));
 
     // enough users agree on the name, so it becomes one of the song's default
     // tags, and its votes start over
@@ -205,13 +264,16 @@ mod tests {
 
     use super::*;
 
-    /// A committed vote that did not promote its tag name.
+    /// A committed vote the user had already cast, so it wrote nothing and did
+    /// not promote its tag name.
     fn recorded(user_id: Uuid, song_id: &str, tag_name: &str, vote: TagVote) -> RecordedVote {
         RecordedVote {
             user_id,
             song_id: song_id.to_owned(),
             tag_name: tag_name.to_owned(),
             vote,
+            switched_from: None,
+            counts: None,
             promoted: false,
         }
     }
@@ -290,6 +352,39 @@ mod tests {
         // votes on another tag name or song stay
         assert_eq!(votes.get(user_1, "song", "jazz"), Some(TagVote::Yes));
         assert_eq!(votes.get(user_1, "other song", "rock"), Some(TagVote::Yes));
+    }
+
+    #[test]
+    fn recorded_vote_log_line_shows_how_the_counts_changed() {
+        let user_id = Uuid::nil();
+
+        // a vote the user had already cast wrote nothing
+        assert_eq!(
+            recorded(user_id, "1440857781", "rock", TagVote::Yes).to_string(),
+            r#"tag vote: user 00000000-0000-0000-0000-000000000000 voted yes on "rock" for song 1440857781, already counted"#
+        );
+
+        // a new vote shows the counts it left
+        let counted = RecordedVote {
+            counts: Some((3, 1)),
+            ..recorded(user_id, "1440857781", "rock", TagVote::Yes)
+        };
+        assert_eq!(
+            counted.to_string(),
+            r#"tag vote: user 00000000-0000-0000-0000-000000000000 voted yes on "rock" for song 1440857781, now 3 yes 1 no"#
+        );
+
+        // a switched vote that made the name a default tag says both
+        let promoted = RecordedVote {
+            switched_from: Some(TagVote::No),
+            counts: Some((9, 1)),
+            promoted: true,
+            ..recorded(user_id, "1440857781", "rock", TagVote::Yes)
+        };
+        assert_eq!(
+            promoted.to_string(),
+            r#"tag vote: user 00000000-0000-0000-0000-000000000000 voted yes on "rock" for song 1440857781, switched from no, now 9 yes 1 no, made it a default tag"#
+        );
     }
 
     #[test]
