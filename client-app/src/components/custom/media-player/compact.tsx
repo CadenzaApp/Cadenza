@@ -9,8 +9,6 @@ import {
 } from "react-native";
 
 import { Text } from "@/components/ui/text";
-import { COMPACT_PLAYER_HEIGHT } from "@/lib/screen-overlay";
-
 type Props = {
     track: MusicItem;
     artworkUrl?: string;
@@ -18,7 +16,6 @@ type Props = {
     isPlaying: boolean;
     isLoading: boolean;
     canSkipToNext: boolean;
-    bottom: number;
     textColor: ColorValue;
     onExpand: () => void;
     onArtworkError: () => void;
@@ -33,7 +30,6 @@ export function MediaPlayerCompact({
     isPlaying,
     isLoading,
     canSkipToNext,
-    bottom,
     textColor,
     onExpand,
     onArtworkError,
@@ -45,10 +41,8 @@ export function MediaPlayerCompact({
             accessibilityRole="button"
             accessibilityLabel="Open now playing"
             onPress={onExpand}
-            className="absolute left-3 right-3 rounded-xl border border-border bg-card flex-row items-center px-3"
+            className="h-full w-full rounded-xl border border-border bg-card flex-row items-center px-3"
             style={{
-                bottom,
-                height: COMPACT_PLAYER_HEIGHT,
                 shadowColor: "#000",
                 shadowOpacity: 0.18,
                 shadowRadius: 10,

@@ -13,6 +13,7 @@ import useSWRInfinite from "swr/infinite";
 import { useAppleMusic } from "./apple-music-auth";
 
 const MUSIC_LIST_PAGE_SIZE = 25;
+const ALL_LIBRARY_PAGE_SIZE = 100;
 
 type LibrarySongSort = NonNullable<LibrarySongOptions["sort"]>;
 type LibraryPageKey = readonly [
@@ -198,6 +199,47 @@ export function useTracksFromLibrary({
         loadNextLibraryPage,
         hasNextLibraryPage: hasNextPage,
         tracksErr: x.error,
+    };
+}
+
+/** Returns every song in the current Apple Music library as one cached read. */
+export function useAllTracksFromLibrary(enabled = true) {
+    const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
+    const x = useSWR(
+        enabled && isConnected
+            ? (["MusicKit.getAllLibrarySongs", sessionRevision] as const)
+            : null,
+        async () => {
+            const pages: MusicItem[] = [];
+            let offset = 0;
+
+            while (true) {
+                const page = await MusicKit.getLibrarySongs({
+                    limit: ALL_LIBRARY_PAGE_SIZE,
+                    offset,
+                });
+                pages.push(...page.items);
+                if (!hasNextLibraryPage(page)) break;
+
+                const nextOffset =
+                    page.nextOffset ?? offset + page.items.length;
+                if (nextOffset <= offset) {
+                    throw new Error(
+                        "Apple Music returned an invalid library page offset.",
+                    );
+                }
+                offset = nextOffset;
+            }
+
+            return appendTracksWithoutDuplicates(pages);
+        },
+    );
+
+    return {
+        allLibraryTracks: x.data ?? [],
+        allLibraryTracksLoading: x.isLoading || isInitializing,
+        allLibraryTracksErr: x.error,
+        isLibraryConnected: isConnected,
     };
 }
 

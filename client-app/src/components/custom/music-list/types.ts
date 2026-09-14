@@ -1,6 +1,7 @@
 import type Ionicons from "@expo/vector-icons/Ionicons";
 import type { MusicItem } from "@apple-musickit";
-import type { ComponentProps } from "react";
+import type { ComponentProps, ReactElement } from "react";
+import type { NativeScrollEvent, NativeSyntheticEvent } from "react-native";
 
 import type { ThemeColorToken } from "@/lib/theme";
 
@@ -89,13 +90,21 @@ export type MusicListProps = {
      * enables long-press selection.
      */
     multiSelect?: MusicListMultiSelectConfig | null;
-    /** Extends row backgrounds and dividers edge-to-edge while preserving content insets. */
+    /** Extends row backgrounds edge-to-edge while preserving content insets. */
     fullBleedRows?: boolean;
-    /** Controlled compactness. Omit to let pinch gestures own the value. */
-    compact?: boolean;
-    /** Receives compactness changes requested by pinch gestures. */
-    onCompactChange?: (compact: boolean) => void;
+    /** Overrides the 24px content inset used by full-bleed rows. */
+    fullBleedRowHorizontalPadding?: number;
+    /** Theme surface beneath transparent rows and their tag-edge fade. */
+    rowSurfaceColor?: ThemeColorToken;
+    /** Removes screen-level bottom insets when nested in another surface. */
+    embedded?: boolean;
+    /** Whether to load and display Cadenza tags beneath each track. Defaults to true. */
+    showTags?: boolean;
     anticipatedTrackCount?: number;
+    /** Content rendered above the first row inside the list's scroll surface. */
+    listHeader?: ReactElement | null;
+    /** Optional scroll observer for coordinated header animation. */
+    onScroll?: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
     /** Required pagination intent. Pass null for a non-paginated list. */
     pagination: MusicListPagination | null;
     /** Sorting is disabled when omitted or null. Pass an object to enable it. */

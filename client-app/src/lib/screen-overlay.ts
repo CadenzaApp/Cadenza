@@ -12,13 +12,14 @@ const OVERLAY_GAP = 12;
 
 /** Insets expressed in the coordinate space of the active screen content. */
 export function useScreenOverlayInsets() {
-    const { activeTrack } = usePlayback();
+    const { activeTrack, isPlayerDismissed } = usePlayback();
     const segments = useSegments();
     const insets = useSafeAreaInsets();
     const rootSegment = segments[0];
     const supportsCompactPlayer =
         rootSegment === "(tabs)" || rootSegment === "tag";
-    const compactPlayerVisible = activeTrack != null && supportsCompactPlayer;
+    const compactPlayerVisible =
+        activeTrack != null && !isPlayerDismissed && supportsCompactPlayer;
 
     // Tab content already ends above the tab bar and its safe-area inset.
     const playerBottomInset = compactPlayerVisible

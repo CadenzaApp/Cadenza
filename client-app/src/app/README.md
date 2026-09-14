@@ -6,19 +6,19 @@ logic out.
 
 ## Files
 
-| file | route | role |
-| --- | --- | --- |
-| `_layout.tsx` | root | Provider stack, theme, the `Stack` navigator, `PortalHost`, `MediaPlayerHost`. |
-| `(splashscreen)/index.tsx` | `/` | Calls `tryRestoreSession()`, then replaces to `/home` or `/auth`. |
-| `auth/index.tsx` | `/auth` | Sign in / sign up. Takes an `initialMode` search param. |
-| `(tabs)/_layout.tsx` | | Bottom tab bar, five tabs, Ionicons, colors from the nav theme. |
-| `(tabs)/home.tsx` | `/home` | Placeholder. Shows the email and a sign out button. |
-| `(tabs)/tags.tsx` | `/tags` | The user's tags as pills, with the create-tag dialog. |
-| `(tabs)/query.tsx` | `/query` | Hosts the query builder, then swaps to results. |
-| `(tabs)/explore.tsx` | `/explore` | Apple Music catalog search and library browsing. |
-| `(tabs)/account.tsx` | `/account` | Connect and disconnect Apple Music. |
-| `tag/[tagId].tsx` | `/tag/:tagId` | One tag and the songs carrying it. |
-| `+not-found.tsx` | | 404. |
+| file                       | route         | role                                                                                |
+| -------------------------- | ------------- | ----------------------------------------------------------------------------------- |
+| `_layout.tsx`              | root          | Provider stack, theme, the `Stack` navigator, `PortalHost`, `MediaPlayerHost`.      |
+| `(splashscreen)/index.tsx` | `/`           | Calls `tryRestoreSession()`, then replaces to `/home` or `/auth`.                   |
+| `auth/index.tsx`           | `/auth`       | Sign in / sign up. Takes an `initialMode` search param.                             |
+| `(tabs)/_layout.tsx`       |               | Bottom tab bar, five tabs, Ionicons, colors from the nav theme.                     |
+| `(tabs)/home.tsx`          | `/home`       | Placeholder. Shows the email and a sign out button.                                 |
+| `(tabs)/tags.tsx`          | `/tags`       | The user's tags as pills, with the create-tag dialog.                               |
+| `(tabs)/query.tsx`         | `/query`      | Owns session query state, matching, transitions, and Android results back handling. |
+| `(tabs)/explore.tsx`       | `/explore`    | Apple Music catalog search and library browsing.                                    |
+| `(tabs)/account.tsx`       | `/account`    | Connect and disconnect Apple Music.                                                 |
+| `tag/[tagId].tsx`          | `/tag/:tagId` | One tag and the songs carrying it.                                                  |
+| `+not-found.tsx`           |               | 404.                                                                                |
 
 `(splashscreen)` and `(tabs)` are route groups, so the parentheses do not appear in the url.
 
@@ -41,6 +41,10 @@ GestureHandlerRootView
 navigation. `MediaPlayerHost` reads `useSegments()` and decides whether to render the player and
 what bottom offset to use: `54` under the tab bar, `0` on the `tag/` stack route, nothing
 anywhere else. Playback state itself is global regardless, since it lives in `PlaybackProvider`.
+
+Query results are an in-place state of the Query tab so the builder remains mounted at navigation
+scope. Android system Back is consumed while results are visible and returns to the builder.
+`QueryResults` supplies the corresponding iOS left-edge swipe gesture.
 
 Auth gating is per screen, not centralized. Each protected screen does:
 
@@ -68,5 +72,6 @@ Every other screen can assume the account is either there or not.
 - Tab order in the bar is set by the order of `Tabs.Screen` children, not by filename.
 
 ---
+
 Touching files in this directory? Update this README in the same change.
 See [../../../AGENT_GUIDE.md](../../../AGENT_GUIDE.md).

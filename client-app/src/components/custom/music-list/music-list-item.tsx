@@ -26,7 +26,7 @@ import { TagPill } from "@/components/custom/tag-pill";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
-import { THEME } from "@/lib/theme";
+import { THEME, type ThemeColorToken } from "@/lib/theme";
 import type { Tag } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -38,11 +38,14 @@ type MusicListItemProps = {
     multiSelectEnabled: boolean;
     animateSelectionTransition: boolean;
     fullBleed?: boolean;
-    compact?: boolean;
+    fullBleedHorizontalPadding?: number;
+    rowSurfaceColor?: ThemeColorToken;
     onPress: (item: MusicItem) => void;
     onLongPress?: (item: MusicItem) => void;
     onOpenMenu: (item: MusicItem) => void;
 };
+
+const ARTWORK_SIZE = 58;
 
 export const MusicListItem = memo(function MusicListItem({
     item,
@@ -52,13 +55,15 @@ export const MusicListItem = memo(function MusicListItem({
     multiSelectEnabled,
     animateSelectionTransition,
     fullBleed = false,
-    compact = false,
+    fullBleedHorizontalPadding = 24,
+    rowSurfaceColor = "background",
     onPress,
     onLongPress,
     onOpenMenu,
 }: MusicListItemProps) {
     const { colors } = useTheme();
-    const { colorScheme } = useColorScheme();
+    const { colorScheme = "light" } = useColorScheme();
+    const theme = THEME[colorScheme];
     const [artworkFailed, setArtworkFailed] = useState(false);
     const longPressConsumedRef = useRef(false);
     const itemTags = tags ?? [];
@@ -67,9 +72,9 @@ export const MusicListItem = memo(function MusicListItem({
         !artworkFailed &&
         typeof artworkUrl === "string" &&
         /^https?:\/\//i.test(artworkUrl);
-    const selectionColor = `${
-        THEME[colorScheme === "dark" ? "dark" : "light"].secondary
-    }66`;
+    const surfaceColor = theme[rowSurfaceColor];
+    const selectionColor = blendHexColors(surfaceColor, theme.secondary, 0.4);
+    const tagFadeColor = selected ? selectionColor : surfaceColor;
     const animatedRowStyle = useAnimatedStyle(
         () => ({
             backgroundColor: withTiming(
@@ -100,16 +105,17 @@ export const MusicListItem = memo(function MusicListItem({
 
     return (
         <Animated.View
-            className={cn(
-                "relative flex-row items-center justify-between",
-                compact ? "py-2" : "py-3",
-                fullBleed ? "px-6" : "border-b border-border",
-            )}
-            style={animatedRowStyle}
+            className={cn("relative flex-row items-center justify-between")}
+            style={[
+                animatedRowStyle,
+                {
+                    paddingVertical: 7.5,
+                    paddingHorizontal: fullBleed
+                        ? fullBleedHorizontalPadding
+                        : 0,
+                },
+            ]}
         >
-            {fullBleed ? (
-                <View className="absolute bottom-0 left-6 right-6 border-b border-border" />
-            ) : null}
             {selectionMode ? (
                 <View
                     className={cn(
@@ -134,10 +140,7 @@ export const MusicListItem = memo(function MusicListItem({
                     >
                         <Button
                             size="icon"
-                            className={cn(
-                                "shrink-0 rounded-full",
-                                compact ? "h-9 w-9" : "h-11 w-11",
-                            )}
+                            className={cn("h-11 w-11 shrink-0 rounded-full")}
                             variant="ghost"
                             onPress={() => onPress(item)}
                             accessibilityLabel={
@@ -156,7 +159,7 @@ export const MusicListItem = memo(function MusicListItem({
                                             ? "checkmark-circle"
                                             : "ellipse-outline"
                                     }
-                                    size={compact ? 24 : 28}
+                                    size={28}
                                     color={colors.text}
                                 />
                             </Animated.View>
@@ -167,10 +170,7 @@ export const MusicListItem = memo(function MusicListItem({
 
             <Animated.View className="flex-1" style={animatedContentStyle}>
                 <Pressable
-                    className={cn(
-                        "flex-1 flex-row items-center overflow-hidden",
-                        compact ? "mr-2" : "mr-3",
-                    )}
+                    className="mr-3 flex-1 flex-row items-center"
                     onPressIn={() => {
                         longPressConsumedRef.current = false;
                     }}
@@ -199,18 +199,24 @@ export const MusicListItem = memo(function MusicListItem({
                     {canRenderArtwork ? (
                         <Image
                             source={{ uri: artworkUrl }}
-                            className={cn(
-                                "shrink-0 aspect-square rounded bg-muted",
-                                compact ? "h-11 w-11 mr-2" : "h-14 w-14 mr-3",
-                            )}
+                            className="mr-2 shrink-0 rounded bg-muted"
+                            resizeMode="cover"
+                            style={{
+                                width: ARTWORK_SIZE,
+                                aspectRatio: 1,
+                                borderRadius: 4,
+                                transform: [{ translateY: 4 }],
+                            }}
                             onError={() => setArtworkFailed(true)}
                         />
                     ) : (
                         <View
-                            className={cn(
-                                "shrink-0 aspect-square items-center justify-center rounded bg-muted",
-                                compact ? "h-11 w-11 mr-2" : "h-14 w-14 mr-3",
-                            )}
+                            className="mr-2 shrink-0 items-center justify-center rounded bg-muted"
+                            style={{
+                                width: ARTWORK_SIZE,
+                                aspectRatio: 1,
+                                transform: [{ translateY: 4 }],
+                            }}
                         >
                             <Text className="text-xs text-muted-foreground text-center">
                                 No Art
@@ -219,48 +225,51 @@ export const MusicListItem = memo(function MusicListItem({
                     )}
 
                     <View
-                        className={cn(
-                            "flex-1 flex-col justify-center overflow-hidden",
-                            compact ? "gap-0.5" : "gap-1.5",
-                        )}
+                        className="flex-1 flex-col justify-center overflow-hidden"
+                        style={
+                            itemTags.length === 0
+                                ? {
+                                      rowGap: 1,
+                                      transform: [{ translateY: 5 }],
+                                  }
+                                : {
+                                      rowGap: 3,
+                                      transform: [{ translateY: 1 }],
+                                  }
+                        }
                     >
                         <View>
                             <Text
-                                className={cn(
-                                    "font-bold text-foreground leading-tight",
-                                    compact ? "text-sm" : "text-base",
-                                )}
+                                className="text-base font-bold leading-tight text-foreground"
                                 numberOfLines={1}
                             >
                                 {item.title}
                             </Text>
                             <Text
-                                className={cn(
-                                    "text-muted-foreground leading-tight",
-                                    compact ? "text-xs" : "mt-0.5 text-sm",
-                                )}
+                                className="text-sm leading-tight text-muted-foreground"
+                                style={{ transform: [{ translateY: -1 }] }}
                                 numberOfLines={1}
                             >
                                 {item.artistName}
                             </Text>
                         </View>
 
-                        {itemTags.length > 0 && (
-                            <View className="relative">
+                        {itemTags.length > 0 ? (
+                            <View className="relative min-h-4">
                                 <ScrollView
                                     horizontal
                                     showsHorizontalScrollIndicator={false}
                                     contentContainerStyle={{
-                                        gap: compact ? 4 : 6,
-                                        paddingRight: compact ? 16 : 24,
+                                        gap: 6,
+                                        paddingRight: 24,
                                     }}
                                 >
                                     {itemTags.map((tag) => (
                                         <TagPill
                                             key={tag.id}
                                             tag={tag}
-                                            height={compact ? 8 : 10}
-                                            compact={compact}
+                                            height={9}
+                                            showIcon={false}
                                         />
                                     ))}
                                 </ScrollView>
@@ -271,7 +280,7 @@ export const MusicListItem = memo(function MusicListItem({
                                         right: 0,
                                         top: 0,
                                         bottom: 0,
-                                        width: compact ? 16 : 24,
+                                        width: 24,
                                     }}
                                 >
                                     <Svg width="100%" height="100%">
@@ -285,16 +294,12 @@ export const MusicListItem = memo(function MusicListItem({
                                             >
                                                 <Stop
                                                     offset="0%"
-                                                    stopColor={
-                                                        colors.background
-                                                    }
+                                                    stopColor={tagFadeColor}
                                                     stopOpacity={0}
                                                 />
                                                 <Stop
                                                     offset="100%"
-                                                    stopColor={
-                                                        colors.background
-                                                    }
+                                                    stopColor={tagFadeColor}
                                                     stopOpacity={1}
                                                 />
                                             </SvgGradient>
@@ -309,7 +314,7 @@ export const MusicListItem = memo(function MusicListItem({
                                     </Svg>
                                 </View>
                             </View>
-                        )}
+                        ) : null}
                     </View>
                 </Pressable>
             </Animated.View>
@@ -330,17 +335,14 @@ export const MusicListItem = memo(function MusicListItem({
                 >
                     <Button
                         size="icon"
-                        className={cn(
-                            "shrink-0 rounded-full",
-                            compact ? "h-9 w-9" : "h-11 w-11",
-                        )}
+                        className="h-10 w-10 shrink-0 rounded-full"
                         onPress={() => onOpenMenu(item)}
                         variant="ghost"
                         accessibilityLabel={`Options for ${item.title}`}
                     >
                         <Ionicons
                             name="ellipsis-horizontal"
-                            size={compact ? 20 : 24}
+                            size={24}
                             color={colors.text}
                         />
                     </Button>
@@ -352,52 +354,63 @@ export const MusicListItem = memo(function MusicListItem({
 
 export function MusicListItemSkeleton({
     fullBleed = false,
-    compact = false,
+    fullBleedHorizontalPadding = 24,
 }: {
     fullBleed?: boolean;
-    compact?: boolean;
+    fullBleedHorizontalPadding?: number;
 }) {
     return (
         <View
-            className={cn(
-                "relative flex-row items-center justify-between py-3",
-                compact && "py-2",
-                fullBleed ? "px-6" : "border-b border-border",
-            )}
+            className="relative flex-row items-center justify-between"
+            style={{
+                paddingVertical: 7.5,
+                paddingHorizontal: fullBleed ? fullBleedHorizontalPadding : 0,
+            }}
         >
-            {fullBleed ? (
-                <View className="absolute bottom-0 left-6 right-6 border-b border-border" />
-            ) : null}
-            <View
-                className={cn(
-                    "flex-1 flex-row items-center overflow-hidden",
-                    compact ? "mr-2" : "mr-3",
-                )}
-            >
+            <View className="mr-3 flex-1 flex-row items-center overflow-hidden">
                 <Skeleton
-                    className={cn(
-                        "shrink-0 aspect-square rounded",
-                        compact ? "h-11 w-11 mr-2" : "h-14 w-14 mr-3",
-                    )}
+                    className="mr-2 shrink-0 rounded"
+                    style={{
+                        width: ARTWORK_SIZE,
+                        aspectRatio: 1,
+                        transform: [{ translateY: 4 }],
+                    }}
                 />
-                <View
-                    className={cn(
-                        "flex-1 flex-col justify-center overflow-hidden",
-                        compact ? "gap-1" : "gap-2",
-                    )}
-                >
-                    <Skeleton className={compact ? "h-3 w-3/4" : "h-4 w-3/4"} />
-                    <Skeleton
-                        className={compact ? "h-2.5 w-1/2" : "h-3 w-1/2"}
-                    />
+                <View className="flex-1 justify-center gap-1 overflow-hidden">
+                    <Skeleton className="h-4 w-3/4 rounded-sm" />
+                    <Skeleton className="h-3 w-1/2 rounded-sm" />
+                    <View className="h-4 flex-row gap-1">
+                        <Skeleton className="h-4 w-16 rounded-full" />
+                        <Skeleton className="h-4 w-11 rounded-full" />
+                    </View>
                 </View>
             </View>
-            <Skeleton
-                className={cn(
-                    "shrink-0 rounded-full",
-                    compact ? "h-9 w-9" : "h-11 w-11",
-                )}
-            />
+            <Skeleton className="h-10 w-10 shrink-0 rounded-full" />
         </View>
     );
+}
+
+function blendHexColors(
+    background: string,
+    foreground: string,
+    opacity: number,
+) {
+    const backgroundRgb = hexToRgb(background);
+    const foregroundRgb = hexToRgb(foreground);
+    const channel = (backgroundValue: number, foregroundValue: number) =>
+        Math.round(backgroundValue * (1 - opacity) + foregroundValue * opacity);
+
+    return `rgb(${channel(backgroundRgb.red, foregroundRgb.red)}, ${channel(
+        backgroundRgb.green,
+        foregroundRgb.green,
+    )}, ${channel(backgroundRgb.blue, foregroundRgb.blue)})`;
+}
+
+function hexToRgb(hex: string) {
+    const normalized = hex.replace("#", "");
+    return {
+        red: Number.parseInt(normalized.slice(0, 2), 16),
+        green: Number.parseInt(normalized.slice(2, 4), 16),
+        blue: Number.parseInt(normalized.slice(4, 6), 16),
+    };
 }

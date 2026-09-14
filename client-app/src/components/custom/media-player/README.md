@@ -6,15 +6,15 @@ artwork, transport, and a swipeable pager between song details and a tag editor.
 
 ## Files
 
-| file | role |
-| --- | --- |
-| `index.ts` | Public surface. Exports `MediaPlayerHost` and nothing else. |
-| `media-player-host.tsx` | Decides whether to render at all, based on the current route segment. |
-| `media-player.tsx` | Everything else: state, gestures, animation, data wiring, layout. ~690 lines. |
-| `compact.tsx` | The collapsed bar. Presentational, all props. |
-| `playback-details.tsx` | Expanded view page 1: title, artist, favorite, actions. |
-| `tag-editor.tsx` | Expanded view page 2: every tag as a toggle chip. Exports `EditableSongTag`. |
-| `transport-controls.tsx` | Play/pause, skip, and the scrubber row. |
+| file                     | role                                                                          |
+| ------------------------ | ----------------------------------------------------------------------------- |
+| `index.ts`               | Public surface. Exports `MediaPlayerHost` and nothing else.                   |
+| `media-player-host.tsx`  | Decides whether to render at all, based on the current route segment.         |
+| `media-player.tsx`       | Everything else: state, gestures, animation, data wiring, layout. ~690 lines. |
+| `compact.tsx`            | The collapsed bar. Presentational, all props.                                 |
+| `playback-details.tsx`   | Expanded view page 1: title, artist, favorite, actions.                       |
+| `tag-editor.tsx`         | Expanded view page 2: every tag as a toggle chip. Exports `EditableSongTag`.  |
+| `transport-controls.tsx` | Play/pause, skip, and the scrubber row.                                       |
 
 ## How it works
 
@@ -42,6 +42,11 @@ tag editor via `detailsTranslateX` / `detailsPage`. Progress is interpolated ove
 `PLAYBACK_PROGRESS_INTERPOLATION_MS` (800ms) so the bar moves smoothly between the 750ms native
 snapshot polls, and scrubbing overrides it with `scrubPosition` until release.
 
+The compact bar races two directional pan gestures: swipe up expands it, while swiping far or
+fast enough in either horizontal direction animates it offscreen and calls the provider's
+`dismissPlayer`. Dismissal pauses playback without discarding the selected track. A later in-app
+play command or native resume from system controls restores the compact bar automatically.
+
 ## Connects to
 
 - `@/lib/playback::usePlayback` for all transport.
@@ -64,5 +69,6 @@ snapshot polls, and scrubbing overrides it with `scrubPosition` until release.
   with the tag count.
 
 ---
+
 Touching files in this directory? Update this README in the same change.
 See [../../../../../AGENT_GUIDE.md](../../../../../AGENT_GUIDE.md).

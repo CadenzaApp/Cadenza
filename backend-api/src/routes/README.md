@@ -31,6 +31,7 @@ Every route below requires `Authorization: Bearer <supabase jwt>`.
 | POST | `/songs/tags` | `{song_id, tag_id}` | empty |
 | DELETE | `/songs/tags` | `{song_id, tag_id}` | empty |
 | GET | `/queries/results` | `?q=<query json>` | `["songid", ...]`, most relevant first |
+| POST | `/queries/results` | `{query, song_ids}` | Matching candidate song ids, most relevant first |
 | GET | `/test` | none | `server is reachable`. Defined inline in `main.rs`, not here |
 
 `GET /tags` returns a serde-tagged enum, so the two shapes come back wrapped in `"One"` or
@@ -52,6 +53,10 @@ parses it, and a bad parse is `QueryFormatError`. `db::queries::run_json_query` 
 `song id -> its matched tag ids`. The handler walks the original query JSON to collect every tag
 id mentioned, scores each song by how many of those it carries, and sorts descending. Ties keep
 hashmap order, so equal-score results are unstable between requests.
+
+The POST form receives current Apple Music library ids from the client and caps the list at
+50,000. Candidate-based evaluation lets a negated tag match songs with no Cadenza tag rows. The
+GET form remains available for callers that only need the previously tagged-song universe.
 
 `json/` exists so the wire format is decoupled from the SeaORM models. Anything that leaves the
 api as JSON should have a type here rather than serializing an entity model directly.

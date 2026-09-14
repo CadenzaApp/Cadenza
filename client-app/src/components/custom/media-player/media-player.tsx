@@ -31,6 +31,7 @@ import { useUserTags } from "@/lib/routes/tags";
 import { useApplyTag, useTagsOnSong, useUnapplyTag } from "@/lib/routes/songs";
 import { MusicKit } from "@apple-musickit";
 import { useSongFavoriteStatus } from "@/lib/musickit-hooks";
+import { COMPACT_PLAYER_HEIGHT } from "@/lib/screen-overlay";
 
 const PLAYBACK_PROGRESS_INTERPOLATION_MS = 800;
 
@@ -55,6 +56,8 @@ export function MediaPlayer({
         togglePlayback,
         canSkipToNext,
         canSkipToPrevious,
+        isPlayerDismissed,
+        dismissPlayer,
     } = usePlayback();
     const { userTags = [] } = useUserTags();
     const { tagsOnSong = [] } = useTagsOnSong(
@@ -67,6 +70,7 @@ export function MediaPlayer({
     const { width, height } = useWindowDimensions();
     const [isExpanded, setIsExpanded] = useState(false);
     const sheetTranslateY = useSharedValue(0);
+    const compactTranslateX = useSharedValue(0);
     const detailsTranslateX = useSharedValue(0);
     const detailsStartX = useSharedValue(0);
     const detailsPage = useSharedValue(0);
@@ -129,6 +133,15 @@ export function MediaPlayer({
 
         return { width: `${ratio * 100}%` };
     });
+
+    const compactSwipeStyle = useAnimatedStyle(() => ({
+        opacity: Math.max(0, 1 - Math.abs(compactTranslateX.get()) / width),
+        transform: [{ translateX: compactTranslateX.get() }],
+    }));
+
+    useEffect(() => {
+        if (!isPlayerDismissed) compactTranslateX.set(0);
+    }, [compactTranslateX, isPlayerDismissed]);
 
     useEffect(() => {
         scrubPositionRef.current = scrubPosition;
@@ -394,7 +407,52 @@ export function MediaPlayer({
             }
         });
 
-    if (!activeTrack) return null;
+    function finishCompactDismissal() {
+        void dismissPlayer().catch(() => {
+            // The provider restores the player and presents the user-facing
+            // error. Avoid leaving a rejected gesture callback promise.
+        });
+    }
+
+    const dismissMiniPlayer = Gesture.Pan()
+        .activeOffsetX([-10, 10])
+        .failOffsetY([-16, 16])
+        .onBegin(() => {
+            cancelAnimation(compactTranslateX);
+        })
+        .onUpdate((event) => {
+            compactTranslateX.set(event.translationX);
+        })
+        .onEnd((event) => {
+            const shouldDismiss =
+                Math.abs(event.translationX) > width * 0.25 ||
+                Math.abs(event.velocityX) > 700;
+
+            if (!shouldDismiss) {
+                compactTranslateX.set(
+                    withSpring(0, { damping: 20, stiffness: 220 }),
+                );
+                return;
+            }
+
+            const direction =
+                event.translationX === 0
+                    ? Math.sign(event.velocityX) || 1
+                    : Math.sign(event.translationX);
+            compactTranslateX.set(
+                withTiming(
+                    direction * (width + 24),
+                    { duration: 220, easing: Easing.out(Easing.cubic) },
+                    (finished) => {
+                        if (finished) runOnJS(finishCompactDismissal)();
+                    },
+                ),
+            );
+        });
+
+    const compactGesture = Gesture.Race(dismissMiniPlayer, expandMiniPlayer);
+
+    if (!activeTrack || isPlayerDismissed) return null;
 
     function handleNoOp(feature: string, futureBehavior: string) {
         console.info(
@@ -452,23 +510,37 @@ export function MediaPlayer({
 
     return (
         <>
-            <GestureDetector gesture={expandMiniPlayer}>
-                <MediaPlayerCompact
-                    track={activeTrack}
-                    artworkUrl={artworkUrl}
-                    canRenderArtwork={canRenderArtwork}
-                    isPlaying={isPlaying}
-                    isLoading={isLoading}
-                    canSkipToNext={canSkipToNext}
-                    bottom={insets.bottom + compactBottomOffset}
-                    textColor={colors.text}
-                    onExpand={expandPlayer}
-                    onArtworkError={() =>
-                        setFailedArtworkUrl(artworkUrl ?? null)
-                    }
-                    onTogglePlayback={() => void togglePlayback(activeTrack)}
-                    onSkipToNext={() => void skipToNext()}
-                />
+            <GestureDetector gesture={compactGesture}>
+                <Animated.View
+                    style={[
+                        {
+                            position: "absolute",
+                            left: 12,
+                            right: 12,
+                            bottom: insets.bottom + compactBottomOffset,
+                            height: COMPACT_PLAYER_HEIGHT,
+                        },
+                        compactSwipeStyle,
+                    ]}
+                >
+                    <MediaPlayerCompact
+                        track={activeTrack}
+                        artworkUrl={artworkUrl}
+                        canRenderArtwork={canRenderArtwork}
+                        isPlaying={isPlaying}
+                        isLoading={isLoading}
+                        canSkipToNext={canSkipToNext}
+                        textColor={colors.text}
+                        onExpand={expandPlayer}
+                        onArtworkError={() =>
+                            setFailedArtworkUrl(artworkUrl ?? null)
+                        }
+                        onTogglePlayback={() =>
+                            void togglePlayback(activeTrack)
+                        }
+                        onSkipToNext={() => void skipToNext()}
+                    />
+                </Animated.View>
             </GestureDetector>
 
             <Modal

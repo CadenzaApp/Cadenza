@@ -5,10 +5,7 @@ use crate::err::CadenzaError;
 use crate::{AppState, auth::SupabaseClaims};
 use axum::extract::Query;
 use axum::routing::get;
-use axum::{
-    Router,
-    extract::State,
-};
+use axum::{Json, Router, extract::State};
 use axum_jwt_auth::Claims;
 use sea_orm::DatabaseConnection;
 use serde::Deserialize;
@@ -19,13 +16,21 @@ struct QueryResultsParams {
     query_id: Option<i64>,
     q: Option<String>,
 }
+
+#[derive(Deserialize)]
+struct QueryResultsBody {
+    query: Value,
+    song_ids: Vec<String>,
+}
+
+const MAX_QUERY_SONG_IDS: usize = 50_000;
 impl QueryResultsParams {
     fn into_json_query(self) -> Result<Value, CadenzaError> {
         if let Some(q) = self.q {
             return match serde_json::from_str(&q) {
                 Ok(json_query) => Ok(json_query),
-                Err(_) => Err(CadenzaError::QueryFormatError("invalid json".to_string()))
-            }
+                Err(_) => Err(CadenzaError::QueryFormatError("invalid json".to_string())),
+            };
         }
 
         todo!("get query json from query id (a saved query)")
@@ -38,15 +43,49 @@ impl QueryResultsParams {
 /// ```json
 /// [ 1, 2, 3, ... ]
 /// ```
-async fn query_results_handler(
+async fn get_query_results_handler(
     State(db): State<DatabaseConnection>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Query(params): Query<QueryResultsParams>,
 ) -> Result<String, CadenzaError> {
     let json_query = params.into_json_query()?;
 
+    query_results(&db, &json_query, claims.user_id, None).await
+}
+
+/// Returns matching song IDs from an explicit Apple Music library candidate set.
+///
+/// Request JSON:
+/// ```json
+/// { "query": { "not": 3 }, "song_ids": ["123", "456"] }
+/// ```
+async fn post_query_results_handler(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Json(body): Json<QueryResultsBody>,
+) -> Result<String, CadenzaError> {
+    if body.song_ids.len() > MAX_QUERY_SONG_IDS {
+        return Err(CadenzaError::QueryFormatError(format!(
+            "a query can evaluate at most {MAX_QUERY_SONG_IDS} songs",
+        )));
+    }
+    if body.song_ids.iter().any(|song_id| song_id.is_empty()) {
+        return Err(CadenzaError::QueryFormatError(
+            "song ids cannot be empty".to_string(),
+        ));
+    }
+
+    query_results(&db, &body.query, claims.user_id, Some(&body.song_ids)).await
+}
+
+async fn query_results(
+    db: &DatabaseConnection,
+    json_query: &Value,
+    user_id: sea_orm::prelude::Uuid,
+    candidate_song_ids: Option<&[String]>,
+) -> Result<String, CadenzaError> {
     let matched_songs_and_tags =
-        db::queries::run_json_query(&db, &json_query, claims.user_id).await?;
+        db::queries::run_json_query(db, json_query, user_id, candidate_song_ids).await?;
 
     let mut mentioned_tags = HashSet::new();
     get_mentioned_tags(&json_query, &mut mentioned_tags);
@@ -102,5 +141,8 @@ fn get_mentioned_tags(query: &Value, out: &mut HashSet<i64>) {
 }
 
 pub fn get_queries_router() -> Router<AppState> {
-    Router::new().route("/results", get(query_results_handler))
+    Router::new().route(
+        "/results",
+        get(get_query_results_handler).post(post_query_results_handler),
+    )
 }

@@ -6,37 +6,38 @@ native module directly.
 
 ## Files
 
-| file | role |
-| --- | --- |
-| `backend.ts` | `BACKEND_URL`. One constant, currently hardcoded. |
-| `api-actions.ts` | The generic SWR wrappers: `useAPIData`, `useAPIPostDataBatched`, `useAPIFetch`, `useAPIMutation`. |
-| `api-endpoints.ts` | `matchesEndpoint`, the cache-key matcher behind invalidation. Import-free so it can be unit tested. |
-| `swr-utils.ts` | `clearCache` and `useSimpleMutation`, for things that are not plain backend calls. |
-| `routes/tags.ts` | Hooks for `/tags`: `useUserTags`, `useTag`, `useCreateTag`, `useDeleteTag`, `useSuggestTags`. |
-| `routes/songs.ts` | Hooks for `/songs/tags`: `useTagsOnSong`, `useTagsOnSongs`, `useApplyTag`, `useUnapplyTag`. |
-| `routes/queries.ts` | Hook for `/queries/results`: `useQueryResults`. |
-| `musickit-hooks.ts` | SWR over the native module: song info, catalog search, library, playlists, favorites. |
-| `account.tsx` | `AccountProvider` / `useAccount`. Supabase session and the JWT. |
-| `apple-music-auth.tsx` | `AppleMusicProvider` / `useAppleMusic`. Apple Music tokens, persisted in secure store. |
-| `playback.tsx` | `PlaybackProvider`, `usePlayback` (state) and `usePlaybackCommands` (actions). Queue and the native playback snapshot. |
-| `supabase.ts` | The Supabase client, backed by AsyncStorage. |
-| `tag-generation.ts` | A standalone tag suggestion fetch. Does not use the wrappers. See gotchas. |
-| `theme.ts` | `NAV_THEME`, light and dark palettes for react-navigation. |
-| `error-utils.ts` | `getErrorDetails` / `getErrorMessage`, for unwrapping native and backend errors. |
-| `screen-overlay.ts` | `useScreenOverlayInsets`. How much bottom padding a screen owes the compact player and the floating button. |
-| `types.ts` | Shared wire types: `Tag` and `TagMetadata`. |
-| `utils.ts` | `cn()`, the clsx + tailwind-merge helper. |
+| file                   | role                                                                                                                   |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `backend.ts`           | `BACKEND_URL`. One constant, currently hardcoded.                                                                      |
+| `api-actions.ts`       | The generic SWR wrappers: `useAPIData`, `useAPIPostDataBatched`, `useAPIFetch`, `useAPIMutation`.                      |
+| `api-endpoints.ts`     | `matchesEndpoint`, the cache-key matcher behind invalidation. Import-free so it can be unit tested.                    |
+| `swr-utils.ts`         | `clearCache` and `useSimpleMutation`, for things that are not plain backend calls.                                     |
+| `routes/tags.ts`       | Hooks for `/tags`: `useUserTags`, `useTag`, `useCreateTag`, `useDeleteTag`, `useSuggestTags`.                          |
+| `routes/songs.ts`      | Hooks for `/songs/tags`: `useTagsOnSong`, `useTagsOnSongs`, `useApplyTag`, `useUnapplyTag`.                            |
+| `routes/queries.ts`    | Hook for `/queries/results`: `useQueryResults`.                                                                        |
+| `musickit-hooks.ts`    | SWR over the native module: song info, catalog search, paged/full library, playlists, favorites.                       |
+| `account.tsx`          | `AccountProvider` / `useAccount`. Supabase session and the JWT.                                                        |
+| `apple-music-auth.tsx` | `AppleMusicProvider` / `useAppleMusic`. Apple Music tokens, persisted in secure store.                                 |
+| `playback.tsx`         | `PlaybackProvider`, `usePlayback` (state) and `usePlaybackCommands` (actions). Queue and the native playback snapshot. |
+| `supabase.ts`          | The Supabase client, backed by AsyncStorage.                                                                           |
+| `tag-generation.ts`    | A standalone tag suggestion fetch. Does not use the wrappers. See gotchas.                                             |
+| `theme.ts`             | `NAV_THEME` and the matching light/dark application palettes.                                                          |
+| `error-utils.ts`       | `getErrorDetails` / `getErrorMessage`, for unwrapping native and backend errors.                                       |
+| `screen-overlay.ts`    | `useScreenOverlayInsets`. How much bottom padding a screen owes the compact player and the floating button.            |
+| `types.ts`             | Shared wire types: `Tag` and `TagMetadata`.                                                                            |
+| `utils.ts`             | `cn()`, the clsx + tailwind-merge helper.                                                                              |
 
 ## The SWR wrappers
 
-Four, in `api-actions.ts`, and picking the right one is most of the work:
+Five, in `api-actions.ts`, and picking the right one is most of the work:
 
-| wrapper | for | key |
-| --- | --- | --- |
-| `useAPIData<Output>(path, params?)` | idempotent reads, fetch on mount | `{ keyType: "api-data", path, params, accountId }` |
-| `useAPIPostDataBatched<Item, Body, Out>(path, items, opts)` | an idempotent read whose payload is a list too long for a query string | `{ keyType: "api-data", path, items, accountId }` |
-| `useAPIFetch<In, Out>(path)` | a GET you only want on demand (search, suggestions) | `path` string |
-| `useAPIMutation<Body, Res>(method, path, invalidates?)` | user-triggered writes | `[method, path, accountId]` |
+| wrapper                                                     | for                                                                    | key                                                              |
+| ----------------------------------------------------------- | ---------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| `useAPIData<Output>(path, params?)`                         | idempotent reads, fetch on mount                                       | `{ keyType: "api-data", path, params, accountId }`               |
+| `useAPIPostData<Body, Out>(path, body)`                     | cached idempotent read with a large body                               | `{ keyType: "api-data", method: "POST", path, body, accountId }` |
+| `useAPIPostDataBatched<Item, Body, Out>(path, items, opts)` | an idempotent read whose payload is a list too long for a query string | `{ keyType: "api-data", path, items, accountId }`                |
+| `useAPIFetch<In, Out>(path)`                                | a GET you only want on demand (search, suggestions)                    | `path` string                                                    |
+| `useAPIMutation<Body, Res>(method, path, invalidates?)`     | user-triggered writes                                                  | `[method, path, accountId]`                                      |
 
 All four pull the JWT from `useAccount()` and send `Authorization: Bearer <jwt>`. All four
 tolerate an empty response body, and all four throw the parsed error body on a non-2xx, so a
@@ -67,11 +68,10 @@ whose `path` is equal and whose `params` are a **superset** of the listed ones. 
 
 ```ts
 // invalidate only this song's tag list, plus the tag counts
-useAPIMutation<ApplyTagPayload, void>("POST", "/songs/tags",
-    ({ song_id }) => [
-        { path: "/songs/tags", params: { song_id } },
-        { path: "/tags" },
-    ]);
+useAPIMutation<ApplyTagPayload, void>("POST", "/songs/tags", ({ song_id }) => [
+    { path: "/songs/tags", params: { song_id } },
+    { path: "/tags" },
+]);
 ```
 
 `invalidatedEndpoints` defaults to `[]`. A mutation that lists nothing leaves every cached
@@ -81,24 +81,24 @@ useAPIMutation<ApplyTagPayload, void>("POST", "/songs/tags",
 
 One file per backend router, and every backend endpoint has at least one hook.
 
-| backend | endpoint | hook |
-| --- | --- | --- |
-| `routes/tags.rs` | `GET /tags` | `tags.ts` -> `useUserTags()`, `useTag(tagId)` |
-| | `POST /tags` | `tags.ts` -> `useCreateTag()` |
-| | `DELETE /tags` | `tags.ts` -> `useDeleteTag()` |
-| | `GET /tags/suggest` | `tags.ts` -> `useSuggestTags()` |
-| `routes/songs.rs` | `GET /songs/tags` | `songs.ts` -> `useTagsOnSong(songId)` |
-| | `POST /songs/tags/batch` | `songs.ts` -> `useTagsOnSongs(songIds)` |
-| | `POST /songs/tags` | `songs.ts` -> `useApplyTag()` |
-| | `DELETE /songs/tags` | `songs.ts` -> `useUnapplyTag()` |
-| `routes/queries.rs` | `GET /queries/results` | `queries.ts` -> `useQueryResults()` |
+| backend             | endpoint                       | hook                                                |
+| ------------------- | ------------------------------ | --------------------------------------------------- |
+| `routes/tags.rs`    | `GET /tags`                    | `tags.ts` -> `useUserTags()`, `useTag(tagId)`       |
+|                     | `POST /tags`                   | `tags.ts` -> `useCreateTag()`                       |
+|                     | `DELETE /tags`                 | `tags.ts` -> `useDeleteTag()`                       |
+|                     | `GET /tags/suggest`            | `tags.ts` -> `useSuggestTags()`                     |
+| `routes/songs.rs`   | `GET /songs/tags`              | `songs.ts` -> `useTagsOnSong(songId)`               |
+|                     | `POST /songs/tags/batch`       | `songs.ts` -> `useTagsOnSongs(songIds)`             |
+|                     | `POST /songs/tags`             | `songs.ts` -> `useApplyTag()`                       |
+|                     | `DELETE /songs/tags`           | `songs.ts` -> `useUnapplyTag()`                     |
+| `routes/queries.rs` | `GET`, `POST /queries/results` | `queries.ts` -> candidate-based `useQueryResults()` |
 
 `GET /tags` has two hooks because the handler returns a tagged union: without `tag_id` it
 responds with `All { tags, metadata }`, with one it responds with `One { tag, song_ids }`.
 `useUserTags` and `useTag` each unwrap one variant.
 
 Adding an endpoint: add the route in `backend-api/src/routes/*.rs`, then add a hook in the
-matching `routes/*.ts` built on one of the three wrappers. For writes, list the endpoints the
+matching `routes/*.ts` built on one of the wrappers. For writes, list the endpoints the
 change invalidates. Rename the returned fields to something readable (`tagsOnSong`,
 `tagsOnSongLoading`, `tagsOnSongErr`) rather than re-exporting SWR's `data` / `error` /
 `isLoading`.
@@ -106,6 +106,10 @@ change invalidates. Rename the returned fields to something readable (`tagsOnSon
 `musickit-hooks.ts` does the same job for the native module, using plain `useSWR` with tuple
 keys like `["MusicKit.getSongInfo", ids]`. `useSongFavoriteStatus` is the one optimistic update
 in the codebase, with `rollbackOnError`.
+
+`useAllTracksFromLibrary` follows every 100-song MusicKit page inside one SWR read. The query
+screen sends its canonical ids as candidates and reuses the returned metadata for result lists.
+Applying or removing a song tag invalidates cached query results as well as tag reads.
 
 ## The providers
 
@@ -122,6 +126,10 @@ in the codebase, with `rollbackOnError`.
   back to the last index it set. It polls `refreshPlaybackSnapshot()` every 750ms while the app
   is foregrounded. This is deliberately not SWR: it is a subscription to continuously changing
   native state, not a cached read.
+- Dismissing the compact player pauses native playback but preserves the active track and queue.
+  The provider keeps that dismissal state separate from playback state, clears it for explicit
+  in-app play commands, and also clears it when a snapshot reports that system playback resumed.
+  `useScreenOverlayInsets` follows the same visibility state so hidden players reserve no space.
 - The provider exposes two contexts on purpose. `usePlayback()` is the state, and re-renders
   every 750ms as progress ticks. `usePlaybackCommands()` is the actions, and its identity never
   changes, so a list row can hold a play handler without re-rendering on every tick. Reach for
@@ -152,5 +160,6 @@ in the codebase, with `rollbackOnError`.
   session is restored sends `Bearer undefined`.
 
 ---
+
 Touching files in this directory? Update this README in the same change.
 See [../../../AGENT_GUIDE.md](../../../AGENT_GUIDE.md).

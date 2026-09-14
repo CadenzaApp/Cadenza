@@ -55,6 +55,7 @@ export function useApplyTag() {
             { path: "/songs/tags", params: { song_id } },
             { path: "/songs/tags/batch" },
             { path: "/tags" },
+            { path: "/queries/results" },
         ],
     );
     return {
@@ -74,6 +75,7 @@ export function useUnapplyTag() {
             { path: "/songs/tags", params: { song_id } },
             { path: "/songs/tags/batch" },
             { path: "/tags" },
+            { path: "/queries/results" },
         ],
     );
     return {

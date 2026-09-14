@@ -27,12 +27,14 @@ type PlaybackInfo = {
     queueIndex: number;
     canSkipToNext: boolean;
     canSkipToPrevious: boolean;
+    isPlayerDismissed: boolean;
     playQueue: (queue: PlaybackQueue) => Promise<void>;
     addToQueue: (tracks: readonly MusicItem[]) => Promise<void>;
     togglePlayback: (track: MusicItem) => Promise<void>;
     seekTo: (time: number) => Promise<void>;
     skipToNext: () => Promise<void>;
     skipToPrevious: () => Promise<void>;
+    dismissPlayer: () => Promise<void>;
 };
 
 const PlaybackContext = createContext<PlaybackInfo | null>(null);
@@ -44,6 +46,7 @@ type PlaybackCommands = Pick<
     | "seekTo"
     | "skipToNext"
     | "skipToPrevious"
+    | "dismissPlayer"
 >;
 const PlaybackCommandsContext = createContext<PlaybackCommands | null>(null);
 
@@ -61,6 +64,9 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     const snapshot = Playback.usePlaybackSnapshot();
     const [queue, setQueue] = useState<MusicItem[]>([]);
     const [queueIndex, setQueueIndex] = useState(-1);
+    const [isPlayerDismissed, setIsPlayerDismissed] = useState(false);
+    const isPlayerDismissedRef = useRef(false);
+    const dismissalAwaitingPauseRef = useRef(false);
     const commandImplementationsRef = useRef<PlaybackCommands | null>(null);
     const snapshotTrack = snapshot.currentTrack ?? null;
     const nativeQueueIndex = snapshotTrack
@@ -77,15 +83,39 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
             : snapshotTrack;
     const activeTrackId = activeTrack?.id ?? null;
 
+    function showPlayer() {
+        isPlayerDismissedRef.current = false;
+        dismissalAwaitingPauseRef.current = false;
+        setIsPlayerDismissed(false);
+    }
+
     useEffect(() => {
         let active = true;
 
         const refreshPlaybackSnapshot = () => {
             if (!active || AppState.currentState !== "active") return;
 
-            void Playback.refreshPlaybackSnapshot().catch((error) => {
-                console.warn("Failed to refresh playback snapshot:", error);
-            });
+            void Playback.refreshPlaybackSnapshot()
+                .then((nextSnapshot) => {
+                    if (dismissalAwaitingPauseRef.current) {
+                        if (!nextSnapshot.isPlaying) {
+                            dismissalAwaitingPauseRef.current = false;
+                        }
+                        return;
+                    }
+
+                    // Playback can resume from Control Center, headphones, or
+                    // another system transport surface while our UI is hidden.
+                    if (
+                        isPlayerDismissedRef.current &&
+                        nextSnapshot.isPlaying
+                    ) {
+                        showPlayer();
+                    }
+                })
+                .catch((error) => {
+                    console.warn("Failed to refresh playback snapshot:", error);
+                });
         };
 
         refreshPlaybackSnapshot();
@@ -127,6 +157,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
         );
         const previousQueue = queue;
         const previousQueueIndex = queueIndex;
+        showPlayer();
         setQueue(playableTracks);
         setQueueIndex(boundedIndex);
         try {
@@ -158,6 +189,13 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
 
         try {
             if (!isNewTrack) {
+                if (isPlayerDismissed) {
+                    showPlayer();
+                    // A fast repeat tap can arrive before the dismissal pause
+                    // reaches the snapshot. In that case playback is already
+                    // running and only the compact player needs restoring.
+                    if (snapshot.isPlaying) return;
+                }
                 await Playback.togglePlayerState();
             } else {
                 // Song lookup/list playback intentionally creates a one-song
@@ -253,6 +291,26 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
         }
     }
 
+    async function dismissPlayer() {
+        dismissalAwaitingPauseRef.current = true;
+        isPlayerDismissedRef.current = true;
+        setIsPlayerDismissed(true);
+
+        try {
+            // Pause is deterministic here; toggle could accidentally start a
+            // track if native state changes during the swipe animation.
+            await Playback.pause();
+            const nextSnapshot = await Playback.refreshPlaybackSnapshot();
+            dismissalAwaitingPauseRef.current = false;
+            if (nextSnapshot.isPlaying) showPlayer();
+        } catch (e) {
+            showPlayer();
+            console.error("Failed to dismiss the media player:", e);
+            Alert.alert("Playback Error", "Failed to stop playback.");
+            throw e;
+        }
+    }
+
     useEffect(() => {
         commandImplementationsRef.current = {
             playQueue,
@@ -261,6 +319,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
             seekTo,
             skipToNext,
             skipToPrevious,
+            dismissPlayer,
         };
     });
     const commands = useMemo<PlaybackCommands>(
@@ -275,6 +334,8 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
             skipToNext: () => commandImplementationsRef.current!.skipToNext(),
             skipToPrevious: () =>
                 commandImplementationsRef.current!.skipToPrevious(),
+            dismissPlayer: () =>
+                commandImplementationsRef.current!.dismissPlayer(),
         }),
         [],
     );
@@ -294,6 +355,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
                         resolvedQueueIndex >= 0 &&
                         resolvedQueueIndex < queue.length - 1,
                     canSkipToPrevious: resolvedQueueIndex > 0,
+                    isPlayerDismissed,
                     ...commands,
                 }}
             >

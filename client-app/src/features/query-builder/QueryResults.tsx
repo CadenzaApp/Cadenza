@@ -1,14 +1,28 @@
-import { MusicList } from "@/components/custom/music-list";
+import type { MusicItem } from "@apple-musickit";
+import { useMemo, useState } from "react";
+import { Platform, useWindowDimensions, View } from "react-native";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import { runOnJS } from "react-native-reanimated";
+
+import { TrackCollectionView } from "@/components/custom/track-collection-view";
 import { Button } from "@/components/ui/button";
-import { MusicItem } from "@apple-musickit";
-import { View, Text, StyleSheet } from "react-native";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Text } from "@/components/ui/text";
 
 type Props = {
     songs: MusicItem[];
     isLoading: boolean;
     error?: unknown;
     anticipatedTrackCount?: number;
-    onBackPress: () => any;
+    onBackPress: () => void;
 };
 
 export default function QueryResults({
@@ -18,40 +32,118 @@ export default function QueryResults({
     anticipatedTrackCount,
     onBackPress,
 }: Props) {
+    const { width: screenWidth } = useWindowDimensions();
+    const [saveOpen, setSaveOpen] = useState(false);
+    const [saveName, setSaveName] = useState("");
+    const saveDialogWidth = Math.round(screenWidth * 0.75);
+    const backSwipe = useMemo(
+        () =>
+            Gesture.Pan()
+                .minDistance(8)
+                .activeOffsetX(12)
+                .failOffsetY([-24, 24])
+                .onEnd((event) => {
+                    if (event.translationX >= 64 || event.velocityX >= 650) {
+                        runOnJS(onBackPress)();
+                    }
+                }),
+        [onBackPress],
+    );
+
+    function closeSaveDialog() {
+        setSaveOpen(false);
+        setSaveName("");
+    }
+
+    function handleSaveOpenChange(open: boolean) {
+        if (!open) setSaveName("");
+        setSaveOpen(open);
+    }
+
+    function submitSave() {
+        const name = saveName.trim();
+        if (!name) return;
+        console.info(
+            `[QueryResults] Saving query "${name}" is not implemented yet.`,
+        );
+        closeSaveDialog();
+    }
+
     return (
-        <View style={styles.container}>
-            <Text style={styles.headerText} className="text-foreground">
-                Your Mix
-            </Text>
-            <View style={styles.container}>
-                {error ? (
-                    <Text className="text-destructive text-center">
-                        Failed to load song metadata.
-                    </Text>
-                ) : null}
-                <MusicList
-                    tracks={songs}
-                    isLoading={isLoading}
-                    pagination={null}
-                    anticipatedTrackCount={anticipatedTrackCount}
-                />
-            </View>
-            <Button onPress={onBackPress}>
-                <Text> Back </Text>
-            </Button>
-        </View>
+        <>
+            <TrackCollectionView
+                title="Matching Songs"
+                tracks={songs}
+                isLoading={isLoading}
+                error={error}
+                anticipatedTrackCount={anticipatedTrackCount}
+                onBackPress={onBackPress}
+                multiSelect={{ includeAddToQueue: true }}
+                showTags
+                options={[
+                    {
+                        id: "save-query",
+                        label: "Save query",
+                        icon: "bookmark-outline",
+                        onPress: () => setSaveOpen(true),
+                    },
+                ]}
+            />
+
+            {Platform.OS === "ios" ? (
+                <GestureDetector gesture={backSwipe}>
+                    <View
+                        className="absolute bottom-0 left-0 top-0 z-50 w-5"
+                        accessibilityElementsHidden
+                        importantForAccessibility="no-hide-descendants"
+                    />
+                </GestureDetector>
+            ) : null}
+
+            <Dialog open={saveOpen} onOpenChange={handleSaveOpenChange}>
+                <DialogContent
+                    style={{
+                        width: saveDialogWidth,
+                        minWidth: saveDialogWidth,
+                        maxWidth: saveDialogWidth,
+                        transform: [{ translateY: -96 }],
+                    }}
+                >
+                    <DialogHeader>
+                        <DialogTitle>Save Query</DialogTitle>
+                        <DialogDescription>
+                            Give this query a name.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <View className="gap-1.5">
+                        <Label>Query name</Label>
+                        <Input
+                            value={saveName}
+                            onChangeText={setSaveName}
+                            placeholder="e.g. Late night favorites"
+                            autoFocus
+                            returnKeyType="done"
+                            onSubmitEditing={submitSave}
+                        />
+                    </View>
+                    <View className="mt-1 flex-row gap-2.5">
+                        <Button
+                            variant="secondary"
+                            className="flex-1"
+                            onPress={closeSaveDialog}
+                        >
+                            <Text>Cancel</Text>
+                        </Button>
+                        <Button
+                            className="flex-1"
+                            disabled={!saveName.trim()}
+                            onPress={submitSave}
+                        >
+                            <Text>Save</Text>
+                        </Button>
+                    </View>
+                </DialogContent>
+            </Dialog>
+        </>
     );
 }
-
-const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        padding: 16,
-        gap: 12,
-    },
-    headerText: {
-        fontWeight: "600",
-        fontSize: 13,
-        letterSpacing: 0.5,
-    },
-});

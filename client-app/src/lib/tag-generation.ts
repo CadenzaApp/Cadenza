@@ -1,7 +1,7 @@
 import Constants from "expo-constants";
 import { Platform } from "react-native";
 
-const DEFAULT_BACKEND_API_BASE_URL = "http://127.0.0.1:3000";
+const DEFAULT_BACKEND_API_BASE_URL = "http://0.0.0.0:3000";
 const ANDROID_EMULATOR_BACKEND_API_BASE_URL = "http://10.0.2.2:3000";
 
 type SourceProvider =
