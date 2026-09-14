@@ -77,10 +77,11 @@ variables), `tailwind.config.js`, and `global.css`. Class merging goes through
 | --- | --- |
 | `music-list/` | Scrollable list of `MusicItem`s, with skeletons, paging, and sorting. See below. |
 | `floating-bubble.tsx` | The round floating action button the list and tag screens sit under. |
-| `song-detail-modal.tsx` | Full song sheet: artwork, tags, favorite, play. |
+| `options-menu/` | The song, album, and playlist "..." menus, on liquid glass. See below. |
+| `song-tag-editor.tsx` | `useSongTagEditor`, the tag-editing data for one song id: user tags annotated as applied, the toggle mutation, and the "New" tag dialog's open state. Used by `media-player/tags-page.tsx`, the now-playing sheet's Tags page. |
 | `tag-pill.tsx` | A tag chip, colored from `tag.color`. Also exports `readableTextColor`. |
 | `create-tag-dialog.tsx` | `CreateTagDialog` (controlled name + color picker, calls `useCreateTag`) and `CreateTagBubble` (floating trigger + dialog). |
-| `modal-popup.tsx` | Small anchored popup used by the track menu and the selection actions. |
+| `modal-popup.tsx` | Small anchored popup used by the options menus and the selection actions. `variant="glass"` renders the card on `GlassSurface` instead of the flat popover background; every other caller is unaffected. |
 | `bottom-bars-overlay.tsx` | Mounts the global tab bar and mini player in iOS's window overlay so native detail screens cannot cover them. |
 | `tab-bar.tsx` | The whole floating tab bar: `TABS`, `TabBarHost`, `TabSelectionProvider`, the selection bubble, and the items that move aside for the docked player. The bubble mounts after the bar is measured so native glass starts at its real size. Mounted at the root, not in the navigator. |
 | `top-rail.tsx` | Shared tab header: page title on the left, an optional `actions` slot and the account initials on the right. |
@@ -100,7 +101,6 @@ variables), `tailwind.config.js`, and `global.css`. Class merging goes through
 | `music-list-sort-button.tsx` | The floating sort control. |
 | `music-list-action-button.tsx` | One button in the selection toolbar. |
 | `music-list-selection-toolbar.tsx` | The bar that slides up while rows are selected. |
-| `music-list-track-menu.tsx` | The per-row overflow menu. |
 | `use-music-list-selection.ts` | Selection state, haptics, and pruning. Tested in `use-music-list-selection.test.ts`. |
 | `selection-utils.ts` | `reduceMusicListSelection`, the pure reducer behind the hook. |
 | `sort-tracks.ts` | `sortTracks` / `nextSort`. Pure, unit tested in `sort-tracks.test.ts`. |
@@ -120,8 +120,8 @@ a tap toggles one, and clearing everything leaves selection mode. Pinching the l
 compact rows; pass `compact` and `onCompactChange` to control that from outside.
 
 `collection-list.tsx` is deliberately not `MusicList`. Sorting, multi-select, tagging, and the
-track menu all describe songs; none of them mean anything for an album, so the collection list
-is its own small component rather than `MusicList` with five features switched off. It does
+song options menu all describe songs; none of them mean anything for an album, so the collection
+list is its own small component rather than `MusicList` with five features switched off. It does
 reuse `MusicListItemSkeleton` for its loading rows.
 
 `artist-list.tsx` is the same idea for artists, which are `ArtistItem`s and not `MusicItem`s at
@@ -141,6 +141,28 @@ beside it. The search tab's Artists section is the header's current user; `Recen
 takes a `header` for the same reason. The artist screen uses both at once: the artist image as
 the header, the albums rail as the footer. The footer sits below the pagination skeleton, so a
 paging list keeps loading into it.
+
+### custom/options-menu/
+
+| file | role |
+| --- | --- |
+| `song-options-menu.tsx` | `SongOptionsMenu`. Favorite + Share, Add to Playlist, Play Next, Add to Queue, Go to Album, Go to Artist, then a pronounced Modify Tags footer. Self-contained: owns its own favorite and artist state from just a `track`. Used by the music list row menu and the now-playing sheet. |
+| `collection-options-menu.tsx` | `CollectionOptionsMenu`. Favorite + Share for the album/playlist itself, then Play Next / Add to Queue against its songs. Used by `/collection/[kind]/[id]`. |
+| `favorite-share-row.tsx` | `FavoriteShareRow`, the icon row + divider both menus lead with. Generic over the target type. |
+
+Both menus render through `ModalPopup` with `variant="glass"`. Neither owns navigation directly:
+`SongOptionsMenu` takes an optional `navigate` (defaulting to a plain `router.push`), so the
+now-playing sheet can pass a function that dismisses itself first, without that assumption living
+in the shared component. Modify Tags is the same shape: `SongOptionsMenu` takes an optional
+`onModifyTags`, defaulting to a route push to `/player` with `tagsSongId` and friends (opening the
+now-playing sheet's Tags page for a song that may not be playing), while the now-playing sheet's
+own menu instance passes a function that moves its pager to the Tags page in place instead - see
+[custom/media-player/README.md](custom/media-player/README.md).
+
+Gotchas carried over from before the two "..." menus were merged: `SongOptionsMenu` resolves the
+song's artist (for Go to Artist) as soon as it mounts, which is only while the menu is open, so
+nothing above it costs a catalog lookup on every song that plays; Go to Artist is disabled for a
+library-only song, which has none.
 
 ## Connects to
 

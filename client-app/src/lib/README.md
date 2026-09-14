@@ -26,6 +26,7 @@ native module directly.
 | `error-utils.ts` | `getErrorDetails` / `getErrorMessage`, for unwrapping native and backend errors. |
 | `artwork-color.ts` | `useArtworkTint`, the color a surface paints itself with, plus `withAlpha`. |
 | `music-routes.ts` | `collectionRoute` / `albumRouteForTrack`. Hrefs into the resource screens, params and all. |
+| `share-track.ts` | `shareTrack` / `shareCollection`. Builds and fires the native share sheet for a song, album, or playlist's canonical Apple Music link. |
 | `screen-overlay.ts` | `useScreenOverlayInsets`, bottom bar geometry and visibility, `BottomBarVisibilityProvider`, focused-screen suppression, and pushed-screen detection. |
 | `player-dock.tsx` | `PlayerDockProvider` / `usePlayerDock`. Whether the mini player floats above the tab bar or sits docked inside it. |
 | `screen-scroll.ts` | `useScreenScroll`, the props a screen's top-level scroller spreads to get tab-press-scrolls-to-top, scroll-docks-the-player, and pull-down-to-close. |

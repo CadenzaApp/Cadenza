@@ -7,8 +7,7 @@ import { Pressable, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { MusicList } from "@/components/custom/music-list";
-import { MusicListActionButton } from "@/components/custom/music-list/music-list-action-button";
-import { ModalPopup } from "@/components/custom/modal-popup";
+import { CollectionOptionsMenu } from "@/components/custom/options-menu/collection-options-menu";
 import { FloatingCloseButton } from "@/components/ui/floating-close-button";
 import { GlassIconButton } from "@/components/ui/glass-icon-button";
 import { Text } from "@/components/ui/text";
@@ -19,7 +18,6 @@ import { useCollectionSongs } from "@/lib/musickit-hooks";
 import { usePlaybackCommands } from "@/lib/playback";
 import { ZoomDismissScreen } from "@/lib/zoom-dismiss";
 
-import type { MusicListAction } from "@/components/custom/music-list/types";
 import type { LibraryCollectionKind } from "@/lib/musickit-hooks";
 
 const DEFAULT_MULTI_SELECT_CONFIG = {} as const;
@@ -71,8 +69,7 @@ export default function CollectionDetailScreen() {
     }>();
     const insets = useSafeAreaInsets();
     const { width: windowWidth, height: windowHeight } = useWindowDimensions();
-    const { addToQueue, playNext, playQueue, setShuffleMode } =
-        usePlaybackCommands();
+    const { playQueue, setShuffleMode } = usePlaybackCommands();
     const [optionsOpen, setOptionsOpen] = useState(false);
     const {
         tracks,
@@ -204,78 +201,13 @@ export default function CollectionDetailScreen() {
                 {optionsOpen ? (
                     <CollectionOptionsMenu
                         kind={kind}
+                        collectionId={id}
                         tracks={tracks}
                         onClose={() => setOptionsOpen(false)}
-                        onAddToQueue={() => addToQueue(tracks)}
-                        onPlayNext={() => playNext(tracks)}
                     />
                 ) : null}
             </View>
         </ZoomDismissScreen>
-    );
-}
-
-/**
- * What the `...` under the cover opens. The same shape as the song menu, one
- * level up: the actions here act on the whole album or playlist.
- *
- * Placeholder for now. It carries the two actions that are the same call with a
- * longer array, and the rest of what Music offers here still has to be built.
- */
-function CollectionOptionsMenu({
-    kind,
-    tracks,
-    onClose,
-    onAddToQueue,
-    onPlayNext,
-}: {
-    kind: LibraryCollectionKind;
-    tracks: MusicItem[];
-    onClose: () => void;
-    onAddToQueue: () => Promise<void>;
-    onPlayNext: () => Promise<void>;
-}) {
-    const actions: MusicListAction<MusicItem[]>[] = [
-        {
-            id: "play-next",
-            label: "Play next",
-            icon: "play-skip-forward-outline",
-            onPress: onPlayNext,
-        },
-        {
-            id: "add-to-queue",
-            label: "Add to queue",
-            icon: "list-outline",
-            onPress: onAddToQueue,
-        },
-    ];
-
-    return (
-        <ModalPopup
-            visible
-            onClose={onClose}
-            title={kind === "playlist" ? "Playlist options" : "Album options"}
-        >
-            {actions.map((action) => (
-                <MusicListActionButton
-                    key={action.id}
-                    action={action}
-                    target={tracks}
-                    onPress={() => {
-                        onClose();
-                        void Promise.resolve(action.onPress(tracks)).catch(
-                            (error) => {
-                                console.error(
-                                    `Collection action failed: ${action.id}`,
-                                    error,
-                                );
-                            },
-                        );
-                    }}
-                    disabled={tracks.length === 0}
-                />
-            ))}
-        </ModalPopup>
     );
 }
 

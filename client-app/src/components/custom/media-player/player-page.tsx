@@ -1,9 +1,9 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { MusicKit, RepeatMode, ShuffleMode } from "@apple-musickit";
+import { RepeatMode, ShuffleMode, type MusicItem } from "@apple-musickit";
 import { useRouter } from "expo-router";
 import { useTheme } from "expo-router/react-navigation";
 import { useEffect, useRef, useState } from "react";
-import { Alert, Image, Share, useWindowDimensions, View } from "react-native";
+import { Alert, Image, useWindowDimensions, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
     cancelAnimation,
@@ -15,21 +15,14 @@ import Animated, {
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { CreateTagDialog } from "@/components/custom/create-tag-dialog";
-import { albumRouteForTrack } from "@/lib/music-routes";
+import { SongOptionsMenu } from "@/components/custom/options-menu/song-options-menu";
+import { Text } from "@/components/ui/text";
 import { usePlayback } from "@/lib/playback";
-import { useSongArtists, useSongFavoriteStatus } from "@/lib/musickit-hooks";
-import { useApplyTag, useTagsOnSong, useUnapplyTag } from "@/lib/routes/songs";
-import { useUserTags } from "@/lib/routes/tags";
+import { useSongFavoriteStatus } from "@/lib/musickit-hooks";
 import { SHEET_DETENT } from "@/lib/theme";
 
-import {
-    MediaPlayerProgress,
-    MediaPlayerTrackHeading,
-} from "./playback-details";
+import { MediaPlayerProgress, MediaPlayerTrackHeading } from "./playback-details";
 import { MediaPlayerQueue } from "./queue-view";
-import { MediaPlayerTagEditor } from "./tag-editor";
-import { MediaPlayerTrackMenu } from "./track-menu";
 import { MediaPlayerTransport } from "./transport-controls";
 
 const PLAYBACK_PROGRESS_INTERPOLATION_MS = 800;
@@ -42,18 +35,31 @@ const MIN_DETAILS_HEIGHT = 160;
 /** Mirrors the `DetailScreen` header, for estimates. */
 const SHEET_HEADER_HEIGHT = 76;
 
-/** What the sheet shows above the scrubber. */
+/** What the page shows above the scrubber. */
 type PlayerView = "artwork" | "queue";
 
 /**
- * The contents of the now playing sheet: artwork or the queue, the song and its
- * scrubber, and the transport. The sheet itself is the `player` route, so
- * presentation and dismissal are the native stack's job.
+ * The Player page of the now playing pager: artwork or the queue, the song
+ * and its scrubber, and the transport. It is the only page of the three that
+ * touches playback - Comments and Tags both only ever read `focusedSong`.
  *
- * The queue opens in place rather than as another sheet. Playback controls stay
- * on screen either way, which is the whole point of the layout.
+ * `onModifyTags` is the one thing this page hands up to `PlayerPager`: how
+ * Modify Tags on the song actually playing jumps the pager to the Tags page
+ * in place, no route push, since this page is already inside the sheet.
+ *
+ * The scrubber's own pan gesture activates at 4px (`activeOffsetX([-4, 4])`),
+ * tighter than the pager's 10px, so a drag that starts on it always wins the
+ * activation race and seeks rather than paging. See the pager for the other
+ * half of that.
+ *
+ * The queue opens in place rather than as another page. Playback controls
+ * stay on screen either way, which is the whole point of the layout.
  */
-export function MediaPlayerExpanded() {
+export function PlayerPage({
+    onModifyTags,
+}: {
+    onModifyTags: (track: MusicItem) => void;
+}) {
     const {
         activeTrack,
         isPlaying,
@@ -75,20 +81,12 @@ export function MediaPlayerExpanded() {
         canSkipToNext,
         canSkipToPrevious,
     } = usePlayback();
-    const { userTags = [] } = useUserTags();
-    const { tagsOnSong = [] } = useTagsOnSong(
-        activeTrack?.catalogId ?? activeTrack?.id,
-    );
-    const { applyTag } = useApplyTag();
-    const { unapplyTag } = useUnapplyTag();
     const { colors } = useTheme();
     const router = useRouter();
     const insets = useSafeAreaInsets();
     const { width, height } = useWindowDimensions();
     const [view, setView] = useState<PlayerView>("artwork");
     const [menuOpen, setMenuOpen] = useState(false);
-    const [tagsOpen, setTagsOpen] = useState(false);
-    const [createTagOpen, setCreateTagOpen] = useState(false);
     const [bodyHeight, setBodyHeight] = useState(0);
     const [progressBarWidth, setProgressBarWidth] = useState(0);
     const [scrubPosition, setScrubPosition] = useState<number | null>(null);
@@ -100,23 +98,12 @@ export function MediaPlayerExpanded() {
         null,
     );
     const animatedPlaybackProgress = useSharedValue(progress);
-    const appliedTagIds = new Set(tagsOnSong.map((tag) => tag.id));
-    const songTags = userTags.map((tag) => ({
-        ...tag,
-        applied: appliedTagIds.has(tag.id),
-    }));
     const favoriteSongId = activeTrack?.catalogId ?? activeTrack?.id;
     const {
         favoriteStatus,
         favoriteStatusLoading: isFavoriteStatusLoading,
         setSongFavoriteStatus,
     } = useSongFavoriteStatus(favoriteSongId);
-    // Only resolved once the menu is open. Nothing above it needs an artist,
-    // and every song that plays would otherwise cost a catalog lookup.
-    const { artistIds, artistIdsLoading } = useSongArtists(
-        menuOpen ? favoriteSongId : undefined,
-    );
-    const artistId = artistIds?.[0] ?? activeTrack?.artistId;
 
     const artworkUrl = activeTrack?.artworkUrl?.trim();
     const fullArtworkUrl = activeTrack?.artworkUrlLarge?.trim() || artworkUrl;
@@ -191,24 +178,6 @@ export function MediaPlayerExpanded() {
         );
     }, [animatedPlaybackProgress, duration, isLoading, isPlaying, progress]);
 
-    async function applyTagById(tagId: number) {
-        const songId = activeTrack?.catalogId ?? activeTrack?.id;
-        if (!songId) return;
-        await applyTag({ song_id: songId, tag_id: tagId });
-    }
-
-    async function toggleTag(tagId: number) {
-        const songId = activeTrack?.catalogId ?? activeTrack?.id;
-        const tag = userTags.find((candidate) => candidate.id === tagId);
-        if (!songId || !tag) return;
-
-        const isApplied = tagsOnSong.some(
-            (appliedTag) => appliedTag.id === tagId,
-        );
-        if (isApplied) await unapplyTag({ song_id: songId, tag_id: tag.id });
-        else await applyTag({ song_id: songId, tag_id: tag.id });
-    }
-
     function timeAtSeekLocation(locationX: number) {
         if (!duration || !progressBarWidth) return null;
         return (
@@ -270,7 +239,15 @@ export function MediaPlayerExpanded() {
 
     const seekGesture = Gesture.Exclusive(seekPanGesture, seekTapGesture);
 
-    if (!activeTrack) return null;
+    if (!activeTrack) {
+        return (
+            <View className="flex-1 items-center justify-center px-6">
+                <Text className="text-muted-foreground">
+                    Nothing playing right now.
+                </Text>
+            </View>
+        );
+    }
     const track = activeTrack;
 
     async function handleFavoriteToggle() {
@@ -295,29 +272,6 @@ export function MediaPlayerExpanded() {
         }
     }
 
-    async function shareCurrentTrack() {
-        try {
-            let appleMusicUrl = track.shareUrl;
-            if (!appleMusicUrl) {
-                const [resolvedTrack] = await MusicKit.getSongInfo([track.id]);
-                appleMusicUrl = resolvedTrack?.shareUrl;
-            }
-            if (!appleMusicUrl) {
-                throw new Error("No canonical Apple Music URL is available.");
-            }
-
-            await Share.share({
-                title: track.title,
-                // Android ignores the separate `url` field, so include the
-                // canonical link in the message on every platform.
-                message: `I'm listening to ${track.title} by ${track.artistName || "an unknown artist"}. ${appleMusicUrl}`,
-                url: appleMusicUrl,
-            });
-        } catch (error) {
-            console.error("Failed to share the current track:", error);
-        }
-    }
-
     /**
      * Puts the sheet away, then goes. Everything the menu leads to is a full
      * screen route with the bottom bars over it, and pushing one from inside a
@@ -327,27 +281,6 @@ export function MediaPlayerExpanded() {
     function leaveFor(href: Parameters<typeof router.push>[0]) {
         router.back();
         router.push(href);
-    }
-
-    function openAlbum() {
-        const route = albumRouteForTrack(track);
-        if (route) leaveFor(route);
-    }
-
-    function openArtist() {
-        if (!artistId) return;
-        leaveFor({
-            pathname: "/artist/[id]",
-            params: { id: artistId, name: track.artistName ?? "Artist" },
-        });
-    }
-
-    function openAddToPlaylist() {
-        const songId = track.catalogId ?? track.id;
-        leaveFor({
-            pathname: "/add-to-playlist",
-            params: { songId, title: track.title },
-        });
     }
 
     function toggleShuffle() {
@@ -502,40 +435,16 @@ export function MediaPlayerExpanded() {
             />
 
             {menuOpen ? (
-                <MediaPlayerTrackMenu
+                <SongOptionsMenu
                     track={track}
-                    favoriteStatus={favoriteStatus}
-                    isFavoriteStatusLoading={isFavoriteStatusLoading}
-                    isUpdatingFavorite={isUpdatingFavorite}
-                    canGoToArtist={Boolean(artistId)}
-                    isArtistLoading={artistIdsLoading}
                     onClose={() => setMenuOpen(false)}
-                    onFavoriteToggle={() => void handleFavoriteToggle()}
-                    onShare={() => void shareCurrentTrack()}
-                    onEditTags={() => setTagsOpen(true)}
-                    onAddToPlaylist={openAddToPlaylist}
-                    onGoToAlbum={openAlbum}
-                    onGoToArtist={openArtist}
+                    navigate={leaveFor}
+                    onModifyTags={() => {
+                        setMenuOpen(false);
+                        onModifyTags(track);
+                    }}
                 />
             ) : null}
-
-            {tagsOpen ? (
-                <MediaPlayerTagEditor
-                    songTitle={track.title}
-                    tags={songTags}
-                    onToggleTag={(tagId) => void toggleTag(tagId)}
-                    onCreateTag={() => setCreateTagOpen(true)}
-                    onClose={() => setTagsOpen(false)}
-                />
-            ) : null}
-
-            <CreateTagDialog
-                open={createTagOpen}
-                onOpenChange={setCreateTagOpen}
-                // A tag made from here is meant for this song, so apply it
-                // rather than making the user find it in the list afterwards.
-                onCreated={(tagId) => void applyTagById(tagId)}
-            />
         </View>
     );
 }

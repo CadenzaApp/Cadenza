@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FlatList, View } from "react-native";
-import type { MusicItem } from "@apple-musickit";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
     Easing,
@@ -12,8 +11,8 @@ import Animated, {
 } from "react-native-reanimated";
 
 import { Text } from "@/components/ui/text";
-import { SongDetailModal } from "@/components/custom/song-detail-modal";
-import { usePlayback, usePlaybackCommands } from "@/lib/playback";
+import { SongOptionsMenu } from "@/components/custom/options-menu/song-options-menu";
+import { usePlaybackCommands } from "@/lib/playback";
 import { useTagsOnSongs } from "@/lib/routes/songs";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { useScreenScroll } from "@/lib/screen-scroll";
@@ -21,7 +20,6 @@ import { useScreenScroll } from "@/lib/screen-scroll";
 import { MusicListItem, MusicListItemSkeleton } from "./music-list-item";
 import { MusicListSelectionToolbar } from "./music-list-selection-toolbar";
 import { MusicListSortButton } from "./music-list-sort-button";
-import { MusicListTrackMenu } from "./music-list-track-menu";
 import { sortTracks } from "./sort-tracks";
 import { useMusicListSelection } from "./use-music-list-selection";
 import {
@@ -48,7 +46,6 @@ export function MusicList({
     tracks,
     isLoading,
     onTrackPressOverride = null,
-    trackMenuActions = [],
     multiSelect = null,
     fullBleedRows = false,
     compact,
@@ -73,9 +70,6 @@ export function MusicList({
     const [menuTrack, setMenuTrack] = useState<(typeof tracks)[number] | null>(
         null,
     );
-    const [detailsTrack, setDetailsTrack] = useState<
-        (typeof tracks)[number] | null
-    >(null);
     const [selectionToolbarHeight, setSelectionToolbarHeight] = useState(120);
     const controlledSort = sorting?.value;
     const onSortChange = sorting?.onChange;
@@ -395,40 +389,11 @@ export function MusicList({
                 />
             ) : null}
 
-            <MusicListTrackMenu
+            <SongOptionsMenu
                 track={menuTrack}
                 onClose={() => setMenuTrack(null)}
-                onShowDetails={setDetailsTrack}
-                actions={trackMenuActions}
-            />
-
-            <MusicListSongDetails
-                track={detailsTrack}
-                onClose={() => setDetailsTrack(null)}
             />
         </View>
-    );
-}
-
-function MusicListSongDetails({
-    track,
-    onClose,
-}: {
-    track: MusicItem | null;
-    onClose: () => void;
-}) {
-    const { activeTrackId, isPlaying } = usePlayback();
-    const { togglePlayback } = usePlaybackCommands();
-    return (
-        <SongDetailModal
-            open={track != null}
-            onClose={onClose}
-            song={track}
-            onTogglePlayback={togglePlayback}
-            isThisTrackPlaying={Boolean(
-                track?.id && activeTrackId === track.id && isPlaying,
-            )}
-        />
     );
 }
 
@@ -464,7 +429,6 @@ export type {
     MusicListSortDirection,
     MusicListSortOption,
     MusicListSorting,
-    MusicListTrackAction,
 } from "./types";
 export {
     DEFAULT_MUSIC_LIST_SORT_OPTIONS,

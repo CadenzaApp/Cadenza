@@ -58,11 +58,6 @@ export type MusicListAction<T> = {
     onPress: (target: T) => void | Promise<void>;
 };
 
-export type MusicListTrackAction = MusicListAction<MusicItem> & {
-    /** Whether using this action closes the song-options menu. Defaults to true. */
-    dismissMenu?: boolean;
-};
-
 export type MusicListSelectionAction = MusicListAction<readonly MusicItem[]>;
 
 export type MusicListMultiSelectConfig = {
@@ -82,8 +77,6 @@ export type MusicListProps = {
      * track uses the shared playback controller.
      */
     onTrackPressOverride?: ((track: MusicItem) => void | Promise<void>) | null;
-    /** Actions appended after the built-in per-track actions. */
-    trackMenuActions?: readonly MusicListTrackAction[];
     /**
      * Multi-selection is disabled when null or omitted. Supplying a config
      * enables long-press selection.

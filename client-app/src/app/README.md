@@ -19,7 +19,7 @@ logic out.
 | `(tabs)/search.tsx` | `/search` | Search. A tag shelf until you tap the field, then recents, a scope switch, and results (artists, then songs). |
 | `account.tsx` | `/account` | Account sheet. Wires `AccountSettingsScreen`. |
 | `appearance.tsx` | `/appearance` | Appearance preview sheet. Wires `AppearanceSettingsScreen`. |
-| `player.tsx` | `/player` | Now playing sheet. Renders `MediaPlayerExpanded`. |
+| `player.tsx` | `/player` | Now playing sheet. Resolves `focusedSong` / `initialPage` from `activeTrack` and the `tagsSongId` params, renders `PlayerPager`. |
 | `library-categories.tsx` | `/library-categories` | Picks which rows the library shows. |
 | `category/[kind].tsx` | `/category/:kind` | One library category's contents. |
 | `collection/[kind]/[id].tsx` | `/collection/:kind/:id` | The songs in one album or playlist. |
@@ -167,8 +167,11 @@ prop is the whole difference: a sheet starts below the status bar and gets the g
 top padding, a screen pays the full top inset. It also sets `InsideSheetContext`, which is how
 `useScreenOverlayInsets` knows whether the bars are over this content or behind it.
 
-`/player` is pushed by the mini player rather than by a header button. It redirects back if
-playback stops while it is open.
+`/player` is pushed by the mini player rather than by a header button, and by `SongOptionsMenu`'s
+default Modify Tags handler with `tagsSongId` params for a song that is not playing (see
+[../components/custom/media-player/README.md](../components/custom/media-player/README.md)). It
+redirects back if playback stops while it is open, unless those params are present - there is
+still a Tags/Comments page to show even with nothing playing.
 
 `/artist/:id` and `/collection/:kind/:id` are the odd ones out of the pushed routes. Both draw a
 hero of their own above the track list instead of a `DetailScreen` header, and float their own X

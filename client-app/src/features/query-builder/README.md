@@ -70,7 +70,7 @@ on the builder.
 ## Connects to
 
 - `@/lib/types::Tag`, and `@/lib/routes/queries::useQueryResults` by way of Cadenza.
-- `@/components/custom/tag-pill`, `music-list`, `song-detail-modal`.
+- `@/components/custom/tag-pill`, `music-list`.
 - `@/lib/playback` and `@/lib/apple-music-auth` from `QueryResults`.
 - Backend: `GET /queries/results`, compiled to SQL in `backend-api/src/db/queries.rs`.
 
