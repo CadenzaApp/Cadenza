@@ -3,8 +3,8 @@ use std::collections::{HashMap, HashSet};
 use sea_orm::{
     ActiveModelTrait,
     ActiveValue::{NotSet, Set},
-    ColumnTrait, DatabaseConnection, EntityTrait, FromQueryResult, JoinType, ModelTrait,
-    QueryFilter, QuerySelect,
+    ColumnTrait, ConnectionTrait, DatabaseConnection, DbBackend, EntityTrait, FromQueryResult,
+    JoinType, ModelTrait, QueryFilter, QuerySelect, Statement, TransactionTrait,
     prelude::Uuid,
     sea_query::OnConflict,
 };
@@ -77,8 +77,8 @@ pub async fn get_user_tags_metadata(
 }
 
 /// Returns the tags on each requested song. A song with none of the user's tags
-/// gets its default tags instead, and those default tags are copied into
-/// `user_tags_applied` for the user, so later reads find them as the user's own.
+/// gets the user's copies of its default tags instead (see
+/// [`copy_default_tags_to_user`]), so later reads find them as the user's own.
 /// Every requested song gets an entry, so a song with no tags of either kind
 /// comes back as an empty list.
 pub async fn get_user_tags_on_songs(
@@ -123,35 +123,110 @@ pub async fn get_user_tags_on_songs(
     if !songs_without_user_tags.is_empty() {
         let default_tags = get_default_tags_on_songs(db, &songs_without_user_tags).await?;
 
-        // copy the default tags into user_tags_applied, so they become the user's tags on these
-        // songs. rows that already exist are skipped, in case two reads race
+        // make the default tags the user's own, and return the copies in their place
         if !default_tags.is_empty() {
-            let copied_tags = default_tags.iter().flat_map(|(song_id, tags)| {
-                tags.iter().map(|tag| user_tags_applied::ActiveModel {
-                    song_id: Set(song_id.clone()),
-                    user_id: Set(user_id),
-                    tag_id: Set(tag.tag_id),
-                })
-            });
-
-            user_tags_applied::Entity::insert_many(copied_tags)
-                .on_conflict(
-                    OnConflict::columns([
-                        user_tags_applied::Column::SongId,
-                        user_tags_applied::Column::UserId,
-                        user_tags_applied::Column::TagId,
-                    ])
-                    .do_nothing()
-                    .to_owned(),
-                )
-                .exec_without_returning(db)
-                .await?;
+            let copied_tags = copy_default_tags_to_user(db, user_id, default_tags).await?;
+            songs_to_tags.extend(copied_tags);
         }
-
-        songs_to_tags.extend(default_tags);
     }
 
     Ok(songs_to_tags)
+}
+
+/// Copies default tags into the user's own tags and applies the copies to the
+/// songs, returning the copies per song. A default tag reuses the user's tag with
+/// the same name when they have one, and otherwise becomes a new tag of theirs
+/// with the default's name and color.
+async fn copy_default_tags_to_user(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+    default_tags: HashMap<String, Vec<tags::Model>>,
+) -> Result<HashMap<String, Vec<tags::Model>>, CadenzaError> {
+    let txn = db.begin().await?;
+
+    // hold a per-user lock until commit, so two racing reads can't both create the
+    // same tag for this user
+    txn.execute_raw(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "SELECT pg_advisory_xact_lock(hashtext('copy_default_tags'), hashtext($1))",
+        [user_id.to_string().into()],
+    ))
+    .await?;
+
+    // find the user's tags that already have a default tag's name
+    let default_names: HashSet<&str> = default_tags
+        .values()
+        .flatten()
+        .map(|tag| tag.name.as_str())
+        .collect();
+
+    let mut name_to_user_tag: HashMap<String, tags::Model> = tags::Entity::find()
+        .filter(tags::Column::UserId.eq(user_id))
+        .filter(tags::Column::Name.is_in(default_names.iter().copied()))
+        .all(&txn)
+        .await?
+        .into_iter()
+        .map(|tag| (tag.name.clone(), tag))
+        .collect();
+
+    // create a tag for the user for each default name they don't have yet, once per name
+    let new_tags: HashMap<&str, tags::ActiveModel> = default_tags
+        .values()
+        .flatten()
+        .filter(|tag| !name_to_user_tag.contains_key(&tag.name))
+        .map(|tag| {
+            let new_tag = tags::ActiveModel {
+                tag_id: NotSet,
+                user_id: Set(Some(user_id)),
+                name: Set(tag.name.clone()),
+                color: Set(tag.color.clone()),
+            };
+            (tag.name.as_str(), new_tag)
+        })
+        .collect();
+
+    let created = tags::Entity::insert_many(new_tags.into_values())
+        .exec_with_returning(&txn)
+        .await?;
+    name_to_user_tag.extend(created.into_iter().map(|tag| (tag.name.clone(), tag)));
+
+    // swap each song's default tags for the user's copies
+    let copied_tags: HashMap<String, Vec<tags::Model>> = default_tags
+        .into_iter()
+        .map(|(song_id, defaults)| {
+            let copies = defaults
+                .iter()
+                .filter_map(|tag| name_to_user_tag.get(&tag.name).cloned())
+                .collect();
+            (song_id, copies)
+        })
+        .collect();
+
+    // put the copies on the songs. rows that already exist are skipped
+    let applied = copied_tags.iter().flat_map(|(song_id, copies)| {
+        copies.iter().map(|tag| user_tags_applied::ActiveModel {
+            song_id: Set(song_id.clone()),
+            user_id: Set(user_id),
+            tag_id: Set(tag.tag_id),
+        })
+    });
+
+    user_tags_applied::Entity::insert_many(applied)
+        .on_conflict(
+            OnConflict::columns([
+                user_tags_applied::Column::SongId,
+                user_tags_applied::Column::UserId,
+                user_tags_applied::Column::TagId,
+            ])
+            .do_nothing()
+            .to_owned(),
+        )
+        .exec_without_returning(&txn)
+        .await?;
+
+    txn.commit().await?;
+
+    Ok(copied_tags)
 }
 
 /// Returns the requested songs that have no tags at all, meaning none of the

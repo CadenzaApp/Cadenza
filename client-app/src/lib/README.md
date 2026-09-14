@@ -169,9 +169,9 @@ failed library read or `POST /songs/untagged` stops the job until it next starts
 - `api-actions.ts` reads `account?.jwt` at hook call time. A component rendered before the
   session is restored sends `Bearer undefined`.
 - `useTagsOnSong` and `useTagsOnSongs` can return a song's default tags. The backend copies them
-  into the user's tags on that read, so `useUnapplyTag` removes them, but they are still not in
-  `useUserTags`. Unapplying a song's last tag brings its defaults straight back, because the
-  revalidating read copies them again.
+  into the user's own tags on that read, so `useUnapplyTag` removes them and `useUserTags` lists
+  them once it next revalidates. Unapplying a song's last tag brings its defaults straight back,
+  because the revalidating read copies them again.
 - The default tags job spends OpenAI calls. A big library that has never been tagged means a lot
   of them on first launch, and a song the model returned no tags for is retried on every launch.
 

@@ -18,8 +18,8 @@ Three tables, keyed on song ids that come from Apple Music.
 
 - `tags` - `tag_id` (bigserial pk), `name`, `color`, nullable `user_id`. A null `user_id` means
   the tag is a default, not owned by any user.
-- `user_tags_applied` - tags a user put on a song, plus default tags copied in the first time the
-  user reads a song that has none of theirs. Composite pk of `(song_id, user_id, tag_id)`.
+- `user_tags_applied` - tags a user put on a song, plus the user's copies of a song's default
+  tags, added the first time the user reads a song that has none of theirs. Composite pk of `(song_id, user_id, tag_id)`.
   Cascades on delete from `tags`. The query compiler reads only this table.
 - `default_tags_applied` - default tags on a song, composite pk of `(song_id, tag_id)`, no user,
   so every user sees the same ones. `get_default_tags_on_songs` reads it, and
@@ -30,9 +30,12 @@ Three tables, keyed on song ids that come from Apple Music.
 
 `get_user_tags_on_songs` is the one read behind every song tag endpoint. It seeds an empty list
 for each requested song, fills in the user's tags, then calls `get_default_tags_on_songs` for the
-songs still empty. Any default tags it finds are copied into `user_tags_applied` for the user, so
-from the next read on they are the user's own applications and no fallback happens.
-`get_untagged_songs` calls it and keeps the songs that came back empty.
+songs still empty. Any default tags it finds go through `copy_default_tags_to_user`, which gives
+the user their own `tags` row for each one and applies that row in `user_tags_applied`. A default
+tag reuses the user's tag with the same name if they have one, and otherwise becomes a new tag of
+theirs with the default's name and color. The read returns the copies, so from then on they are
+the user's own tags and no fallback happens. `get_untagged_songs` calls it and keeps the songs
+that came back empty.
 
 Nothing in this directory generates tags. `routes/songs.rs` does that for
 `POST /songs/default-tags`, using `get_default_tags_on_songs` to skip songs that already have
@@ -85,14 +88,18 @@ becomes `CadenzaError::QueryFormatError` (422).
 - `get_tag` does **not** filter by user, so `GET /tags?tag_id=N` will happily return another
   user's tag. The `song_ids` beside it are correctly user-scoped, so the leak is the tag name and
   color only. Worth fixing.
-- `get_user_tags_on_songs` writes. A read that falls back inserts the default tags into
-  `user_tags_applied`, skipping rows that already exist, so two racing reads are safe.
+- `get_user_tags_on_songs` writes. A read that falls back creates tags and applications for the
+  user, in a transaction holding a per-user `pg_advisory_xact_lock`, so two racing reads do not
+  create the same tag twice.
 - The default tag fallback is all or nothing per song. A song with even one of the user's tags
   gets only the user's tags. So "untagged" in `get_untagged_songs` means no tags of either kind.
 - Removing a user's last tag from a song brings its default tags back: the next read finds no user
-  tags, falls back, and copies the defaults in again.
-- Copied default tags keep `user_id IS NULL` on their `tags` row. `get_songs_with_user_tag` and the
-  query compiler see them, since they only read `user_tags_applied`. `get_all_user_tags` and
+  tags, falls back, and copies the defaults in again. Deleting a copied tag does the same for every
+  song it was the only tag on.
+- Copies match the user's existing tags by exact name, so a user tag `Rock` and a default `rock`
+  stay two tags.
+- `user_tags_applied` rows copied before copies got their own `tags` row still point at the shared
+  default tag, with `user_id IS NULL`. The query compiler sees those, but `get_all_user_tags` and
   `get_user_tags_metadata` filter on `tags.user_id`, so they never list or count them.
 - `get_user_tags_on_songs` seeds its map from the requested ids first, so every song asked for
   has an entry whether or not it has tags. Same idea as `get_user_tags_metadata`.

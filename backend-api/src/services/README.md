@@ -44,14 +44,14 @@ Input is a list of song descriptions, output is a list of tag lists in the same 
 `GET /tags/suggest` passes one song and takes `result[0]`. `POST /songs/default-tags` passes every
 song in its request that has no default tags yet.
 
-`OpenAiTagGenerator` posts to the OpenAI responses api (`gpt-4o-mini`, 20 second timeout) with a
-schema-constrained system prompt, then parses a `{"tags": [[...], ...], "colors": [{"name", "color"}]}`
-payload. `colors` carries one entry per distinct tag name, which the generator joins back onto the
-tags by normalized name. A color that is not a `#RRGGBB` hex string, or a tag name with no color
-entry, falls back to `FALLBACK_TAG_COLOR` (`#808080`). It short circuits on an empty input list or
-a zero tag count, rejects combined descriptions over `MAX_COMBINED_SONG_DESC_LENGTH` bytes (the
-service never sends that much), truncates any over-long tag list from the model, and runs every
-tag through `normalize_tag_name` before returning.
+`OpenAiTagGenerator` posts to the OpenAI responses api (`gpt-4o-mini`, 60 second timeout) with a
+schema-constrained system prompt, then parses a `{"tags": [[{"name", "color"}, ...], ...]}` payload.
+The schema puts a color on every tag, so the model cannot leave a tag without one.
+`to_tag_specs` cleans the reply: it truncates any over-long tag list, runs every name through
+`normalize_tag_name`, replaces a color that is not a `#RRGGBB` hex string with
+`FALLBACK_TAG_COLOR` (`#808080`), and gives a name that shows up more than once the first color it
+got. The generator short circuits on an empty input list or a zero tag count, and rejects combined
+descriptions over `MAX_COMBINED_SONG_DESC_LENGTH` bytes (the service never sends that much).
 
 ## Connects to
 
@@ -73,9 +73,15 @@ tag through `normalize_tag_name` before returning.
   timeout, and one failed chunk fails the whole call. A full chunk is dozens of songs in one
   reply, so it is the call most likely to hit that timeout or `gpt-4o-mini`'s 16,384 output token
   cap.
+- On big batches the model returns fewer tag lists than songs. The service pads the end with empty
+  lists, so the last songs get no tags, and a song skipped in the middle shifts later songs onto
+  the wrong tags.
+- Colors used to come back in a separate list that the model left half empty on big batches, so
+  many default tags already saved are `#808080`. They stay gray, because
+  `db::tags::set_default_tags_on_songs` reuses an existing tag by name without updating its color.
 - The integration tests in `openai_tag_generator.rs` are `#[ignore]`d because they spend real
-  tokens. Comment header says last run Jul 26. The `normalize_tag_color` tests in the same module
-  are plain unit tests and do run.
+  tokens. Comment header says last run Jul 26. The `normalize_tag_color` and `to_tag_specs` tests
+  in the same module are plain unit tests and do run.
 - The trait returns `Result<_, String>`, so error detail is free text with no structure.
 - Adding a provider means one new file next to `openai_tag_generator.rs`, an `impl TagGenerator`,
   and a one-line change in `main.rs`. Nothing else should need to know. The service still chunks

@@ -52,7 +52,7 @@ same with both `db` and `tag_gen_service`, since default tags belong to no user.
 Song tag reads never generate anything, but they can write. `GET /songs/tags`,
 `POST /songs/tags/batch`, and `POST /songs/untagged` all go through
 `db::tags::get_user_tags_on_songs`, which falls back to default tags that already exist and copies
-the ones it uses into `user_tags_applied` for the user. The client creates default tags: on
+the ones it uses into the user's own tags. The client creates default tags: on
 startup it pages through the user's library, sends each page to `POST /songs/untagged`, and posts
 those songs' descriptions to `POST /songs/default-tags`. That handler drops songs that already
 have default tags, generates tags for the rest with `TagGenerationService::generate_tags`, and
@@ -91,8 +91,9 @@ api as JSON should have a type here rather than serializing an entity model dire
 - `DELETE /tags` and `DELETE /songs/tags` take a JSON body. Some HTTP clients will not send one
   on a DELETE.
 - The default tag fallback is per song and all or nothing. A song with even one of the user's
-  tags shows only those. The read that falls back copies the default tags into the user's tags,
-  so `DELETE /songs/tags` removes them like any other tag. Removing a song's last tag brings all
+  tags shows only those. The read that falls back copies the default tags into the user's own tags,
+  so they show up in `GET /tags`, and `DELETE /songs/tags` and `DELETE /tags` treat them like any
+  other tag. Removing a song's last tag brings all
   its defaults back on the next read.
 - `POST /songs/tags/batch` and `POST /songs/untagged` are POSTs only because the id list does not
   belong in a query string. Like `GET /songs/tags`, they can write when they fall back to default

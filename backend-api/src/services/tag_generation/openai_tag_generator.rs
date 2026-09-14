@@ -10,9 +10,9 @@ use std::env;
 use std::time::Duration;
 
 const OPENAI_RESPONSES_URL: &str = "https://api.openai.com/v1/responses";
-const OPENAI_HTTP_TIMEOUT_SECS: u64 = 20;
+const OPENAI_HTTP_TIMEOUT_SECS: u64 = 60;
 const OPENAI_MODEL: &str = "gpt-4o-mini";
-const TAG_GENERATION_SYSTEM_PROMPT: &str = r#"Generate one word music tags for each given song. The ordering of the returned 2d array must match the order of input songs. Generate `requested_tag_count` tags per song. Separately, return `colors`: one entry per distinct tag name you used, giving that tag a `#RRGGBB` hex color that reflects what it evokes - its mood, energy, genre or era. Warm bright colors for energetic or happy tags, cool dark colors for somber or calm ones."#;
+const TAG_GENERATION_SYSTEM_PROMPT: &str = r#"Generate one word music tags for each given song. The ordering of the returned 2d array must match the order of input songs. Generate `requested_tag_count` tags per song. Give every tag a `#RRGGBB` hex color that reflects what it evokes - its mood, energy, genre or era. Warm bright colors for energetic or happy tags, cool dark colors for somber or calm ones. When the same tag appears on more than one song, give it the same color each time."#;
 
 /// color used when the model returns a color we can't parse
 const FALLBACK_TAG_COLOR: &str = "#808080";
@@ -56,30 +56,24 @@ fn get_tag_generation_req_body(song_descs: &[String], requested_tag_count: usize
                 "strict": true,
                 "schema": {
                     "type": "object",
-                    "required": ["tags", "colors"],
+                    "required": ["tags"],
                     "additionalProperties": false,
                     "properties": {
                         "tags": {
                             "type": "array",
+                            "description": "one list of tags per input song, in input order",
                             "items": {
                                 "type": "array",
                                 "items": {
-                                    "type": "string"
-                                }
-                            }
-                        },
-                        "colors": {
-                            "type": "array",
-                            "description": "one entry per distinct tag name used in `tags`",
-                            "items": {
-                                "type": "object",
-                                "required": ["name", "color"],
-                                "additionalProperties": false,
-                                "properties": {
-                                    "name": { "type": "string" },
-                                    "color": {
-                                        "type": "string",
-                                        "description": "#RRGGBB hex color reflecting the tag's mood"
+                                    "type": "object",
+                                    "required": ["name", "color"],
+                                    "additionalProperties": false,
+                                    "properties": {
+                                        "name": { "type": "string" },
+                                        "color": {
+                                            "type": "string",
+                                            "description": "#RRGGBB hex color reflecting the tag's mood"
+                                        }
                                     }
                                 }
                             }
@@ -126,10 +120,52 @@ struct ResponseOutputText {
     text: String,
 }
 
+/// the reply the json schema asks for: a list of tags per song, each tag carrying its own color
 #[derive(Deserialize)]
 struct OpenAiGeneratedTags {
-    tags: Vec<Vec<String>>,
-    colors: Vec<TagSpecs>,
+    tags: Vec<Vec<TagSpecs>>,
+}
+
+/// Cleans up the model's tags. Keeps at most `requested_tag_count` tags per song, normalizes every
+/// name and color, and gives every copy of a name the first usable color that name got anywhere in
+/// the reply. A name that never got a usable color falls back to `FALLBACK_TAG_COLOR`.
+fn to_tag_specs(generated_tags: Vec<Vec<TagSpecs>>, requested_tag_count: usize) -> Vec<Vec<TagSpecs>> {
+    // drop tags past the requested count, and normalize each name and color
+    let songs_tags: Vec<Vec<TagSpecs>> = generated_tags
+        .into_iter()
+        .map(|tags| {
+            tags.into_iter()
+                .take(requested_tag_count)
+                .map(|tag| TagSpecs {
+                    name: normalize_tag_name(&tag.name),
+                    color: normalize_tag_color(&tag.color),
+                })
+                .collect()
+        })
+        .collect();
+
+    // the first usable color each name got, so one name is one color across the whole reply
+    let mut name_to_color: HashMap<String, String> = HashMap::new();
+    for tag in songs_tags.iter().flatten() {
+        if tag.color != FALLBACK_TAG_COLOR {
+            name_to_color
+                .entry(tag.name.clone())
+                .or_insert_with(|| tag.color.clone());
+        }
+    }
+
+    // give each tag its name's color, keeping the fallback for names that never got a usable one
+    songs_tags
+        .into_iter()
+        .map(|tags| {
+            tags.into_iter()
+                .map(|TagSpecs { name, color }| {
+                    let color = name_to_color.get(&name).cloned().unwrap_or(color);
+                    TagSpecs { name, color }
+                })
+                .collect()
+        })
+        .collect()
 }
 
 #[derive(Clone)]
@@ -192,31 +228,7 @@ impl TagGenerator for OpenAiTagGenerator {
         let generated_tags: OpenAiGeneratedTags =
             serde_json::from_str(&resp_text).map_err(|e| e.to_string())?;
 
-        let colors: HashMap<String, String> = generated_tags
-            .colors
-            .into_iter()
-            .map(|tag| (normalize_tag_name(&tag.name), normalize_tag_color(&tag.color)))
-            .collect();
-
-        // pair each generated tag with its color (if more tags returned than requested, ignore them)
-        Ok(generated_tags
-            .tags
-            .into_iter()
-            .map(|tags| {
-                tags.into_iter()
-                    .take(requested_tag_count)
-                    .map(|name| {
-                        let name = normalize_tag_name(&name);
-                        let color = colors
-                            .get(&name)
-                            .cloned()
-                            .unwrap_or_else(|| FALLBACK_TAG_COLOR.to_owned());
-
-                        TagSpecs { name, color }
-                    })
-                    .collect()
-            })
-            .collect())
+        Ok(to_tag_specs(generated_tags.tags, requested_tag_count))
     }
 }
 
@@ -224,6 +236,7 @@ impl TagGenerator for OpenAiTagGenerator {
 // These tests call the OpenAI API and use tokens! Use `cargo test -- --ignored` to run them.
 // Last ran: Jul 26
 // ---------------------------------------------------------------------------------------------
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::test_utils::string_of_length;
@@ -262,6 +275,66 @@ mod tests {
     fn fallback_tag_color_is_normalized() {
         assert!(is_normalized_hex_color(FALLBACK_TAG_COLOR));
     }
+
+    // ----- to_tag_specs, no api calls -----
+
+    /// a tag as the model might return it, before any cleanup
+    fn raw_tag(name: &str, color: &str) -> TagSpecs {
+        TagSpecs {
+            name: name.into(),
+            color: color.into(),
+        }
+    }
+
+    #[test]
+    fn to_tag_specs_reads_the_schema_shape() {
+        // a reply in the shape the json schema asks for
+        let reply = r##"{"tags": [[{"name": "Pop", "color": "#FF6F61"}], [{"name": "metal", "color": "#000000"}]]}"##;
+        let generated: OpenAiGeneratedTags = serde_json::from_str(reply).unwrap();
+
+        let res = to_tag_specs(generated.tags, 10);
+
+        assert_eq!(res.len(), 2);
+        assert_eq!((res[0][0].name.as_str(), res[0][0].color.as_str()), ("pop", "#ff6f61"));
+        assert_eq!((res[1][0].name.as_str(), res[1][0].color.as_str()), ("metal", "#000000"));
+    }
+
+    #[test]
+    fn to_tag_specs_drops_tags_past_the_requested_count() {
+        let res = to_tag_specs(
+            vec![vec![raw_tag("a", "#111111"), raw_tag("b", "#222222"), raw_tag("c", "#333333")]],
+            2,
+        );
+
+        assert_eq!(res[0].len(), 2);
+    }
+
+    #[test]
+    fn to_tag_specs_gives_a_repeated_name_its_first_usable_color() {
+        // the first copy has a bad color, so the second copy's color should win everywhere
+        let res = to_tag_specs(
+            vec![
+                vec![raw_tag("Dreamy", "not a color")],
+                vec![raw_tag("dreamy", "#A1C6EA")],
+                vec![raw_tag(" dreamy ", "#000000")],
+            ],
+            10,
+        );
+
+        for tags in &res {
+            assert_eq!(tags[0].name, "dreamy");
+            assert_eq!(tags[0].color, "#a1c6ea");
+        }
+    }
+
+    #[test]
+    fn to_tag_specs_falls_back_when_a_name_never_gets_a_usable_color() {
+        let res = to_tag_specs(vec![vec![raw_tag("dreamy", "blue")]], 10);
+
+        assert_eq!(res[0][0].color, FALLBACK_TAG_COLOR);
+    }
+
+    // ----- these call the api -----
 
     #[tokio::test]
     #[ignore]
