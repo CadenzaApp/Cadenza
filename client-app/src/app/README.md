@@ -8,16 +8,24 @@ logic out.
 
 | file | route | role |
 | --- | --- | --- |
-| `_layout.tsx` | root | Provider stack, theme, the `Stack` navigator, `PortalHost`, `MediaPlayerHost`, and `DefaultTagsOnStartup`. |
-| `(splashscreen)/index.tsx` | `/` | Calls `tryRestoreSession()`, then replaces to `/home` or `/auth`. |
+| `_layout.tsx` | root | Provider stack, theme, the `Stack` navigator, `PortalHost`, `BottomBarsOverlay`, and `DefaultTagsOnStartup`. |
+| `(splashscreen)/index.tsx` | `/` | Calls `tryRestoreSession()`, then replaces to `/library` or `/auth`. |
 | `auth/index.tsx` | `/auth` | Sign in / sign up. Takes an `initialMode` search param. |
-| `(tabs)/_layout.tsx` | | Bottom tab bar, five tabs, Ionicons, colors from the nav theme. |
-| `(tabs)/home.tsx` | `/home` | Placeholder. Shows the email and a sign out button. |
-| `(tabs)/tags.tsx` | `/tags` | The user's tags as pills, with the create-tag dialog. |
-| `(tabs)/query.tsx` | `/query` | Hosts the query builder, then swaps to results. `TagGenerationNotice` sits above both. |
-| `(tabs)/explore.tsx` | `/explore` | Apple Music catalog search and library browsing. |
-| `(tabs)/account.tsx` | `/account` | Connect and disconnect Apple Music. |
+| `(tabs)/_layout.tsx` | | Protected tab group and the shared top rail. The bar itself is mounted at the root. |
+| `(tabs)/social.tsx` | `/social` | Static previews of planned social features. |
+| `(tabs)/analytics.tsx` | `/analytics` | Static previews of planned listening analytics. |
+| `(tabs)/cadenza.tsx` | `/cadenza` | The boolean query workspace. |
+| `(tabs)/library.tsx` | `/library` | Library index: a row per category, then Recently Added. |
+| `(tabs)/search.tsx` | `/search` | Search. A tag shelf until you tap the field, then recents, a scope switch, and results (artists, then songs). |
+| `account.tsx` | `/account` | Account sheet. Wires `AccountSettingsScreen`. |
+| `appearance.tsx` | `/appearance` | Appearance preview sheet. Wires `AppearanceSettingsScreen`. |
+| `player.tsx` | `/player` | Now playing sheet. Resolves `focusedSong` / `initialPage` from `activeTrack` and the `tagsSongId` params, renders `PlayerPager`. |
+| `library-categories.tsx` | `/library-categories` | Picks which rows the library shows. |
+| `category/[kind].tsx` | `/category/:kind` | One library category's contents. |
+| `collection/[kind]/[id].tsx` | `/collection/:kind/:id` | The songs in one album or playlist. |
 | `tag/[tagId].tsx` | `/tag/:tagId` | One tag and the songs carrying it. |
+| `artist/[id].tsx` | `/artist/:id` | One catalog artist: the artist image and a play button, top songs, then an albums rail. |
+| `add-to-playlist.tsx` | `/add-to-playlist` | Picks a library playlist for a song, or makes one. |
 | `+not-found.tsx` | | 404. |
 
 `(splashscreen)` and `(tabs)` are route groups, so the parentheses do not appear in the url.
@@ -32,45 +40,183 @@ GestureHandlerRootView
     AppleMusicProvider     apple music auth, restored from secure store
       PlaybackProvider     reads the native playback snapshot
         ThemeProvider      light/dark nav theme from nativewind's colorScheme
-          Stack            the routes
-          PortalHost       where dialogs and modals render
-          MediaPlayerHost  the global player
-          DefaultTagsOnStartup  runs the default tags job, renders nothing
+          BottomBarVisibilityProvider   temporary visibility exceptions
+            ZoomOriginProvider          the rect a pushed screen minimizes back into
+              Stack                     the routes
+              PortalHost                where dialogs and modals render
+              BottomBarsOverlay         the tab bar and mini player above native screens
+              DefaultTagsOnStartup      runs the default tags job, renders nothing
 ```
 
-`PortalHost` and `MediaPlayerHost` sit as siblings of `Stack`, not inside it, so both survive
-navigation. `MediaPlayerHost` reads `useSegments()` and decides whether to render the player and
-what bottom offset to use: `54` under the tab bar, `0` on the `tag/` stack route, nothing
-anywhere else. Playback state itself is global regardless, since it lives in `PlaybackProvider`.
-`DefaultTagsOnStartup` sits there too, only because the job needs the account and Apple Music
-providers above it. The job itself lives in `@/lib/default-tags`.
+`LibraryCategoriesProvider` (`@/features/library`) sits inside `ThemeProvider` and wraps both
+`Stack` and the hosts, because the library screen reads the category selection and the
+`/library-categories` screen writes it, and those are separate routes.
 
-Auth gating is per screen, not centralized. Each protected screen does:
+`PlayerDockProvider` and `TabSelectionProvider` wrap the same span, and for the same reason:
+both bars are mounted beside `Stack` rather than inside it, and both need state that survives
+navigation.
+
+`PortalHost` and `BottomBarsOverlay` sit as siblings of `Stack`, not inside it, so they survive
+navigation. The overlay contains `TabBarHost` and `MediaPlayerHost`; every offset and visibility
+decision comes from `@/lib/screen-overlay`. Playback state itself is global regardless, since it
+lives in `PlaybackProvider`. `DefaultTagsOnStartup` sits there too, only because the job needs the
+account and Apple Music providers above it. The job itself lives in `@/lib/default-tags`.
+
+Auth gating for the five primary screens is centralized in `(tabs)/_layout.tsx`:
 
 ```tsx
 const { account } = useAccount();
 if (!account) return <Redirect href="/auth?initialMode=signin" />;
 ```
 
-The splash screen owns session restore, which is why `AccountProvider` has no loading state.
-Every other screen can assume the account is either there or not.
+The Account and Appearance sheets have their own guards because they are root stack routes. The splash screen owns
+session restore, which is why `AccountProvider` has no loading state. Successful restore and
+authentication both land on `/library`.
+
+## The floating bottom bars
+
+**Neither bar is inside the navigator.** `BottomBarsOverlay` is a sibling of `Stack` in
+`_layout.tsx` and contains both hosts. On iOS it uses `FullWindowOverlay`, so native transparent
+detail screens cannot cover the bars. `(tabs)/_layout.tsx` passes `tabBar={() => null}` and
+renders no bar of its own. That is what lets drilling into an album or an artist keep the same
+bars you navigate with.
+
+The tab bar is `position: "absolute"`, a rounded pill inset from the edges, drawn on a
+`GlassSurface`. The compact media player floats as a matching pill above it. Content scrolls
+**behind** both and shows in the gutters beside them.
+
+Because neither bar is in the layout, nothing reserves space for them. Every scrolling surface
+has to pad itself with `contentBottomInset` or `listBottomInset` from
+`@/lib/screen-overlay::useScreenOverlayInsets`. Miss it on a new screen and its last row hides
+under the pill. Bars render by default on authenticated app routes. Account sheets and focused
+Search suppress them explicitly.
+
+The selected tab gets its own glass bubble, and the bubble slides between tabs rather than
+jumping. All of that is `@/components/custom/tab-bar`, which owns the tab order in `TABS`,
+draws the bar and the bubble, and navigates with `router.navigate` so a tab press pops back to
+the tabs rather than stacking another copy of them. Which tab is lit comes from the route
+segments, because there is no navigator above the bar to ask.
+
+Scrolling a page down docks the mini player into the bar: it takes the middle three slots, the
+tab you are on slides to the far left, Search holds the right, and the rest fade out and stop
+taking presses. On Search both ends would be the same tab, so the left slot shows the tab you
+came from instead, unlit. `TabSelectionProvider` is what remembers it. Scrolling back to the top floats it again, and it can be dragged either way at
+any time. The state is `@/lib/player-dock`; screens opt in by spreading `useScreenScroll()`
+(`@/lib/screen-scroll`) onto their top-level scroller, which is also what makes pressing the
+current tab scroll it to the top.
+
+`TabBarButton` carries the whole item, not just the icon, so a moved tab is hit where it is seen.
+
+## Closing a pushed screen
+
+A pushed detail route does not slide in or out. It grows out of the artwork that opened it and
+shrinks back into it, the way Music does, over the screen it came from. The X plays the same
+animation as the pull. Overscrolling at the top previews the shrink under your finger; letting go
+past the threshold finishes from that exact progress and pops. The pull does not stop moving at
+the threshold while the finger continues down.
+
+Because it is a card over another screen rather than a rectangle replacing it, it keeps rounded
+continuous corners while it shrinks. The visible corner size is compensated for the card's scale,
+and the card lands its top-left edge on the artwork rather than hovering around its center.
+
+Both hero screens paint the artwork tint as their own background rather than leaving it to the
+gradient inside the list. During the close, the list counters iOS's downward overscroll so the
+hero stays anchored near the card's top edge instead of opening a large empty area above it. The
+gradient is always at least one viewport tall, so short albums and playlists do not end in a flat
+color band.
+
+That is `@/lib/zoom-dismiss`: rows record where their artwork is before they navigate, the screen
+wraps itself in a card that shrinks toward that rect, and `useCloseScreen` is what the X calls.
+The artist album rail records its covers too, so an album opened from an artist returns to the
+right tile. `useScreenScroll` drives the pull through the same controller, and `useIsPushedDetailScreen`
+(`@/lib/screen-overlay`) keeps all of it off the tabs and off the sheets, which drag down natively
+already.
+
+## The top rail
+
+Every tab uses `TopRail` as its navigator header. The page title sits on the left, the account
+initials button sits on the right, and the button opens `/account`.
+
+A screen adds its own controls to the rail with `navigation.setOptions({ headerRight })`; the
+`header` render prop in `(tabs)/_layout.tsx` passes them through as `actions`. The library screen
+is the one caller, adding the button that opens `/library-categories`.
+
+## Sheets
+
+**Three** routes are sheets: `/account`, `/appearance`, and `/player`. A sheet is a native surface
+over the whole app, so both bottom bars hide while it is open. Appearance stacks from Account and
+keeps the same modal context. They are presented
+with `sheetScreenOptions` from `@/lib/theme`, the single definition of what a sheet looks like:
+a rounded `formSheet` at the `SHEET_DETENT` detent with a visible native grabber. That detent is
+`1`, the system's large one, so a sheet is full width, runs to the bottom edge, and stops just
+below the status bar. Anything smaller gets iOS 26's inset card, which leaves gaps down the
+sides and along the bottom. Either closes with the X or a drag down.
+
+Every other authenticated route shows the bars by default, including full-bleed detail routes.
+`PUSHED_DETAIL_SEGMENTS` in `@/lib/screen-overlay` only identifies routes that need the custom
+pull-down close. It is not a bar visibility allowlist.
+
+All six take `pushedScreenOptions()` from `@/lib/theme`: a transparent modal with **no native
+animation**. That is what the zoom below needs, since it has to grow out of and shrink back into a
+screen that is still on display underneath. The cost is the native back swipe, which a transparent
+modal has no edge for; the pull down at the top replaces it.
+
+## The detail shell
+
+Both kinds render their body inside `DetailScreen` (`@/components/ui/detail-screen`), which
+draws the title, an optional `headerRight`, and the X, and pays the safe area. One `presentation`
+prop is the whole difference: a sheet starts below the status bar and gets the grabber's worth of
+top padding, a screen pays the full top inset. It also sets `InsideSheetContext`, which is how
+`useScreenOverlayInsets` knows whether the bars are over this content or behind it.
+
+`/player` is pushed by the mini player rather than by a header button, and by `SongOptionsMenu`'s
+default Modify Tags handler with `tagsSongId` params for a song that is not playing (see
+[../components/custom/media-player/README.md](../components/custom/media-player/README.md)). It
+redirects back if playback stops while it is open, unless those params are present - there is
+still a Tags/Comments page to show even with nothing playing.
+
+`/artist/:id` and `/collection/:kind/:id` are the odd ones out of the pushed routes. Both draw a
+hero of their own above the track list instead of a `DetailScreen` header, and float their own X
+in the same corner. The artist image runs to the top edge and under the status bar; the
+collection centers the cover, the name, the artist, a genre and year line, and Music's three
+buttons: a shuffle circle, Play, and a `...` circle that opens a collection options modal. That
+modal is a placeholder carrying Play next and Add to queue; the rest of it is still to build.
+Under the last row it prints the song count and running time, but only once every page is in,
+since a count off a half-loaded list is a wrong number. Everything the collection draws over its
+tint is white, on every cover: text that flips to black on a pale album is a screen that changes
+shape depending on what you tapped. Either way the hero is the `MusicList` header, because that list owns the scroll.
+
+`/artist/:id` is reached from the Search tab's Artists section, the library's Artists category,
+and the now playing sheet's `...` menu. `/collection/:kind/:id` is reached through
+`collectionRoute` and `albumRouteForTrack` in `@/lib/music-routes`, which carry the title, the
+artist, both artwork sizes, and the artwork color so the hero and the tint are there before the
+song fetch lands.
 
 ## Connects to
 
 - `@/lib/account`, `@/lib/apple-music-auth`, `@/lib/playback` for the providers.
 - `@/lib/default-tags` for the startup default tags job.
 - `@/lib/routes/*` and `@/lib/musickit-hooks` for data.
-- `@/features/query-builder` from the query tab.
+- `@/features/account` from the Account and Appearance sheets.
+- `@/features/cadenza` from the Cadenza tab.
 - `@/components/custom` and `@/components/ui` for everything rendered.
 
 ## Gotchas
 
-- Adding a protected screen means adding the `Redirect` guard yourself. Nothing does it for you.
+- Routes inside `(tabs)` inherit the group's auth guard. Protected root stack routes still need
+  their own guard.
 - A new top-level route also needs a `Stack.Screen` entry in `_layout.tsx` if you want anything
-  other than the default header, and a `MediaPlayerHost` case if the player should show there.
-- `home.tsx` is still a placeholder with a sign out button on it.
+  other than the default header. A new **sheet** route additionally needs its segment in
+  `SHEET_SEGMENTS` in `@/lib/screen-overlay`, or presenting it will relayout the screen it
+  covers. A new **pushed** route needs its segment in `PUSHED_DETAIL_SEGMENTS` only if it uses the
+  custom pull-down close. Bar visibility is the default.
+- Reordering the tabs happens in `TABS` in `@/components/custom/tab-bar`, not here. This file
+  only maps over it.
+- A new scrolling screen has to apply a bottom inset from `useScreenOverlayInsets`. The bars do
+  not reserve space.
 - Tab order in the bar is set by the order of `Tabs.Screen` children, not by filename.
 
 ---
+
 Touching files in this directory? Update this README in the same change.
 See [../../../AGENT_GUIDE.md](../../../AGENT_GUIDE.md).

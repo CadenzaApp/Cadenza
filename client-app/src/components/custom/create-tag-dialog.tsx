@@ -32,12 +32,42 @@ const COLOR_OPTIONS: string[] = [
     "#d62f67",
 ];
 
-export function CreateTagDialog() {
+/**
+ * The floating bubble that opens the create-tag dialog. This is the form the
+ * tag list uses. The dialog itself is controlled and separate, because the
+ * player opens it from a menu row where a floating bubble makes no sense.
+ */
+export function CreateTagBubble() {
+    const { colors } = useTheme();
+    const [open, setOpen] = useState(false);
+
+    return (
+        <>
+            <ScreenFloatingBubble
+                onPress={() => setOpen(true)}
+                accessibilityLabel="Create a new tag"
+            >
+                <Ionicons name="add" size={28} color={colors.background} />
+            </ScreenFloatingBubble>
+            <CreateTagDialog open={open} onOpenChange={setOpen} />
+        </>
+    );
+}
+
+/** Name and color picker for a new tag. Controlled: the caller owns `open`. */
+export function CreateTagDialog({
+    open,
+    onOpenChange,
+    onCreated,
+}: {
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+    /** Given the new tag's id, so a caller can apply it straight away. */
+    onCreated?: (tagId: number) => void;
+}) {
     const { createTag, createTagErr, createTagLoading, resetCreateTag } =
         useCreateTag();
 
-    const { colors } = useTheme();
-    const [open, _setOpen] = useState(false);
     const [name, setName] = useState("");
     const [selectedColor, setSelectedColor] = useState(COLOR_OPTIONS[0]);
 
@@ -49,28 +79,22 @@ export function CreateTagDialog() {
 
     function setOpen(val: boolean) {
         if (!val) resetForm();
-        _setOpen(val);
+        onOpenChange(val);
     }
 
     async function handleCreate() {
         if (!name.trim()) return;
 
-        await createTag({
+        const createdTagId = await createTag({
             name: name.trim(),
             color: selectedColor,
         });
         setOpen(false);
+        if (typeof createdTagId === "number") onCreated?.(createdTagId);
     }
 
     return (
         <Dialog open={open} onOpenChange={setOpen}>
-            <ScreenFloatingBubble
-                onPress={() => setOpen(true)}
-                accessibilityLabel="Create a new tag"
-            >
-                <Ionicons name="add" size={28} color={colors.background} />
-            </ScreenFloatingBubble>
-
             <DialogContent>
                 <DialogHeader>
                     <DialogTitle>Create New Tag</DialogTitle>

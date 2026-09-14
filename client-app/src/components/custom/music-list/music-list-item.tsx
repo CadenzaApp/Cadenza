@@ -169,6 +169,7 @@ export const MusicListItem = memo(function MusicListItem({
                 <Pressable
                     className={cn(
                         "flex-1 flex-row items-center overflow-hidden",
+                        "active:opacity-80",
                         compact ? "mr-2" : "mr-3",
                     )}
                     onPressIn={() => {
@@ -190,9 +191,6 @@ export const MusicListItem = memo(function MusicListItem({
                             : undefined
                     }
                     delayLongPress={300}
-                    style={({ pressed }) =>
-                        pressed ? { opacity: 0.85 } : undefined
-                    }
                     accessibilityRole="button"
                     accessibilityState={{ selected }}
                 >

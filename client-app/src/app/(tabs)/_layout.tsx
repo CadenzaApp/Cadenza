@@ -1,105 +1,51 @@
-import { Tabs } from "expo-router";
-import Ionicons from "@expo/vector-icons/Ionicons";
-import { useTheme } from "expo-router/react-navigation";
+import { Redirect, Tabs } from "expo-router";
 
+import { TABS } from "@/components/custom/tab-bar";
+import { TopRail } from "@/components/custom/top-rail";
+import { useAccount } from "@/lib/account";
+
+/**
+ * The five tabs. The bar itself is **not** here: it is mounted at the root, in
+ * `../_layout.tsx`, next to the mini player, so it can float over a pushed
+ * detail screen too. This navigator renders no bar of its own, and the tab
+ * order lives with the bar in `TABS`.
+ *
+ * Nothing reserves space for either bar. Every scrolling surface owes itself
+ * the padding from `useScreenOverlayInsets`.
+ */
 export default function TabLayout() {
-    const { colors } = useTheme();
+    const { account } = useAccount();
+
+    if (!account) {
+        return <Redirect href="/auth?initialMode=signin" />;
+    }
 
     return (
         <Tabs
-                screenOptions={{
-                    tabBarActiveTintColor: colors.primary,
-                    tabBarInactiveTintColor: colors.text,
-                    headerStyle: {
-                        backgroundColor: colors.card,
-                    },
-                    headerShadowVisible: false,
-                    headerTintColor: colors.text,
-                    tabBarStyle: {
-                        backgroundColor: colors.card,
-                        borderTopColor: colors.border,
-                    },
-                }}
-            >
+            tabBar={() => null}
+            screenOptions={{
+                // A screen contributes its own controls with
+                // `navigation.setOptions({ headerRight })`, so the state behind
+                // them stays in that screen rather than becoming shared.
+                header: ({ options }) => (
+                    <TopRail
+                        title={
+                            typeof options.title === "string"
+                                ? options.title
+                                : ""
+                        }
+                        actions={options.headerRight?.({ canGoBack: false })}
+                    />
+                ),
+            }}
+        >
+            {TABS.map((tab) => (
                 <Tabs.Screen
-                    name="home"
-                    options={{
-                        title: "Home",
-                        tabBarIcon: ({ color, focused }) => (
-                            <Ionicons
-                                name={focused ? "home-sharp" : "home-outline"}
-                                color={color}
-                                size={24}
-                            />
-                        ),
-                    }}
+                    key={tab.segment}
+                    name={tab.segment}
+                    options={{ title: tab.label }}
                 />
-                <Tabs.Screen
-                    name="tags"
-                    options={{
-                        title: "Tags",
-                        tabBarIcon: ({ color, focused }) => (
-                            <Ionicons
-                                name={
-                                    focused
-                                        ? "pricetags-sharp"
-                                        : "pricetags-outline"
-                                }
-                                color={color}
-                                size={24}
-                            />
-                        ),
-                    }}
-                />
-                <Tabs.Screen
-                    name="query"
-                    options={{
-                        title: "Query",
-                        tabBarIcon: ({ color, focused }) => (
-                            <Ionicons
-                                name={
-                                    focused
-                                        ? "add-circle-sharp"
-                                        : "add-circle-outline"
-                                }
-                                color={color}
-                                size={24}
-                            />
-                        ),
-                    }}
-                />
-                <Tabs.Screen
-                    name="explore"
-                    options={{
-                        title: "Explore",
-                        tabBarIcon: ({ color, focused }) => (
-                            <Ionicons
-                                name={
-                                    focused
-                                        ? "compass-sharp"
-                                        : "compass-outline"
-                                }
-                                color={color}
-                                size={24}
-                            />
-                        ),
-                    }}
-                />
-                <Tabs.Screen
-                    name="account"
-                    options={{
-                        title: "Account",
-                        tabBarIcon: ({ color, focused }) => (
-                            <Ionicons
-                                name={
-                                    focused ? "person-sharp" : "person-outline"
-                                }
-                                color={color}
-                                size={24}
-                            />
-                        ),
-                    }}
-                />
+            ))}
         </Tabs>
     );
 }

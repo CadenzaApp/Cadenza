@@ -15,16 +15,23 @@ native module directly.
 | `routes/tags.ts` | Hooks for `/tags`: `useUserTags`, `useTag`, `useCreateTag`, `useDeleteTag`, `useSuggestTags`. |
 | `routes/songs.ts` | Hooks for `/songs`: `useTagsOnSong`, `useTagsOnSongs`, `useApplyTag`, `useUnapplyTag`, `useGetUntaggedSongs`, `useSetDefaultTags`. |
 | `routes/queries.ts` | Hook for `/queries/results`: `useQueryResults`. |
-| `musickit-hooks.ts` | SWR over the native module: song info, catalog search, library, playlists, favorites. |
+| `musickit-hooks.ts` | SWR over the native module: song info, catalog search, library search, library songs, albums, artists, playlists, collection contents and metadata, song and collection favorites, artist search, playlist writes. |
 | `default-tags.ts` | `useSetDefaultTagsOnStartup`, the job that gives untagged library songs generated default tags. |
 | `account.tsx` | `AccountProvider` / `useAccount`. Supabase session and the JWT. |
 | `apple-music-auth.tsx` | `AppleMusicProvider` / `useAppleMusic`. Apple Music tokens, persisted in secure store. |
 | `playback.tsx` | `PlaybackProvider`, `usePlayback` (state) and `usePlaybackCommands` (actions). Queue and the native playback snapshot. |
+| `queue-order.ts` | Pure index math for the queue mirror. Tested in `queue-order.test.ts`. |
 | `supabase.ts` | The Supabase client, backed by AsyncStorage. |
-| `tag-generation.ts` | A standalone tag suggestion fetch. Does not use the wrappers. See gotchas. |
-| `theme.ts` | `NAV_THEME`, light and dark palettes for react-navigation. |
+| `theme.ts` | `NAV_THEME`, light and dark palettes for react-navigation, `sheetScreenOptions` for sheet routes, and `pushedScreenOptions` for the pushed detail routes. |
 | `error-utils.ts` | `getErrorDetails` / `getErrorMessage`, for unwrapping native and backend errors. |
-| `screen-overlay.ts` | `useScreenOverlayInsets`. How much bottom padding a screen owes the compact player and the floating button. |
+| `artwork-color.ts` | `useArtworkTint`, the color a surface paints itself with, plus `withAlpha`. |
+| `music-routes.ts` | `collectionRoute` / `albumRouteForTrack`. Hrefs into the resource screens, params and all. |
+| `share-track.ts` | `shareTrack` / `shareCollection`. Builds and fires the native share sheet for a song, album, or playlist's canonical Apple Music link. |
+| `screen-overlay.ts` | `useScreenOverlayInsets`, bottom bar geometry and visibility, `BottomBarVisibilityProvider`, focused-screen suppression, and pushed-screen detection. |
+| `player-dock.tsx` | `PlayerDockProvider` / `usePlayerDock`. Whether the mini player floats above the tab bar or sits docked inside it. |
+| `screen-scroll.ts` | `useScreenScroll`, the props a screen's top-level scroller spreads to get tab-press-scrolls-to-top, scroll-docks-the-player, and pull-down-to-close. |
+| `zoom-dismiss.tsx` | `ZoomOriginProvider`, `useZoomSource`, `ZoomDismissScreen`, `useCloseScreen`. Closing a pushed screen by shrinking it back into the artwork that opened it. |
+| `zoom-dismiss-geometry.ts` | Pure pull, transform, timing, and corner math for `zoom-dismiss`, tested without React Native. |
 | `types.ts` | Shared wire types: `Tag` and `TagMetadata`. |
 | `utils.ts` | `cn()`, the clsx + tailwind-merge helper. |
 
@@ -107,8 +114,144 @@ change invalidates. Rename the returned fields to something readable (`tagsOnSon
 `isLoading`.
 
 `musickit-hooks.ts` does the same job for the native module, using plain `useSWR` with tuple
-keys like `["MusicKit.getSongInfo", ids]`. `useSongFavoriteStatus` is the one optimistic update
-in the codebase, with `rollbackOnError`.
+keys like `["MusicKit.getSongInfo", ids]`. `useSongFavoriteStatus` and `useCollectionFavoriteStatus`
+are the optimistic updates in the codebase, both with `rollbackOnError`. `useCollectionInfo`
+fetches an album/playlist's own metadata (title, artwork, `shareUrl`) - `useCollectionSongs`
+only ever fetches its songs. `usePlaylistMutations` is the exception to the wrapper
+rule: playlist writes are not backend calls, so they are plain async functions that invalidate
+every cached playlist key by predicate afterwards.
+
+Every paged library read goes through one internal hook, `usePagedLibraryResult`. It owns the
+offset loop (request a page, read `nextOffset`, stop when the native side says there is no next
+page), so `useTracksFromLibrary`, `useLibraryAlbums`, `useUserPlaylists`, `useLibraryArtists`,
+`useRecentlyAdded`, `useLibrarySongSearch`, and `useCollectionSongs` are each only a key
+builder and a fetch. Adding
+another paged library read means writing those two things and nothing else. It is generic over
+the item type, so it pages `ArtistItem`s as happily as `MusicItem`s; both results have the same
+`items` / `hasNextPage` / `nextOffset` shape.
+
+`useCatalogSongSearch` and `useLibrarySongSearch` are the two search scopes and present the
+same surface: each holds its own term and takes a submitted one, so a screen switching between
+Apple Music and the user's library does not change shape.
+
+`useCatalogArtistSearch` and `useLibraryArtistSearch` are the artist half of those two scopes.
+They break the pattern on purpose: the term is an argument, not internal state. The caller
+already owns the submitted term, and a third and fourth copy in here would be two more things
+to keep in sync. They fetch one page, because the results render as a rail rather than a
+scrolling list.
+
+`useCollectionSongs(kind, id)` takes `"album" | "playlist"` rather than splitting into two
+hooks, so a screen that renders either does not branch. Pass the collection's `libraryId`.
+
+## Bottom overlay geometry
+
+`screen-overlay.ts` owns where the two floating bottom bars sit, because both the bars and the
+padding screens leave for them have to come from the same numbers.
+
+Neither bar is in the layout: the tab bar is `position: "absolute"` and the compact player is
+positioned by `compactPlayerBottom`. **Nothing reserves space for them**, so every scrolling
+surface owes itself `contentBottomInset` (or `listBottomInset` when a floating button is also
+over it), or its last row hides under a bar.
+
+Sheet content is the exception. `DetailScreen` puts `InsideSheetContext` around its body when it
+is presented as a sheet, and the hook then returns sheet-local numbers: no tab bar, no compact
+player, just the safe area. Account, Appearance, and Player are the current sheets. A `MusicList`
+inside one would otherwise leave a tab bar's worth of dead space at the bottom.
+
+`TAB_BAR_HEIGHT`, `TAB_BAR_MARGIN`, and `bottomBarBottom` are what `@/components/custom/tab-bar`
+positions itself with, so the bar and the padding screens leave for it cannot drift.
+`TAB_BAR_ITEM_INSET` and `DOCKED_PLAYER_HEIGHT` are the box *inside* the bar, shared by the
+selection bubble and the docked player so they line up.
+
+This hook decides **whether either bar renders at all**, and both follow the same answer:
+`bottomBarsVisible` for the tab bar, that plus a playing track for the player. Auth and splash
+are the only barless base routes. Native sheets hide the overlay while open. An in-place screen
+state can call `useSuppressBottomBars`; focused Search is the current caller. Suppression uses a
+token set, so overlapping callers cannot reveal the bars until all of them release their token.
+
+## Artwork color
+
+`artwork-color.ts::useArtworkTint` gives a surface the color it paints itself with, from its own
+artwork. Two sources, in order:
+
+1. `artworkColor` off the item, which is Apple's own and is what Music tints with. Free, and
+   synchronous.
+2. Failing that, the average of the image, through `@image-color`. A download and a decode, so
+   it goes through SWR keyed on the artwork URL.
+
+Library artwork usually has no color of its own, which is the only reason the second path
+exists. Expo Go has no native module for it and returns null, and a null tint renders untinted.
+
+`@/components/ui/tint-backdrop::TintBackdrop` is what actually paints it: the color at the top,
+darkening down the page and bottoming out at `depth` of its brightness rather than at black.
+The player sheet, the collection screen, and the artist screen all go through those two.
+
+Hand `useArtworkTint` the **small** artwork. Averaging only needs a thumbnail, and a hero-sized
+one costs a megabyte to reach the same answer. `ArtworkSource.artworkUrlSmall` wins over
+`artworkUrl` for that reason, and `music-routes.ts` passes the small URL as `artworkUrl` and the
+hero-sized one separately as `artworkUrlLarge`, which the collection screen draws its cover from.
+
+## Docking the player
+
+`player-dock.tsx` holds one animated `progress`: 0 floating above the bar, 1 docked inside it
+over the middle tab slots, fractional while a finger is dragging it. Three things move it.
+
+- `screen-scroll.ts`, when the focused screen scrolls away from the top, and back at the top.
+- The drag on the player itself, in `media-player.tsx`.
+- Leaving a screen, which floats it again.
+
+It also carries the tab bar's measured width and tab count, which `TabBarGlass` reports and the
+player uses to size itself to three slots. Docking changes nothing about the insets screens pad
+with: it is an overlay on the bar, so a page cannot reflow underneath a scroll that caused it.
+
+`useScreenScroll()` is what a tab screen's top-level scroller spreads:
+
+```tsx
+const scroll = useScreenScroll();
+<Animated.FlatList {...scroll} ... />
+```
+
+It has to be an `Animated.FlatList` / `Animated.ScrollView`, because the offset is read on the UI
+thread. Tab-press-scrolls-to-top comes free with it, through react-navigation's `useScrollToTop`.
+A surface that skips the hook keeps the player floating and ignores tab presses.
+
+It also drives the close of a pushed detail screen. Overscroll at the top feeds the minimize
+continuously, and letting go past the shared threshold finishes it; short of that it springs
+back. While a zoom card is active, the hook counters iOS's downward rubber band so the hero stays
+anchored inside the shrinking card. Gated on `useIsPushedDetailScreen` from `screen-overlay`: a
+sheet already drags down natively and a tab has nowhere to go, so only the pushed routes wire it
+up. Android does not overscroll past the top by default, so the pull is an iOS gesture and the X
+is the way out on both.
+
+## The minimize
+
+`zoom-dismiss.tsx` is the two halves of Apple's close-back-into-the-artwork transition, which know
+nothing about each other:
+
+- A row measures its artwork just before it navigates, through `useZoomSource`. One rect is stored
+  at a time, in `ZoomOriginProvider` at the root, because only the screen on top is ever closing.
+  The rect is a shared value rather than a snapshot, since `measureInWindow` is asynchronous and
+  can land after the push.
+- `ZoomDismissScreen` wraps a pushed screen's content in the card that shrinks toward that rect.
+  `DetailScreen` does it for every route that uses it; `/artist/:id` and `/collection/:kind/:id`
+  render it themselves, since they draw their own header.
+
+The card runs both directions of the transition: it starts minimized and grows on mount, and
+shrinks back on close. That is why those routes carry `pushedScreenOptions()`, which presents them
+as transparent modals with no native animation. The screen that opened this one is still on
+display underneath. The card's top-left corner follows the artwork's top-left corner, while its
+width sets a uniform scale. Its native continuous corners compensate for that scale, so they stay
+visibly rounded instead of tightening as the card gets smaller.
+
+Every close goes through `useCloseScreen`, so the X and the pull play the same animation, and a
+screen with no card falls back to a plain `router.back()`. With no recorded rect the card shrinks
+toward the bottom of the window rather than doing nothing, which is what a deep link gets. A rect
+older than `ORIGIN_MAX_AGE` at mount counts as none: a screen opened by something that records
+nothing must not grow out of whatever row was tapped a minute ago.
+
+The pull owns progress continuously instead of stopping at the close threshold. Releasing past
+it claims the animation on the UI thread before the scroll view rebounds, then finishes only the
+remaining distance. A short pull still springs back to full size.
 
 ## The providers
 
@@ -121,10 +264,20 @@ in the codebase, with `rollbackOnError`.
   authorized **and** holding a user token. `ensureConnected()` before any playback call.
 - `PlaybackProvider` hands the queue to the native player (`playSongQueue`, `appendSongQueue`)
   and mirrors it, since the snapshot reports the current track but not its position in the
-  queue. It finds the index by matching the snapshot track against the mirrored list, and falls
-  back to the last index it set. It polls `refreshPlaybackSnapshot()` every 750ms while the app
-  is foregrounded. This is deliberately not SWR: it is a subscription to continuously changing
-  native state, not a cached read.
+  queue. It finds the index by matching the snapshot track against the mirrored list, searching
+  outward from the index it already believes in, and falls back to the last index it set.
+  Searching outward is what makes a queue holding the same song twice work. It polls
+  `refreshPlaybackSnapshot()` every 750ms while the app is foregrounded. This is deliberately
+  not SWR: it is a subscription to continuously changing native state, not a cached read.
+- Queue edits (`moveQueueItem`, `removeQueueItem`, `playQueueItem`, `playNext`) go through one
+  internal `mutateQueue`, which moves the mirror first so the list does not lag the drag, then
+  applies the native command and rolls the mirror back if it throws. A mirror that disagrees
+  with native would send every later index-addressed command to the wrong song, so it must never
+  be allowed to drift. The math itself is in `queue-order.ts`, which the mock native module
+  mirrors, so the two cannot diverge silently.
+- Positions in `usePlayback()` address the whole queue, counting the song that is playing. That
+  is the index space the native module takes. `upcoming` is a convenience slice, and a caller
+  working in its positions owes itself the conversion.
 - The provider exposes two contexts on purpose. `usePlayback()` is the state, and re-renders
   every 750ms as progress ticks. `usePlaybackCommands()` is the actions, and its identity never
   changes, so a list row can hold a play handler without re-rendering on every tick. Reach for
@@ -150,6 +303,7 @@ failed library read or `POST /songs/untagged` stops the job until it next starts
 - Supabase auth, through `supabase.ts`.
 - `@apple-musickit`, from `musickit-hooks.ts`, `apple-music-auth.tsx`, `playback.tsx`, and
   `default-tags.ts`.
+- `@image-color`, from `artwork-color.ts` and nowhere else.
 - Consumed by everything in `src/app`, `src/features`, and `src/components/custom`.
 
 ## Gotchas
@@ -158,10 +312,6 @@ failed library read or `POST /songs/untagged` stops the job until it next starts
   `http://localhost:3000`. On a physical device localhost is the phone, so that fallback only
   works in a simulator. Metro inlines `EXPO_PUBLIC_*` at bundle time, so editing `.env` needs a
   metro restart with `--clear`, not just a refresh.
-- **`tag-generation.ts` is a second, parallel path.** It resolves its own base url (env var, then
-  the Expo host, then a platform default) and posts to `POST /tag-generation`. The backend has no
-  such route; the real one is `GET /tags/suggest`, which `routes/tags.ts::useSuggestTags` already
-  wraps correctly. Treat `tag-generation.ts` as dead or stale until proven otherwise.
 - `useAPIFetch` uses the bare `path` as its SWR key, so two `useAPIFetch` hooks on the same path
   share a mutation key. `useAPIMutation` keys on `[method, path, accountId]`, so it does not.
 - Tags key on `catalogId ?? id`, not the library id, everywhere a song id crosses into the

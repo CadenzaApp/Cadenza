@@ -13,6 +13,9 @@ import com.apple.android.music.playback.queue.CatalogPlaybackQueueItemProvider
 import com.apple.android.music.playback.queue.PlaybackQueueInsertionType
 import com.apple.android.music.playback.model.MediaContainerType
 import com.apple.android.music.playback.model.MediaItemType
+import com.apple.android.music.playback.model.PlaybackQueueMoveTargetType
+import com.apple.android.music.playback.model.PlaybackRepeatMode
+import com.apple.android.music.playback.model.PlaybackShuffleMode
 import com.apple.android.music.playback.model.PlaybackState
 import com.apple.android.music.playback.model.PlayerMediaItem
 import expo.modules.kotlin.Promise
@@ -147,6 +150,15 @@ class AppleMusicKitModule : Module() {
         if (durationMs > 0) snapshot["duration"] = durationMs / 1000.0
         controller.currentItem?.item?.let {
             snapshot["currentTrack"] = formatPlayerMediaItem(it)
+        }
+        snapshot["shuffleMode"] = when (controller.shuffleMode) {
+            PlaybackShuffleMode.SHUFFLE_MODE_SONGS -> "songs"
+            else -> "off"
+        }
+        snapshot["repeatMode"] = when (controller.repeatMode) {
+            PlaybackRepeatMode.REPEAT_MODE_ONE -> "one"
+            PlaybackRepeatMode.REPEAT_MODE_ALL -> "all"
+            else -> "off"
         }
 
         return snapshot
@@ -462,6 +474,54 @@ class AppleMusicKitModule : Module() {
             return@AsyncFunction mapOf("isFavorite" to isFavorite)
         }
 
+        AsyncFunction("getCollectionFavoriteStatus") { kind: String, id: String ->
+            val catalogId = resolveCatalogId(id, kind)
+            val encodedId = URLEncoder.encode(catalogId, "UTF-8")
+            val response = makeApiRequest("/v1/catalog/${currentStorefrontId()}/$kind/$encodedId?extend=inFavorites")
+            val resource = (response["data"] as? List<*>)?.firstOrNull() as? Map<*, *>
+            val attributes = resource?.get("attributes") as? Map<*, *>
+            return@AsyncFunction mapOf("isFavorite" to (attributes?.get("inFavorites") as? Boolean ?: false))
+        }
+
+        AsyncFunction("setCollectionFavoriteStatus") { kind: String, id: String, isFavorite: Boolean ->
+            val catalogId = resolveCatalogId(id, kind)
+            val encodedId = URLEncoder.encode(catalogId, "UTF-8")
+            makeApiRequest(
+                "/v1/me/ratings/$kind/$encodedId",
+                if (isFavorite) "PUT" else "DELETE",
+                if (isFavorite) favoriteRatingBody else null
+            )
+            return@AsyncFunction mapOf("isFavorite" to isFavorite)
+        }
+
+        AsyncFunction("getCollectionInfo") { kind: String, ids: List<String> ->
+            if (ids.isEmpty()) return@AsyncFunction emptyList<Map<String, Any>>()
+
+            val libraryIds = ids.filter { it.contains(".") }
+            val catalogIds = ids.filter { !it.contains(".") }
+            val fetchedResults = mutableListOf<Map<String, Any>>()
+
+            if (libraryIds.isNotEmpty()) {
+                val idsParam = libraryIds.joinToString(",") { encode(it) }
+                val response = makeApiRequest("/v1/me/library/$kind?ids=$idsParam")
+                fetchedResults.addAll(objectList(response["data"]).map { formatMediaItem(it) })
+            }
+
+            if (catalogIds.isNotEmpty()) {
+                val idsParam = catalogIds.joinToString(",") { encode(it) }
+                val response = makeApiRequest("/v1/catalog/${currentStorefrontId()}/$kind?ids=$idsParam")
+                fetchedResults.addAll(objectList(response["data"]).map { formatMediaItem(it) })
+            }
+
+            val resultsMap = mutableMapOf<String, Map<String, Any>>()
+            fetchedResults.forEach { result ->
+                listOf(result["id"], result["catalogId"], result["libraryId"])
+                    .filterIsInstance<String>()
+                    .forEach { resultsMap[it] = result }
+            }
+            return@AsyncFunction ids.mapNotNull { resultsMap[it] }
+        }
+
         AsyncFunction("catalogSearch") { query: String, types: List<String>, requestedLimit: Int, requestedOffset: Int ->
             val encodedQuery = encode(query)
             val typesStr = types.joinToString(",")
@@ -475,11 +535,14 @@ class AppleMusicKitModule : Module() {
             val resultsObj = response["results"] as? Map<*, *>
             val songsObj = resultsObj?.get("songs") as? Map<*, *>
             val albumsObj = resultsObj?.get("albums") as? Map<*, *>
+            val artistsObj = resultsObj?.get("artists") as? Map<*, *>
             val result = mutableMapOf<String, Any>(
                 "songs" to objectList(songsObj?.get("data")).map { formatMediaItem(it) },
                 "albums" to objectList(albumsObj?.get("data")).map { formatMediaItem(it) },
+                "artists" to objectList(artistsObj?.get("data")).map { formatArtist(it) },
                 "hasNextSongs" to !songsObj?.get("next")?.toString().isNullOrBlank(),
-                "hasNextAlbums" to !albumsObj?.get("next")?.toString().isNullOrBlank()
+                "hasNextAlbums" to !albumsObj?.get("next")?.toString().isNullOrBlank(),
+                "hasNextArtists" to !artistsObj?.get("next")?.toString().isNullOrBlank()
             )
             nextOffset(songsObj?.get("next")?.toString())?.let {
                 result["nextSongsOffset"] = it
@@ -501,11 +564,294 @@ class AppleMusicKitModule : Module() {
                 makeApiRequest("/v1/me/library/songs?${pageQuery(pageOptions)}&include=albums")
             )
         }
+        // Same endpoint iOS uses, so both platforms page identically. The
+        // payload nests one level deeper than the plain library reads.
+        AsyncFunction("searchLibrarySongs") { term: String, options: Map<String, Any?> ->
+            val pageOptions = mapOf(
+                "limit" to ((options["limit"] as? Number)?.toInt() ?: 50),
+                "offset" to ((options["offset"] as? Number)?.toInt() ?: 0)
+            )
+            val response = makeApiRequest(
+                "/v1/me/library/search?term=${encode(term)}&types=library-songs&${pageQuery(pageOptions)}"
+            )
+            return@AsyncFunction collectionResult(
+                librarySearchPage(response, "library-songs")
+            )
+        }
+
         AsyncFunction("getPlaylistSongs") { playlistId: String, options: Map<String, Int> ->
             return@AsyncFunction collectionResult(
                 makeApiRequest("/v1/me/library/playlists/${encode(playlistId)}/tracks?${pageQuery(options)}&include=albums")
             )
         }
+        AsyncFunction("getLibraryAlbums") { options: Map<String, Int> ->
+            return@AsyncFunction collectionResult(
+                makeApiRequest("/v1/me/library/albums?${pageQuery(options)}")
+            )
+        }
+        // include=catalog so a library artist arrives already carrying the
+        // catalog ID the artist screen needs, rather than costing a second
+        // request per row before it can be opened.
+        AsyncFunction("getLibraryArtists") { options: Map<String, Int> ->
+            return@AsyncFunction artistCollectionResult(
+                makeApiRequest("/v1/me/library/artists?include=catalog&${pageQuery(options)}")
+            )
+        }
+        // The library search payload nests one level deeper than a plain
+        // library read, the same way searchLibrarySongs has to unwrap it.
+        AsyncFunction("searchLibraryArtists") { term: String, options: Map<String, Int> ->
+            val response = makeApiRequest(
+                "/v1/me/library/search?term=${encode(term)}&types=library-artists" +
+                    "&include[library-artists]=catalog&${pageQuery(options)}"
+            )
+            return@AsyncFunction artistCollectionResult(
+                librarySearchPage(response, "library-artists")
+            )
+        }
+        AsyncFunction("getRecentlyAdded") { options: Map<String, Int> ->
+            // Apple's own recently added feed: albums, playlists, and loose
+            // songs in one list, already grouped the way Music groups them.
+            return@AsyncFunction collectionResult(
+                makeApiRequest("/v1/me/library/recently-added?${pageQuery(options)}")
+            )
+        }
+        AsyncFunction("getAlbumSongs") { albumId: String, options: Map<String, Int> ->
+            // Library album ids carry a prefix; a bare one came from the
+            // catalog, which is what a song's albumID is, and lives elsewhere.
+            val path = if (albumId.contains(".")) {
+                "/v1/me/library/albums/${encode(albumId)}/tracks?${pageQuery(options)}&include=albums"
+            } else {
+                "/v1/catalog/${currentStorefrontId()}/albums/${encode(albumId)}/tracks?${pageQuery(options)}&include=albums"
+            }
+            return@AsyncFunction collectionResult(makeApiRequest(path))
+        }
+
+        AsyncFunction("insertSongsNextInQueue") {
+            ids: List<String>, _types: List<String>, promise: Promise ->
+            val songIds = ids.toTypedArray()
+            if (songIds.isEmpty()) {
+                promise.resolve(null)
+                return@AsyncFunction
+            }
+            val provider = CatalogPlaybackQueueItemProvider.Builder()
+                .items(MediaItemType.SONG, *songIds)
+                .build()
+
+            Handler(Looper.getMainLooper()).post {
+                withController(promise) { controller ->
+                    controller.addQueueItems(
+                        provider,
+                        PlaybackQueueInsertionType.INSERTION_TYPE_AFTER_CURRENT_ITEM
+                    )
+                }
+            }
+        }
+
+        AsyncFunction("moveQueueItem") { fromIndex: Int, toIndex: Int, promise: Promise ->
+            Handler(Looper.getMainLooper()).post {
+                withController(promise) { controller ->
+                    val items = controller.queueItems
+                    if (fromIndex !in items.indices || toIndex !in items.indices ||
+                        fromIndex == toIndex
+                    ) {
+                        return@withController
+                    }
+
+                    // The SDK moves relative to another entry rather than to an
+                    // index, so which side of the target depends on direction.
+                    val target = if (fromIndex < toIndex) {
+                        PlaybackQueueMoveTargetType.MOVE_AFTER_TARGET
+                    } else {
+                        PlaybackQueueMoveTargetType.MOVE_BEFORE_TARGET
+                    }
+                    controller.moveQueueItemWithId(
+                        items[fromIndex].playbackQueueId,
+                        items[toIndex].playbackQueueId,
+                        target
+                    )
+                }
+            }
+        }
+
+        AsyncFunction("removeQueueItem") { index: Int, promise: Promise ->
+            Handler(Looper.getMainLooper()).post {
+                withController(promise) { controller ->
+                    val items = controller.queueItems
+                    if (index in items.indices) {
+                        controller.removeQueueItemWithId(items[index].playbackQueueId)
+                    }
+                }
+            }
+        }
+
+        AsyncFunction("playQueueItem") { index: Int, promise: Promise ->
+            Handler(Looper.getMainLooper()).post {
+                withController(promise) { controller ->
+                    val items = controller.queueItems
+                    if (index !in items.indices) return@withController
+
+                    val current = controller.playbackQueueIndex
+                    if (index == current) return@withController
+
+                    // Skipping forward drops what was skipped over, which is
+                    // what iOS does and what the JS queue mirror expects.
+                    if (index > current && current >= 0) {
+                        for (position in (current + 1) until index) {
+                            controller.removeQueueItemWithId(
+                                items[position].playbackQueueId
+                            )
+                        }
+                    }
+                    controller.skipToQueueItemWithId(items[index].playbackQueueId)
+                }
+            }
+        }
+
+        AsyncFunction("setShuffleMode") { mode: String, promise: Promise ->
+            Handler(Looper.getMainLooper()).post {
+                withController(promise) { controller ->
+                    if (!controller.canSetShuffleMode()) {
+                        throw Exception("Apple Music cannot shuffle this queue.")
+                    }
+                    controller.setShuffleMode(
+                        if (mode == "songs") PlaybackShuffleMode.SHUFFLE_MODE_SONGS
+                        else PlaybackShuffleMode.SHUFFLE_MODE_OFF
+                    )
+                }
+            }
+        }
+
+        AsyncFunction("setRepeatMode") { mode: String, promise: Promise ->
+            Handler(Looper.getMainLooper()).post {
+                withController(promise) { controller ->
+                    if (!controller.canSetRepeatMode()) {
+                        throw Exception("Apple Music cannot repeat this queue.")
+                    }
+                    controller.setRepeatMode(
+                        when (mode) {
+                            "one" -> PlaybackRepeatMode.REPEAT_MODE_ONE
+                            "all" -> PlaybackRepeatMode.REPEAT_MODE_ALL
+                            else -> PlaybackRepeatMode.REPEAT_MODE_OFF
+                        }
+                    )
+                }
+            }
+        }
+
+        AsyncFunction("addSongsToPlaylist") { playlistId: String, ids: List<String> ->
+            val trackData = playlistTrackData(ids)
+            if (trackData.isNotEmpty()) {
+                makeApiRequest(
+                    "/v1/me/library/playlists/${encode(playlistId)}/tracks",
+                    "POST",
+                    JSONObject(mapOf("data" to JSONArray(trackData))).toString()
+                )
+            }
+            return@AsyncFunction null
+        }
+
+        AsyncFunction("createPlaylist") { name: String, ids: List<String> ->
+            val payload = JSONObject()
+            payload.put("attributes", JSONObject(mapOf("name" to name)))
+            val trackData = playlistTrackData(ids)
+            if (trackData.isNotEmpty()) {
+                payload.put(
+                    "relationships",
+                    JSONObject(
+                        mapOf(
+                            "tracks" to JSONObject(
+                                mapOf("data" to JSONArray(trackData))
+                            )
+                        )
+                    )
+                )
+            }
+
+            val response = makeApiRequest(
+                "/v1/me/library/playlists", "POST", payload.toString()
+            )
+            val playlist = objectList(response["data"]).firstOrNull()
+                ?: throw Exception("Apple Music did not return the new playlist.")
+            return@AsyncFunction formatMediaItem(playlist)
+        }
+
+        AsyncFunction("getSongArtists") { songId: String ->
+            val catalogId = resolveCatalogSongId(songId)
+            val response = makeApiRequest(
+                "/v1/catalog/${currentStorefrontId()}/songs/${encode(catalogId)}?include=artists"
+            )
+            val song = objectList(response["data"]).firstOrNull()
+            val relationships = song?.get("relationships") as? Map<*, *>
+            val artists = relationships?.get("artists") as? Map<*, *>
+            return@AsyncFunction objectList(artists?.get("data")).mapNotNull {
+                it["id"]?.toString()
+            }
+        }
+
+        AsyncFunction("getArtist") { artistId: String ->
+            val response = makeApiRequest(
+                "/v1/catalog/${currentStorefrontId()}/artists/${encode(artistId)}" +
+                    "?views=top-songs,full-albums"
+            )
+            val artist = objectList(response["data"]).firstOrNull()
+                ?: throw Exception("No Apple Music artist with ID $artistId.")
+            val attributes = artist["attributes"] as? Map<*, *>
+            val views = artist["views"] as? Map<*, *>
+
+            val result = mutableMapOf<String, Any>(
+                "id" to (artist["id"]?.toString() ?: artistId),
+                "name" to (attributes?.get("name") ?: "Unknown Artist"),
+                "topSongs" to viewResources(views?.get("top-songs")),
+                "albums" to viewResources(views?.get("full-albums"))
+            )
+            attributes?.get("genreNames")?.let { result["genres"] = it }
+            attributes?.get("url")?.toString()?.takeIf { it.isNotBlank() }?.let {
+                result["shareUrl"] = it
+            }
+            val artwork = attributes?.get("artwork") as? Map<*, *>
+            artwork?.get("url")?.toString()?.let {
+                // The artist screen runs this full bleed behind its header, so
+                // it is asked for at hero size rather than tile size. The small
+                // one is what it shows until that arrives.
+                result["artworkUrl"] = it.replace("{w}", "1200").replace("{h}", "1200")
+                result["artworkUrlSmall"] = it.replace("{w}", "300").replace("{h}", "300")
+            }
+            artworkColorHex(artwork)?.let { result["artworkColor"] = it }
+            return@AsyncFunction result
+        }
+    }
+
+    /**
+     * Runs a queue command against the player, rejecting rather than silently
+     * doing nothing when there is no player yet. Every one of these commands
+     * has to be posted to the main looper, so they all look the same.
+     */
+    private fun withController(promise: Promise, body: (MediaPlayerController) -> Unit) {
+        val controller = getOrCreatePlayerController()
+        if (controller == null) {
+            promise.reject("ERR_PLAYER_UNAVAILABLE", "Apple Music player is unavailable", null)
+            return
+        }
+        try {
+            body(controller)
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("ERR_QUEUE_COMMAND", e.message, e)
+        }
+    }
+
+    /**
+     * Playlist writes address catalog songs, so a library-only id has to be
+     * resolved first or Apple rejects the whole request.
+     */
+    private fun playlistTrackData(ids: List<String>): List<JSONObject> =
+        ids.map { id ->
+            JSONObject(mapOf("id" to resolveCatalogSongId(id), "type" to "songs"))
+        }
+
+    private fun viewResources(view: Any?): List<Map<String, Any>> {
+        val data = (view as? Map<*, *>)?.get("data")
+        return objectList(data).map { formatMediaItem(it) }
     }
 
     private fun resolveCatalogSongId(id: String): String {
@@ -518,6 +864,23 @@ class AppleMusicKitModule : Module() {
         val playParams = attributes?.get("playParams") as? Map<*, *>
         return playParams?.get("catalogId")?.toString()
             ?: throw Exception("No catalog ID is available for library song $id.")
+    }
+
+    /**
+     * The same resolution as [resolveCatalogSongId], generalized to any
+     * ratable resource type. A purely personal album/playlist never published
+     * to the catalog has no catalog ID, so this can legitimately fail for one.
+     */
+    private fun resolveCatalogId(id: String, resourceKind: String): String {
+        if (!id.contains(".")) return id
+
+        val encodedId = URLEncoder.encode(id, "UTF-8")
+        val response = makeApiRequest("/v1/me/library/$resourceKind/$encodedId")
+        val resource = (response["data"] as? List<*>)?.firstOrNull() as? Map<*, *>
+        val attributes = resource?.get("attributes") as? Map<*, *>
+        val playParams = attributes?.get("playParams") as? Map<*, *>
+        return playParams?.get("catalogId")?.toString()
+            ?: throw Exception("No catalog ID is available for library $resourceKind $id.")
     }
 
     private fun getSongFavoriteStatus(id: String): Map<String, Any> {
@@ -557,6 +920,83 @@ class AppleMusicKitModule : Module() {
         )
         nextOffset(response["next"]?.toString())?.let { result["nextOffset"] = it }
         return result
+    }
+
+    /**
+     * Unwraps one type's page out of a `/v1/me/library/search` payload, which
+     * nests one level deeper than a plain library read.
+     */
+    private fun librarySearchPage(
+        response: Map<String, Any>,
+        type: String
+    ): Map<String, Any> {
+        val results = response["results"] as? Map<*, *>
+        return (results?.get(type) as? Map<*, *>)
+            ?.entries
+            ?.mapNotNull { (key, value) ->
+                val stringKey = key as? String ?: return@mapNotNull null
+                value?.let { stringKey to it }
+            }
+            ?.toMap()
+            ?: emptyMap()
+    }
+
+    /** The artist counterpart to [collectionResult]. Same paging, different rows. */
+    private fun artistCollectionResult(response: Map<String, Any>): Map<String, Any> {
+        val data = objectList(response["data"])
+        val result = mutableMapOf<String, Any>(
+            "items" to data.map { formatArtist(it) },
+            "hasNextPage" to !response["next"]?.toString().isNullOrBlank()
+        )
+        nextOffset(response["next"]?.toString())?.let { result["nextOffset"] = it }
+        return result
+    }
+
+    /**
+     * One artist from the API, catalog or library. A library artist carries its
+     * catalog equivalent under the `catalog` relationship when Apple knows of
+     * one; `id` prefers that catalog ID so the artist screen can open directly.
+     */
+    private fun formatArtist(item: Map<String, Any>): Map<String, Any> {
+        val attributes = item["attributes"] as? Map<*, *> ?: emptyMap<String, Any>()
+        val type = (item["type"]?.toString() ?: "artists").lowercase()
+        val source = if (type.startsWith("library-")) "library" else "catalog"
+        val rawId = item["id"]?.toString() ?: ""
+
+        val relationships = item["relationships"] as? Map<*, *>
+        val catalogData = (relationships?.get("catalog") as? Map<*, *>)?.get("data") as? List<*>
+        val catalogItem = catalogData?.firstOrNull() as? Map<*, *>
+        val catalogId = if (source == "library") catalogItem?.get("id")?.toString() else rawId
+
+        val result = mutableMapOf<String, Any>(
+            "id" to (catalogId ?: rawId),
+            "name" to (attributes["name"]?.toString() ?: "Unknown Artist"),
+            "source" to source
+        )
+        catalogId?.let { result["catalogId"] = it }
+        if (source == "library") result["libraryId"] = rawId
+
+        // Library artists have no artwork of their own; the catalog artist the
+        // relationship points at usually does.
+        val artworkSource = (catalogItem?.get("attributes") as? Map<*, *>) ?: attributes
+        val artwork = artworkSource["artwork"] as? Map<*, *>
+        artwork?.get("url")?.toString()?.let {
+            result["artworkUrl"] = it.replace("{w}", "200").replace("{h}", "200")
+        }
+        artworkColorHex(artwork)?.let { result["artworkColor"] = it }
+        return result
+    }
+
+    /**
+     * Apple's own representative color for an artwork, as `#rrggbb`. It ships
+     * as a bare hex string under `bgColor`, and library artwork usually has
+     * none, in which case the client computes an average itself.
+     */
+    private fun artworkColorHex(artwork: Map<*, *>?): String? {
+        val raw = artwork?.get("bgColor")?.toString() ?: return null
+        val trimmed = raw.removePrefix("#")
+        if (trimmed.length != 6 && trimmed.length != 8) return null
+        return "#" + trimmed.substring(0, 6)
     }
 
     private fun nextOffset(next: String?): Int? {
@@ -659,6 +1099,7 @@ class AppleMusicKitModule : Module() {
             ?.replace("{w}", "1200")
             ?.replace("{h}", "1200")
             ?: ""
+        artworkColorHex(artworkObj)?.let { result["artworkColor"] = it }
 
         attributes?.get("albumName")?.let { result["albumName"] = it }
         attributes?.get("genreNames")?.let { result["genres"] = it }
@@ -692,6 +1133,10 @@ class AppleMusicKitModule : Module() {
         if (albumId != null) {
             result["albumID"] = albumId
         }
+
+        val artistsData = (relationships?.get("artists") as? Map<*, *>)?.get("data") as? List<*>
+        val firstArtist = artistsData?.firstOrNull() as? Map<*, *>
+        firstArtist?.get("id")?.toString()?.let { result["artistId"] = it }
 
         return result
     }

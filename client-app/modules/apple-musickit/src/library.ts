@@ -1,5 +1,9 @@
 import type {
+    ArtistDetail,
+    ArtistResult,
     CatalogSearchType,
+    CollectionFavoriteKind,
+    FavoriteStatus,
     LibraryResult,
     LibrarySongOptions,
     MusicItem,
@@ -7,6 +11,9 @@ import type {
     SearchResult,
     SongFavoriteStatus,
 } from "./AppleMusicKit.types";
+
+/** Apple caps `/v1/me/library/recently-added` at 25 items per page. */
+const RECENTLY_ADDED_MAX_LIMIT = 25;
 
 /** Apple Music catalog, library, and favorites operations. */
 export const MusicKit = {
@@ -34,6 +41,8 @@ export const MusicKit = {
                 albums: [],
                 hasNextSongs: false,
                 hasNextAlbums: false,
+                artists: [],
+                hasNextArtists: false,
             };
         }
         const normalizedTypes = [...new Set(types)];
@@ -71,6 +80,97 @@ export const MusicKit = {
         );
     },
 
+    /**
+     * Searches the user's own library for songs matching a term. Separate from
+     * `catalogSearch`, which only ever sees the Apple Music catalog.
+     */
+    searchLibrarySongs: async (
+        term: string,
+        options?: MusicKitOptions,
+    ): Promise<LibraryResult> => {
+        const normalizedTerm = term.trim();
+        if (!normalizedTerm) {
+            return { items: [], hasNextPage: false };
+        }
+        const searchLibrarySongs = requireNativeMethod("searchLibrarySongs");
+        return normalizeLibraryResult(
+            await searchLibrarySongs(normalizedTerm, normalizeOptions(options)),
+        );
+    },
+
+    /** Returns the user's library albums, optionally limited by result count. */
+    getLibraryAlbums: async (
+        options?: MusicKitOptions,
+    ): Promise<LibraryResult> => {
+        return normalizeLibraryResult(
+            await requireNative().getLibraryAlbums(normalizeOptions(options)),
+        );
+    },
+
+    /**
+     * Returns the artists in the user's library. Apple's `catalog` relationship
+     * is requested inline, so a row that has a catalog equivalent carries its
+     * `catalogId` and needs no second round trip to open.
+     */
+    getLibraryArtists: async (
+        options?: MusicKitOptions,
+    ): Promise<ArtistResult> => {
+        const getLibraryArtists = requireNativeMethod("getLibraryArtists");
+        return normalizeArtistResult(
+            await getLibraryArtists(normalizeOptions(options)),
+        );
+    },
+
+    /**
+     * Searches the user's own library for artists matching a term. The artist
+     * counterpart to `searchLibrarySongs`.
+     */
+    searchLibraryArtists: async (
+        term: string,
+        options?: MusicKitOptions,
+    ): Promise<ArtistResult> => {
+        const normalizedTerm = term.trim();
+        if (!normalizedTerm) {
+            return { items: [], hasNextPage: false };
+        }
+        const searchLibraryArtists = requireNativeMethod(
+            "searchLibraryArtists",
+        );
+        return normalizeArtistResult(
+            await searchLibraryArtists(
+                normalizedTerm,
+                normalizeOptions(options),
+            ),
+        );
+    },
+
+    /**
+     * Returns the user's recently added library items, newest first. Mixed on
+     * purpose: albums, playlists, and songs that were added on their own, the
+     * same grouping Apple Music shows. Apple caps this endpoint at 25 per page.
+     */
+    getRecentlyAdded: async (
+        options?: MusicKitOptions,
+    ): Promise<LibraryResult> => {
+        const getRecentlyAdded = requireNativeMethod("getRecentlyAdded");
+        return normalizeLibraryResult(
+            await getRecentlyAdded(normalizeRecentlyAddedOptions(options)),
+        );
+    },
+
+    /** Returns the tracks contained in a library album. */
+    getAlbumSongs: async (
+        albumId: string,
+        options?: MusicKitOptions,
+    ): Promise<LibraryResult> => {
+        return normalizeLibraryResult(
+            await requireNative().getAlbumSongs(
+                requireIdentifier(albumId, "album ID"),
+                normalizeOptions(options),
+            ),
+        );
+    },
+
     /** Returns the tracks contained in a library playlist. */
     getPlaylistSongs: async (
         playlistId: string,
@@ -101,6 +201,89 @@ export const MusicKit = {
             isFavorite,
         );
     },
+
+    /** Adds catalog songs to one of the user's library playlists. */
+    addSongsToPlaylist: async (
+        playlistId: string,
+        ids: readonly string[],
+    ): Promise<void> => {
+        const normalizedIds = normalizeSongIds(ids);
+        if (normalizedIds.length === 0) return;
+        return requireNative().addSongsToPlaylist(
+            requireIdentifier(playlistId, "playlist ID"),
+            normalizedIds,
+        );
+    },
+
+    /** Creates a library playlist, optionally seeded with catalog songs. */
+    createPlaylist: async (
+        name: string,
+        ids: readonly string[] = [],
+    ): Promise<MusicItem> => {
+        const normalizedName = name.trim();
+        if (!normalizedName) {
+            throw new Error("Apple Music playlist name cannot be empty.");
+        }
+        return requireNative().createPlaylist(
+            normalizedName,
+            normalizeSongIds(ids),
+        );
+    },
+
+    /**
+     * Returns the catalog artist IDs credited on a song, most prominent first.
+     * Empty for a library-only song, which has no catalog artist to point at.
+     */
+    getSongArtists: async (songId: string): Promise<string[]> => {
+        return requireNative().getSongArtists(
+            requireIdentifier(songId, "song ID"),
+        );
+    },
+
+    /** Returns a catalog artist with their top songs and albums. */
+    getArtist: async (artistId: string): Promise<ArtistDetail> => {
+        return requireNative().getArtist(
+            requireIdentifier(artistId, "artist ID"),
+        );
+    },
+
+    /**
+     * Returns whether the user has favorited a library or catalog album or
+     * playlist. Rejects for a purely personal playlist, which has no catalog
+     * identifier to rate.
+     */
+    getCollectionFavoriteStatus: async (
+        kind: CollectionFavoriteKind,
+        id: string,
+    ): Promise<FavoriteStatus> => {
+        return requireNative().getCollectionFavoriteStatus(
+            kind,
+            requireIdentifier(id, `${kind} ID`),
+        );
+    },
+
+    /** Adds or removes an album or playlist from the user's favorites. */
+    setCollectionFavoriteStatus: async (
+        kind: CollectionFavoriteKind,
+        id: string,
+        isFavorite: boolean,
+    ): Promise<FavoriteStatus> => {
+        return requireNative().setCollectionFavoriteStatus(
+            kind,
+            requireIdentifier(id, `${kind} ID`),
+            isFavorite,
+        );
+    },
+
+    /** Retrieves full metadata for catalog or library album/playlist IDs, in the requested order. */
+    getCollectionInfo: async (
+        kind: CollectionFavoriteKind,
+        ids: string[],
+    ): Promise<MusicItem[]> => {
+        if (ids.length === 0) return [];
+        const normalizedIds = ids.map((id) => requireIdentifier(id, `${kind} ID`));
+        return requireNative().getCollectionInfo(kind, normalizedIds);
+    },
 };
 
 /** @internal Supplies the native catalog and library implementation. */
@@ -118,6 +301,14 @@ function normalizeLibraryResult(result: LibraryResult): LibraryResult {
     };
 }
 
+function normalizeArtistResult(result: ArtistResult): ArtistResult {
+    return {
+        items: result.items ?? [],
+        hasNextPage: result.hasNextPage === true,
+        nextOffset: result.nextOffset,
+    };
+}
+
 interface LibraryNativeModule {
     getSongInfo(ids: string[]): Promise<MusicItem[]>;
     catalogSearch(
@@ -128,8 +319,23 @@ interface LibraryNativeModule {
     ): Promise<SearchResult>;
     getUserPlaylists(options: MusicKitOptions): Promise<LibraryResult>;
     getLibrarySongs(options: LibrarySongOptions): Promise<LibraryResult>;
+    searchLibrarySongs(
+        term: string,
+        options: MusicKitOptions,
+    ): Promise<LibraryResult>;
     getPlaylistSongs(
         playlistId: string,
+        options: MusicKitOptions,
+    ): Promise<LibraryResult>;
+    getLibraryAlbums(options: MusicKitOptions): Promise<LibraryResult>;
+    getLibraryArtists(options: MusicKitOptions): Promise<ArtistResult>;
+    searchLibraryArtists(
+        term: string,
+        options: MusicKitOptions,
+    ): Promise<ArtistResult>;
+    getRecentlyAdded(options: MusicKitOptions): Promise<LibraryResult>;
+    getAlbumSongs(
+        albumId: string,
         options: MusicKitOptions,
     ): Promise<LibraryResult>;
     getSongFavoriteStatus(id: string): Promise<SongFavoriteStatus>;
@@ -137,6 +343,26 @@ interface LibraryNativeModule {
         id: string,
         isFavorite: boolean,
     ): Promise<SongFavoriteStatus>;
+    addSongsToPlaylist(
+        playlistId: string,
+        ids: readonly string[],
+    ): Promise<void>;
+    createPlaylist(name: string, ids: readonly string[]): Promise<MusicItem>;
+    getSongArtists(songId: string): Promise<string[]>;
+    getArtist(artistId: string): Promise<ArtistDetail>;
+    getCollectionFavoriteStatus(
+        kind: CollectionFavoriteKind,
+        id: string,
+    ): Promise<FavoriteStatus>;
+    setCollectionFavoriteStatus(
+        kind: CollectionFavoriteKind,
+        id: string,
+        isFavorite: boolean,
+    ): Promise<FavoriteStatus>;
+    getCollectionInfo(
+        kind: CollectionFavoriteKind,
+        ids: string[],
+    ): Promise<MusicItem[]>;
 }
 
 let native: LibraryNativeModule | null = null;
@@ -148,6 +374,24 @@ function requireNative(): LibraryNativeModule {
         );
     }
     return native;
+}
+
+/**
+ * Resolves a native call that the installed binary may predate. The JS bundle
+ * reloads on its own, the native module does not, so a method added after the
+ * dev build was compiled is missing rather than broken.
+ */
+function requireNativeMethod<K extends keyof LibraryNativeModule>(
+    name: K,
+): LibraryNativeModule[K] {
+    const nativeModule = requireNative();
+    const method = nativeModule[name];
+    if (typeof method !== "function") {
+        throw new Error(
+            `Apple Music ${String(name)} is missing from the installed native build. Rebuild the app (npx expo run:ios or run:android).`,
+        );
+    }
+    return method.bind(nativeModule) as LibraryNativeModule[K];
 }
 
 function normalizeOptions(
@@ -165,11 +409,22 @@ function normalizeCatalogSearchOptions(
     return { limit: Math.min(25, limit), offset };
 }
 
+function normalizeRecentlyAddedOptions(
+    options?: MusicKitOptions,
+): Required<MusicKitOptions> {
+    const { limit, offset } = normalizeOptions(options);
+    return { limit: Math.min(RECENTLY_ADDED_MAX_LIMIT, limit), offset };
+}
+
 function normalizeLibrarySongOptions(
     options?: LibrarySongOptions,
 ): LibrarySongOptions {
     const normalized = normalizeOptions(options);
     return options?.sort ? { ...normalized, sort: options.sort } : normalized;
+}
+
+function normalizeSongIds(ids: readonly string[]): string[] {
+    return ids.map((id) => requireIdentifier(id, "song ID"));
 }
 
 function requireIdentifier(value: string, label: string): string {
