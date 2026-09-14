@@ -25,8 +25,8 @@ pub struct GetTagsOnSongQueryParams {
     song_id: String,
 }
 
-/// Returns the tags on one song: the user's tags, or the song's default tags if
-/// the user has none on it.
+/// Returns the user's tags on one song. If the song is new to the user, it gets
+/// copies of its default tags first (see `db::tags::get_user_tags_on_songs`).
 ///
 /// JSON return value format:
 /// ```json
@@ -65,9 +65,9 @@ pub struct SongIdsPayload {
     song_ids: Vec<String>,
 }
 
-/// Returns the tags on each requested song, keyed by song id. Each song gets
-/// the user's tags, or its default tags if the user has none on it. A song with
-/// no tags of either kind comes back as an empty list.
+/// Returns the user's tags on each requested song, keyed by song id. Songs new
+/// to the user get copies of their default tags first. A song with no tags
+/// comes back as an empty list.
 ///
 /// JSON return value format:
 /// ```json
@@ -80,7 +80,7 @@ async fn get_tags_on_songs_handler(
 ) -> Result<Json<HashMap<String, Vec<Tag>>>, CadenzaError> {
     check_batch_size(payload.song_ids.len())?;
 
-    // the tags on each song, falling back to default tags
+    // the user's tags on each song, copying default tags onto songs new to them
     let tags_by_song = get_user_tags_on_songs(&db, claims.user_id, &payload.song_ids).await?;
 
     Ok(Json(

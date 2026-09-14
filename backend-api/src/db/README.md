@@ -8,34 +8,53 @@ The data access layer. Everything that touches postgres lives here, so handlers 
 | file | role |
 | --- | --- |
 | `mod.rs` | Declares `entity`, `queries`, `tags`. |
-| `tags.rs` | All tag reads and writes: list, look up, usage counts, tags on many songs, untagged songs, songs with a tag, create, delete, apply, unapply, and reading and replacing default tags. |
+| `tags.rs` | All tag reads and writes: list, look up, usage counts, tags on many songs, untagged songs, songs with a tag, create, delete, apply, unapply, reading and replacing default tags, and initializing a user's songs. |
 | `queries.rs` | Compiles a boolean tag query from JSON to SQL and runs it. |
-| `entity/` | sea-orm-codegen output. `tags`, `user_tags_applied`, `default_tags_applied`, plus `prelude` and `mod`. Do not hand edit. |
+| `entity/` | sea-orm-codegen output in the compact format. `tags`, `user_tags_applied`, `default_tags_applied`, `song_meta`, `sea_orm_active_enums` (the `TagType` enum), plus `prelude` and `mod`. Do not hand edit. |
 
 ## Schema
 
-Three tables, keyed on song ids that come from Apple Music.
+Four tables, keyed on song ids that come from Apple Music.
 
-- `tags` - `tag_id` (bigserial pk), `name`, `color`, nullable `user_id`. A null `user_id` means
-  the tag is a default, not owned by any user.
+- `tags` - `tag_id` (bigserial pk), `name`, `color`, `type`, nullable `user_id`. A null `user_id`
+  means the tag is a default, not owned by any user. `type` is the `tag_type` enum (`basic`,
+  `text`, `datetime`, `number`, `checkbox`) and defaults to `basic`. The api never sets it, except
+  that a copied default tag keeps the default's type.
 - `user_tags_applied` - tags a user put on a song, plus the user's copies of a song's default
-  tags, added the first time the user reads a song that has none of theirs. Composite pk of `(song_id, user_id, tag_id)`.
+  tags. Composite pk of `(song_id, user_id, tag_id)`, and a nullable `value` nothing uses yet.
   Cascades on delete from `tags`. The query compiler reads only this table.
 - `default_tags_applied` - default tags on a song, composite pk of `(song_id, tag_id)`, no user,
   so every user sees the same ones. `get_default_tags_on_songs` reads it, and
   `set_default_tags_on_songs` replaces a song's rows, creating any default tag it names that does
   not exist yet.
+- `song_meta` - one row per song a user has been initialized on. Composite pk of
+  `(song_id, user_id)`, with a cascading fk to `auth.users`. Also `times_listened`, which defaults
+  to 0 and nothing writes yet.
 
 ## Default tags
 
-`get_user_tags_on_songs` is the one read behind every song tag endpoint. It seeds an empty list
-for each requested song, fills in the user's tags, then calls `get_default_tags_on_songs` for the
-songs still empty. Any default tags it finds go through `copy_default_tags_to_user`, which gives
-the user their own `tags` row for each one and applies that row in `user_tags_applied`. A default
-tag reuses the user's tag with the same name if they have one, and otherwise becomes a new tag of
-theirs with the default's name and color. The read returns the copies, so from then on they are
-the user's own tags and no fallback happens. `get_untagged_songs` calls it and keeps the songs
-that came back empty.
+A user gets a song's default tags once, when the song is initialized for them, meaning it gets a
+`song_meta` row. After that the song's tags are only ever what the user leaves on it.
+
+`get_user_tags_on_songs` is the one read behind every song tag endpoint. It calls
+`init_user_songs` first, then reads the user's tags, so any copies are in what it returns.
+`find_songs_to_init` looks at the requested songs with no `song_meta` row:
+
+- a song the user already has tags on gets its row, and its default tags are not copied.
+- a song with default tags gets the user's copies of them, then its row.
+- a song with no tags of either kind is left alone, so default tags generated for it later still
+  get copied on a later read.
+
+`copy_default_tags_to_user` gives the user their own `tags` row for each default tag and applies
+that row in `user_tags_applied`. A default tag reuses the user's tag with the same name if they
+have one, and otherwise becomes a new tag of theirs with the default's name, color, and type.
+
+`apply_user_tag` adds the song's `song_meta` row too, in the same transaction as the tag.
+Without it, a song tagged before it had default tags would pick them up once that tag came off.
+
+`get_untagged_songs` keeps the songs `get_user_tags_on_songs` returned empty, minus any that have
+default tags. An initialized song can be empty and still have default tags, once the user removes
+all of its tags.
 
 Nothing in this directory generates tags. `routes/songs.rs` does that for
 `POST /songs/default-tags`, using `get_default_tags_on_songs` to skip songs that already have
@@ -88,14 +107,17 @@ becomes `CadenzaError::QueryFormatError` (422).
 - `get_tag` does **not** filter by user, so `GET /tags?tag_id=N` will happily return another
   user's tag. The `song_ids` beside it are correctly user-scoped, so the leak is the tag name and
   color only. Worth fixing.
-- `get_user_tags_on_songs` writes. A read that falls back creates tags and applications for the
-  user, in a transaction holding a per-user `pg_advisory_xact_lock`, so two racing reads do not
-  create the same tag twice.
-- The default tag fallback is all or nothing per song. A song with even one of the user's tags
-  gets only the user's tags. So "untagged" in `get_untagged_songs` means no tags of either kind.
-- Removing a user's last tag from a song brings its default tags back: the next read finds no user
-  tags, falls back, and copies the defaults in again. Deleting a copied tag does the same for every
-  song it was the only tag on.
+- `get_user_tags_on_songs` writes. Initializing songs creates tags, applications, and `song_meta`
+  rows for the user, in a transaction holding a per-user `pg_advisory_xact_lock`, so two racing
+  reads do not initialize the same song or create the same tag twice. `find_songs_to_init` runs
+  once before the lock, so a read with nothing to initialize never takes it, and again under it.
+- A song with no tags of either kind never gets a `song_meta` row from a read, so every read that
+  includes it runs the three `find_songs_to_init` queries again. A song the model gave no tags
+  stays that way.
+- Default tags set on a song after it is initialized never reach that user.
+- `song_meta` started out empty, after users already had tags. Songs they have tags on get a row
+  on their next read, with no defaults copied. A song whose tags were all removed before
+  `song_meta` existed gets its default tags copied once more.
 - Copies match the user's existing tags by exact name, so a user tag `Rock` and a default `rock`
   stay two tags.
 - `user_tags_applied` rows copied before copies got their own `tags` row still point at the shared

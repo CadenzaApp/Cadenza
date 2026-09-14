@@ -116,7 +116,6 @@ async function setDefaultTagsOnLibrary(
     }
 }
 
-/** Describes a song for tag generation, e.g. "Override by Yoshida Yasei". */
 function getSongDescription(song: MusicItem) {
     return song.artistName ? `${song.title} by ${song.artistName}` : song.title;
 }

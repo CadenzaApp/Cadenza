@@ -111,7 +111,7 @@ export function useSetDefaultTags() {
     const x = useAPIMutation<SongIdAndDesc[], void>(
         "POST",
         "/songs/default-tags",
-        // a song without user tags shows its default tags, so any song's tags may change
+        // the next read copies new default tags onto songs new to the user, so any song's tags may change
         [{ path: "/songs/tags" }, { path: "/songs/tags/batch" }],
     );
     return {

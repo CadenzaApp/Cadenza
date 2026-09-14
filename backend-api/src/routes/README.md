@@ -26,11 +26,11 @@ Every route below requires `Authorization: Bearer <supabase jwt>`.
 | POST | `/tags` | `{name, color}` | the new tag id, as a bare number in the body |
 | DELETE | `/tags` | `{tag_id}` | empty. Silently no-ops if the tag is not yours |
 | GET | `/tags/suggest` | `?song_desc=...&requested_tag_count=N` | `[{name, color}, ...]` |
-| GET | `/songs/tags` | `?song_id=...` | `[Tag]`, the user's tags on that song. With none, its default tags, which get copied into the user's tags |
-| POST | `/songs/tags/batch` | `{song_ids: [...]}` | `{song_id: [Tag]}`, an entry per requested song, with the same fallback |
+| GET | `/songs/tags` | `?song_id=...` | `[Tag]`, the user's tags on that song. A song new to the user gets copies of its default tags first |
+| POST | `/songs/tags/batch` | `{song_ids: [...]}` | `{song_id: [Tag]}`, an entry per requested song, with the same copying |
 | POST | `/songs/untagged` | `{song_ids: [...]}` | `["songid", ...]`, the requested songs with no user tags and no default tags, in request order |
 | POST | `/songs/default-tags` | `[{song_id, desc}]` | empty. Generates and stores default tags for the songs that have none |
-| POST | `/songs/tags` | `{song_id, tag_id}` | empty |
+| POST | `/songs/tags` | `{song_id, tag_id}` | empty. Also marks the song initialized for the user |
 | DELETE | `/songs/tags` | `{song_id, tag_id}` | empty |
 | GET | `/queries/results` | `?q=<query json>` | `["songid", ...]`, most relevant first |
 | GET | `/test` | none | `server is reachable`. Defined inline in `main.rs`, not here |
@@ -51,12 +51,12 @@ same with both `db` and `tag_gen_service`, since default tags belong to no user.
 
 Song tag reads never generate anything, but they can write. `GET /songs/tags`,
 `POST /songs/tags/batch`, and `POST /songs/untagged` all go through
-`db::tags::get_user_tags_on_songs`, which falls back to default tags that already exist and copies
-the ones it uses into the user's own tags. The client creates default tags: on
-startup it pages through the user's library, sends each page to `POST /songs/untagged`, and posts
-those songs' descriptions to `POST /songs/default-tags`. That handler drops songs that already
-have default tags, generates tags for the rest with `TagGenerationService::generate_tags`, and
-stores them with `db::tags::set_default_tags_on_songs`.
+`db::tags::get_user_tags_on_songs`, which initializes songs new to the user and copies their
+existing default tags into the user's own tags. `../db/README.md` covers when a song counts as
+new. The client creates default tags: on startup it pages through the user's library, sends each
+page to `POST /songs/untagged`, and posts those songs' descriptions to `POST /songs/default-tags`.
+That handler drops songs that already have default tags, generates tags for the rest with
+`TagGenerationService::generate_tags`, and stores them with `db::tags::set_default_tags_on_songs`.
 
 `set_default_tags_on_songs_handler` and `queries.rs` are the two places with real logic in a
 route. The default tags one is the orchestration above. `queries.rs` is ranking, not data access.
@@ -90,15 +90,15 @@ api as JSON should have a type here rather than serializing an entity model dire
 - `POST /tags` returns the id as a bare string body, not JSON.
 - `DELETE /tags` and `DELETE /songs/tags` take a JSON body. Some HTTP clients will not send one
   on a DELETE.
-- The default tag fallback is per song and all or nothing. A song with even one of the user's
-  tags shows only those. The read that falls back copies the default tags into the user's own tags,
+- A user gets a song's default tags at most once, when the song is initialized: on the first read
+  that finds it with default tags, or when the user tags it. The copies are the user's own tags,
   so they show up in `GET /tags`, and `DELETE /songs/tags` and `DELETE /tags` treat them like any
-  other tag. Removing a song's last tag brings all
-  its defaults back on the next read.
+  other tag. Removing a song's last tag leaves it empty. A song the user had already tagged when it
+  was initialized never gets its defaults.
 - `POST /songs/tags/batch` and `POST /songs/untagged` are POSTs only because the id list does not
-  belong in a query string. Like `GET /songs/tags`, they can write when they fall back to default
-  tags. Both, plus `POST /songs/default-tags`, cap out at 200 songs and answer `QueryFormatError`
-  past that. The batch returns songs with no tags as an empty list, never missing.
+  belong in a query string. Like `GET /songs/tags`, they can write when they initialize songs.
+  Both, plus `POST /songs/default-tags`, cap out at 200 songs and answer `QueryFormatError` past
+  that. The batch returns songs with no tags as an empty list, never missing.
 - `POST /songs/default-tags` can be slow, since one request becomes one or more OpenAI calls in
   a row. A song the model returns no tags for gets no default tags, so it stays untagged and the
   client retries it on its next startup.

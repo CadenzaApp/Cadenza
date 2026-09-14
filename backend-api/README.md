@@ -72,9 +72,13 @@ cargo test
 Rebuilding db entities after a schema change:
 
 ```sh
-cargo install sea-orm-cli@^2.0.0-rc
-sea-orm-cli generate entity -o ./src/db/entity --entity-format dense
+cargo install sea-orm-cli@2.0.0-rc.37 --locked
+sea-orm-cli generate entity -o ./src/db/entity --entity-format compact
 ```
+
+Keep the CLI version equal to the `sea-orm` version in `Cargo.lock`. The stable 2.0.0 CLI writes
+code this crate cannot compile: `rs_type = "Enum"` on Postgres enums, and `BelongsTo` relation
+fields in the dense format.
 
 ## Connects to
 
