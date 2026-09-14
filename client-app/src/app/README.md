@@ -43,9 +43,11 @@ GestureHandlerRootView
           ThemeProvider    light/dark nav theme from nativewind's colorScheme
             BottomBarVisibilityProvider   temporary visibility exceptions
               ZoomOriginProvider          the rect a pushed screen minimizes back into
-                Stack                     the routes
-                PortalHost                where dialogs and modals render
-                BottomBarsOverlay         the tab bar and mini player above native screens
+                GlassBlurTargetProvider   hands the blur target to the glass beside it
+                  GlassBlurTarget         what Android glass blurs
+                    Stack                 the routes
+                  BottomBarsOverlay       the tab bar and mini player above native screens
+                  PortalHost              where dialogs and modals render, above the bars
 ```
 
 `SongInitProvider` sits right under `AppleMusicProvider` because its job needs the account and the
@@ -60,10 +62,17 @@ its count. See [../lib/README.md](../lib/README.md).
 both bars are mounted beside `Stack` rather than inside it, and both need state that survives
 navigation.
 
-`PortalHost` and `BottomBarsOverlay` sit as siblings of `Stack`, not inside it, so they survive
+`BottomBarsOverlay` and `PortalHost` sit beside `Stack`, not inside it, so they survive
 navigation. The overlay contains `TabBarHost` and `MediaPlayerHost`; every offset and visibility
 decision comes from `@/lib/screen-overlay`. Playback state itself is global regardless, since it
-lives in `PlaybackProvider`.
+lives in `PlaybackProvider`. `PortalHost` comes after the overlay, so on Android a portal popup's
+dim covers the bars. On iOS the bars sit in a `FullWindowOverlay`, so a portal that has to cover
+them brings its own.
+
+`GlassBlurTarget` wraps `Stack` alone, and `GlassBlurTargetProvider` wraps it and both hosts. That
+is what lets Android glass in the bars and in portal content, including the glass `ModalPopup`,
+blur the routes behind it. Glass inside a route cannot blur its own ancestor, so it keeps a fill.
+See [../components/README.md](../components/README.md).
 
 Auth gating for the five primary screens is centralized in `(tabs)/_layout.tsx`:
 
@@ -217,6 +226,9 @@ song fetch lands.
   only maps over it.
 - A new scrolling screen has to apply a bottom inset from `useScreenOverlayInsets`. The bars do
   not reserve space.
+- A `TintBackdrop` mounted in a `MusicList` header and sized to the content, as on the collection
+  and artist screens, needs `removeClippedSubviews={false}` on the list. Otherwise Android drops
+  it once the header scrolls off and the page jumps to the flat tint.
 - Tab order in the bar is set by the order of `Tabs.Screen` children, not by filename.
 
 ---

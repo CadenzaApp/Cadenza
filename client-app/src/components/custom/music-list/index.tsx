@@ -54,6 +54,7 @@ export function MusicList({
     header,
     footer,
     onContentSizeChange,
+    removeClippedSubviews,
     pagination,
     sorting,
 }: MusicListProps) {
@@ -364,6 +365,8 @@ export function MusicList({
                                 </>
                             }
                             onContentSizeChange={onContentSizeChange}
+                            // Undefined keeps React Native's per-platform default.
+                            removeClippedSubviews={removeClippedSubviews}
                             onEndReached={handleEndReached}
                             onEndReachedThreshold={0.1}
                         />

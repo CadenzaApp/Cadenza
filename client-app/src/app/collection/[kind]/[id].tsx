@@ -147,6 +147,10 @@ export default function CollectionDetailScreen() {
                     onContentSizeChange={(_, height) =>
                         setContentHeight(Math.max(windowHeight, height))
                     }
+                    // The backdrop sits in the header but runs the whole page.
+                    // Android detaches the header once the hero scrolls off,
+                    // backdrop and all, which flashes the flat tint behind it.
+                    removeClippedSubviews={false}
                     header={
                         <>
                             {/* Inside the header, so it scrolls with the content it

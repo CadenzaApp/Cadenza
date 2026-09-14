@@ -34,8 +34,9 @@ Android cannot blur whatever is behind a view. `expo-blur` blurs a `BlurTargetVi
 instead, so the same file exports `GlassBlurTarget` and `GlassBlurTargetProvider`. The root
 layout wraps `Stack` in the target and puts the provider above it and its siblings, which hands
 the target to the glass beside it: both bottom bars and anything rendered through `PortalHost`.
-Those get a real blur on Android 12 and up. Glass inside the target, meaning every surface inside
-a screen and anything in an RN `Modal`, gets no target and paints a semi-transparent fill.
+Those get a real blur on Android 12 and up; `GlassSurface` withholds the target below that. Glass
+inside the target, meaning every surface inside a screen and anything in an RN `Modal` opened from
+one, gets no target and paints a semi-transparent fill.
 
 `glass-button.tsx` and `glass-confirm-dialog.tsx` provide regular and destructive glass actions.
 Destructive actions keep neutral glass and use red foreground content. The confirmation is used
@@ -89,7 +90,7 @@ variables), `tailwind.config.js`, and `global.css`. Class merging goes through
 | `tag-pill.tsx` | A tag chip, colored from `tag.color`. Also exports `readableTextColor`. |
 | `tag-generation-notice.tsx` | Amber banner on the Cadenza tab: tags are still generating, so queries may miss songs. Renders nothing unless `@/lib/song-init` reports uninitialized songs. |
 | `create-tag-dialog.tsx` | `CreateTagDialog` (controlled name + color picker, calls `useCreateTag`) and `CreateTagBubble` (floating trigger + dialog). |
-| `modal-popup.tsx` | Small anchored popup used by the options menus and the selection actions. `variant="glass"` renders the card on `GlassSurface` instead of the flat popover background; every other caller is unaffected. |
+| `modal-popup.tsx` | Small anchored popup used by the options menus and the selection actions. `variant="glass"` renders the card on `GlassSurface` instead of the flat popover background; every other caller is unaffected. On Android the glass variant renders through `PortalHost` instead of an RN `Modal`, so its glass blurs the app behind it. |
 | `bottom-bars-overlay.tsx` | Mounts the global tab bar and mini player in iOS's window overlay so native detail screens cannot cover them. |
 | `tab-bar.tsx` | The whole floating tab bar: `TABS`, `TabBarHost`, `TabSelectionProvider`, the selection bubble, and the items that move aside for the docked player. The bubble mounts after the bar is measured so native glass starts at its real size. Mounted at the root, not in the navigator. |
 | `top-rail.tsx` | Shared tab header: page title on the left, an optional `actions` slot and the account initials on the right. |
@@ -143,7 +144,10 @@ and an indicator flicking in over the shrinking card is noise.
 
 `MusicList` takes a `header` for exactly that case, and a `footer` for the other end. It also
 reports its content size through `onContentSizeChange`, which is how the artist screen sizes a
-backdrop to its own content rather than to the screen. It owns its
+backdrop to its own content rather than to the screen. That backdrop paints past the header's own
+bounds, so both hero screens also pass `removeClippedSubviews={false}`. Android's `FlatList` has it
+on by default and detaches the header by its own bounds once it scrolls out of view, backdrop and
+all. `MusicList` owns its
 own `FlatList`, so anything above the first row or below the last has to go inside it rather than
 beside it. The search tab's Artists section is the header's current user; `RecentlyAddedGrid`
 takes a `header` for the same reason. The artist screen uses both at once: the artist image as
@@ -188,6 +192,10 @@ library-only song, which has none.
   Use `className` for anything new.
 - Anything portal-based (dialogs) needs `PortalHost` mounted, which happens in the root layout.
   It will render nothing if you host a screen outside that tree.
+- Portal content renders under `PortalHost`, so it only sees the providers above `PortalHost` in
+  the root layout, not the screen that opened it. On Android that includes the glass
+  `ModalPopup`, so a hook in the song or collection menu that needs a screen's context
+  (`useNavigation`, `InsideSheetContext`) breaks there, and only on Android.
 - Both floating bottom bars sit over the content rather than in it. Any new scrolling surface
   owes itself the padding from `@/lib/screen-overlay::useScreenOverlayInsets`.
 - Theme colors come from the nav theme (`@/lib/theme::NAV_THEME`) in some places and tailwind

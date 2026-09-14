@@ -59,6 +59,14 @@ class AppleMusicKitModule : Module() {
 
         // LOAD THE NATIVE C++ LIBRARIES BEFORE INITIALIZING THE SDK
         if (!isNativeLoaded) {
+            // Disable JavaCPP's memory guard. It compares the whole process RSS
+            // to 2x the Java heap limit and throws OutOfMemoryError past it,
+            // e.g. on skip. It reads these once, when org.bytedeco.javacpp.Pointer
+            // initializes, and loading appleMusicSDK does that from JNI_OnLoad.
+            // So they must be set before loadLibrary, or they are ignored.
+            System.setProperty("org.bytedeco.javacpp.maxphysicalbytes", "0")
+            System.setProperty("org.bytedeco.javacpp.maxbytes", "0")
+
             try {
                 System.loadLibrary("c++_shared")
                 System.loadLibrary("appleMusicSDK")
@@ -99,11 +107,6 @@ class AppleMusicKitModule : Module() {
         }
 
         try {
-            // MusicKit's native JavaCPP layer can otherwise reject playback
-            // when its default process-memory limits are too conservative.
-            System.setProperty("org.bytedeco.javacpp.maxphysicalbytes", "0")
-            System.setProperty("org.bytedeco.javacpp.maxbytes", "0")
-
             playerController = MediaPlayerControllerFactory.createLocalController(context, tokenProvider)
             Log.i(TAG, "MediaPlayerController successfully created!")
         } catch (e: Throwable) {

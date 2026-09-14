@@ -105,6 +105,13 @@ export type MusicListProps = {
      * row rather than behind the screen.
      */
     onContentSizeChange?: (width: number, height: number) => void;
+    /**
+     * Forwarded to the `FlatList`. Omit for React Native's default, which is on
+     * for Android only. Pass false when the header paints past its own bounds,
+     * such as a backdrop the height of the content: Android detaches a
+     * scrolled-off view by its own bounds, so the backdrop goes with it.
+     */
+    removeClippedSubviews?: boolean;
     /** Required pagination intent. Pass null for a non-paginated list. */
     pagination: MusicListPagination | null;
     /** Sorting is disabled when omitted or null. Pass an object to enable it. */

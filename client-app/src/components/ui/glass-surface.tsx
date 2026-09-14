@@ -64,8 +64,9 @@ const FALLBACK_INTENSITY: Record<GlassSurfaceVariant, number> = {
  * the app draws its background through this, so swapping the implementation is
  * a one file change.
  *
- * Android only blurs beside a `GlassBlurTarget`, under the same
- * `GlassBlurTargetProvider`. Anywhere else it paints a semi-transparent fill.
+ * Android 12 and up blurs only beside a `GlassBlurTarget`, under the same
+ * `GlassBlurTargetProvider`. Any other Android glass paints a
+ * semi-transparent fill.
  *
  * It paints a background and nothing else. Give it a size, a radius, and
  * `overflow: "hidden"` from the caller. Note that clipping kills an iOS shadow,
@@ -107,16 +108,17 @@ export function GlassSurface({
     }
 
     // iOS blurs whatever is behind the view, so only Android uses a target.
-    const androidTarget = Platform.OS === "android" ? blurTarget : null;
+    // Below Android 12 the blur would copy the whole target into a bitmap
+    // every frame, so the target is withheld there and the fill stays.
+    const androidTarget =
+        Platform.OS === "android" && Platform.Version >= 31 ? blurTarget : null;
 
     return (
         <BlurView
             tint={FALLBACK_TINT[scheme]}
             intensity={intensity ?? FALLBACK_INTENSITY[variant]}
             // Android blurs a target it samples, not what is behind the view.
-            // Without one, "none" paints a semi-transparent fill. The SDK 31
-            // method also keeps that fill below Android 12, where the blur
-            // would copy the whole target into a bitmap every frame.
+            // Without one, "none" paints a semi-transparent fill.
             blurTarget={androidTarget ?? undefined}
             blurMethod={androidTarget ? "dimezisBlurViewSdk31Plus" : "none"}
             className={className}
