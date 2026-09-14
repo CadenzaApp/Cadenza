@@ -3,6 +3,7 @@ import { useColorScheme } from "nativewind";
 import { View } from "react-native";
 
 import { Text } from "@/components/ui/text";
+import { useUninitializedSongCount } from "@/lib/song-init";
 import { cn } from "@/lib/utils";
 
 // amber-600 and amber-400, to match the amber classes below.
@@ -14,11 +15,15 @@ type TagGenerationNoticeProps = {
 };
 
 /**
- * Warns that some songs are still being tagged, so a query may miss them.
- * Static for now: always rendered, not tied to real generation state.
+ * Warns that some songs are not initialized yet, so a query may miss them.
+ * Renders nothing unless the song init job has uninitialized songs left.
  */
 export function TagGenerationNotice({ className }: TagGenerationNoticeProps) {
     const { colorScheme } = useColorScheme();
+    const uninitializedSongCount = useUninitializedSongCount();
+
+    // no songs waiting on tags, so there is nothing to warn about
+    if (uninitializedSongCount === 0) return null;
 
     return (
         <View

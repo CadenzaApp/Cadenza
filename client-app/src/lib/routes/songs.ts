@@ -86,8 +86,10 @@ export function useUnapplyTag() {
 
 /**
  * Which of the given songs have no tags at all, neither the user's nor default
- * tags. A read, but triggered on demand by the default tags job instead of
- * cached for rendering, so it goes through `useAPIMutation`.
+ * tags. Like every song tag read, it first initializes the songs it can, so for
+ * songs new to the user these are the ones still uninitialized. A read, but
+ * triggered on demand by the song init job instead of cached for rendering, so
+ * it goes through `useAPIMutation`.
  */
 export function useGetUntaggedSongs() {
     const x = useAPIMutation<{ song_ids: string[] }, string[]>(

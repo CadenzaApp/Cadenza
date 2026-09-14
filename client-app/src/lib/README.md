@@ -9,14 +9,15 @@ native module directly.
 | file | role |
 | --- | --- |
 | `backend.ts` | `BACKEND_URL`. One constant, currently hardcoded. |
-| `api-actions.ts` | The generic SWR wrappers: `useAPIData`, `useAPIPostDataBatched`, `useAPIFetch`, `useAPIMutation`. |
+| `api-actions.ts` | The generic SWR wrappers: `useAPIData`, `useAPIPostDataBatched`, `useAPIFetch`, `useAPIMutation`. Also `invalidateAPIData`, the invalidation `useAPIMutation` runs, for callers outside a mutation. |
 | `api-endpoints.ts` | `matchesEndpoint`, the cache-key matcher behind invalidation. Import-free so it can be unit tested. |
 | `swr-utils.ts` | `clearCache` and `useSimpleMutation`, for things that are not plain backend calls. |
 | `routes/tags.ts` | Hooks for `/tags`: `useUserTags`, `useTag`, `useCreateTag`, `useDeleteTag`, `useSuggestTags`. |
 | `routes/songs.ts` | Hooks for `/songs`: `useTagsOnSong`, `useTagsOnSongs`, `useApplyTag`, `useUnapplyTag`, `useGetUntaggedSongs`, `useSetDefaultTags`. |
 | `routes/queries.ts` | Hook for `/queries/results`: `useQueryResults`. |
 | `musickit-hooks.ts` | SWR over the native module: song info, catalog search, library search, library songs, albums, artists, playlists, collection contents and metadata, song and collection favorites, artist search, playlist writes. |
-| `default-tags.ts` | `useSetDefaultTagsOnStartup`, the job that gives untagged library songs generated default tags. |
+| `song-init.tsx` | `SongInitProvider` / `useUninitializedSongCount`. Runs the song init job on startup and shares how many songs it has left. |
+| `song-init-job.ts` | `initializeSongs`, the job itself: finds uninitialized songs in the library and playlists, then initializes them. Import-free, tested in `song-init-job.test.ts`. |
 | `account.tsx` | `AccountProvider` / `useAccount`. Supabase session and the JWT. |
 | `apple-music-auth.tsx` | `AppleMusicProvider` / `useAppleMusic`. Apple Music tokens, persisted in secure store. |
 | `playback.tsx` | `PlaybackProvider`, `usePlayback` (state) and `usePlaybackCommands` (actions). Queue and the native playback snapshot. |
@@ -283,26 +284,42 @@ remaining distance. A short pull still springs back to full size.
   changes, so a list row can hold a play handler without re-rendering on every tick. Reach for
   `usePlaybackCommands` unless you actually need to read playback state.
 
-## The default tags job
+## The song init job
 
-`default-tags.ts::useSetDefaultTagsOnStartup` is mounted once, from the root layout. It starts
-when there is an account and a connected Apple Music session, and starts over if either changes.
-It pages through the library 100 songs at a time with `MusicKit.getLibrarySongs`. For each page it
-asks `POST /songs/untagged` which songs have no tags, describes those as `"title by artist"` using
-the metadata already on the page, and posts them to `POST /songs/default-tags`. That write
-invalidates both song tag reads, so open lists pick up the new tags page by page.
+`song-init.tsx::SongInitProvider` is mounted once, from the root layout, right under
+`AppleMusicProvider`. It runs `song-init-job.ts::initializeSongs` when there is an account and a
+connected Apple Music session, and starts over if either changes.
 
-It is deliberately not SWR. It is a one-off background job that reads only to decide what to
-write, and nothing renders its result, so it calls the two `useAPIMutation` triggers from an
-effect. A failed `POST /songs/default-tags` is logged and the job moves on to the next page. A
-failed library read or `POST /songs/untagged` stops the job until it next starts.
+A song is initialized once the backend has copied its default tags into the user's own tags (see
+`backend-api/src/db/README.md`). Until then, queries do not see it. The job makes two passes:
+
+1. **Search.** It pages through the library, then every library playlist, 100 songs at a time,
+   and sends each song id it has not sent yet to `POST /songs/untagged`. That read initializes the
+   songs that already have tags and returns the ones with none. The job keeps those, described
+   as `"title by artist"`.
+2. **Initialize.** It posts those songs to `POST /songs/default-tags` 100 at a time, then sends
+   each batch to `POST /songs/untagged` again, which copies the new default tags to the user.
+
+`useUninitializedSongCount` is how many songs the search has found that the second pass has not
+finished with. `TagGenerationNotice` renders only while it is above 0. It goes back to 0 when the
+job ends, even if some songs could not be tagged, and stays 0 while no job is running.
+
+After the search and after each batch, the provider calls `invalidateAPIData` on `/tags`, because
+the copies are new tags of the user's. It leaves song tag reads alone: those initialize their own
+songs when they run, and `useSetDefaultTags` already invalidates them after each generation.
+
+It is deliberately not SWR. It is a background job that reads only to decide what to write, so
+the provider calls the two `useAPIMutation` triggers from an effect. The job takes MusicKit and
+the backend as arguments, which keeps it import-free and testable. A source that fails to read
+(the library, the playlist list, or one playlist) is logged and skipped. A batch whose generation
+or read back fails is logged and dropped, and its songs wait for the next startup.
 
 ## Connects to
 
 - `backend-api`, through `BACKEND_URL`.
 - Supabase auth, through `supabase.ts`.
 - `@apple-musickit`, from `musickit-hooks.ts`, `apple-music-auth.tsx`, `playback.tsx`, and
-  `default-tags.ts`.
+  `song-init.tsx`.
 - `@image-color`, from `artwork-color.ts` and nowhere else.
 - Consumed by everything in `src/app`, `src/features`, and `src/components/custom`.
 
@@ -322,8 +339,11 @@ failed library read or `POST /songs/untagged` stops the job until it next starts
   copies them into the user's own tags the first time it initializes the song for the user, so
   `useUnapplyTag` removes them and `useUserTags` lists them once it next revalidates. Unapplying a
   song's last tag leaves it with no tags. The defaults do not come back.
-- The default tags job spends OpenAI calls. A big library that has never been tagged means a lot
-  of them on first launch, and a song the model returned no tags for is retried on every launch.
+- The song init job spends OpenAI calls. A big library that has never been tagged means a lot of
+  them on first launch, and a song the model returned no tags for is retried on every launch.
+- The job counts a song as uninitialized when `POST /songs/untagged` returns it. That read also
+  returns a song the user tagged by hand and then cleared, if it has no default tags. The job
+  generates defaults for that song once, and they never reach the user.
 
 ---
 Touching files in this directory? Update this README in the same change.

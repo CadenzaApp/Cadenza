@@ -18,8 +18,8 @@ category now, opened from the library screen, so this tab is only the query buil
 `CadenzaScreen` fetches the user's tags once and hands them to `QueryBuilder` as the palette. The
 query tree and its fetched results live on the screen, so they survive navigating away and back.
 Running a query swaps the builder for `QueryResults`; the back button there clears the result and
-returns to the tree. `TagGenerationNotice` sits above both. It is static for now: it always shows,
-whether or not any songs are still being tagged.
+returns to the tree. `TagGenerationNotice` sits above both, and only shows while the song init job
+still has uninitialized songs to get through. See [../../lib/README.md](../../lib/README.md).
 
 ## Connects to
 

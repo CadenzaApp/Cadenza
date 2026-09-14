@@ -53,9 +53,11 @@ Song tag reads never generate anything, but they can write. `GET /songs/tags`,
 `POST /songs/tags/batch`, and `POST /songs/untagged` all go through
 `db::tags::get_user_tags_on_songs`, which initializes songs new to the user and copies their
 existing default tags into the user's own tags. `../db/README.md` covers when a song counts as
-new. The client creates default tags: on startup it pages through the user's library, sends each
-page to `POST /songs/untagged`, and posts those songs' descriptions to `POST /songs/default-tags`.
-That handler drops songs that already have default tags, generates tags for the rest with
+new. The client creates default tags and initializes songs: on startup it pages through the user's
+library and every library playlist, sends each page to `POST /songs/untagged`, posts the songs
+that come back to `POST /songs/default-tags`, then sends those to `POST /songs/untagged` again,
+which initializes the ones that got tags.
+The default tags handler drops songs that already have default tags, generates tags for the rest with
 `TagGenerationService::generate_tags`, and stores them with `db::tags::set_default_tags_on_songs`.
 
 `set_default_tags_on_songs_handler` and `queries.rs` are the two places with real logic in a
@@ -76,7 +78,7 @@ api as JSON should have a type here rather than serializing an entity model dire
   `/songs/default-tags`.
 - `crate::err::CadenzaError` for every error path.
 - Client side: `client-app/src/lib/routes/*.ts` wraps every one of these in an SWR hook, and
-  `client-app/src/lib/default-tags.ts` drives `/songs/untagged` and `/songs/default-tags` on
+  `client-app/src/lib/song-init-job.ts` drives `/songs/untagged` and `/songs/default-tags` on
   startup.
 
 ## Gotchas

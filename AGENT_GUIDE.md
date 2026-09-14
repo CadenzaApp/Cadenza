@@ -3,6 +3,8 @@
 Shared instructions for any coding agent working in this repo. `CLAUDE.md` and `AGENTS.md`
 both point here. Tool-specific instructions go in those files, below the pointer.
 
+Git worktrees are in .wt/branch-name.
+
 ## What Cadenza is
 
 A music app built on Apple Music. Users tag songs in their library, then build boolean tag

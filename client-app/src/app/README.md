@@ -8,7 +8,7 @@ logic out.
 
 | file | route | role |
 | --- | --- | --- |
-| `_layout.tsx` | root | Provider stack, theme, the `Stack` navigator, `PortalHost`, `BottomBarsOverlay`, and `DefaultTagsOnStartup`. |
+| `_layout.tsx` | root | Provider stack (including `SongInitProvider`), theme, the `Stack` navigator, `PortalHost`, and `BottomBarsOverlay`. |
 | `(splashscreen)/index.tsx` | `/` | Calls `tryRestoreSession()`, then replaces to `/library` or `/auth`. |
 | `auth/index.tsx` | `/auth` | Sign in / sign up. Takes an `initialMode` search param. |
 | `(tabs)/_layout.tsx` | | Protected tab group and the shared top rail. The bar itself is mounted at the root. |
@@ -38,15 +38,19 @@ logic out.
 GestureHandlerRootView
   AccountProvider          supabase session -> the jwt everything else needs
     AppleMusicProvider     apple music auth, restored from secure store
-      PlaybackProvider     reads the native playback snapshot
-        ThemeProvider      light/dark nav theme from nativewind's colorScheme
-          BottomBarVisibilityProvider   temporary visibility exceptions
-            ZoomOriginProvider          the rect a pushed screen minimizes back into
-              Stack                     the routes
-              PortalHost                where dialogs and modals render
-              BottomBarsOverlay         the tab bar and mini player above native screens
-              DefaultTagsOnStartup      runs the default tags job, renders nothing
+      SongInitProvider     initializes library and playlist songs, shares how many are left
+        PlaybackProvider   reads the native playback snapshot
+          ThemeProvider    light/dark nav theme from nativewind's colorScheme
+            BottomBarVisibilityProvider   temporary visibility exceptions
+              ZoomOriginProvider          the rect a pushed screen minimizes back into
+                Stack                     the routes
+                PortalHost                where dialogs and modals render
+                BottomBarsOverlay         the tab bar and mini player above native screens
 ```
+
+`SongInitProvider` sits right under `AppleMusicProvider` because its job needs the account and the
+Apple Music session, and it wraps the routes so the Cadenza tab's `TagGenerationNotice` can read
+its count. See [../lib/README.md](../lib/README.md).
 
 `LibraryCategoriesProvider` (`@/features/library`) sits inside `ThemeProvider` and wraps both
 `Stack` and the hosts, because the library screen reads the category selection and the
@@ -59,8 +63,7 @@ navigation.
 `PortalHost` and `BottomBarsOverlay` sit as siblings of `Stack`, not inside it, so they survive
 navigation. The overlay contains `TabBarHost` and `MediaPlayerHost`; every offset and visibility
 decision comes from `@/lib/screen-overlay`. Playback state itself is global regardless, since it
-lives in `PlaybackProvider`. `DefaultTagsOnStartup` sits there too, only because the job needs the
-account and Apple Music providers above it. The job itself lives in `@/lib/default-tags`.
+lives in `PlaybackProvider`.
 
 Auth gating for the five primary screens is centralized in `(tabs)/_layout.tsx`:
 
@@ -195,7 +198,7 @@ song fetch lands.
 ## Connects to
 
 - `@/lib/account`, `@/lib/apple-music-auth`, `@/lib/playback` for the providers.
-- `@/lib/default-tags` for the startup default tags job.
+- `@/lib/song-init` for `SongInitProvider`, the startup song init job.
 - `@/lib/routes/*` and `@/lib/musickit-hooks` for data.
 - `@/features/account` from the Account and Appearance sheets.
 - `@/features/cadenza` from the Cadenza tab.

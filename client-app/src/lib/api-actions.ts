@@ -16,6 +16,13 @@ async function responseData(response: Response) {
     return text ? JSON.parse(text) : {};
 }
 
+/** Revalidates every cached `api-data` read that matches one of the endpoints */
+export function invalidateAPIData(endpoints: APIDataEndpoint[]) {
+    mutate((key: unknown) =>
+        endpoints.some((endpoint) => matchesEndpoint(key, endpoint)),
+    );
+}
+
 /** When triggered, invalidates `useAPIData`s using the given endpoints */
 export function useAPIMutation<RequestBody, Response>(
     method: string,
@@ -43,14 +50,10 @@ export function useAPIMutation<RequestBody, Response>(
                 throw data;
             }
 
-            const endpointsToInvalidate = Array.isArray(invalidatedEndpoints)
-                ? invalidatedEndpoints
-                : invalidatedEndpoints(body);
-
-            mutate((key: unknown) =>
-                endpointsToInvalidate.some((endpoint) =>
-                    matchesEndpoint(key, endpoint),
-                ),
+            invalidateAPIData(
+                Array.isArray(invalidatedEndpoints)
+                    ? invalidatedEndpoints
+                    : invalidatedEndpoints(body),
             );
 
             return data as Response;

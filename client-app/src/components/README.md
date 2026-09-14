@@ -30,6 +30,13 @@ older, and a flat translucent card on web, all behind one component. It paints a
 nothing else; the caller supplies size, radius, and `overflow: "hidden"`. Its optional
 `tintColor` reaches native liquid glass and gets a translucent approximation on fallbacks.
 
+Android cannot blur whatever is behind a view. `expo-blur` blurs a `BlurTargetView` it samples
+instead, so the same file exports `GlassBlurTarget` and `GlassBlurTargetProvider`. The root
+layout wraps `Stack` in the target and puts the provider above it and its siblings, which hands
+the target to the glass beside it: both bottom bars and anything rendered through `PortalHost`.
+Those get a real blur on Android 12 and up. Glass inside the target, meaning every surface inside
+a screen and anything in an RN `Modal`, gets no target and paints a semi-transparent fill.
+
 `glass-button.tsx` and `glass-confirm-dialog.tsx` provide regular and destructive glass actions.
 Destructive actions keep neutral glass and use red foreground content. The confirmation is used
 by both Account sign-out flows.
@@ -80,7 +87,7 @@ variables), `tailwind.config.js`, and `global.css`. Class merging goes through
 | `options-menu/` | The song, album, and playlist "..." menus, on liquid glass. See below. |
 | `song-tag-editor.tsx` | `useSongTagEditor`, the tag-editing data for one song id: user tags annotated as applied, the toggle mutation, and the "New" tag dialog's open state. Used by `media-player/tags-page.tsx`, the now-playing sheet's Tags page. |
 | `tag-pill.tsx` | A tag chip, colored from `tag.color`. Also exports `readableTextColor`. |
-| `tag-generation-notice.tsx` | Amber banner on the Cadenza tab: tags are still generating, so queries may miss songs. Static and always shown for now. |
+| `tag-generation-notice.tsx` | Amber banner on the Cadenza tab: tags are still generating, so queries may miss songs. Renders nothing unless `@/lib/song-init` reports uninitialized songs. |
 | `create-tag-dialog.tsx` | `CreateTagDialog` (controlled name + color picker, calls `useCreateTag`) and `CreateTagBubble` (floating trigger + dialog). |
 | `modal-popup.tsx` | Small anchored popup used by the options menus and the selection actions. `variant="glass"` renders the card on `GlassSurface` instead of the flat popover background; every other caller is unaffected. |
 | `bottom-bars-overlay.tsx` | Mounts the global tab bar and mini player in iOS's window overlay so native detail screens cannot cover them. |
