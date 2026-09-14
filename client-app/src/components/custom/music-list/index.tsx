@@ -56,7 +56,6 @@ export function MusicList({
     pagination,
     sorting,
 }: MusicListProps) {
-    const { togglePlayback } = usePlaybackCommands();
     const [internalCompact, setInternalCompact] = useState(false);
     const isCompact = compact ?? internalCompact;
     const [densityTransitionRevision, setDensityTransitionRevision] =
@@ -265,9 +264,9 @@ export function MusicList({
                 return;
             }
 
-            void togglePlayback(track);
+            setDetailsTrack(track);
         },
-        [onTrackPressOverride, togglePlayback, toggleSelection],
+        [onTrackPressOverride, toggleSelection],
     );
 
     return (
