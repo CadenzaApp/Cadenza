@@ -112,16 +112,7 @@ function TagValueDialogContent({
      * first is held in `pendingDate` and the time from the second is merged
      * into it, so the user only ever presses one button.
      */
-    function handleAndroidPickerChange(
-        eventType: string,
-        selected?: Date,
-    ) {
-        if (eventType === "dismissed" || !selected) {
-            setPickerStep(null);
-            setPendingDate(null);
-            return;
-        }
-
+    function handleAndroidPickerChange(selected: Date) {
         if (pickerStep === "date") {
             setPendingDate(selected);
             setPickerStep("time");
@@ -133,6 +124,11 @@ function TagValueDialogContent({
         setRawValue(combined.toISOString());
         setPendingDate(null);
         setPickerStep(null);
+    }
+
+    function handleAndroidPickerDismiss() {
+        setPickerStep(null);
+        setPendingDate(null);
     }
 
     return (
@@ -283,11 +279,13 @@ function TagValueDialogContent({
                                                     : pickerBasisDate
                                             }
                                             mode={pickerStep}
-                                            onChange={(event, selectedDate) =>
+                                            onValueChange={(_, selectedDate) =>
                                                 handleAndroidPickerChange(
-                                                    event.type,
                                                     selectedDate,
                                                 )
+                                            }
+                                            onDismiss={
+                                                handleAndroidPickerDismiss
                                             }
                                         />
                                     ) : (
@@ -296,8 +294,10 @@ function TagValueDialogContent({
                                                 value={pickerBasisDate}
                                                 mode="datetime"
                                                 display="spinner"
-                                                onChange={(_, selectedDate) => {
-                                                    if (!selectedDate) return;
+                                                onValueChange={(
+                                                    _,
+                                                    selectedDate,
+                                                ) => {
                                                     setRawValue(
                                                         selectedDate.toISOString(),
                                                     );
