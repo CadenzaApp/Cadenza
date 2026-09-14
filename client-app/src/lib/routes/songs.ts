@@ -83,6 +83,7 @@ export function useSetTagValue() {
         "/songs/tags",
         ({ song_id }) => [
             { path: "/songs/tags", params: { song_id } },
+            { path: "/songs/tags/batch" },
             { path: "/tags" },
         ],
     );

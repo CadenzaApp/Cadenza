@@ -23,7 +23,7 @@ Every route below requires `Authorization: Bearer <supabase jwt>`.
 | --- | --- | --- | --- |
 | GET | `/tags` | none | `{"All": {tags: [Tag], metadata: {tag_id: {count}}}}` |
 | GET | `/tags?tag_id=N` | query param | `{"One": {tag, song_ids}}`, 404 if the tag does not exist |
-| POST | `/tags` | `{name, color}` | the new tag id, as a bare number in the body |
+| POST | `/tags` | `{name, color, type?}` | the new tag id, as a bare number in the body |
 | DELETE | `/tags` | `{tag_id}` | empty. Silently no-ops if the tag is not yours |
 | GET | `/tags/suggest` | `?song_desc=...&requested_tag_count=N` | `["vocaloid", "japanese", ...]` |
 | GET | `/songs/tags` | `?song_id=...` | `[AppliedTag]`, the user's tags on that song |
@@ -43,6 +43,12 @@ count without walking the list.
 `AppliedTag` is a `Tag` with the applied value flattened in, so it serializes as the tag's own
 fields plus `value`. Both reads that return tags on a song use it. `value` is always null for a
 basic tag, and null for an attribute tag applied without one.
+
+`type` on `POST /tags` and `POST` / `PATCH /songs/tags` is one of `basic`, `text`, `datetime`,
+`number`, `checkbox` (see `sea_orm_active_enums::TagType`), and defaults to `basic` when omitted.
+A `value` that does not fit the tag's type (not a number, not RFC 3339, not `true`/`false`, or
+any non-blank value on a `basic` tag) is rejected with `CadenzaError::InvalidTagValue` (422). See
+[../services/README.md](../services/README.md) for the exact per-type rules.
 
 ## How it works
 

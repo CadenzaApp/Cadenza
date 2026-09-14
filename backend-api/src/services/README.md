@@ -1,16 +1,17 @@
 # services
 
 Business logic that is not data access. Right now that means turning a song description into
-tags with an LLM, and normalizing tag names.
+tags with an LLM, normalizing tag names, and validating/canonicalizing tag values.
 
 ## Files
 
 | file | role |
 | --- | --- |
-| `mod.rs` | Declares `tag_normalizer` and `tag_generation`. |
+| `mod.rs` | Declares `tag_normalizer`, `tag_generation`, and `tag_values`. |
 | `tag_normalizer.rs` | `normalize_tag_name`: trim, collapse whitespace, truncate to 50 chars, lowercase. Unit tested. |
 | `tag_generation/mod.rs` | The `TagGenerator` trait and the `TagGenerationService` wrapper. |
 | `tag_generation/openai_tag_generator.rs` | The OpenAI implementation, plus ignored integration tests. |
+| `tag_values.rs` | `canonicalize_tag_value`: validates a tag value string against the tag's `TagType` and returns its canonical stored form (or `CadenzaError::InvalidTagValue`). Unit tested. |
 
 ## How it works
 
@@ -40,6 +41,14 @@ circuits on an empty input list or a zero tag count, rejects combined descriptio
 characters, truncates any over-long tag list from the model, and runs every tag through
 `normalize_tag_name` before returning.
 
+`canonicalize_tag_value` validates a tag value against the tag's `TagType` and returns the
+canonical string to store. `None` and blank strings are always accepted (an attribute tag can be
+applied with no value yet) and become `None`. `Basic` tags reject any non-blank value. `Text` is
+trimmed and stored as-is. `Number` parses as `f64`, rejects non-finite values (`NaN`, `inf`), and
+stores `to_string()`. `Datetime` requires strict RFC 3339 and is normalized to UTC. `Checkbox`
+accepts `"true"`/`"false"` case-insensitively and stores lowercase. Anything else returns
+`CadenzaError::InvalidTagValue` (422).
+
 ## Connects to
 
 - Constructed in `src/main.rs` as `TagGenerationService::new(OpenAiTagGenerator::new())` and
@@ -47,6 +56,8 @@ characters, truncates any over-long tag list from the model, and runs every tag 
 - Consumed by `src/routes/tags.rs::suggest_tags_handler`.
 - `normalize_tag_name` is called from the OpenAI generator. Note that it is **not** applied to
   user-created tag names coming through `POST /tags`.
+- `canonicalize_tag_value` is called from `src/db/tags.rs::apply_user_tag` and
+  `set_user_tag_value`, which both look up the tag's type through `get_owned_tag` first.
 
 ## Gotchas
 
@@ -59,6 +70,8 @@ characters, truncates any over-long tag list from the model, and runs every tag 
 - The trait returns `Result<_, String>`, so error detail is free text with no structure.
 - Adding a provider means one new file next to `openai_tag_generator.rs`, an `impl TagGenerator`,
   and a one-line change in `main.rs`. Nothing else should need to know.
+- `TagType::Text` has no length cap, unlike tag names (`normalize_tag_name` truncates to 50
+  chars). A client can store an arbitrarily long string as a text attribute value.
 
 ---
 Touching files in this directory? Update this README in the same change.

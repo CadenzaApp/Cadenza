@@ -8,7 +8,7 @@ The data access layer. Everything that touches postgres lives here, so handlers 
 | file | role |
 | --- | --- |
 | `mod.rs` | Declares `entity`, `queries`, `tags`. |
-| `tags.rs` | All tag reads and writes: list, look up, usage counts, tags on a song or on many songs, songs with a tag, create, delete, apply, unapply. |
+| `tags.rs` | All tag reads and writes: list, look up, usage counts, tags on a song or on many songs, songs with a tag, create, delete, apply, unapply, set the value on an applied tag. |
 | `queries.rs` | Compiles a boolean tag query from JSON to SQL and runs it. |
 | `entity/` | sea-orm-codegen output. `tags`, `user_tags_applied`, `default_tags_applied`, plus `prelude` and `mod`. Do not hand edit. |
 
@@ -16,9 +16,12 @@ The data access layer. Everything that touches postgres lives here, so handlers 
 
 Three tables, keyed on song ids that come from Apple Music.
 
-- `tags` - `tag_id` (bigserial pk), `name`, `color`, nullable `user_id`. A null `user_id` means
+- `tags` - `tag_id` (bigserial pk), `name`, `color`, nullable `user_id`, `type` (`tag_type` enum:
+  `basic`, `text`, `datetime`, `number`, `checkbox`; defaults to `basic`). A null `user_id` means
   the tag is a default, not owned by any user.
-- `user_tags_applied` - tags a user put on a song. Composite pk of `(song_id, user_id, tag_id)`.
+- `user_tags_applied` - tags a user put on a song, plus a nullable `value` (text column, always
+  the tag's canonical string form regardless of `type`; see
+  [../services/README.md](../services/README.md)). Composite pk of `(song_id, user_id, tag_id)`.
   Cascades on delete from `tags`. This is the only applied-tag table anything reads today.
 - `default_tags_applied` - default tags on a song, composite pk of `(song_id, tag_id)`, no user.
   The entity exists but no code reads or writes it yet.
@@ -81,6 +84,11 @@ becomes `CadenzaError::QueryFormatError` (422).
   returning `NotFound`.
 - `get_user_tags_metadata` returns a `HashMap<i64, TagMetadata>` keyed by tag id. Tags with no
   applications still get an entry, with `count: 0`.
+- `apply_user_tag` and `set_user_tag_value` both go through `get_owned_tag` first, which filters
+  on `tags.user_id = user_id` to look up the tag's `type` for value validation. As a side effect
+  this also closes off applying or setting a value on another user's tag id (previously
+  unchecked). It also means a default tag (`user_id IS NULL`) can never be applied this way,
+  though nothing currently creates default tags.
 
 ---
 Touching files in this directory? Update this README in the same change.
