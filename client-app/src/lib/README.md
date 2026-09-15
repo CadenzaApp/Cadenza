@@ -15,6 +15,8 @@ native module directly.
 | `routes/tags.ts` | Hooks for `/tags`: `useUserTags`, `useTag`, `useCreateTag`, `useDeleteTag`, `useSuggestTags`. |
 | `routes/songs.ts` | Hooks for `/songs`: `useTagsOnSong`, `useTagsOnSongs`, `useApplyTag`, `useUnapplyTag`, `useGetUntaggedSongs`, `useSetDefaultTags`. |
 | `routes/queries.ts` | Hook for `/queries/results`: `useQueryResults`. |
+| `routes/comments.ts` | Hooks for `/comments`: `useSongComments`, `useCreateComment`, `useDeleteComment`, `useVoteOnComment`. |
+| `comment-votes.ts` | `applyCommentVote`, the optimistic update `useVoteOnComment` makes to cached comment threads. Only type imports, tested in `comment-votes.test.ts`. |
 | `musickit-hooks.ts` | SWR over the native module: song info, catalog search, library search, library songs, albums, artists, playlists, collection contents and metadata, song and collection favorites, artist search, playlist writes. |
 | `song-init.tsx` | `SongInitProvider` / `useUninitializedSongCount`. Runs the song init job on startup and shares how many songs it has left. |
 | `song-init-job.ts` | `initializeSongs`, the job itself: finds uninitialized songs in the library and playlists, then initializes them. Import-free, tested in `song-init-job.test.ts`. |
@@ -33,7 +35,7 @@ native module directly.
 | `screen-scroll.ts` | `useScreenScroll`, the props a screen's top-level scroller spreads to get tab-press-scrolls-to-top, scroll-docks-the-player, and pull-down-to-close. |
 | `zoom-dismiss.tsx` | `ZoomOriginProvider`, `useZoomSource`, `ZoomDismissScreen`, `useCloseScreen`. Closing a pushed screen by shrinking it back into the artwork that opened it. |
 | `zoom-dismiss-geometry.ts` | Pure pull, transform, timing, and corner math for `zoom-dismiss`, tested without React Native. |
-| `types.ts` | Shared wire types: `Tag` and `TagMetadata`. |
+| `types.ts` | Shared wire types: `Tag`, `TagMetadata`, `Comment`, `CommentThread`, and `CommentVote`. |
 | `utils.ts` | `cn()`, the clsx + tailwind-merge helper. |
 
 ## The SWR wrappers
@@ -103,10 +105,20 @@ One file per backend router, and every backend endpoint has at least one hook.
 | | `POST /songs/tags` | `songs.ts` -> `useApplyTag()` |
 | | `DELETE /songs/tags` | `songs.ts` -> `useUnapplyTag()` |
 | `routes/queries.rs` | `GET /queries/results` | `queries.ts` -> `useQueryResults()` |
+| `routes/comments.rs` | `GET /comments` | `comments.ts` -> `useSongComments(songId)` |
+| | `POST /comments` | `comments.ts` -> `useCreateComment()` |
+| | `DELETE /comments` | `comments.ts` -> `useDeleteComment()` |
+| | `POST /comments/votes` | `comments.ts` -> `useVoteOnComment(songId)` |
 
 `GET /tags` has two hooks because the handler returns a tagged union: without `tag_id` it
 responds with `All { tags, metadata }`, with one it responds with `One { tag, song_ids }`.
 `useUserTags` and `useTag` each unwrap one variant.
+
+`useVoteOnComment(songId)` is the one backend write that updates optimistically. It runs the vote
+inside the bound `mutate` of that song's `/comments` read, with `comment-votes.ts::applyCommentVote`
+as the optimistic data and `rollbackOnError`, then revalidates the read whether the vote saved or
+not. So its `useAPIMutation` lists nothing to invalidate. `useDeleteComment` invalidates every
+song's comments, because its payload carries no song id.
 
 Adding an endpoint: add the route in `backend-api/src/routes/*.rs`, then add a hook in the
 matching `routes/*.ts` built on one of the four wrappers. For writes, list the endpoints the
@@ -116,7 +128,7 @@ change invalidates. Rename the returned fields to something readable (`tagsOnSon
 
 `musickit-hooks.ts` does the same job for the native module, using plain `useSWR` with tuple
 keys like `["MusicKit.getSongInfo", ids]`. `useSongFavoriteStatus` and `useCollectionFavoriteStatus`
-are the optimistic updates in the codebase, both with `rollbackOnError`. `useCollectionInfo`
+are its two optimistic updates, both with `rollbackOnError`. `useCollectionInfo`
 fetches an album/playlist's own metadata (title, artwork, `shareUrl`) - `useCollectionSongs`
 only ever fetches its songs. `usePlaylistMutations` is the exception to the wrapper
 rule: playlist writes are not backend calls, so they are plain async functions that invalidate
@@ -344,6 +356,8 @@ or read back fails is logged and dropped, and its songs wait for the next startu
 - The job counts a song as uninitialized when `POST /songs/untagged` returns it. That read also
   returns a song the user tagged by hand and then cleared, if it has no default tags. The job
   generates defaults for that song once, and they never reach the user.
+- A comment vote is absolute (`"up"`, `"down"`, or `null`), and the server keeps whichever request
+  it handles last. Two quick taps on one comment send two requests that can land out of order.
 
 ---
 Touching files in this directory? Update this README in the same change.

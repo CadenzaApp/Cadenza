@@ -7,15 +7,17 @@ The data access layer. Everything that touches postgres lives here, so handlers 
 
 | file | role |
 | --- | --- |
-| `mod.rs` | Declares `entity`, `queries`, `tag_votes`, `tags`. |
+| `mod.rs` | Declares `comment_votes`, `comments`, `entity`, `queries`, `tag_votes`, `tags`. |
 | `tags.rs` | All tag reads and writes: list, look up, usage counts, tags on many songs, untagged songs, songs with a tag, create, delete, apply, unapply, reading and replacing default tags, adding one default tag to a song, and initializing a user's songs. Apply and unapply vote through `tag_votes.rs`. |
 | `tag_votes.rs` | `record_tag_vote`, which counts a vote in `default_tag_votes` and makes the tag name a default tag on the song once its votes pass the threshold, and `TagVoteCache`, the in-memory LRU of recent votes, keyed by user, song, and tag name. |
 | `queries.rs` | Compiles a boolean tag query from JSON to SQL and runs it. |
-| `entity/` | sea-orm-codegen output in the compact format. `tags`, `user_tags_applied`, `default_tags_applied`, `song_meta`, `default_tag_votes`, `sea_orm_active_enums` (the `TagType` enum), plus `prelude` and `mod`. Do not hand edit. |
+| `comments.rs` | Comment reads and writes: every comment on a song paired into threads, leaving a comment or a reply, and deleting the user's own comment. |
+| `comment_votes.rs` | `CommentVote` and `VoteTally`. `set_comment_vote`, which casts, switches, or takes back the user's vote on a comment, and `get_song_vote_tallies`, the votes on each comment of a song as the reading user sees them. |
+| `entity/` | sea-orm-codegen output in the compact format. `tags`, `user_tags_applied`, `default_tags_applied`, `song_meta`, `default_tag_votes`, `comment`, `comment_votes`, `sea_orm_active_enums` (the `TagType` enum), plus `prelude` and `mod`. Do not hand edit. |
 
 ## Schema
 
-Five tables, keyed on song ids that come from Apple Music.
+Seven tables. Every song in them is an id that came from Apple Music.
 
 - `tags` - `tag_id` (bigserial pk), `name`, `color`, `type`, nullable `user_id`. A null `user_id`
   means the tag is a default, not owned by any user. `type` is the `tag_type` enum (`basic`,
@@ -35,6 +37,15 @@ Five tables, keyed on song ids that come from Apple Music.
   `(song_id, tag_name)`, plus `votes_yes` and `votes_no`, both defaulting to 0. No user and no fk to
   `tags`, so it counts across every user by name. A row is deleted once its votes make the name a
   default tag on the song. See Tag votes below.
+- `comment` - a comment a user left on a song. `id` (identity pk), `content`, `song_id`, `user_id`,
+  and `created_at`, a `timestamp` with no time zone that defaults to `now()`. A reply sets `parent`
+  to the comment it answers, a self fk that cascades, so deleting a comment deletes its replies.
+  `song_id` is nullable, but the api fills it on every comment, replies included. `user_id`
+  references `auth.users` with no cascade. See Comments below.
+- `comment_votes` - a user's vote on a comment. Composite pk of `(user_id, comment_id)`, so one
+  vote per user per comment, and `is_upvote`. Both fks cascade, to `comment` and to `auth.users`,
+  so deleting a comment or a user deletes its votes. `user_id` defaults to a random uuid, but the
+  api always sets it.
 
 ## Tag votes
 
@@ -101,6 +112,32 @@ Nothing in this directory generates tags. `routes/songs.rs` does that for
 defaults and `set_default_tags_on_songs` to store the rest. Votes can also add a default tag to a
 song, see Tag votes above.
 
+## Comments
+
+`get_song_comments` reads every comment with the song's id in one query, oldest first, and
+`into_threads` pairs them up: top level comments newest first, each with its replies oldest first.
+One query is enough because a reply stores its parent's `song_id` too.
+
+`new_comment` trims the content, which then has to be 1 to `MAX_COMMENT_CHARS` (2000) characters.
+With a `parent_id` it looks the parent up first. A missing parent is `NotFound`. A parent that is a
+reply, or is on another song, is `QueryFormatError`, so replies stay one level deep. A parent
+deleted between that check and the insert trips `comment_parent_fkey`, which `err.rs` maps to
+`NotFound`.
+
+`delete_user_comment` deletes by comment id and user id in one statement, and returns `NotFound`
+when nothing matched. The cascade takes the replies with it, whoever left them, and every vote on
+them.
+
+`comment_votes.rs::set_comment_vote` upserts the user's row on `(user_id, comment_id)` for an up or
+down vote, so voting again switches the vote instead of adding one, and deletes the row for `None`.
+An up or down vote on a comment that does not exist trips `comment_votes_comment_id_fkey`, which
+`err.rs` maps to `NotFound`. Taking back a vote that was never cast does nothing.
+
+`get_song_vote_tallies` is one grouped query over the votes on the song's comments. Each up vote
+counts 1 and each down vote -1. Their sum is the comment's `votes`, and the max of that value over
+the reader's rows alone, null when they did not vote, is `my_vote`. Comments with no votes are left
+out, and `routes::json::comment` gives them 0 votes and no vote of the reader's.
+
 ## The query compiler
 
 `queries.rs::run_json_query` is the interesting part. Input is a recursive JSON tree where a
@@ -132,8 +169,11 @@ becomes `CadenzaError::QueryFormatError` (422).
 
 ## Connects to
 
-- Called by `src/routes/tags.rs`, `src/routes/songs.rs`, `src/routes/queries.rs`.
-- Models convert to wire types through `From<tags::Model> for routes::json::tag::Tag`.
+- Called by `src/routes/tags.rs`, `src/routes/songs.rs`, `src/routes/queries.rs`,
+  `src/routes/comments.rs`.
+- Models convert to wire types through `From<tags::Model> for routes::json::tag::Tag`, and through
+  `routes::json::comment`, which also takes the reading user's id to fill in `mine`, and the
+  tallies from `comment_votes.rs`.
 - `set_default_tags_on_songs` takes `services::tag_generation::TagSpecs` straight from the
   generator.
 - Client side, the JSON tree is produced by
@@ -185,6 +225,15 @@ becomes `CadenzaError::QueryFormatError` (422).
   before inserting the new ones without a transaction.
 - `get_user_tags_metadata` returns a `HashMap<i64, TagMetadata>` keyed by tag id. Tags with no
   applications still get an entry, with `count: 0`.
+- `comment` has no index on `song_id` or `parent`, so `get_song_comments` scans the table, and so
+  does `get_song_vote_tallies`, whose join to `comment` filters on `song_id`. The `comment_votes` pk
+  leads with `user_id`, so that join's `comment_id` side cannot use it either.
+- `comment.user_id` references `auth.users` with no cascade, so deleting a Supabase user who has
+  comments fails until those comments are gone.
+- `comment.created_at` has no time zone. sqlx sessions and the database default both run in UTC, so
+  `routes::json::comment` labels it UTC. A session in another time zone would write shifted times.
+- Rows written outside the api that break the thread rules never come back from
+  `get_song_comments`: a comment with no `song_id`, or a reply to a reply.
 
 ---
 Touching files in this directory? Update this README in the same change.

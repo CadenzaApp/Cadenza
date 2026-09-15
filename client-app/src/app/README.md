@@ -19,7 +19,7 @@ logic out.
 | `(tabs)/search.tsx` | `/search` | Search. A tag shelf until you tap the field, then recents, a scope switch, and results (artists, then songs). |
 | `account.tsx` | `/account` | Account sheet. Wires `AccountSettingsScreen`. |
 | `appearance.tsx` | `/appearance` | Appearance preview sheet. Wires `AppearanceSettingsScreen`. |
-| `player.tsx` | `/player` | Now playing sheet. Resolves `focusedSong` / `initialPage` from `activeTrack` and the `tagsSongId` params, renders `PlayerPager`. |
+| `player.tsx` | `/player` | Now playing sheet. Resolves `playingSong` / `tagsTarget` / `initialPage` from `activeTrack` and the `tagsSongId` params, renders `PlayerPager`. |
 | `library-categories.tsx` | `/library-categories` | Picks which rows the library shows. |
 | `category/[kind].tsx` | `/category/:kind` | One library category's contents. |
 | `collection/[kind]/[id].tsx` | `/collection/:kind/:id` | The songs in one album or playlist. |

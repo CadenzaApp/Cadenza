@@ -1,4 +1,3 @@
-import type { MusicItem } from "@apple-musickit";
 import { useState } from "react";
 import { useWindowDimensions, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
@@ -29,23 +28,16 @@ export type FocusedSong = {
     artworkColor?: string;
 };
 
-function focusedSongFromTrack(track: MusicItem): FocusedSong {
-    return {
-        id: track.catalogId ?? track.id,
-        title: track.title,
-        artworkUrl: track.artworkUrl,
-        artworkColor: track.artworkColor,
-    };
-}
-
 /**
  * The now playing sheet's three pages: Comments, Player, Tags, with a small
  * glass tab bar of its own at the bottom. Player is the default and the only
- * one that touches playback; Comments and Tags both address `focusedSong`,
- * which starts as whatever `app/player.tsx` resolved from the route (the
- * playing track, or a target song id from Modify Tags on a song that was not
- * playing) and can be retargeted in place by Modify Tags on the Player page's
- * own menu.
+ * one that touches playback; Comments and Tags both address `focusedSong`.
+ *
+ * `focusedSong` is derived every render, not stored, so a skip retargets both
+ * pages. It is the playing track, unless a pin holds: a `tagsTarget` that is
+ * not the playing track (Modify Tags on a list row) stays focused through
+ * skips and auto-advance, since the user picked that song. Modify Tags on the
+ * Player page's own menu drops the pin.
  *
  * The swipe gesture never fights the scrubber's own pan for a drag that
  * starts on it: the scrubber activates at 4px (`activeOffsetX([-4, 4])`,
@@ -58,17 +50,26 @@ function focusedSongFromTrack(track: MusicItem): FocusedSong {
  */
 export function PlayerPager({
     initialPage,
-    focusedSong,
+    tagsTarget,
+    playingSong,
 }: {
     initialPage: "player" | "tags";
-    focusedSong: FocusedSong;
+    /** The song a list row's Modify Tags opened the sheet for, if any. */
+    tagsTarget: FocusedSong | null;
+    /** The playing track, or null once playback stops. */
+    playingSong: FocusedSong | null;
 }) {
     const { width } = useWindowDimensions();
     const insets = useSafeAreaInsets();
     const initialIndex = PLAYER_PAGE_KEYS.indexOf(initialPage);
     const [pageIndex, setPageIndex] = useState(initialIndex);
-    const [currentFocusedSong, setCurrentFocusedSong] =
-        useState<FocusedSong>(focusedSong);
+    // Only the pin is state. A target that is already playing is not a pin.
+    const [pinnedSong, setPinnedSong] = useState(
+        tagsTarget && tagsTarget.id !== playingSong?.id ? tagsTarget : null,
+    );
+    // Falls back to the target when playback stops after the pin was dropped,
+    // since the target is what keeps the sheet open then.
+    const focusedSong = pinnedSong ?? playingSong ?? tagsTarget;
     const translateX = useSharedValue(-initialIndex * width);
     const position = useDerivedValue(() => -translateX.value / (width || 1));
 
@@ -81,8 +82,8 @@ export function PlayerPager({
         setPageIndex(clamped);
     }
 
-    function goToTagsFor(track: MusicItem) {
-        setCurrentFocusedSong(focusedSongFromTrack(track));
+    function goToPlayingSongTags() {
+        setPinnedSong(null);
         goToPage(PLAYER_PAGE_KEYS.indexOf("tags" satisfies PlayerPageKey));
     }
 
@@ -105,6 +106,9 @@ export function PlayerPager({
         transform: [{ translateX: translateX.value }],
     }));
 
+    // `app/player.tsx` renders nothing without a target or a playing track.
+    if (!focusedSong) return null;
+
     return (
         <View className="flex-1">
             <GestureDetector gesture={panGesture}>
@@ -120,13 +124,13 @@ export function PlayerPager({
                         ]}
                     >
                         <View style={{ width }}>
-                            <CommentsPage focusedSong={currentFocusedSong} />
+                            <CommentsPage focusedSong={focusedSong} />
                         </View>
                         <View style={{ width }}>
-                            <PlayerPage onModifyTags={goToTagsFor} />
+                            <PlayerPage onModifyTags={goToPlayingSongTags} />
                         </View>
                         <View style={{ width }}>
-                            <TagsPage focusedSong={currentFocusedSong} />
+                            <TagsPage focusedSong={focusedSong} />
                         </View>
                     </Animated.View>
                 </View>

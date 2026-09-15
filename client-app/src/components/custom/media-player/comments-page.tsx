@@ -1,6 +1,14 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useState } from "react";
-import { Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
+import {
+    ActivityIndicator,
+    Alert,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    TextInput,
+    View,
+} from "react-native";
 import Animated, {
     useAnimatedKeyboard,
     useAnimatedStyle,
@@ -11,49 +19,44 @@ import { GlassIconButton } from "@/components/ui/glass-icon-button";
 import { GlassSurface } from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
 import { TintBackdrop } from "@/components/ui/tint-backdrop";
+import { useAccount } from "@/lib/account";
 import { useArtworkTint } from "@/lib/artwork-color";
+import {
+    useCreateComment,
+    useDeleteComment,
+    useSongComments,
+    useVoteOnComment,
+} from "@/lib/routes/comments";
+import type { Comment, CommentThread, CommentVote } from "@/lib/types";
 
 import type { FocusedSong } from "./player-pager";
 
-type Vote = "up" | "down" | null;
-
-type Comment = {
-    id: string;
-    author: string;
-    body: string;
-    votes: number;
-    myVote: Vote;
-    replies: Comment[];
-};
-
-let nextCommentId = 0;
-function makeComment(author: string, body: string): Comment {
-    nextCommentId += 1;
-    return {
-        id: `local-${nextCommentId}`,
-        author,
-        body,
-        votes: 0,
-        myVote: null,
-        replies: [],
-    };
-}
+/** What other users' comments are signed with, until users have names. */
+const PLACEHOLDER_AUTHOR = "Anonymous";
 
 /**
- * The now-playing sheet's Comments page: a stub of a social feed for the
- * focused song. No backend and no seed data - comments live only in local
- * state for as long as the sheet does, so reading, replying, writing, and
- * voting all have somewhere real to act on even though nothing persists yet.
+ * The now-playing sheet's Comments page: every user's comments on the focused
+ * song. The user can post a comment, reply to a top level comment, vote on top
+ * level comments, and delete their own comments and replies.
+ *
+ * The backend has no names for users yet, so the user's own comments are signed
+ * with their email and everyone else's with a placeholder.
  *
  * Same rule as Tags: no artwork, no playback controls, only the gradient.
  */
 export function CommentsPage({ focusedSong }: { focusedSong: FocusedSong }) {
     const insets = useSafeAreaInsets();
     const { tint } = useArtworkTint(focusedSong);
-    const [comments, setComments] = useState<Comment[]>([]);
+    const { account } = useAccount();
+    const { songComments, songCommentsErr } = useSongComments(focusedSong.id);
+    const { createComment, createCommentLoading } = useCreateComment();
+    const { deleteComment } = useDeleteComment();
+    const { voteOnComment } = useVoteOnComment(focusedSong.id);
     const [draft, setDraft] = useState("");
-    const [replyTarget, setReplyTarget] = useState<string | null>(null);
+    const [replyTarget, setReplyTarget] = useState<number | null>(null);
     const [replyDraft, setReplyDraft] = useState("");
+    // the last write that failed, shown over the composer until the next write
+    const [writeErr, setWriteErr] = useState<string | null>(null);
     // Drives the composer above the keyboard directly off its native frame,
     // rather than through `KeyboardAvoidingView`: this page sits inside a
     // native form sheet (`DetailScreen` / `player.tsx`), and the sheet's own
@@ -64,44 +67,71 @@ export function CommentsPage({ focusedSong }: { focusedSong: FocusedSong }) {
         transform: [{ translateY: -keyboard.height.value }],
     }));
 
-    function postComment() {
-        const body = draft.trim();
-        if (!body) return;
-        setComments((current) => [makeComment("You", body), ...current]);
-        setDraft("");
+    function authorOf(comment: Comment) {
+        return comment.mine && account ? account.email : PLACEHOLDER_AUTHOR;
     }
 
-    function postReply(parentId: string) {
-        const body = replyDraft.trim();
-        if (!body) return;
-        setComments((current) =>
-            current.map((comment) =>
-                comment.id === parentId
-                    ? {
-                          ...comment,
-                          replies: [...comment.replies, makeComment("You", body)],
-                      }
-                    : comment,
-            ),
-        );
-        setReplyDraft("");
-        setReplyTarget(null);
+    async function postComment() {
+        const content = draft.trim();
+        if (!content || createCommentLoading) return;
+        setWriteErr(null);
+        try {
+            await createComment({ song_id: focusedSong.id, content });
+            setDraft("");
+        } catch (error) {
+            setWriteErr(failureText("Couldn't post your comment.", error));
+        }
     }
 
-    function vote(commentId: string, direction: "up" | "down") {
-        setComments((current) =>
-            current.map((comment) => {
-                if (comment.id !== commentId) return comment;
-                const next = comment.myVote === direction ? null : direction;
-                const delta =
-                    (next === "up" ? 1 : next === "down" ? -1 : 0) -
-                    (comment.myVote === "up"
-                        ? 1
-                        : comment.myVote === "down"
-                          ? -1
-                          : 0);
-                return { ...comment, myVote: next, votes: comment.votes + delta };
-            }),
+    async function postReply(parentId: number) {
+        const content = replyDraft.trim();
+        if (!content || createCommentLoading) return;
+        setWriteErr(null);
+        try {
+            await createComment({
+                song_id: focusedSong.id,
+                content,
+                parent_id: parentId,
+            });
+            setReplyDraft("");
+            setReplyTarget(null);
+        } catch (error) {
+            setWriteErr(failureText("Couldn't post your reply.", error));
+        }
+    }
+
+    async function vote(comment: Comment, direction: CommentVote) {
+        setWriteErr(null);
+        // pressing the vote the user already cast takes it back
+        const next = comment.my_vote === direction ? null : direction;
+        try {
+            await voteOnComment(comment.id, next);
+        } catch (error) {
+            setWriteErr(failureText("Couldn't save your vote.", error));
+        }
+    }
+
+    function confirmDelete(comment: Comment, hasReplies: boolean) {
+        Alert.alert(
+            "Delete comment?",
+            hasReplies ? "Every reply to it is deleted too." : undefined,
+            [
+                { text: "Cancel", style: "cancel" },
+                {
+                    text: "Delete",
+                    style: "destructive",
+                    onPress: async () => {
+                        setWriteErr(null);
+                        try {
+                            await deleteComment({ comment_id: comment.id });
+                        } catch (error) {
+                            setWriteErr(
+                                failureText("Couldn't delete your comment.", error),
+                            );
+                        }
+                    },
+                },
+            ],
         );
     }
 
@@ -125,110 +155,154 @@ export function CommentsPage({ focusedSong }: { focusedSong: FocusedSong }) {
                     </Text>
                 </View>
 
-                {comments.length === 0 ? (
+                {songComments ? (
+                    songComments.length === 0 ? (
+                        <Text className="py-8 text-center text-muted-foreground">
+                            No comments yet. Be the first to say something.
+                        </Text>
+                    ) : (
+                        songComments.map((thread) => (
+                            <CommentRow
+                                key={thread.id}
+                                thread={thread}
+                                authorOf={authorOf}
+                                replyOpen={replyTarget === thread.id}
+                                replyDraft={replyDraft}
+                                posting={createCommentLoading}
+                                onReplyDraftChange={setReplyDraft}
+                                onToggleReply={() =>
+                                    setReplyTarget((current) =>
+                                        current === thread.id ? null : thread.id,
+                                    )
+                                }
+                                onSubmitReply={() => postReply(thread.id)}
+                                onVote={(direction) => vote(thread, direction)}
+                                onDelete={confirmDelete}
+                            />
+                        ))
+                    )
+                ) : songCommentsErr ? (
                     <Text className="py-8 text-center text-muted-foreground">
-                        No comments yet. Be the first to say something.
+                        Couldn&apos;t load comments.
                     </Text>
                 ) : (
-                    comments.map((comment) => (
-                        <CommentRow
-                            key={comment.id}
-                            comment={comment}
-                            replyOpen={replyTarget === comment.id}
-                            replyDraft={replyDraft}
-                            onReplyDraftChange={setReplyDraft}
-                            onToggleReply={() =>
-                                setReplyTarget((current) =>
-                                    current === comment.id ? null : comment.id,
-                                )
-                            }
-                            onSubmitReply={() => postReply(comment.id)}
-                            onVote={(direction) => vote(comment.id, direction)}
-                        />
-                    ))
+                    <View className="py-8">
+                        <ActivityIndicator color="#888888" />
+                    </View>
                 )}
             </ScrollView>
 
             <Animated.View
-                className="flex-row items-end gap-2 px-4 pt-3"
+                className="gap-2 px-4 pt-3"
                 style={[composerStyle, { paddingBottom: insets.bottom + 12 }]}
             >
-                <View className="flex-1 overflow-hidden rounded-3xl border border-border">
-                    <GlassSurface style={StyleSheet.absoluteFill} />
-                    <TextInput
-                        value={draft}
-                        onChangeText={setDraft}
-                        placeholder="Add a comment"
-                        placeholderTextColor="#888888"
-                        className="px-4 py-2 text-foreground"
-                        multiline
-                    />
+                {writeErr ? (
+                    <Text className="text-sm text-destructive">{writeErr}</Text>
+                ) : null}
+                <View className="flex-row items-end gap-2">
+                    <View className="flex-1 overflow-hidden rounded-3xl border border-border">
+                        <GlassSurface style={StyleSheet.absoluteFill} />
+                        <TextInput
+                            value={draft}
+                            onChangeText={setDraft}
+                            placeholder="Add a comment"
+                            placeholderTextColor="#888888"
+                            className="px-4 py-2 text-foreground"
+                            multiline
+                        />
+                    </View>
+                    <GlassIconButton
+                        accessibilityLabel="Post comment"
+                        disabled={!draft.trim() || createCommentLoading}
+                        onPress={postComment}
+                        className={
+                            !draft.trim() || createCommentLoading
+                                ? "opacity-40"
+                                : undefined
+                        }
+                    >
+                        <Ionicons name="arrow-up" size={20} color="#888888" />
+                    </GlassIconButton>
                 </View>
-                <GlassIconButton
-                    accessibilityLabel="Post comment"
-                    disabled={!draft.trim()}
-                    onPress={postComment}
-                    className={!draft.trim() ? "opacity-40" : undefined}
-                >
-                    <Ionicons name="arrow-up" size={20} color="#888888" />
-                </GlassIconButton>
             </Animated.View>
         </View>
     );
 }
 
+/**
+ * The line shown for a failed write: `prefix`, then the error's own message
+ * when it has one. Backend errors arrive as the parsed `{ error_type, message }`
+ * body rather than an `Error`, and some of them have no message.
+ */
+function failureText(prefix: string, error: unknown) {
+    const message =
+        typeof error === "object" && error !== null && "message" in error
+            ? String(error.message)
+            : "";
+    return message ? `${prefix} ${message}` : prefix;
+}
+
 function CommentRow({
-    comment,
+    thread,
+    authorOf,
     replyOpen,
     replyDraft,
+    posting,
     onReplyDraftChange,
     onToggleReply,
     onSubmitReply,
     onVote,
+    onDelete,
 }: {
-    comment: Comment;
+    thread: CommentThread;
+    authorOf: (comment: Comment) => string;
     replyOpen: boolean;
     replyDraft: string;
+    /** whether a comment or reply is being posted, which holds off another */
+    posting: boolean;
     onReplyDraftChange: (value: string) => void;
     onToggleReply: () => void;
     onSubmitReply: () => void;
-    onVote: (direction: "up" | "down") => void;
+    onVote: (direction: CommentVote) => void;
+    onDelete: (comment: Comment, hasReplies: boolean) => void;
 }) {
+    const replyDisabled = !replyDraft.trim() || posting;
+
     return (
         <View className="gap-2 rounded-xl border border-border bg-card/60 p-3">
-            <Text className="font-semibold text-foreground">
-                {comment.author}
+            <Text className="font-semibold text-foreground" numberOfLines={1}>
+                {authorOf(thread)}
             </Text>
-            <Text className="text-foreground">{comment.body}</Text>
+            <Text className="text-foreground">{thread.content}</Text>
 
             <View className="flex-row items-center gap-4">
                 <Pressable
                     accessibilityRole="button"
                     accessibilityLabel="Upvote"
-                    accessibilityState={{ selected: comment.myVote === "up" }}
+                    accessibilityState={{ selected: thread.my_vote === "up" }}
                     onPress={() => onVote("up")}
                     className="flex-row items-center gap-1 active:opacity-60"
                 >
                     <Ionicons
                         name="arrow-up"
                         size={16}
-                        color={comment.myVote === "up" ? "#22c55e" : "#888888"}
+                        color={thread.my_vote === "up" ? "#22c55e" : "#888888"}
                     />
                 </Pressable>
                 <Text className="text-sm text-muted-foreground">
-                    {comment.votes}
+                    {thread.votes}
                 </Text>
                 <Pressable
                     accessibilityRole="button"
                     accessibilityLabel="Downvote"
-                    accessibilityState={{ selected: comment.myVote === "down" }}
+                    accessibilityState={{ selected: thread.my_vote === "down" }}
                     onPress={() => onVote("down")}
                     className="flex-row items-center gap-1 active:opacity-60"
                 >
                     <Ionicons
                         name="arrow-down"
                         size={16}
-                        color={comment.myVote === "down" ? "#ef4444" : "#888888"}
+                        color={thread.my_vote === "down" ? "#ef4444" : "#888888"}
                     />
                 </Pressable>
                 <Pressable
@@ -241,6 +315,18 @@ function CommentRow({
                         Reply
                     </Text>
                 </Pressable>
+                {thread.mine ? (
+                    <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="Delete comment"
+                        onPress={() => onDelete(thread, thread.replies.length > 0)}
+                        className="active:opacity-60"
+                    >
+                        <Text className="text-sm font-medium text-muted-foreground">
+                            Delete
+                        </Text>
+                    </Pressable>
+                ) : null}
             </View>
 
             {replyOpen ? (
@@ -258,23 +344,38 @@ function CommentRow({
                     <GlassIconButton
                         size={32}
                         accessibilityLabel="Post reply"
-                        disabled={!replyDraft.trim()}
+                        disabled={replyDisabled}
                         onPress={onSubmitReply}
-                        className={!replyDraft.trim() ? "opacity-40" : undefined}
+                        className={replyDisabled ? "opacity-40" : undefined}
                     >
                         <Ionicons name="arrow-up" size={16} color="#888888" />
                     </GlassIconButton>
                 </View>
             ) : null}
 
-            {comment.replies.length > 0 ? (
+            {thread.replies.length > 0 ? (
                 <View className="mt-1 gap-2 border-l border-border pl-3">
-                    {comment.replies.map((reply) => (
+                    {thread.replies.map((reply) => (
                         <View key={reply.id}>
-                            <Text className="font-semibold text-foreground">
-                                {reply.author}
+                            <Text
+                                className="font-semibold text-foreground"
+                                numberOfLines={1}
+                            >
+                                {authorOf(reply)}
                             </Text>
-                            <Text className="text-foreground">{reply.body}</Text>
+                            <Text className="text-foreground">{reply.content}</Text>
+                            {reply.mine ? (
+                                <Pressable
+                                    accessibilityRole="button"
+                                    accessibilityLabel="Delete reply"
+                                    onPress={() => onDelete(reply, false)}
+                                    className="mt-1 self-start active:opacity-60"
+                                >
+                                    <Text className="text-sm font-medium text-muted-foreground">
+                                        Delete
+                                    </Text>
+                                </Pressable>
+                            ) : null}
                         </View>
                     ))}
                 </View>

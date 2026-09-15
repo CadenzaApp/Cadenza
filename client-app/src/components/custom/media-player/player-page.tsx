@@ -1,5 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { RepeatMode, ShuffleMode, type MusicItem } from "@apple-musickit";
+import { RepeatMode, ShuffleMode } from "@apple-musickit";
 import { useRouter } from "expo-router";
 import { useTheme } from "expo-router/react-navigation";
 import { useEffect, useRef, useState } from "react";
@@ -58,7 +58,7 @@ type PlayerView = "artwork" | "queue";
 export function PlayerPage({
     onModifyTags,
 }: {
-    onModifyTags: (track: MusicItem) => void;
+    onModifyTags: () => void;
 }) {
     const {
         activeTrack,
@@ -441,7 +441,7 @@ export function PlayerPage({
                     navigate={leaveFor}
                     onModifyTags={() => {
                         setMenuOpen(false);
-                        onModifyTags(track);
+                        onModifyTags();
                     }}
                 />
             ) : null}

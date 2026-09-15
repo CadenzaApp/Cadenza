@@ -14,14 +14,14 @@ suggested by an LLM.
 Two halves:
 
 - `client-app/` - Expo / React Native app, expo-router, nativewind. Runs on iOS and Android.
-  Talks to Apple Music through a local native Expo module, and to our own backend for tags
-  and queries.
+  Talks to Apple Music through a local native Expo module, and to our own backend for tags,
+  queries, and comments.
 - `backend-api/` - Rust, axum 0.8 + SeaORM 2.0 over Supabase postgres. Owns tags, tag
-  application, the query engine, and LLM tag generation. Auth is Supabase JWT, verified
-  against Supabase's JWKS.
+  application, the query engine, LLM tag generation, and comments on songs. Auth is Supabase
+  JWT, verified against Supabase's JWKS.
 
 Apple Music owns song metadata and playback. We only ever store a song id (a string) and the
-tags attached to it. Thus the backend never knows a song title.
+tags and comments attached to it. Thus the backend never knows a song title.
 
 ## Repo map
 
@@ -54,7 +54,7 @@ gives you the file map, the flow, and the gotchas.
 | ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------- |
 | [backend-api/README.md](backend-api/README.md)                                                                     | Backend setup, env vars, `main.rs` wiring, auth, errors         |
 | [backend-api/src/routes/README.md](backend-api/src/routes/README.md)                                               | Every HTTP endpoint and its request/response shape              |
-| [backend-api/src/db/README.md](backend-api/src/db/README.md)                                                       | Query layer, the tag schema, the boolean query compiler         |
+| [backend-api/src/db/README.md](backend-api/src/db/README.md)                                                       | Query layer, the tag and comment schema, the query compiler     |
 | [backend-api/src/services/README.md](backend-api/src/services/README.md)                                           | LLM tag generation, the `TagGenerator` trait, tag normalization |
 | [client-app/README.md](client-app/README.md)                                                                       | Client setup, env vars, path aliases, scripts                   |
 | [client-app/src/app/README.md](client-app/src/app/README.md)                                                       | expo-router layout, provider nesting, the five tabs             |

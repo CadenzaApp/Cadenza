@@ -16,7 +16,7 @@ bar of its own at the bottom.
 | `player-pager.tsx` | `PlayerPager`, the body of the now playing sheet: the three-page swipe, `focusedSong`, and the mini tab bar. Rendered by `app/player.tsx`. |
 | `mini-tab-bar.tsx` | `MiniTabBar`, the sheet's own Comments / Player / Tags glass bar, driven by the pager's swipe position. |
 | `player-page.tsx` | `PlayerPage`, the middle page: artwork or the queue, the scrubber, the transport. The only page that touches playback. |
-| `comments-page.tsx` | `CommentsPage`, the left page: a stub social feed for `focusedSong`. Local state only, no backend, no seed data. |
+| `comments-page.tsx` | `CommentsPage`, the left page: every user's comments on `focusedSong`. Posts comments and replies, votes on top level comments, and deletes the user's own, all through `@/lib/routes/comments`. |
 | `tags-page.tsx` | `TagsPage`, the right page: every user tag for `focusedSong`, applied first. Replaces the old stacked-modal tag editor. |
 | `compact.tsx` | The collapsed bar, and the animation between its floating and docked rects. Presentational, all props. |
 | `playback-details.tsx` | `MediaPlayerTrackHeading` (title, artist, favorite, `...`) and `MediaPlayerProgress` (scrubber and timestamps). |
@@ -40,13 +40,18 @@ screens leave for it come from one place and cannot disagree.
 
 ### The now playing sheet's three pages
 
-`app/player.tsx` resolves a `focusedSong` (id, title, artwork) and an `initialPage` from
-`usePlayback()`'s `activeTrack` and the route's `tagsSongId` / `tagsSongTitle` / `tagsArtworkUrl`
-/ `tagsArtworkColor` params, then renders `PlayerPager` with them. Modify Tags on a song that is
-not playing is what sets those params: `SongOptionsMenu`'s default `onModifyTags` pushes `/player`
+`app/player.tsx` resolves two songs (id, title, artwork) and an `initialPage`: `playingSong` from
+`usePlayback()`'s `activeTrack`, and `tagsTarget` from the route's `tagsSongId` / `tagsSongTitle` /
+`tagsArtworkUrl` / `tagsArtworkColor` params. It renders `PlayerPager` with them. Modify Tags on a
+list row is what sets those params: `SongOptionsMenu`'s default `onModifyTags` pushes `/player`
 with them, since a list row has no sheet to already be inside. Modify Tags on the song actually
 playing (the sheet's own menu, in `player-page.tsx`) never touches the route - it calls the pager's
-`goToTagsFor`, which updates `focusedSong` in place and swipes to the Tags page, no push.
+`goToPlayingSongTags`, which swipes to the Tags page in place, no push.
+
+`PlayerPager` derives `focusedSong` on every render, so a skip retargets Comments and Tags. It is
+`playingSong`, unless a pin holds. A `tagsTarget` that is not the playing song pins both pages to
+it through skips and auto-advance, since the user picked that song. `goToPlayingSongTags` drops the
+pin. If playback stops after that, the sheet stays open on the target.
 
 `PlayerPager` owns the swipe: a `Gesture.Pan` drives a shared `translateX` across the three pages
 (Comments, Player, Tags), and a `position` derived value (fractional page index) feeds
@@ -100,6 +105,8 @@ smoothly between the 750ms native snapshot polls, and scrubbing overrides it wit
 
 - `@/lib/playback::usePlayback` for all transport.
 - `@/lib/musickit-hooks::useSongFavoriteStatus` for the heading/queue heart.
+- `@/lib/routes/comments` for the Comments page, and `@/lib/account::useAccount` for the email it
+  signs the user's own comments with.
 - `@/lib/screen-overlay::useScreenOverlayInsets` for the route gate and every offset.
 - `@/components/custom/reorderable-list::ReorderableList` for the up-next list.
 - `@/components/custom/options-menu::SongOptionsMenu` for the `...` menu, documented in
@@ -134,6 +141,8 @@ smoothly between the 750ms native snapshot polls, and scrubbing overrides it wit
   `@/lib/theme`, so it cannot drift from `sheetScreenOptions`) and `SHEET_HEADER_HEIGHT` in
   `player-page.tsx` only seed the first frame before that measurement lands. `SHEET_HEADER_HEIGHT`
   still mirrors `DetailScreen` by hand and has to be updated if that header changes.
+- Do not copy `playingSong` into state in `PlayerPager`. A `useState` copy is what left Comments
+  and Tags on the first song after a skip. Only the pin is state; `focusedSong` is derived.
 - Both the scrubber's pan (`player-page.tsx`) and the page swipe (`player-pager.tsx`)
   deliberately claim horizontal drags only (`activeOffsetX` / `failOffsetY`). Widen either and a
   vertical pull stops reaching the native sheet, which breaks drag to dismiss.
@@ -156,6 +165,10 @@ smoothly between the 750ms native snapshot polls, and scrubbing overrides it wit
   not `KeyboardAvoidingView`. The page sits inside a native form sheet (`DetailScreen`), and the
   sheet's own offset from the screen top throws off `KeyboardAvoidingView`'s padding math, leaving
   the composer under the keyboard.
+- Comment authors are placeholders. The backend sends `mine` and no author, so `CommentsPage` signs
+  the user's own comments with their email and everyone else's with `Anonymous`.
+- Only top level comments get vote buttons and a Reply button, since replies go one level deep.
+  The backend takes votes on replies too; the page just does not offer them.
 - The `...` menu, its artist resolution, Go to Artist's library-only disabling, and its own
   gotchas now live with `SongOptionsMenu` - see [../../README.md](../../README.md) rather than
   this file. `TagsPage` lists **all** of the user's tags, not just applied ones (via

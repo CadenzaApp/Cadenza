@@ -34,25 +34,29 @@ export default function PlayerScreen() {
 
     if (!activeTrack && !hasTagsTarget) return null;
 
-    const focusedSong: FocusedSong = hasTagsTarget
+    const tagsTarget: FocusedSong | null = hasTagsTarget
         ? {
               id: params.tagsSongId!,
               title: params.tagsSongTitle ?? "",
               artworkUrl: params.tagsArtworkUrl || undefined,
               artworkColor: params.tagsArtworkColor || undefined,
           }
-        : {
-              id: activeTrack!.catalogId ?? activeTrack!.id,
-              title: activeTrack!.title,
-              artworkUrl: activeTrack!.artworkUrl,
-              artworkColor: activeTrack!.artworkColor,
-          };
+        : null;
+    const playingSong: FocusedSong | null = activeTrack
+        ? {
+              id: activeTrack.catalogId ?? activeTrack.id,
+              title: activeTrack.title,
+              artworkUrl: activeTrack.artworkUrl,
+              artworkColor: activeTrack.artworkColor,
+          }
+        : null;
 
     return (
         <DetailScreen presentation="sheet" title="Now Playing" tint={tint}>
             <PlayerPager
                 initialPage={hasTagsTarget ? "tags" : "player"}
-                focusedSong={focusedSong}
+                tagsTarget={tagsTarget}
+                playingSong={playingSong}
             />
         </DetailScreen>
     );
