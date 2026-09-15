@@ -21,6 +21,7 @@ import { Text } from "@/components/ui/text";
 import { TintBackdrop } from "@/components/ui/tint-backdrop";
 import { useAccount } from "@/lib/account";
 import { useArtworkTint } from "@/lib/artwork-color";
+import { orderThreadsLike, sortThreadsByVotes } from "@/lib/comment-votes";
 import {
     useCreateComment,
     useDeleteComment,
@@ -34,17 +35,28 @@ import type { FocusedSong } from "./player-pager";
 /** What other users' comments are signed with, until users have names. */
 const PLACEHOLDER_AUTHOR = "Anonymous";
 
+/** The thread ids in the order the page is holding them, and their song. */
+type HeldOrder = { songId: string; ids: number[] };
+
 /**
  * The now-playing sheet's Comments page: every user's comments on the focused
- * song. The user can post a comment, reply to a top level comment, vote on top
- * level comments, and delete their own comments and replies.
+ * song, highest score first. The user can post a comment, reply to a top level
+ * comment, vote on top level comments, and delete their own comments and
+ * replies.
  *
  * The backend has no names for users yet, so the user's own comments are signed
  * with their email and everyone else's with a placeholder.
  *
  * Same rule as Tags: no artwork, no playback controls, only the gradient.
  */
-export function CommentsPage({ focusedSong }: { focusedSong: FocusedSong }) {
+export function CommentsPage({
+    focusedSong,
+    active,
+}: {
+    focusedSong: FocusedSong;
+    /** whether the pager is on this page */
+    active: boolean;
+}) {
     const insets = useSafeAreaInsets();
     const { tint } = useArtworkTint(focusedSong);
     const { account } = useAccount();
@@ -52,6 +64,24 @@ export function CommentsPage({ focusedSong }: { focusedSong: FocusedSong }) {
     const { createComment, createCommentLoading } = useCreateComment();
     const { deleteComment } = useDeleteComment();
     const { voteOnComment } = useVoteOnComment(focusedSong.id);
+    // The order the threads were sorted in when the page came into view, held
+    // so a vote does not move a comment out from under the user. Sorted again
+    // when the page comes back into view or the song changes. Out of view the
+    // threads sort live, so a changed order settles as the page slides away.
+    const [heldOrder, setHeldOrder] = useState<HeldOrder | null>(null);
+    if (!active || !songComments) {
+        if (heldOrder) setHeldOrder(null);
+    } else if (heldOrder?.songId !== focusedSong.id) {
+        setHeldOrder({
+            songId: focusedSong.id,
+            ids: sortThreadsByVotes(songComments).map(({ id }) => id),
+        });
+    }
+    const threads =
+        songComments &&
+        (heldOrder
+            ? orderThreadsLike(songComments, heldOrder.ids)
+            : sortThreadsByVotes(songComments));
     const [draft, setDraft] = useState("");
     const [replyTarget, setReplyTarget] = useState<number | null>(null);
     const [replyDraft, setReplyDraft] = useState("");
@@ -155,13 +185,13 @@ export function CommentsPage({ focusedSong }: { focusedSong: FocusedSong }) {
                     </Text>
                 </View>
 
-                {songComments ? (
-                    songComments.length === 0 ? (
+                {threads ? (
+                    threads.length === 0 ? (
                         <Text className="py-8 text-center text-muted-foreground">
                             No comments yet. Be the first to say something.
                         </Text>
                     ) : (
-                        songComments.map((thread) => (
+                        threads.map((thread) => (
                             <CommentRow
                                 key={thread.id}
                                 thread={thread}

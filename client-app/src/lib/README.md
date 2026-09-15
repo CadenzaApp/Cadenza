@@ -16,7 +16,7 @@ native module directly.
 | `routes/songs.ts` | Hooks for `/songs`: `useTagsOnSong`, `useTagsOnSongs`, `useApplyTag`, `useUnapplyTag`, `useGetUntaggedSongs`, `useSetDefaultTags`. |
 | `routes/queries.ts` | Hook for `/queries/results`: `useQueryResults`. |
 | `routes/comments.ts` | Hooks for `/comments`: `useSongComments`, `useCreateComment`, `useDeleteComment`, `useVoteOnComment`. |
-| `comment-votes.ts` | `applyCommentVote`, the optimistic update `useVoteOnComment` makes to cached comment threads. Only type imports, tested in `comment-votes.test.ts`. |
+| `comment-votes.ts` | `applyCommentVote`, the optimistic update `useVoteOnComment` makes to cached comment threads. `sortThreadsByVotes` and `orderThreadsLike`, which `CommentsPage` uses to sort threads by score and then hold that order while it is in view. Only type imports, tested in `comment-votes.test.ts`. |
 | `musickit-hooks.ts` | SWR over the native module: song info, catalog search, library search, library songs, albums, artists, playlists, collection contents and metadata, song and collection favorites, artist search, playlist writes. |
 | `song-init.tsx` | `SongInitProvider` / `useUninitializedSongCount`. Runs the song init job on startup and shares how many songs it has left. |
 | `song-init-job.ts` | `initializeSongs`, the job itself: finds uninitialized songs in the library and playlists, then initializes them. Import-free, tested in `song-init-job.test.ts`. |

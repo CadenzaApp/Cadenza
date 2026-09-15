@@ -124,7 +124,15 @@ export function PlayerPager({
                         ]}
                     >
                         <View style={{ width }}>
-                            <CommentsPage focusedSong={focusedSong} />
+                            <CommentsPage
+                                focusedSong={focusedSong}
+                                active={
+                                    pageIndex ===
+                                    PLAYER_PAGE_KEYS.indexOf(
+                                        "comments" satisfies PlayerPageKey,
+                                    )
+                                }
+                            />
                         </View>
                         <View style={{ width }}>
                             <PlayerPage onModifyTags={goToPlayingSongTags} />

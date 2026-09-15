@@ -16,7 +16,7 @@ bar of its own at the bottom.
 | `player-pager.tsx` | `PlayerPager`, the body of the now playing sheet: the three-page swipe, `focusedSong`, and the mini tab bar. Rendered by `app/player.tsx`. |
 | `mini-tab-bar.tsx` | `MiniTabBar`, the sheet's own Comments / Player / Tags glass bar, driven by the pager's swipe position. |
 | `player-page.tsx` | `PlayerPage`, the middle page: artwork or the queue, the scrubber, the transport. The only page that touches playback. |
-| `comments-page.tsx` | `CommentsPage`, the left page: every user's comments on `focusedSong`. Posts comments and replies, votes on top level comments, and deletes the user's own, all through `@/lib/routes/comments`. |
+| `comments-page.tsx` | `CommentsPage`, the left page: every user's comments on `focusedSong`, highest score first. Posts comments and replies, votes on top level comments, and deletes the user's own, all through `@/lib/routes/comments`. |
 | `tags-page.tsx` | `TagsPage`, the right page: every user tag for `focusedSong`, applied first. Replaces the old stacked-modal tag editor. |
 | `compact.tsx` | The collapsed bar, and the animation between its floating and docked rects. Presentational, all props. |
 | `playback-details.tsx` | `MediaPlayerTrackHeading` (title, artist, favorite, `...`) and `MediaPlayerProgress` (scrubber and timestamps). |
@@ -56,8 +56,9 @@ pin. If playback stops after that, the sheet stays open on the target.
 `PlayerPager` owns the swipe: a `Gesture.Pan` drives a shared `translateX` across the three pages
 (Comments, Player, Tags), and a `position` derived value (fractional page index) feeds
 `MiniTabBar`'s sliding highlight, the same technique the main `TabBar` uses for its own bubble.
-Only `PlayerPage`, the middle page, touches playback; `CommentsPage` and `TagsPage` both take only
-`focusedSong` and never read `usePlayback()`.
+Only `PlayerPage`, the middle page, touches playback; `CommentsPage` and `TagsPage` both take
+`focusedSong` and never read `usePlayback()`. `CommentsPage` also takes `active`, whether the pager
+is on it, so it knows when to hold its comment order.
 
 On iOS, `BottomBarsOverlay` uses `FullWindowOverlay` so native transparent detail screens cannot
 cover it. The shared visibility hook hides both bars for account sheets, the now playing sheet,
@@ -169,6 +170,13 @@ smoothly between the 750ms native snapshot polls, and scrubbing overrides it wit
   the user's own comments with their email and everyone else's with `Anonymous`.
 - Only top level comments get vote buttons and a Reply button, since replies go one level deep.
   The backend takes votes on replies too; the page just does not offer them.
+- The backend sends comments newest first, and that is the order the SWR cache keeps. `CommentsPage`
+  reorders them as it renders, through `@/lib/comment-votes`: highest score first, newest first
+  among equal scores. Replies stay oldest first. While the page is `active` it holds the order it
+  sorted when it came into view, so a vote changes a score without moving the comment. Comments
+  posted since go on top, and deleted ones drop out. It sorts again when it comes back into view or
+  the song changes. Out of view it sorts live, so a changed order settles while the page slides
+  away rather than while it slides in.
 - The `...` menu, its artist resolution, Go to Artist's library-only disabling, and its own
   gotchas now live with `SongOptionsMenu` - see [../../README.md](../../README.md) rather than
   this file. `TagsPage` lists **all** of the user's tags, not just applied ones (via

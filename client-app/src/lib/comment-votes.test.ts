@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { applyCommentVote } from "./comment-votes.ts";
+import {
+    applyCommentVote,
+    orderThreadsLike,
+    sortThreadsByVotes,
+} from "./comment-votes.ts";
 import type { Comment, CommentThread } from "./types.ts";
 
 function comment(
@@ -64,4 +68,62 @@ test("a vote on a comment that isn't cached leaves every thread alone", () => {
     const [unchanged] = applyCommentVote(threads, 99, "up");
 
     assert.equal(unchanged, threads[0]);
+});
+
+test("threads sort by score, newest first among equal scores", () => {
+    const threads = [
+        thread(comment(4, 0)),
+        thread(comment(3, 2)),
+        thread(comment(2, -1)),
+        thread(comment(1, 2)),
+    ];
+
+    const sorted = sortThreadsByVotes(threads);
+
+    assert.deepEqual(
+        sorted.map(({ id }) => id),
+        [3, 1, 4, 2],
+    );
+    // the cached array keeps its order
+    assert.deepEqual(
+        threads.map(({ id }) => id),
+        [4, 3, 2, 1],
+    );
+});
+
+test("sorting threads leaves the order of their replies alone", () => {
+    const replies = [comment(3), comment(4, 9), comment(5, -2)];
+
+    const [sorted] = sortThreadsByVotes([thread(comment(1), replies)]);
+
+    assert.equal(sorted.replies, replies);
+});
+
+test("a held order keeps each thread in place after its score changes", () => {
+    // sorted by score this would be 2, 3, 1
+    const threads = [
+        thread(comment(3, 0)),
+        thread(comment(2, 7)),
+        thread(comment(1, -4)),
+    ];
+
+    assert.deepEqual(
+        orderThreadsLike(threads, [3, 1, 2]).map(({ id }) => id),
+        [3, 1, 2],
+    );
+});
+
+test("a held order puts new threads first, newest first, and skips deleted ones", () => {
+    // 5 and 6 were posted after the order was taken, and 3 was deleted
+    const threads = [
+        thread(comment(5)),
+        thread(comment(1)),
+        thread(comment(6)),
+        thread(comment(2, 3)),
+    ];
+
+    assert.deepEqual(
+        orderThreadsLike(threads, [1, 3, 2]).map(({ id }) => id),
+        [6, 5, 1, 2],
+    );
 });

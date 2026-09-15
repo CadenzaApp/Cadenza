@@ -1,6 +1,7 @@
 /**
- * The optimistic update a comment vote makes to cached comment threads. Only
- * type imports, so it can be unit tested without pulling in React Native.
+ * How votes shape comment threads: the optimistic update a vote makes to cached
+ * threads, and the order the Comments page shows them in. Only type imports, so
+ * it can be unit tested without pulling in React Native.
  */
 
 import type { Comment, CommentThread, CommentVote } from "@/lib/types";
@@ -41,4 +42,30 @@ export function applyCommentVote(
             ),
         };
     });
+}
+
+/**
+ * Returns a copy of the threads, highest score first, and newest first among
+ * equal scores. Comment ids only grow, so a higher id is a newer comment.
+ * Replies keep the order they came in.
+ */
+export function sortThreadsByVotes(threads: CommentThread[]): CommentThread[] {
+    return [...threads].sort((a, b) => b.votes - a.votes || b.id - a.id);
+}
+
+/**
+ * Returns the threads in the order of `ids`, the thread ids from an earlier
+ * sort. Threads missing from `ids`, like a comment posted since, come first,
+ * newest first. Ids with no thread left, like a deleted comment, are skipped.
+ */
+export function orderThreadsLike(
+    threads: CommentThread[],
+    ids: number[],
+): CommentThread[] {
+    const byId = new Map(threads.map((thread) => [thread.id, thread]));
+    const ordered = new Set(ids);
+    const added = threads
+        .filter(({ id }) => !ordered.has(id))
+        .sort((a, b) => b.id - a.id);
+    return [...added, ...ids.flatMap((id) => byId.get(id) ?? [])];
 }
