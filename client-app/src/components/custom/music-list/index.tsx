@@ -16,6 +16,7 @@ import { usePlaybackCommands } from "@/lib/playback";
 import { useTagsOnSongs } from "@/lib/routes/songs";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { useScreenScroll } from "@/lib/screen-scroll";
+import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
 
 import { MusicListItem, MusicListItemSkeleton } from "./music-list-item";
 import { MusicListSelectionToolbar } from "./music-list-selection-toolbar";
@@ -290,7 +291,8 @@ export function MusicList({
                             {footer}
                         </View>
                     ) : (
-                        <Animated.FlatList
+                        <ScreenScrollMarker>
+                            <Animated.FlatList
                             {...scroll}
                             // Overscrolling at the top is how a detail screen
                             // closes, and an indicator flicking in over the
@@ -367,6 +369,7 @@ export function MusicList({
                             onEndReached={handleEndReached}
                             onEndReachedThreshold={0.1}
                         />
+                        </ScreenScrollMarker>
                     )}
                 </Animated.View>
             </GestureDetector>

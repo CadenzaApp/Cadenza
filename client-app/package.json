@@ -33,6 +33,7 @@
     "babel-preset-expo": "~57.0.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "culori": "^4.0.2",
     "expo": "^57.0.16",
     "expo-blur": "~57.0.3",
     "expo-build-properties": "~57.0.14",
@@ -71,6 +72,7 @@
     "tailwindcss-animate": "^1.0.7"
   },
   "devDependencies": {
+    "@types/culori": "^4.0.1",
     "@types/react": "~19.2.10",
     "eslint": "^9.25.0",
     "eslint-config-expo": "~57.0.1"

@@ -6,45 +6,45 @@ native module directly.
 
 ## Files
 
-| file | role |
+| file                       | role                                                                                                                                                                                                               |
 | --- | --- |
-| `backend.ts` | `BACKEND_URL`. One constant, currently hardcoded. |
-| `api-actions.ts` | The generic SWR wrappers: `useAPIData`, `useAPIPostDataBatched`, `useAPIFetch`, `useAPIMutation`. |
-| `api-endpoints.ts` | `matchesEndpoint`, the cache-key matcher behind invalidation. Import-free so it can be unit tested. |
-| `swr-utils.ts` | `clearCache` and `useSimpleMutation`, for things that are not plain backend calls. |
-| `routes/tags.ts` | Hooks for `/tags`: `useUserTags`, `useTag`, `useCreateTag`, `useDeleteTag`, `useSuggestTags`. |
-| `routes/songs.ts` | Hooks for `/songs/tags`: `useTagsOnSong`, `useTagsOnSongs`, `useApplyTag`, `useUnapplyTag`. |
-| `routes/queries.ts` | Hook for `/queries/results`: `useQueryResults`. |
-| `musickit-hooks.ts` | SWR over the native module: song info, catalog search, library search, library songs, albums, artists, playlists, collection contents and metadata, song and collection favorites, artist search, playlist writes. |
-| `account.tsx` | `AccountProvider` / `useAccount`. Supabase session and the JWT. |
-| `apple-music-auth.tsx` | `AppleMusicProvider` / `useAppleMusic`. Apple Music tokens, persisted in secure store. |
-| `playback.tsx` | `PlaybackProvider`, `usePlayback` (state) and `usePlaybackCommands` (actions). Queue and the native playback snapshot. |
-| `queue-order.ts` | Pure index math for the queue mirror. Tested in `queue-order.test.ts`. |
-| `supabase.ts` | The Supabase client, backed by AsyncStorage. |
-| `tag-generation.ts` | A standalone tag suggestion fetch. Does not use the wrappers. See gotchas. |
-| `theme.ts` | `NAV_THEME`, light and dark palettes for react-navigation, `sheetScreenOptions` for sheet routes, and `pushedScreenOptions` for the pushed detail routes. |
-| `error-utils.ts` | `getErrorDetails` / `getErrorMessage`, for unwrapping native and backend errors. |
-| `artwork-color.ts` | `useArtworkTint`, the color a surface paints itself with, plus `withAlpha`. |
-| `music-routes.ts` | `collectionRoute` / `albumRouteForTrack`. Hrefs into the resource screens, params and all. |
-| `share-track.ts` | `shareTrack` / `shareCollection`. Builds and fires the native share sheet for a song, album, or playlist's canonical Apple Music link. |
-| `screen-overlay.ts` | `useScreenOverlayInsets`, bottom bar geometry and visibility, `BottomBarVisibilityProvider`, focused-screen suppression, and pushed-screen detection. |
-| `player-dock.tsx` | `PlayerDockProvider` / `usePlayerDock`. Whether the mini player floats above the tab bar or sits docked inside it. |
-| `screen-scroll.ts` | `useScreenScroll`, the props a screen's top-level scroller spreads to get tab-press-scrolls-to-top, scroll-docks-the-player, and pull-down-to-close. |
-| `zoom-dismiss.tsx` | `ZoomOriginProvider`, `useZoomSource`, `ZoomDismissScreen`, `useCloseScreen`. Closing a pushed screen by shrinking it back into the artwork that opened it. |
-| `zoom-dismiss-geometry.ts` | Pure pull, transform, timing, and corner math for `zoom-dismiss`, tested without React Native. |
-| `types.ts` | Shared wire types: `Tag` and `TagMetadata`. |
-| `utils.ts` | `cn()`, the clsx + tailwind-merge helper. |
+| `backend.ts`               | `BACKEND_URL`. One constant, currently hardcoded.                                                                                                                                                                  |
+| `api-actions.ts`           | The generic SWR wrappers: `useAPIData`, `useAPIPostDataBatched`, `useAPIFetch`, `useAPIMutation`.                                                                                                                  |
+| `api-endpoints.ts`         | `matchesEndpoint`, the cache-key matcher behind invalidation. Import-free so it can be unit tested.                                                                                                                |
+| `swr-utils.ts`             | `clearCache` and `useSimpleMutation`, for things that are not plain backend calls.                                                                                                                                 |
+| `routes/tags.ts`           | Hooks for `/tags`: `useUserTags`, `useTag`, `useCreateTag`, `useDeleteTag`, `useSuggestTags`.                                                                                                                      |
+| `routes/songs.ts`          | Hooks for `/songs/tags`: `useTagsOnSong`, `useTagsOnSongs`, `useApplyTag`, `useUnapplyTag`.                                                                                                                        |
+| `routes/queries.ts`        | Hook for `/queries/results`: `useQueryResults`.                                                                                                                                                                    |
+| `musickit-hooks.ts`        | SWR over the native module: song info, catalog search, library search, library songs, albums, artists, playlists, collection contents and metadata, song and collection favorites, artist search, playlist writes. |
+| `account.tsx`              | `AccountProvider` / `useAccount`. Supabase session and the JWT.                                                                                                                                                    |
+| `apple-music-auth.tsx`     | `AppleMusicProvider` / `useAppleMusic`. Apple Music tokens, persisted in secure store.                                                                                                                             |
+| `playback.tsx`             | `PlaybackProvider`, `usePlayback` (state) and `usePlaybackCommands` (actions). Queue and the native playback snapshot.                                                                                             |
+| `queue-order.ts`           | Pure index math for the queue mirror. Tested in `queue-order.test.ts`.                                                                                                                                             |
+| `supabase.ts`              | The Supabase client, backed by AsyncStorage.                                                                                                                                                                       |
+| `tag-generation.ts`        | A standalone tag suggestion fetch. Does not use the wrappers. See gotchas.                                                                                                                                         |
+| `theme.ts`                 | `NAV_THEME`, light and dark palettes for react-navigation, `sheetScreenOptions` for sheet routes, and `pushedScreenOptions` for the pushed detail routes.                                                          |
+| `error-utils.ts`           | `getErrorDetails` / `getErrorMessage`, for unwrapping native and backend errors.                                                                                                                                   |
+| `artwork-color.ts`         | `useArtworkTint`, the color a surface paints itself with, plus `withAlpha`.                                                                                                                                        |
+| `music-routes.ts`          | `collectionRoute` / `albumRouteForTrack`. Hrefs into the resource screens, params and all.                                                                                                                         |
+| `share-track.ts`           | `shareTrack` / `shareCollection`. Builds and fires the native share sheet for a song, album, or playlist's canonical Apple Music link.                                                                             |
+| `screen-overlay.ts`        | `useScreenOverlayInsets`, native tab/accessory visibility, extra overlay clearance, focused-screen suppression, and pushed-screen detection.                                                                       |
+| `screen-scroll.ts`         | `useScreenScroll`, the props a screen's top-level scroller spreads to get tab-press-scrolls-to-top and pull-down-to-close.                                                                                         |
+| `screen-scroll-marker.*`   | iOS registration wrapper for native-tab inset and scroll-to-top integration with nested and virtualized scrollers; a fragment elsewhere.                                                                           |
+| `zoom-dismiss.tsx`         | `ZoomOriginProvider`, `useZoomSource`, `ZoomDismissScreen`, `useCloseScreen`. Closing a pushed screen by shrinking it back into the artwork that opened it.                                                        |
+| `zoom-dismiss-geometry.ts` | Pure pull, transform, timing, and corner math for `zoom-dismiss`, tested without React Native.                                                                                                                     |
+| `types.ts`                 | Shared wire types: `Tag` and `TagMetadata`.                                                                                                                                                                        |
+| `utils.ts`                 | `cn()`, the clsx + tailwind-merge helper.                                                                                                                                                                          |
 
 ## The SWR wrappers
 
 Four, in `api-actions.ts`, and picking the right one is most of the work:
 
-| wrapper | for | key |
+| wrapper                                                     | for                                                                    | key                                                |
 | --- | --- | --- |
-| `useAPIData<Output>(path, params?)` | idempotent reads, fetch on mount | `{ keyType: "api-data", path, params, accountId }` |
-| `useAPIPostDataBatched<Item, Body, Out>(path, items, opts)` | an idempotent read whose payload is a list too long for a query string | `{ keyType: "api-data", path, items, accountId }` |
-| `useAPIFetch<In, Out>(path)` | a GET you only want on demand (search, suggestions) | `path` string |
-| `useAPIMutation<Body, Res>(method, path, invalidates?)` | user-triggered writes | `[method, path, accountId]` |
+| `useAPIData<Output>(path, params?)`                         | idempotent reads, fetch on mount                                       | `{ keyType: "api-data", path, params, accountId }` |
+| `useAPIPostDataBatched<Item, Body, Out>(path, items, opts)` | an idempotent read whose payload is a list too long for a query string | `{ keyType: "api-data", path, items, accountId }`  |
+| `useAPIFetch<In, Out>(path)`                                | a GET you only want on demand (search, suggestions)                    | `path` string                                      |
+| `useAPIMutation<Body, Res>(method, path, invalidates?)`     | user-triggered writes                                                  | `[method, path, accountId]`                        |
 
 All four pull the JWT from `useAccount()` and send `Authorization: Bearer <jwt>`. All four
 tolerate an empty response body, and all four throw the parsed error body on a non-2xx, so a
@@ -89,17 +89,17 @@ useAPIMutation<ApplyTagPayload, void>("POST", "/songs/tags",
 
 One file per backend router, and every backend endpoint has at least one hook.
 
-| backend | endpoint | hook |
+| backend             | endpoint                 | hook                                          |
 | --- | --- | --- |
-| `routes/tags.rs` | `GET /tags` | `tags.ts` -> `useUserTags()`, `useTag(tagId)` |
-| | `POST /tags` | `tags.ts` -> `useCreateTag()` |
-| | `DELETE /tags` | `tags.ts` -> `useDeleteTag()` |
-| | `GET /tags/suggest` | `tags.ts` -> `useSuggestTags()` |
-| `routes/songs.rs` | `GET /songs/tags` | `songs.ts` -> `useTagsOnSong(songId)` |
-| | `POST /songs/tags/batch` | `songs.ts` -> `useTagsOnSongs(songIds)` |
-| | `POST /songs/tags` | `songs.ts` -> `useApplyTag()` |
-| | `DELETE /songs/tags` | `songs.ts` -> `useUnapplyTag()` |
-| `routes/queries.rs` | `GET /queries/results` | `queries.ts` -> `useQueryResults()` |
+| `routes/tags.rs`    | `GET /tags`              | `tags.ts` -> `useUserTags()`, `useTag(tagId)` |
+|                     | `POST /tags`             | `tags.ts` -> `useCreateTag()`                 |
+|                     | `DELETE /tags`           | `tags.ts` -> `useDeleteTag()`                 |
+|                     | `GET /tags/suggest`      | `tags.ts` -> `useSuggestTags()`               |
+| `routes/songs.rs`   | `GET /songs/tags`        | `songs.ts` -> `useTagsOnSong(songId)`         |
+|                     | `POST /songs/tags/batch` | `songs.ts` -> `useTagsOnSongs(songIds)`       |
+|                     | `POST /songs/tags`       | `songs.ts` -> `useApplyTag()`                 |
+|                     | `DELETE /songs/tags`     | `songs.ts` -> `useUnapplyTag()`               |
+| `routes/queries.rs` | `GET /queries/results`   | `queries.ts` -> `useQueryResults()`           |
 
 `GET /tags` has two hooks because the handler returns a tagged union: without `tag_id` it
 responds with `All { tags, metadata }`, with one it responds with `One { tag, song_ids }`.
@@ -141,31 +141,22 @@ scrolling list.
 `useCollectionSongs(kind, id)` takes `"album" | "playlist"` rather than splitting into two
 hooks, so a screen that renders either does not branch. Pass the collection's `libraryId`.
 
-## Bottom overlay geometry
+## Native tab and overlay geometry
 
-`screen-overlay.ts` owns where the two floating bottom bars sit, because both the bars and the
-padding screens leave for them have to come from the same numbers.
+Expo Router's `NativeTabs` owns the tab bar and the iOS 26 player accessory. Native scrolling
+content receives its tab/accessory inset from the navigator. `screen-overlay.ts` returns app
+spacing for scroll content and conservative clearance for absolute controls.
 
-Neither bar is in the layout: the tab bar is `position: "absolute"` and the compact player is
-positioned by `compactPlayerBottom`. **Nothing reserves space for them**, so every scrolling
-surface owes itself `contentBottomInset` (or `listBottomInset` when a floating button is also
-over it), or its last row hides under a bar.
+Expo does not expose the native tab bar's measured height because the bar can move to another
+edge on other device classes. The absolute-control clearance uses the standard platform bar
+height and the player's maximum regular height. It stays conservative while UIKit transitions
+the accessory to its inline placement.
 
-Sheet content is the exception. `DetailScreen` puts `InsideSheetContext` around its body when it
-is presented as a sheet, and the hook then returns sheet-local numbers: no tab bar, no compact
-player, just the safe area. Account, Appearance, and Player are the current sheets. A `MusicList`
-inside one would otherwise leave a tab bar's worth of dead space at the bottom.
-
-`TAB_BAR_HEIGHT`, `TAB_BAR_MARGIN`, and `bottomBarBottom` are what `@/components/custom/tab-bar`
-positions itself with, so the bar and the padding screens leave for it cannot drift.
-`TAB_BAR_ITEM_INSET` and `DOCKED_PLAYER_HEIGHT` are the box *inside* the bar, shared by the
-selection bubble and the docked player so they line up.
-
-This hook decides **whether either bar renders at all**, and both follow the same answer:
-`bottomBarsVisible` for the tab bar, that plus a playing track for the player. Auth and splash
-are the only barless base routes. Native sheets hide the overlay while open. An in-place screen
-state can call `useSuppressBottomBars`; focused Search is the current caller. Suppression uses a
-token set, so overlapping callers cannot reveal the bars until all of them release their token.
+`DetailScreen` puts `InsideSheetContext` around sheet bodies, where only the device safe area is
+relevant. Native sheets cover the primary bar and player without unmounting or hiding them, so
+they are ready on the first dismissal frame. `useBottomBarsHidden` handles temporary suppression;
+focused Search is the current caller. Suppression uses a token set, so overlapping callers cannot
+reveal the native bar or accessory until all of them release their token.
 
 ## Artwork color
 
@@ -189,29 +180,30 @@ one costs a megabyte to reach the same answer. `ArtworkSource.artworkUrlSmall` w
 `artworkUrl` for that reason, and `music-routes.ts` passes the small URL as `artworkUrl` and the
 hero-sized one separately as `artworkUrlLarge`, which the collection screen draws its cover from.
 
-## Docking the player
+## Screen scrolling and the player accessory
 
-`player-dock.tsx` holds one animated `progress`: 0 floating above the bar, 1 docked inside it
-over the middle tab slots, fractional while a finger is dragging it. Three things move it.
+The primary `NativeTabs` uses `minimizeBehavior="onScrollDown"`. On iOS 26 UIKit minimizes the bar
+and moves its `BottomAccessory` between regular and inline placement. UIKit exposes no public
+imperative placement API, so the compact player does not add a separate vertical docking gesture.
 
-- `screen-scroll.ts`, when the focused screen scrolls away from the top, and back at the top.
-- The drag on the player itself, in `media-player.tsx`.
-- Leaving a screen, which floats it again.
+Expo documents limited `FlatList` integration with native tabs. On iOS, every primary scroller is
+therefore placed directly inside `ScreenScrollMarker` from the underlying `react-native-screens`
+package. That marker registers the real native scroll view through the nested tab stack for native
+insets, scroll-to-top, and tab-bar minimization. The wrapper is a fragment elsewhere.
 
-It also carries the tab bar's measured width and tab count, which `TabBarGlass` reports and the
-player uses to size itself to three slots. Docking changes nothing about the insets screens pad
-with: it is an overlay on the bar, so a page cannot reflow underneath a scroll that caused it.
-
-`useScreenScroll()` is what a tab screen's top-level scroller spreads:
+`useScreenScroll()` is what a screen's top-level scroller spreads:
 
 ```tsx
 const scroll = useScreenScroll();
-<Animated.FlatList {...scroll} ... />
+<ScreenScrollMarker>
+    <Animated.FlatList {...scroll} ... />
+</ScreenScrollMarker>
 ```
 
-It has to be an `Animated.FlatList` / `Animated.ScrollView`, because the offset is read on the UI
-thread. Tab-press-scrolls-to-top comes free with it, through react-navigation's `useScrollToTop`.
-A surface that skips the hook keeps the player floating and ignores tab presses.
+It has to be an `Animated.FlatList` / `Animated.ScrollView`, because the pull-dismiss offset is
+read on the UI thread. `ScreenScrollMarker` must have that scroller as its single direct child;
+otherwise the native registration cannot resolve the underlying `UIScrollView`. The explicit
+react-navigation `useScrollToTop` subscription remains as a cross-platform fallback.
 
 It also drives the close of a pushed detail screen. Overscroll at the top feeds the minimize
 continuously, and letting go past the shared threshold finishes it; short of that it springs

@@ -15,6 +15,7 @@ import { DropSlot } from "./DropSlot";
 import { Button } from "@/components/ui/button";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { useScreenScroll } from "@/lib/screen-scroll";
+import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
 import { Tag } from "@/lib/types";
 
 const LOGIC_ITEMS: PaletteItem[] = [
@@ -83,7 +84,8 @@ export function QueryBuilder({ tags, root, setRoot, onSubmit }: Props) {
                     </View>
 
                     {/* Workspace */}
-                    <Animated.ScrollView
+                    <ScreenScrollMarker>
+                        <Animated.ScrollView
                         {...scroll}
                         style={styles.workspace}
                         contentContainerStyle={styles.workspaceContent}
@@ -118,6 +120,7 @@ export function QueryBuilder({ tags, root, setRoot, onSubmit }: Props) {
                             </DropSlot>
                         )}
                     </Animated.ScrollView>
+                    </ScreenScrollMarker>
 
                     <Button onPress={onSubmit}>
                         <Text> Create mix </Text>

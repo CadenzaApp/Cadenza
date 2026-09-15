@@ -17,11 +17,16 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { SongOptionsMenu } from "@/components/custom/options-menu/song-options-menu";
 import { Text } from "@/components/ui/text";
+import { TintBackdrop } from "@/components/ui/tint-backdrop";
+import { useArtworkTint } from "@/lib/artwork-color";
 import { usePlayback } from "@/lib/playback";
 import { useSongFavoriteStatus } from "@/lib/musickit-hooks";
 import { SHEET_DETENT } from "@/lib/theme";
 
-import { MediaPlayerProgress, MediaPlayerTrackHeading } from "./playback-details";
+import {
+    MediaPlayerProgress,
+    MediaPlayerTrackHeading,
+} from "./playback-details";
 import { MediaPlayerQueue } from "./queue-view";
 import { MediaPlayerTransport } from "./transport-controls";
 
@@ -39,18 +44,11 @@ const SHEET_HEADER_HEIGHT = 76;
 type PlayerView = "artwork" | "queue";
 
 /**
- * The Player page of the now playing pager: artwork or the queue, the song
+ * The Player page of the now playing native tabs: artwork or the queue, the song
  * and its scrubber, and the transport. It is the only page of the three that
  * touches playback - Comments and Tags both only ever read `focusedSong`.
  *
- * `onModifyTags` is the one thing this page hands up to `PlayerPager`: how
- * Modify Tags on the song actually playing jumps the pager to the Tags page
- * in place, no route push, since this page is already inside the sheet.
- *
- * The scrubber's own pan gesture activates at 4px (`activeOffsetX([-4, 4])`),
- * tighter than the pager's 10px, so a drag that starts on it always wins the
- * activation race and seeks rather than paging. See the pager for the other
- * half of that.
+ * `onModifyTags` selects the sheet's native Tags tab for the playing song.
  *
  * The queue opens in place rather than as another page. Playback controls
  * stay on screen either way, which is the whole point of the layout.
@@ -106,6 +104,7 @@ export function PlayerPage({
     } = useSongFavoriteStatus(favoriteSongId);
 
     const artworkUrl = activeTrack?.artworkUrl?.trim();
+    const { tint } = useArtworkTint(activeTrack);
     const fullArtworkUrl = activeTrack?.artworkUrlLarge?.trim() || artworkUrl;
     const canRenderFullArtwork =
         typeof fullArtworkUrl === "string" &&
@@ -314,6 +313,7 @@ export function PlayerPage({
             style={{ paddingBottom: insets.bottom + 16 }}
             onLayout={(event) => setBodyHeight(event.nativeEvent.layout.height)}
         >
+            <TintBackdrop tint={tint} />
             {view === "queue" ? (
                 <MediaPlayerQueue
                     track={track}

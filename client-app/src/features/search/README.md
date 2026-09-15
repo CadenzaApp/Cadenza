@@ -12,14 +12,14 @@ no catalog for, so ours is the user's own tags.
 | `search-scope.tsx`            | `SearchScopeToggle` and the `SearchScope` type. Apple Music vs Library. |
 | `search-landing.tsx`          | `SearchLanding`, the unfocused body. Tag shelf.                         |
 | `search-recents.tsx`          | `SearchRecents`, the focused body before a search runs.                 |
-| `search-artists.tsx`          | `SearchArtists`, the Artists section above the results.                |
+| `search-artists.tsx`          | `SearchArtists`, the Artists section above the results.                 |
 | `recent-searches.ts`          | `useRecentSearches`, the recents list over `AsyncStorage`. No UI.       |
 | `recent-searches-section.tsx` | `RecentSearchesSection`, the recents rows plus the Clear control.       |
 | `tag-shelf.tsx`               | `TagShelf`, the user's tags as a two-up grid of colored tiles.          |
 
 ## How it works
 
-`src/app/(tabs)/search.tsx` owns the state: the term, the scope, and one `focused` boolean.
+`src/app/(tabs)/search/index.tsx` owns the state: the term, the scope, and one `focused` boolean.
 
 ```
 unfocused   top rail, an inert field, SearchLanding (tag tiles -> /tag/:tagId)
@@ -29,10 +29,10 @@ focused     rail hidden, field + close button, scope toggle, SearchRecents
 focused     same top, MusicList of results for the active scope
 ```
 
-Focused hides the navigator's header with `navigation.setOptions({ headerShown: false })`,
-suppresses both global bottom bars with `useSuppressBottomBars`, and pays the top safe-area inset
-itself. The suppression also checks navigation focus, so a detail screen opened from results gets
-the bars. Closing restores the header and bars, clears the term, and clears both scopes' results.
+Focused hides its nested stack header with `navigation.setOptions({ headerShown: false })`,
+suppresses the native tab bar and compact player with `useSuppressBottomBars`, and pays the top
+safe-area inset itself. The suppression also checks navigation focus. Closing restores the header
+and bars, clears the term, and clears both scopes' results.
 
 The unfocused field is wrapped in a `Pressable` with `pointerEvents="none"` over it, so a tap
 changes state rather than opening the keyboard under a layout that is about to move. There is
@@ -76,11 +76,10 @@ then lie about ids we try to play, so tapping one fetches the real track with
 - `@/lib/routes/tags::useUserTags` from `tag-shelf.tsx` and `search-landing.tsx`. Same SWR key,
   so it is one request.
 - `@/components/ui/glass-surface` and `@/components/ui/glass-icon-button` for the field, the
-  scope toggle, and the close button. The toggle also borrows `TAB_BAR_ITEM_INSET` from
-  `@/lib/screen-overlay`, so its selection pill is as thick as the tab bar's.
+  scope toggle, and the close button.
 - `@/components/custom/tag-pill::readableTextColor`, to pick black or white on a tag color.
-- `@/lib/screen-scroll` and `@/lib/screen-overlay`, so the landing docks the mini player and
-  both bodies clear the bars.
+- `@/lib/screen-scroll`, `screen-scroll-marker`, and `screen-overlay` for tab-press scrolling,
+  native tab minimization through the nested stack, and bottom clearance.
 
 ## Gotchas
 
@@ -92,8 +91,8 @@ then lie about ids we try to play, so tapping one fetches the real track with
   filled form field and every base class would have to be fought.
 - `useRecentSearches` holds local state, so calling it twice gives you two lists that drift.
   The screen calls it once and passes the pieces down.
-- `SearchRecents` deliberately skips `useScreenScroll`. The global bars are suppressed throughout
-  focused Search, so docking state must not move while the user is typing.
+- `SearchRecents` deliberately skips `useScreenScroll`. The native bar is suppressed throughout
+  focused Search, and a tab press cannot target the hidden screen.
 - The recents rows are a hand-written list, not `MusicList`. Half of them are plain text and
   none of them are a full `MusicItem`, so sorting, tagging, and multi-select mean nothing here.
   `CollectionList` is the same call.

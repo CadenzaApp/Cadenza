@@ -54,6 +54,10 @@ Slots are addressed by `SlotAddress`, which is `{nodeId: "root"}`, `{nodeId, ind
 dropping `AND` into an `AND` and reject it without prop drilling. `QueryBuilder.handleDrop`
 checks the same thing again before inserting.
 
+The workspace scroll view is the direct child of `ScreenScrollMarker`. On iOS this registers the
+nested scroller with native tabs, allowing UIKit's scroll-driven bar minimization to keep working
+without involving the query builder's drag state.
+
 ## Submitting
 
 `queryNodeToJSON` compiles the tree into `QueryJSONNode`: a tag becomes its bare numeric id, and

@@ -29,9 +29,9 @@ type SongOptionsMenuProps = {
     /**
      * What Modify Tags does. Defaults to opening the now-playing sheet's Tags
      * page for this track via a route push (`tagsSongId` and friends, read by
-     * `app/player.tsx`), which is what a list row menu needs since it has no
+     * `app/player/_layout.tsx`), which is what a list row menu needs since it has no
      * sheet to already be inside. The now-playing sheet's own menu passes a
-     * function that moves its pager to the Tags page in place instead.
+     * function that selects its native Tags tab in place instead.
      */
     onModifyTags?: (track: MusicItem) => void;
 };
@@ -40,7 +40,7 @@ type SongOptionsMenuProps = {
 function defaultModifyTags(navigate: NavigateFn) {
     return (track: MusicItem) => {
         navigate({
-            pathname: "/player",
+            pathname: "/player/tags",
             params: {
                 tagsSongId: track.catalogId ?? track.id,
                 tagsSongTitle: track.title ?? "",
@@ -117,7 +117,10 @@ export function SongOptionsMenu({
         onClose();
         navigate({
             pathname: "/artist/[id]",
-            params: { id: artistId, name: selectedTrack.artistName ?? "Artist" },
+            params: {
+                id: artistId,
+                name: selectedTrack.artistName ?? "Artist",
+            },
         });
     }
 

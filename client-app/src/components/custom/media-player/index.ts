@@ -1,1 +1,4 @@
-export { MediaPlayerHost } from "./media-player-host";
+export {
+    MediaPlayerAccessory,
+    MediaPlayerFallbackOverlay,
+} from "./media-player-host";

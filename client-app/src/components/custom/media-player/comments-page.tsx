@@ -1,6 +1,12 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useState } from "react";
-import { Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
+import {
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    TextInput,
+    View,
+} from "react-native";
 import Animated, {
     useAnimatedKeyboard,
     useAnimatedStyle,
@@ -13,7 +19,7 @@ import { Text } from "@/components/ui/text";
 import { TintBackdrop } from "@/components/ui/tint-backdrop";
 import { useArtworkTint } from "@/lib/artwork-color";
 
-import type { FocusedSong } from "./player-pager";
+import type { FocusedSong } from "./player-scope";
 
 type Vote = "up" | "down" | null;
 
@@ -56,7 +62,7 @@ export function CommentsPage({ focusedSong }: { focusedSong: FocusedSong }) {
     const [replyDraft, setReplyDraft] = useState("");
     // Drives the composer above the keyboard directly off its native frame,
     // rather than through `KeyboardAvoidingView`: this page sits inside a
-    // native form sheet (`DetailScreen` / `player.tsx`), and the sheet's own
+    // native form sheet (`DetailScreen` / `app/player/_layout.tsx`), and the sheet's own
     // offset from the screen top throws off `KeyboardAvoidingView`'s padding
     // math, leaving the composer under the keyboard.
     const keyboard = useAnimatedKeyboard();
@@ -79,7 +85,10 @@ export function CommentsPage({ focusedSong }: { focusedSong: FocusedSong }) {
                 comment.id === parentId
                     ? {
                           ...comment,
-                          replies: [...comment.replies, makeComment("You", body)],
+                          replies: [
+                              ...comment.replies,
+                              makeComment("You", body),
+                          ],
                       }
                     : comment,
             ),
@@ -100,7 +109,11 @@ export function CommentsPage({ focusedSong }: { focusedSong: FocusedSong }) {
                         : comment.myVote === "down"
                           ? -1
                           : 0);
-                return { ...comment, myVote: next, votes: comment.votes + delta };
+                return {
+                    ...comment,
+                    myVote: next,
+                    votes: comment.votes + delta,
+                };
             }),
         );
     }
@@ -228,7 +241,9 @@ function CommentRow({
                     <Ionicons
                         name="arrow-down"
                         size={16}
-                        color={comment.myVote === "down" ? "#ef4444" : "#888888"}
+                        color={
+                            comment.myVote === "down" ? "#ef4444" : "#888888"
+                        }
                     />
                 </Pressable>
                 <Pressable
@@ -260,7 +275,9 @@ function CommentRow({
                         accessibilityLabel="Post reply"
                         disabled={!replyDraft.trim()}
                         onPress={onSubmitReply}
-                        className={!replyDraft.trim() ? "opacity-40" : undefined}
+                        className={
+                            !replyDraft.trim() ? "opacity-40" : undefined
+                        }
                     >
                         <Ionicons name="arrow-up" size={16} color="#888888" />
                     </GlassIconButton>
@@ -274,7 +291,9 @@ function CommentRow({
                             <Text className="font-semibold text-foreground">
                                 {reply.author}
                             </Text>
-                            <Text className="text-foreground">{reply.body}</Text>
+                            <Text className="text-foreground">
+                                {reply.body}
+                            </Text>
                         </View>
                     ))}
                 </View>

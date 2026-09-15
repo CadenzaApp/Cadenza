@@ -10,7 +10,7 @@ import { TintBackdrop } from "@/components/ui/tint-backdrop";
 import { useArtworkTint } from "@/lib/artwork-color";
 
 import { useSongTagEditor, type EditableSongTag } from "../song-tag-editor";
-import type { FocusedSong } from "./player-pager";
+import type { FocusedSong } from "./player-scope";
 
 /**
  * The now-playing sheet's Tags page: every one of the user's tags for the
@@ -59,7 +59,9 @@ export function TagsPage({ focusedSong }: { focusedSong: FocusedSong }) {
                         accessibilityRole="button"
                         accessibilityLabel="Create a new tag"
                         onPress={openCreateTag}
-                        style={({ pressed }) => (pressed ? { opacity: 0.7 } : null)}
+                        style={({ pressed }) =>
+                            pressed ? { opacity: 0.7 } : null
+                        }
                     >
                         <View className="h-10 flex-row items-center gap-1 overflow-hidden rounded-full border border-border px-3">
                             <GlassSurface style={StyleSheet.absoluteFill} />

@@ -9,7 +9,6 @@ import Animated, {
 
 import { GlassSurface } from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
-import { TAB_BAR_ITEM_INSET } from "@/lib/screen-overlay";
 
 /** Which library a search reads from. */
 export type SearchScope = "catalog" | "library";
@@ -20,7 +19,8 @@ const OPTIONS: { scope: SearchScope; label: string }[] = [
 ];
 
 const TOGGLE_HEIGHT = 38;
-const PILL_HEIGHT = TOGGLE_HEIGHT - TAB_BAR_ITEM_INSET * 2;
+const PILL_INSET = 3;
+const PILL_HEIGHT = TOGGLE_HEIGHT - PILL_INSET * 2;
 const SLIDE = { duration: 220, easing: Easing.out(Easing.cubic) };
 
 type Props = {
@@ -29,10 +29,8 @@ type Props = {
 };
 
 /**
- * The Apple Music / Library switch above the results. Same construction as the
- * tab bar: glass for the track, a second piece of glass for the selection, and
- * the selection slides between the halves. It shares the bar's item inset so
- * the two pills read as the same thickness.
+ * The Apple Music / Library switch above the results. Glass paints the track
+ * and selection, and the selection slides between the two halves.
  */
 export function SearchScopeToggle({ scope, onChange }: Props) {
     const [width, setWidth] = useState(0);
@@ -72,12 +70,9 @@ export function SearchScopeToggle({ scope, onChange }: Props) {
                     style={[
                         {
                             position: "absolute",
-                            top: TAB_BAR_ITEM_INSET,
-                            left: TAB_BAR_ITEM_INSET,
-                            width: Math.max(
-                                0,
-                                halfWidth - TAB_BAR_ITEM_INSET * 2,
-                            ),
+                            top: PILL_INSET,
+                            left: PILL_INSET,
+                            width: Math.max(0, halfWidth - PILL_INSET * 2),
                             height: PILL_HEIGHT,
                         },
                         pillStyle,

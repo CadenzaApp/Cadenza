@@ -6,13 +6,13 @@ Which rows appear is the user's choice.
 
 ## Files
 
-| file                      | role                                                                   |
+| file                     | role                                                                                                                                                    |
 | ------------------------- | ---------------------------------------------------------------------- |
-| `categories.ts`           | `LibraryCategory`, the display order, labels, and icons. No React.      |
-| `library-categories.tsx`  | `LibraryCategoriesProvider` / `useLibraryCategories`. Which rows show.  |
-| `category-row.tsx`        | One row of the index. Records itself as the zoom origin before it opens. |
-| `recently-added.tsx`      | `RecentlyAddedGrid`, the paged artwork grid that owns the screen scroll and reports it with `useScreenScroll`. Tiles record themselves as zoom origins. |
-| `tags-view.tsx`           | Every tag as a pill, opening `/tag/:tagId`. The Tags category's body.   |
+| `categories.ts`          | `LibraryCategory`, the display order, labels, and icons. No React.                                                                                      |
+| `library-categories.tsx` | `LibraryCategoriesProvider` / `useLibraryCategories`. Which rows show.                                                                                  |
+| `category-row.tsx`       | One row of the index. Records itself as the zoom origin before it opens.                                                                                |
+| `recently-added.tsx`     | `RecentlyAddedGrid`, the paged artwork grid that owns the screen scroll and reports it with `useScreenScroll`. Tiles record themselves as zoom origins. |
+| `tags-view.tsx`          | Every tag as a pill, opening `/tag/:tagId`. The Tags category's body.                                                                                   |
 
 ## How it works
 
@@ -57,7 +57,9 @@ or a song that was added on its own. A whole album added at once is one tile, no
 and playlists open `/collection/:kind/:id`; songs play. It pages as you scroll, 24 items a time.
 
 The grid is the library screen's scroll container, not a section inside one: a paging list cannot
-live in a `ScrollView`, so the category rows are handed to it as `header`.
+live in a `ScrollView`, so the category rows are handed to it as `header`. Its `FlatList` is the
+direct child of `ScreenScrollMarker`, which registers the list through the nested native stack so
+scrolling can minimize the native tab bar and move the player inline.
 
 ## Connects to
 

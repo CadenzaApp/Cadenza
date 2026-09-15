@@ -12,6 +12,7 @@ import {
 } from "@/features/library/categories";
 import { useLibraryCategories } from "@/features/library/library-categories";
 import { useScreenScroll } from "@/lib/screen-scroll";
+import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
 
 /** Picks which sections appear on the library screen. Any number of them. */
 export default function LibraryCategoriesScreen() {
@@ -22,7 +23,8 @@ export default function LibraryCategoriesScreen() {
 
     return (
         <DetailScreen title="Library">
-            <Animated.ScrollView
+            <ScreenScrollMarker>
+                <Animated.ScrollView
                 {...scroll}
                 className="flex-1"
                 contentContainerClassName="px-5 pt-2"
@@ -73,6 +75,7 @@ export default function LibraryCategoriesScreen() {
                     );
                 })}
             </Animated.ScrollView>
+            </ScreenScrollMarker>
         </DetailScreen>
     );
 }

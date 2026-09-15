@@ -8,10 +8,7 @@ import { Stack } from "expo-router";
 import AccountProvider from "@/lib/account";
 import { AppleMusicProvider } from "@/lib/apple-music-auth";
 import { PlaybackProvider } from "@/lib/playback";
-import { BottomBarsOverlay } from "@/components/custom/bottom-bars-overlay";
-import { TabSelectionProvider } from "@/components/custom/tab-bar";
 import { LibraryCategoriesProvider } from "@/features/library/library-categories";
-import { PlayerDockProvider } from "@/lib/player-dock";
 import { BottomBarVisibilityProvider } from "@/lib/screen-overlay";
 import { ZoomOriginProvider } from "@/lib/zoom-dismiss";
 import { PortalHost } from "@rn-primitives/portal";
@@ -32,8 +29,6 @@ export default function RootLayout() {
                         <ThemeProvider value={theme}>
                             <BottomBarVisibilityProvider>
                                 <LibraryCategoriesProvider>
-                                    <PlayerDockProvider>
-                                        <TabSelectionProvider>
                                             <ZoomOriginProvider>
                                                 <Stack>
                                                     <Stack.Screen
@@ -98,10 +93,7 @@ export default function RootLayout() {
                                                     />
                                                 </Stack>
                                                 <PortalHost />
-                                                <BottomBarsOverlay />
                                             </ZoomOriginProvider>
-                                        </TabSelectionProvider>
-                                    </PlayerDockProvider>
                                 </LibraryCategoriesProvider>
                             </BottomBarVisibilityProvider>
                         </ThemeProvider>
