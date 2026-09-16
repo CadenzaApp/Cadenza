@@ -41,7 +41,7 @@ export function MusicListSortButton({
                 <Ionicons
                     name="funnel-outline"
                     size={28}
-                    color={colors.background}
+                    color={colors.text}
                 />
             </ScreenFloatingBubble>
 

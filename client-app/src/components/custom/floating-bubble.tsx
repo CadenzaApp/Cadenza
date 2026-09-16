@@ -1,8 +1,7 @@
-import { useTheme } from "expo-router/react-navigation";
 import type { ComponentProps, ReactNode } from "react";
 import { View } from "react-native";
 
-import { Button } from "@/components/ui/button";
+import { GlassIconButton } from "@/components/ui/glass-icon-button";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 
 const DEFAULT_BOTTOM_OFFSET = 24;
@@ -11,7 +10,9 @@ type FloatingBubbleProps = {
     children: ReactNode;
     onPress: () => void;
     accessibilityLabel: string;
-    accessibilityState?: ComponentProps<typeof Button>["accessibilityState"];
+    accessibilityState?: ComponentProps<
+        typeof GlassIconButton
+    >["accessibilityState"];
     bottomOffset?: number;
     rightOffset?: number;
 };
@@ -25,8 +26,6 @@ export function FloatingBubble({
     bottomOffset = DEFAULT_BOTTOM_OFFSET,
     rightOffset = 24,
 }: FloatingBubbleProps) {
-    const { colors } = useTheme();
-
     return (
         <View
             style={{
@@ -37,11 +36,9 @@ export function FloatingBubble({
                 elevation: 10,
             }}
         >
-            <Button
-                size="icon"
-                className="h-14 w-14 rounded-full"
+            <GlassIconButton
+                size={56}
                 style={{
-                    backgroundColor: colors.text,
                     shadowColor: "#000",
                     shadowOpacity: 0.16,
                     shadowRadius: 10,
@@ -52,7 +49,7 @@ export function FloatingBubble({
                 accessibilityState={accessibilityState}
             >
                 {children}
-            </Button>
+            </GlassIconButton>
         </View>
     );
 }

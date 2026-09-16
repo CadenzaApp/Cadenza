@@ -34,8 +34,8 @@ nothing else; the caller supplies size, radius, and `overflow: "hidden"`. Its op
 Destructive actions keep neutral glass and use red foreground content. The confirmation is used
 by both Account sign-out flows.
 
-`glass-icon-button.tsx` exports `GlassIconButton`, a round icon button built on it. The account
-button and the library type button in the top rail are the callers. Reach for it rather than
+`glass-icon-button.tsx` exports `GlassIconButton`, a round icon button built on it. Header actions,
+detail-screen controls, and every floating circular action use it. Reach for it rather than
 hand-rolling another circle of glass.
 
 `tint-backdrop.tsx` exports `TintBackdrop`, the artwork-colored wash behind a page: the color at
@@ -76,7 +76,7 @@ variables), `tailwind.config.js`, and `global.css`. Class merging goes through
 | file                     | role                                                                                                                                                                                                                           |
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `music-list/`            | Scrollable list of `MusicItem`s, with skeletons, paging, and sorting. See below.                                                                                                                                               |
-| `floating-bubble.tsx`    | The round floating action button the list and tag screens sit under.                                                                                                                                                           |
+| `floating-bubble.tsx`    | The liquid-glass round floating action button the list and tag screens sit under.                                                                                                                                              |
 | `options-menu/`          | The song, album, and playlist "..." menus, on liquid glass. See below.                                                                                                                                                         |
 | `song-tag-editor.tsx`    | `useSongTagEditor`, the tag-editing data for one song id: user tags annotated as applied, the toggle mutation, and the "New" tag dialog's open state. Used by `media-player/tags-page.tsx`, the now-playing sheet's Tags page. |
 | `tag-pill.tsx`           | A tag chip, colored from `tag.color`. Also exports `readableTextColor`.                                                                                                                                                        |

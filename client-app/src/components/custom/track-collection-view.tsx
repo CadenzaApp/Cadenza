@@ -26,6 +26,7 @@ import {
 } from "@/components/custom/music-list";
 import { ModalPopup } from "@/components/custom/modal-popup";
 import { Button } from "@/components/ui/button";
+import { GlassIconButton } from "@/components/ui/glass-icon-button";
 import { Text } from "@/components/ui/text";
 import { usePlaybackCommands } from "@/lib/playback";
 
@@ -278,9 +279,8 @@ export function TrackCollectionView({
             {closeControl ??
                 (onBackPress ? (
                     <View className="absolute left-4 top-3 z-20">
-                        <Button
-                            size="icon"
-                            className="h-12 w-12 rounded-full"
+                        <GlassIconButton
+                            size={48}
                             onPress={onBackPress}
                             accessibilityLabel="Back"
                             style={{
@@ -294,9 +294,9 @@ export function TrackCollectionView({
                             <Ionicons
                                 name="chevron-back"
                                 size={28}
-                                color={colors.background}
+                                color={colors.text}
                             />
-                        </Button>
+                        </GlassIconButton>
                     </View>
                 ) : null)}
 

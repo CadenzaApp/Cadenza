@@ -47,7 +47,7 @@ export function CreateTagBubble() {
                 onPress={() => setOpen(true)}
                 accessibilityLabel="Create a new tag"
             >
-                <Ionicons name="add" size={28} color={colors.background} />
+                <Ionicons name="add" size={28} color={colors.text} />
             </ScreenFloatingBubble>
             <CreateTagDialog open={open} onOpenChange={setOpen} />
         </>
