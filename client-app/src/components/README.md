@@ -132,7 +132,8 @@ Rows use the query-revamp spacing, artwork alignment, skeletons, and solid-color
 appearance. The density gesture changes row size without switching back to the older translucent
 pill design. Selected rows use a light foreground tint with alpha instead of an opaque replacement
 color, so artwork gradients remain visible. The floating selection toolbar and its overflow popup
-are liquid glass. `trackMenuActions` appends caller actions to the shared `SongOptionsMenu`; do not
+are liquid glass. The toolbar uses the same screen-aware bottom anchor as the sort bubble, so native
+tab and player insets are not counted twice. `trackMenuActions` appends caller actions to the shared `SongOptionsMenu`; do not
 restore the deleted list-specific track menu.
 
 `collection-list.tsx` is deliberately not `MusicList`. Sorting, multi-select, tagging, and the
