@@ -343,9 +343,10 @@ async fn copy_default_tags_to_user(
     Ok(())
 }
 
-/// Returns the requested songs that have no tags at all, meaning none of the
-/// user's tags and no default tags. Keeps the order the ids were given in.
-pub async fn get_untagged_songs(
+/// Initializes the requested songs through [`get_user_tags_on_songs`], then
+/// returns the ones it could not initialize, meaning those with no tags of
+/// either kind. Keeps the order the ids were given in.
+pub async fn get_uninitialized_songs(
     db: &DatabaseConnection,
     user_id: Uuid,
     song_ids: &[String],
@@ -361,7 +362,7 @@ pub async fn get_untagged_songs(
         .collect();
 
     // an initialized song can still have default tags the user no longer sees,
-    // like after removing all of its tags. those are not untagged, so leave them out
+    // like after removing all of its tags. those are initialized, so leave them out
     let default_tags = get_default_tags_on_songs(db, &songs_without_tags).await?;
 
     Ok(songs_without_tags

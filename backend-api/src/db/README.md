@@ -8,7 +8,7 @@ The data access layer. Everything that touches postgres lives here, so handlers 
 | file | role |
 | --- | --- |
 | `mod.rs` | Declares `entity`, `queries`, `tag_votes`, `tags`. |
-| `tags.rs` | All tag reads and writes: list, look up, usage counts, tags on many songs, untagged songs, songs with a tag, create, delete, apply, unapply, reading and replacing default tags, adding one default tag to a song, and initializing a user's songs. Apply and unapply vote through `tag_votes.rs`. |
+| `tags.rs` | All tag reads and writes: list, look up, usage counts, tags on many songs, uninitialized songs, songs with a tag, create, delete, apply, unapply, reading and replacing default tags, adding one default tag to a song, and initializing a user's songs. Apply and unapply vote through `tag_votes.rs`. |
 | `tag_votes.rs` | `record_tag_vote`, which counts a vote in `default_tag_votes` and makes the tag name a default tag on the song once its votes pass the threshold, and `TagVoteCache`, the in-memory LRU of recent votes, keyed by user, song, and tag name. |
 | `queries.rs` | Compiles a boolean tag query from JSON to SQL and runs it. |
 | `entity/` | sea-orm-codegen output in the compact format. `tags`, `user_tags_applied`, `default_tags_applied`, `song_meta`, `default_tag_votes`, `sea_orm_active_enums` (the `TagType` enum), plus `prelude` and `mod`. Do not hand edit. |
@@ -92,7 +92,7 @@ have one, and otherwise becomes a new tag of theirs with the default's name, col
 `apply_user_tag` adds the song's `song_meta` row too, in the same transaction as the tag.
 Without it, a song tagged before it had default tags would pick them up once that tag came off.
 
-`get_untagged_songs` keeps the songs `get_user_tags_on_songs` returned empty, minus any that have
+`get_uninitialized_songs` keeps the songs `get_user_tags_on_songs` returned empty, minus any that have
 default tags. An initialized song can be empty and still have default tags, once the user removes
 all of its tags.
 

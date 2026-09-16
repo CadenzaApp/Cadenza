@@ -10,7 +10,7 @@ call into `src/db/` or `src/services/`, and shape the response.
 | --- | --- |
 | `mod.rs` | Declares `json`, `queries`, `tags`, `songs`. |
 | `tags.rs` | Tag CRUD for the signed-in user, plus LLM tag suggestion. Mounted at `/tags`. |
-| `songs.rs` | Reading and changing which tags are on a song, finding untagged songs, and generating default tags. Mounted at `/songs`. |
+| `songs.rs` | Reading and changing which tags are on a song, initializing songs, and generating default tags. Mounted at `/songs`. |
 | `queries.rs` | Runs a boolean tag query and returns song ids by relevance. Mounted at `/queries`. |
 | `json/mod.rs` | `vec_into`, a small `Vec<A> -> Vec<B>` helper. |
 | `json/tag.rs` | `Tag`, the wire shape of a tag. `From<tags::Model>` drops `user_id`. |
@@ -28,7 +28,7 @@ Every route below requires `Authorization: Bearer <supabase jwt>`.
 | GET | `/tags/suggest` | `?song_desc=...&requested_tag_count=N` | `[{name, color}, ...]` |
 | GET | `/songs/tags` | `?song_id=...` | `[Tag]`, the user's tags on that song. A song new to the user gets copies of its default tags first |
 | POST | `/songs/tags/batch` | `{song_ids: [...]}` | `{song_id: [Tag]}`, an entry per requested song, with the same copying |
-| POST | `/songs/untagged` | `{song_ids: [...]}` | `["songid", ...]`, the requested songs with no user tags and no default tags, in request order |
+| POST | `/songs/initialize` | `{song_ids: [...]}` | `["songid", ...]`, the requested songs it could not initialize, meaning those with no user tags and no default tags, in request order |
 | POST | `/songs/default-tags` | `[{song_id, desc}]` | empty. Generates and stores default tags for the songs that have none |
 | POST | `/songs/tags` | `{song_id, tag_id}` | empty. Also marks the song initialized for the user, and votes yes on the tag's name for the song |
 | DELETE | `/songs/tags` | `{song_id, tag_id}` | empty. Votes no on the tag's name for the song, if the tag was on it |
@@ -52,12 +52,12 @@ authentication without using the claims. `songs.rs::set_default_tags_on_songs_ha
 same with both `db` and `tag_gen_service`, since default tags belong to no user.
 
 Song tag reads never generate anything, but they can write. `GET /songs/tags`,
-`POST /songs/tags/batch`, and `POST /songs/untagged` all go through
+`POST /songs/tags/batch`, and `POST /songs/initialize` all go through
 `db::tags::get_user_tags_on_songs`, which initializes songs new to the user and copies their
 existing default tags into the user's own tags. `../db/README.md` covers when a song counts as
 new. The client creates default tags and initializes songs: on startup it pages through the user's
-library and every library playlist, sends each page to `POST /songs/untagged`, posts the songs
-that come back to `POST /songs/default-tags`, then sends those to `POST /songs/untagged` again,
+library and every library playlist, sends each page to `POST /songs/initialize`, posts the songs
+that come back to `POST /songs/default-tags`, then sends those to `POST /songs/initialize` again,
 which initializes the ones that got tags.
 The default tags handler drops songs that already have default tags, generates tags for the rest with
 `TagGenerationService::generate_tags`, and stores them with `db::tags::set_default_tags_on_songs`.
@@ -80,7 +80,7 @@ api as JSON should have a type here rather than serializing an entity model dire
   `/songs/default-tags`.
 - `crate::err::CadenzaError` for every error path.
 - Client side: `client-app/src/lib/routes/*.ts` wraps every one of these in an SWR hook, and
-  `client-app/src/lib/song-init-job.ts` drives `/songs/untagged` and `/songs/default-tags` on
+  `client-app/src/lib/song-init-job.ts` drives `/songs/initialize` and `/songs/default-tags` on
   startup.
 
 ## Gotchas
@@ -100,19 +100,19 @@ api as JSON should have a type here rather than serializing an entity model dire
 - A vote from either of those can add a default tag to the song, once the tag name has at least
   10 votes there and more than 1.5 times as many yes as no. A song whose first default tag comes
   from votes counts as having default tags, so `POST /songs/default-tags` skips it and
-  `POST /songs/untagged` stops returning it.
+  `POST /songs/initialize` stops returning it.
 - A user gets a song's default tags at most once, when the song is initialized: on the first read
   that finds it with default tags, or when the user tags it. The copies are the user's own tags,
   so they show up in `GET /tags`, and `DELETE /songs/tags` and `DELETE /tags` treat them like any
   other tag. Removing a song's last tag leaves it empty. A song the user had already tagged when it
   was initialized never gets its defaults.
-- `POST /songs/tags/batch` and `POST /songs/untagged` are POSTs only because the id list does not
+- `POST /songs/tags/batch` and `POST /songs/initialize` are POSTs only because the id list does not
   belong in a query string. Like `GET /songs/tags`, they can write when they initialize songs.
   Both, plus `POST /songs/default-tags`, cap out at 200 songs and answer `QueryFormatError` past
   that. The batch returns songs with no tags as an empty list, never missing.
 - `POST /songs/default-tags` can be slow, since one request becomes one or more OpenAI calls in
-  a row. A song the model returns no tags for gets no default tags, so it stays untagged and the
-  client retries it on its next startup.
+  a row. A song the model returns no tags for gets no default tags, so it stays uninitialized and
+  the client retries it on its next startup.
 - `POST /songs/tags` inserts without checking first, so re-applying a tag relies on the unique
   violation mapping in `err.rs`. That mapping keys off the table name `applied_tags`, but the
   entity declares `user_tags_applied`, so it falls through to a generic `DatabaseError` instead

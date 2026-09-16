@@ -6,7 +6,7 @@ use crate::{
     db::{
         self,
         tag_votes::TagVoteCache,
-        tags::{get_default_tags_on_songs, get_untagged_songs, get_user_tags_on_songs, set_default_tags_on_songs},
+        tags::{get_default_tags_on_songs, get_uninitialized_songs, get_user_tags_on_songs, set_default_tags_on_songs},
     },
     err::CadenzaError,
     routes::json::{tag::Tag, vec_into}, services::tag_generation::{TagSpecs, TagGenerationService},
@@ -92,14 +92,15 @@ async fn get_tags_on_songs_handler(
     ))
 }
 
-/// Returns the requested songs that have no tags at all, meaning none of the
-/// user's tags and no default tags, in request order.
+/// Initializes the requested songs, which is when a song new to the user gets
+/// copies of its default tags. Returns the ones it could not initialize,
+/// meaning those with no tags of either kind, in request order.
 ///
 /// JSON return value format:
 /// ```json
 /// [ "1440857781", "1613600188", ... ]
 /// ```
-async fn get_untagged_songs_handler(
+async fn initialize_songs_handler(
     State(db): State<DatabaseConnection>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Json(payload): Json<SongIdsPayload>,
@@ -107,7 +108,7 @@ async fn get_untagged_songs_handler(
     check_batch_size(payload.song_ids.len())?;
 
     Ok(Json(
-        get_untagged_songs(&db, claims.user_id, &payload.song_ids).await?,
+        get_uninitialized_songs(&db, claims.user_id, &payload.song_ids).await?,
     ))
 }
 
@@ -197,7 +198,7 @@ async fn unapply_user_tag_handler(
 pub fn get_songs_router() -> Router<AppState> {
     Router::new()
         .route("/default-tags", post(set_default_tags_on_songs_handler))
-        .route("/untagged", post(get_untagged_songs_handler))
+        .route("/initialize", post(initialize_songs_handler))
         .route("/tags", get(get_tags_on_song_handler))
         .route("/tags/batch", post(get_tags_on_songs_handler))
         .route("/tags", post(apply_user_tag_handler))

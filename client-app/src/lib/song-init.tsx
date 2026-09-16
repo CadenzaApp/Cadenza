@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 import { useAccount } from "./account";
 import { invalidateAPIData } from "./api-actions";
 import { useAppleMusic } from "./apple-music-auth";
-import { useGetUntaggedSongs, useSetDefaultTags } from "./routes/songs";
+import { useInitSongs, useSetDefaultTags } from "./routes/songs";
 import { initializeSongs } from "./song-init-job";
 
 /** How many uninitialized songs the running job has found and not finished with. */
@@ -23,7 +23,7 @@ const UninitializedSongCountContext = createContext(0);
 export function SongInitProvider({ children }: { children: ReactNode }) {
     const { account } = useAccount();
     const { isConnected, sessionRevision } = useAppleMusic();
-    const { getUntaggedSongs } = useGetUntaggedSongs();
+    const { initSongs } = useInitSongs();
     const { setDefaultTags } = useSetDefaultTags();
     const [uninitializedSongCount, setUninitializedSongCount] = useState(0);
     const accountId = account?.id;
@@ -42,7 +42,7 @@ export function SongInitProvider({ children }: { children: ReactNode }) {
             getUserPlaylists: (options) => MusicKit.getUserPlaylists(options),
             getPlaylistSongs: (playlistId, options) =>
                 MusicKit.getPlaylistSongs(playlistId, options),
-            getUntaggedSongs: (body) => getUntaggedSongs(body),
+            initSongs: (body) => initSongs(body),
             setDefaultTags: (songs) => setDefaultTags(songs),
             // initializing copies default tags into the user's own tags, so the
             // tag list and its counts change. song tag reads initialize their
@@ -70,7 +70,7 @@ export function SongInitProvider({ children }: { children: ReactNode }) {
         accountId,
         isConnected,
         sessionRevision,
-        getUntaggedSongs,
+        initSongs,
         setDefaultTags,
     ]);
 

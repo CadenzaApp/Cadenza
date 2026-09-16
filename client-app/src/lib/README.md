@@ -13,7 +13,7 @@ native module directly.
 | `api-endpoints.ts` | `matchesEndpoint`, the cache-key matcher behind invalidation. Import-free so it can be unit tested. |
 | `swr-utils.ts` | `clearCache` and `useSimpleMutation`, for things that are not plain backend calls. |
 | `routes/tags.ts` | Hooks for `/tags`: `useUserTags`, `useTag`, `useCreateTag`, `useDeleteTag`, `useSuggestTags`. |
-| `routes/songs.ts` | Hooks for `/songs`: `useTagsOnSong`, `useTagsOnSongs`, `useApplyTag`, `useUnapplyTag`, `useGetUntaggedSongs`, `useSetDefaultTags`. |
+| `routes/songs.ts` | Hooks for `/songs`: `useTagsOnSong`, `useTagsOnSongs`, `useApplyTag`, `useUnapplyTag`, `useInitSongs`, `useSetDefaultTags`. |
 | `routes/queries.ts` | Hook for `/queries/results`: `useQueryResults`. |
 | `musickit-hooks.ts` | SWR over the native module: song info, catalog search, library search, library songs, albums, artists, playlists, collection contents and metadata, song and collection favorites, artist search, playlist writes. |
 | `song-init.tsx` | `SongInitProvider` / `useUninitializedSongCount`. Runs the song init job on startup and shares how many songs it has left. |
@@ -98,7 +98,7 @@ One file per backend router, and every backend endpoint has at least one hook.
 | | `GET /tags/suggest` | `tags.ts` -> `useSuggestTags()` |
 | `routes/songs.rs` | `GET /songs/tags` | `songs.ts` -> `useTagsOnSong(songId)` |
 | | `POST /songs/tags/batch` | `songs.ts` -> `useTagsOnSongs(songIds)` |
-| | `POST /songs/untagged` | `songs.ts` -> `useGetUntaggedSongs()` |
+| | `POST /songs/initialize` | `songs.ts` -> `useInitSongs()` |
 | | `POST /songs/default-tags` | `songs.ts` -> `useSetDefaultTags()` |
 | | `POST /songs/tags` | `songs.ts` -> `useApplyTag()` |
 | | `DELETE /songs/tags` | `songs.ts` -> `useUnapplyTag()` |
@@ -294,11 +294,11 @@ A song is initialized once the backend has copied its default tags into the user
 `backend-api/src/db/README.md`). Until then, queries do not see it. The job makes two passes:
 
 1. **Search.** It pages through the library, then every library playlist, 100 songs at a time,
-   and sends each song id it has not sent yet to `POST /songs/untagged`. That read initializes the
-   songs that already have tags and returns the ones with none. The job keeps those, described
+   and sends each song id it has not sent yet to `POST /songs/initialize`. That call initializes
+   the songs that already have tags and returns the ones with none. The job keeps those, described
    as `"title by artist"`.
 2. **Initialize.** It posts those songs to `POST /songs/default-tags` 100 at a time, then sends
-   each batch to `POST /songs/untagged` again, which copies the new default tags to the user.
+   each batch to `POST /songs/initialize` again, which copies the new default tags to the user.
 
 `useUninitializedSongCount` is how many songs the search has found that the second pass has not
 finished with. `TagGenerationNotice` renders only while it is above 0. It goes back to 0 when the
@@ -341,7 +341,7 @@ or read back fails is logged and dropped, and its songs wait for the next startu
   song's last tag leaves it with no tags. The defaults do not come back.
 - The song init job spends OpenAI calls. A big library that has never been tagged means a lot of
   them on first launch, and a song the model returned no tags for is retried on every launch.
-- The job counts a song as uninitialized when `POST /songs/untagged` returns it. That read also
+- The job counts a song as uninitialized when `POST /songs/initialize` returns it. That call also
   returns a song the user tagged by hand and then cleared, if it has no default tags. The job
   generates defaults for that song once, and they never reach the user.
 

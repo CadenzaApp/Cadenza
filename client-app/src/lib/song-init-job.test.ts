@@ -46,7 +46,7 @@ function fakeDeps({
 }) {
     const songsWithoutTags = new Set(tagless);
     const calls = {
-        untagged: [] as string[][],
+        initSongs: [] as string[][],
         defaultTags: [] as { song_id: string; desc: string }[][],
         initialized: 0,
         counts: [] as number[],
@@ -62,8 +62,8 @@ function fakeDeps({
         ),
         getPlaylistSongs: (playlistId, options) =>
             paged(playlists[playlistId] ?? [])(options),
-        getUntaggedSongs: async ({ song_ids }) => {
-            calls.untagged.push(song_ids);
+        initSongs: async ({ song_ids }) => {
+            calls.initSongs.push(song_ids);
             return song_ids.filter((songId) => songsWithoutTags.has(songId));
         },
         setDefaultTags: async (songs) => {
@@ -94,7 +94,7 @@ test("asks about the library and then every playlist, once per song", async () =
     await initializeSongs(deps);
 
     // songs go by catalog id, and a song an earlier page had is not asked about again
-    assert.deepEqual(calls.untagged, [["a", "b"], ["c"], ["d"]]);
+    assert.deepEqual(calls.initSongs, [["a", "b"], ["c"], ["d"]]);
     assert.deepEqual(calls.defaultTags, []);
     assert.deepEqual(calls.counts, []);
     assert.equal(calls.initialized, 1);
@@ -122,7 +122,7 @@ test("generates tags for uninitialized songs in batches, then reads each batch b
         desc: "Song s0 by Artist",
     });
     assert.deepEqual(
-        calls.untagged.slice(-2),
+        calls.initSongs.slice(-2),
         calls.defaultTags.map((batch) => batch.map((item) => item.song_id)),
     );
 
@@ -145,7 +145,7 @@ test("drops a batch whose generation fails, so the count still reaches zero", as
     await initializeSongs(deps);
 
     // the batch is not read back, and it does not keep counting
-    assert.deepEqual(calls.untagged, [["a", "b"]]);
+    assert.deepEqual(calls.initSongs, [["a", "b"]]);
     assert.deepEqual(calls.counts, [1, 0]);
     assert.equal(calls.initialized, 1);
     assert.equal(logged.mock.callCount(), 1);
@@ -166,14 +166,14 @@ test("skips a playlist that fails to read and keeps searching", async (t) => {
 
     await initializeSongs(deps);
 
-    assert.deepEqual(calls.untagged, [["b"]]);
+    assert.deepEqual(calls.initSongs, [["b"]]);
     assert.equal(logged.mock.callCount(), 1);
 });
 
 test("stops before generating tags once cancelled", async () => {
     const { deps, calls } = fakeDeps({ library: [song("a")], tagless: ["a"] });
     // cancel as soon as the search has asked about anything
-    deps.isCancelled = () => calls.untagged.length > 0;
+    deps.isCancelled = () => calls.initSongs.length > 0;
 
     await initializeSongs(deps);
 

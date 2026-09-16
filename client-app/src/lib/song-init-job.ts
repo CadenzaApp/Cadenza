@@ -31,10 +31,10 @@ export type SongInitDeps = {
         options: PageOptions,
     ) => Promise<SongInitPage>;
     /**
-     * `POST /songs/untagged`. Initializes the requested songs that have tags of
-     * either kind, and returns the ones with none.
+     * `POST /songs/initialize`. Initializes the requested songs that have tags
+     * of either kind, and returns the ones with none.
      */
-    getUntaggedSongs: (body: { song_ids: string[] }) => Promise<string[]>;
+    initSongs: (body: { song_ids: string[] }) => Promise<string[]>;
     /** `POST /songs/default-tags`. */
     setDefaultTags: (
         songs: { song_id: string; desc: string }[],
@@ -81,17 +81,17 @@ async function findUninitializedSongs(deps: SongInitDeps) {
         if (unchecked.size === 0 || deps.isCancelled()) return;
 
         // reading the songs initializes the ones with tags and returns the rest
-        const untaggedIds = await deps.getUntaggedSongs({
+        const uninitializedIds = await deps.initSongs({
             song_ids: [...unchecked.keys()],
         });
         for (const songId of unchecked.keys()) checked.add(songId);
 
         // keep a description of each, to generate its tags from later
-        for (const songId of untaggedIds) {
+        for (const songId of uninitializedIds) {
             const song = unchecked.get(songId);
             if (song) uninitialized.set(songId, describeSong(song));
         }
-        if (untaggedIds.length > 0) {
+        if (uninitializedIds.length > 0) {
             deps.onUninitializedCountChange(uninitialized.size);
         }
     };
@@ -154,7 +154,7 @@ async function initializeInBatches(
             if (deps.isCancelled()) return;
 
             // read the batch back, which copies the new default tags to the user
-            await deps.getUntaggedSongs({
+            await deps.initSongs({
                 song_ids: batch.map((song) => song.song_id),
             });
             deps.onSongsInitialized();
