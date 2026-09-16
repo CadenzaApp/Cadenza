@@ -30,6 +30,7 @@ logic out.
 | `tag/[tagId].tsx`            | `/tag/:tagId`           | One tag and the songs carrying it.                                                                            |
 | `artist/[id].tsx`            | `/artist/:id`           | One catalog artist: the artist image and a play button, top songs, then an albums rail.                       |
 | `add-to-playlist.tsx`        | `/add-to-playlist`      | Picks a library playlist for a song, or makes one.                                                            |
+| `advanced-query.tsx`         | `/advanced-query`       | Hosts the advanced query builder, then swaps to results. Pushed from the Cadenza tab's Advanced button.       |
 | `+not-found.tsx`             |                         | 404.                                                                                                          |
 
 `(splashscreen)` and `(tabs)` are route groups, so the parentheses do not appear in the url.
@@ -196,7 +197,8 @@ makes their lists reserve exactly that overlay's height.
 - `@/lib/account`, `@/lib/apple-music-auth`, `@/lib/playback` for the providers.
 - `@/lib/routes/*` and `@/lib/musickit-hooks` for data.
 - `@/features/account` from the Account and Appearance sheets.
-- `@/features/cadenza` from the Cadenza tab.
+- `@/features/cadenza` from the Cadenza tab, which renders `@/features/query-builder`; its
+  "Advanced" button pushes `@/features/advanced-query-builder` from `advanced-query.tsx`.
 - `@/components/custom` and `@/components/ui` for everything rendered.
 
 ## Gotchas
@@ -208,6 +210,9 @@ makes their lists reserve exactly that overlay's height.
   `SHEET_SEGMENTS` in `@/lib/screen-overlay`, or presenting it will relayout the screen it
   covers. A new **pushed** route needs its segment in `PUSHED_DETAIL_SEGMENTS` only if it uses the
   custom pull-down close. Bar visibility is the default.
+- `advanced-query.tsx` sets its header title with an inline `<Stack.Screen options>` rather than an
+  entry in `_layout.tsx`. It is neither a sheet nor a pull-down-close route, so it just gets the
+  default native push, and the bottom accessory / pushed-screen player overlay do not show there.
 - Reordering the tabs means reordering the static `NativeTabs.Trigger` children in
   `(tabs)/_layout.tsx`.
 - A new tab needs both a trigger and a directory containing `_layout.tsx` plus `index.tsx`.

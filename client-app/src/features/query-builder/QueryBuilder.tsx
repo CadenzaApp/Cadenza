@@ -17,6 +17,7 @@ import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { useScreenScroll } from "@/lib/screen-scroll";
 import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
 import { Tag } from "@/lib/types";
+import { useRouter } from "expo-router";
 
 const LOGIC_ITEMS: PaletteItem[] = [
     { kind: "logic", operator: "and" },
@@ -31,6 +32,7 @@ type Props = {
     onSubmit: () => any;
 };
 export function QueryBuilder({ tags, root, setRoot, onSubmit }: Props) {
+    const router = useRouter();
     const { contentBottomInset } = useScreenOverlayInsets();
     const scroll = useScreenScroll();
 
@@ -124,6 +126,12 @@ export function QueryBuilder({ tags, root, setRoot, onSubmit }: Props) {
 
                     <Button onPress={onSubmit}>
                         <Text> Create mix </Text>
+                    </Button>
+                    <Button
+                        variant="outline"
+                        onPress={() => router.push("/advanced-query")}
+                    >
+                        <Text>Advanced</Text>
                     </Button>
                 </View>
                 <DragGhost />

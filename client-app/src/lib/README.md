@@ -6,15 +6,15 @@ native module directly.
 
 ## Files
 
-| file                         | role                                                                                                                                                                                                               |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| file                         | role                                                                                                                                                                                                                  |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `backend.ts`                 | `BACKEND_URL`. One constant, currently hardcoded.                                                                                                                                                                  |
 | `api-actions.ts`             | The generic SWR wrappers: `useAPIData`, `useAPIPostDataBatched`, `useAPIFetch`, `useAPIMutation`.                                                                                                                  |
 | `api-endpoints.ts`           | `matchesEndpoint`, the cache-key matcher behind invalidation. Import-free so it can be unit tested.                                                                                                                |
 | `swr-utils.ts`               | `clearCache` and `useSimpleMutation`, for things that are not plain backend calls.                                                                                                                                 |
 | `routes/tags.ts`             | Hooks for `/tags`: `useUserTags`, `useTag`, `useCreateTag`, `useDeleteTag`, `useSuggestTags`.                                                                                                                      |
-| `routes/songs.ts`            | Hooks for `/songs/tags`: `useTagsOnSong`, `useTagsOnSongs`, `useApplyTag`, `useUnapplyTag`.                                                                                                                        |
-| `routes/queries.ts`          | Hook for `/queries/results`: `useQueryResults`.                                                                                                                                                                    |
+| `routes/songs.ts`            | Hooks for `/songs/tags`: `useTagsOnSong`, `useTagsOnSongs`, `useApplyTag`, `useSetTagValue`, `useUnapplyTag`.                                                                                                      |
+| `routes/queries.ts`          | Hooks for `/queries/results` and `/queries/advanced/results`: `useQueryResults`, `useAdvancedQueryResults`.                                                                                                        |
 | `musickit-hooks.ts`          | SWR over the native module: song info, catalog search, library search, library songs, albums, artists, playlists, collection contents and metadata, song and collection favorites, artist search, playlist writes. |
 | `account.tsx`                | `AccountProvider` / `useAccount`. Supabase session and the JWT.                                                                                                                                                    |
 | `apple-music-auth.tsx`       | `AppleMusicProvider` / `useAppleMusic`. Apple Music tokens, persisted in secure store.                                                                                                                             |
@@ -34,7 +34,8 @@ native module directly.
 | `screen-scroll-marker.*`     | iOS registration wrapper for native-tab inset and scroll-to-top integration with nested and virtualized scrollers; a fragment elsewhere.                                                                           |
 | `zoom-dismiss.tsx`           | `ZoomOriginProvider`, `useZoomSource`, `ZoomDismissScreen`, `useCloseScreen`. Closing a pushed screen by shrinking it back into the artwork that opened it.                                                        |
 | `zoom-dismiss-geometry.ts`   | Pure pull, transform, timing, and corner math for `zoom-dismiss`, tested without React Native.                                                                                                                     |
-| `types.ts`                   | Shared wire types: `Tag` and `TagMetadata`.                                                                                                                                                                        |
+| `types.ts`                   | Shared wire types: `TagType`, `Tag`, `AppliedTag` and `TagMetadata`.                                                                                                                                               |
+| `tag-values.ts`              | Per-type tag helpers: `TAG_TYPES`, labels, descriptions, `TAG_TYPE_ICONS`, value validation, canonicalization, formatting, and the date-only helpers.                                                             |
 | `utils.ts`                   | `cn()`, the clsx + tailwind-merge helper.                                                                                                                                                                          |
 
 ## The SWR wrappers
@@ -90,17 +91,19 @@ useAPIMutation<ApplyTagPayload, void>("POST", "/songs/tags", ({ song_id }) => [
 
 One file per backend router, and every backend endpoint has at least one hook.
 
-| backend             | endpoint                 | hook                                          |
-| ------------------- | ------------------------ | --------------------------------------------- |
-| `routes/tags.rs`    | `GET /tags`              | `tags.ts` -> `useUserTags()`, `useTag(tagId)` |
-|                     | `POST /tags`             | `tags.ts` -> `useCreateTag()`                 |
-|                     | `DELETE /tags`           | `tags.ts` -> `useDeleteTag()`                 |
-|                     | `GET /tags/suggest`      | `tags.ts` -> `useSuggestTags()`               |
-| `routes/songs.rs`   | `GET /songs/tags`        | `songs.ts` -> `useTagsOnSong(songId)`         |
-|                     | `POST /songs/tags/batch` | `songs.ts` -> `useTagsOnSongs(songIds)`       |
-|                     | `POST /songs/tags`       | `songs.ts` -> `useApplyTag()`                 |
-|                     | `DELETE /songs/tags`     | `songs.ts` -> `useUnapplyTag()`               |
-| `routes/queries.rs` | `GET /queries/results`   | `queries.ts` -> `useQueryResults()`           |
+| backend             | endpoint                        | hook                                          |
+| ------------------- | -------------------------------- | --------------------------------------------- |
+| `routes/tags.rs`    | `GET /tags`                      | `tags.ts` -> `useUserTags()`, `useTag(tagId)` |
+|                     | `POST /tags`                     | `tags.ts` -> `useCreateTag()`                 |
+|                     | `DELETE /tags`                   | `tags.ts` -> `useDeleteTag()`                 |
+|                     | `GET /tags/suggest`              | `tags.ts` -> `useSuggestTags()`               |
+| `routes/songs.rs`   | `GET /songs/tags`                | `songs.ts` -> `useTagsOnSong(songId)`         |
+|                     | `POST /songs/tags/batch`         | `songs.ts` -> `useTagsOnSongs(songIds)`       |
+|                     | `POST /songs/tags`               | `songs.ts` -> `useApplyTag()`                 |
+|                     | `PATCH /songs/tags`              | `songs.ts` -> `useSetTagValue()`              |
+|                     | `DELETE /songs/tags`             | `songs.ts` -> `useUnapplyTag()`               |
+| `routes/queries.rs` | `GET /queries/results`           | `queries.ts` -> `useQueryResults()`           |
+|                     | `GET /queries/advanced/results`  | `queries.ts` -> `useAdvancedQueryResults()`   |
 
 `GET /tags` has two hooks because the handler returns a tagged union: without `tag_id` it
 responds with `All { tags, metadata }`, with one it responds with `One { tag, song_ids }`.

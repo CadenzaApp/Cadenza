@@ -8,7 +8,10 @@ use crate::{
         tags::{TagMetadata, get_all_user_tags, get_songs_with_user_tag, get_tag, get_user_tags_metadata},
     },
     err::CadenzaError,
-    routes::json::{tag::Tag, vec_into},
+    routes::json::{
+        tag::{Tag, TagType},
+        vec_into,
+    },
     services::tag_generation::TagGenerationService,
 };
 use axum::{
@@ -70,6 +73,10 @@ async fn get_user_tags_handler(
 pub struct NewTagPayload {
     name: String,
     color: String,
+    /// Defaults to a basic tag, so clients that predate attribute tags keep
+    /// working unchanged.
+    #[serde(default, rename = "type")]
+    tag_type: TagType,
 }
 
 async fn new_user_tag_handler(
@@ -77,8 +84,14 @@ async fn new_user_tag_handler(
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Json(payload): Json<NewTagPayload>,
 ) -> Result<String, CadenzaError> {
-    let new_tag_id =
-        db::tags::new_user_tag(db, claims.user_id, payload.name, payload.color).await?;
+    let new_tag_id = db::tags::new_user_tag(
+        db,
+        claims.user_id,
+        payload.name,
+        payload.color,
+        payload.tag_type.into(),
+    )
+    .await?;
 
     Ok(new_tag_id.to_string())
 }

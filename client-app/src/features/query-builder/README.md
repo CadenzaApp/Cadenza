@@ -6,18 +6,18 @@ palette into a tree, hits submit, and gets back the song ids that match. Rendere
 
 ## Files
 
-| file                 | role                                                                                            |
-| -------------------- | ----------------------------------------------------------------------------------------------- |
-| `types.ts`           | `QueryNode` tree, `PaletteItem`, `SlotAddress`, and `QueryJSONNode` (the wire format).          |
-| `QueryBuilder.tsx`   | Renders the tree. Takes `root` / `setRoot` / `onSubmit` as props, handles drop and remove.      |
-| `QueryUtils.ts`      | Pure tree operations plus `queryNodeToJSON`, which compiles the tree for the wire.              |
-| `DragContext.tsx`    | `DragProvider` / `useDrag`. Drag state, the drop-zone registry, and the node-operator registry. |
-| `DraggablePill.tsx`  | A palette item you can pick up.                                                                 |
-| `DragGhost.tsx`      | The thing that follows your finger.                                                             |
-| `DropSlot.tsx`       | A registered drop target. Highlights when hovered, rejects redundant drops.                     |
-| `LogicNode.tsx`      | Renders an `AND` / `OR` / `NOT` box and its child slots. Exports `OPERATOR_COLORS`.             |
-| `PaletteSection.tsx` | The tag palette and the operator palette.                                                       |
-| `QueryResults.tsx`   | Post-submit view: the matched songs, playable, with the detail modal.                           |
+| file                 | role                                                                                                       |
+| -------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `types.ts`           | `QueryNode` tree, `PaletteItem`, `SlotAddress`, and `QueryJSONNode` (the wire format).                     |
+| `QueryBuilder.tsx`   | Renders the tree. Takes `root` / `setRoot` / `onSubmit` as props, handles drop and remove. Its "Advanced" button pushes `/advanced-query`. |
+| `QueryUtils.ts`      | Pure tree operations plus `queryNodeToJSON`, which compiles the tree for the wire.                         |
+| `DragContext.tsx`    | `DragProvider` / `useDrag`. Drag state, the drop-zone registry, and the node-operator registry.            |
+| `DraggablePill.tsx`  | A palette item you can pick up.                                                                             |
+| `DragGhost.tsx`      | The thing that follows your finger.                                                                          |
+| `DropSlot.tsx`       | A registered drop target. Highlights when hovered, rejects redundant drops.                                 |
+| `LogicNode.tsx`      | Renders an `AND` / `OR` / `NOT` box and its child slots. Exports `OPERATOR_COLORS`.                          |
+| `PaletteSection.tsx` | The tag palette and the operator palette.                                                                    |
+| `QueryResults.tsx`   | Post-submit view: the matched songs, playable, with the detail modal.                                       |
 
 ## The model
 
@@ -70,6 +70,9 @@ throws the string `"incomplete query"`.
 by how many of the queried tags it carries). Cadenza feeds those ids to `useSongInfo` for Apple
 Music metadata, then renders `QueryResults`. `resetQuery` clears the results and drops you back
 on the builder.
+
+Under "Create mix" is an "Advanced" button that pushes `/advanced-query`, the filter based
+builder for attribute tags. See [../advanced-query-builder/README.md](../advanced-query-builder/README.md).
 
 ## Connects to
 

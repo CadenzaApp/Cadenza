@@ -2,11 +2,12 @@ use std::collections::{HashMap, HashSet};
 
 use crate::db;
 use crate::err::CadenzaError;
+use crate::routes::json::advanced_query::AdvancedQuery;
 use crate::{AppState, auth::SupabaseClaims};
 use axum::extract::Query;
 use axum::routing::get;
 use axum::{
-    Router,
+    Json, Router,
     extract::State,
 };
 use axum_jwt_auth::Claims;
@@ -101,6 +102,35 @@ fn get_mentioned_tags(query: &Value, out: &mut HashSet<i64>) {
     }
 }
 
+#[derive(Deserialize)]
+struct AdvancedQueryResultsParams {
+    q: String,
+}
+
+/// Returns JSON array of ids of songs matching the given advanced query, sorted
+/// by song id. See `routes::json::advanced_query::AdvancedQuery` for the format
+/// of `q`.
+///
+/// JSON return value format:
+/// ```json
+/// [ "songid1", "songid2", ... ]
+/// ```
+async fn advanced_query_results_handler(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Query(params): Query<AdvancedQueryResultsParams>,
+) -> Result<Json<Vec<String>>, CadenzaError> {
+    let query: AdvancedQuery = serde_json::from_str(&params.q).map_err(|err| {
+        CadenzaError::QueryFormatError(format!("invalid advanced query: {}", err))
+    })?;
+
+    Ok(Json(
+        db::advanced_queries::run_advanced_query(&db, &query, claims.user_id).await?,
+    ))
+}
+
 pub fn get_queries_router() -> Router<AppState> {
-    Router::new().route("/results", get(query_results_handler))
+    Router::new()
+        .route("/results", get(query_results_handler))
+        .route("/advanced/results", get(advanced_query_results_handler))
 }

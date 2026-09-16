@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { CreateTagDialog } from "@/components/custom/create-tag-dialog";
 import { TagPill } from "@/components/custom/tag-pill";
+import { TagValueDialog } from "@/components/custom/tag-value-dialog";
 import { GlassSurface } from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
 
@@ -23,7 +24,11 @@ export function TagsPage({ focusedSong }: { focusedSong: FocusedSong }) {
     const insets = useSafeAreaInsets();
     const {
         songTags,
-        toggleTag,
+        selectTag,
+        valuePrompt,
+        onValueSubmit,
+        onValueRemove,
+        onValueDialogClose,
         createTagOpen,
         openCreateTag,
         onCreateTagOpenChange,
@@ -71,13 +76,13 @@ export function TagsPage({ focusedSong }: { focusedSong: FocusedSong }) {
                     heading="On this song"
                     tags={appliedTags}
                     emptyLabel="No tags on this song yet."
-                    onToggleTag={toggleTag}
+                    onSelectTag={selectTag}
                 />
                 <TagSection
                     heading="Your other tags"
                     tags={availableTags}
                     emptyLabel="Every tag you have is already on this song."
-                    onToggleTag={toggleTag}
+                    onSelectTag={selectTag}
                 />
             </ScrollView>
 
@@ -85,6 +90,16 @@ export function TagsPage({ focusedSong }: { focusedSong: FocusedSong }) {
                 open={createTagOpen}
                 onOpenChange={onCreateTagOpenChange}
                 onCreated={onTagCreated}
+            />
+
+            <TagValueDialog
+                open={valuePrompt != null}
+                tag={valuePrompt?.tag ?? null}
+                initialValue={valuePrompt?.initialValue}
+                mode={valuePrompt?.mode ?? "apply"}
+                onSubmit={onValueSubmit}
+                onRemove={onValueRemove}
+                onClose={onValueDialogClose}
             />
         </View>
     );
@@ -94,12 +109,12 @@ function TagSection({
     heading,
     tags,
     emptyLabel,
-    onToggleTag,
+    onSelectTag,
 }: {
     heading: string;
     tags: EditableSongTag[];
     emptyLabel: string;
-    onToggleTag: (tagId: number) => void;
+    onSelectTag: (tagId: number) => void;
 }) {
     return (
         <View className="gap-2">
@@ -118,7 +133,7 @@ function TagSection({
                             accessibilityRole="button"
                             accessibilityLabel={`${tag.applied ? "Remove" : "Add"} ${tag.name} tag`}
                             accessibilityState={{ selected: tag.applied }}
-                            onPress={() => onToggleTag(tag.id)}
+                            onPress={() => onSelectTag(tag.id)}
                             // Unapplied tags read as available rather than as
                             // absent, so they are dimmed, not restyled.
                             className={
@@ -127,7 +142,11 @@ function TagSection({
                                     : "opacity-45 active:opacity-70"
                             }
                         >
-                            <TagPill tag={tag} height={14} />
+                            <TagPill
+                                tag={tag}
+                                height={14}
+                                value={tag.applied ? tag.value : null}
+                            />
                         </Pressable>
                     ))}
                 </View>

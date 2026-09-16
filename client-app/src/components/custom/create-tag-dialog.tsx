@@ -1,7 +1,13 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTheme } from "expo-router/react-navigation";
 import { useState } from "react";
-import { ActivityIndicator, Pressable, View } from "react-native";
+import {
+    ActivityIndicator,
+    Pressable,
+    ScrollView,
+    useWindowDimensions,
+    View,
+} from "react-native";
 import {
     Dialog,
     DialogContent,
@@ -15,8 +21,43 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Text } from "@/components/ui/text";
 import { useCreateTag } from "@/lib/routes/tags";
+import {
+    TAG_TYPES,
+    TAG_TYPE_DESCRIPTIONS,
+    TAG_TYPE_ICONS,
+    TAG_TYPE_LABELS,
+} from "@/lib/tag-values";
+import { TagType } from "@/lib/types";
 
-const COLOR_BOX_SIZE = 44;
+// Light red used for the "Advanced" disclosure label + chevron.
+const ADVANCED_COLOR = "#f07a72";
+
+// DialogContent's `max-w-*` classes don't resolve on native, so the dialog
+// sizes itself to its widest child. We give it an explicit width instead and
+// derive every inner measurement from it.
+const MAX_DIALOG_WIDTH = 330;
+const SCREEN_MARGIN = 20;
+const DIALOG_PADDING = 24; // p-6
+const DIALOG_BORDER = 1;
+
+// The chevron sits to the right of the word "Advanced", which itself starts
+// flush with the "Tag Name" / "Color" labels above it.
+const CHEVRON_SIZE = 16;
+const CHEVRON_GAP = 4;
+
+const HELP_ICON_SIZE = 16;
+
+// The type icon sits to the left of each type option's label.
+const TYPE_ICON_SIZE = 16;
+const TYPE_ICON_GAP = 6;
+const TYPE_HELP_TEXT =
+    "A tag's type decides what kind of value it holds, so you can give each " +
+    "song a value for this tag. A tag's type cannot be changed later.";
+
+const COLOR_COLUMNS = 5;
+const GRID_GAP = 8;
+
+// 15 swatches laid out as 3 rows of 5: a full hue wheel plus two neutrals.
 const COLOR_OPTIONS: string[] = [
     "#da4a40",
     "#ce7129",
@@ -24,13 +65,21 @@ const COLOR_OPTIONS: string[] = [
     "#73dd2c",
     "#25924f",
     "#26c2aa",
+    "#22b8cf",
     "#1f93d6",
     "#3863d8",
     "#5644ce",
     "#963dd1",
     "#da34c1",
     "#d62f67",
+    "#8a5a3c",
+    "#6b7280",
 ];
+
+const COLOR_ROWS = Array.from(
+    { length: Math.ceil(COLOR_OPTIONS.length / COLOR_COLUMNS) },
+    (_, i) => i,
+);
 
 /**
  * The floating bubble that opens the create-tag dialog. This is the form the
@@ -54,7 +103,7 @@ export function CreateTagBubble() {
     );
 }
 
-/** Name and color picker for a new tag. Controlled: the caller owns `open`. */
+/** Name, color, and type picker for a new tag. Controlled: the caller owns `open`. */
 export function CreateTagDialog({
     open,
     onOpenChange,
@@ -68,13 +117,32 @@ export function CreateTagDialog({
     const { createTag, createTagErr, createTagLoading, resetCreateTag } =
         useCreateTag();
 
+    const { colors } = useTheme();
+    const { width: screenWidth } = useWindowDimensions();
+
+    const dialogWidth = Math.min(
+        screenWidth - SCREEN_MARGIN * 2,
+        MAX_DIALOG_WIDTH,
+    );
+    // Usable width inside the dialog's padding and border.
+    const innerWidth = dialogWidth - (DIALOG_PADDING + DIALOG_BORDER) * 2;
+    // Swatches stay square and together span the full inner width.
+    const colorBoxSize =
+        (innerWidth - GRID_GAP * (COLOR_COLUMNS - 1)) / COLOR_COLUMNS;
+
     const [name, setName] = useState("");
     const [selectedColor, setSelectedColor] = useState(COLOR_OPTIONS[0]);
+    const [selectedType, setSelectedType] = useState<TagType>("basic");
+    const [showAdvanced, setShowAdvanced] = useState(false);
+    const [showTypeHelp, setShowTypeHelp] = useState(false);
 
     function resetForm() {
         resetCreateTag();
         setName("");
         setSelectedColor(COLOR_OPTIONS[0]);
+        setSelectedType("basic");
+        setShowAdvanced(false);
+        setShowTypeHelp(false);
     }
 
     function setOpen(val: boolean) {
@@ -88,6 +156,7 @@ export function CreateTagDialog({
         const createdTagId = await createTag({
             name: name.trim(),
             color: selectedColor,
+            type: selectedType,
         });
         setOpen(false);
         if (typeof createdTagId === "number") onCreated?.(createdTagId);
@@ -95,7 +164,10 @@ export function CreateTagDialog({
 
     return (
         <Dialog open={open} onOpenChange={setOpen}>
-            <DialogContent>
+            <DialogContent
+                className="gap-3.5"
+                style={{ width: dialogWidth, maxWidth: dialogWidth }}
+            >
                 <DialogHeader>
                     <DialogTitle>Create New Tag</DialogTitle>
                     <DialogDescription>
@@ -103,7 +175,7 @@ export function CreateTagDialog({
                     </DialogDescription>
                 </DialogHeader>
 
-                <View className="gap-1.5 mb-4 mt-2">
+                <View className="gap-1.5">
                     <Label>Tag Name</Label>
                     <Input
                         value={name}
@@ -113,14 +185,18 @@ export function CreateTagDialog({
                     />
                 </View>
 
-                <View className="gap-1.5 mb-4">
+                <View className="gap-1.5">
                     <Label>Color</Label>
-                    <View className="gap-2">
-                        {[0, 1, 2].map((rowIndex) => (
-                            <View key={rowIndex} className="flex-row gap-2">
+                    <View style={{ gap: GRID_GAP }}>
+                        {COLOR_ROWS.map((rowIndex) => (
+                            <View
+                                key={rowIndex}
+                                className="flex-row"
+                                style={{ gap: GRID_GAP }}
+                            >
                                 {COLOR_OPTIONS.slice(
-                                    rowIndex * 4,
-                                    rowIndex * 4 + 4,
+                                    rowIndex * COLOR_COLUMNS,
+                                    rowIndex * COLOR_COLUMNS + COLOR_COLUMNS,
                                 ).map((color) => {
                                     const isSelected = color === selectedColor;
                                     return (
@@ -131,8 +207,8 @@ export function CreateTagDialog({
                                             }
                                             className={`rounded-md items-center justify-center ${isSelected ? "border-2 border-foreground" : ""}`}
                                             style={{
-                                                width: COLOR_BOX_SIZE,
-                                                height: COLOR_BOX_SIZE,
+                                                width: colorBoxSize,
+                                                height: colorBoxSize,
                                                 backgroundColor: color,
                                             }}
                                         />
@@ -143,13 +219,135 @@ export function CreateTagDialog({
                     </View>
                 </View>
 
+                <View>
+                    <Pressable
+                        onPress={() => setShowAdvanced((prev) => !prev)}
+                        hitSlop={8}
+                        className="flex-row items-center py-1 self-start"
+                        style={{ gap: CHEVRON_GAP }}
+                    >
+                        <Text
+                            className="text-sm font-medium"
+                            style={{ color: ADVANCED_COLOR }}
+                        >
+                            Advanced
+                        </Text>
+                        <Ionicons
+                            name={
+                                showAdvanced ? "chevron-down" : "chevron-forward"
+                            }
+                            size={CHEVRON_SIZE}
+                            color={ADVANCED_COLOR}
+                        />
+                    </Pressable>
+
+                    {showAdvanced && (
+                        <View
+                            className="gap-1.5 mt-1.5"
+                            style={{ width: innerWidth }}
+                        >
+                            <View
+                                className="flex-row items-center"
+                                style={{ gap: 6 }}
+                            >
+                                <Label>Type</Label>
+                                <Pressable
+                                    onPress={() =>
+                                        setShowTypeHelp((prev) => !prev)
+                                    }
+                                    onLongPress={() => setShowTypeHelp(true)}
+                                    hitSlop={10}
+                                    accessibilityRole="button"
+                                    accessibilityLabel="What are tag types?"
+                                    className="border-muted-foreground items-center justify-center rounded-full border"
+                                    style={{
+                                        width: HELP_ICON_SIZE,
+                                        height: HELP_ICON_SIZE,
+                                    }}
+                                >
+                                    <Text
+                                        className="text-muted-foreground font-bold"
+                                        style={{
+                                            fontSize: 10,
+                                            lineHeight: 12,
+                                        }}
+                                    >
+                                        ?
+                                    </Text>
+                                </Pressable>
+                            </View>
+
+                            {showTypeHelp && (
+                                <Pressable
+                                    onPress={() => setShowTypeHelp(false)}
+                                    className="border-border bg-secondary rounded-md border px-3 py-2"
+                                >
+                                    <Text className="text-muted-foreground text-xs">
+                                        {TYPE_HELP_TEXT}
+                                    </Text>
+                                </Pressable>
+                            )}
+
+                            <ScrollView
+                                horizontal
+                                showsHorizontalScrollIndicator={false}
+                                keyboardShouldPersistTaps="handled"
+                                className="flex-grow-0"
+                                style={{ width: innerWidth }}
+                                contentContainerClassName="flex-row gap-2 pr-2"
+                            >
+                                {TAG_TYPES.map((type) => {
+                                    const isSelected = type === selectedType;
+                                    return (
+                                        <Pressable
+                                            key={type}
+                                            onPress={() =>
+                                                setSelectedType(type)
+                                            }
+                                            className={`shrink-0 flex-row items-center rounded-md border px-3 py-2 ${
+                                                isSelected
+                                                    ? "border-foreground bg-secondary"
+                                                    : "border-border"
+                                            }`}
+                                            style={{ gap: TYPE_ICON_GAP }}
+                                        >
+                                            <Ionicons
+                                                name={TAG_TYPE_ICONS[type]}
+                                                size={TYPE_ICON_SIZE}
+                                                color={colors.text}
+                                                style={{
+                                                    opacity: isSelected
+                                                        ? 1
+                                                        : 0.6,
+                                                }}
+                                            />
+                                            <Text
+                                                className={`text-sm ${
+                                                    isSelected
+                                                        ? "text-foreground font-medium"
+                                                        : "text-muted-foreground"
+                                                }`}
+                                            >
+                                                {TAG_TYPE_LABELS[type]}
+                                            </Text>
+                                        </Pressable>
+                                    );
+                                })}
+                            </ScrollView>
+                            <Text className="text-muted-foreground text-xs">
+                                {TAG_TYPE_DESCRIPTIONS[selectedType]}
+                            </Text>
+                        </View>
+                    )}
+                </View>
+
                 {createTagErr && (
                     <Text className="text-destructive text-sm mb-2">
                         {JSON.stringify(createTagErr)}
                     </Text>
                 )}
 
-                <View className="flex-row gap-2.5 mt-1">
+                <View className="flex-row gap-2.5 mt-0.5">
                     <Button
                         variant="secondary"
                         onPress={() => setOpen(false)}
