@@ -37,6 +37,7 @@ client-app/             expo app
   src/features/         self-contained product features
   src/components/       ui/ primitives and custom/ app components
   modules/apple-musickit/  local native Expo module (swift + kotlin + ts)
+  modules/image-color/     local native Expo module, average color of an image
 ```
 
 `db-schema/`, `ml-service/`, `shared-spec/`, `infra/` do not exist yet. If a doc or a ticket
@@ -47,19 +48,24 @@ mentions them, they are aspirational.
 Read the README for the area you are about to touch **before** you start grepping. Each one
 gives you the file map, the flow, and the gotchas.
 
-| README | Covers |
-| --- | --- |
-| [backend-api/README.md](backend-api/README.md) | Backend setup, env vars, `main.rs` wiring, auth, errors |
-| [backend-api/src/routes/README.md](backend-api/src/routes/README.md) | Every HTTP endpoint and its request/response shape |
-| [backend-api/src/db/README.md](backend-api/src/db/README.md) | Query layer, the tag schema, the boolean query compiler |
-| [backend-api/src/services/README.md](backend-api/src/services/README.md) | LLM tag generation, the `TagGenerator` trait, tag normalization |
-| [client-app/README.md](client-app/README.md) | Client setup, env vars, path aliases, scripts |
-| [client-app/src/app/README.md](client-app/src/app/README.md) | expo-router layout, provider nesting, the five tabs |
-| [client-app/src/lib/README.md](client-app/src/lib/README.md) | SWR wrappers, endpoint hooks, the four providers |
-| [client-app/src/components/README.md](client-app/src/components/README.md) | `ui/` vs `custom/`, and which one gets new code |
-| [client-app/src/components/custom/media-player/README.md](client-app/src/components/custom/media-player/README.md) | The global player surface |
-| [client-app/src/features/query-builder/README.md](client-app/src/features/query-builder/README.md) | The drag and drop boolean query tree |
-| [client-app/modules/apple-musickit/README.md](client-app/modules/apple-musickit/README.md) | Native Apple Music auth, catalog, library, playback, mock mode |
+| README                                                                                                             | Covers                                                          |
+| ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------- |
+| [backend-api/README.md](backend-api/README.md)                                                                     | Backend setup, env vars, `main.rs` wiring, auth, errors         |
+| [backend-api/src/routes/README.md](backend-api/src/routes/README.md)                                               | Every HTTP endpoint and its request/response shape              |
+| [backend-api/src/db/README.md](backend-api/src/db/README.md)                                                       | Query layer, the tag schema, the boolean query compiler         |
+| [backend-api/src/services/README.md](backend-api/src/services/README.md)                                           | LLM tag generation, the `TagGenerator` trait, tag normalization |
+| [client-app/README.md](client-app/README.md)                                                                       | Client setup, env vars, path aliases, scripts                   |
+| [client-app/src/app/README.md](client-app/src/app/README.md)                                                       | expo-router layout, provider nesting, the five tabs             |
+| [client-app/src/lib/README.md](client-app/src/lib/README.md)                                                       | SWR wrappers, endpoint hooks, the four providers                |
+| [client-app/src/components/README.md](client-app/src/components/README.md)                                         | `ui/` vs `custom/`, and which one gets new code                 |
+| [client-app/src/components/custom/media-player/README.md](client-app/src/components/custom/media-player/README.md) | The global player surface                                       |
+| [client-app/src/features/cadenza/README.md](client-app/src/features/cadenza/README.md)                             | Combined tag management and query workspace                     |
+| [client-app/src/features/account/README.md](client-app/src/features/account/README.md)                             | Account, Apple Music, and Appearance settings                    |
+| [client-app/src/features/library/README.md](client-app/src/features/library/README.md)                             | The library type filter in the top rail                         |
+| [client-app/src/features/query-builder/README.md](client-app/src/features/query-builder/README.md)                 | The drag and drop boolean query tree                            |
+| [client-app/src/features/search/README.md](client-app/src/features/search/README.md)                               | Search tab recents and the tag shelf                            |
+| [client-app/modules/apple-musickit/README.md](client-app/modules/apple-musickit/README.md)                         | Native Apple Music auth, catalog, library, playback, mock mode  |
+| [client-app/modules/image-color/README.md](client-app/modules/image-color/README.md)                               | Native average color of a remote image                          |
 
 ## Keeping the READMEs current
 
@@ -103,6 +109,13 @@ next agent trusts it.
   both; do not spread that.
 - Screens go in `src/app/`. Anything with real logic belongs in `src/features/` or `src/lib/`,
   and the screen just wires it up.
+
+### Visual verification
+
+- Do not launch the app, a simulator, or an emulator unless the user explicitly asks the agent
+  to inspect the UI with its own tools.
+- Run code checks, then let the user verify UI changes on a real device. The simulator setup is
+  slower and less representative than the user's device.
 
 ### SWR and data fetching
 

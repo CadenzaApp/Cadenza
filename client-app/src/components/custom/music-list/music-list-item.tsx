@@ -1,5 +1,5 @@
 import { memo, useRef, useState } from "react";
-import { Image, Pressable, ScrollView, View } from "react-native";
+import { Image, Pressable, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTheme } from "expo-router/react-navigation";
 import { useColorScheme } from "nativewind";
@@ -13,22 +13,16 @@ import Animated, {
     useAnimatedStyle,
     withTiming,
 } from "react-native-reanimated";
-import Svg, {
-    Defs,
-    LinearGradient as SvgGradient,
-    Rect,
-    Stop,
-} from "react-native-svg";
-
 import type { MusicItem } from "@apple-musickit";
 
-import { TagPill } from "@/components/custom/tag-pill";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
 import { THEME } from "@/lib/theme";
 import type { Tag } from "@/lib/types";
 import { cn } from "@/lib/utils";
+
+import { TagFadeRail } from "./tag-fade-rail";
 
 type MusicListItemProps = {
     item: MusicItem;
@@ -169,6 +163,7 @@ export const MusicListItem = memo(function MusicListItem({
                 <Pressable
                     className={cn(
                         "flex-1 flex-row items-center overflow-hidden",
+                        "active:opacity-80",
                         compact ? "mr-2" : "mr-3",
                     )}
                     onPressIn={() => {
@@ -190,9 +185,6 @@ export const MusicListItem = memo(function MusicListItem({
                             : undefined
                     }
                     delayLongPress={300}
-                    style={({ pressed }) =>
-                        pressed ? { opacity: 0.85 } : undefined
-                    }
                     accessibilityRole="button"
                     accessibilityState={{ selected }}
                 >
@@ -246,69 +238,7 @@ export const MusicListItem = memo(function MusicListItem({
                         </View>
 
                         {itemTags.length > 0 && (
-                            <View className="relative">
-                                <ScrollView
-                                    horizontal
-                                    showsHorizontalScrollIndicator={false}
-                                    contentContainerStyle={{
-                                        gap: compact ? 4 : 6,
-                                        paddingRight: compact ? 16 : 24,
-                                    }}
-                                >
-                                    {itemTags.map((tag) => (
-                                        <TagPill
-                                            key={tag.id}
-                                            tag={tag}
-                                            height={compact ? 8 : 10}
-                                            compact={compact}
-                                        />
-                                    ))}
-                                </ScrollView>
-                                <View
-                                    pointerEvents="none"
-                                    style={{
-                                        position: "absolute",
-                                        right: 0,
-                                        top: 0,
-                                        bottom: 0,
-                                        width: compact ? 16 : 24,
-                                    }}
-                                >
-                                    <Svg width="100%" height="100%">
-                                        <Defs>
-                                            <SvgGradient
-                                                id={`tags-fade-${item.id}`}
-                                                x1="0%"
-                                                y1="0%"
-                                                x2="100%"
-                                                y2="0%"
-                                            >
-                                                <Stop
-                                                    offset="0%"
-                                                    stopColor={
-                                                        colors.background
-                                                    }
-                                                    stopOpacity={0}
-                                                />
-                                                <Stop
-                                                    offset="100%"
-                                                    stopColor={
-                                                        colors.background
-                                                    }
-                                                    stopOpacity={1}
-                                                />
-                                            </SvgGradient>
-                                        </Defs>
-                                        <Rect
-                                            x="0"
-                                            y="0"
-                                            width="100%"
-                                            height="100%"
-                                            fill={`url(#tags-fade-${item.id})`}
-                                        />
-                                    </Svg>
-                                </View>
-                            </View>
+                            <TagFadeRail tags={itemTags} compact={compact} />
                         )}
                     </View>
                 </Pressable>

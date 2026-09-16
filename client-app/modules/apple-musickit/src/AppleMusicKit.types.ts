@@ -45,7 +45,7 @@ export type MusicResourceKind = "song" | "album" | "playlist";
 export type MusicResourceSource = "catalog" | "library";
 
 /** Catalog resource types supported by search. */
-export type CatalogSearchType = "songs" | "albums";
+export type CatalogSearchType = "songs" | "albums" | "artists";
 
 /** Options shared by paginated Apple Music library requests. */
 export interface MusicKitOptions {
@@ -84,10 +84,17 @@ export interface MusicItem {
     title: string;
     /** Display name of the primary artist. */
     artistName?: string;
+    /** Apple Music catalog identifier of the primary artist. */
+    artistId?: string;
     /** Artwork URL suitable for lists and compact controls. */
     artworkUrl?: string;
     /** High-resolution artwork for immersive playback surfaces. */
     artworkUrlLarge?: string;
+    /**
+     * Representative color of the artwork, as `#rrggbb`. Apple's own, when it
+     * ships one. Library artwork often has none.
+     */
+    artworkColor?: string;
     /** Resource type to use when creating a playback queue. */
     playbackType: PlaybackQueueType;
     /** Apple Music identifier of the containing album. */
@@ -106,6 +113,24 @@ export interface MusicItem {
     shareUrl?: string;
 }
 
+/** How the player picks the next entry in the queue. */
+export enum ShuffleMode {
+    /** Play the queue in order. */
+    Off = "off",
+    /** Play the queue in a random order. */
+    Songs = "songs",
+}
+
+/** What the player does when it reaches the end of an entry or the queue. */
+export enum RepeatMode {
+    /** Stop at the end of the queue. */
+    Off = "off",
+    /** Repeat the current entry. */
+    One = "one",
+    /** Repeat the whole queue. */
+    All = "all",
+}
+
 /** Current state of the shared Apple Music playback session. */
 export interface PlaybackSnapshot {
     /** Whether audio is currently playing. */
@@ -118,13 +143,29 @@ export interface PlaybackSnapshot {
     duration?: number;
     /** Metadata for the active queue entry. */
     currentTrack?: MusicItem;
+    /** How the player picks the next entry. Absent when native cannot report it. */
+    shuffleMode?: ShuffleMode;
+    /** What the player repeats. Absent when native cannot report it. */
+    repeatMode?: RepeatMode;
+}
+
+/** The user's favorite state for an Apple Music resource. */
+export interface FavoriteStatus {
+    /** Whether the resource is currently in the user's favorites. */
+    isFavorite: boolean;
 }
 
 /** The user's favorite state for an Apple Music catalog song. */
-export interface SongFavoriteStatus {
-    /** Whether the song is currently in the user's favorites. */
-    isFavorite: boolean;
-}
+export type SongFavoriteStatus = FavoriteStatus;
+
+/** The user's favorite state for an Apple Music album. */
+export type AlbumFavoriteStatus = FavoriteStatus;
+
+/** The user's favorite state for an Apple Music playlist. */
+export type PlaylistFavoriteStatus = FavoriteStatus;
+
+/** Which library collection kind a `MusicItem` or a favorite call refers to. */
+export type CollectionFavoriteKind = "albums" | "playlists";
 
 /** Catalog search results grouped by Apple Music resource type. */
 export interface SearchResult {
@@ -136,6 +177,10 @@ export interface SearchResult {
     hasNextSongs: boolean;
     /** Whether another page of matching albums is available. */
     hasNextAlbums: boolean;
+    /** Artists matching the search query. */
+    artists: ArtistItem[];
+    /** Whether another page of matching artists is available. */
+    hasNextArtists: boolean;
     /** Offset supplied by Apple for the next songs page. */
     nextSongsOffset?: number;
 }
@@ -148,4 +193,61 @@ export interface LibraryResult {
     hasNextPage: boolean;
     /** Offset supplied by Apple for the next page. */
     nextOffset?: number;
+}
+
+/**
+ * An Apple Music artist as it appears in a list. Deliberately not a `MusicItem`:
+ * an artist is not queueable, so it has no `playbackType` and `MusicResourceKind`
+ * stays free of an `"artist"` case.
+ */
+export interface ArtistItem {
+    /** Canonical identifier. The catalog ID when one is known, the library ID otherwise. */
+    id: string;
+    /** Display name of the artist. */
+    name: string;
+    /** Artwork URL, when Apple has one. Library artists often do not. */
+    artworkUrl?: string;
+    /** Representative color of the artwork, as `#rrggbb`, when Apple ships one. */
+    artworkColor?: string;
+    /** Whether the artist came from the catalog or the user's library. */
+    source: MusicResourceSource;
+    /** Apple Music catalog identifier, when one is available. */
+    catalogId?: string;
+    /** Apple Music library identifier, when one is available. */
+    libraryId?: string;
+}
+
+/** A page of artists returned by a library or search request. */
+export interface ArtistResult {
+    /** Normalized artists returned by the request. */
+    items: ArtistItem[];
+    /** Whether another page is available. Native modules normalize this value. */
+    hasNextPage: boolean;
+    /** Offset supplied by Apple for the next page. */
+    nextOffset?: number;
+}
+
+/** An Apple Music catalog artist and the resources Apple returns alongside it. */
+export interface ArtistDetail {
+    /** Apple Music catalog identifier for the artist. */
+    id: string;
+    /** Display name of the artist. */
+    name: string;
+    /** Artwork URL suitable for an artist header, at hero resolution. */
+    artworkUrl?: string;
+    /**
+     * The same artwork, small. Shown while the hero one downloads, so the page
+     * is never a blank rectangle.
+     */
+    artworkUrlSmall?: string;
+    /** Representative color of the artwork, as `#rrggbb`, when Apple ships one. */
+    artworkColor?: string;
+    /** Genre names Apple associates with the artist. */
+    genres?: string[];
+    /** The artist's most popular songs, in Apple's order. */
+    topSongs: MusicItem[];
+    /** The artist's albums, in Apple's order. */
+    albums: MusicItem[];
+    /** Canonical Apple Music URL for the artist. */
+    shareUrl?: string;
 }

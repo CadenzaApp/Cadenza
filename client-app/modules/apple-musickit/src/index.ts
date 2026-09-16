@@ -1,14 +1,20 @@
 import { requireOptionalNativeModule } from "expo-modules-core";
 
 import type {
+    ArtistDetail,
+    ArtistResult,
     AuthResult,
     CatalogSearchType,
+    CollectionFavoriteKind,
+    FavoriteStatus,
     LibraryResult,
     LibrarySongOptions,
     MusicItem,
     MusicKitOptions,
     PlaybackSnapshot,
+    RepeatMode,
     SearchResult,
+    ShuffleMode,
     SongFavoriteStatus,
 } from "./AppleMusicKit.types";
 import { Auth, configureAuthNative } from "./auth";
@@ -40,8 +46,23 @@ export interface AppleMusicKitNativeModule {
     ): Promise<SearchResult>;
     getUserPlaylists(options?: MusicKitOptions): Promise<LibraryResult>;
     getLibrarySongs(options?: LibrarySongOptions): Promise<LibraryResult>;
+    searchLibrarySongs(
+        term: string,
+        options?: MusicKitOptions,
+    ): Promise<LibraryResult>;
     getPlaylistSongs(
         playlistId: string,
+        options?: MusicKitOptions,
+    ): Promise<LibraryResult>;
+    getLibraryAlbums(options?: MusicKitOptions): Promise<LibraryResult>;
+    getLibraryArtists(options?: MusicKitOptions): Promise<ArtistResult>;
+    searchLibraryArtists(
+        term: string,
+        options?: MusicKitOptions,
+    ): Promise<ArtistResult>;
+    getRecentlyAdded(options?: MusicKitOptions): Promise<LibraryResult>;
+    getAlbumSongs(
+        albumId: string,
         options?: MusicKitOptions,
     ): Promise<LibraryResult>;
     getSongFavoriteStatus(id: string): Promise<SongFavoriteStatus>;
@@ -59,6 +80,35 @@ export interface AppleMusicKitNativeModule {
         ids: readonly string[],
         types: readonly string[],
     ): Promise<void>;
+    insertSongsNextInQueue(
+        ids: readonly string[],
+        types: readonly string[],
+    ): Promise<void>;
+    moveQueueItem(fromIndex: number, toIndex: number): Promise<void>;
+    removeQueueItem(index: number): Promise<void>;
+    playQueueItem(index: number): Promise<void>;
+    setShuffleMode(mode: ShuffleMode): Promise<void>;
+    setRepeatMode(mode: RepeatMode): Promise<void>;
+    addSongsToPlaylist(
+        playlistId: string,
+        ids: readonly string[],
+    ): Promise<void>;
+    createPlaylist(name: string, ids: readonly string[]): Promise<MusicItem>;
+    getSongArtists(songId: string): Promise<string[]>;
+    getArtist(artistId: string): Promise<ArtistDetail>;
+    getCollectionFavoriteStatus(
+        kind: CollectionFavoriteKind,
+        id: string,
+    ): Promise<FavoriteStatus>;
+    setCollectionFavoriteStatus(
+        kind: CollectionFavoriteKind,
+        id: string,
+        isFavorite: boolean,
+    ): Promise<FavoriteStatus>;
+    getCollectionInfo(
+        kind: CollectionFavoriteKind,
+        ids: string[],
+    ): Promise<MusicItem[]>;
 }
 
 // Set EXPO_PUBLIC_MOCK_MUSICKIT=1 to answer from ./mock-native instead of the

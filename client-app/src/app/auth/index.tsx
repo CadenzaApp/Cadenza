@@ -41,7 +41,7 @@ export default function AuthPage() {
 
     // already logged in
     if (account != null) {
-        return <Redirect href="/home" />;
+        return <Redirect href="/library" />;
     }
 
     return (

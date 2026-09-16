@@ -9,11 +9,19 @@
 
 import type { AppleMusicKitNativeModule } from "./index";
 import {
+    ArtistDetail,
+    ArtistItem,
+    ArtistResult,
+    CollectionFavoriteKind,
+    FavoriteStatus,
     LibraryResult,
     LibrarySongOptions,
     MusicItem,
     MusicKitOptions,
+    MusicResourceSource,
+    RepeatMode,
     SearchResult,
+    ShuffleMode,
     AuthStatus,
     AuthResult,
     PlaybackQueueType,
@@ -38,9 +46,15 @@ function normalizeMockItems(
             source === "catalog" ? (item.catalogId ?? item.id) : item.catalogId,
         libraryId:
             source === "library" ? (item.libraryId ?? item.id) : item.libraryId,
+        artistId: item.artistId ?? mockArtistId(item.artistName),
         artworkUrlLarge:
             item.artworkUrlLarge ??
             item.artworkUrl?.replace("/200/200", "/1200/1200"),
+        // Catalog only, the way Apple ships it: library artwork carries no
+        // bgColor, so the client falls back to averaging the image itself.
+        artworkColor:
+            item.artworkColor ??
+            (source === "catalog" ? mockArtworkColor(item.id) : undefined),
         shareUrl:
             item.shareUrl ??
             (source === "catalog"
@@ -49,8 +63,32 @@ function normalizeMockItems(
     }));
 }
 
+/**
+ * Derived from the name so the fixtures do not have to carry one each. Every
+ * song by the same artist lands on the same id, which is all the artist screen
+ * needs.
+ */
+function mockArtistId(artistName?: string): string | undefined {
+    const normalized = artistName?.trim();
+    if (!normalized) return undefined;
+    return `a.${encodeURIComponent(normalized.toLowerCase())}`;
+}
+
 function mockArtworkUrl(seed: string) {
     return `https://picsum.photos/seed/${seed}/200/200`;
+}
+
+/**
+ * A stable color per fixture, so the tinted surfaces are exercisable in Expo
+ * Go. Hashed rather than listed, for the same reason `mockArtistId` is derived:
+ * the fixtures should not have to carry one each.
+ */
+function mockArtworkColor(seed: string) {
+    let hash = 0;
+    for (const character of seed) {
+        hash = (hash * 31 + character.charCodeAt(0)) % 0xffffff;
+    }
+    return `#${hash.toString(16).padStart(6, "0")}`;
 }
 
 export const MOCK_AUTH_RESULT: AuthResult = {
@@ -440,6 +478,42 @@ export const MOCK_PLAYLIST_TRACKS: Record<string, MusicItem[]> = {
     "p.qX7NvR2WbKmZ9Lt": [],
 };
 
+/**
+ * getLibraryAlbums and getAlbumSongs, derived from the library songs rather
+ * than written out, so every album the list shows actually has tracks behind
+ * it and the two can never drift apart.
+ */
+const MOCK_LIBRARY_ALBUM_TRACKS = new Map<string, MusicItem[]>();
+for (const song of MOCK_LIBRARY_SONGS) {
+    if (!song.albumID) continue;
+    const tracks = MOCK_LIBRARY_ALBUM_TRACKS.get(song.albumID);
+    if (tracks) tracks.push(song);
+    else MOCK_LIBRARY_ALBUM_TRACKS.set(song.albumID, [song]);
+}
+
+export const MOCK_LIBRARY_ALBUMS = normalizeMockItems(
+    [...MOCK_LIBRARY_ALBUM_TRACKS].map(([albumID, tracks]) => ({
+        id: albumID,
+        title: tracks[0].albumName ?? "Unknown Album",
+        artistName: tracks[0].artistName,
+        artworkUrl: tracks[0].artworkUrl,
+    })),
+    "album",
+    "library",
+    PlaybackQueueType.Album,
+);
+
+/**
+ * getRecentlyAdded. Mixed on purpose: the real endpoint returns whole albums
+ * and playlists alongside the songs that were added on their own, so the mock
+ * interleaves the three kinds instead of listing every song.
+ */
+export const MOCK_RECENTLY_ADDED = interleaveMockItems([
+    MOCK_LIBRARY_ALBUMS,
+    MOCK_PLAYLISTS,
+    MOCK_LIBRARY_SONGS.filter((song) => !song.albumID),
+]);
+
 /** Native queries cross the bridge and hit the network - leave loading states time to show. */
 const QUERY_LATENCY_MS = 220;
 
@@ -464,6 +538,74 @@ const MOCK_FAVORITE_IDS = new Set<string>([
     MOCK_LIBRARY_SONGS[1].id,
 ]);
 
+const ALL_MOCK_COLLECTIONS = [...MOCK_LIBRARY_ALBUMS, ...MOCK_PLAYLISTS];
+const MOCK_COLLECTIONS_BY_ID = new Map<string, MusicItem>();
+for (const collection of ALL_MOCK_COLLECTIONS) {
+    for (const id of [collection.id, collection.catalogId, collection.libraryId]) {
+        if (id) MOCK_COLLECTIONS_BY_ID.set(id, collection);
+    }
+}
+/** Favoriting a personal (library-only) playlist has no catalog counterpart to rate. */
+const MOCK_COLLECTION_FAVORITE_IDS = new Set<string>(
+    MOCK_LIBRARY_ALBUMS[0] ? [MOCK_LIBRARY_ALBUMS[0].id] : [],
+);
+
+/**
+ * Artists, derived from the song fixtures the same way the library albums are.
+ * `mockArtistId` already stamps every song with an id built from its artist
+ * name, so uniquing on that id gives one artist per name without the fixtures
+ * carrying an artist list that could drift.
+ */
+function deriveMockArtists(
+    songs: MusicItem[],
+    source: MusicResourceSource,
+): ArtistItem[] {
+    const byId = new Map<string, ArtistItem>();
+    for (const song of songs) {
+        if (!song.artistId || !song.artistName) continue;
+        if (byId.has(song.artistId)) continue;
+        byId.set(song.artistId, {
+            id: song.artistId,
+            name: song.artistName,
+            artworkUrl: song.artworkUrl,
+            artworkColor: song.artworkColor,
+            source,
+            // Mock library artists always resolve, so the tap path into the
+            // catalog artist screen is exercisable in Expo Go.
+            catalogId: song.artistId,
+            libraryId: source === "library" ? `r.${song.artistId}` : undefined,
+        });
+    }
+    return [...byId.values()];
+}
+
+const MOCK_CATALOG_ARTISTS = deriveMockArtists(MOCK_CATALOG_SONGS, "catalog");
+const MOCK_LIBRARY_ARTISTS = deriveMockArtists(MOCK_LIBRARY_SONGS, "library");
+
+function matchesArtistQuery(artist: ArtistItem, query: string) {
+    return artist.name.toLowerCase().includes(query);
+}
+
+/** The artist counterpart to `paginatedResult`. */
+function paginatedArtistResult(
+    artists: ArtistItem[],
+    options?: MusicKitOptions,
+): ArtistResult {
+    const limit = Math.max(
+        1,
+        Math.trunc(options?.limit ?? DEFAULT_LIBRARY_LIMIT),
+    );
+    const offset = Math.max(0, Math.trunc(options?.offset ?? 0));
+    const items = artists.slice(offset, offset + limit);
+    const nextOffset = offset + items.length;
+    const hasNextPage = nextOffset < artists.length;
+    return {
+        items,
+        hasNextPage,
+        nextOffset: hasNextPage ? nextOffset : undefined,
+    };
+}
+
 function respond<T>(value: T, latency = QUERY_LATENCY_MS): Promise<T> {
     return new Promise((resolve) => setTimeout(() => resolve(value), latency));
 }
@@ -472,6 +614,19 @@ function matchesQuery(item: MusicItem, query: string) {
     return [item.title, item.artistName, item.albumName].some((field) =>
         field?.toLowerCase().includes(query),
     );
+}
+
+/** Round-robins the groups so every kind shows up near the top of the feed. */
+function interleaveMockItems(groups: MusicItem[][]): MusicItem[] {
+    const longest = Math.max(0, ...groups.map((group) => group.length));
+    const items: MusicItem[] = [];
+    for (let index = 0; index < longest; index += 1) {
+        for (const group of groups) {
+            const item = group[index];
+            if (item) items.push(item);
+        }
+    }
+    return items;
 }
 
 function paginatedResult(
@@ -538,6 +693,11 @@ export function createMockNativeModule(): AppleMusicKitNativeModule {
     let queueIndex = 0;
     let playbackTime = 0;
     let playbackStartedAt: number | null = null;
+    let shuffleMode = ShuffleMode.Off;
+    let repeatMode = RepeatMode.Off;
+    // Playlists the mock session created, so a create then an add behaves the
+    // same way it does against the real library.
+    const createdPlaylists: MusicItem[] = [];
 
     function currentPlaybackTime(): number {
         const elapsed =
@@ -591,6 +751,8 @@ export function createMockNativeModule(): AppleMusicKitNativeModule {
                 progress: currentPlaybackTime(),
                 duration: currentTrack?.songDuration,
                 currentTrack,
+                shuffleMode,
+                repeatMode,
             };
             return respond(snapshot, COMMAND_LATENCY_MS);
         },
@@ -650,12 +812,19 @@ export function createMockNativeModule(): AppleMusicKitNativeModule {
             const albums = types.includes("albums")
                 ? MOCK_ALBUMS.filter((album) => matchesQuery(album, term))
                 : [];
+            const artists = types.includes("artists")
+                ? MOCK_CATALOG_ARTISTS.filter((artist) =>
+                      matchesArtistQuery(artist, term),
+                  )
+                : [];
             const pageSongs = songs.slice(offset, offset + limit);
             return respond<SearchResult>({
                 songs: pageSongs,
                 albums: albums.slice(offset, offset + limit),
                 hasNextSongs: offset + limit < songs.length,
                 hasNextAlbums: offset + limit < albums.length,
+                artists: artists.slice(offset, offset + limit),
+                hasNextArtists: offset + limit < artists.length,
                 nextSongsOffset:
                     offset + pageSongs.length < songs.length
                         ? offset + pageSongs.length
@@ -669,10 +838,47 @@ export function createMockNativeModule(): AppleMusicKitNativeModule {
         getLibrarySongs: (options?: LibrarySongOptions) =>
             respond(paginatedResult(sortedLibrarySongs(options), options)),
 
+        searchLibrarySongs: (term: string, options?: MusicKitOptions) =>
+            respond(
+                paginatedResult(
+                    MOCK_LIBRARY_SONGS.filter((song) =>
+                        matchesQuery(song, term.trim().toLowerCase()),
+                    ),
+                    options,
+                ),
+            ),
+
+        getLibraryArtists: (options?: MusicKitOptions) =>
+            respond(paginatedArtistResult(MOCK_LIBRARY_ARTISTS, options)),
+
+        searchLibraryArtists: (term: string, options?: MusicKitOptions) =>
+            respond(
+                paginatedArtistResult(
+                    MOCK_LIBRARY_ARTISTS.filter((artist) =>
+                        matchesArtistQuery(artist, term.trim().toLowerCase()),
+                    ),
+                    options,
+                ),
+            ),
+
         getPlaylistSongs: (playlistId: string, options?: MusicKitOptions) =>
             respond(
                 paginatedResult(
                     MOCK_PLAYLIST_TRACKS[playlistId] ?? [],
+                    options,
+                ),
+            ),
+
+        getLibraryAlbums: (options?: MusicKitOptions) =>
+            respond(paginatedResult(MOCK_LIBRARY_ALBUMS, options)),
+
+        getRecentlyAdded: (options?: MusicKitOptions) =>
+            respond(paginatedResult(MOCK_RECENTLY_ADDED, options)),
+
+        getAlbumSongs: (albumId: string, options?: MusicKitOptions) =>
+            respond(
+                paginatedResult(
+                    MOCK_LIBRARY_ALBUM_TRACKS.get(albumId) ?? [],
                     options,
                 ),
             ),
@@ -686,6 +892,31 @@ export function createMockNativeModule(): AppleMusicKitNativeModule {
             if (isFavorite) MOCK_FAVORITE_IDS.add(id);
             else MOCK_FAVORITE_IDS.delete(id);
             return respond<SongFavoriteStatus>({ isFavorite });
+        },
+
+        getCollectionInfo: (kind: CollectionFavoriteKind, ids: string[]) =>
+            respond(
+                ids
+                    .map((id) => MOCK_COLLECTIONS_BY_ID.get(id))
+                    .filter((collection) => collection !== undefined),
+            ),
+
+        getCollectionFavoriteStatus: (
+            kind: CollectionFavoriteKind,
+            id: string,
+        ) =>
+            respond<FavoriteStatus>({
+                isFavorite: MOCK_COLLECTION_FAVORITE_IDS.has(id),
+            }),
+
+        setCollectionFavoriteStatus: (
+            kind: CollectionFavoriteKind,
+            id: string,
+            isFavorite: boolean,
+        ) => {
+            if (isFavorite) MOCK_COLLECTION_FAVORITE_IDS.add(id);
+            else MOCK_COLLECTION_FAVORITE_IDS.delete(id);
+            return respond<FavoriteStatus>({ isFavorite });
         },
 
         setPlaybackQueue: (id: string, type: string) => {
@@ -723,5 +954,132 @@ export function createMockNativeModule(): AppleMusicKitNativeModule {
             );
             return respond(undefined, COMMAND_LATENCY_MS);
         },
+
+        insertSongsNextInQueue: (
+            ids: readonly string[],
+            types: readonly string[],
+        ) => {
+            const songs = ids.flatMap((id, index) =>
+                buildQueue(id, types[index] ?? "song"),
+            );
+            queue.splice(queueIndex + 1, 0, ...songs);
+            return respond(undefined, COMMAND_LATENCY_MS);
+        },
+
+        moveQueueItem: (fromIndex: number, toIndex: number) => {
+            const from = boundedQueueIndex(fromIndex);
+            const to = boundedQueueIndex(toIndex);
+            if (from === null || to === null || from === to) {
+                return respond(undefined, COMMAND_LATENCY_MS);
+            }
+
+            const [moved] = queue.splice(from, 1);
+            queue.splice(to, 0, moved);
+            // The playing entry keeps playing wherever it landed.
+            if (from === queueIndex) queueIndex = to;
+            else if (from < queueIndex && to >= queueIndex) queueIndex -= 1;
+            else if (from > queueIndex && to <= queueIndex) queueIndex += 1;
+            return respond(undefined, COMMAND_LATENCY_MS);
+        },
+
+        removeQueueItem: (index: number) => {
+            const target = boundedQueueIndex(index);
+            if (target === null) {
+                return respond(undefined, COMMAND_LATENCY_MS);
+            }
+
+            queue.splice(target, 1);
+            if (target < queueIndex) queueIndex -= 1;
+            queueIndex = Math.max(0, Math.min(queueIndex, queue.length - 1));
+            return respond(undefined, COMMAND_LATENCY_MS);
+        },
+
+        playQueueItem: (index: number) => {
+            const target = boundedQueueIndex(index);
+            if (target === null || target === queueIndex) {
+                return respond(undefined, COMMAND_LATENCY_MS);
+            }
+
+            // Skipping forward drops what was skipped over, the way Apple
+            // Music's up-next list does. Skipping back just moves.
+            if (target > queueIndex) {
+                queue.splice(queueIndex + 1, target - queueIndex - 1);
+                queueIndex += 1;
+            } else {
+                queueIndex = target;
+            }
+            playbackTime = 0;
+            playbackStartedAt = isPlaying ? Date.now() : null;
+            return respond(undefined, COMMAND_LATENCY_MS);
+        },
+
+        setShuffleMode: (mode: ShuffleMode) => {
+            shuffleMode = mode;
+            return respond(undefined, COMMAND_LATENCY_MS);
+        },
+
+        setRepeatMode: (mode: RepeatMode) => {
+            repeatMode = mode;
+            return respond(undefined, COMMAND_LATENCY_MS);
+        },
+
+        addSongsToPlaylist: (playlistId: string, ids: readonly string[]) => {
+            const tracks = ids
+                .map((id) => MOCK_SONGS_BY_ID.get(id))
+                .filter((song): song is MusicItem => song !== undefined);
+            MOCK_PLAYLIST_TRACKS[playlistId] = [
+                ...(MOCK_PLAYLIST_TRACKS[playlistId] ?? []),
+                ...tracks,
+            ];
+            return respond(undefined, COMMAND_LATENCY_MS);
+        },
+
+        createPlaylist: (name: string, ids: readonly string[]) => {
+            const playlist: MusicItem = {
+                id: `p.mock-${createdPlaylists.length + 1}`,
+                resourceKind: "playlist",
+                source: "library",
+                libraryId: `p.mock-${createdPlaylists.length + 1}`,
+                title: name,
+                playbackType: PlaybackQueueType.Playlist,
+            };
+            createdPlaylists.push(playlist);
+            MOCK_PLAYLISTS.push(playlist);
+            MOCK_PLAYLIST_TRACKS[playlist.id] = ids
+                .map((id) => MOCK_SONGS_BY_ID.get(id))
+                .filter((song): song is MusicItem => song !== undefined);
+            return respond(playlist, COMMAND_LATENCY_MS);
+        },
+
+        getSongArtists: (songId: string) => {
+            const song = MOCK_SONGS_BY_ID.get(songId);
+            return respond(song?.artistId ? [song.artistId] : []);
+        },
+
+        getArtist: (artistId: string) => {
+            const songs = ALL_MOCK_SONGS.filter(
+                (song) => song.artistId === artistId,
+            );
+            const albumIds = new Set(
+                songs.map((song) => song.albumID).filter(Boolean),
+            );
+            const artist: ArtistDetail = {
+                id: artistId,
+                name: songs[0]?.artistName ?? "Unknown Artist",
+                artworkUrl: songs[0]?.artworkUrlLarge ?? songs[0]?.artworkUrl,
+                artworkUrlSmall: songs[0]?.artworkUrl,
+                artworkColor: songs[0]?.artworkColor,
+                topSongs: songs.slice(0, 10),
+                albums: MOCK_ALBUMS.filter((album) => albumIds.has(album.id)),
+            };
+            return respond(artist);
+        },
     };
+
+    /** Null rather than a clamped value, so a stale index is a no-op. */
+    function boundedQueueIndex(index: number): number | null {
+        const target = Math.trunc(index);
+        if (!Number.isFinite(target)) return null;
+        return target >= 0 && target < queue.length ? target : null;
+    }
 }
