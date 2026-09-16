@@ -10,7 +10,7 @@ import { AppleMusicProvider } from "@/lib/apple-music-auth";
 import { SongInitProvider } from "@/lib/song-init";
 import { PlaybackProvider } from "@/lib/playback";
 import { BottomBarsOverlay } from "@/components/custom/bottom-bars-overlay";
-import { TasksProvider } from "@/components/custom/tasks";
+import { TasksHost, TasksProvider } from "@/components/custom/tasks";
 import { TabSelectionProvider } from "@/components/custom/tab-bar";
 import {
     GlassBlurTarget,
@@ -35,7 +35,8 @@ export default function RootLayout() {
             <AccountProvider>
                 <AppleMusicProvider>
                     {/* above SongInitProvider, which adds a task while it
-                        still has songs to tag */}
+                        still has songs to tag. the rows are drawn by
+                        TasksHost, further down */}
                     <TasksProvider>
                         <SongInitProvider>
                             <PlaybackProvider>
@@ -118,6 +119,10 @@ export default function RootLayout() {
                                                                 </Stack>
                                                             </GlassBlurTarget>
                                                             <BottomBarsOverlay />
+                                                            {/* Beside the target rather than up
+                                                            with its provider, so its glass blurs
+                                                            on Android. */}
+                                                            <TasksHost />
                                                             {/* After the bars, so on Android a
                                                             portal popup's dim covers them. */}
                                                             <PortalHost />

@@ -88,7 +88,7 @@ variables), `tailwind.config.js`, and `global.css`. Class merging goes through
 | `options-menu/` | The song, album, and playlist "..." menus, on liquid glass. See below. |
 | `song-tag-editor.tsx` | `useSongTagEditor`, the tag-editing data for one song id: user tags annotated as applied, the toggle mutation, and the "New" tag dialog's open state. Used by `media-player/tags-page.tsx`, the now-playing sheet's Tags page. |
 | `tag-pill.tsx` | A tag chip, colored from `tag.color`. Also exports `readableTextColor`. |
-| `tasks.tsx` | `TasksProvider` / `useTasks`. Holds the running tasks and floats one spinner row per task under the top rail, on the right. See below. |
+| `tasks.tsx` | `TasksProvider` / `useTasks` / `TasksHost`. Holds the running tasks and floats one spinner row per task under the top rail, on the right. See below. |
 | `create-tag-dialog.tsx` | `CreateTagDialog` (controlled name + color picker, calls `useCreateTag`) and `CreateTagBubble` (floating trigger + dialog). |
 | `modal-popup.tsx` | Small anchored popup used by the options menus and the selection actions. `variant="glass"` renders the card on `GlassSurface` instead of the flat popover background; every other caller is unaffected. On Android the glass variant renders through `PortalHost` instead of an RN `Modal`, so its glass blurs the app behind it. |
 | `bottom-bars-overlay.tsx` | Mounts the global tab bar and mini player in iOS's window overlay so native detail screens cannot cover them. |
@@ -102,16 +102,21 @@ variables), `tailwind.config.js`, and `global.css`. Class merging goes through
 | `media-player/` | The mini player and the now playing sheet body. See [custom/media-player/README.md](custom/media-player/README.md). |
 
 `tasks.tsx` is the provider and its UI in one file, the same shape as `tab-bar.tsx`.
-`useTasks()` hands back `addTask(label)`, which returns an id, and `endTask(id, status)`, where
-status is `"success"` or `"fail"`. Both keep the same identity
-for the life of the provider, so an effect can list them in its dependencies. A label is fixed for
-the life of its task; there is no way to change one. The provider draws the rows itself, right
-under `{children}`, and draws nothing while it holds no task.
+`useTasks()` hands back `addTask(label)`, which returns an id, then `endTaskSuccess(id)` and
+`endTaskFail(id, message)` to finish with. All three keep the same identity
+for the life of the provider, so an effect can list them in its dependencies. The rows live in a
+second context of their own, which is what keeps that true: a new task changes the list without
+touching the three functions. A label is fixed while the task runs. Only a failure changes it,
+for its message: a caller that wants the label kept passes it back as the message.
+
+`TasksProvider` draws nothing. `TasksHost` does, and the root layout mounts it much lower, beside
+`GlassBlurTarget`, for the blur target below. It draws nothing while there is no task.
 
 Ending a task does not remove its row. The row swaps its spinner for an Ionicons
 `checkmark-circle` or `close-circle` and stays a second, then goes. So a task is on screen for at
-least that second, and `endTask` on a task that is already ending does nothing rather than
-restarting the second. Spinner and icon
+least that second, and ending a task that is already ending does nothing rather than
+restarting the second. A failure draws its cross and its message in `destructive` red, which is
+the only thing that colors a row. Spinner and icon
 sit in the same 20pt box, so the row does not resize when one replaces the other.
 
 The rows start below the top rail: safe area, then `TOP_RAIL_HEIGHT` from `top-rail.tsx`, then a
@@ -122,9 +127,9 @@ them. On iOS the stack goes in a
 `FullWindowOverlay`, for the same reason `BottomBarsOverlay` does: a native presentation otherwise
 draws over ordinary React siblings. The row paints its background with a `GlassSurface` layer
 under the border and the shadow, the same shape the compact player uses, since a view that clips
-itself cannot also carry an iOS shadow. The provider is mounted above `GlassBlurTargetProvider`,
-so on Android that glass has no blur target and paints a semi-transparent fill instead of a
-blur.
+itself cannot also carry an iOS shadow. That glass is the whole reason `TasksHost` is a separate
+component: mounted inside `TasksProvider`, which sits above `GlassBlurTargetProvider`, it reads no
+blur target and Android falls back to a flat fill.
 
 ### custom/music-list/
 

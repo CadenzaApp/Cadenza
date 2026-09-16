@@ -17,6 +17,7 @@ import { TOP_RAIL_HEIGHT } from "@/components/custom/top-rail";
 import { GlassSurface } from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
 import { NAV_THEME, THEME } from "@/lib/theme";
+import { cn } from "@/lib/utils";
 
 /** How a task turned out. The row draws one icon per value. */
 export type TaskStatus = "success" | "fail";
@@ -36,6 +37,7 @@ const ICON_SIZE = 16;
 
 type Task = {
     id: number;
+    /** What the row reads. A failure replaces it with its message. */
     label: string;
     /** Unset while the task runs. Set once it ends, until its row is dropped. */
     status?: TaskStatus;
@@ -45,13 +47,24 @@ type TasksValue = {
     /** Puts a task on the overlay and hands back its id. */
     addTask: (label: string) => number;
     /**
-     * Swaps the task's spinner for its result icon, then takes the row off a
-     * second later. Ending the same task again does nothing.
+     * Swaps the task's spinner for a check, then takes the row off a second
+     * later. Ending the same task again does nothing.
      */
-    endTask: (id: number, status: TaskStatus) => void;
+    endTaskSuccess: (id: number) => void;
+    /**
+     * The same with a cross, and `message` in place of the task's label. The
+     * row draws both in red, so a failure reads as one even at a glance.
+     */
+    endTaskFail: (id: number, message: string) => void;
 };
 
 const TasksContext = createContext<TasksValue | null>(null);
+
+/**
+ * The rows themselves, separate from the actions so that adding a task does
+ * not change the identity of `addTask` and `endTask`.
+ */
+const TaskListContext = createContext<Task[]>([]);
 
 /**
  * Adds and ends the tasks the overlay draws. Both functions keep the same
@@ -69,8 +82,8 @@ export function useTasks() {
 }
 
 /**
- * Owns the running tasks and draws one row per task, floating under the top
- * rail on the right. Mounted at the root, above anything that starts a task.
+ * Owns the running tasks. Mounted at the root, above anything that starts
+ * one. It draws nothing: `TasksHost` does, from further down the tree.
  */
 export function TasksProvider({ children }: { children: ReactNode }) {
     const [tasks, setTasks] = useState<Task[]>([]);
@@ -79,47 +92,60 @@ export function TasksProvider({ children }: { children: ReactNode }) {
         new Map<number, ReturnType<typeof setTimeout>>(),
     );
 
-    const value = useMemo<TasksValue>(
-        () => ({
+    const value = useMemo<TasksValue>(() => {
+        // both endings are this, with and without a message to show
+        const endTask = (id: number, status: TaskStatus, message?: string) => {
+            // already ending, so leave its icon and its timer alone
+            if (lingerTimerIds.current.has(id)) return;
+
+            setTasks((current) =>
+                current.map((task) =>
+                    task.id === id
+                        ? { ...task, status, label: message ?? task.label }
+                        : task,
+                ),
+            );
+
+            lingerTimerIds.current.set(
+                id,
+                setTimeout(() => {
+                    lingerTimerIds.current.delete(id);
+                    setTasks((current) =>
+                        current.filter((task) => task.id !== id),
+                    );
+                }, LINGER_MS),
+            );
+        };
+
+        return {
             addTask: (label) => {
                 const id = nextId.current++;
                 setTasks((current) => [...current, { id, label }]);
                 return id;
             },
-            endTask: (id, status) => {
-                // already ending, so leave its icon and its timer alone
-                if (lingerTimerIds.current.has(id)) return;
-
-                setTasks((current) =>
-                    current.map((task) =>
-                        task.id === id ? { ...task, status } : task,
-                    ),
-                );
-
-                lingerTimerIds.current.set(
-                    id,
-                    setTimeout(() => {
-                        lingerTimerIds.current.delete(id);
-                        setTasks((current) =>
-                            current.filter((task) => task.id !== id),
-                        );
-                    }, LINGER_MS),
-                );
-            },
-        }),
-        [],
-    );
+            endTaskSuccess: (id) => endTask(id, "success"),
+            endTaskFail: (id, message) => endTask(id, "fail", message),
+        };
+    }, []);
 
     return (
         <TasksContext.Provider value={value}>
-            {children}
-            <TasksOverlay tasks={tasks} />
+            <TaskListContext.Provider value={tasks}>
+                {children}
+            </TaskListContext.Provider>
         </TasksContext.Provider>
     );
 }
 
-/** The floating stack itself. Draws nothing while there is no task. */
-function TasksOverlay({ tasks }: { tasks: Task[] }) {
+/**
+ * The floating stack itself. Draws nothing while there is no task.
+ *
+ * Mounted beside `GlassBlurTarget` rather than inside `TasksProvider`,
+ * because a row's glass only blurs on Android when it can read the blur
+ * target, and the provider sits above `GlassBlurTargetProvider`.
+ */
+export function TasksHost() {
+    const tasks = useContext(TaskListContext);
     const insets = useSafeAreaInsets();
 
     if (tasks.length === 0) return null;
@@ -199,7 +225,13 @@ function TaskRow({ task }: { task: Task }) {
                     />
                 )}
             </View>
-            <Text className="shrink text-xs font-medium" numberOfLines={1}>
+            <Text
+                className={cn(
+                    "shrink text-xs font-medium",
+                    status === "fail" && "text-destructive",
+                )}
+                numberOfLines={1}
+            >
                 {task.label}
             </Text>
         </View>

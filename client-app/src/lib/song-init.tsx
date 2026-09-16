@@ -27,7 +27,7 @@ export function SongInitProvider({ children }: { children: ReactNode }) {
     const { isConnected, sessionRevision } = useAppleMusic();
     const { initSongs } = useInitSongs();
     const { setDefaultTags } = useSetDefaultTags();
-    // const { addTask, endTask } = useTasks();
+    // const { addTask, endTaskSuccess, endTaskFail } = useTasks();
     const accountId = account?.id;
 
     // Not SWR on purpose: this is a one-off background job that reads only to
@@ -70,7 +70,8 @@ export function SongInitProvider({ children }: { children: ReactNode }) {
             .finally(() => {
                 // the job is over, so the task shows how it went and goes
                 if (cancelled || taskId === null) return;
-                // endTask(taskId, failed ? "fail" : "success");
+                // if (failed) endTaskFail(taskId, "Could not generate tags");
+                // else endTaskSuccess(taskId);
                 taskId = null;
             });
 
@@ -78,7 +79,7 @@ export function SongInitProvider({ children }: { children: ReactNode }) {
         // the tagging did not finish, so the task ends as a failure
         return () => {
             cancelled = true;
-            // if (taskId !== null) endTask(taskId, "fail");
+            // if (taskId !== null) endTaskFail(taskId, "Tagging stopped");
             taskId = null;
         };
     }, [
@@ -88,7 +89,8 @@ export function SongInitProvider({ children }: { children: ReactNode }) {
         initSongs,
         setDefaultTags,
         // addTask,
-        // endTask,
+        // endTaskSuccess,
+        // endTaskFail,
     ]);
 
     return children;

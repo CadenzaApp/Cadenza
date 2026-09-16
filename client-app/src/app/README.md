@@ -38,7 +38,7 @@ logic out.
 GestureHandlerRootView
   AccountProvider          supabase session -> the jwt everything else needs
     AppleMusicProvider     apple music auth, restored from secure store
-      TasksProvider          holds running tasks, floats their rows under the top rail
+      TasksProvider          holds running tasks, drawn lower by TasksHost
         SongInitProvider     initializes library and playlist songs
         PlaybackProvider   reads the native playback snapshot
           ThemeProvider    light/dark nav theme from nativewind's colorScheme
@@ -48,6 +48,7 @@ GestureHandlerRootView
                   GlassBlurTarget         what Android glass blurs
                     Stack                 the routes
                   BottomBarsOverlay       the tab bar and mini player above native screens
+                  TasksHost               the running task rows, under the top rail
                   PortalHost              where dialogs and modals render, above the bars
 ```
 
@@ -56,9 +57,10 @@ Apple Music session. It sits under `TasksProvider` because it adds a running tas
 still has songs to tag. It holds no context of its own, so nothing below it reads from it. See
 [../lib/README.md](../lib/README.md).
 
-`TasksProvider` draws its own overlay, so it has to wrap everything the overlay should float
-over, and it has to be above anything that starts a task. Right under `AppleMusicProvider` is both.
-See [../components/README.md](../components/README.md).
+`TasksProvider` has to be above anything that starts a task, which is what puts it right under
+`AppleMusicProvider`. It draws nothing there. `TasksHost` draws the rows instead, beside
+`GlassBlurTarget` with the other overlays, because glass that high in the tree gets no blur target
+on Android. See [../components/README.md](../components/README.md).
 
 `LibraryCategoriesProvider` (`@/features/library`) sits inside `ThemeProvider` and wraps both
 `Stack` and the hosts, because the library screen reads the category selection and the

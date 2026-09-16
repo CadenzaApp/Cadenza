@@ -303,8 +303,8 @@ A song is initialized once the backend has copied its default tags into the user
 
 The provider keeps one running task through `@/components/custom/tasks`, labelled
 "Generating tags". It is added the first time the search reports a song that needs tags, so a run
-that finds none never shows one, and ended when the job settles: `"success"` if it ran to the end,
-`"fail"` if it threw. A run cancelled by a new account or session also ends as `"fail"`, since its
+that finds none never shows one, and ended through `endTaskSuccess` if it ran to the end and
+`endTaskFail` if it threw. A run cancelled by a new account or session also fails, since its
 tagging did not finish.
 
 After the search and after each batch, the provider calls `invalidateAPIData` on `/tags`, because
