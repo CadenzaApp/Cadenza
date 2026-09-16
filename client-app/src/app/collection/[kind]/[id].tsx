@@ -122,9 +122,6 @@ export default function CollectionDetailScreen() {
 
     return (
         <ZoomDismissScreen>
-            {/* The tint, not just the gradient inside the list: pulling the
-                list down past the top would otherwise uncover the flat card
-                color above the artwork. */}
             <View className="flex-1">
                 <TrackCollectionView
                     title={
@@ -167,8 +164,8 @@ export default function CollectionDetailScreen() {
                             size={HERO_BUTTON_SIZE}
                         />
                     }
-                    containerStyle={
-                        tint ? { backgroundColor: tint } : undefined
+                    overscrollBackground={
+                        <TintBackdrop tint={tint} depth={TINT_DEPTH} />
                     }
                     background={
                         <TintBackdrop

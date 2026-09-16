@@ -64,6 +64,8 @@ type Props = {
     summary?: string;
     header?: ReactNode;
     footer?: ReactNode;
+    /** Fixed backdrop revealed only when the scroll view elastically overscrolls. */
+    overscrollBackground?: ReactNode;
     background?: ReactNode;
     containerStyle?: StyleProp<ViewStyle>;
     pagination?: MusicListPagination | null;
@@ -91,6 +93,7 @@ export function TrackCollectionView({
     summary: summaryOverride,
     header,
     footer,
+    overscrollBackground,
     background,
     containerStyle,
     pagination = null,
@@ -264,6 +267,7 @@ export function TrackCollectionView({
 
     return (
         <View className="flex-1 bg-background" style={containerStyle}>
+            {overscrollBackground}
             <MusicList
                 tracks={tracks}
                 isLoading={isLoading}

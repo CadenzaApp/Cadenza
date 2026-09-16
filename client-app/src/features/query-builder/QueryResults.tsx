@@ -83,7 +83,9 @@ export default function QueryResults({
                 }
                 multiSelect={{ includeAddToQueue: true }}
                 showTags
-                containerStyle={tint ? { backgroundColor: tint } : undefined}
+                overscrollBackground={
+                    <TintBackdrop tint={tint} depth={TINT_DEPTH} />
+                }
                 background={
                     <TintBackdrop
                         tint={tint}

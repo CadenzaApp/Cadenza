@@ -96,12 +96,7 @@ export default function ArtistScreen() {
 
     return (
         <ZoomDismissScreen>
-            {/* The tint rather than the flat card color, so overscrolling at
-                the top uncovers the wash and not a gray ceiling. */}
-            <View
-                className="flex-1 bg-card"
-                style={tint ? { backgroundColor: tint } : undefined}
-            >
+            <View className="flex-1 bg-card">
                 {artistErr ? (
                     <Text className="my-2 px-6 text-center text-destructive">
                         {getErrorMessage(artistErr)}
@@ -116,6 +111,9 @@ export default function ArtistScreen() {
                     pagination={NO_PAGINATION}
                     sorting={null}
                     multiSelect={DEFAULT_MULTI_SELECT_CONFIG}
+                    overscrollBackground={
+                        <TintBackdrop tint={tint} depth={TINT_DEPTH} />
+                    }
                     onContentSizeChange={(_, height) =>
                         setContentHeight(Math.max(windowHeight, height))
                     }
