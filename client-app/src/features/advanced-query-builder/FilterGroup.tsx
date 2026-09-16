@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Pressable, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTheme } from "expo-router/react-navigation";
 
@@ -43,6 +43,19 @@ export type BuilderActions = {
     ) => void;
 };
 
+/**
+ * Faintly outlined so the group selector and the add buttons read as buttons.
+ * Spacing and the border are set inline so they apply whatever nativewind
+ * resolves; the border uses the theme's faint border color.
+ */
+const OUTLINED_BUTTON_STYLE = {
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderWidth: StyleSheet.hairlineWidth * 2,
+    alignSelf: "flex-start",
+} as const;
+
 type Props = {
     group: AdvancedGroupNode;
     isRoot?: boolean;
@@ -70,14 +83,18 @@ export function FilterGroup({ group, isRoot, tags, actions }: Props) {
                     onPress={() => setPickingConjunction(true)}
                     accessibilityRole="button"
                     accessibilityLabel="Change how filters combine"
-                    className="flex-row items-center gap-1.5 rounded-md py-1 active:opacity-60"
+                    className="flex-row items-center rounded-md border border-border bg-background active:opacity-60"
+                    style={[
+                        OUTLINED_BUTTON_STYLE,
+                        { borderColor: colors.border },
+                    ]}
                 >
                     <Text className="text-base font-medium">
                         {CONJUNCTION_LABELS[group.conjunction]}
                     </Text>
                     <Ionicons
                         name="chevron-expand"
-                        size={14}
+                        size={16}
                         color={colors.text}
                     />
                 </Pressable>
@@ -115,7 +132,10 @@ export function FilterGroup({ group, isRoot, tags, actions }: Props) {
                 ),
             )}
 
-            <View className="flex-row flex-wrap gap-x-5 gap-y-1">
+            <View
+                className="flex-row flex-wrap"
+                style={{ columnGap: 12, rowGap: 8 }}
+            >
                 <AddButton
                     icon="add"
                     label="Add filter"
@@ -164,10 +184,11 @@ function AddButton({
         <Pressable
             onPress={onPress}
             accessibilityRole="button"
-            className="flex-row items-center gap-1 py-1 active:opacity-60"
+            className="flex-row items-center rounded-md border border-border bg-background active:opacity-60"
+            style={[OUTLINED_BUTTON_STYLE, { borderColor: colors.border }]}
         >
             <Ionicons name={icon} size={18} color={colors.text} />
-            <Text className="text-sm text-muted-foreground">{label}</Text>
+            <Text className="text-sm text-foreground">{label}</Text>
         </Pressable>
     );
 }

@@ -40,7 +40,7 @@ export const TAG_TYPE_ICONS: Record<
     ComponentProps<typeof Ionicons>["name"]
 > = {
     basic: "pricetag-outline",
-    text: "text-outline",
+    text: "document-text-outline",
     datetime: "time-outline",
     date: "calendar-outline",
     number: "calculator-outline",
