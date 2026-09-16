@@ -51,21 +51,13 @@ enum BoolRelation {
     And,
     Or,
 }
-impl BoolRelation {
-    fn inverted(self) -> Self {
-        match self {
-            BoolRelation::And => BoolRelation::Or,
-            BoolRelation::Or => BoolRelation::And,
-        }
-    }
-}
 
 /// Converts the given JSON to a full SQL statement and its values
 fn decode_query(
     json_query: &serde_json::Value,
     user_id: sea_query::Value,
 ) -> Result<(String, Vec<sea_query::Value>), CadenzaError> {
-    let (where_clause, mut child_values, _) = decode_query_json_node(json_query, 2, false)?;
+    let (where_clause, mut child_values, _) = decode_query_json_node(json_query, 2)?;
 
     let sql = format!(
         r#"
@@ -83,14 +75,12 @@ fn decode_query(
 
 /// Converts the given JSON to a SQL snippet and its values.
 /// Returns `(SQL snippet, values, next param_counter)`
-/// Applies Demorgan's Law when `inverted == true` to produce accurate SQL.
 fn decode_query_json_node(
     curr: &serde_json::Value,
     param_counter: usize,
-    inverted: bool,
 ) -> Result<(String, Vec<sea_query::Value>, usize), CadenzaError> {
     if let Some(tag_id) = curr.as_number() {
-        let mut exists_clause = format!(
+        let exists_clause = format!(
             r#"
                 EXISTS (
                     SELECT * FROM user_tags_applied AS exists_check
@@ -100,10 +90,6 @@ fn decode_query_json_node(
             param_counter,
         );
 
-        if inverted {
-            exists_clause = format!("NOT {}", exists_clause);
-        }
-
         let vals: Vec<sea_query::Value> = vec![sea_query::Value::BigInt(tag_id.as_i64())];
 
         return Ok((exists_clause, vals, param_counter + 1));
@@ -111,14 +97,14 @@ fn decode_query_json_node(
 
     if curr.is_object() {
         if let Some(child) = curr.get("not") {
-            // add another layer of inversion before recurring
-            return decode_query_json_node(child, param_counter, !inverted);
+            let (sql, values, next_param_counter) = decode_query_json_node(child, param_counter)?;
+            return Ok((format!("NOT ({})", sql), values, next_param_counter));
         }
         if let Some(child) = curr.get("and") {
-            return decode_query_arr(child, BoolRelation::And, param_counter, inverted);
+            return decode_query_arr(child, BoolRelation::And, param_counter);
         }
         if let Some(child) = curr.get("or") {
-            return decode_query_arr(child, BoolRelation::Or, param_counter, inverted);
+            return decode_query_arr(child, BoolRelation::Or, param_counter);
         }
 
         return Err(CadenzaError::QueryFormatError(format!(
@@ -135,12 +121,10 @@ fn decode_query_json_node(
 
 /// Converts the given JSON arr to a SQL snippet, joining child SQL snippets with AND/OR depending on `bool_relation`.
 /// Returns `(SQL snippet, values, next param_counter)`
-/// Applies Demorgan's Law when `inverted == true` to produce accurate SQL.
 fn decode_query_arr(
     arr: &serde_json::Value,
-    mut bool_relation: BoolRelation,
+    bool_relation: BoolRelation,
     mut param_counter: usize,
-    inverted: bool,
 ) -> Result<(String, Vec<sea_query::Value>, usize), CadenzaError> {
     match arr.as_array() {
         None => Err(CadenzaError::QueryFormatError(format!(
@@ -154,16 +138,13 @@ fn decode_query_arr(
             // recur on children to get their sql snippets
             for child in arr {
                 let (sql, mut values, next_param_counter) =
-                    decode_query_json_node(child, param_counter, inverted)?;
+                    decode_query_json_node(child, param_counter)?;
                 child_snippets.push(sql);
                 child_values.append(&mut values);
                 param_counter = next_param_counter;
             }
 
             // join child strs and surround with parentheses before returning
-            if inverted {
-                bool_relation = bool_relation.inverted()
-            }
             let joined_child_snippets = child_snippets
                 .join(match bool_relation {
                     BoolRelation::And => " AND ",

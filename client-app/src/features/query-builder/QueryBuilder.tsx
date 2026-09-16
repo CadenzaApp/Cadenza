@@ -59,9 +59,18 @@ export function QueryBuilder({ tags, root, setRoot, onSubmit }: Props) {
     return (
         <GestureHandlerRootView style={styles.root} className="bg-background">
             <DragProvider>
-                <View
-                    style={[
-                        styles.container,
+                {/*
+                 * The palette, the workspace, and the button share one
+                 * scroller. A library's worth of tags makes the palette taller
+                 * than the screen on its own, and a deep tree does the same to
+                 * the workspace, so neither can own the scroll without the
+                 * other becoming unreachable.
+                 */}
+                <Animated.ScrollView
+                    {...scroll}
+                    style={[scroll.style, styles.scroller]}
+                    contentContainerStyle={[
+                        styles.content,
                         // The tab bar floats over this screen, and the
                         // "Create mix" button sits at the very bottom.
                         { paddingBottom: contentBottomInset },
@@ -83,11 +92,7 @@ export function QueryBuilder({ tags, root, setRoot, onSubmit }: Props) {
                     </View>
 
                     {/* Workspace */}
-                    <Animated.ScrollView
-                        {...scroll}
-                        style={styles.workspace}
-                        contentContainerStyle={styles.workspaceContent}
-                    >
+                    <View style={styles.workspace}>
                         {root === null ? (
                             <DropSlot slotKey="root" style={styles.rootSlot}>
                                 <Text
@@ -117,12 +122,12 @@ export function QueryBuilder({ tags, root, setRoot, onSubmit }: Props) {
                                 />
                             </DropSlot>
                         )}
-                    </Animated.ScrollView>
+                    </View>
 
                     <Button onPress={onSubmit}>
                         <Text> Create mix </Text>
                     </Button>
-                </View>
+                </Animated.ScrollView>
                 <DragGhost />
             </DragProvider>
         </GestureHandlerRootView>
@@ -133,18 +138,20 @@ const styles = StyleSheet.create({
     root: {
         flex: 1,
     },
-    container: {
+    scroller: {
         flex: 1,
+    },
+    content: {
         padding: 16,
         gap: 12,
+        // Fill the viewport when the query is small, so the empty workspace
+        // keeps its drop target rather than collapsing onto the button.
+        flexGrow: 1,
     },
     palette: {
         gap: 0,
     },
     workspace: {
-        flex: 1,
-    },
-    workspaceContent: {
         paddingVertical: 16,
         flexGrow: 1,
         alignItems: "flex-start",

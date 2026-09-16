@@ -118,10 +118,8 @@ WHERE user_tags_applied.user_id = $1 AND <compiled where clause>
 ```
 
 `decode_query_json_node` walks the tree and emits one correlated `EXISTS (...)` subquery per tag
-id, joined with `AND` / `OR`. `not` is not emitted as a wrapping `NOT (...)`. Instead it flips an
-`inverted` flag that is threaded down the recursion, and De Morgan is applied on the way: an
-inverted `and` joins with `OR`, an inverted `or` joins with `AND`, and an inverted tag id becomes
-`NOT EXISTS`. Double negation cancels, since `not` just flips the flag again.
+id, joined with `AND` / `OR`. `not` wraps its child snippet in `NOT (...)` and lets postgres do the
+rest, so nothing is threaded down the recursion.
 
 Tag ids are bound as parameters, never interpolated. `param_counter` starts at 2 because `$1` is
 the user id, and each recursive call returns the next free index.

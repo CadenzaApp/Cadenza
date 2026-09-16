@@ -9,7 +9,7 @@ palette into a tree, hits submit, and gets back the song ids that match. Rendere
 | file                 | role                                                                                            |
 | -------------------- | ----------------------------------------------------------------------------------------------- |
 | `types.ts`           | `QueryNode` tree, `PaletteItem`, `SlotAddress`, and `QueryJSONNode` (the wire format).          |
-| `QueryBuilder.tsx`   | Renders the tree. Takes `root` / `setRoot` / `onSubmit` as props, handles drop and remove.      |
+| `QueryBuilder.tsx`   | The page: palette, tree, and submit, in one scroller. Takes `root` / `setRoot` / `onSubmit`.    |
 | `QueryUtils.ts`      | Pure tree operations plus `queryNodeToJSON`, which compiles the tree for the wire.              |
 | `DragContext.tsx`    | `DragProvider` / `useDrag`. Drag state, the drop-zone registry, and the node-operator registry. |
 | `DraggablePill.tsx`  | A palette item you can pick up.                                                                 |
@@ -39,6 +39,19 @@ somewhere to drop, and an `"append"` drop fills the first empty slot or pushes a
 
 Slots are addressed by `SlotAddress`, which is `{nodeId: "root"}`, `{nodeId, index}`, or
 `{nodeId, index: "append"}`. `id`s come from `nanoid`, so tree ops can be structural and pure.
+
+## The layout
+
+One `Animated.ScrollView` holds all three regions: the palette, the workspace, and the Create mix
+button. It spreads `useScreenScroll()` (`@/lib/screen-scroll`), so it is the screen's top-level
+scroller, and pays `contentBottomInset` from `useScreenOverlayInsets` as content padding, since
+the tab bar floats over it.
+
+Neither region can own the scroll on its own. The tag palette wraps every tag the user has, which
+is taller than the screen on a real library, and the workspace grows without limit as the tree
+gets deeper. Whichever one scrolled, the other would push the rest of the page off the bottom.
+The workspace keeps `flexGrow: 1` so a small query still fills the viewport and the empty root
+slot stays a large drop target.
 
 ## How a drag works
 
@@ -85,8 +98,9 @@ on the builder.
   dependency today, which is fragile.
 - `QueryBuilder` renders its own `GestureHandlerRootView` even though the root layout already has
   one. Nested, but it works.
-- Drop zone rects are cached at drag start. If the layout shifts mid-drag (a scroll, a keyboard),
-  hit testing goes stale.
+- Drop zone rects are cached at drag start, in window coordinates. If the layout shifts mid-drag
+  (a keyboard, or a palette section toggled open), hit testing goes stale. The page scroll does not
+  move during a drag, because the pan gesture owns the finger.
 - This file uses `DOMRect` as the measurement type even though these are native measurements.
 - `removeNode` on the root returns `null`, which clears the whole query.
 
