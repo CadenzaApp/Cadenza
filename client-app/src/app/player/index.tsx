@@ -1,12 +1,5 @@
-import { PlayerPage } from "@/components/custom/media-player/player-page";
-import { usePlayerScope } from "@/components/custom/media-player/player-scope";
-import { PlayerTabSwipe } from "@/components/custom/media-player/player-tab-swipe";
+import { PlayerPager } from "@/components/custom/media-player/player-pager";
 
 export default function PlayerScreen() {
-    const { showTagsFor } = usePlayerScope();
-    return (
-        <PlayerTabSwipe tab="player">
-            <PlayerPage onModifyTags={showTagsFor} />
-        </PlayerTabSwipe>
-    );
+    return <PlayerPager />;
 }

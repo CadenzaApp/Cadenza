@@ -2,7 +2,7 @@ import { useRouter } from "expo-router";
 import { useTheme } from "expo-router/react-navigation";
 import { useCallback } from "react";
 
-import { usePlayback } from "@/lib/playback";
+import { usePlaybackCommands, usePlaybackTrackState } from "@/lib/playback";
 
 import { MediaPlayerCompact, type MediaPlayerPlacement } from "./compact";
 
@@ -20,14 +20,9 @@ export function MediaPlayer({
     failedArtworkUrl,
     onArtworkError,
 }: Props) {
-    const {
-        activeTrack,
-        isPlaying,
-        isLoading,
-        togglePlayback,
-        skipToNext,
-        canSkipToNext,
-    } = usePlayback();
+    const { activeTrack, isPlaying, isLoading, canSkipToNext } =
+        usePlaybackTrackState();
+    const { togglePlayback, skipToNext } = usePlaybackCommands();
     const router = useRouter();
     const { colors } = useTheme();
     const artworkUrl = activeTrack?.artworkUrl?.trim();

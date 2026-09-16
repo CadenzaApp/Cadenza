@@ -16,8 +16,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { GlassIconButton } from "@/components/ui/glass-icon-button";
 import { GlassSurface } from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
-import { TintBackdrop } from "@/components/ui/tint-backdrop";
-import { useArtworkTint } from "@/lib/artwork-color";
 
 import type { FocusedSong } from "./player-scope";
 
@@ -51,11 +49,11 @@ function makeComment(author: string, body: string): Comment {
  * state for as long as the sheet does, so reading, replying, writing, and
  * voting all have somewhere real to act on even though nothing persists yet.
  *
- * Same rule as Tags: no artwork, no playback controls, only the gradient.
+ * Same rule as Tags: no artwork and no playback controls. The sheet shell
+ * paints the one shared gradient behind all three pages.
  */
 export function CommentsPage({ focusedSong }: { focusedSong: FocusedSong }) {
     const insets = useSafeAreaInsets();
-    const { tint } = useArtworkTint(focusedSong);
     const [comments, setComments] = useState<Comment[]>([]);
     const [draft, setDraft] = useState("");
     const [replyTarget, setReplyTarget] = useState<string | null>(null);
@@ -120,7 +118,6 @@ export function CommentsPage({ focusedSong }: { focusedSong: FocusedSong }) {
 
     return (
         <View className="flex-1">
-            <TintBackdrop tint={tint} />
             <ScrollView
                 contentContainerClassName="gap-4 px-6 pt-4"
                 contentContainerStyle={{ paddingBottom: insets.bottom + 16 }}

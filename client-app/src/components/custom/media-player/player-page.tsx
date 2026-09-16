@@ -17,8 +17,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { SongOptionsMenu } from "@/components/custom/options-menu/song-options-menu";
 import { Text } from "@/components/ui/text";
-import { TintBackdrop } from "@/components/ui/tint-backdrop";
-import { useArtworkTint } from "@/lib/artwork-color";
 import { usePlayback } from "@/lib/playback";
 import { useSongFavoriteStatus } from "@/lib/musickit-hooks";
 import { SHEET_DETENT } from "@/lib/theme";
@@ -104,7 +102,6 @@ export function PlayerPage({
     } = useSongFavoriteStatus(favoriteSongId);
 
     const artworkUrl = activeTrack?.artworkUrl?.trim();
-    const { tint } = useArtworkTint(activeTrack);
     const fullArtworkUrl = activeTrack?.artworkUrlLarge?.trim() || artworkUrl;
     const canRenderFullArtwork =
         typeof fullArtworkUrl === "string" &&
@@ -313,7 +310,6 @@ export function PlayerPage({
             style={{ paddingBottom: insets.bottom + 16 }}
             onLayout={(event) => setBodyHeight(event.nativeEvent.layout.height)}
         >
-            <TintBackdrop tint={tint} />
             {view === "queue" ? (
                 <MediaPlayerQueue
                     track={track}

@@ -15,7 +15,8 @@ import { TintBackdrop } from "@/components/ui/tint-backdrop";
 import { useArtworkTint } from "@/lib/artwork-color";
 import { getErrorMessage } from "@/lib/error-utils";
 import { useCollectionSongs } from "@/lib/musickit-hooks";
-import { usePlaybackCommands } from "@/lib/playback";
+import { isTrackInCollection } from "@/lib/playable-item";
+import { usePlaybackCommands, usePlaybackTrackState } from "@/lib/playback";
 import { ZoomDismissScreen } from "@/lib/zoom-dismiss";
 
 import type { LibraryCollectionKind } from "@/lib/musickit-hooks";
@@ -69,8 +70,10 @@ export default function CollectionDetailScreen() {
     }>();
     const insets = useSafeAreaInsets();
     const { width: windowWidth, height: windowHeight } = useWindowDimensions();
-    const { playQueue, setShuffleMode } = usePlaybackCommands();
+    const { activeTrack, isPlaying } = usePlaybackTrackState();
+    const { playQueue, setShuffleMode, togglePlayback } = usePlaybackCommands();
     const [optionsOpen, setOptionsOpen] = useState(false);
+    const [playbackCommandPending, setPlaybackCommandPending] = useState(false);
     const {
         tracks,
         tracksLoading,
@@ -80,6 +83,10 @@ export default function CollectionDetailScreen() {
         tracksErr,
     } = useCollectionSongs(kind, id);
     const firstTrack = tracks[0];
+    const isCurrentCollection =
+        activeTrack != null &&
+        isTrackInCollection(activeTrack, id, kind, tracks);
+    const isCollectionPlaying = isCurrentCollection && isPlaying;
     // The caller knows the cover and hands it over, so the color is there on
     // the first frame. A deep link arrives with neither, and the first track's
     // artwork is the same cover.
@@ -104,19 +111,33 @@ export default function CollectionDetailScreen() {
 
     /** Plays the collection from the top, replacing the queue. */
     async function play() {
-        if (tracks.length === 0) return;
-        await setShuffleMode(ShuffleMode.Off);
-        await playQueue({ tracks });
+        if (tracks.length === 0 || playbackCommandPending) return;
+        setPlaybackCommandPending(true);
+        try {
+            if (isCurrentCollection && activeTrack) {
+                await togglePlayback(activeTrack);
+                return;
+            }
+            await setShuffleMode(ShuffleMode.Off);
+            await playQueue({ tracks });
+        } finally {
+            setPlaybackCommandPending(false);
+        }
     }
 
     /** The same queue, shuffled, starting somewhere other than the first song. */
     async function shuffle() {
-        if (tracks.length === 0) return;
-        await setShuffleMode(ShuffleMode.Songs);
-        await playQueue({
-            tracks,
-            startIndex: Math.floor(Math.random() * tracks.length),
-        });
+        if (tracks.length === 0 || playbackCommandPending) return;
+        setPlaybackCommandPending(true);
+        try {
+            await setShuffleMode(ShuffleMode.Songs);
+            await playQueue({
+                tracks,
+                startIndex: Math.floor(Math.random() * tracks.length),
+            });
+        } finally {
+            setPlaybackCommandPending(false);
+        }
     }
 
     return (
@@ -174,7 +195,10 @@ export default function CollectionDetailScreen() {
                                 buttonRowWidth={buttonRowWidth}
                                 // Clears the floating X, which is not laid out.
                                 paddingTop={insets.top + 56}
-                                canPlay={tracks.length > 0}
+                                canPlay={
+                                    tracks.length > 0 && !playbackCommandPending
+                                }
+                                isPlaying={isCollectionPlaying}
                                 onPlay={play}
                                 onShuffle={shuffle}
                                 onOpenOptions={() => setOptionsOpen(true)}
@@ -185,7 +209,10 @@ export default function CollectionDetailScreen() {
                         summary ? (
                             <Text
                                 className="px-6 pb-2 pt-5 text-center text-sm"
-                                style={{ color: HERO_FOREGROUND, opacity: 0.6 }}
+                                style={{
+                                    color: HERO_FOREGROUND,
+                                    opacity: 0.6,
+                                }}
                             >
                                 {summary}
                             </Text>
@@ -269,6 +296,7 @@ function CollectionHero({
     buttonRowWidth,
     paddingTop,
     canPlay,
+    isPlaying,
     onPlay,
     onShuffle,
     onOpenOptions,
@@ -281,6 +309,7 @@ function CollectionHero({
     buttonRowWidth: number;
     paddingTop: number;
     canPlay: boolean;
+    isPlaying: boolean;
     onPlay: () => void;
     onShuffle: () => void;
     onOpenOptions: () => void;
@@ -347,7 +376,11 @@ function CollectionHero({
                     disabled={!canPlay}
                     onPress={onShuffle}
                 />
-                <PlayButton disabled={!canPlay} onPress={onPlay} />
+                <PlayButton
+                    disabled={!canPlay}
+                    isPlaying={isPlaying}
+                    onPress={onPlay}
+                />
                 <HeroCircleButton
                     label="More options"
                     icon="ellipsis-horizontal"
@@ -365,27 +398,33 @@ function CollectionHero({
  */
 function PlayButton({
     disabled,
+    isPlaying,
     onPress,
 }: {
     disabled: boolean;
+    isPlaying: boolean;
     onPress: () => void;
 }) {
     return (
         <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Play"
+            accessibilityLabel={isPlaying ? "Pause" : "Play"}
             accessibilityState={{ disabled }}
             disabled={disabled}
             onPress={onPress}
             className="flex-1 flex-row items-center justify-center gap-2 rounded-full bg-white active:opacity-80"
             style={{ height: HERO_BUTTON_SIZE, opacity: disabled ? 0.4 : 1 }}
         >
-            <Ionicons name="play" size={20} color="#000000" />
+            <Ionicons
+                name={isPlaying ? "pause" : "play"}
+                size={20}
+                color="#000000"
+            />
             <Text
                 className="text-lg font-semibold"
                 style={{ color: "#000000" }}
             >
-                Play
+                {isPlaying ? "Pause" : "Play"}
             </Text>
         </Pressable>
     );

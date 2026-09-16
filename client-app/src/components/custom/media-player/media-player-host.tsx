@@ -1,9 +1,13 @@
 import { NativeTabs } from "expo-router/unstable-native-tabs";
 import { Platform, StyleSheet, View } from "react-native";
+import { useState } from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { usePlayback } from "@/lib/playback";
-import { supportsNativeTabBottomAccessory } from "@/lib/screen-overlay";
+import { usePlaybackTrackState } from "@/lib/playback";
+import {
+    supportsNativeTabBottomAccessory,
+    useShowsPushedPlayerOverlay,
+} from "@/lib/screen-overlay";
 
 import { MediaPlayer } from "./media-player";
 
@@ -41,7 +45,7 @@ export function MediaPlayerFallbackOverlay({
     failedArtworkUrl,
     onArtworkError,
 }: PlayerArtworkStateProps & { hidden: boolean }) {
-    const { activeTrack } = usePlayback();
+    const { activeTrack } = usePlaybackTrackState();
     const insets = useSafeAreaInsets();
 
     if (hidden || supportsNativeTabBottomAccessory() || !activeTrack) {
@@ -70,6 +74,47 @@ export function MediaPlayerFallbackOverlay({
                     standalone
                     failedArtworkUrl={failedArtworkUrl}
                     onArtworkError={onArtworkError}
+                />
+            </View>
+        </View>
+    );
+}
+
+/** Compact player over a root detail screen, where native tabs sit underneath. */
+export function MediaPlayerPushedScreenOverlay() {
+    const { activeTrack } = usePlaybackTrackState();
+    const visible = useShowsPushedPlayerOverlay();
+    const insets = useSafeAreaInsets();
+    const [failedArtworkUrl, setFailedArtworkUrl] = useState<string | null>(
+        null,
+    );
+
+    if (!visible || !activeTrack) return null;
+
+    return (
+        <View
+            pointerEvents="box-none"
+            style={[StyleSheet.absoluteFill, { zIndex: 20, elevation: 20 }]}
+        >
+            <View
+                style={{
+                    position: "absolute",
+                    left: FALLBACK_SIDE_INSET,
+                    right: FALLBACK_SIDE_INSET,
+                    bottom: insets.bottom + FALLBACK_GAP,
+                    borderRadius: 22,
+                    shadowColor: "#000",
+                    shadowOpacity: 0.18,
+                    shadowRadius: 10,
+                    shadowOffset: { width: 0, height: 3 },
+                    elevation: 8,
+                }}
+            >
+                <MediaPlayer
+                    placement="regular"
+                    standalone
+                    failedArtworkUrl={failedArtworkUrl}
+                    onArtworkError={setFailedArtworkUrl}
                 />
             </View>
         </View>

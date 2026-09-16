@@ -74,7 +74,7 @@ variables), `tailwind.config.js`, and `global.css`. Class merging goes through
 ### custom/
 
 | file                     | role                                                                                                                                                                                                                           |
-| --- | --- |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `music-list/`            | Scrollable list of `MusicItem`s, with skeletons, paging, and sorting. See below.                                                                                                                                               |
 | `floating-bubble.tsx`    | The round floating action button the list and tag screens sit under.                                                                                                                                                           |
 | `options-menu/`          | The song, album, and playlist "..." menus, on liquid glass. See below.                                                                                                                                                         |
@@ -94,9 +94,10 @@ variables), `tailwind.config.js`, and `global.css`. Class merging goes through
 ### custom/music-list/
 
 | file                               | role                                                                                 |
-| --- | --- |
+| ---------------------------------- | ------------------------------------------------------------------------------------ |
 | `index.tsx`                        | The `MusicList` itself. Owns sort state, paging, selection, density, and the modals. |
 | `music-list-item.tsx`              | One row, plus `MusicListItemSkeleton`.                                               |
+| `tag-fade-rail.tsx`                | Overflow-aware horizontal tag rail whose alpha mask preserves the surface behind it. |
 | `music-list-sort-button.tsx`       | The floating sort control.                                                           |
 | `music-list-action-button.tsx`     | One button in the selection toolbar.                                                 |
 | `music-list-selection-toolbar.tsx` | The bar that slides up while rows are selected.                                      |
@@ -132,6 +133,10 @@ sitting above a list that owns the scroll.
 `MusicList` hides its scroll indicator. Overscrolling at the top is how a detail screen closes,
 and an indicator flicking in over the shrinking card is noise.
 
+Tag rails use `MaskedView` with an opaque-to-transparent trailing mask. Do not replace it with a
+gradient painted in a theme color: rows also sit over artwork tints, so no single fill color can
+match every screen.
+
 `MusicList` takes a `header` for exactly that case, and a `footer` for the other end. It also
 reports its content size through `onContentSizeChange`, which is how the artist screen sizes a
 backdrop to its own content rather than to the screen. It owns its
@@ -148,7 +153,7 @@ scroll views for inset, scroll-to-top, and tab-bar/accessory minimization.
 ### custom/options-menu/
 
 | file                          | role                                                                                                                                                                                                                                                                                   |
-| --- | --- |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `song-options-menu.tsx`       | `SongOptionsMenu`. Favorite + Share, Add to Playlist, Play Next, Add to Queue, Go to Album, Go to Artist, then a pronounced Modify Tags footer. Self-contained: owns its own favorite and artist state from just a `track`. Used by the music list row menu and the now-playing sheet. |
 | `collection-options-menu.tsx` | `CollectionOptionsMenu`. Favorite + Share for the album/playlist itself, then Play Next / Add to Queue against its songs. Used by `/collection/[kind]/[id]`.                                                                                                                           |
 | `favorite-share-row.tsx`      | `FavoriteShareRow`, the icon row + divider both menus lead with. Generic over the target type.                                                                                                                                                                                         |
@@ -198,5 +203,6 @@ library-only song, which has none.
   all. It still typechecks and still lints.
 
 ---
+
 Touching files in this directory? Update this README in the same change.
 See [../../../AGENT_GUIDE.md](../../../AGENT_GUIDE.md).

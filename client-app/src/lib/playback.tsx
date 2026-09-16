@@ -19,6 +19,7 @@ import {
     removeQueueEntry,
     type QueueState,
 } from "./queue-order";
+import { samePlayableItem } from "./playable-item";
 
 export type PlaybackQueue = {
     tracks: MusicItem[];
@@ -55,6 +56,18 @@ type PlaybackInfo = {
 };
 
 const PlaybackContext = createContext<PlaybackInfo | null>(null);
+export type PlaybackTrackState = Pick<
+    PlaybackInfo,
+    | "activeTrackId"
+    | "activeTrack"
+    | "isPlaying"
+    | "isLoading"
+    | "canSkipToNext"
+    | "canSkipToPrevious"
+>;
+const PlaybackTrackStateContext = createContext<PlaybackTrackState | null>(
+    null,
+);
 type PlaybackCommands = Pick<
     PlaybackInfo,
     | "playQueue"
@@ -74,6 +87,17 @@ const PlaybackCommandsContext = createContext<PlaybackCommands | null>(null);
 
 export function usePlayback() {
     return useContext(PlaybackContext)!;
+}
+
+/** Track and transport state without subscribing to progress-only updates. */
+export function usePlaybackTrackState() {
+    const value = useContext(PlaybackTrackStateContext);
+    if (!value) {
+        throw new Error(
+            "usePlaybackTrackState must run inside PlaybackProvider",
+        );
+    }
+    return value;
 }
 
 /** Playback commands whose identity is stable across progress updates. */
@@ -424,51 +448,55 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
         }),
         [],
     );
+    const trackState = useMemo<PlaybackTrackState>(
+        () => ({
+            activeTrackId,
+            activeTrack,
+            isPlaying: snapshot.isPlaying,
+            isLoading: snapshot.isLoading,
+            canSkipToNext:
+                resolvedQueueIndex >= 0 &&
+                resolvedQueueIndex < queue.length - 1,
+            canSkipToPrevious: resolvedQueueIndex > 0,
+        }),
+        [
+            activeTrack,
+            activeTrackId,
+            queue.length,
+            resolvedQueueIndex,
+            snapshot.isLoading,
+            snapshot.isPlaying,
+        ],
+    );
 
     return (
         <PlaybackCommandsContext.Provider value={commands}>
-            <PlaybackContext.Provider
-                value={{
-                    activeTrackId,
-                    activeTrack,
-                    isPlaying: snapshot.isPlaying,
-                    isLoading: snapshot.isLoading,
-                    progress: snapshot.progress,
-                    queue,
-                    queueIndex: resolvedQueueIndex,
-                    upcoming:
-                        resolvedQueueIndex >= 0
-                            ? queue.slice(resolvedQueueIndex + 1)
-                            : [],
-                    shuffleMode: snapshot.shuffleMode ?? ShuffleMode.Off,
-                    repeatMode: snapshot.repeatMode ?? RepeatMode.Off,
-                    canSkipToNext:
-                        resolvedQueueIndex >= 0 &&
-                        resolvedQueueIndex < queue.length - 1,
-                    canSkipToPrevious: resolvedQueueIndex > 0,
-                    ...commands,
-                }}
-            >
-                {children}
-            </PlaybackContext.Provider>
+            <PlaybackTrackStateContext.Provider value={trackState}>
+                <PlaybackContext.Provider
+                    value={{
+                        activeTrackId,
+                        activeTrack,
+                        isPlaying: snapshot.isPlaying,
+                        isLoading: snapshot.isLoading,
+                        progress: snapshot.progress,
+                        queue,
+                        queueIndex: resolvedQueueIndex,
+                        upcoming:
+                            resolvedQueueIndex >= 0
+                                ? queue.slice(resolvedQueueIndex + 1)
+                                : [],
+                        shuffleMode: snapshot.shuffleMode ?? ShuffleMode.Off,
+                        repeatMode: snapshot.repeatMode ?? RepeatMode.Off,
+                        canSkipToNext:
+                            resolvedQueueIndex >= 0 &&
+                            resolvedQueueIndex < queue.length - 1,
+                        canSkipToPrevious: resolvedQueueIndex > 0,
+                        ...commands,
+                    }}
+                >
+                    {children}
+                </PlaybackContext.Provider>
+            </PlaybackTrackStateContext.Provider>
         </PlaybackCommandsContext.Provider>
-    );
-}
-
-/**
- * Blank ids are dropped from both sides, so a snapshot that carried no usable
- * identifier matches nothing and the caller falls back to the index it set.
- * Matching it against an arbitrary queue entry would be worse than not knowing.
- */
-function samePlayableItem(left: MusicItem, right: MusicItem) {
-    const leftIds = playableIdentifiers(left);
-    return [...playableIdentifiers(right)].some((id) => leftIds.has(id));
-}
-
-function playableIdentifiers(item: MusicItem) {
-    return new Set(
-        [item.id, item.playbackId, item.catalogId, item.libraryId].filter(
-            (id): id is string => typeof id === "string" && id.trim() !== "",
-        ),
     );
 }

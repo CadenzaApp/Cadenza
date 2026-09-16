@@ -20,10 +20,10 @@ logic out.
 | `(tabs)/search/index.tsx`    | `/search`               | Search. A tag shelf until you tap the field, then recents, a scope switch, and results (artists, then songs). |
 | `account.tsx`                | `/account`              | Account sheet. Wires `AccountSettingsScreen`.                                                                 |
 | `appearance.tsx`             | `/appearance`           | Appearance preview sheet. Wires `AppearanceSettingsScreen`.                                                   |
-| `player/_layout.tsx`         | `/player/*`             | Now playing sheet shell and its separate Comments / Player / Tags native tab navigator.                       |
-| `player/index.tsx`           | `/player`               | Playback controls, artwork, scrubber, and queue.                                                              |
-| `player/comments.tsx`        | `/player/comments`      | Comments for the player scope's focused song.                                                                 |
-| `player/tags.tsx`            | `/player/tags`          | Tag editor for the player scope's focused song.                                                               |
+| `player/_layout.tsx`         | `/player/*`             | Now playing sheet shell and provider stack for its always-mounted horizontal pager.                           |
+| `player/index.tsx`           | `/player`               | Opens the always-mounted player pager with Player selected.                                                   |
+| `player/comments.tsx`        | `/player/comments`      | Opens the same pager with Comments selected.                                                                  |
+| `player/tags.tsx`            | `/player/tags`          | Opens the same pager with Tags selected and optional focused-song params.                                     |
 | `library-categories.tsx`     | `/library-categories`   | Picks which rows the library shows.                                                                           |
 | `category/[kind].tsx`        | `/category/:kind`       | One library category's contents.                                                                              |
 | `collection/[kind]/[id].tsx` | `/collection/:kind/:id` | The songs in one album or playlist.                                                                           |
@@ -155,20 +155,25 @@ prop is the whole difference: a sheet starts below the status bar and gets the g
 top padding, a screen pays the full top inset. It also sets `InsideSheetContext`, which keeps
 `useScreenOverlayInsets` in sheet-local coordinates.
 
-`/player` is pushed by the mini player rather than by a header button. It is a second native tab
-navigator, presented as a sibling of `(tabs)` in the root stack rather than nested inside the
-primary native tabs. Its three routes are Comments, Player, and Tags; the system owns the bar and
-its material. `SongOptionsMenu`'s default Modify Tags handler opens `/player/tags` with
+`/player` is pushed by the mini player rather than by a header button. It is a root sheet whose
+three routes all render one always-mounted Comments / Player / Tags pager. `SongOptionsMenu`'s
+default Modify Tags handler opens `/player/tags` with
 `tagsSongId` params for a song that is not playing (see
 [../components/custom/media-player/README.md](../components/custom/media-player/README.md)). It
 redirects back if playback stops while it is open, unless those params are present - there is
 still a Tags/Comments page to show even with nothing playing.
 
+The player sheet paints one tint in `DetailScreen`, behind its header and the transparent pager.
+All three pages stay mounted side by side, so a swipe reveals live adjacent content continuously
+instead of navigating after a threshold. The custom glass selector follows the same scroll offset.
+
 `/artist/:id` and `/collection/:kind/:id` are the odd ones out of the pushed routes. Both draw a
 hero of their own above the track list instead of a `DetailScreen` header, and float their own X
-in the same corner. The artist image runs to the top edge and under the status bar; the
+in the same corner. The artist image runs to the top edge and under the status bar, and its
+Play/Pause control follows playback for any of that artist's top songs. The
 collection centers the cover, the name, the artist, a genre and year line, and Music's three
-buttons: a shuffle circle, Play, and a `...` circle that opens a collection options modal. That
+buttons: a shuffle circle, Play/Pause synchronized to the shared MusicKit snapshot, and a `...`
+circle that opens a collection options modal. That
 modal is a placeholder carrying Play next and Add to queue; the rest of it is still to build.
 Under the last row it prints the song count and running time, but only once every page is in,
 since a count off a half-loaded list is a wrong number. Everything the collection draws over its
@@ -180,6 +185,11 @@ and the now playing sheet's `...` menu. `/collection/:kind/:id` is reached throu
 `collectionRoute` and `albumRouteForTrack` in `@/lib/music-routes`, which carry the title, the
 artist, both artwork sizes, and the artwork color so the hero and the tint are there before the
 song fetch lands.
+
+Collection detail routes render above the native tab controller, so the tab controller's bottom
+accessory cannot appear over them. One `MediaPlayerPushedScreenOverlay` is mounted above the root
+stack and becomes visible over both hero screens once a track is active. The same route predicate
+makes their lists reserve exactly that overlay's height.
 
 ## Connects to
 
@@ -204,9 +214,8 @@ song fetch lands.
 - Keep a primary scroller as `ScreenScrollMarker`'s one direct child. The marker registers that
   native scroll view for automatic insets and scroll-to-top behavior.
 - Native tabs support at most five items on Android. The current set already uses all five.
-- Native tab navigators cannot be nested. Keep `player/` as a root-stack sibling of `(tabs)`;
-  moving it under the primary tab group would make its Comments / Player / Tags navigator an
-  unsupported nested native-tab controller.
+- Keep `player/` as a root-stack sibling of `(tabs)`. Its sheet covers the primary tab controller,
+  and its Comments / Player / Tags pager is local presentation state rather than navigation.
 
 ---
 

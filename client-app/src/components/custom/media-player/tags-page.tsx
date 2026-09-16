@@ -6,8 +6,6 @@ import { CreateTagDialog } from "@/components/custom/create-tag-dialog";
 import { TagPill } from "@/components/custom/tag-pill";
 import { GlassSurface } from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
-import { TintBackdrop } from "@/components/ui/tint-backdrop";
-import { useArtworkTint } from "@/lib/artwork-color";
 
 import { useSongTagEditor, type EditableSongTag } from "../song-tag-editor";
 import type { FocusedSong } from "./player-scope";
@@ -18,12 +16,11 @@ import type { FocusedSong } from "./player-scope";
  * old stacked-modal tag editor (`TagEditorSheet`) now that Tags is a page of
  * its own rather than something opened over the "..." menu.
  *
- * No artwork, no playback controls - only the gradient wash behind it, same
- * as Comments. That is the Player page's job alone.
+ * No artwork and no playback controls. The shared sheet shell paints the
+ * gradient behind this page and the other two tabs.
  */
 export function TagsPage({ focusedSong }: { focusedSong: FocusedSong }) {
     const insets = useSafeAreaInsets();
-    const { tint } = useArtworkTint(focusedSong);
     const {
         songTags,
         toggleTag,
@@ -37,7 +34,6 @@ export function TagsPage({ focusedSong }: { focusedSong: FocusedSong }) {
 
     return (
         <View className="flex-1">
-            <TintBackdrop tint={tint} />
             <ScrollView
                 contentContainerClassName="gap-6 px-6 pt-4"
                 contentContainerStyle={{ paddingBottom: insets.bottom + 16 }}

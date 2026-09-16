@@ -14,12 +14,12 @@ import { Platform } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { usePlayback } from "./playback";
+import { calculateScreenOverlayInsets } from "./screen-overlay-geometry";
+export {
+    COMPACT_PLAYER_HEIGHT,
+    FLOATING_ACTION_SIZE,
+} from "./screen-overlay-geometry";
 
-export const COMPACT_PLAYER_HEIGHT = 64;
-export const FLOATING_ACTION_SIZE = 56;
-
-const OVERLAY_GAP = 12;
-const ACCESSORY_GAP = 8;
 const NATIVE_TAB_BAR_HEIGHT = Platform.select({
     ios: 49,
     android: 80,
@@ -131,7 +131,6 @@ export function useBottomBarsHidden() {
  * content owes them nothing. `DetailScreen` sets it for a sheet presentation.
  */
 export const InsideSheetContext = createContext(false);
-
 /**
  * The root segment of the screen a user is actually looking at. A sheet is
  * presented over that screen rather than replacing it, so it must not change
@@ -170,6 +169,17 @@ export function useIsPushedDetailScreen() {
     );
 }
 
+/** Root detail routes over which the app-level compact player is visible. */
+export function useShowsPushedPlayerOverlay() {
+    const segments = useSegments();
+    const rootSegment: string | undefined = segments[0];
+    const insideSheet = useContext(InsideSheetContext);
+    return (
+        !insideSheet &&
+        (rootSegment === "artist" || rootSegment === "collection")
+    );
+}
+
 /**
  * Extra insets for app-owned overlays. Native tabs inset scrolling content on
  * their own; absolute controls still need a conservative chrome footprint.
@@ -180,37 +190,20 @@ export function useScreenOverlayInsets() {
     const rootSegment = useBaseRouteSegment();
     const insideSheet = useContext(InsideSheetContext);
     const hidden = useBottomBarsHidden();
+    const showsPushedPlayerOverlay = useShowsPushedPlayerOverlay();
     const inNativeTabs = !insideSheet && rootSegment === "(tabs)";
     const bottomBarsVisible = inNativeTabs && !hidden;
-    const compactPlayerVisible = bottomBarsVisible && activeTrack != null;
+    const compactPlayerVisible =
+        !hidden &&
+        activeTrack != null &&
+        (bottomBarsVisible || showsPushedPlayerOverlay);
     const nativePlayerAccessory = supportsNativeTabBottomAccessory();
 
-    // Native tabs do not expose their measured height. Keep the maximum native
-    // chrome footprint for controls that are themselves absolutely positioned.
-    // Scroll views receive their tab and accessory insets from the navigator.
-    const playerBottomInset = bottomBarsVisible
-        ? insets.bottom +
-          NATIVE_TAB_BAR_HEIGHT +
-          (compactPlayerVisible ? ACCESSORY_GAP + COMPACT_PLAYER_HEIGHT : 0)
-        : insets.bottom;
-    const floatingActionBottom = playerBottomInset + OVERLAY_GAP;
-    const contentBottomInset = bottomBarsVisible
-        ? compactPlayerVisible && !nativePlayerAccessory
-            ? COMPACT_PLAYER_HEIGHT + ACCESSORY_GAP + OVERLAY_GAP
-            : OVERLAY_GAP
-        : Math.max(40, insets.bottom + OVERLAY_GAP);
-
-    return {
+    return calculateScreenOverlayInsets({
+        safeAreaBottom: insets.bottom,
+        nativeTabBarHeight: NATIVE_TAB_BAR_HEIGHT,
         bottomBarsVisible,
         compactPlayerVisible,
-        playerBottomInset,
-        floatingActionBottom,
-        /** Extra spacing after the navigator applies its native content inset. */
-        contentBottomInset,
-        /** Extra spacing for a list that also has a floating action. */
-        listBottomInset: Math.max(
-            40,
-            contentBottomInset + FLOATING_ACTION_SIZE + OVERLAY_GAP,
-        ),
-    };
+        nativePlayerAccessory,
+    });
 }

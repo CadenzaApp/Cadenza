@@ -2,6 +2,7 @@ import type { MusicItem } from "@apple-musickit";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
     createContext,
+    useCallback,
     useContext,
     useEffect,
     useMemo,
@@ -9,7 +10,9 @@ import {
     type ReactNode,
 } from "react";
 
-import { usePlayback } from "@/lib/playback";
+import { usePlaybackTrackState } from "@/lib/playback";
+
+import { usePlayerTabs } from "./player-tabs";
 
 export type FocusedSong = {
     id: string;
@@ -40,7 +43,8 @@ function focusedSongFromTrack(track: MusicItem): FocusedSong {
  */
 export function PlayerScopeProvider({ children }: { children: ReactNode }) {
     const router = useRouter();
-    const { activeTrack } = usePlayback();
+    const { selectTab } = usePlayerTabs();
+    const { activeTrack } = usePlaybackTrackState();
     const params = useLocalSearchParams<{
         tagsSongId?: string;
         tagsSongTitle?: string;
@@ -64,43 +68,39 @@ export function PlayerScopeProvider({ children }: { children: ReactNode }) {
             params.tagsSongTitle,
         ],
     );
-    const [focusedSong, setFocusedSong] = useState<FocusedSong | null>(
-        routeTarget ?? (activeTrack ? focusedSongFromTrack(activeTrack) : null),
+    const [pinnedSong, setPinnedSong] = useState<FocusedSong | null>(
+        routeTarget,
     );
-    const [canStayWithoutPlayback, setCanStayWithoutPlayback] = useState(
-        routeTarget != null,
-    );
+    const focusedSong =
+        pinnedSong ?? (activeTrack ? focusedSongFromTrack(activeTrack) : null);
 
     // Playback can stop while the sheet is open. A route target still leaves
     // Comments and Tags with a useful song, so only the plain player closes.
     useEffect(() => {
-        if (!activeTrack && !canStayWithoutPlayback && router.canGoBack()) {
+        if (!activeTrack && !pinnedSong && router.canGoBack()) {
             router.back();
         }
-    }, [activeTrack, canStayWithoutPlayback, router]);
+    }, [activeTrack, pinnedSong, router]);
 
-    if (!focusedSong) return null;
+    const showTagsFor = useCallback(
+        (track: MusicItem) => {
+            const target = focusedSongFromTrack(track);
+            setPinnedSong(target);
+            selectTab("tags");
+        },
+        [selectTab],
+    );
 
-    function showTagsFor(track: MusicItem) {
-        const target = focusedSongFromTrack(track);
-        setFocusedSong(target);
-        setCanStayWithoutPlayback(true);
-        router.navigate({
-            pathname: "/player/tags",
-            params: {
-                tagsSongId: target.id,
-                tagsSongTitle: target.title,
-                tagsArtworkUrl: target.artworkUrl ?? "",
-                tagsArtworkColor: target.artworkColor ?? "",
-            },
-        });
-    }
+    const value = useMemo(
+        () => (focusedSong ? { focusedSong, showTagsFor } : null),
+        [focusedSong, showTagsFor],
+    );
 
-    return (
-        <PlayerScopeContext.Provider value={{ focusedSong, showTagsFor }}>
+    return value ? (
+        <PlayerScopeContext.Provider value={value}>
             {children}
         </PlayerScopeContext.Provider>
-    );
+    ) : null;
 }
 
 export function usePlayerScope() {

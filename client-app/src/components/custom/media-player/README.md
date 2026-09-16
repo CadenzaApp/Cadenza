@@ -3,21 +3,22 @@
 The global Apple Music player. On iOS 26 its compact form is the native tab controller's bottom
 accessory; UIKit moves it inline when native scrolling minimizes the tab bar. Older iOS, Android,
 and web use a floating fallback. Tapping it opens the `/player` sheet. Comments, Player, and Tags
-are three routes in a separate native tab navigator at the bottom of that sheet.
+are three always-mounted pages in one horizontal pager at the bottom of that sheet.
 
 ## Files
 
 | file                     | role                                                                                                                    |
 | ------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
 | `index.ts`               | Public exports for the native accessory and compatibility overlay.                                                      |
-| `media-player-host.tsx`  | Adapts native accessory placement and positions the non-iOS-26 fallback.                                                |
+| `media-player-host.tsx`  | Adapts native accessory placement and positions the fallback on old platforms and root detail screens.                  |
 | `media-player.tsx`       | Playback wiring shared by both native placements and the fallback.                                                      |
-| `player-tab-swipe.tsx`   | Horizontal page gesture that selects the adjacent native player tab.                                                    |
-| `player-scope.tsx`       | Resolves and shares the focused song across the sheet's three native tab routes, and selects Tags for Modify Tags.      |
+| `player-pager.tsx`       | Always-mounted horizontal pager plus its glass Comments / Player / Tags selector.                                       |
+| `player-tabs.tsx`        | Selected-page context shared by the pager and Modify Tags actions.                                                      |
+| `player-scope.tsx`       | Resolves and shares the focused song across the sheet's three pages, and selects Tags for Modify Tags.                  |
 | `player-page.tsx`        | The Player route: artwork or the queue, the scrubber, and the transport. The only route that touches playback.          |
 | `comments-page.tsx`      | The Comments route: a stub social feed for `focusedSong`. Local state only, no backend, no seed data.                   |
 | `tags-page.tsx`          | The Tags route: every user tag for `focusedSong`, applied first. Replaces the old stacked-modal tag editor.             |
-| `compact.tsx`            | Regular and inline compact content. Adds glass only for the compatibility fallback.                                    |
+| `compact.tsx`            | Regular and inline compact content. Adds glass only for the compatibility fallback.                                     |
 | `playback-details.tsx`   | `MediaPlayerTrackHeading` (title, artist, favorite, `...`) and `MediaPlayerProgress` (scrubber and timestamps).         |
 | `queue-view.tsx`         | What replaces the artwork when the queue is open: compact heading, shuffle/repeat pills, and the reorderable next list. |
 | `transport-controls.tsx` | Shuffle, skip, play, skip, queue.                                                                                       |
@@ -27,7 +28,7 @@ The `...` menu and its tag editor are **not** in this directory any more. They m
 since the list-row song menu needed the same Favorite/Share/Add to Playlist/Go to Album/Go to
 Artist/Modify Tags shape this sheet already had. `player-page.tsx` renders `SongOptionsMenu` with
 a `navigate` that dismisses the sheet before pushing, and an `onModifyTags` that selects the
-native Tags route in place instead of opening another sheet (see Connects to).
+already-mounted Tags page in place instead of opening another sheet (see Connects to).
 
 ## How it works
 
@@ -41,26 +42,32 @@ private UIKit selector. The floating compatibility player remains fixed above th
 
 ### The now playing sheet's three pages
 
-`app/player/_layout.tsx` presents a second `NativeTabs` navigator inside the player sheet. It is a
-root-stack sibling of the primary `(tabs)` navigator, not a native navigator nested inside it.
-The system draws its Comments / Player / Tags bar and owns the selection behavior and material.
-`minimizeBehavior="never"` keeps this local control stable while the sheet is open.
+`app/player/_layout.tsx` presents the sheet and its route slot. Each of the three entry routes
+renders the same `PlayerPager`, which mounts Comments, Player, and Tags side by side inside one
+horizontal paging `ScrollView`. Route choice decides only which page is selected initially.
+Swipes expose the adjacent live page under the finger, and the glass selector's highlight follows
+the scroll position continuously. Each selected tab uses its filled icon variant; inactive tabs
+use outlines. The three page instances stay mounted for the sheet's lifetime.
 
 `PlayerScopeProvider` resolves a `focusedSong` (id, title, artwork) from `usePlayback()`'s
 `activeTrack` or the route's `tagsSongId` / `tagsSongTitle` / `tagsArtworkUrl` /
 `tagsArtworkColor` params and shares it across the three routes. Modify Tags on a song that is not
-playing pushes `/player/tags` with those params. Modify Tags from the Player route updates the
-scope and selects `/player/tags` in the existing sheet.
+playing pushes `/player/tags` with those params. Modify Tags from the Player page updates the
+scope and selects the already-mounted Tags page without changing routes.
 
 Only `PlayerPage` touches playback. `CommentsPage` and `TagsPage` take only `focusedSong` and never
-read `usePlayback()`. `PlayerTabSwipe` recognizes an intentional left or right pan and asks the
-native navigator to select the adjacent route. The scrubber claims horizontal movement at 4
-points, before the page gesture's 12-point threshold, so seeking wins for a drag that starts on
-the scrubber.
+read `usePlayback()`. `DetailScreen` paints the tint once behind the header and the transparent
+pager, so there is no second gradient boundary below the title. The pager is the gesture surface;
+it does not navigate during a swipe or wait for a destination route to mount.
 
 The primary native bar and compact player remain mounted underneath a sheet. The sheet itself
 covers them, which lets both appear on the first frame of dismissal instead of waiting for the
 route transition to finish. Focused Search still suppresses them explicitly.
+
+Artist and collection detail screens sit above the native tab controller, so the controller's
+accessory cannot be raised over them. One app-level `MediaPlayerPushedScreenOverlay`, mounted above
+the root stack, renders the same regular compact content over either route whenever playback has an
+active track. Its route predicate is also the source of truth for descendant insets.
 
 Playback state is unaffected either way, because it lives in `PlaybackProvider`, not here.
 
@@ -102,14 +109,14 @@ smoothly between the 750ms native snapshot polls, and scrubbing overrides it wit
   [../../README.md](../../README.md). `player-page.tsx` passes it a `navigate` that dismisses the
   sheet before pushing (`router.back()` then `router.push`), since Add to Playlist / Go to
   Album / Go to Artist are full screen routes and a push from inside a presented sheet would
-  land inside its box, and an `onModifyTags` that selects the native Tags route in place.
+  land inside its box, and an `onModifyTags` that selects the mounted Tags page in place.
 - Mounted by `src/app/(tabs)/_layout.tsx`; the sheet navigator is declared by
   `src/app/player/_layout.tsx`.
 
 ## Gotchas
 
-- Keep `app/player/` outside `(tabs)`. Expo Router does not support nesting one native tab
-  navigator inside another; the root Stack presentation makes the player navigator a sibling.
+- Keep `app/player/` outside `(tabs)`. It is a root sheet over the primary tabs, and its pager is
+  deliberately a plain horizontal scroll surface rather than another navigator.
 - State shared by the native regular and inline accessory instances must stay above the accessory.
 - Do not add `GlassSurface` to the native accessory. UIKit owns its material. Only the fallback
   paints its own glass.
@@ -121,9 +128,9 @@ smoothly between the 750ms native snapshot polls, and scrubbing overrides it wit
   `@/lib/theme`, so it cannot drift from `sheetScreenOptions`) and `SHEET_HEADER_HEIGHT` in
   `player-page.tsx` only seed the first frame before that measurement lands. `SHEET_HEADER_HEIGHT`
   still mirrors `DetailScreen` by hand and has to be updated if that header changes.
-- The scrubber's pan deliberately claims horizontal drags at 4 points. `PlayerTabSwipe` waits for
-  12, so the scrubber wins the nested gesture race. Keep both gestures vertical-failing so a
-  downward sheet dismissal can still reach the native sheet.
+- `PlayerPager` keeps `removeClippedSubviews` off intentionally. All three pages must remain
+  mounted, including the page just outside the viewport, or an interactive swipe exposes a blank
+  destination and loses page-local state.
 - Repeat is deliberately not on the transport row. It lives on the queue view next to shuffle,
   which is where Apple keeps it and what frees the bottom-right slot for the queue button.
 - Both mode pills are glass while they are off and invert to a solid white pill with a dark glyph

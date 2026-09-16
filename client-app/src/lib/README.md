@@ -6,41 +6,43 @@ native module directly.
 
 ## Files
 
-| file                       | role                                                                                                                                                                                                               |
-| --- | --- |
-| `backend.ts`               | `BACKEND_URL`. One constant, currently hardcoded.                                                                                                                                                                  |
-| `api-actions.ts`           | The generic SWR wrappers: `useAPIData`, `useAPIPostDataBatched`, `useAPIFetch`, `useAPIMutation`.                                                                                                                  |
-| `api-endpoints.ts`         | `matchesEndpoint`, the cache-key matcher behind invalidation. Import-free so it can be unit tested.                                                                                                                |
-| `swr-utils.ts`             | `clearCache` and `useSimpleMutation`, for things that are not plain backend calls.                                                                                                                                 |
-| `routes/tags.ts`           | Hooks for `/tags`: `useUserTags`, `useTag`, `useCreateTag`, `useDeleteTag`, `useSuggestTags`.                                                                                                                      |
-| `routes/songs.ts`          | Hooks for `/songs/tags`: `useTagsOnSong`, `useTagsOnSongs`, `useApplyTag`, `useUnapplyTag`.                                                                                                                        |
-| `routes/queries.ts`        | Hook for `/queries/results`: `useQueryResults`.                                                                                                                                                                    |
-| `musickit-hooks.ts`        | SWR over the native module: song info, catalog search, library search, library songs, albums, artists, playlists, collection contents and metadata, song and collection favorites, artist search, playlist writes. |
-| `account.tsx`              | `AccountProvider` / `useAccount`. Supabase session and the JWT.                                                                                                                                                    |
-| `apple-music-auth.tsx`     | `AppleMusicProvider` / `useAppleMusic`. Apple Music tokens, persisted in secure store.                                                                                                                             |
-| `playback.tsx`             | `PlaybackProvider`, `usePlayback` (state) and `usePlaybackCommands` (actions). Queue and the native playback snapshot.                                                                                             |
-| `queue-order.ts`           | Pure index math for the queue mirror. Tested in `queue-order.test.ts`.                                                                                                                                             |
-| `supabase.ts`              | The Supabase client, backed by AsyncStorage.                                                                                                                                                                       |
-| `tag-generation.ts`        | A standalone tag suggestion fetch. Does not use the wrappers. See gotchas.                                                                                                                                         |
-| `theme.ts`                 | `NAV_THEME`, light and dark palettes for react-navigation, `sheetScreenOptions` for sheet routes, and `pushedScreenOptions` for the pushed detail routes.                                                          |
-| `error-utils.ts`           | `getErrorDetails` / `getErrorMessage`, for unwrapping native and backend errors.                                                                                                                                   |
-| `artwork-color.ts`         | `useArtworkTint`, the color a surface paints itself with, plus `withAlpha`.                                                                                                                                        |
-| `music-routes.ts`          | `collectionRoute` / `albumRouteForTrack`. Hrefs into the resource screens, params and all.                                                                                                                         |
-| `share-track.ts`           | `shareTrack` / `shareCollection`. Builds and fires the native share sheet for a song, album, or playlist's canonical Apple Music link.                                                                             |
-| `screen-overlay.ts`        | `useScreenOverlayInsets`, native tab/accessory visibility, extra overlay clearance, focused-screen suppression, and pushed-screen detection.                                                                       |
-| `screen-scroll.ts`         | `useScreenScroll`, the props a screen's top-level scroller spreads to get tab-press-scrolls-to-top and pull-down-to-close.                                                                                         |
-| `screen-scroll-marker.*`   | iOS registration wrapper for native-tab inset and scroll-to-top integration with nested and virtualized scrollers; a fragment elsewhere.                                                                           |
-| `zoom-dismiss.tsx`         | `ZoomOriginProvider`, `useZoomSource`, `ZoomDismissScreen`, `useCloseScreen`. Closing a pushed screen by shrinking it back into the artwork that opened it.                                                        |
-| `zoom-dismiss-geometry.ts` | Pure pull, transform, timing, and corner math for `zoom-dismiss`, tested without React Native.                                                                                                                     |
-| `types.ts`                 | Shared wire types: `Tag` and `TagMetadata`.                                                                                                                                                                        |
-| `utils.ts`                 | `cn()`, the clsx + tailwind-merge helper.                                                                                                                                                                          |
+| file                         | role                                                                                                                                                                                                               |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `backend.ts`                 | `BACKEND_URL`. One constant, currently hardcoded.                                                                                                                                                                  |
+| `api-actions.ts`             | The generic SWR wrappers: `useAPIData`, `useAPIPostDataBatched`, `useAPIFetch`, `useAPIMutation`.                                                                                                                  |
+| `api-endpoints.ts`           | `matchesEndpoint`, the cache-key matcher behind invalidation. Import-free so it can be unit tested.                                                                                                                |
+| `swr-utils.ts`               | `clearCache` and `useSimpleMutation`, for things that are not plain backend calls.                                                                                                                                 |
+| `routes/tags.ts`             | Hooks for `/tags`: `useUserTags`, `useTag`, `useCreateTag`, `useDeleteTag`, `useSuggestTags`.                                                                                                                      |
+| `routes/songs.ts`            | Hooks for `/songs/tags`: `useTagsOnSong`, `useTagsOnSongs`, `useApplyTag`, `useUnapplyTag`.                                                                                                                        |
+| `routes/queries.ts`          | Hook for `/queries/results`: `useQueryResults`.                                                                                                                                                                    |
+| `musickit-hooks.ts`          | SWR over the native module: song info, catalog search, library search, library songs, albums, artists, playlists, collection contents and metadata, song and collection favorites, artist search, playlist writes. |
+| `account.tsx`                | `AccountProvider` / `useAccount`. Supabase session and the JWT.                                                                                                                                                    |
+| `apple-music-auth.tsx`       | `AppleMusicProvider` / `useAppleMusic`. Apple Music tokens, persisted in secure store.                                                                                                                             |
+| `playback.tsx`               | `PlaybackProvider`, broad `usePlayback`, lightweight `usePlaybackTrackState`, and stable `usePlaybackCommands`. Queue and the native playback snapshot.                                                            |
+| `queue-order.ts`             | Pure index math for the queue mirror. Tested in `queue-order.test.ts`.                                                                                                                                             |
+| `supabase.ts`                | The Supabase client, backed by AsyncStorage.                                                                                                                                                                       |
+| `tag-generation.ts`          | A standalone tag suggestion fetch. Does not use the wrappers. See gotchas.                                                                                                                                         |
+| `theme.ts`                   | `NAV_THEME`, light and dark palettes for react-navigation, `sheetScreenOptions` for sheet routes, and `pushedScreenOptions` for the pushed detail routes.                                                          |
+| `error-utils.ts`             | `getErrorDetails` / `getErrorMessage`, for unwrapping native and backend errors.                                                                                                                                   |
+| `artwork-color.ts`           | `useArtworkTint`, the color a surface paints itself with, plus `withAlpha`.                                                                                                                                        |
+| `music-routes.ts`            | `collectionRoute` / `albumRouteForTrack`. Hrefs into the resource screens, params and all.                                                                                                                         |
+| `share-track.ts`             | `shareTrack` / `shareCollection`. Builds and fires the native share sheet for a song, album, or playlist's canonical Apple Music link.                                                                             |
+| `screen-overlay.ts`          | `useScreenOverlayInsets`, native tab/accessory visibility, extra overlay clearance, focused-screen suppression, and pushed-screen detection.                                                                       |
+| `screen-overlay-geometry.ts` | Pure, tested bottom-inset arithmetic shared by tab-hosted and pushed-screen compact players.                                                                                                                       |
+| `playable-item.ts`           | Pure identity and collection-membership helpers for library/catalog forms of a playable item.                                                                                                                      |
+| `screen-scroll.ts`           | `useScreenScroll`, the props a screen's top-level scroller spreads to get tab-press-scrolls-to-top and pull-down-to-close.                                                                                         |
+| `screen-scroll-marker.*`     | iOS registration wrapper for native-tab inset and scroll-to-top integration with nested and virtualized scrollers; a fragment elsewhere.                                                                           |
+| `zoom-dismiss.tsx`           | `ZoomOriginProvider`, `useZoomSource`, `ZoomDismissScreen`, `useCloseScreen`. Closing a pushed screen by shrinking it back into the artwork that opened it.                                                        |
+| `zoom-dismiss-geometry.ts`   | Pure pull, transform, timing, and corner math for `zoom-dismiss`, tested without React Native.                                                                                                                     |
+| `types.ts`                   | Shared wire types: `Tag` and `TagMetadata`.                                                                                                                                                                        |
+| `utils.ts`                   | `cn()`, the clsx + tailwind-merge helper.                                                                                                                                                                          |
 
 ## The SWR wrappers
 
 Four, in `api-actions.ts`, and picking the right one is most of the work:
 
 | wrapper                                                     | for                                                                    | key                                                |
-| --- | --- | --- |
+| ----------------------------------------------------------- | ---------------------------------------------------------------------- | -------------------------------------------------- |
 | `useAPIData<Output>(path, params?)`                         | idempotent reads, fetch on mount                                       | `{ keyType: "api-data", path, params, accountId }` |
 | `useAPIPostDataBatched<Item, Body, Out>(path, items, opts)` | an idempotent read whose payload is a list too long for a query string | `{ keyType: "api-data", path, items, accountId }`  |
 | `useAPIFetch<In, Out>(path)`                                | a GET you only want on demand (search, suggestions)                    | `path` string                                      |
@@ -75,11 +77,10 @@ whose `path` is equal and whose `params` are a **superset** of the listed ones. 
 
 ```ts
 // invalidate only this song's tag list, plus the tag counts
-useAPIMutation<ApplyTagPayload, void>("POST", "/songs/tags",
-    ({ song_id }) => [
-        { path: "/songs/tags", params: { song_id } },
-        { path: "/tags" },
-    ]);
+useAPIMutation<ApplyTagPayload, void>("POST", "/songs/tags", ({ song_id }) => [
+    { path: "/songs/tags", params: { song_id } },
+    { path: "/tags" },
+]);
 ```
 
 `invalidatedEndpoints` defaults to `[]`. A mutation that lists nothing leaves every cached
@@ -90,7 +91,7 @@ useAPIMutation<ApplyTagPayload, void>("POST", "/songs/tags",
 One file per backend router, and every backend endpoint has at least one hook.
 
 | backend             | endpoint                 | hook                                          |
-| --- | --- | --- |
+| ------------------- | ------------------------ | --------------------------------------------- |
 | `routes/tags.rs`    | `GET /tags`              | `tags.ts` -> `useUserTags()`, `useTag(tagId)` |
 |                     | `POST /tags`             | `tags.ts` -> `useCreateTag()`                 |
 |                     | `DELETE /tags`           | `tags.ts` -> `useDeleteTag()`                 |
@@ -151,6 +152,12 @@ Expo does not expose the native tab bar's measured height because the bar can mo
 edge on other device classes. The absolute-control clearance uses the standard platform bar
 height and the player's maximum regular height. It stays conservative while UIKit transitions
 the accessory to its inline placement.
+
+Pushed root details are above the native tab controller rather than inside it. One app-level
+compact-player overlay is mounted above the root stack and shown for artist and collection routes.
+The same `useShowsPushedPlayerOverlay` predicate tells `useScreenOverlayInsets` to reserve its
+height. Other pushed screens reserve nothing. Sheets reserve nothing because they cover every
+player surface.
 
 `DetailScreen` puts `InsideSheetContext` around sheet bodies, where only the device safe area is
 relevant. Native sheets cover the primary bar and player without unmounting or hiding them, so
@@ -299,5 +306,6 @@ remaining distance. A short pull still springs back to full size.
   session is restored sends `Bearer undefined`.
 
 ---
+
 Touching files in this directory? Update this README in the same change.
 See [../../../AGENT_GUIDE.md](../../../AGENT_GUIDE.md).
