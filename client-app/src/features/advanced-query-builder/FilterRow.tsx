@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Pressable, ScrollView, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTheme } from "expo-router/react-navigation";
@@ -76,25 +76,28 @@ export function FilterRow({ filter, connector, tags, actions }: Props) {
         }
     }
 
-    const fieldSections: PickerSection[] = [
-        {
-            title: "Properties",
-            options: PROPERTY_FIELDS.map((property) => ({
-                key: property.kind,
-                label: property.label,
-                icon: property.icon,
-            })),
-        },
-        {
-            title: "Your tags",
-            options: tags.list.map((tag) => ({
-                key: `tag:${tag.id}`,
-                label: tag.name,
-                icon: TYPE_ICONS[tag.type],
-                iconColor: tag.color,
-            })),
-        },
-    ];
+    const fieldSections: PickerSection[] = useMemo(
+        () => [
+            {
+                title: "Properties",
+                options: PROPERTY_FIELDS.map((property) => ({
+                    key: property.kind,
+                    label: property.label,
+                    icon: property.icon,
+                })),
+            },
+            {
+                title: "Your tags",
+                options: tags.list.map((tag) => ({
+                    key: `tag:${tag.id}`,
+                    label: tag.name,
+                    icon: TYPE_ICONS[tag.type],
+                    iconColor: tag.color,
+                })),
+            },
+        ],
+        [tags.list],
+    );
 
     return (
         <View className="flex-row items-center gap-1.5">
