@@ -11,14 +11,17 @@ export function TabStack({ title }: Props) {
     return (
         <Stack
             screenOptions={{
-                header: ({ options }) => (
+                header: ({ options, navigation, back }) => (
                     <TopRail
                         title={
                             typeof options.title === "string"
                                 ? options.title
                                 : title
                         }
-                        actions={options.headerRight?.({ canGoBack: false })}
+                        onBack={back ? () => navigation.goBack() : undefined}
+                        actions={options.headerRight?.({
+                            canGoBack: navigation.canGoBack(),
+                        })}
                     />
                 ),
             }}

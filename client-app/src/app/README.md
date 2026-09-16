@@ -17,6 +17,7 @@ logic out.
 | `(tabs)/analytics/index.tsx` | `/analytics`            | Static previews of planned listening analytics.                                                               |
 | `(tabs)/cadenza/index.tsx`   | `/cadenza`              | The boolean query workspace.                                                                                  |
 | `(tabs)/library/index.tsx`   | `/library`              | Library index: a row per category, then Recently Added.                                                       |
+| `(tabs)/library/category/[kind].tsx` | `/library/category/:kind` | One category's normal Library-stack view; preserves the tab bar and bottom player.                    |
 | `(tabs)/search/index.tsx`    | `/search`               | Search. A tag shelf until you tap the field, then recents, a scope switch, and results (artists, then songs). |
 | `account.tsx`                | `/account`              | Account sheet. Wires `AccountSettingsScreen`.                                                                 |
 | `appearance.tsx`             | `/appearance`           | Appearance preview sheet. Wires `AppearanceSettingsScreen`.                                                   |
@@ -25,7 +26,7 @@ logic out.
 | `player/comments.tsx`        | `/player/comments`      | Opens the same pager with Comments selected.                                                                  |
 | `player/tags.tsx`            | `/player/tags`          | Opens the same pager with Tags selected and optional focused-song params.                                     |
 | `library-categories.tsx`     | `/library-categories`   | Picks which rows the library shows.                                                                           |
-| `category/[kind].tsx`        | `/category/:kind`       | One library category's contents.                                                                              |
+| `category/[kind].tsx`        | `/category/:kind`       | Compatibility root host for the shared library-category body.                                                 |
 | `collection/[kind]/[id].tsx` | `/collection/:kind/:id` | The songs in one album or playlist.                                                                           |
 | `query-results.tsx`          | `/query-results`        | Full-screen query matches, refetched from the serialized query while the builder stays mounted underneath.   |
 | `tag/[tagId].tsx`            | `/tag/:tagId`           | One tag and the songs carrying it.                                                                            |

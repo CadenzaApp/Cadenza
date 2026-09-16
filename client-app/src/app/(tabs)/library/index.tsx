@@ -56,7 +56,7 @@ export default function LibraryScreen() {
 
     function openCategory(category: LibraryCategory) {
         router.push({
-            pathname: "/category/[kind]",
+            pathname: "/library/category/[kind]",
             params: { kind: category },
         });
     }

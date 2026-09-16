@@ -3,7 +3,6 @@ import { useTheme } from "expo-router/react-navigation";
 import { Pressable, View } from "react-native";
 
 import { Text } from "@/components/ui/text";
-import { useZoomSource } from "@/lib/zoom-dismiss";
 
 import { LIBRARY_CATEGORY_META, type LibraryCategory } from "./categories";
 
@@ -16,20 +15,13 @@ export function CategoryRow({
     onPress: (category: LibraryCategory) => void;
 }) {
     const { colors } = useTheme();
-    const { ref: zoomRef, capture: captureZoom } = useZoomSource();
     const { label, icon } = LIBRARY_CATEGORY_META[category];
 
     return (
         <Pressable
             accessibilityRole="button"
             accessibilityLabel={`Open ${label}`}
-            onPress={() => {
-                // The row is what the category screen grows out of and
-                // shrinks back into.
-                captureZoom();
-                onPress(category);
-            }}
-            ref={zoomRef}
+            onPress={() => onPress(category)}
             className="flex-row items-center gap-4 py-3.5 active:opacity-60"
         >
             <Ionicons name={icon} size={22} color={colors.notification} />
