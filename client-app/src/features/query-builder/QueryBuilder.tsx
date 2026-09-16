@@ -10,16 +10,18 @@ import {
     KeyboardAvoidingView,
     Platform,
     Pressable,
-    ScrollView,
     View,
 } from "react-native";
 import type { MusicItem } from "@apple-musickit";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import Animated from "react-native-reanimated";
 
 import { Text } from "@/components/ui/text";
 import { THEME } from "@/lib/theme";
 import type { Tag } from "@/lib/types";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
+import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
+import { useScreenScroll } from "@/lib/screen-scroll";
 import { useColorScheme } from "nativewind";
 import { ConditionList } from "./ConditionList";
 import { DragGhost } from "./DragGhost";
@@ -82,6 +84,7 @@ export function QueryBuilder({
     const [paletteHeight, setPaletteHeight] = useState(defaultPaletteHeight);
     const { colorScheme = "light" } = useColorScheme();
     const theme = THEME[colorScheme];
+    const scroll = useScreenScroll();
     useEffect(() => {
         if (!paletteWasResized.current) {
             setPaletteHeight(defaultPaletteHeight);
@@ -210,18 +213,21 @@ export function QueryBuilder({
                             </Pressable>
                         ) : null}
                     </View>
-                    <ScrollView
-                        className="flex-1"
-                        contentContainerClassName="flex-grow px-4 pb-2"
-                        keyboardShouldPersistTaps="handled"
-                    >
-                        <ConditionList
-                            conditions={conditions}
-                            onToggleNegation={toggleNegation}
-                            onModeChange={changeMode}
-                            onConnectorToggle={toggleConnector}
-                        />
-                    </ScrollView>
+                    <ScreenScrollMarker>
+                        <Animated.ScrollView
+                            {...scroll}
+                            className="flex-1"
+                            contentContainerClassName="flex-grow px-4 pb-2"
+                            keyboardShouldPersistTaps="handled"
+                        >
+                            <ConditionList
+                                conditions={conditions}
+                                onToggleNegation={toggleNegation}
+                                onModeChange={changeMode}
+                                onConnectorToggle={toggleConnector}
+                            />
+                        </Animated.ScrollView>
+                    </ScreenScrollMarker>
                 </View>
 
                 <TagPalette

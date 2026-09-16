@@ -1,7 +1,7 @@
 import type Ionicons from "@expo/vector-icons/Ionicons";
 import type { MusicItem } from "@apple-musickit";
-import type { ComponentProps, ReactElement } from "react";
-import type { NativeScrollEvent, NativeSyntheticEvent } from "react-native";
+import type { ComponentProps, ReactNode } from "react";
+import type { useAnimatedScrollHandler } from "react-native-reanimated";
 
 import type { ThemeColorToken } from "@/lib/theme";
 
@@ -98,13 +98,23 @@ export type MusicListProps = {
     rowSurfaceColor?: ThemeColorToken;
     /** Removes screen-level bottom insets when nested in another surface. */
     embedded?: boolean;
+    /** Controlled compactness. Omit to let pinch gestures own the value. */
+    compact?: boolean;
+    /** Receives compactness changes requested by pinch gestures. */
+    onCompactChange?: (compact: boolean) => void;
     /** Whether to load and display Cadenza tags beneath each track. Defaults to true. */
     showTags?: boolean;
     anticipatedTrackCount?: number;
     /** Content rendered above the first row inside the list's scroll surface. */
-    listHeader?: ReactElement | null;
+    header?: ReactNode;
+    /** Backward-compatible alias for `header`. */
+    listHeader?: ReactNode;
+    /** Content rendered below pagination rows inside the scroll surface. */
+    footer?: ReactNode;
+    /** Reports the complete scroll content size. */
+    onContentSizeChange?: (width: number, height: number) => void;
     /** Optional scroll observer for coordinated header animation. */
-    onScroll?: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
+    onScroll?: ReturnType<typeof useAnimatedScrollHandler>;
     /** Required pagination intent. Pass null for a non-paginated list. */
     pagination: MusicListPagination | null;
     /** Sorting is disabled when omitted or null. Pass an object to enable it. */

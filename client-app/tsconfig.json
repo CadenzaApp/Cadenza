@@ -11,6 +11,9 @@
       ],
       "@apple-musickit": [
         "./modules/apple-musickit/index"
+      ],
+      "@image-color": [
+        "./modules/image-color/index"
       ]
     }
   },

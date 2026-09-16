@@ -1,9 +1,15 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type { MusicItem } from "@apple-musickit";
 import { useTheme } from "expo-router/react-navigation";
-import type { ComponentProps } from "react";
+import type { ComponentProps, ReactNode } from "react";
 import { useMemo, useState } from "react";
-import { Image, View, type ColorValue } from "react-native";
+import {
+    Image,
+    View,
+    type ColorValue,
+    type StyleProp,
+    type ViewStyle,
+} from "react-native";
 import Animated, {
     Extrapolation,
     interpolate,
@@ -15,6 +21,8 @@ import Animated, {
 import {
     MusicList,
     type MusicListMultiSelectConfig,
+    type MusicListPagination,
+    type MusicListSorting,
 } from "@/components/custom/music-list";
 import { ModalPopup } from "@/components/custom/modal-popup";
 import { Button } from "@/components/ui/button";
@@ -44,10 +52,24 @@ type Props = {
     isLoading: boolean;
     error?: unknown;
     anticipatedTrackCount?: number;
-    onBackPress: () => void;
+    onBackPress?: () => void;
+    closeControl?: ReactNode;
     options?: readonly TrackCollectionOption[];
     multiSelect?: MusicListMultiSelectConfig | null;
     showTags?: boolean;
+    artworkUrls?: readonly string[];
+    subtitle?: string;
+    summary?: string;
+    header?: ReactNode;
+    footer?: ReactNode;
+    background?: ReactNode;
+    containerStyle?: StyleProp<ViewStyle>;
+    pagination?: MusicListPagination | null;
+    sorting?: MusicListSorting | null;
+    onContentSizeChange?: (width: number, height: number) => void;
+    onPlay?: () => void | Promise<void>;
+    onShuffle?: () => void | Promise<void>;
+    isPlaying?: boolean;
 };
 
 /** Reusable artwork, actions, metadata, and track-list surface for a collection. */
@@ -61,15 +83,36 @@ export function TrackCollectionView({
     options = [],
     multiSelect = null,
     showTags = true,
+    artworkUrls: artworkUrlsOverride,
+    subtitle,
+    summary: summaryOverride,
+    header,
+    footer,
+    background,
+    containerStyle,
+    pagination = null,
+    sorting = {
+        strategy: "local",
+        defaultValue: { option: "title", direction: "ascending" },
+    },
+    onContentSizeChange,
+    onPlay,
+    onShuffle,
+    isPlaying = false,
+    closeControl,
 }: Props) {
     const { colors } = useTheme();
     const { playQueue } = usePlaybackCommands();
     const [optionsOpen, setOptionsOpen] = useState(false);
     const scrollY = useSharedValue(0);
-    const artworkUrls = useMemo(() => collectionArtworkGrid(tracks), [tracks]);
-    const summary = useMemo(
-        () => formatTrackCollectionSummary(tracks),
+    const derivedArtworkUrls = useMemo(
+        () => collectionArtworkGrid(tracks),
         [tracks],
+    );
+    const artworkUrls = artworkUrlsOverride ?? derivedArtworkUrls;
+    const summary = useMemo(
+        () => summaryOverride ?? formatTrackCollectionSummary(tracks),
+        [summaryOverride, tracks],
     );
     const actionsDisabled = tracks.length === 0 || isLoading;
     const onScroll = useAnimatedScrollHandler((event) => {
@@ -90,12 +133,19 @@ export function TrackCollectionView({
     }));
 
     function playAll() {
-        void playQueue({ tracks }).catch(() => {
+        const command = onPlay ? onPlay() : playQueue({ tracks });
+        void Promise.resolve(command).catch(() => {
             // The playback provider owns the user-facing error.
         });
     }
 
     function shuffleAll() {
+        if (onShuffle) {
+            void Promise.resolve(onShuffle()).catch(() => {
+                // The caller owns the user-facing error.
+            });
+            return;
+        }
         const shuffled = [...tracks];
         for (let index = shuffled.length - 1; index > 0; index -= 1) {
             const swapIndex = Math.floor(Math.random() * (index + 1));
@@ -119,8 +169,9 @@ export function TrackCollectionView({
         });
     }
 
-    const listHeader = (
-        <View className="border-b border-border px-4 pb-4 pt-4">
+    const defaultHeader = (
+        <View className="relative px-4 pb-4 pt-4">
+            {background}
             <View className="items-center">
                 <Animated.View style={artworkStyle}>
                     <ArtworkMosaic
@@ -131,6 +182,11 @@ export function TrackCollectionView({
                 <Text className="mt-4 text-center text-2xl font-bold">
                     {title}
                 </Text>
+                {subtitle ? (
+                    <Text className="mt-1 text-center text-base text-muted-foreground">
+                        {subtitle}
+                    </Text>
+                ) : null}
                 <Text className="mt-1 text-sm text-muted-foreground">
                     {summary}
                 </Text>
@@ -143,8 +199,14 @@ export function TrackCollectionView({
                     onPress={playAll}
                     accessibilityLabel={`Play ${title}`}
                 >
-                    <Ionicons name="play" size={25} color={colors.background} />
-                    <Text className="font-semibold">Play</Text>
+                    <Ionicons
+                        name={isPlaying ? "pause" : "play"}
+                        size={25}
+                        color={colors.background}
+                    />
+                    <Text className="font-semibold">
+                        {isPlaying ? "Pause" : "Play"}
+                    </Text>
                 </Button>
                 <Button
                     variant="secondary"
@@ -197,52 +259,52 @@ export function TrackCollectionView({
     );
 
     return (
-        <View className="flex-1 bg-background">
+        <View className="flex-1 bg-background" style={containerStyle}>
             <MusicList
                 tracks={tracks}
                 isLoading={isLoading}
-                pagination={null}
-                sorting={{
-                    strategy: "local",
-                    defaultValue: {
-                        option: "title",
-                        direction: "ascending",
-                    },
-                }}
+                pagination={pagination}
+                sorting={sorting}
                 anticipatedTrackCount={anticipatedTrackCount}
-                listHeader={listHeader}
-                onScroll={onScroll}
+                header={header ?? defaultHeader}
+                footer={footer}
+                onContentSizeChange={onContentSizeChange}
+                onScroll={header ? undefined : onScroll}
                 multiSelect={multiSelect}
                 showTags={showTags}
                 fullBleedRows
             />
 
-            <View className="absolute left-4 top-3 z-20">
-                <Button
-                    size="icon"
-                    className="h-12 w-12 rounded-full"
-                    onPress={onBackPress}
-                    accessibilityLabel="Back"
-                    style={{
-                        shadowColor: "#000",
-                        shadowOpacity: 0.18,
-                        shadowRadius: 9,
-                        shadowOffset: { width: 0, height: 3 },
-                        elevation: 8,
-                    }}
-                >
-                    <Ionicons
-                        name="chevron-back"
-                        size={28}
-                        color={colors.background}
-                    />
-                </Button>
-            </View>
+            {closeControl ??
+                (onBackPress ? (
+                    <View className="absolute left-4 top-3 z-20">
+                        <Button
+                            size="icon"
+                            className="h-12 w-12 rounded-full"
+                            onPress={onBackPress}
+                            accessibilityLabel="Back"
+                            style={{
+                                shadowColor: "#000",
+                                shadowOpacity: 0.18,
+                                shadowRadius: 9,
+                                shadowOffset: { width: 0, height: 3 },
+                                elevation: 8,
+                            }}
+                        >
+                            <Ionicons
+                                name="chevron-back"
+                                size={28}
+                                color={colors.background}
+                            />
+                        </Button>
+                    </View>
+                ) : null)}
 
             <ModalPopup
                 visible={optionsOpen}
                 onClose={() => setOptionsOpen(false)}
                 title="Options"
+                variant="glass"
             >
                 {options.map((option) => (
                     <Button

@@ -1,7 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
-import { ActivityIndicator, BackHandler } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { Redirect, useFocusEffect } from "expo-router";
+import { ActivityIndicator, BackHandler, View } from "react-native";
+import { useFocusEffect } from "expo-router";
 import Animated, {
     FadeInLeft,
     FadeInRight,
@@ -14,30 +13,19 @@ import { QueryBuilder } from "@/features/query-builder/QueryBuilder";
 import QueryResults from "@/features/query-builder/QueryResults";
 import { queryToJSON } from "@/features/query-builder/QueryUtils";
 import type { QueryCondition } from "@/features/query-builder/types";
-import { useAccount } from "@/lib/account";
 import { useAllTracksFromLibrary } from "@/lib/musickit-hooks";
 import { useQueryResults } from "@/lib/routes/queries";
 import { useUserTags } from "@/lib/routes/tags";
 
-export default function QueryScreen() {
-    const { account } = useAccount();
+/**
+ * The boolean query workspace. Tags used to live here behind a segmented
+ * control; they are a library category now and open from the library screen.
+ */
+export function CadenzaScreen() {
     const { userTags, userTagsLoading, userTagsErr } = useUserTags();
     const [conditions, setConditions] = useState<QueryCondition[]>([]);
     const [showFullResults, setShowFullResults] = useState(false);
     const showBuilder = useCallback(() => setShowFullResults(false), []);
-    useFocusEffect(
-        useCallback(() => {
-            if (!showFullResults) return;
-            const subscription = BackHandler.addEventListener(
-                "hardwareBackPress",
-                () => {
-                    showBuilder();
-                    return true;
-                },
-            );
-            return () => subscription.remove();
-        }, [showBuilder, showFullResults]),
-    );
     const {
         allLibraryTracks,
         allLibraryTracksLoading,
@@ -70,37 +58,40 @@ export default function QueryScreen() {
         });
     }, [allLibraryTracks, matchedSongIds]);
 
-    if (!account) return <Redirect href="/auth?initialMode=signin" />;
+    useFocusEffect(
+        useCallback(() => {
+            if (!showFullResults) return;
+            const subscription = BackHandler.addEventListener(
+                "hardwareBackPress",
+                () => {
+                    showBuilder();
+                    return true;
+                },
+            );
+            return () => subscription.remove();
+        }, [showBuilder, showFullResults]),
+    );
 
     if (userTagsLoading) {
         return (
-            <SafeAreaView
-                edges={["left", "right"]}
-                className="flex-1 items-center justify-center bg-background"
-            >
+            <View className="flex-1 items-center justify-center bg-background">
                 <ActivityIndicator size="large" className="text-primary" />
-            </SafeAreaView>
+            </View>
         );
     }
 
     if (userTagsErr) {
         return (
-            <SafeAreaView
-                edges={["left", "right"]}
-                className="flex-1 items-center justify-center bg-background px-6"
-            >
+            <View className="flex-1 items-center justify-center bg-background px-6">
                 <Text className="text-center text-sm text-destructive">
                     Your tags could not be loaded.
                 </Text>
-            </SafeAreaView>
+            </View>
         );
     }
 
     return (
-        <SafeAreaView
-            edges={["left", "right"]}
-            className="flex-1 bg-background"
-        >
+        <View className="flex-1 bg-background">
             {showFullResults ? (
                 <Animated.View
                     key="query-results"
@@ -139,6 +130,6 @@ export default function QueryScreen() {
                     />
                 </Animated.View>
             )}
-        </SafeAreaView>
+        </View>
     );
 }

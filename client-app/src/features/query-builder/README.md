@@ -135,7 +135,7 @@ List multi-selection with its built-in Add to Queue action.
 
 ## Connects to
 
-- `src/app/(tabs)/query.tsx` for session state and full-library result wiring.
+- `src/features/cadenza/CadenzaScreen.tsx` for session state and full-library result wiring.
 - `@/lib/routes/queries::useQueryResults` for live candidate-based query evaluation.
 - `@/lib/musickit-hooks::useAllTracksFromLibrary` for the complete library candidate set.
 - `@/components/custom/music-list` for preview and full results.

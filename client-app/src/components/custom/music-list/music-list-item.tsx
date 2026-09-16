@@ -1,5 +1,5 @@
 import { memo, useRef, useState } from "react";
-import { Image, Pressable, ScrollView, View } from "react-native";
+import { Image, Pressable, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTheme } from "expo-router/react-navigation";
 import { useColorScheme } from "nativewind";
@@ -13,22 +13,16 @@ import Animated, {
     useAnimatedStyle,
     withTiming,
 } from "react-native-reanimated";
-import Svg, {
-    Defs,
-    LinearGradient as SvgGradient,
-    Rect,
-    Stop,
-} from "react-native-svg";
-
 import type { MusicItem } from "@apple-musickit";
 
-import { TagPill } from "@/components/custom/tag-pill";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
 import { THEME, type ThemeColorToken } from "@/lib/theme";
 import type { Tag } from "@/lib/types";
 import { cn } from "@/lib/utils";
+
+import { TagFadeRail } from "./tag-fade-rail";
 
 type MusicListItemProps = {
     item: MusicItem;
@@ -40,6 +34,7 @@ type MusicListItemProps = {
     fullBleed?: boolean;
     fullBleedHorizontalPadding?: number;
     rowSurfaceColor?: ThemeColorToken;
+    compact?: boolean;
     onPress: (item: MusicItem) => void;
     onLongPress?: (item: MusicItem) => void;
     onOpenMenu: (item: MusicItem) => void;
@@ -57,6 +52,7 @@ export const MusicListItem = memo(function MusicListItem({
     fullBleed = false,
     fullBleedHorizontalPadding = 24,
     rowSurfaceColor = "background",
+    compact = false,
     onPress,
     onLongPress,
     onOpenMenu,
@@ -74,7 +70,7 @@ export const MusicListItem = memo(function MusicListItem({
         /^https?:\/\//i.test(artworkUrl);
     const surfaceColor = theme[rowSurfaceColor];
     const selectionColor = blendHexColors(surfaceColor, theme.secondary, 0.4);
-    const tagFadeColor = selected ? selectionColor : surfaceColor;
+    const artworkSize = compact ? 48 : ARTWORK_SIZE;
     const animatedRowStyle = useAnimatedStyle(
         () => ({
             backgroundColor: withTiming(
@@ -109,7 +105,7 @@ export const MusicListItem = memo(function MusicListItem({
             style={[
                 animatedRowStyle,
                 {
-                    paddingVertical: 7.5,
+                    paddingVertical: compact ? 5.5 : 7.5,
                     paddingHorizontal: fullBleed
                         ? fullBleedHorizontalPadding
                         : 0,
@@ -202,10 +198,10 @@ export const MusicListItem = memo(function MusicListItem({
                             className="mr-2 shrink-0 rounded bg-muted"
                             resizeMode="cover"
                             style={{
-                                width: ARTWORK_SIZE,
+                                width: artworkSize,
                                 aspectRatio: 1,
                                 borderRadius: 4,
-                                transform: [{ translateY: 4 }],
+                                transform: [{ translateY: compact ? 2 : 4 }],
                             }}
                             onError={() => setArtworkFailed(true)}
                         />
@@ -213,9 +209,9 @@ export const MusicListItem = memo(function MusicListItem({
                         <View
                             className="mr-2 shrink-0 items-center justify-center rounded bg-muted"
                             style={{
-                                width: ARTWORK_SIZE,
+                                width: artworkSize,
                                 aspectRatio: 1,
-                                transform: [{ translateY: 4 }],
+                                transform: [{ translateY: compact ? 2 : 4 }],
                             }}
                         >
                             <Text className="text-xs text-muted-foreground text-center">
@@ -255,65 +251,7 @@ export const MusicListItem = memo(function MusicListItem({
                         </View>
 
                         {itemTags.length > 0 ? (
-                            <View className="relative min-h-4">
-                                <ScrollView
-                                    horizontal
-                                    showsHorizontalScrollIndicator={false}
-                                    contentContainerStyle={{
-                                        gap: 6,
-                                        paddingRight: 24,
-                                    }}
-                                >
-                                    {itemTags.map((tag) => (
-                                        <TagPill
-                                            key={tag.id}
-                                            tag={tag}
-                                            height={9}
-                                            showIcon={false}
-                                        />
-                                    ))}
-                                </ScrollView>
-                                <View
-                                    pointerEvents="none"
-                                    style={{
-                                        position: "absolute",
-                                        right: 0,
-                                        top: 0,
-                                        bottom: 0,
-                                        width: 24,
-                                    }}
-                                >
-                                    <Svg width="100%" height="100%">
-                                        <Defs>
-                                            <SvgGradient
-                                                id={`tags-fade-${item.id}`}
-                                                x1="0%"
-                                                y1="0%"
-                                                x2="100%"
-                                                y2="0%"
-                                            >
-                                                <Stop
-                                                    offset="0%"
-                                                    stopColor={tagFadeColor}
-                                                    stopOpacity={0}
-                                                />
-                                                <Stop
-                                                    offset="100%"
-                                                    stopColor={tagFadeColor}
-                                                    stopOpacity={1}
-                                                />
-                                            </SvgGradient>
-                                        </Defs>
-                                        <Rect
-                                            x="0"
-                                            y="0"
-                                            width="100%"
-                                            height="100%"
-                                            fill={`url(#tags-fade-${item.id})`}
-                                        />
-                                    </Svg>
-                                </View>
-                            </View>
+                            <TagFadeRail tags={itemTags} compact={compact} />
                         ) : null}
                     </View>
                 </Pressable>
@@ -355,15 +293,18 @@ export const MusicListItem = memo(function MusicListItem({
 export function MusicListItemSkeleton({
     fullBleed = false,
     fullBleedHorizontalPadding = 24,
+    compact = false,
 }: {
     fullBleed?: boolean;
     fullBleedHorizontalPadding?: number;
+    compact?: boolean;
 }) {
+    const artworkSize = compact ? 48 : ARTWORK_SIZE;
     return (
         <View
             className="relative flex-row items-center justify-between"
             style={{
-                paddingVertical: 7.5,
+                paddingVertical: compact ? 5.5 : 7.5,
                 paddingHorizontal: fullBleed ? fullBleedHorizontalPadding : 0,
             }}
         >
@@ -371,7 +312,7 @@ export function MusicListItemSkeleton({
                 <Skeleton
                     className="mr-2 shrink-0 rounded"
                     style={{
-                        width: ARTWORK_SIZE,
+                        width: artworkSize,
                         aspectRatio: 1,
                         transform: [{ translateY: 4 }],
                     }}

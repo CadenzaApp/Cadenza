@@ -148,3 +148,12 @@ export function TagPill({
         </Badge>
     );
 }
+
+/** Black or white, whichever has better contrast against the supplied color. */
+export function readableTextColor(hex: string) {
+    const red = parseInt(hex.slice(1, 3), 16);
+    const green = parseInt(hex.slice(3, 5), 16);
+    const blue = parseInt(hex.slice(5, 7), 16);
+    const luminance = (red * 299 + green * 587 + blue * 114) / 1000;
+    return luminance > 150 ? "#000000" : "#ffffff";
+}
