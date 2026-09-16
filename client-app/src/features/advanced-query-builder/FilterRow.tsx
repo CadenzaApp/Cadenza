@@ -18,6 +18,12 @@ import { OptionPicker, PickerSection } from "./OptionPicker";
 import { PROPERTY_FIELDS, TYPE_ICONS } from "./field-icons";
 import { AdvancedFilterNode, FilterField, FilterOp } from "./types";
 
+/**
+ * Just wide enough for "where", so every line's filter starts at the same
+ * spot without leaving a gap after the word.
+ */
+const CONNECTOR_WIDTH = 42;
+
 type Props = {
     filter: AdvancedFilterNode;
     /** "where", "and", or "or" */
@@ -91,8 +97,12 @@ export function FilterRow({ filter, connector, tags, actions }: Props) {
     ];
 
     return (
-        <View className="flex-row items-center gap-2">
-            <Text className="w-12 text-sm text-muted-foreground">
+        <View className="flex-row items-center gap-1.5">
+            <Text
+                numberOfLines={1}
+                className="text-sm text-muted-foreground"
+                style={{ width: CONNECTOR_WIDTH }}
+            >
                 {connector}
             </Text>
 
