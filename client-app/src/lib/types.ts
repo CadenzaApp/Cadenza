@@ -1,5 +1,11 @@
 /** What kind of value a tag can hold. Basic tags hold no value at all. */
-export type TagType = "basic" | "text" | "datetime" | "number" | "checkbox";
+export type TagType =
+    | "basic"
+    | "text"
+    | "datetime"
+    | "date"
+    | "number"
+    | "checkbox";
 
 export type Tag = {
     id: number;

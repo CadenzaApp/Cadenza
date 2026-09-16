@@ -6,7 +6,8 @@ import type { IconName } from "./OptionPicker";
 export const TYPE_ICONS: Record<TagType, IconName> = {
     basic: "pricetag-outline",
     text: "text-outline",
-    datetime: "calendar-outline",
+    datetime: "time-outline",
+    date: "calendar-outline",
     number: "calculator-outline",
     checkbox: "checkbox-outline",
 };

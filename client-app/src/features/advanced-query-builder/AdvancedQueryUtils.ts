@@ -23,6 +23,17 @@ import type {
 // Operators
 /////////////////////////
 
+const MOMENT_OPS: FilterOp[] = [
+    "on",
+    "not_on",
+    "before",
+    "after",
+    "on_or_before",
+    "on_or_after",
+    "is_empty",
+    "is_not_empty",
+];
+
 const TEXT_OPS: FilterOp[] = [
     "is",
     "is_not",
@@ -37,16 +48,8 @@ export const OPERATORS_BY_FIELD: Record<FieldKind, FilterOp[]> = {
     text: TEXT_OPS,
     tag_name: TEXT_OPS,
     tag_value: TEXT_OPS,
-    datetime: [
-        "on",
-        "not_on",
-        "before",
-        "after",
-        "on_or_before",
-        "on_or_after",
-        "is_empty",
-        "is_not_empty",
-    ],
+    datetime: MOMENT_OPS,
+    date: MOMENT_OPS,
     number: ["eq", "ne", "lt", "le", "gt", "ge", "is_empty", "is_not_empty"],
     checkbox: ["is_true", "is_false", "is_null"],
     basic: ["is_applied", "is_not_applied"],
@@ -97,6 +100,8 @@ export function valueKindFor(fieldKind: FieldKind, op: FilterOp): ValueKind {
         case "number":
             return "number";
         case "datetime":
+            return "datetime";
+        case "date":
             return "date";
         case "tag_type":
             return "tag_type";
@@ -298,7 +303,10 @@ export function countFilters(node: AdvancedNode): number {
 
 const DATE_VALUE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
 
-/** The local calendar day of `date`, as `YYYY-MM-DD`. */
+/**
+ * The local calendar day of `date`, as `YYYY-MM-DD`. Same as
+ * `@/lib/tag-values::toDateOnly`, kept here so this file stays import-free.
+ */
 export function toDateValue(date: Date): string {
     const pad = (n: number) => String(n).padStart(2, "0");
     return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
@@ -318,13 +326,21 @@ export function parseDateValue(value: string): Date | null {
     return isSameDay ? date : null;
 }
 
-/** The device's IANA time zone, which the backend uses for day boundaries. */
-export function getDeviceTimezone(): string {
-    try {
-        return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-    } catch {
-        return "UTC";
-    }
+/**
+ * `date` with its seconds dropped, as an ISO timestamp. Datetime filters
+ * compare to the minute, so this is the most precision worth sending.
+ */
+export function toDateTimeValue(date: Date): string {
+    const minute = new Date(date);
+    minute.setSeconds(0, 0);
+    return minute.toISOString();
+}
+
+/** A datetime filter value as a `Date`, or null if it does not parse. */
+export function parseDateTimeValue(value: string): Date | null {
+    if (!value) return null;
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
 }
 
 /////////////////////////
@@ -346,12 +362,11 @@ class BuildError extends Error {}
 export function buildAdvancedQuery(
     root: AdvancedGroupNode,
     tagTypes: ReadonlyMap<number, TagType>,
-    timezone: string,
 ): BuildAdvancedQueryResult {
     try {
         const where = groupToJSON(root, tagTypes);
         if (!where) return { ok: false, error: "Add at least one filter." };
-        return { ok: true, query: { timezone, where } };
+        return { ok: true, query: { where } };
     } catch (err) {
         if (err instanceof BuildError) return { ok: false, error: err.message };
         throw err;
@@ -445,6 +460,15 @@ function filterValue(
                 throw new BuildError("Pick a date for every date filter.");
             }
             return value;
+        case "datetime": {
+            const date = parseDateTimeValue(value);
+            if (!date) {
+                throw new BuildError(
+                    "Pick a date and time for every date & time filter.",
+                );
+            }
+            return toDateTimeValue(date);
+        }
         case "tag_type":
             if (!value) throw new BuildError("Pick a tag type.");
             return value;

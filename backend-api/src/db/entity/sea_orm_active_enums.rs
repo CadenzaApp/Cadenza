@@ -15,4 +15,6 @@ pub enum TagType {
     Number,
     #[sea_orm(string_value = "checkbox")]
     Checkbox,
+    #[sea_orm(string_value = "date")]
+    Date,
 }

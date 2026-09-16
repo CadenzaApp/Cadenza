@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 
 use crate::db::entity::sea_orm_active_enums::TagType;
 use crate::err::CadenzaError;
@@ -7,8 +7,9 @@ use crate::err::CadenzaError;
 /// canonical form to store in `user_tags_applied.value`.
 ///
 /// Values are stored as text, so every type needs one canonical spelling that
-/// the query engine can rely on later: RFC 3339 in UTC for `Datetime`, a plain
-/// decimal for `Number`, and `"true"`/`"false"` for `Checkbox`.
+/// the query engine can rely on later: RFC 3339 in UTC for `Datetime`,
+/// `YYYY-MM-DD` for `Date`, a plain decimal for `Number`, and
+/// `"true"`/`"false"` for `Checkbox`.
 ///
 /// Attribute tags may be applied without a value, so `None` (and a blank
 /// string, which is what an emptied input sends) is always accepted. `Basic`
@@ -49,6 +50,15 @@ pub fn canonicalize_tag_value(
             ))),
         },
 
+        // a calendar day with no time and no time zone
+        TagType::Date => match NaiveDate::parse_from_str(value, "%Y-%m-%d") {
+            Ok(date) => Ok(Some(date.format("%Y-%m-%d").to_string())),
+            Err(_) => Err(CadenzaError::InvalidTagValue(format!(
+                "'{}' is not a YYYY-MM-DD date",
+                value
+            ))),
+        },
+
         TagType::Checkbox => match value.to_lowercase().as_str() {
             "true" => Ok(Some("true".to_string())),
             "false" => Ok(Some("false".to_string())),
@@ -80,6 +90,7 @@ mod tests {
             TagType::Number,
             TagType::Datetime,
             TagType::Checkbox,
+            TagType::Date,
         ] {
             assert_eq!(canonicalize_tag_value(&tag_type, None).unwrap(), None);
             assert_eq!(canonical(tag_type, "   "), None);
@@ -125,6 +136,21 @@ mod tests {
     fn datetimes_reject_non_rfc3339_input() {
         assert!(is_rejected(TagType::Datetime, "1994-05-01"));
         assert!(is_rejected(TagType::Datetime, "yesterday"));
+    }
+
+    #[test]
+    fn dates_are_plain_calendar_days() {
+        assert_eq!(
+            canonical(TagType::Date, " 1994-05-01 "),
+            Some("1994-05-01".to_string())
+        );
+    }
+
+    #[test]
+    fn dates_reject_times_and_impossible_days() {
+        assert!(is_rejected(TagType::Date, "1994-05-01T12:00:00Z"));
+        assert!(is_rejected(TagType::Date, "1994-02-30"));
+        assert!(is_rejected(TagType::Date, "5/1/1994"));
     }
 
     #[test]

@@ -15,7 +15,7 @@ fetch. Reached from the "Advanced" button under the simple query builder.
 | `AdvancedQueryBuilder.tsx` | Scrollable root group plus the submit button. Binds the tree ops into a `BuilderActions` object. |
 | `FilterGroup.tsx` | One group: the all / any / none selector, its children, and the "Add filter" / "Add filter group" buttons. Recursive. Exports `BuilderTags` and `BuilderActions`. |
 | `FilterRow.tsx` | One filter line: connector word, field picker, operator picker, value input, and the remove button. Exports `RemoveButton`. |
-| `FilterValueInput.tsx` | The value input for a line: text, number, a calendar day, or a tag type. |
+| `FilterValueInput.tsx` | The value input for a line: text, number, a calendar day, a date and time, or a tag type. |
 | `OptionPicker.tsx` | Popup list of choices with optional sections and search, built on `ModalPopup`. |
 | `field-icons.ts` | Ionicons per tag type, and the three "property" fields (tag name, tag value, tag type). |
 
@@ -33,18 +33,18 @@ the field itself (`OPERATORS_BY_FIELD`). `valueKindFor(kind, op)` picks the inpu
 `"none"` for `is_empty`, `is_true`, `is_applied` and the like. `withField` / `withOp` keep the
 operator and value when they still fit and reset them otherwise.
 
-Dates are stored as a local `YYYY-MM-DD` day, never a timestamp. The line reads "where" first,
+Date tags and datetime tags offer the same operators. A date filter holds a local `YYYY-MM-DD`
+day and picks no time. A datetime filter holds an ISO timestamp with its seconds dropped
+(`toDateTimeValue`), since the backend compares datetimes to the minute. The line reads "where" first,
 then "and" in an all group and "or" in an any or none group.
 
 ## Submitting
 
-`buildAdvancedQuery(root, tagTypes, timezone)` returns `{ ok: true, query }` or
+`buildAdvancedQuery(root, tagTypes)` returns `{ ok: true, query }` or
 `{ ok: false, error }`. It drops groups with no filters in them, and errors on an unfinished
 filter, a deleted tag, a non-numeric number, or a query with no filters at all. Groups become
 `{and: [...]}`, `{or: [...]}`, and none becomes `{not: {or: [...]}}`. Each line becomes
-`{filter: {field, tag_id?, op, value?}}`. `timezone` is the device's IANA zone from
-`getDeviceTimezone()`, which the backend uses to decide which calendar day a stored datetime
-falls on.
+`{filter: {field, tag_id?, op, value?}}`, and the whole thing is sent as `{where: ...}`.
 
 The screen sends it through `useAdvancedQueryResults()` from `@/lib/routes/queries`, as the `q`
 param of `GET /queries/advanced/results`. Song ids come back sorted by id. The screen feeds them

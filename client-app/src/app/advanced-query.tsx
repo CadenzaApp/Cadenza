@@ -7,7 +7,6 @@ import { AdvancedQueryBuilder } from "@/features/advanced-query-builder/Advanced
 import {
     buildAdvancedQuery,
     createGroup,
-    getDeviceTimezone,
 } from "@/features/advanced-query-builder/AdvancedQueryUtils";
 import { AdvancedGroupNode } from "@/features/advanced-query-builder/types";
 import QueryResults from "@/features/query-builder/QueryResults";
@@ -52,7 +51,7 @@ export default function AdvancedQueryScreen() {
     );
 
     async function onQuery() {
-        const result = buildAdvancedQuery(root, tagTypes, getDeviceTimezone());
+        const result = buildAdvancedQuery(root, tagTypes);
         if (!result.ok) {
             setBuildErr(result.error);
             return;

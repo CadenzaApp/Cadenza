@@ -5,11 +5,16 @@ import DateTimePicker from "@react-native-community/datetimepicker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Text } from "@/components/ui/text";
-import { TAG_TYPES, TAG_TYPE_LABELS } from "@/lib/tag-values";
+import { TAG_TYPES, TAG_TYPE_LABELS, formatTagValue } from "@/lib/tag-values";
 import { TagType } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-import { parseDateValue, toDateValue } from "./AdvancedQueryUtils";
+import {
+    parseDateTimeValue,
+    parseDateValue,
+    toDateTimeValue,
+    toDateValue,
+} from "./AdvancedQueryUtils";
 import { OptionPicker } from "./OptionPicker";
 import { TYPE_ICONS } from "./field-icons";
 import { ValueKind } from "./types";
@@ -46,7 +51,11 @@ export function FilterValueInput({ kind, value, onChange }: Props) {
                 />
             );
         case "date":
-            return <DateValueInput value={value} onChange={onChange} />;
+            return <MomentValueInput value={value} onChange={onChange} />;
+        case "datetime":
+            return (
+                <MomentValueInput withTime value={value} onChange={onChange} />
+            );
         case "tag_type":
             return <TagTypeValueInput value={value} onChange={onChange} />;
     }
@@ -77,62 +86,81 @@ function ValueButton({
 }
 
 /**
- * A calendar day. Android shows its native date dialog; iOS shows the inline
- * calendar in a popup, since the compact picker cannot start out empty.
+ * A calendar day, or with `withTime` a date and time. Android runs its native
+ * date dialog, then the time dialog for `withTime`. iOS shows the inline
+ * picker in a popup, since the compact picker cannot start out empty.
  */
-function DateValueInput({
+function MomentValueInput({
     value,
+    withTime = false,
     onChange,
 }: {
     value: string;
+    withTime?: boolean;
     onChange: (value: string) => void;
 }) {
-    const [open, setOpen] = useState(false);
-    const picked = parseDateValue(value);
+    const [step, setStep] = useState<"date" | "time" | null>(null);
+    const picked = withTime ? parseDateTimeValue(value) : parseDateValue(value);
     const [draft, setDraft] = useState<Date>(picked ?? new Date());
 
     function openPicker() {
         setDraft(picked ?? new Date());
-        setOpen(true);
+        setStep("date");
+    }
+
+    function commit(date: Date) {
+        setStep(null);
+        onChange(withTime ? toDateTimeValue(date) : toDateValue(date));
+    }
+
+    /** Android: the day from the first dialog waits in `draft` for a time. */
+    function handleAndroidChange(selected: Date) {
+        if (withTime && step === "date") {
+            setDraft(selected);
+            setStep("time");
+            return;
+        }
+        if (withTime) {
+            const combined = new Date(draft);
+            combined.setHours(selected.getHours(), selected.getMinutes(), 0, 0);
+            commit(combined);
+            return;
+        }
+        commit(selected);
     }
 
     const label = picked
-        ? picked.toLocaleDateString(undefined, {
-              year: "numeric",
-              month: "short",
-              day: "numeric",
-          })
+        ? formatTagValue(withTime ? "datetime" : "date", value)
         : null;
 
     return (
         <>
             <ValueButton
                 label={label}
-                placeholder="Pick date"
+                placeholder={withTime ? "Pick date & time" : "Pick date"}
                 onPress={openPicker}
             />
 
-            {open &&
+            {step &&
                 (Platform.OS === "android" ? (
                     <DateTimePicker
                         value={draft}
-                        mode="date"
-                        onValueChange={(_, selectedDate) => {
-                            setOpen(false);
-                            onChange(toDateValue(selectedDate));
-                        }}
-                        onDismiss={() => setOpen(false)}
+                        mode={step}
+                        onValueChange={(_, selectedDate) =>
+                            handleAndroidChange(selectedDate)
+                        }
+                        onDismiss={() => setStep(null)}
                     />
                 ) : (
                     <Modal
                         visible
                         transparent
                         animationType="fade"
-                        onRequestClose={() => setOpen(false)}
+                        onRequestClose={() => setStep(null)}
                     >
                         <Pressable
                             className="flex-1 bg-black/70 items-center justify-center px-4 py-8"
-                            onPress={() => setOpen(false)}
+                            onPress={() => setStep(null)}
                         >
                             <Pressable
                                 onPress={(event) => event.stopPropagation()}
@@ -140,7 +168,7 @@ function DateValueInput({
                             >
                                 <DateTimePicker
                                     value={draft}
-                                    mode="date"
+                                    mode={withTime ? "datetime" : "date"}
                                     display="inline"
                                     onValueChange={(_, selectedDate) =>
                                         setDraft(selectedDate)
@@ -150,16 +178,13 @@ function DateValueInput({
                                     <Button
                                         variant="secondary"
                                         className="flex-1"
-                                        onPress={() => setOpen(false)}
+                                        onPress={() => setStep(null)}
                                     >
                                         <Text>Cancel</Text>
                                     </Button>
                                     <Button
                                         className="flex-1"
-                                        onPress={() => {
-                                            setOpen(false);
-                                            onChange(toDateValue(draft));
-                                        }}
+                                        onPress={() => commit(draft)}
                                     >
                                         <Text>Done</Text>
                                     </Button>

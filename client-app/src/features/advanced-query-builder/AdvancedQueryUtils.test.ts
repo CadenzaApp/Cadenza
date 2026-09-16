@@ -7,9 +7,11 @@ import {
     connectorLabel,
     createFilter,
     createGroup,
+    parseDateTimeValue,
     parseDateValue,
     removeNode,
     setConjunction,
+    toDateTimeValue,
     toDateValue,
     updateFilter,
     withField,
@@ -22,6 +24,7 @@ const tagTypes = new Map([
     [3, "datetime"],
     [4, "number"],
     [5, "checkbox"],
+    [6, "date"],
 ] as const);
 
 function filter(fields: object) {
@@ -35,9 +38,14 @@ function group(conjunction: "and" | "or" | "none", children: any[]) {
 test("groups compile to and / or / not-or", () => {
     const root = group("and", [
         filter({
-            field: { kind: "tag", tagId: 3 },
+            field: { kind: "tag", tagId: 6 },
             op: "on_or_after",
             value: "1950-01-01",
+        }),
+        filter({
+            field: { kind: "tag", tagId: 3 },
+            op: "before",
+            value: "2024-06-01T18:30:45.123Z",
         }),
         group("none", [
             filter({
@@ -56,18 +64,25 @@ test("groups compile to and / or / not-or", () => {
         ]),
     ]);
 
-    assert.deepEqual(buildAdvancedQuery(root, tagTypes, "America/Denver"), {
+    assert.deepEqual(buildAdvancedQuery(root, tagTypes), {
         ok: true,
         query: {
-            timezone: "America/Denver",
             where: {
                 and: [
                     {
                         filter: {
                             field: "tag",
-                            tag_id: 3,
+                            tag_id: 6,
                             op: "on_or_after",
                             value: "1950-01-01",
+                        },
+                    },
+                    {
+                        filter: {
+                            field: "tag",
+                            tag_id: 3,
+                            op: "before",
+                            value: "2024-06-01T18:30:00.000Z",
                         },
                     },
                     {
@@ -112,11 +127,10 @@ test("empty groups are dropped, and an empty query is an error", () => {
         group("or", []),
         filter({ field: { kind: "tag", tagId: 4 }, op: "gt", value: "02.50" }),
     ]);
-    const result = buildAdvancedQuery(root, tagTypes, "UTC");
+    const result = buildAdvancedQuery(root, tagTypes);
     assert.deepEqual(result, {
         ok: true,
         query: {
-            timezone: "UTC",
             where: {
                 and: [
                     {
@@ -133,7 +147,7 @@ test("empty groups are dropped, and an empty query is an error", () => {
     });
 
     assert.equal(
-        buildAdvancedQuery(group("and", [group("or", [])]), tagTypes, "UTC").ok,
+        buildAdvancedQuery(group("and", [group("or", [])]), tagTypes).ok,
         false,
     );
 });
@@ -149,14 +163,20 @@ test("unfinished or invalid filters are errors", () => {
         }),
         filter({ field: { kind: "tag", tagId: 4 }, op: "eq", value: "three" }),
         filter({
-            field: { kind: "tag", tagId: 3 },
+            field: { kind: "tag", tagId: 6 },
             op: "on",
             value: "2001-02-30",
+        }),
+        filter({ field: { kind: "tag", tagId: 3 }, op: "on", value: "" }),
+        filter({
+            field: { kind: "tag", tagId: 3 },
+            op: "on",
+            value: "not a date",
         }),
         filter({ field: { kind: "tag_type" }, op: "is", value: "" }),
     ]) {
         assert.equal(
-            buildAdvancedQuery(group("and", [bad]), tagTypes, "UTC").ok,
+            buildAdvancedQuery(group("and", [bad]), tagTypes).ok,
             false,
         );
     }
@@ -172,7 +192,6 @@ test("valueless operators send no value", () => {
             }),
         ]),
         tagTypes,
-        "UTC",
     );
     assert.deepEqual(result.ok && result.query.where, {
         and: [{ filter: { field: "tag", tag_id: 5, op: "is_null" } }],
@@ -219,6 +238,15 @@ test("changing the field keeps what still fits", () => {
 
     const empty = withOp({ ...byNumber, value: "3" }, "is_empty", tagTypes);
     assert.equal(empty.value, "");
+
+    const day = {
+        ...withField(createFilter(), { kind: "tag", tagId: 6 }, tagTypes),
+        value: "2000-01-01",
+    };
+    assert.equal(day.op, "on");
+    const moment = withField(day, { kind: "tag", tagId: 3 }, tagTypes);
+    assert.equal(moment.op, "on");
+    assert.equal(moment.value, "");
 });
 
 test("connector words", () => {
@@ -226,6 +254,15 @@ test("connector words", () => {
     assert.equal(connectorLabel("and", 1), "and");
     assert.equal(connectorLabel("or", 2), "or");
     assert.equal(connectorLabel("none", 1), "or");
+});
+
+test("datetime values drop their seconds", () => {
+    assert.equal(
+        toDateTimeValue(new Date("2024-06-01T18:30:45.500Z")),
+        "2024-06-01T18:30:00.000Z",
+    );
+    assert.equal(parseDateTimeValue(""), null);
+    assert.equal(parseDateTimeValue("nope"), null);
 });
 
 test("date values round trip as local days", () => {

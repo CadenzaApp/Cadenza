@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use chrono::NaiveDate;
+use chrono::{DateTime, NaiveDate, Utc};
 use sea_orm::prelude::Uuid;
 use sea_orm::{
     ColumnTrait, DatabaseConnection, DbBackend, EntityTrait, FromQueryResult, QueryFilter,
@@ -25,11 +25,6 @@ struct MatchedSong {
     song_id: String,
 }
 
-#[derive(Debug, FromQueryResult)]
-struct TimezoneCheck {
-    valid: bool,
-}
-
 /// Returns the ids of every song matching the given advanced query, sorted by
 /// song id so the order is stable between requests.
 ///
@@ -45,10 +40,6 @@ pub async fn run_advanced_query(
     let mut tag_ids = HashSet::new();
     collect_tag_ids(&query.root, &mut tag_ids);
     let tag_types = get_owned_tag_types(db, user_id, &tag_ids).await?;
-
-    if uses_timezone(&query.root) {
-        check_timezone(db, &query.timezone).await?;
-    }
 
     let (sql, values) = compile_advanced_query(query, &tag_types, user_id)?;
 
@@ -91,26 +82,6 @@ async fn get_owned_tag_types(
     }
 
     Ok(tag_types)
-}
-
-/// Postgres errors on an unknown time zone name, which would surface as a 500,
-/// so check it up front and answer a 422 instead.
-async fn check_timezone(db: &DatabaseConnection, timezone: &str) -> Result<(), CadenzaError> {
-    let check = TimezoneCheck::find_by_statement(Statement::from_sql_and_values(
-        DbBackend::Postgres,
-        "SELECT EXISTS (SELECT 1 FROM pg_timezone_names WHERE name = $1) AS valid",
-        [timezone.into()],
-    ))
-    .one(db)
-    .await?;
-
-    match check {
-        Some(TimezoneCheck { valid: true }) => Ok(()),
-        _ => Err(CadenzaError::QueryFormatError(format!(
-            "'{}' is not a known time zone",
-            timezone
-        ))),
-    }
 }
 
 fn check_size(root: &AdvancedQueryNode) -> Result<(), CadenzaError> {
@@ -156,27 +127,6 @@ fn collect_tag_ids(node: &AdvancedQueryNode, out: &mut HashSet<i64>) {
     }
 }
 
-/// True if any filter compares a datetime by calendar day, which is the only
-/// thing the time zone is used for.
-fn uses_timezone(node: &AdvancedQueryNode) -> bool {
-    match node {
-        AdvancedQueryNode::And(children) | AdvancedQueryNode::Or(children) => {
-            children.iter().any(uses_timezone)
-        }
-        AdvancedQueryNode::Not(child) => uses_timezone(child),
-        AdvancedQueryNode::Filter(AdvancedFilter::Tag { op, .. }) => matches!(
-            op,
-            FilterOp::On
-                | FilterOp::NotOn
-                | FilterOp::Before
-                | FilterOp::After
-                | FilterOp::OnOrBefore
-                | FilterOp::OnOrAfter
-        ),
-        AdvancedQueryNode::Filter(_) => false,
-    }
-}
-
 /// Converts the query to a full SQL statement and its values. `tag_types` must
 /// hold the type of every tag id the query mentions.
 ///
@@ -191,8 +141,6 @@ fn compile_advanced_query(
 ) -> Result<(String, Vec<sea_query::Value>), CadenzaError> {
     let mut compiler = Compiler {
         tag_types,
-        timezone: &query.timezone,
-        timezone_param: None,
         values: vec![sea_query::Value::Uuid(Some(user_id))],
     };
     let where_clause = compiler.node(&query.root)?;
@@ -212,9 +160,6 @@ fn compile_advanced_query(
 
 struct Compiler<'a> {
     tag_types: &'a HashMap<i64, TagType>,
-    timezone: &'a str,
-    /// Placeholder of the time zone, bound the first time a filter needs it.
-    timezone_param: Option<String>,
     /// `$1` is always the user id.
     values: Vec<sea_query::Value>,
 }
@@ -233,15 +178,6 @@ impl Compiler<'_> {
     fn bind(&mut self, value: impl Into<sea_query::Value>) -> String {
         self.values.push(value.into());
         format!("${}", self.values.len())
-    }
-
-    fn timezone(&mut self) -> String {
-        if let Some(param) = &self.timezone_param {
-            return param.clone();
-        }
-        let param = self.bind(self.timezone.to_string());
-        self.timezone_param = Some(param.clone());
-        param
     }
 
     /// Converts a node to a SQL snippet.
@@ -340,6 +276,69 @@ impl Compiler<'_> {
         })
     }
 
+    /// Comparisons on datetime and date tags. Datetimes compare to the
+    /// minute, in UTC, so a value picked on the phone matches itself whatever
+    /// its seconds. Dates are plain calendar days with no time zone.
+    fn moment_match(
+        &mut self,
+        tag_type: &TagType,
+        op: FilterOp,
+        value: &Option<String>,
+    ) -> Result<Match, CadenzaError> {
+        match op {
+            FilterOp::IsEmpty => {
+                no_value(op, value)?;
+                Ok(Match::None("TRUE".to_string()))
+            }
+            FilterOp::IsNotEmpty => {
+                no_value(op, value)?;
+                Ok(Match::Any("TRUE".to_string()))
+            }
+            FilterOp::On
+            | FilterOp::NotOn
+            | FilterOp::Before
+            | FilterOp::After
+            | FilterOp::OnOrBefore
+            | FilterOp::OnOrAfter => {
+                let raw = required_value(op, value)?;
+                let (stored, target) = if *tag_type == TagType::Datetime {
+                    let param = self.bind(parse_datetime(raw)?);
+                    (
+                        "date_trunc('minute', filter_check.value::timestamptz AT TIME ZONE 'UTC')"
+                            .to_string(),
+                        format!("date_trunc('minute', {param}::timestamptz AT TIME ZONE 'UTC')"),
+                    )
+                } else {
+                    let param = self.bind(parse_date(raw)?);
+                    (
+                        "filter_check.value::date".to_string(),
+                        format!("{param}::date"),
+                    )
+                };
+                let comparison = match op {
+                    FilterOp::On | FilterOp::NotOn => "=",
+                    FilterOp::Before => "<",
+                    FilterOp::After => ">",
+                    FilterOp::OnOrBefore => "<=",
+                    _ => ">=",
+                };
+                let condition = format!("{stored} {comparison} {target}");
+                Ok(match op {
+                    FilterOp::NotOn => Match::None(condition),
+                    _ => Match::Any(condition),
+                })
+            }
+            _ => Err(unsupported_op(
+                op,
+                if *tag_type == TagType::Datetime {
+                    "datetime tags"
+                } else {
+                    "date tags"
+                },
+            )),
+        }
+    }
+
     fn tag_filter(
         &mut self,
         tag_id: i64,
@@ -402,41 +401,7 @@ impl Compiler<'_> {
                 _ => return Err(unsupported_op(op, "number tags")),
             },
 
-            TagType::Datetime => match op {
-                FilterOp::IsEmpty => {
-                    no_value(op, value)?;
-                    Match::None("TRUE".to_string())
-                }
-                FilterOp::IsNotEmpty => {
-                    no_value(op, value)?;
-                    Match::Any("TRUE".to_string())
-                }
-                FilterOp::On
-                | FilterOp::NotOn
-                | FilterOp::Before
-                | FilterOp::After
-                | FilterOp::OnOrBefore
-                | FilterOp::OnOrAfter => {
-                    let date = parse_date(required_value(op, value)?)?;
-                    let timezone = self.timezone();
-                    let param = self.bind(date);
-                    let comparison = match op {
-                        FilterOp::On | FilterOp::NotOn => "=",
-                        FilterOp::Before => "<",
-                        FilterOp::After => ">",
-                        FilterOp::OnOrBefore => "<=",
-                        _ => ">=",
-                    };
-                    let condition = format!(
-                        "(filter_check.value::timestamptz AT TIME ZONE {timezone})::date {comparison} {param}::date"
-                    );
-                    match op {
-                        FilterOp::NotOn => Match::None(condition),
-                        _ => Match::Any(condition),
-                    }
-                }
-                _ => return Err(unsupported_op(op, "datetime tags")),
-            },
+            TagType::Datetime | TagType::Date => self.moment_match(&tag_type, op, value)?,
 
             TagType::Checkbox => {
                 no_value(op, value)?;
@@ -551,13 +516,25 @@ fn parse_number(value: &str) -> Result<f64, CadenzaError> {
     }
 }
 
-/// Datetime filters compare calendar days, so the value is a plain
-/// `YYYY-MM-DD` date. Returned in that same canonical form.
+/// Values for date tags are plain `YYYY-MM-DD` days. Returned in that same
+/// canonical form.
 fn parse_date(value: &str) -> Result<String, CadenzaError> {
     match NaiveDate::parse_from_str(value, "%Y-%m-%d") {
         Ok(date) => Ok(date.format("%Y-%m-%d").to_string()),
         Err(_) => Err(CadenzaError::QueryFormatError(format!(
             "'{}' is not a YYYY-MM-DD date",
+            value
+        ))),
+    }
+}
+
+/// Values for datetime tags are RFC 3339 timestamps. Returned normalized to
+/// UTC, the same form the tag values are stored in.
+fn parse_datetime(value: &str) -> Result<String, CadenzaError> {
+    match DateTime::parse_from_rfc3339(value) {
+        Ok(datetime) => Ok(datetime.with_timezone(&Utc).to_rfc3339()),
+        Err(_) => Err(CadenzaError::QueryFormatError(format!(
+            "'{}' is not an RFC 3339 datetime",
             value
         ))),
     }
@@ -578,6 +555,7 @@ mod tests {
             (3, TagType::Datetime),
             (4, TagType::Number),
             (5, TagType::Checkbox),
+            (6, TagType::Date),
         ])
     }
 
@@ -597,10 +575,9 @@ mod tests {
     fn parses_the_documented_example() {
         let query = parse(
             r#"{
-                "timezone": "America/Denver",
                 "where": { "and": [
-                    { "filter": { "field": "tag", "tag_id": 3, "op": "on_or_after", "value": "1950-01-01" } },
-                    { "filter": { "field": "tag", "tag_id": 3, "op": "before", "value": "1961-01-01" } },
+                    { "filter": { "field": "tag", "tag_id": 6, "op": "on_or_after", "value": "1950-01-01" } },
+                    { "filter": { "field": "tag", "tag_id": 3, "op": "before", "value": "2024-06-01T18:30:00Z" } },
                     { "not": { "or": [
                         { "filter": { "field": "tag_name", "op": "contains", "value": "live" } },
                         { "filter": { "field": "tag_type", "op": "is", "value": "checkbox" } }
@@ -608,18 +585,10 @@ mod tests {
                 ] }
             }"#,
         );
-        assert_eq!(query.timezone, "America/Denver");
-
         let mut ids = HashSet::new();
         collect_tag_ids(&query.root, &mut ids);
-        assert_eq!(ids, HashSet::from([3]));
-        assert!(uses_timezone(&query.root));
+        assert_eq!(ids, HashSet::from([3, 6]));
         assert!(check_size(&query.root).is_ok());
-    }
-
-    #[test]
-    fn timezone_defaults_to_utc() {
-        assert_eq!(parse(r#"{ "where": { "and": [] } }"#).timezone, "UTC");
     }
 
     #[test]
@@ -632,6 +601,12 @@ mod tests {
             .is_err()
         );
         assert!(serde_json::from_str::<AdvancedQuery>(r#"{ "root": { "and": [] } }"#).is_err());
+        assert!(
+            serde_json::from_str::<AdvancedQuery>(
+                r#"{ "timezone": "UTC", "where": { "and": [] } }"#
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -677,7 +652,9 @@ mod tests {
             r#"{ "field": "tag", "tag_id": 1, "op": "is_not_applied" }"#,
             r#"{ "field": "tag", "tag_id": 2, "op": "is_not", "value": "a" }"#,
             r#"{ "field": "tag", "tag_id": 2, "op": "is_empty" }"#,
-            r#"{ "field": "tag", "tag_id": 3, "op": "not_on", "value": "2000-01-01" }"#,
+            r#"{ "field": "tag", "tag_id": 3, "op": "not_on", "value": "2000-01-01T00:00:00Z" }"#,
+            r#"{ "field": "tag", "tag_id": 6, "op": "not_on", "value": "2000-01-01" }"#,
+            r#"{ "field": "tag", "tag_id": 6, "op": "is_empty" }"#,
             r#"{ "field": "tag", "tag_id": 4, "op": "ne", "value": "1" }"#,
             r#"{ "field": "tag", "tag_id": 5, "op": "is_null" }"#,
             r#"{ "field": "tag_name", "op": "is_not", "value": "a" }"#,
@@ -695,6 +672,7 @@ mod tests {
             r#"{ "field": "tag", "tag_id": 1, "op": "is_applied" }"#,
             r#"{ "field": "tag", "tag_id": 2, "op": "contains", "value": "a" }"#,
             r#"{ "field": "tag", "tag_id": 3, "op": "is_not_empty" }"#,
+            r#"{ "field": "tag", "tag_id": 6, "op": "after", "value": "2000-01-01" }"#,
             r#"{ "field": "tag", "tag_id": 4, "op": "le", "value": "1" }"#,
             r#"{ "field": "tag", "tag_id": 5, "op": "is_false" }"#,
             r#"{ "field": "tag_type", "op": "is", "value": "basic" }"#,
@@ -710,28 +688,27 @@ mod tests {
     #[test]
     fn value_casts_are_guarded_by_the_tag_id() {
         let (sql, _) = compile(&filter(
-            r#"{ "field": "tag", "tag_id": 3, "op": "before", "value": "2000-01-01" }"#,
+            r#"{ "field": "tag", "tag_id": 6, "op": "before", "value": "2000-01-01" }"#,
         ))
         .unwrap();
         assert!(sql.contains(
-            "CASE WHEN filter_check.tag_id = $2 AND filter_check.value IS NOT NULL THEN (filter_check.value::timestamptz AT TIME ZONE $3)::date < $4::date ELSE FALSE END"
+            "CASE WHEN filter_check.tag_id = $2 AND filter_check.value IS NOT NULL THEN filter_check.value::date < $3::date ELSE FALSE END"
         ));
     }
 
     #[test]
-    fn timezone_is_bound_once() {
-        let (_, values) = compile(
-            r#"{ "timezone": "Asia/Tokyo", "where": { "and": [
-                { "filter": { "field": "tag", "tag_id": 3, "op": "on", "value": "2000-01-01" } },
-                { "filter": { "field": "tag", "tag_id": 3, "op": "after", "value": "1999-01-01" } }
-            ] } }"#,
-        )
+    fn datetimes_compare_to_the_minute_in_utc() {
+        let (sql, values) = compile(&filter(
+            r#"{ "field": "tag", "tag_id": 3, "op": "on", "value": "2000-01-01T05:30:59-06:00" }"#,
+        ))
         .unwrap();
-        let timezones = values
-            .iter()
-            .filter(|value| **value == sea_query::Value::String(Some("Asia/Tokyo".to_string())))
-            .count();
-        assert_eq!(timezones, 1);
+        assert!(sql.contains(
+            "date_trunc('minute', filter_check.value::timestamptz AT TIME ZONE 'UTC') = date_trunc('minute', $3::timestamptz AT TIME ZONE 'UTC')"
+        ));
+        assert_eq!(
+            values[2],
+            sea_query::Value::String(Some("2000-01-01T11:30:59+00:00".to_string()))
+        );
     }
 
     #[test]
@@ -741,6 +718,7 @@ mod tests {
             r#"{ "field": "tag", "tag_id": 2, "op": "gt", "value": "1" }"#,
             r#"{ "field": "tag", "tag_id": 3, "op": "contains", "value": "a" }"#,
             r#"{ "field": "tag", "tag_id": 4, "op": "on", "value": "2000-01-01" }"#,
+            r#"{ "field": "tag", "tag_id": 6, "op": "gt", "value": "1" }"#,
             r#"{ "field": "tag", "tag_id": 5, "op": "is_applied" }"#,
             r#"{ "field": "tag_name", "op": "is_not_empty" }"#,
             r#"{ "field": "tag_type", "op": "contains", "value": "text" }"#,
@@ -758,8 +736,10 @@ mod tests {
             r#"{ "field": "tag", "tag_id": 2, "op": "is" }"#,
             r#"{ "field": "tag", "tag_id": 2, "op": "contains", "value": "   " }"#,
             r#"{ "field": "tag", "tag_id": 2, "op": "is_empty", "value": "a" }"#,
-            r#"{ "field": "tag", "tag_id": 3, "op": "on", "value": "2000-01-01T00:00:00Z" }"#,
-            r#"{ "field": "tag", "tag_id": 3, "op": "on", "value": "2000-02-30" }"#,
+            r#"{ "field": "tag", "tag_id": 3, "op": "on", "value": "2000-01-01" }"#,
+            r#"{ "field": "tag", "tag_id": 3, "op": "on", "value": "yesterday" }"#,
+            r#"{ "field": "tag", "tag_id": 6, "op": "on", "value": "2000-01-01T00:00:00Z" }"#,
+            r#"{ "field": "tag", "tag_id": 6, "op": "on", "value": "2000-02-30" }"#,
             r#"{ "field": "tag", "tag_id": 4, "op": "eq", "value": "NaN" }"#,
             r#"{ "field": "tag", "tag_id": 4, "op": "eq", "value": "three" }"#,
             r#"{ "field": "tag", "tag_id": 5, "op": "is_true", "value": "true" }"#,

@@ -17,6 +17,7 @@ pub enum TagType {
     Datetime,
     Number,
     Checkbox,
+    Date,
 }
 
 impl From<DbTagType> for TagType {
@@ -27,6 +28,7 @@ impl From<DbTagType> for TagType {
             DbTagType::Datetime => Self::Datetime,
             DbTagType::Number => Self::Number,
             DbTagType::Checkbox => Self::Checkbox,
+            DbTagType::Date => Self::Date,
         }
     }
 }
@@ -39,6 +41,7 @@ impl From<TagType> for DbTagType {
             TagType::Datetime => Self::Datetime,
             TagType::Number => Self::Number,
             TagType::Checkbox => Self::Checkbox,
+            TagType::Date => Self::Date,
         }
     }
 }

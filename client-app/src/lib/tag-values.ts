@@ -5,6 +5,7 @@ export const TAG_TYPES: TagType[] = [
     "basic",
     "text",
     "datetime",
+    "date",
     "number",
     "checkbox",
 ];
@@ -13,6 +14,7 @@ export const TAG_TYPE_LABELS: Record<TagType, string> = {
     basic: "Basic",
     text: "Text",
     datetime: "Date & time",
+    date: "Date",
     number: "Number",
     checkbox: "Checkbox",
 };
@@ -21,6 +23,7 @@ export const TAG_TYPE_DESCRIPTIONS: Record<TagType, string> = {
     basic: "No value, just the tag itself",
     text: "Any text, like a note",
     datetime: "A date and time",
+    date: "A calendar date, no time",
     number: "A whole number or decimal",
     checkbox: "True or false",
 };
@@ -28,6 +31,32 @@ export const TAG_TYPE_DESCRIPTIONS: Record<TagType, string> = {
 /** Attribute tags are every type other than basic: they can hold a value. */
 export function isAttributeTag(type: TagType): boolean {
     return type !== "basic";
+}
+
+const DATE_ONLY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/**
+ * Parses a date tag value (`YYYY-MM-DD`) as midnight local time, or null if
+ * it is not a real day. `new Date("YYYY-MM-DD")` would read it as UTC, which
+ * shows the previous day west of Greenwich.
+ */
+export function parseDateOnly(value: string): Date | null {
+    const match = DATE_ONLY_PATTERN.exec(value.trim());
+    if (!match) return null;
+
+    const [year, month, day] = match.slice(1).map(Number);
+    const date = new Date(year, month - 1, day);
+    const isSameDay =
+        date.getFullYear() === year &&
+        date.getMonth() === month - 1 &&
+        date.getDate() === day;
+    return isSameDay ? date : null;
+}
+
+/** The local calendar day of `date`, as a date tag value (`YYYY-MM-DD`). */
+export function toDateOnly(date: Date): string {
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
 /**
@@ -54,6 +83,8 @@ export function validateTagValue(type: TagType, raw: string): string | null {
             return Number.isNaN(new Date(value).getTime())
                 ? "Enter a valid date and time."
                 : null;
+        case "date":
+            return parseDateOnly(value) ? null : "Enter a valid date.";
         case "checkbox":
             return value === "true" || value === "false"
                 ? null
@@ -79,6 +110,8 @@ export function toCanonicalTagValue(
             return String(Number(value));
         case "datetime":
             return new Date(value).toISOString();
+        case "date":
+            return toDateOnly(parseDateOnly(value)!);
         case "checkbox":
             return value === "true" ? "true" : "false";
     }
@@ -100,6 +133,15 @@ export function formatTagValue(
             return value;
         case "checkbox":
             return value === "true" ? "True" : "False";
+        case "date": {
+            const date = parseDateOnly(value);
+            if (!date) return value;
+            return date.toLocaleDateString(undefined, {
+                year: "numeric",
+                month: "short",
+                day: "numeric",
+            });
+        }
         case "datetime": {
             const date = new Date(value);
             if (Number.isNaN(date.getTime())) return value;

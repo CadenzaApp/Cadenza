@@ -45,7 +45,8 @@ characters, truncates any over-long tag list from the model, and runs every tag 
 canonical string to store. `None` and blank strings are always accepted (an attribute tag can be
 applied with no value yet) and become `None`. `Basic` tags reject any non-blank value. `Text` is
 trimmed and stored as-is. `Number` parses as `f64`, rejects non-finite values (`NaN`, `inf`), and
-stores `to_string()`. `Datetime` requires strict RFC 3339 and is normalized to UTC. `Checkbox`
+stores `to_string()`. `Datetime` requires strict RFC 3339 and is normalized to UTC. `Date` requires a
+`YYYY-MM-DD` calendar day, with no time or zone, and is stored as that. `Checkbox`
 accepts `"true"`/`"false"` case-insensitively and stores lowercase. Anything else returns
 `CadenzaError::InvalidTagValue` (422).
 

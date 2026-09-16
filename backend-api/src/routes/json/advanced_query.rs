@@ -10,11 +10,10 @@ use crate::routes::json::tag::TagType;
 ///
 /// ```json
 /// {
-///   "timezone": "America/Denver",
 ///   "where": {
 ///     "and": [
 ///       { "filter": { "field": "tag", "tag_id": 4, "op": "on_or_after", "value": "1950-01-01" } },
-///       { "filter": { "field": "tag", "tag_id": 4, "op": "before", "value": "1961-01-01" } },
+///       { "filter": { "field": "tag", "tag_id": 7, "op": "before", "value": "2024-06-01T18:30:00Z" } },
 ///       { "not": { "or": [
 ///         { "filter": { "field": "tag_name", "op": "contains", "value": "live" } },
 ///         { "filter": { "field": "tag_type", "op": "is", "value": "checkbox" } }
@@ -26,16 +25,8 @@ use crate::routes::json::tag::TagType;
 #[derive(Deserialize, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct AdvancedQuery {
-    /// IANA time zone name. Datetime filters compare calendar days in this
-    /// zone. Defaults to `UTC`.
-    #[serde(default = "default_timezone")]
-    pub timezone: String,
     #[serde(rename = "where")]
     pub root: AdvancedQueryNode,
-}
-
-fn default_timezone() -> String {
-    "UTC".to_string()
 }
 
 /// One node of the query tree. Serialized externally tagged, so each node is an
@@ -69,7 +60,8 @@ pub enum AdvancedQueryNode {
 /// ```
 ///
 /// `value` is always a string, the same as tag values everywhere else in the
-/// api. Operators that take no value (`is_empty`, `is_true`, `is_applied`, ...)
+/// api. Datetime tags take an RFC 3339 timestamp and compare to the minute;
+/// date tags take a `YYYY-MM-DD` day. Operators that take no value (`is_empty`, `is_true`, `is_applied`, ...)
 /// require it to be omitted or `null`. Which operators are allowed depends on
 /// the field, and for `tag` on the tag's type. See `db::advanced_queries`.
 #[derive(Deserialize, Debug)]

@@ -47,8 +47,9 @@ fields plus `value`. Both reads that return tags on a song use it. `value` is al
 basic tag, and null for an attribute tag applied without one.
 
 `type` on `POST /tags` and `POST` / `PATCH /songs/tags` is one of `basic`, `text`, `datetime`,
-`number`, `checkbox` (see `sea_orm_active_enums::TagType`), and defaults to `basic` when omitted.
-A `value` that does not fit the tag's type (not a number, not RFC 3339, not `true`/`false`, or
+`date`, `number`, `checkbox` (see `sea_orm_active_enums::TagType`), and defaults to `basic` when omitted.
+A `value` that does not fit the tag's type (not a number, not RFC 3339, not a
+`YYYY-MM-DD` date, not `true`/`false`, or
 any non-blank value on a `basic` tag) is rejected with `CadenzaError::InvalidTagValue` (422). See
 [../services/README.md](../services/README.md) for the exact per-type rules.
 
@@ -58,9 +59,9 @@ any non-blank value on a `basic` tag) is rejected with `CadenzaError::InvalidTag
 
 ```json
 {
-  "timezone": "America/Denver",
   "where": { "and": [
     { "filter": { "field": "tag", "tag_id": 4, "op": "on_or_after", "value": "1950-01-01" } },
+    { "filter": { "field": "tag", "tag_id": 7, "op": "before", "value": "2024-06-01T18:30:00Z" } },
     { "not": { "or": [
       { "filter": { "field": "tag_name", "op": "contains", "value": "live" } },
       { "filter": { "field": "tag_type", "op": "is", "value": "checkbox" } }
@@ -69,7 +70,7 @@ any non-blank value on a `basic` tag) is rejected with `CadenzaError::InvalidTag
 }
 ```
 
-- `timezone` is optional, an IANA name, default `UTC`. Unknown keys at the top level are rejected.
+- `where` is the only top-level key. Anything else, including the old `timezone`, is rejected.
 - A node is exactly one of `{"and": [node]}`, `{"or": [node]}`, `{"not": node}`,
   `{"filter": filter}`. The client's "none of the following" group is `{"not": {"or": [...]}}`.
 - A filter is tagged by `field`: `tag` (with `tag_id`), `tag_name`, `tag_value`, or `tag_type`.
@@ -79,7 +80,8 @@ any non-blank value on a `basic` tag) is rejected with `CadenzaError::InvalidTag
 | --- | --- | --- |
 | `tag`, basic tag | `is_applied`, `is_not_applied` | none |
 | `tag`, text tag; `tag_name`; `tag_value` | `is`, `is_not`, `starts_with`, `ends_with`, `contains` / `is_empty` | text / none |
-| `tag`, datetime tag | `on`, `not_on`, `before`, `after`, `on_or_before`, `on_or_after` / `is_empty`, `is_not_empty` | `YYYY-MM-DD` / none |
+| `tag`, datetime tag | `on`, `not_on`, `before`, `after`, `on_or_before`, `on_or_after` / `is_empty`, `is_not_empty` | RFC 3339, compared to the minute / none |
+| `tag`, date tag | same as datetime | `YYYY-MM-DD` / none |
 | `tag`, number tag | `eq`, `ne`, `lt`, `le`, `gt`, `ge` / `is_empty`, `is_not_empty` | a number as a string / none |
 | `tag`, checkbox tag | `is_true`, `is_false`, `is_null` | none |
 | `tag_type` | `is`, `is_not` | a tag type |

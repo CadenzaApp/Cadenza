@@ -18,7 +18,7 @@ The data access layer. Everything that touches postgres lives here, so handlers 
 Three tables, keyed on song ids that come from Apple Music.
 
 - `tags` - `tag_id` (bigserial pk), `name`, `color`, nullable `user_id`, `type` (`tag_type` enum:
-  `basic`, `text`, `datetime`, `number`, `checkbox`; defaults to `basic`). A null `user_id` means
+  `basic`, `text`, `datetime`, `number`, `checkbox`, `date`; defaults to `basic`). A null `user_id` means
   the tag is a default, not owned by any user.
 - `user_tags_applied` - tags a user put on a song, plus a nullable `value` (text column, always
   the tag's canonical string form regardless of `type`; see
@@ -64,8 +64,7 @@ is a separate compiler; `queries.rs` is untouched and still serves the simple bu
 
 Before compiling it checks the tree size (`MAX_NODES` 200, `MAX_DEPTH` 20), looks up the type of
 every tag id the query mentions (user scoped, so another user's tag or a deleted one is a
-`QueryFormatError`), and, only if a datetime filter compares days, checks `timezone` against
-`pg_timezone_names`.
+`QueryFormatError`).
 
 `compile_advanced_query` is pure and emits:
 
@@ -84,14 +83,16 @@ ORDER BY song_id
   `is_true`, `is_not_empty`, ...) are `EXISTS` a matching value, and negative ones (`is_not`,
   `not_on`, `ne`, `is_empty`, `is_null`, `is_not_applied`) are `NOT EXISTS` of the positive
   condition.
-- Values are text in the db. Numbers compare as `value::double precision`, datetimes as
-  `(value::timestamptz AT TIME ZONE $tz)::date` against a `YYYY-MM-DD` day. Those casts sit inside
+- Values are text in the db. Numbers compare as `value::double precision`. Datetimes compare to
+  the minute: `date_trunc('minute', value::timestamptz AT TIME ZONE 'UTC')` against the same
+  truncation of an RFC 3339 value, so seconds never matter and there is no time zone input.
+  Dates compare as `value::date` against a `YYYY-MM-DD` day. Those casts sit inside
   `CASE WHEN tag_id = $n AND value IS NOT NULL`, because postgres does not promise to evaluate
   the other `WHERE` terms first and another tag's text would fail the cast.
 - Text comparisons are case-insensitive, using `lower()`, `starts_with`, `right`, and `strpos`
   rather than `LIKE`, so `%` and `_` in user input are literal.
 - Every value is bound, never interpolated. `Compiler::bind` pushes a value and returns its
-  placeholder, and `$1` is always the user id. The time zone is bound once and reused.
+  placeholder, and `$1` is always the user id.
 
 Operator / type mismatches, missing or extra values, bad numbers, and bad dates are all
 `CadenzaError::QueryFormatError` (422) with a message saying which.

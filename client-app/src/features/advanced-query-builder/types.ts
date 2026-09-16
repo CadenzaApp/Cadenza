@@ -31,9 +31,9 @@ export type FilterOp =
     | "ends_with"
     | "contains"
     | "is_empty"
-    // datetime and number
+    // datetime, date and number
     | "is_not_empty"
-    // datetime
+    // datetime and date
     | "on"
     | "not_on"
     | "before"
@@ -56,7 +56,13 @@ export type FilterOp =
     | "is_not_applied";
 
 /** Which input a filter shows for its value. */
-export type ValueKind = "none" | "text" | "number" | "date" | "tag_type";
+export type ValueKind =
+    | "none"
+    | "text"
+    | "number"
+    | "date"
+    | "datetime"
+    | "tag_type";
 
 export type AdvancedFilterNode = {
     kind: "filter";
@@ -66,8 +72,9 @@ export type AdvancedFilterNode = {
     /** null until a field is picked */
     op: FilterOp | null;
     /**
-     * What the user entered. A `YYYY-MM-DD` day for dates, a tag type for
-     * tag type filters, otherwise raw text.
+     * What the user entered. A `YYYY-MM-DD` day for date tags, an ISO
+     * timestamp for datetime tags, a tag type for tag type filters, otherwise
+     * raw text.
      */
     value: string;
 };
@@ -86,8 +93,6 @@ export type AdvancedNode = AdvancedFilterNode | AdvancedGroupNode;
 /////////////////////////
 
 export type AdvancedQueryJSON = {
-    /** IANA time zone. Date filters compare calendar days in this zone. */
-    timezone: string;
     where: AdvancedQueryJSONNode;
 };
 

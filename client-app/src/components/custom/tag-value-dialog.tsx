@@ -9,7 +9,9 @@ import { Text } from "@/components/ui/text";
 import {
     TAG_TYPE_LABELS,
     formatTagValue,
+    parseDateOnly,
     toCanonicalTagValue,
+    toDateOnly,
     validateTagValue,
 } from "@/lib/tag-values";
 import { Tag } from "@/lib/types";
@@ -76,7 +78,13 @@ function TagValueDialogContent({
     if (!tag) return null;
 
     const validationErr = validateTagValue(tag.type, rawValue);
-    const pickedDate = rawValue ? new Date(rawValue) : new Date();
+    /** Date tags hold a bare day and pick no time. */
+    const isDateOnly = tag.type === "date";
+    const pickedDate = !rawValue
+        ? new Date()
+        : isDateOnly
+          ? (parseDateOnly(rawValue) ?? new Date(NaN))
+          : new Date(rawValue);
     const hasValidDate = !Number.isNaN(pickedDate.getTime());
     /** What the picker opens on: the current value, else now. */
     const pickerBasisDate = hasValidDate ? pickedDate : new Date();
@@ -113,6 +121,12 @@ function TagValueDialogContent({
      * into it, so the user only ever presses one button.
      */
     function handleAndroidPickerChange(selected: Date) {
+        if (isDateOnly) {
+            setRawValue(toDateOnly(selected));
+            setPickerStep(null);
+            return;
+        }
+
         if (pickerStep === "date") {
             setPendingDate(selected);
             setPickerStep("time");
@@ -246,7 +260,7 @@ function TagValueDialogContent({
                             </Pressable>
                         )}
 
-                        {tag.type === "datetime" && (
+                        {(tag.type === "datetime" || isDateOnly) && (
                             <View className="gap-2">
                                 {/* The button face is the chosen value, so it
                                     reads large instead of sitting in a small
@@ -262,10 +276,12 @@ function TagValueDialogContent({
                                     <Text className="text-lg font-medium text-center">
                                         {rawValue
                                             ? formatTagValue(
-                                                  "datetime",
+                                                  tag.type,
                                                   rawValue,
                                               )
-                                            : "Pick date & time"}
+                                            : isDateOnly
+                                              ? "Pick date"
+                                              : "Pick date & time"}
                                     </Text>
                                 </Button>
 
@@ -292,14 +308,22 @@ function TagValueDialogContent({
                                         <View className="gap-2">
                                             <DateTimePicker
                                                 value={pickerBasisDate}
-                                                mode="datetime"
+                                                mode={
+                                                    isDateOnly
+                                                        ? "date"
+                                                        : "datetime"
+                                                }
                                                 display="spinner"
                                                 onValueChange={(
                                                     _,
                                                     selectedDate,
                                                 ) => {
                                                     setRawValue(
-                                                        selectedDate.toISOString(),
+                                                        isDateOnly
+                                                            ? toDateOnly(
+                                                                  selectedDate,
+                                                              )
+                                                            : selectedDate.toISOString(),
                                                     );
                                                 }}
                                             />
