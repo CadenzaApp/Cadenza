@@ -43,16 +43,33 @@ const TEXT_OPS: FilterOp[] = [
     "contains",
 ];
 
+/**
+ * Offered last on every tag, whatever its type. Unlike `is_empty` or
+ * `is_null`, these tell a tag applied without a value apart from a tag that
+ * is not on the song at all.
+ */
+const APPLIED_OPS: FilterOp[] = ["is_applied", "is_not_applied"];
+
 /** The operators offered for each kind of field, in menu order. */
 export const OPERATORS_BY_FIELD: Record<FieldKind, FilterOp[]> = {
-    text: TEXT_OPS,
+    text: [...TEXT_OPS, ...APPLIED_OPS],
     tag_name: TEXT_OPS,
     tag_value: TEXT_OPS,
-    datetime: MOMENT_OPS,
-    date: MOMENT_OPS,
-    number: ["eq", "ne", "lt", "le", "gt", "ge", "is_empty", "is_not_empty"],
-    checkbox: ["is_true", "is_false", "is_null"],
-    basic: ["is_applied", "is_not_applied"],
+    datetime: [...MOMENT_OPS, ...APPLIED_OPS],
+    date: [...MOMENT_OPS, ...APPLIED_OPS],
+    number: [
+        "eq",
+        "ne",
+        "lt",
+        "le",
+        "gt",
+        "ge",
+        "is_empty",
+        "is_not_empty",
+        ...APPLIED_OPS,
+    ],
+    checkbox: ["is_true", "is_false", "is_null", ...APPLIED_OPS],
+    basic: APPLIED_OPS,
     tag_type: ["is", "is_not"],
 };
 

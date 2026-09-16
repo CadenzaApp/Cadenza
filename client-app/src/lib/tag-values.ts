@@ -43,7 +43,7 @@ export const TAG_TYPE_ICONS: Record<
     text: "document-text-outline",
     datetime: "time-outline",
     date: "calendar-outline",
-    number: "calculator-outline",
+    number: "keypad-outline",
     checkbox: "checkbox-outline",
 };
 

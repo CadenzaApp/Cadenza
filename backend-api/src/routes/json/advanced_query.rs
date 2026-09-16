@@ -125,7 +125,7 @@ pub enum FilterOp {
     IsFalse,
     IsNull,
 
-    // basic
+    // every tag type
     IsApplied,
     IsNotApplied,
 }

@@ -31,7 +31,9 @@ The root is always a group and cannot be removed. New groups start with one empt
 filter's operator list comes from its `FieldKind`: the tag's type for a `tag` field, otherwise
 the field itself (`OPERATORS_BY_FIELD`). `valueKindFor(kind, op)` picks the input, and is
 `"none"` for `is_empty`, `is_true`, `is_applied` and the like. `withField` / `withOp` keep the
-operator and value when they still fit and reset them otherwise.
+operator and value when they still fit and reset them otherwise. Every tag type's list ends with
+"is applied" / "is not applied" (`APPLIED_OPS`), which ignore the value; the tag name, tag value
+and tag type fields do not offer them.
 
 Date tags and datetime tags offer the same operators. A date filter holds a local `YYYY-MM-DD`
 day and picks no time. A datetime filter holds an ISO timestamp with its seconds dropped

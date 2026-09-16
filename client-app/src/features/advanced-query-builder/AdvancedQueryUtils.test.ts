@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+    OPERATORS_BY_FIELD,
     addChild,
     buildAdvancedQuery,
     connectorLabel,
@@ -247,6 +248,48 @@ test("changing the field keeps what still fits", () => {
     const moment = withField(day, { kind: "tag", tagId: 3 }, tagTypes);
     assert.equal(moment.op, "on");
     assert.equal(moment.value, "");
+});
+
+test("every tag type ends with is applied / is not applied", () => {
+    for (const kind of [
+        "basic",
+        "text",
+        "datetime",
+        "date",
+        "number",
+        "checkbox",
+    ] as const) {
+        assert.deepEqual(OPERATORS_BY_FIELD[kind].slice(-2), [
+            "is_applied",
+            "is_not_applied",
+        ]);
+    }
+    assert.equal(OPERATORS_BY_FIELD.tag_name.includes("is_applied"), false);
+
+    const result = buildAdvancedQuery(
+        group("and", [
+            filter({
+                field: { kind: "tag", tagId: 4 },
+                op: "is_applied",
+                value: "7",
+            }),
+        ]),
+        tagTypes,
+    );
+    assert.deepEqual(result.ok && result.query.where, {
+        and: [{ filter: { field: "tag", tag_id: 4, op: "is_applied" } }],
+    });
+
+    const moved = withField(
+        {
+            ...createFilter(),
+            field: { kind: "tag", tagId: 2 },
+            op: "is_applied",
+        },
+        { kind: "tag_name" },
+        tagTypes,
+    );
+    assert.equal(moved.op, "is");
 });
 
 test("connector words", () => {

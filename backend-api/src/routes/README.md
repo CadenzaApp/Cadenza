@@ -78,13 +78,17 @@ any non-blank value on a `basic` tag) is rejected with `CadenzaError::InvalidTag
 
 | field | ops | value |
 | --- | --- | --- |
-| `tag`, basic tag | `is_applied`, `is_not_applied` | none |
+| `tag`, any tag type | `is_applied`, `is_not_applied` | none |
 | `tag`, text tag; `tag_name`; `tag_value` | `is`, `is_not`, `starts_with`, `ends_with`, `contains` / `is_empty` | text / none |
 | `tag`, datetime tag | `on`, `not_on`, `before`, `after`, `on_or_before`, `on_or_after` / `is_empty`, `is_not_empty` | RFC 3339, compared to the minute / none |
 | `tag`, date tag | same as datetime | `YYYY-MM-DD` / none |
 | `tag`, number tag | `eq`, `ne`, `lt`, `le`, `gt`, `ge` / `is_empty`, `is_not_empty` | a number as a string / none |
 | `tag`, checkbox tag | `is_true`, `is_false`, `is_null` | none |
 | `tag_type` | `is`, `is_not` | a tag type |
+
+Basic tags only take `is_applied` / `is_not_applied`. Every other type takes them too, on top of
+its own operators, and they ignore the value: an attribute tag applied without one still counts
+as applied. `tag_name`, `tag_value` and `tag_type` do not take them.
 
 Semantics and limits are in [../db/README.md](../db/README.md). Anything malformed is a
 `QueryFormatError` (422) with a message.

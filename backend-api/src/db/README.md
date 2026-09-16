@@ -83,6 +83,8 @@ ORDER BY song_id
   `is_true`, `is_not_empty`, ...) are `EXISTS` a matching value, and negative ones (`is_not`,
   `not_on`, `ne`, `is_empty`, `is_null`, `is_not_applied`) are `NOT EXISTS` of the positive
   condition.
+- `is_applied` / `is_not_applied` work on every tag type and skip the value check below, so they
+  are the way to tell "applied with no value" from "not applied", which `is_empty` lumps together.
 - Values are text in the db. Numbers compare as `value::double precision`. Datetimes compare to
   the minute: `date_trunc('minute', value::timestamptz AT TIME ZONE 'UTC')` against the same
   truncation of an RFC 3339 value, so seconds never matter and there is no time zone input.

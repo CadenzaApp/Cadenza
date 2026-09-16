@@ -350,15 +350,20 @@ impl Compiler<'_> {
         })?;
         let tag_param = self.bind(sea_query::Value::BigInt(Some(tag_id)));
 
+        // Every tag type offers these. They ask only whether the tag is on the
+        // song, so an attribute tag applied without a value still counts.
+        if matches!(op, FilterOp::IsApplied | FilterOp::IsNotApplied) {
+            no_value(op, value)?;
+            let matched = if op == FilterOp::IsApplied {
+                Match::Any("TRUE".to_string())
+            } else {
+                Match::None("TRUE".to_string())
+            };
+            return Ok(tag_exists(&tag_param, false, matched));
+        }
+
         let matched = match tag_type {
-            TagType::Basic => {
-                no_value(op, value)?;
-                match op {
-                    FilterOp::IsApplied => Match::Any("TRUE".to_string()),
-                    FilterOp::IsNotApplied => Match::None("TRUE".to_string()),
-                    _ => return Err(unsupported_op(op, "basic tags")),
-                }
-            }
+            TagType::Basic => return Err(unsupported_op(op, "basic tags")),
 
             TagType::Text => self.text_match(
                 "filter_check.value",
@@ -414,27 +419,28 @@ impl Compiler<'_> {
             }
         };
 
-        Ok(tag_exists(&tag_param, tag_type, matched))
+        Ok(tag_exists(&tag_param, true, matched))
     }
 }
 
 /// `EXISTS` over the song's applications of one tag.
 ///
-/// For attribute tags the condition only ever sees that tag's non-null values.
+/// With `on_value`, the condition only ever sees that tag's non-null values.
 /// It sits inside a `CASE` because postgres does not promise to check the
 /// other `WHERE` terms first, and a cast like `value::double precision` would
-/// fail on another tag's text value.
-fn tag_exists(tag_param: &str, tag_type: TagType, matched: Match) -> String {
+/// fail on another tag's text value. Without it, any application counts.
+fn tag_exists(tag_param: &str, on_value: bool, matched: Match) -> String {
     let (negate, condition) = match matched {
         Match::Any(condition) => ("", condition),
         Match::None(condition) => ("NOT ", condition),
     };
 
-    let condition = match tag_type {
-        TagType::Basic => condition,
-        _ => format!(
+    let condition = if on_value {
+        format!(
             "CASE WHEN filter_check.tag_id = {tag_param} AND filter_check.value IS NOT NULL THEN {condition} ELSE FALSE END"
-        ),
+        )
+    } else {
+        condition
     };
 
     format!(
@@ -712,6 +718,28 @@ mod tests {
     }
 
     #[test]
+    fn every_tag_type_offers_applied_and_not_applied() {
+        for tag_id in 1..=6 {
+            let (sql, _) = compile(&filter(&format!(
+                r#"{{ "field": "tag", "tag_id": {tag_id}, "op": "is_applied" }}"#
+            )))
+            .unwrap();
+            assert!(!sql.contains("NOT EXISTS"), "{tag_id}");
+            assert!(!sql.contains("CASE"), "{tag_id}");
+
+            let (sql, _) = compile(&filter(&format!(
+                r#"{{ "field": "tag", "tag_id": {tag_id}, "op": "is_not_applied" }}"#
+            )))
+            .unwrap();
+            assert!(sql.contains("NOT EXISTS"), "{tag_id}");
+            assert!(!sql.contains("CASE"), "{tag_id}");
+        }
+        assert!(is_format_err(compile(&filter(
+            r#"{ "field": "tag", "tag_id": 2, "op": "is_applied", "value": "a" }"#
+        ))));
+    }
+
+    #[test]
     fn operators_must_fit_the_tag_type() {
         for filter_json in [
             r#"{ "field": "tag", "tag_id": 1, "op": "is", "value": "a" }"#,
@@ -719,8 +747,11 @@ mod tests {
             r#"{ "field": "tag", "tag_id": 3, "op": "contains", "value": "a" }"#,
             r#"{ "field": "tag", "tag_id": 4, "op": "on", "value": "2000-01-01" }"#,
             r#"{ "field": "tag", "tag_id": 6, "op": "gt", "value": "1" }"#,
-            r#"{ "field": "tag", "tag_id": 5, "op": "is_applied" }"#,
+            r#"{ "field": "tag", "tag_id": 5, "op": "is", "value": "true" }"#,
+            r#"{ "field": "tag", "tag_id": 1, "op": "is_empty" }"#,
             r#"{ "field": "tag_name", "op": "is_not_empty" }"#,
+            r#"{ "field": "tag_name", "op": "is_applied" }"#,
+            r#"{ "field": "tag_type", "op": "is_applied", "value": "text" }"#,
             r#"{ "field": "tag_type", "op": "contains", "value": "text" }"#,
         ] {
             assert!(
