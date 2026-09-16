@@ -148,7 +148,10 @@ hooks, so a screen that renders either does not branch. Pass the collection's `l
 
 Expo Router's `NativeTabs` owns the tab bar and the iOS 26 player accessory. Native scrolling
 content receives its tab/accessory inset from the navigator. `screen-overlay.ts` returns app
-spacing for scroll content and conservative clearance for absolute controls.
+spacing for scroll content and conservative clearance for absolute controls. On iOS with the
+native player accessory, UIKit has already shortened the usable overlay area, so floating actions
+add only the safe-area gap instead of counting the tab bar and player twice. Pushed screens and
+compatibility players still reserve their full explicit height.
 
 Expo does not expose the native tab bar's measured height because the bar can move to another
 edge on other device classes. The absolute-control clearance uses the standard platform bar
