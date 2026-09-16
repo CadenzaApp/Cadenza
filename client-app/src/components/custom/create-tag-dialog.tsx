@@ -24,6 +24,7 @@ import { useCreateTag } from "@/lib/routes/tags";
 import {
     TAG_TYPES,
     TAG_TYPE_DESCRIPTIONS,
+    TAG_TYPE_ICONS,
     TAG_TYPE_LABELS,
 } from "@/lib/tag-values";
 import { TagType } from "@/lib/types";
@@ -45,6 +46,10 @@ const CHEVRON_SIZE = 16;
 const CHEVRON_GAP = 4;
 
 const HELP_ICON_SIZE = 16;
+
+// The type icon sits to the left of each type option's label.
+const TYPE_ICON_SIZE = 16;
+const TYPE_ICON_GAP = 6;
 const TYPE_HELP_TEXT =
     "A tag's type decides what kind of value it holds, so you can give each " +
     "song a value for this tag. A tag's type cannot be changed later.";
@@ -274,12 +279,23 @@ export function CreateTagDialog() {
                                             onPress={() =>
                                                 setSelectedType(type)
                                             }
-                                            className={`shrink-0 rounded-md border px-3 py-2 ${
+                                            className={`shrink-0 flex-row items-center rounded-md border px-3 py-2 ${
                                                 isSelected
                                                     ? "border-foreground bg-secondary"
                                                     : "border-border"
                                             }`}
+                                            style={{ gap: TYPE_ICON_GAP }}
                                         >
+                                            <Ionicons
+                                                name={TAG_TYPE_ICONS[type]}
+                                                size={TYPE_ICON_SIZE}
+                                                color={colors.text}
+                                                style={{
+                                                    opacity: isSelected
+                                                        ? 1
+                                                        : 0.6,
+                                                }}
+                                            />
                                             <Text
                                                 className={`text-sm ${
                                                     isSelected
