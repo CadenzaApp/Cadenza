@@ -175,9 +175,9 @@ takes a `header` for the same reason. The artist screen uses both at once: the a
 the header, the albums rail as the footer. The footer sits below the pagination skeleton, so a
 paging list keeps loading into it.
 
-Top-level `MusicList`, `CollectionList`, `ArtistList`, and coming-soon scrollers are direct
-children of `@/lib/screen-scroll-marker`. This lets the native tab stack locate their underlying
-scroll views for inset, scroll-to-top, and tab-bar/accessory minimization.
+Top-level `MusicList`, `CollectionList`, `ArtistList`, and coming-soon scrollers fill and sit
+directly inside `@/lib/screen-scroll-marker`. This lets the native tab stack locate a full-height
+scroll view for inset, scroll-to-top, and tab-bar/accessory minimization.
 
 ### custom/options-menu/
 

@@ -314,6 +314,7 @@ export function MusicList({
                         <ScreenScrollMarker>
                             <Animated.FlatList
                                 {...scroll}
+                                className="flex-1"
                                 // Overscrolling at the top is how a detail screen
                                 // closes, and an indicator flicking in over the
                                 // shrinking card is noise.

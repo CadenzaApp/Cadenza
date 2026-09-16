@@ -47,7 +47,8 @@ legacy shape was a bare array, and `LEGACY_KNOWN_CATEGORIES` is what it was choo
 `/library/category/:kind` is one screen for all five categories. Songs render through `MusicList` (with
 its sorting control and paging), albums and playlists through `CollectionList`, artists through
 `ArtistList`, and tags through `TagsView`. Only the requested category's hook is enabled, so
-opening Albums does not fetch songs.
+opening Albums does not fetch songs. Each list fills a `ScreenScrollMarker`, including Songs, so
+native scrolling can minimize the tab bar and move its player accessory inline.
 
 Album and playlist details render through the shared `TrackCollectionView`. The route supplies
 pagination, tint, current playback state, and its rich collection options menu. Artist details use
