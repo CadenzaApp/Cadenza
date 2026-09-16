@@ -17,7 +17,10 @@ import { TrackCollectionView } from "@/components/custom/track-collection-view";
 import { FloatingCloseButton } from "@/components/ui/floating-close-button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
-import { TintBackdrop } from "@/components/ui/tint-backdrop";
+import {
+    TintBackdrop,
+    TintOverscrollBackdrop,
+} from "@/components/ui/tint-backdrop";
 import { darken, useArtworkTint, withAlpha } from "@/lib/artwork-color";
 import { getErrorMessage } from "@/lib/error-utils";
 import { useZoomSource, ZoomDismissScreen } from "@/lib/zoom-dismiss";
@@ -112,7 +115,10 @@ export default function ArtistScreen() {
                     sorting={null}
                     multiSelect={DEFAULT_MULTI_SELECT_CONFIG}
                     overscrollBackground={
-                        <TintBackdrop tint={tint} depth={TINT_DEPTH} />
+                        <TintOverscrollBackdrop
+                            tint={tint}
+                            depth={TINT_DEPTH}
+                        />
                     }
                     onContentSizeChange={(_, height) =>
                         setContentHeight(Math.max(windowHeight, height))

@@ -7,7 +7,10 @@ import { CollectionOptionsMenu } from "@/components/custom/options-menu/collecti
 import { TrackCollectionView } from "@/components/custom/track-collection-view";
 import { FloatingCloseButton } from "@/components/ui/floating-close-button";
 import { Text } from "@/components/ui/text";
-import { TintBackdrop } from "@/components/ui/tint-backdrop";
+import {
+    TintBackdrop,
+    TintOverscrollBackdrop,
+} from "@/components/ui/tint-backdrop";
 import { useArtworkTint } from "@/lib/artwork-color";
 import { useCollectionSongs } from "@/lib/musickit-hooks";
 import { isTrackInCollection } from "@/lib/playable-item";
@@ -165,7 +168,10 @@ export default function CollectionDetailScreen() {
                         />
                     }
                     overscrollBackground={
-                        <TintBackdrop tint={tint} depth={TINT_DEPTH} />
+                        <TintOverscrollBackdrop
+                            tint={tint}
+                            depth={TINT_DEPTH}
+                        />
                     }
                     background={
                         <TintBackdrop

@@ -132,8 +132,8 @@ area and floating close control, and the app-level compact player renders over i
 `TrackCollectionView` with a weighted artwork
 mosaic, play and shuffle queues, local Music List sorting, and a caller-supplied save option. Its
 page tint averages the representative colors for the four mosaic cells, then uses the same
-full-height darkening gradient as collection details. A fixed viewport copy sits under the
-scrolling gradient so elastic overscroll continues the correct color at either edge. One
+full-height darkening gradient as collection details. Fixed solid endpoint colors sit under the
+scrolling gradient so elastic overscroll meets the exact color at either edge. One
 distinct artwork renders as a single image instead of a repeated grid. The results surface owns the
 save-name popup, rendered through the same reliable liquid-glass modal path as Sort. Its round Save
 Query action is glass too. The dialog stays at 75 percent of the screen width and sits above the keyboard; submit

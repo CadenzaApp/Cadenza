@@ -176,8 +176,9 @@ same corner. The artist supplies its full-bleed image hero and albums rail as cu
 footer content. The collection uses the standard single-artwork layout with Play/Pause, Shuffle,
 and a caller-supplied action that opens `CollectionOptionsMenu`. Query results use the standard
 weighted mosaic and an edge-to-edge tint, but use a normal opaque stack presentation rather than
-the collection's zoom transition. Each gradient-backed `TrackCollectionView` also paints a fixed
-viewport underlay, so elastic overscroll at either edge cannot expose a flat fallback color.
+the collection's zoom transition. Each gradient-backed `TrackCollectionView` also paints fixed
+start and end colors beneath the list, so either elastic overscroll edge meets the scrolling
+gradient without a seam.
 Under the last row it prints the song count and running time, but only once every page is in,
 since a count off a half-loaded list is a wrong number. Everything the collection draws over its
 tint stays inside the same scroll surface. Either way the hero is the `MusicList` header inside

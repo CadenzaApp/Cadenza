@@ -10,7 +10,10 @@ import { GlassButton } from "@/components/ui/glass-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Text } from "@/components/ui/text";
-import { TintBackdrop } from "@/components/ui/tint-backdrop";
+import {
+    TintBackdrop,
+    TintOverscrollBackdrop,
+} from "@/components/ui/tint-backdrop";
 import { averageArtworkColors, useArtworkTint } from "@/lib/artwork-color";
 
 const TINT_DEPTH = 0.3;
@@ -84,7 +87,7 @@ export default function QueryResults({
                 multiSelect={{ includeAddToQueue: true }}
                 showTags
                 overscrollBackground={
-                    <TintBackdrop tint={tint} depth={TINT_DEPTH} />
+                    <TintOverscrollBackdrop tint={tint} depth={TINT_DEPTH} />
                 }
                 background={
                     <TintBackdrop

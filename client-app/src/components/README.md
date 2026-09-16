@@ -48,7 +48,10 @@ hand-rolling another circle of glass.
 that same color at the bottom, rather than into black. Pass `height` to run it over content taller
 than the screen, from inside that content, so it scrolls with what it is painted behind. It takes
 the tint `@/lib/artwork-color` hands back and renders nothing for a null one, so callers mount it
-unconditionally. `DetailScreen` takes the same color as a `tint` prop and draws one itself.
+unconditionally. `TintOverscrollBackdrop` paints the exact start color above the exact end color
+under a scrolling gradient. Its center boundary stays covered by content, while elastic scrolling
+reveals a matching solid endpoint. `DetailScreen` takes the same color as a `tint` prop and draws
+one itself.
 
 `reorderable-list.tsx` is in `custom/` rather than `ui/` only because nothing else needs it yet.
 It knows nothing about songs: `data`, `itemHeight`, `renderItem`, and an `onReorder(from, to)`.
@@ -157,9 +160,9 @@ match every screen.
 `TrackCollectionView` owns the standard mosaic or single-artwork header, play/shuffle row,
 caller-supplied simple glass options, and the `MusicList`. Routes can supply pagination, playback
 overrides, scrolling tint content, a fixed overscroll background, close controls, and opt the
-standard header into the device's top safe area. Gradient-backed routes render the same tint as
-both scrolling content and the fixed underlay, so elastic scrolling reveals the correct top or
-bottom endpoint instead of a flat color. Artist uses its custom hero and albums
+standard header into the device's top safe area. Gradient-backed routes pair scrolling content
+with the fixed endpoint underlay, so elastic scrolling reveals the exact top or bottom color
+without placing a second gradient seam at the bounce boundary. Artist uses its custom hero and albums
 rail through the header/footer inputs, while album and playlist details use the standard layout
 and open `CollectionOptionsMenu` from a supplied option.
 
