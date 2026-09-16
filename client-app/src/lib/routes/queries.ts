@@ -1,7 +1,8 @@
 import { useMemo } from "react";
 
+import type { AdvancedQueryJSON } from "@/features/advanced-query-builder/types";
 import type { QueryJSONNode } from "@/features/query-builder/types";
-import { useAPIPostData } from "../api-actions";
+import { useAPIData, useAPIPostData } from "../api-actions";
 
 type QueryResultsBody = {
     query: QueryJSONNode;
@@ -29,5 +30,17 @@ export function useQueryResults(
         matchedSongIds: body ? (x.data ?? []) : [],
         queryResultsLoading: body !== null && x.isLoading,
         queryResultsErr: x.error,
+    };
+}
+
+export function useAdvancedQueryResults(query: AdvancedQueryJSON | null) {
+    const x = useAPIData<string[]>("/queries/advanced/results", {
+        q: query ? JSON.stringify(query) : null,
+    });
+
+    return {
+        matchedSongIds: query ? (x.data ?? []) : [],
+        advancedQueryResultsLoading: query !== null && x.isLoading,
+        advancedQueryResultsErr: x.error,
     };
 }

@@ -15,7 +15,7 @@ importing `@/lib/routes/*` into a file under `ui/`, it belongs in `custom/`.
 ### ui/
 
 `badge`, `button`, `card`, `dialog`, `glass-surface`, `glass-button`, `glass-confirm-dialog`,
-`glass-icon-button`, `icon`, `input`,
+`glass-icon-button`, `input`,
 `label`, `separator`, `skeleton`, `tabs`, `text`, `native-only-animated-view`, `detail-screen`,
 `tint-backdrop`, `floating-close-button`, plus `sign-in-form` and `sign-up-form`.
 
@@ -72,45 +72,48 @@ overlay insets inside it stop counting the tab bar and the compact player. Every
 uses it, which is what keeps them identical. An optional `tint` washes the whole sheet in an
 artwork color through `TintBackdrop`; the now playing and album sheets pass one.
 
+There is no `icon` primitive. Icons come straight from `@expo/vector-icons/Ionicons`.
+
 Config lives in `client-app/components.json` (shadcn "new-york", base color neutral, css
 variables), `tailwind.config.js`, and `global.css`. Class merging goes through
 `@/lib/utils::cn`. Variants use `class-variance-authority`.
 
 ### custom/
 
-| file                     | role                                                                                                                                                                                                                           |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `music-list/`            | Scrollable list of `MusicItem`s, with skeletons, paging, and sorting. See below.                                                                                                                                               |
-| `floating-bubble.tsx`    | The liquid-glass round floating action button the list and tag screens sit under.                                                                                                                                              |
-| `options-menu/`          | The song, album, and playlist "..." menus, on liquid glass. See below.                                                                                                                                                         |
-| `song-tag-editor.tsx`    | `useSongTagEditor`, the tag-editing data for one song id: user tags annotated as applied, the toggle mutation, and the "New" tag dialog's open state. Used by `media-player/tags-page.tsx`, the now-playing sheet's Tags page. |
-| `tag-pill.tsx`           | A tag chip, colored from `tag.color`. Also exports `readableTextColor`.                                                                                                                                                        |
-| `create-tag-dialog.tsx`  | `CreateTagDialog` (controlled name + color picker, calls `useCreateTag`) and `CreateTagBubble` (floating trigger + dialog).                                                                                                    |
-| `modal-popup.tsx`        | Small popup used by options, sorting, and selection actions. It is liquid glass by default; `variant="solid"` is the explicit compatibility escape hatch.                                                              |
-| `tab-stack.tsx`          | `TabStack`, the native stack each bottom tab nests so it can keep the shared `TopRail` header.                                                                                                                                 |
-| `top-rail.tsx`           | Shared tab-stack header: optional glass back button, page title, screen actions, and account initials.                                                                                                                         |
-| `account-initials.ts`    | Pure email-to-initials helper, tested in `account-initials.test.ts`.                                                                                                                                                           |
-| `coming-soon-screen.tsx` | Data-driven preview surface used by stubbed product areas.                                                                                                                                                                     |
-| `collection-list.tsx`    | Paged list of albums or playlists. Tapping a row opens it. Owns its screen's scroll through `useScreenScroll`, and each row's artwork is a zoom origin.                                                                        |
-| `artist-list.tsx`        | `ArtistList` (paged rows, owns the screen scroll) and `ArtistRail` (a sideways strip of tiles). Both record a zoom origin.                                                                                                     |
-| `track-collection-view.tsx` | Shared artwork, actions, metadata, and track-list surface for query results, album/playlist details, and artist top songs.                                                                                                  |
-| `reorderable-list.tsx`   | Generic drag-to-reorder list. Fixed row height, hands back two indices on drop.                                                                                                                                                |
-| `media-player/`          | The mini player and the now playing sheet body. See [custom/media-player/README.md](custom/media-player/README.md).                                                                                                            |
+| file                        | role                                                                                                            |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `music-list/`               | Scrollable list of `MusicItem`s, with skeletons, paging, sorting, selection, and applied tag values. See below. |
+| `floating-bubble.tsx`       | The liquid-glass round floating action button the list and tag screens sit under.                               |
+| `options-menu/`             | The song, album, and playlist "..." menus, on liquid glass. See below.                                          |
+| `song-tag-editor.tsx`       | Tag editing for one song: applied state, values, mutations, and create-dialog state.                            |
+| `tag-pill.tsx`              | The solid app tag chip. Attribute tags can show their type icon and formatted applied value.                    |
+| `create-tag-dialog.tsx`     | Creates a tag with its name, color, and optional attribute type.                                                |
+| `tag-value-dialog.tsx`      | Liquid-glass per-type editor opened when an attribute tag is applied or edited.                                 |
+| `modal-popup.tsx`           | Small popup used by options, sorting, and selection actions. Liquid glass is the default.                       |
+| `tab-stack.tsx`             | The native stack each bottom tab nests for the shared `TopRail` header.                                         |
+| `top-rail.tsx`              | Shared tab header with optional glass back button, page title, actions, and account initials.                   |
+| `account-initials.ts`       | Pure email-to-initials helper, tested in `account-initials.test.ts`.                                            |
+| `coming-soon-screen.tsx`    | Data-driven preview surface used by stubbed product areas.                                                      |
+| `collection-list.tsx`       | Paged album or playlist rows. Owns screen scrolling and records artwork zoom origins.                           |
+| `artist-list.tsx`           | Paged artist rows and the sideways artist rail. Both record a zoom origin.                                      |
+| `track-collection-view.tsx` | Shared artwork, actions, metadata, and track-list surface for query results, collections, and artist top songs. |
+| `reorderable-list.tsx`      | Generic fixed-row-height drag-to-reorder list.                                                                  |
+| `media-player/`             | The mini player and now-playing sheet body. See [custom/media-player/README.md](custom/media-player/README.md). |
 
 ### custom/music-list/
 
-| file                               | role                                                                                 |
-| ---------------------------------- | ------------------------------------------------------------------------------------ |
-| `index.tsx`                        | The `MusicList` itself. Owns sort state, paging, selection, density, and the modals. |
-| `music-list-item.tsx`              | One row, plus `MusicListItemSkeleton`.                                               |
-| `tag-fade-rail.tsx`                | Overflow-aware horizontal tag rail whose alpha mask preserves the surface behind it. |
-| `music-list-sort-button.tsx`       | The floating sort control.                                                           |
-| `music-list-action-button.tsx`     | One button in the selection toolbar.                                                 |
-| `music-list-selection-toolbar.tsx` | The bar that slides up while rows are selected.                                      |
-| `use-music-list-selection.ts`      | Selection state, haptics, and pruning. Tested in `use-music-list-selection.test.ts`. |
-| `selection-utils.ts`               | `reduceMusicListSelection`, the pure reducer behind the hook.                        |
-| `sort-tracks.ts`                   | `sortTracks` / `nextSort`. Pure, unit tested in `sort-tracks.test.ts`.               |
-| `types.ts`                         | `MusicListProps` and the sort types, so callers do not import from `index.tsx`.      |
+| file                               | role                                                                                                                                  |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `index.tsx`                        | The `MusicList` itself. Owns sort state, paging, selection, density, and the modals.                                                  |
+| `music-list-item.tsx`              | One row, plus `MusicListItemSkeleton`.                                                                                                |
+| `tag-fade-rail.tsx`                | Overflow-aware horizontal tag rail whose alpha mask preserves the surface behind it. Takes `AppliedTag[]` and shows each tag's value. |
+| `music-list-sort-button.tsx`       | The floating sort control.                                                                                                            |
+| `music-list-action-button.tsx`     | One button in the selection toolbar.                                                                                                  |
+| `music-list-selection-toolbar.tsx` | The bar that slides up while rows are selected.                                                                                       |
+| `use-music-list-selection.ts`      | Selection state, haptics, and pruning. Tested in `use-music-list-selection.test.ts`.                                                  |
+| `selection-utils.ts`               | `reduceMusicListSelection`, the pure reducer behind the hook.                                                                         |
+| `sort-tracks.ts`                   | `sortTracks` / `nextSort`. Pure, unit tested in `sort-tracks.test.ts`.                                                                |
+| `types.ts`                         | `MusicListProps` and the sort types, so callers do not import from `index.tsx`.                                                       |
 
 Sorting is either `"local"` (this folder sorts the array it was handed) or `"remote"` (the
 caller refetches sorted and only wants the control rendered). The library screen uses

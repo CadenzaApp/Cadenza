@@ -4,7 +4,7 @@ import { useState } from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
 
 import { TagPill } from "@/components/custom/tag-pill";
-import type { Tag } from "@/lib/types";
+import type { AppliedTag } from "@/lib/types";
 
 import { tagFadeStart } from "./tag-fade-utils";
 
@@ -12,7 +12,7 @@ export function TagFadeRail({
     tags,
     compact,
 }: {
-    tags: Tag[];
+    tags: AppliedTag[];
     compact: boolean;
 }) {
     const [viewportWidth, setViewportWidth] = useState(0);
@@ -52,6 +52,7 @@ export function TagFadeRail({
                     <TagPill
                         key={tag.id}
                         tag={tag}
+                        value={tag.value}
                         height={compact ? 8 : 9}
                         showIcon={false}
                     />

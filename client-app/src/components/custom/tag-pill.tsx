@@ -4,7 +4,9 @@ import { THEME } from "@/lib/theme";
 import { useColorScheme } from "nativewind";
 import type { ReactNode } from "react";
 import { Pressable, View } from "react-native";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import type { Tag } from "../../lib/types";
+import { TAG_TYPE_ICONS, formatTagValue } from "../../lib/tag-values";
 
 // Helper to lighten hex colors
 function hexToRgba(hex: string, alpha: number) {
@@ -17,8 +19,10 @@ function hexToRgba(hex: string, alpha: number) {
 /**
  * A pill shaped badge that represents a tag
  *
- * @param tag       - The tag object (id, name, hex color).
- * @param height    - Controls all sizing proportionally (font, dot, padding).
+ * @param tag       - The tag object (id, name, hex color, type).
+ * @param height    - Controls all sizing proportionally (font, icon, padding).
+ * @param value     - If provided, renders the attribute tag's value after the
+ *                   name, formatted for the tag's type.
  * @param count     - If provided, renders a count badge on the right side.
  * @param leadingIcon - Replaces the leading dot when provided.
  * @param showIcon  - Whether to render the leading dot or icon.
@@ -30,6 +34,7 @@ function hexToRgba(hex: string, alpha: number) {
 export function TagPill({
     tag,
     height,
+    value,
     count,
     leadingIcon,
     showIcon = true,
@@ -39,6 +44,7 @@ export function TagPill({
 }: {
     tag: Tag;
     height: number;
+    value?: string | null;
     count?: number;
     leadingIcon?: ReactNode;
     showIcon?: boolean;
@@ -49,11 +55,13 @@ export function TagPill({
     const { colorScheme = "light" } = useColorScheme();
     const backgroundColor = THEME[colorScheme].background;
     const contentColor = outlined ? tag.color : backgroundColor;
+    const iconSize = 1.15 * height;
     const dotSize = 0.8 * height;
     const fontSize = 1 * height;
     const countFontSize = 0.9 * height;
     const countPaddingHorizontal = 0.9 * height;
     const countPaddingVertical = 0.1 * height;
+    const displayedValue = formatTagValue(tag.type, value);
 
     return (
         <Badge
@@ -70,7 +78,8 @@ export function TagPill({
             }}
         >
             {showIcon
-                ? (leadingIcon ?? (
+                ? (leadingIcon ??
+                  (tag.type === "basic" ? (
                       <View
                           style={{
                               backgroundColor: contentColor,
@@ -79,7 +88,15 @@ export function TagPill({
                               borderRadius: 999,
                           }}
                       />
-                  ))
+                  ) : (
+                      <Ionicons
+                          name={TAG_TYPE_ICONS[tag.type]}
+                          size={iconSize}
+                          color={contentColor}
+                          accessibilityElementsHidden
+                          importantForAccessibility="no"
+                      />
+                  )))
                 : null}
             {/* Tag text */}
             <Text
@@ -98,6 +115,22 @@ export function TagPill({
             >
                 {tag.name}
             </Text>
+            {/* Value of an attribute tag, when it has one */}
+            {displayedValue !== "" && (
+                <Text
+                    numberOfLines={1}
+                    style={{
+                        color: contentColor,
+                        fontSize,
+                        fontWeight: "400",
+                        lineHeight: fontSize * 1.4,
+                        opacity: 0.75,
+                        maxWidth: 14 * height,
+                    }}
+                >
+                    {displayedValue}
+                </Text>
+            )}
             {/* Count of songs for that tag */}
             {count !== undefined && (
                 <View

@@ -9,20 +9,20 @@ connectors attached to visual boundaries instead of moving them with condition c
 
 ## Files
 
-| file                 | role                                                                         |
-| -------------------- | ---------------------------------------------------------------------------- |
-| `types.ts`           | Condition, group, tag-instance, drag, drop, and query JSON types.            |
-| `QueryUtils.ts`      | Pure condition edits, group collapse, derived labels, and JSON compilation.  |
-| `QueryUtils.test.ts` | Reducer invariants and wire-format tests.                                    |
-| `QueryBuilder.tsx`   | Composes the fixed summary, scrollable workspace, and resizable tag palette. |
-| `ResultsSummary.tsx` | Live count and a compact-inset tagged preview using the card-aware row fade. |
-| `ConditionList.tsx`  | Single conditions, groups, connectors, mode toggles, and insertion targets.  |
-| `QueryTagPill.tsx`   | Palette and query pill states, including the NOT indicator.                  |
-| `TagPalette.tsx`     | Searchable tag palette and query-tag delete target.                          |
-| `DragContext.tsx`    | Drag state, measured drop-zone registry, and hit testing.                    |
-| `DraggablePill.tsx`  | Thresholded tag pans and long-press-activated group pans.                    |
-| `DropSlot.tsx`       | Registers and highlights a typed drop target.                                |
-| `DragGhost.tsx`      | Floating tag shown during an active drag.                                    |
+| file                 | role                                                                          |
+| -------------------- | ----------------------------------------------------------------------------- |
+| `types.ts`           | Condition, group, tag-instance, drag, drop, and query JSON types.             |
+| `QueryUtils.ts`      | Pure condition edits, group collapse, derived labels, and JSON compilation.   |
+| `QueryUtils.test.ts` | Reducer invariants and wire-format tests.                                     |
+| `QueryBuilder.tsx`   | Composes the scrollable simple workspace and resizable tag palette.           |
+| `ResultsSummary.tsx` | Shared live count and compact-inset tagged preview used by both builders.     |
+| `ConditionList.tsx`  | Single conditions, groups, connectors, mode toggles, and insertion targets.   |
+| `QueryTagPill.tsx`   | Palette and query pill states, including the NOT indicator.                   |
+| `TagPalette.tsx`     | Searchable tag palette and query-tag delete target.                           |
+| `DragContext.tsx`    | Drag state, measured drop-zone registry, and hit testing.                     |
+| `DraggablePill.tsx`  | Thresholded tag pans and long-press-activated group pans.                     |
+| `DropSlot.tsx`       | Registers and highlights a typed drop target.                                 |
+| `DragGhost.tsx`      | Floating tag shown during an active drag.                                     |
 | `QueryResults.tsx`   | Configures the full-screen query-match hero, zoom dismissal, and save dialog. |
 
 ## The model
@@ -138,6 +138,12 @@ that button. The dialog stays at 75 percent of the screen width and sits above t
 currently logs that persistence is not implemented. Search text and preview expansion live inside
 their surfaces and reset when those surfaces unmount. Query results show row tags and enable Music
 List multi-selection with its built-in Add to Queue action.
+
+The Cadenza screen owns the shared result summary and a liquid-glass mode button above it. The
+button swaps this editor for the filter-based advanced builder without navigating or discarding
+either query tree. Both modes open `/query-results`, which dispatches to the matching endpoint and
+renders the same full-screen hero. See
+[../advanced-query-builder/README.md](../advanced-query-builder/README.md).
 
 ## Connects to
 

@@ -21,9 +21,9 @@ import {
 } from "./QueryUtils.ts";
 import type { QueryCondition, QueryConnector, QueryTag } from "./types.ts";
 
-const rainy: Tag = { id: 1, name: "rainy", color: "#2563eb" };
-const chill: Tag = { id: 2, name: "chill", color: "#7c3aed" };
-const jazz: Tag = { id: 3, name: "jazz", color: "#db2777" };
+const rainy: Tag = { id: 1, name: "rainy", color: "#2563eb", type: "basic" };
+const chill: Tag = { id: 2, name: "chill", color: "#7c3aed", type: "basic" };
+const jazz: Tag = { id: 3, name: "jazz", color: "#db2777", type: "basic" };
 
 function queryTag(
     id: string,

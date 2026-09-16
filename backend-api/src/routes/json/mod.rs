@@ -1,4 +1,5 @@
 /// this module has objects that are to be returned from API as json.
+pub mod advanced_query;
 pub mod tag;
 
 /// convert a `Vec<A>` into a `Vec<B>``

@@ -6,13 +6,7 @@ import {
     type Dispatch,
     type SetStateAction,
 } from "react";
-import {
-    KeyboardAvoidingView,
-    Platform,
-    Pressable,
-    View,
-} from "react-native";
-import type { MusicItem } from "@apple-musickit";
+import { KeyboardAvoidingView, Platform, Pressable, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import Animated from "react-native-reanimated";
 
@@ -40,7 +34,6 @@ import {
     toggleConditionConnector,
     toggleTagNegation,
 } from "./QueryUtils";
-import { ResultsSummary } from "./ResultsSummary";
 import { TagPalette } from "./TagPalette";
 import type {
     DragPayload,
@@ -53,29 +46,10 @@ type Props = {
     tags: Tag[];
     conditions: QueryCondition[];
     setConditions: Dispatch<SetStateAction<QueryCondition[]>>;
-    songs: MusicItem[];
-    resultCount: number;
-    resultsLoading: boolean;
-    resultsError?: unknown;
-    libraryLoading: boolean;
-    isLibraryConnected: boolean;
-    onNext: () => void;
 };
-
 const DEFAULT_PALETTE_HEIGHT = 208;
 
-export function QueryBuilder({
-    tags,
-    conditions,
-    setConditions,
-    songs,
-    resultCount,
-    resultsLoading,
-    resultsError,
-    libraryLoading,
-    isLibraryConnected,
-    onNext,
-}: Props) {
+export function QueryBuilder({ tags, conditions, setConditions }: Props) {
     const { compactPlayerVisible, playerBottomInset } =
         useScreenOverlayInsets();
     const defaultPaletteHeight =
@@ -183,16 +157,6 @@ export function QueryBuilder({
                 behavior={Platform.OS === "ios" ? "padding" : undefined}
                 keyboardVerticalOffset={80}
             >
-                <ResultsSummary
-                    songs={songs}
-                    count={resultCount}
-                    loading={resultsLoading}
-                    error={resultsError}
-                    libraryLoading={libraryLoading}
-                    isLibraryConnected={isLibraryConnected}
-                    onNext={onNext}
-                />
-
                 <View className="flex-1 bg-background">
                     <View className="flex-row items-center px-4 pb-1 pt-2">
                         <Text className="flex-1 text-lg font-bold">

@@ -11,6 +11,8 @@ pub struct Model {
     pub user_id: Uuid,
     #[sea_orm(primary_key, auto_increment = false)]
     pub tag_id: i64,
+    #[sea_orm(column_type = "Text", nullable)]
+    pub value: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

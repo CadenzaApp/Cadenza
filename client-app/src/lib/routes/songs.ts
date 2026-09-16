@@ -1,12 +1,16 @@
 import { useMemo } from "react";
-import { useAPIData, useAPIMutation, useAPIPostDataBatched } from "../api-actions";
-import { Tag } from "@/lib/types";
+import {
+    useAPIData,
+    useAPIMutation,
+    useAPIPostDataBatched,
+} from "../api-actions";
+import { AppliedTag } from "@/lib/types";
 
 // the backend caps a batch at 200 ids
 const TAGS_ON_SONGS_BATCH_SIZE = 200;
 
 export function useTagsOnSong(songId?: string) {
-    const x = useAPIData<Tag[]>("/songs/tags", {
+    const x = useAPIData<AppliedTag[]>("/songs/tags", {
         song_id: songId,
     });
 
@@ -23,15 +27,15 @@ export function useTagsOnSongs(songIds: readonly string[]) {
         () => [...new Set(songIds.filter(Boolean))],
         [songIds],
     );
-    const x = useAPIPostDataBatched<string, { song_ids: string[] }, Record<string, Tag[]>>(
-        "/songs/tags/batch",
-        normalizedIds,
-        {
-            batchSize: TAGS_ON_SONGS_BATCH_SIZE,
-            toBody: (song_ids) => ({ song_ids }),
-            merge: (responses) => Object.assign({}, ...responses),
-        },
-    );
+    const x = useAPIPostDataBatched<
+        string,
+        { song_ids: string[] },
+        Record<string, AppliedTag[]>
+    >("/songs/tags/batch", normalizedIds, {
+        batchSize: TAGS_ON_SONGS_BATCH_SIZE,
+        toBody: (song_ids) => ({ song_ids }),
+        merge: (responses) => Object.assign({}, ...responses),
+    });
     const tagsBySong = x.data ?? EMPTY_TAGS_BY_SONG;
 
     return {
@@ -41,11 +45,13 @@ export function useTagsOnSongs(songIds: readonly string[]) {
     };
 }
 
-const EMPTY_TAGS_BY_SONG: Record<string, Tag[]> = {};
+const EMPTY_TAGS_BY_SONG: Record<string, AppliedTag[]> = {};
 
 type ApplyTagPayload = {
     song_id: string;
     tag_id: number;
+    /** Only meaningful for attribute tags; omit to apply without a value. */
+    value?: string | null;
 };
 export function useApplyTag() {
     const x = useAPIMutation<ApplyTagPayload, void>(
@@ -56,6 +62,7 @@ export function useApplyTag() {
             { path: "/songs/tags/batch" },
             { path: "/tags" },
             { path: "/queries/results" },
+            { path: "/queries/advanced/results" },
         ],
     );
     return {
@@ -66,7 +73,36 @@ export function useApplyTag() {
     };
 }
 
-type UnapplyTagPayload = ApplyTagPayload;
+type SetTagValuePayload = {
+    song_id: string;
+    tag_id: number;
+    /** null clears the value while leaving the tag applied. */
+    value: string | null;
+};
+export function useSetTagValue() {
+    const x = useAPIMutation<SetTagValuePayload, void>(
+        "PATCH",
+        "/songs/tags",
+        ({ song_id }) => [
+            { path: "/songs/tags", params: { song_id } },
+            { path: "/songs/tags/batch" },
+            { path: "/tags" },
+            { path: "/queries/results" },
+            { path: "/queries/advanced/results" },
+        ],
+    );
+    return {
+        setTagValueErr: x.error,
+        setTagValueLoading: x.isMutating,
+        resetSetTagValue: x.reset,
+        setTagValue: x.trigger,
+    };
+}
+
+type UnapplyTagPayload = {
+    song_id: string;
+    tag_id: number;
+};
 export function useUnapplyTag() {
     const x = useAPIMutation<UnapplyTagPayload, void>(
         "DELETE",
@@ -76,6 +112,7 @@ export function useUnapplyTag() {
             { path: "/songs/tags/batch" },
             { path: "/tags" },
             { path: "/queries/results" },
+            { path: "/queries/advanced/results" },
         ],
     );
     return {

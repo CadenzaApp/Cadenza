@@ -6,33 +6,33 @@ logic out.
 
 ## Files
 
-| file                         | route                   | role                                                                                                          |
-| ---------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `_layout.tsx`                | root                    | Provider stack, theme, the root `Stack` navigator, and `PortalHost`.                                          |
-| `(splashscreen)/index.tsx`   | `/`                     | Calls `tryRestoreSession()`, then replaces to `/library` or `/auth`.                                          |
-| `auth/index.tsx`             | `/auth`                 | Sign in / sign up. Takes an `initialMode` search param.                                                       |
-| `(tabs)/_layout.tsx`         |                         | Protected native tab group, its five triggers, and the media-player bottom accessory.                         |
-| `(tabs)/*/_layout.tsx`       |                         | One native `Stack` per tab, using `TabStack` for the shared top rail.                                         |
-| `(tabs)/social/index.tsx`    | `/social`               | Static previews of planned social features.                                                                   |
-| `(tabs)/analytics/index.tsx` | `/analytics`            | Static previews of planned listening analytics.                                                               |
-| `(tabs)/cadenza/index.tsx`   | `/cadenza`              | The boolean query workspace.                                                                                  |
-| `(tabs)/library/index.tsx`   | `/library`              | Library index: a row per category, then Recently Added.                                                       |
-| `(tabs)/library/category/[kind].tsx` | `/library/category/:kind` | One category's normal Library-stack view; preserves the tab bar and bottom player.                    |
-| `(tabs)/search/index.tsx`    | `/search`               | Search. A tag shelf until you tap the field, then recents, a scope switch, and results (artists, then songs). |
-| `account.tsx`                | `/account`              | Account sheet. Wires `AccountSettingsScreen`.                                                                 |
-| `appearance.tsx`             | `/appearance`           | Appearance preview sheet. Wires `AppearanceSettingsScreen`.                                                   |
-| `player/_layout.tsx`         | `/player/*`             | Now playing sheet shell and provider stack for its always-mounted horizontal pager.                           |
-| `player/index.tsx`           | `/player`               | Opens the always-mounted player pager with Player selected.                                                   |
-| `player/comments.tsx`        | `/player/comments`      | Opens the same pager with Comments selected.                                                                  |
-| `player/tags.tsx`            | `/player/tags`          | Opens the same pager with Tags selected and optional focused-song params.                                     |
-| `library-categories.tsx`     | `/library-categories`   | Picks which rows the library shows.                                                                           |
-| `category/[kind].tsx`        | `/category/:kind`       | Compatibility root host for the shared library-category body.                                                 |
-| `collection/[kind]/[id].tsx` | `/collection/:kind/:id` | The songs in one album or playlist.                                                                           |
-| `query-results.tsx`          | `/query-results`        | Full-screen query matches, refetched from the serialized query while the builder stays mounted underneath.   |
-| `tag/[tagId].tsx`            | `/tag/:tagId`           | One tag and the songs carrying it.                                                                            |
-| `artist/[id].tsx`            | `/artist/:id`           | One catalog artist: the artist image and a play button, top songs, then an albums rail.                       |
-| `add-to-playlist.tsx`        | `/add-to-playlist`      | Picks a library playlist for a song, or makes one.                                                            |
-| `+not-found.tsx`             |                         | 404.                                                                                                          |
+| file                                 | route                     | role                                                                                                                          |
+| ------------------------------------ | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `_layout.tsx`                        | root                      | Provider stack, theme, the root `Stack` navigator, and `PortalHost`.                                                          |
+| `(splashscreen)/index.tsx`           | `/`                       | Calls `tryRestoreSession()`, then replaces to `/library` or `/auth`.                                                          |
+| `auth/index.tsx`                     | `/auth`                   | Sign in / sign up. Takes an `initialMode` search param.                                                                       |
+| `(tabs)/_layout.tsx`                 |                           | Protected native tab group, its five triggers, and the media-player bottom accessory.                                         |
+| `(tabs)/*/_layout.tsx`               |                           | One native `Stack` per tab, using `TabStack` for the shared top rail.                                                         |
+| `(tabs)/social/index.tsx`            | `/social`                 | Static previews of planned social features.                                                                                   |
+| `(tabs)/analytics/index.tsx`         | `/analytics`              | Static previews of planned listening analytics.                                                                               |
+| `(tabs)/cadenza/index.tsx`           | `/cadenza`                | The simple / advanced query workspace and shared result preview.                                                              |
+| `(tabs)/library/index.tsx`           | `/library`                | Library index: a row per category, then Recently Added.                                                                       |
+| `(tabs)/library/category/[kind].tsx` | `/library/category/:kind` | One category's normal Library-stack view; preserves the tab bar and bottom player.                                            |
+| `(tabs)/search/index.tsx`            | `/search`                 | Search. A tag shelf until you tap the field, then recents, a scope switch, and results (artists, then songs).                 |
+| `account.tsx`                        | `/account`                | Account sheet. Wires `AccountSettingsScreen`.                                                                                 |
+| `appearance.tsx`                     | `/appearance`             | Appearance preview sheet. Wires `AppearanceSettingsScreen`.                                                                   |
+| `player/_layout.tsx`                 | `/player/*`               | Now playing sheet shell and provider stack for its always-mounted horizontal pager.                                           |
+| `player/index.tsx`                   | `/player`                 | Opens the always-mounted player pager with Player selected.                                                                   |
+| `player/comments.tsx`                | `/player/comments`        | Opens the same pager with Comments selected.                                                                                  |
+| `player/tags.tsx`                    | `/player/tags`            | Opens the same pager with Tags selected and optional focused-song params.                                                     |
+| `library-categories.tsx`             | `/library-categories`     | Picks which rows the library shows.                                                                                           |
+| `category/[kind].tsx`                | `/category/:kind`         | Compatibility root host for the shared library-category body.                                                                 |
+| `collection/[kind]/[id].tsx`         | `/collection/:kind/:id`   | The songs in one album or playlist.                                                                                           |
+| `query-results.tsx`                  | `/query-results`          | Full-screen simple or advanced query matches, refetched from the serialized query while the builder stays mounted underneath. |
+| `tag/[tagId].tsx`                    | `/tag/:tagId`             | One tag and the songs carrying it.                                                                                            |
+| `artist/[id].tsx`                    | `/artist/:id`             | One catalog artist: the artist image and a play button, top songs, then an albums rail.                                       |
+| `add-to-playlist.tsx`                | `/add-to-playlist`        | Picks a library playlist for a song, or makes one.                                                                            |
+| `+not-found.tsx`                     |                           | 404.                                                                                                                          |
 
 `(splashscreen)` and `(tabs)` are route groups, so the parentheses do not appear in the url.
 
@@ -196,7 +196,8 @@ makes their lists reserve exactly that overlay's height.
 - `@/lib/account`, `@/lib/apple-music-auth`, `@/lib/playback` for the providers.
 - `@/lib/routes/*` and `@/lib/musickit-hooks` for data.
 - `@/features/account` from the Account and Appearance sheets.
-- `@/features/cadenza` from the Cadenza tab.
+- `@/features/cadenza` from the Cadenza tab, which toggles between `@/features/query-builder`
+  and `@/features/advanced-query-builder` while sharing the current result presentation.
 - `@/components/custom` and `@/components/ui` for everything rendered.
 
 ## Gotchas

@@ -48,8 +48,8 @@ mentions them, they are aspirational.
 Read the README for the area you are about to touch **before** you start grepping. Each one
 gives you the file map, the flow, and the gotchas.
 
-| README                                                                                                             | Covers                                                          |
-| ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------- |
+| README                                                                                                             | Covers                                                           |
+| ------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------- |
 | [backend-api/README.md](backend-api/README.md)                                                                     | Backend setup, env vars, `main.rs` wiring, auth, errors         |
 | [backend-api/src/routes/README.md](backend-api/src/routes/README.md)                                               | Every HTTP endpoint and its request/response shape              |
 | [backend-api/src/db/README.md](backend-api/src/db/README.md)                                                       | Query layer, the tag schema, the boolean query compiler         |
@@ -63,6 +63,7 @@ gives you the file map, the flow, and the gotchas.
 | [client-app/src/features/account/README.md](client-app/src/features/account/README.md)                             | Account, Apple Music, and Appearance settings                    |
 | [client-app/src/features/library/README.md](client-app/src/features/library/README.md)                             | The library type filter in the top rail                         |
 | [client-app/src/features/query-builder/README.md](client-app/src/features/query-builder/README.md)                 | The drag and drop boolean query tree                            |
+| [client-app/src/features/advanced-query-builder/README.md](client-app/src/features/advanced-query-builder/README.md) | The Obsidian-style filter builder for attribute tag queries   |
 | [client-app/src/features/search/README.md](client-app/src/features/search/README.md)                               | Search tab recents and the tag shelf                            |
 | [client-app/modules/apple-musickit/README.md](client-app/modules/apple-musickit/README.md)                         | Native Apple Music auth, catalog, library, playback, mock mode  |
 | [client-app/modules/image-color/README.md](client-app/modules/image-color/README.md)                               | Native average color of a remote image                          |

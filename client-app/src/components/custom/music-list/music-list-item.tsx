@@ -19,14 +19,14 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
 import { THEME, type ThemeColorToken } from "@/lib/theme";
-import type { Tag } from "@/lib/types";
+import type { AppliedTag } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 import { TagFadeRail } from "./tag-fade-rail";
 
 type MusicListItemProps = {
     item: MusicItem;
-    tags?: Tag[];
+    tags?: AppliedTag[];
     selected: boolean;
     selectionMode: boolean;
     multiSelectEnabled: boolean;
