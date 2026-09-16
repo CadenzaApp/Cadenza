@@ -48,6 +48,8 @@ const MAX_WIDTH = 520;
 const MAX_HEIGHT_RATIO = 0.8;
 const ROW_MIN_HEIGHT = 56;
 const ROW_ICON_SIZE = 24;
+/** Space between the top edge of the popup and its title row. */
+const HEADER_TOP_SPACE = 8;
 
 /**
  * A popup list of choices, optionally grouped and searchable. The list
@@ -112,10 +114,18 @@ export function OptionPicker({
                     <Pressable
                         accessibilityViewIsModal
                         onPress={(event) => event.stopPropagation()}
-                        className="rounded-xl border border-border bg-popover px-4 pt-7 pb-2 gap-3"
-                        style={{ width, maxHeight }}
+                        className="rounded-xl border border-border bg-popover px-4 pb-2 gap-3"
+                        // explicit, so the title always clears the top edge
+                        style={{
+                            width,
+                            maxHeight,
+                            paddingTop: HEADER_TOP_SPACE,
+                        }}
                     >
-                        <View className="flex-row items-center justify-between gap-3 pb-1">
+                        <View
+                            className="flex-row items-center justify-between gap-3"
+                            style={{ paddingTop: 8, paddingBottom: 8 }}
+                        >
                             <Text className="flex-1 text-xl font-semibold text-popover-foreground">
                                 {title}
                             </Text>
