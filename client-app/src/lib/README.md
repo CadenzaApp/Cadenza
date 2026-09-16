@@ -25,6 +25,7 @@ native module directly.
 | `error-utils.ts` | `getErrorDetails` / `getErrorMessage`, for unwrapping native and backend errors. |
 | `screen-overlay.ts` | `useScreenOverlayInsets`. How much bottom padding a screen owes the compact player and the floating button. |
 | `types.ts` | Shared wire types: `TagType`, `Tag`, `AppliedTag` and `TagMetadata`. |
+| `tag-values.ts` | Per-type tag helpers: `TAG_TYPES`, labels, descriptions, `TAG_TYPE_ICONS`, value validation, canonicalization, formatting, and the date-only helpers. |
 | `utils.ts` | `cn()`, the clsx + tailwind-merge helper. |
 
 ## The SWR wrappers

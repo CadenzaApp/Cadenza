@@ -17,7 +17,7 @@ fetch. Reached from the "Advanced" button under the simple query builder.
 | `FilterRow.tsx` | One filter line: connector word, field picker, operator picker, value input, and the remove button. Exports `RemoveButton`. |
 | `FilterValueInput.tsx` | The value input for a line: text, number, a calendar day, a date and time, or a tag type. |
 | `OptionPicker.tsx` | Popup list of choices with optional sections and search. Its own `Modal`, sized for a phone: near full width, up to 80% of the screen tall, 56pt rows. Scrolls vertically and wraps long labels. |
-| `field-icons.ts` | Ionicons per tag type, and the three "property" fields (tag name, tag value, tag type). |
+| `field-icons.ts` | `TYPE_ICONS` (an alias of `@/lib/tag-values::TAG_TYPE_ICONS`, shared with `TagPill`), and the three "property" fields (tag name, tag value, tag type). |
 
 ## The model
 

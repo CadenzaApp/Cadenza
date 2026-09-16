@@ -1,16 +1,12 @@
-import { TagType } from "@/lib/types";
+import { TAG_TYPE_ICONS } from "@/lib/tag-values";
 
 import type { IconName } from "./OptionPicker";
 
-/** The icon shown next to a tag of each type. */
-export const TYPE_ICONS: Record<TagType, IconName> = {
-    basic: "pricetag-outline",
-    text: "text-outline",
-    datetime: "time-outline",
-    date: "calendar-outline",
-    number: "calculator-outline",
-    checkbox: "checkbox-outline",
-};
+/**
+ * The icon shown next to a tag of each type. Lives in `@/lib/tag-values` so
+ * `TagPill` uses the same icons.
+ */
+export const TYPE_ICONS = TAG_TYPE_ICONS;
 
 /** The fields that look across every tag on a song, rather than one tag. */
 export const PROPERTY_FIELDS = [

@@ -1,8 +1,9 @@
 import { Badge } from "@/components/ui/badge";
 import { Text } from "@/components/ui/text";
 import { Pressable, View } from "react-native";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import type { Tag } from "../../lib/types";
-import { formatTagValue } from "../../lib/tag-values";
+import { TAG_TYPE_ICONS, formatTagValue } from "../../lib/tag-values";
 
 // Helper to lighten hex colors
 function hexToRgba(hex: string, alpha: number) {
@@ -16,7 +17,7 @@ function hexToRgba(hex: string, alpha: number) {
  * A pill shaped badge that represents a tag
  *
  * @param tag       - The tag object (id, name, hex color, type).
- * @param height    - Controls all sizing proportionally (font, dot, padding).
+ * @param height    - Controls all sizing proportionally (font, icon, padding).
  * @param value     - If provided, renders the attribute tag's value after the
  *                   name, formatted for the tag's type.
  * @param count     - If provided, renders a count badge on the right side.
@@ -39,7 +40,7 @@ export function TagPill({
     onRemove?: () => void;
     compact?: boolean;
 }) {
-    const dotSize = 0.8 * height;
+    const iconSize = 1.15 * height;
     const fontSize = 1 * height;
     const countFontSize = 0.9 * height;
     const countPaddingHorizontal = 0.9 * height;
@@ -107,14 +108,13 @@ export function TagPill({
                 gap: 0.5 * height,
             }}
         >
-            {/* Colored dot */}
-            <View
-                style={{
-                    backgroundColor: tag.color,
-                    width: dotSize,
-                    height: dotSize,
-                    borderRadius: 999,
-                }}
+            {/* Tag type icon, the same one the advanced query builder shows */}
+            <Ionicons
+                name={TAG_TYPE_ICONS[tag.type] ?? TAG_TYPE_ICONS.basic}
+                size={iconSize}
+                color={tag.color}
+                accessibilityElementsHidden
+                importantForAccessibility="no"
             />
             {/* Tag text */}
             <Text

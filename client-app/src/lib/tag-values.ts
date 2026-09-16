@@ -1,3 +1,6 @@
+import type { ComponentProps } from "react";
+import type Ionicons from "@expo/vector-icons/Ionicons";
+
 import { TagType } from "@/lib/types";
 
 /** Every tag type, in the order they are offered when creating a tag. */
@@ -26,6 +29,22 @@ export const TAG_TYPE_DESCRIPTIONS: Record<TagType, string> = {
     date: "A calendar date, no time",
     number: "A whole number or decimal",
     checkbox: "True or false",
+};
+
+/**
+ * The Ionicons glyph for each tag type. Shown in `TagPill` and throughout the
+ * advanced query builder, so a tag's type reads the same everywhere.
+ */
+export const TAG_TYPE_ICONS: Record<
+    TagType,
+    ComponentProps<typeof Ionicons>["name"]
+> = {
+    basic: "pricetag-outline",
+    text: "text-outline",
+    datetime: "time-outline",
+    date: "calendar-outline",
+    number: "calculator-outline",
+    checkbox: "checkbox-outline",
 };
 
 /** Attribute tags are every type other than basic: they can hold a value. */
