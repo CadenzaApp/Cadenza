@@ -170,7 +170,7 @@ export function SongOptionsMenu({
     ];
 
     return (
-        <ModalPopup visible onClose={onClose} variant="glass">
+        <ModalPopup visible onClose={onClose}>
             {favoriteStatusErr ? (
                 <FavoriteShareRow
                     target={selectedTrack}

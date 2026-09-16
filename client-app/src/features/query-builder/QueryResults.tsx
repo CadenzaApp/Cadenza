@@ -4,8 +4,8 @@ import { useWindowDimensions, View } from "react-native";
 
 import { TrackCollectionView } from "@/components/custom/track-collection-view";
 import { collectionArtworkGridTracks } from "@/components/custom/track-collection-utils";
-import { Button } from "@/components/ui/button";
 import { FloatingCloseButton } from "@/components/ui/floating-close-button";
+import { GlassButton } from "@/components/ui/glass-button";
 import {
     Dialog,
     DialogContent,
@@ -146,20 +146,23 @@ export default function QueryResults({
                             />
                         </View>
                         <View className="mt-1 flex-row gap-2.5">
-                            <Button
-                                variant="secondary"
-                                className="flex-1"
-                                onPress={closeSaveDialog}
-                            >
-                                <Text>Cancel</Text>
-                            </Button>
-                            <Button
-                                className="flex-1"
-                                disabled={!saveName.trim()}
-                                onPress={submitSave}
-                            >
-                                <Text>Save</Text>
-                            </Button>
+                            <View className="flex-1">
+                                <GlassButton
+                                    className="w-full"
+                                    onPress={closeSaveDialog}
+                                >
+                                    <Text>Cancel</Text>
+                                </GlassButton>
+                            </View>
+                            <View className="flex-1">
+                                <GlassButton
+                                    className="w-full"
+                                    disabled={!saveName.trim()}
+                                    onPress={submitSave}
+                                >
+                                    <Text>Save</Text>
+                                </GlassButton>
+                            </View>
                         </View>
                     </DialogContent>
                 </Dialog>

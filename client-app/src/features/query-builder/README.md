@@ -131,7 +131,9 @@ mosaic, play and shuffle queues, local Music List sorting, and a caller-supplied
 page tint averages the representative colors for the four mosaic cells, then uses the same
 full-height darkening gradient as collection details. One
 distinct artwork renders as a single image instead of a repeated grid. The results surface owns the
-save-name dialog. It stays at 75 percent of the screen width and sits above the keyboard; submit
+save-name glass dialog. Its round Save Query action is glass too. The result screen's zoom origin is
+the builder summary's right-arrow control, so opening expands from and closing contracts back into
+that button. The dialog stays at 75 percent of the screen width and sits above the keyboard; submit
 currently logs that persistence is not implemented. Search text and preview expansion live inside
 their surfaces and reset when those surfaces unmount. Query results show row tags and enable Music
 List multi-selection with its built-in Add to Queue action.

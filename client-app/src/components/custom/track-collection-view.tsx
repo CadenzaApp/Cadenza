@@ -227,10 +227,8 @@ export function TrackCollectionView({
                     <Text className="font-semibold">Shuffle</Text>
                 </Button>
                 {options.length === 1 ? (
-                    <Button
-                        variant="outline"
-                        size="icon"
-                        className="h-11 w-11 rounded-full"
+                    <GlassIconButton
+                        size={44}
                         onPress={() => runOption(options[0])}
                         accessibilityLabel={options[0].label}
                     >
@@ -239,12 +237,10 @@ export function TrackCollectionView({
                             size={20}
                             color={colors.text}
                         />
-                    </Button>
+                    </GlassIconButton>
                 ) : options.length > 1 ? (
-                    <Button
-                        variant="outline"
-                        size="icon"
-                        className="h-11 w-11 rounded-full"
+                    <GlassIconButton
+                        size={44}
                         onPress={() => setOptionsOpen(true)}
                         accessibilityLabel={`More options for ${title}`}
                         accessibilityState={{ expanded: optionsOpen }}
@@ -254,7 +250,7 @@ export function TrackCollectionView({
                             size={20}
                             color={colors.text}
                         />
-                    </Button>
+                    </GlassIconButton>
                 ) : null}
             </View>
 
@@ -311,7 +307,6 @@ export function TrackCollectionView({
                 visible={optionsOpen}
                 onClose={() => setOptionsOpen(false)}
                 title="Options"
-                variant="glass"
             >
                 {options.map((option) => (
                     <Button

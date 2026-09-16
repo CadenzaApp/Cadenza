@@ -34,6 +34,9 @@ nothing else; the caller supplies size, radius, and `overflow: "hidden"`. Its op
 Destructive actions keep neutral glass and use red foreground content. The confirmation is used
 by both Account sign-out flows.
 
+`dialog.tsx` paints form dialogs on `GlassSurface` by default. Keep form structure, focus handling,
+and portal behavior in this primitive rather than rebuilding a glass modal at each call site.
+
 `glass-icon-button.tsx` exports `GlassIconButton`, a round icon button built on it. Header actions,
 detail-screen controls, and every floating circular action use it. Reach for it rather than
 hand-rolling another circle of glass.
@@ -81,7 +84,7 @@ variables), `tailwind.config.js`, and `global.css`. Class merging goes through
 | `song-tag-editor.tsx`    | `useSongTagEditor`, the tag-editing data for one song id: user tags annotated as applied, the toggle mutation, and the "New" tag dialog's open state. Used by `media-player/tags-page.tsx`, the now-playing sheet's Tags page. |
 | `tag-pill.tsx`           | A tag chip, colored from `tag.color`. Also exports `readableTextColor`.                                                                                                                                                        |
 | `create-tag-dialog.tsx`  | `CreateTagDialog` (controlled name + color picker, calls `useCreateTag`) and `CreateTagBubble` (floating trigger + dialog).                                                                                                    |
-| `modal-popup.tsx`        | Small anchored popup used by the options menus and the selection actions. `variant="glass"` renders the card on `GlassSurface` instead of the flat popover background; every other caller is unaffected.                       |
+| `modal-popup.tsx`        | Small popup used by options, sorting, and selection actions. It is liquid glass by default; `variant="solid"` is the explicit compatibility escape hatch.                                                              |
 | `tab-stack.tsx`          | `TabStack`, the native stack each bottom tab nests so it can keep the shared `TopRail` header.                                                                                                                                 |
 | `top-rail.tsx`           | Shared tab header: page title on the left, an optional `actions` slot and the account initials on the right.                                                                                                                   |
 | `account-initials.ts`    | Pure email-to-initials helper, tested in `account-initials.test.ts`.                                                                                                                                                           |
@@ -146,7 +149,7 @@ gradient painted in a theme color: rows also sit over artwork tints, so no singl
 match every screen.
 
 `TrackCollectionView` owns the standard mosaic or single-artwork header, play/shuffle row,
-caller-supplied simple options, and the `MusicList`. Routes can supply pagination, playback
+caller-supplied simple glass options, and the `MusicList`. Routes can supply pagination, playback
 overrides, tint/background content, close controls, and opt the standard header into the device's
 top safe area. Artist uses its custom hero and albums
 rail through the header/footer inputs, while album and playlist details use the standard layout
@@ -173,7 +176,7 @@ scroll views for inset, scroll-to-top, and tab-bar/accessory minimization.
 | `collection-options-menu.tsx` | `CollectionOptionsMenu`. Favorite + Share for the album/playlist itself, then Play Next / Add to Queue against its songs. Used by `/collection/[kind]/[id]`.                                                                                                                           |
 | `favorite-share-row.tsx`      | `FavoriteShareRow`, the icon row + divider both menus lead with. Generic over the target type.                                                                                                                                                                                         |
 
-Both menus render through `ModalPopup` with `variant="glass"`. Neither owns navigation directly:
+Both menus render through the liquid-glass default in `ModalPopup`. Neither owns navigation directly:
 `SongOptionsMenu` takes an optional `navigate` (defaulting to a plain `router.push`), so the
 now-playing sheet can pass a function that dismisses itself first, without that assumption living
 in the shared component. Modify Tags is the same shape: `SongOptionsMenu` takes an optional

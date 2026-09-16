@@ -209,7 +209,6 @@ export function MusicListSelectionToolbar({
                         visible={moreOpen}
                         onClose={() => setMoreOpen(false)}
                         title="More actions"
-                        variant="glass"
                     >
                         {overflowActions.map((action) => (
                             <MusicListActionButton

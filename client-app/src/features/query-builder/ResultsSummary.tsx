@@ -7,6 +7,7 @@ import { MusicList } from "@/components/custom/music-list";
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { THEME } from "@/lib/theme";
+import { useZoomSource } from "@/lib/zoom-dismiss";
 import { useColorScheme } from "nativewind";
 
 export function ResultsSummary({
@@ -27,6 +28,7 @@ export function ResultsSummary({
     onNext: () => void;
 }) {
     const [expanded, setExpanded] = useState(false);
+    const { ref: zoomRef, capture: captureZoom } = useZoomSource();
     const { colorScheme = "light" } = useColorScheme();
     const theme = THEME[colorScheme];
     const canAdvance = count > 0 && !error;
@@ -67,19 +69,28 @@ export function ResultsSummary({
                         />
                     )}
                 </Pressable>
-                <Button
-                    onPress={onNext}
-                    disabled={!canAdvance}
-                    size="icon"
-                    className="h-11 w-11 rounded-full"
-                    accessibilityLabel="Show full query results"
+                <View
+                    ref={zoomRef}
+                    collapsable={false}
+                    className="h-11 w-11"
                 >
-                    <Ionicons
-                        name="arrow-forward"
-                        size={21}
-                        color={theme.primaryForeground}
-                    />
-                </Button>
+                    <Button
+                        onPress={() => {
+                            captureZoom();
+                            onNext();
+                        }}
+                        disabled={!canAdvance}
+                        size="icon"
+                        className="h-11 w-11 rounded-full"
+                        accessibilityLabel="Show full query results"
+                    >
+                        <Ionicons
+                            name="arrow-forward"
+                            size={21}
+                            color={theme.primaryForeground}
+                        />
+                    </Button>
+                </View>
             </View>
 
             {!isLibraryConnected ? (
