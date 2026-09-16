@@ -170,7 +170,7 @@ export function TrackCollectionView({
     }
 
     const defaultHeader = (
-        <View className="relative px-4 pb-4 pt-4">
+        <View className="relative px-4 pb-4 pt-8">
             {background}
             <View className="items-center">
                 <Animated.View style={artworkStyle}>
