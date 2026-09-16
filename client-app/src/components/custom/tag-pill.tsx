@@ -18,6 +18,8 @@ function hexToRgba(hex: string, alpha: number) {
  *
  * @param tag       - The tag object (id, name, hex color, type).
  * @param height    - Controls all sizing proportionally (font, icon, padding).
+ *
+ * Attribute tags lead with their type icon; basic tags keep a plain colored dot.
  * @param value     - If provided, renders the attribute tag's value after the
  *                   name, formatted for the tag's type.
  * @param count     - If provided, renders a count badge on the right side.
@@ -41,6 +43,7 @@ export function TagPill({
     compact?: boolean;
 }) {
     const iconSize = 1.15 * height;
+    const dotSize = 0.8 * height;
     const fontSize = 1 * height;
     const countFontSize = 0.9 * height;
     const countPaddingHorizontal = 0.9 * height;
@@ -108,14 +111,26 @@ export function TagPill({
                 gap: 0.5 * height,
             }}
         >
-            {/* Tag type icon, the same one the advanced query builder shows */}
-            <Ionicons
-                name={TAG_TYPE_ICONS[tag.type] ?? TAG_TYPE_ICONS.basic}
-                size={iconSize}
-                color={tag.color}
-                accessibilityElementsHidden
-                importantForAccessibility="no"
-            />
+            {tag.type === "basic" ? (
+                /* Colored dot for basic tags */
+                <View
+                    style={{
+                        backgroundColor: tag.color,
+                        width: dotSize,
+                        height: dotSize,
+                        borderRadius: 999,
+                    }}
+                />
+            ) : (
+                /* Type icon, the same one the advanced query builder shows */
+                <Ionicons
+                    name={TAG_TYPE_ICONS[tag.type] ?? TAG_TYPE_ICONS.basic}
+                    size={iconSize}
+                    color={tag.color}
+                    accessibilityElementsHidden
+                    importantForAccessibility="no"
+                />
+            )}
             {/* Tag text */}
             <Text
                 style={{
