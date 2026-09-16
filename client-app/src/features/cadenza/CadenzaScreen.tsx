@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { ActivityIndicator, View } from "react-native";
 
-import { TagGenerationNotice } from "@/components/custom/tag-generation-notice";
 import { Text } from "@/components/ui/text";
 import { QueryBuilder } from "@/features/query-builder/QueryBuilder";
 import QueryResults from "@/features/query-builder/QueryResults";
@@ -52,7 +51,6 @@ export function CadenzaScreen() {
 
     return (
         <View className="flex-1 bg-background">
-            <TagGenerationNotice className="mx-4 mt-4" />
             {matchedSongIds !== undefined ? (
                 <QueryResults
                     songs={songInfo ?? []}

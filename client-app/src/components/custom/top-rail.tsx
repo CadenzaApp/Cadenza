@@ -9,6 +9,9 @@ import { useAccount } from "@/lib/account";
 
 import { getAccountInitials } from "./account-initials";
 
+/** The rail's row, above the safe area it pads itself with. */
+export const TOP_RAIL_HEIGHT = 56;
+
 type Props = {
     title: string;
     /** Screen-specific controls, placed left of the account button. */
@@ -25,7 +28,10 @@ export function TopRail({ title, actions }: Props) {
             className="border-b border-border bg-background"
             style={{ paddingTop: insets.top }}
         >
-            <View className="h-14 flex-row items-center justify-between px-5">
+            <View
+                className="flex-row items-center justify-between px-5"
+                style={{ height: TOP_RAIL_HEIGHT }}
+            >
                 <Text
                     className="flex-1 text-3xl font-bold tracking-tight"
                     numberOfLines={1}

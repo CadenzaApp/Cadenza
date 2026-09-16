@@ -16,7 +16,7 @@ native module directly.
 | `routes/songs.ts` | Hooks for `/songs`: `useTagsOnSong`, `useTagsOnSongs`, `useApplyTag`, `useUnapplyTag`, `useInitSongs`, `useSetDefaultTags`. |
 | `routes/queries.ts` | Hook for `/queries/results`: `useQueryResults`. |
 | `musickit-hooks.ts` | SWR over the native module: song info, catalog search, library search, library songs, albums, artists, playlists, collection contents and metadata, song and collection favorites, artist search, playlist writes. |
-| `song-init.tsx` | `SongInitProvider` / `useUninitializedSongCount`. Runs the song init job on startup and shares how many songs it has left. |
+| `song-init.tsx` | `SongInitProvider`. Runs the song init job on startup and keeps a running task while it still has songs to tag. Holds no context. |
 | `song-init-job.ts` | `initializeSongs`, the job itself: finds uninitialized songs in the library and playlists, then initializes them. Import-free, tested in `song-init-job.test.ts`. |
 | `account.tsx` | `AccountProvider` / `useAccount`. Supabase session and the JWT. |
 | `apple-music-auth.tsx` | `AppleMusicProvider` / `useAppleMusic`. Apple Music tokens, persisted in secure store. |
@@ -287,8 +287,9 @@ remaining distance. A short pull still springs back to full size.
 ## The song init job
 
 `song-init.tsx::SongInitProvider` is mounted once, from the root layout, right under
-`AppleMusicProvider`. It runs `song-init-job.ts::initializeSongs` when there is an account and a
-connected Apple Music session, and starts over if either changes.
+`AppleMusicProvider` and `TasksProvider`. It runs `song-init-job.ts::initializeSongs` when
+there is an account and a connected Apple Music session, and starts over if either changes. It
+wraps the routes only because it sits high in the tree; it holds no context of its own.
 
 A song is initialized once the backend has copied its default tags into the user's own tags (see
 `backend-api/src/db/README.md`). Until then, queries do not see it. The job makes two passes:
@@ -300,9 +301,11 @@ A song is initialized once the backend has copied its default tags into the user
 2. **Initialize.** It posts those songs to `POST /songs/default-tags` 100 at a time, then sends
    each batch to `POST /songs/initialize` again, which copies the new default tags to the user.
 
-`useUninitializedSongCount` is how many songs the search has found that the second pass has not
-finished with. `TagGenerationNotice` renders only while it is above 0. It goes back to 0 when the
-job ends, even if some songs could not be tagged, and stays 0 while no job is running.
+The provider keeps one running task through `@/components/custom/tasks`, labelled
+"Generating tags". It is added the first time the search reports a song that needs tags, so a run
+that finds none never shows one, and ended when the job settles: `"success"` if it ran to the end,
+`"fail"` if it threw. A run cancelled by a new account or session also ends as `"fail"`, since its
+tagging did not finish.
 
 After the search and after each batch, the provider calls `invalidateAPIData` on `/tags`, because
 the copies are new tags of the user's. It leaves song tag reads alone: those initialize their own
@@ -341,6 +344,9 @@ or read back fails is logged and dropped, and its songs wait for the next startu
   song's last tag leaves it with no tags. The defaults do not come back.
 - The song init job spends OpenAI calls. A big library that has never been tagged means a lot of
   them on first launch, and a song the model returned no tags for is retried on every launch.
+- The job's running task ends as a success whenever the job runs to the end, including when the
+  model gave some songs no tags and they are left for the next startup. Only a thrown job is a
+  failure. The task carries no count; it says tags are generating and nothing more.
 - The job counts a song as uninitialized when `POST /songs/initialize` returns it. That call also
   returns a song the user tagged by hand and then cleared, if it has no default tags. The job
   generates defaults for that song once, and they never reach the user.

@@ -38,7 +38,8 @@ logic out.
 GestureHandlerRootView
   AccountProvider          supabase session -> the jwt everything else needs
     AppleMusicProvider     apple music auth, restored from secure store
-      SongInitProvider     initializes library and playlist songs, shares how many are left
+      TasksProvider          holds running tasks, floats their rows under the top rail
+        SongInitProvider     initializes library and playlist songs
         PlaybackProvider   reads the native playback snapshot
           ThemeProvider    light/dark nav theme from nativewind's colorScheme
             BottomBarVisibilityProvider   temporary visibility exceptions
@@ -51,8 +52,13 @@ GestureHandlerRootView
 ```
 
 `SongInitProvider` sits right under `AppleMusicProvider` because its job needs the account and the
-Apple Music session, and it wraps the routes so the Cadenza tab's `TagGenerationNotice` can read
-its count. See [../lib/README.md](../lib/README.md).
+Apple Music session. It sits under `TasksProvider` because it adds a running task while it
+still has songs to tag. It holds no context of its own, so nothing below it reads from it. See
+[../lib/README.md](../lib/README.md).
+
+`TasksProvider` draws its own overlay, so it has to wrap everything the overlay should float
+over, and it has to be above anything that starts a task. Right under `AppleMusicProvider` is both.
+See [../components/README.md](../components/README.md).
 
 `LibraryCategoriesProvider` (`@/features/library`) sits inside `ThemeProvider` and wraps both
 `Stack` and the hosts, because the library screen reads the category selection and the

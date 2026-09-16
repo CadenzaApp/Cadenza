@@ -88,18 +88,43 @@ variables), `tailwind.config.js`, and `global.css`. Class merging goes through
 | `options-menu/` | The song, album, and playlist "..." menus, on liquid glass. See below. |
 | `song-tag-editor.tsx` | `useSongTagEditor`, the tag-editing data for one song id: user tags annotated as applied, the toggle mutation, and the "New" tag dialog's open state. Used by `media-player/tags-page.tsx`, the now-playing sheet's Tags page. |
 | `tag-pill.tsx` | A tag chip, colored from `tag.color`. Also exports `readableTextColor`. |
-| `tag-generation-notice.tsx` | Amber banner on the Cadenza tab: tags are still generating, so queries may miss songs. Renders nothing unless `@/lib/song-init` reports uninitialized songs. |
+| `tasks.tsx` | `TasksProvider` / `useTasks`. Holds the running tasks and floats one spinner row per task under the top rail, on the right. See below. |
 | `create-tag-dialog.tsx` | `CreateTagDialog` (controlled name + color picker, calls `useCreateTag`) and `CreateTagBubble` (floating trigger + dialog). |
 | `modal-popup.tsx` | Small anchored popup used by the options menus and the selection actions. `variant="glass"` renders the card on `GlassSurface` instead of the flat popover background; every other caller is unaffected. On Android the glass variant renders through `PortalHost` instead of an RN `Modal`, so its glass blurs the app behind it. |
 | `bottom-bars-overlay.tsx` | Mounts the global tab bar and mini player in iOS's window overlay so native detail screens cannot cover them. |
 | `tab-bar.tsx` | The whole floating tab bar: `TABS`, `TabBarHost`, `TabSelectionProvider`, the selection bubble, and the items that move aside for the docked player. The bubble mounts after the bar is measured so native glass starts at its real size. Mounted at the root, not in the navigator. |
-| `top-rail.tsx` | Shared tab header: page title on the left, an optional `actions` slot and the account initials on the right. |
+| `top-rail.tsx` | Shared tab header: page title on the left, an optional `actions` slot and the account initials on the right. Exports `TOP_RAIL_HEIGHT`, the row it draws above its safe-area padding. |
 | `account-initials.ts` | Pure email-to-initials helper, tested in `account-initials.test.ts`. |
 | `coming-soon-screen.tsx` | Data-driven preview surface used by stubbed product areas. |
 | `collection-list.tsx` | Paged list of albums or playlists. Tapping a row opens it. Owns its screen's scroll through `useScreenScroll`, and each row's artwork is a zoom origin. |
 | `artist-list.tsx` | `ArtistList` (paged rows, owns the screen scroll) and `ArtistRail` (a sideways strip of tiles). Both record a zoom origin. |
 | `reorderable-list.tsx` | Generic drag-to-reorder list. Fixed row height, hands back two indices on drop. |
 | `media-player/` | The mini player and the now playing sheet body. See [custom/media-player/README.md](custom/media-player/README.md). |
+
+`tasks.tsx` is the provider and its UI in one file, the same shape as `tab-bar.tsx`.
+`useTasks()` hands back `addTask(label)`, which returns an id, and `endTask(id, status)`, where
+status is `"success"` or `"fail"`. Both keep the same identity
+for the life of the provider, so an effect can list them in its dependencies. A label is fixed for
+the life of its task; there is no way to change one. The provider draws the rows itself, right
+under `{children}`, and draws nothing while it holds no task.
+
+Ending a task does not remove its row. The row swaps its spinner for an Ionicons
+`checkmark-circle` or `close-circle` and stays a second, then goes. So a task is on screen for at
+least that second, and `endTask` on a task that is already ending does nothing rather than
+restarting the second. Spinner and icon
+sit in the same 20pt box, so the row does not resize when one replaces the other.
+
+The rows start below the top rail: safe area, then `TOP_RAIL_HEIGHT` from `top-rail.tsx`, then a
+gap. So they clear the page title and the account button rather than covering them. The offset is
+unconditional, so on a screen with no rail, such as a sheet or `/auth`, the rows sit that much
+lower. They are `pointerEvents="none"` either way, so they never take a tap from what is under
+them. On iOS the stack goes in a
+`FullWindowOverlay`, for the same reason `BottomBarsOverlay` does: a native presentation otherwise
+draws over ordinary React siblings. The row paints its background with a `GlassSurface` layer
+under the border and the shadow, the same shape the compact player uses, since a view that clips
+itself cannot also carry an iOS shadow. The provider is mounted above `GlassBlurTargetProvider`,
+so on Android that glass has no blur target and paints a semi-transparent fill instead of a
+blur.
 
 ### custom/music-list/
 
