@@ -18,6 +18,7 @@ logic out.
 | `(tabs)/explore.tsx` | `/explore` | Apple Music catalog search and library browsing. |
 | `(tabs)/account.tsx` | `/account` | Connect and disconnect Apple Music. |
 | `tag/[tagId].tsx` | `/tag/:tagId` | One tag and the songs carrying it. |
+| `advanced-query.tsx` | `/advanced-query` | Hosts the advanced query builder, then swaps to results. Pushed from the query tab. |
 | `+not-found.tsx` | | 404. |
 
 `(splashscreen)` and `(tabs)` are route groups, so the parentheses do not appear in the url.
@@ -56,7 +57,8 @@ Every other screen can assume the account is either there or not.
 
 - `@/lib/account`, `@/lib/apple-music-auth`, `@/lib/playback` for the providers.
 - `@/lib/routes/*` and `@/lib/musickit-hooks` for data.
-- `@/features/query-builder` from the query tab.
+- `@/features/query-builder` from the query tab, and `@/features/advanced-query-builder` from
+  `advanced-query.tsx`.
 - `@/components/custom` and `@/components/ui` for everything rendered.
 
 ## Gotchas
@@ -64,6 +66,8 @@ Every other screen can assume the account is either there or not.
 - Adding a protected screen means adding the `Redirect` guard yourself. Nothing does it for you.
 - A new top-level route also needs a `Stack.Screen` entry in `_layout.tsx` if you want anything
   other than the default header, and a `MediaPlayerHost` case if the player should show there.
+- `advanced-query.tsx` sets its header title with an inline `<Stack.Screen options>` rather than an
+  entry in `_layout.tsx`, and has no `MediaPlayerHost` case, so no player shows there.
 - `home.tsx` is still a placeholder with a sign out button on it.
 - Tab order in the bar is set by the order of `Tabs.Screen` children, not by filename.
 

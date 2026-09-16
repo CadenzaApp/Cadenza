@@ -14,7 +14,7 @@ native module directly.
 | `swr-utils.ts` | `clearCache` and `useSimpleMutation`, for things that are not plain backend calls. |
 | `routes/tags.ts` | Hooks for `/tags`: `useUserTags`, `useTag`, `useCreateTag`, `useDeleteTag`, `useSuggestTags`. |
 | `routes/songs.ts` | Hooks for `/songs/tags`: `useTagsOnSong`, `useTagsOnSongs`, `useApplyTag`, `useSetTagValue`, `useUnapplyTag`. |
-| `routes/queries.ts` | Hook for `/queries/results`: `useQueryResults`. |
+| `routes/queries.ts` | Hooks for `/queries/results` and `/queries/advanced/results`: `useQueryResults`, `useAdvancedQueryResults`. |
 | `musickit-hooks.ts` | SWR over the native module: song info, catalog search, library, playlists, favorites. |
 | `account.tsx` | `AccountProvider` / `useAccount`. Supabase session and the JWT. |
 | `apple-music-auth.tsx` | `AppleMusicProvider` / `useAppleMusic`. Apple Music tokens, persisted in secure store. |
@@ -93,6 +93,7 @@ One file per backend router, and every backend endpoint has at least one hook.
 | | `PATCH /songs/tags` | `songs.ts` -> `useSetTagValue()` |
 | | `DELETE /songs/tags` | `songs.ts` -> `useUnapplyTag()` |
 | `routes/queries.rs` | `GET /queries/results` | `queries.ts` -> `useQueryResults()` |
+| | `GET /queries/advanced/results` | `queries.ts` -> `useAdvancedQueryResults()` |
 
 `GET /tags` has two hooks because the handler returns a tagged union: without `tag_id` it
 responds with `All { tags, metadata }`, with one it responds with `One { tag, song_ids }`.

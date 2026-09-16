@@ -9,7 +9,7 @@ palette into a tree, hits submit, and gets back the song ids that match. Rendere
 | file | role |
 | --- | --- |
 | `types.ts` | `QueryNode` tree, `PaletteItem`, `SlotAddress`, and `QueryJSONNode` (the wire format). |
-| `QueryBuilder.tsx` | Renders the tree. Takes `root` / `setRoot` / `onSubmit` as props, handles drop and remove. |
+| `QueryBuilder.tsx` | Renders the tree. Takes `root` / `setRoot` / `onSubmit` as props, handles drop and remove. Its "Advanced" button pushes `/advanced-query`. |
 | `QueryUtils.ts` | Pure tree operations plus `queryNodeToJSON`, which compiles the tree for the wire. |
 | `DragContext.tsx` | `DragProvider` / `useDrag`. Drag state, the drop-zone registry, and the node-operator registry. |
 | `DraggablePill.tsx` | A palette item you can pick up. |
@@ -61,6 +61,9 @@ from `@/lib/routes/queries`, which sends it as the `q` param of `GET /queries/re
 come back ordered by relevance (the backend scores each song by how many of the queried tags it
 carries). The query tab feeds those ids to `useSongInfo` for Apple Music metadata, then renders
 `QueryResults`. `resetQuery` clears the results and drops you back on the builder.
+
+Under "Create mix" is an "Advanced" button that pushes `/advanced-query`, the filter based
+builder for attribute tags. See [../advanced-query-builder/README.md](../advanced-query-builder/README.md).
 
 ## Connects to
 

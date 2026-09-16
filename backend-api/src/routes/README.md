@@ -11,9 +11,10 @@ call into `src/db/` or `src/services/`, and shape the response.
 | `mod.rs` | Declares `json`, `queries`, `tags`, `songs`. |
 | `tags.rs` | Tag CRUD for the signed-in user, plus LLM tag suggestion. Mounted at `/tags`. |
 | `songs.rs` | Reading and changing which tags are on a song. Mounted at `/songs`. |
-| `queries.rs` | Runs a boolean tag query and returns song ids by relevance. Mounted at `/queries`. |
-| `json/mod.rs` | `vec_into`, a small `Vec<A> -> Vec<B>` helper. |
+| `queries.rs` | Runs a boolean tag query and returns song ids by relevance, and runs an advanced query. Mounted at `/queries`. |
+| `json/mod.rs` | `vec_into`, a small `Vec<A> -> Vec<B>` helper. Declares `advanced_query` and `tag`. |
 | `json/tag.rs` | `TagType`, `Tag`, and `AppliedTag`, the wire shapes of a tag. `From<tags::Model>` drops `user_id`. |
+| `json/advanced_query.rs` | `AdvancedQuery`, `AdvancedQueryNode`, `AdvancedFilter`, `FilterOp`: the input schema of an advanced query. |
 
 ## Endpoints
 
@@ -32,6 +33,7 @@ Every route below requires `Authorization: Bearer <supabase jwt>`.
 | PATCH | `/songs/tags` | `{song_id, tag_id, value}` | empty. A null value clears it |
 | DELETE | `/songs/tags` | `{song_id, tag_id}` | empty |
 | GET | `/queries/results` | `?q=<query json>` | `["songid", ...]`, most relevant first |
+| GET | `/queries/advanced/results` | `?q=<advanced query json>` | `["songid", ...]`, sorted by song id |
 | GET | `/test` | none | `server is reachable`. Defined inline in `main.rs`, not here |
 
 `GET /tags` returns a serde-tagged enum, so the two shapes come back wrapped in `"One"` or
@@ -50,6 +52,41 @@ A `value` that does not fit the tag's type (not a number, not RFC 3339, not `tru
 any non-blank value on a `basic` tag) is rejected with `CadenzaError::InvalidTagValue` (422). See
 [../services/README.md](../services/README.md) for the exact per-type rules.
 
+### Advanced query JSON
+
+`q` on `/queries/advanced/results` is an `AdvancedQuery`:
+
+```json
+{
+  "timezone": "America/Denver",
+  "where": { "and": [
+    { "filter": { "field": "tag", "tag_id": 4, "op": "on_or_after", "value": "1950-01-01" } },
+    { "not": { "or": [
+      { "filter": { "field": "tag_name", "op": "contains", "value": "live" } },
+      { "filter": { "field": "tag_type", "op": "is", "value": "checkbox" } }
+    ] } }
+  ] }
+}
+```
+
+- `timezone` is optional, an IANA name, default `UTC`. Unknown keys at the top level are rejected.
+- A node is exactly one of `{"and": [node]}`, `{"or": [node]}`, `{"not": node}`,
+  `{"filter": filter}`. The client's "none of the following" group is `{"not": {"or": [...]}}`.
+- A filter is tagged by `field`: `tag` (with `tag_id`), `tag_name`, `tag_value`, or `tag_type`.
+  `value` is always a string, and is omitted (or null) for operators that take none.
+
+| field | ops | value |
+| --- | --- | --- |
+| `tag`, basic tag | `is_applied`, `is_not_applied` | none |
+| `tag`, text tag; `tag_name`; `tag_value` | `is`, `is_not`, `starts_with`, `ends_with`, `contains` / `is_empty` | text / none |
+| `tag`, datetime tag | `on`, `not_on`, `before`, `after`, `on_or_before`, `on_or_after` / `is_empty`, `is_not_empty` | `YYYY-MM-DD` / none |
+| `tag`, number tag | `eq`, `ne`, `lt`, `le`, `gt`, `ge` / `is_empty`, `is_not_empty` | a number as a string / none |
+| `tag`, checkbox tag | `is_true`, `is_false`, `is_null` | none |
+| `tag_type` | `is`, `is_not` | a tag type |
+
+Semantics and limits are in [../db/README.md](../db/README.md). Anything malformed is a
+`QueryFormatError` (422) with a message.
+
 ## How it works
 
 Handlers take what they need out of `AppState` by `FromRef`, so most take
@@ -64,12 +101,16 @@ parses it, and a bad parse is `QueryFormatError`. `db::queries::run_json_query` 
 id mentioned, scores each song by how many of those it carries, and sorts descending. Ties keep
 hashmap order, so equal-score results are unstable between requests.
 
+`advanced_query_results_handler` parses `q` straight into `AdvancedQuery` with serde, so a bad
+shape is a `QueryFormatError` carrying serde's message, then hands it to
+`db::advanced_queries::run_advanced_query`. There is no ranking; the db sorts by song id.
+
 `json/` exists so the wire format is decoupled from the SeaORM models. Anything that leaves the
 api as JSON should have a type here rather than serializing an entity model directly.
 
 ## Connects to
 
-- `crate::db::tags` and `crate::db::queries` for all data access.
+- `crate::db::tags`, `crate::db::queries`, and `crate::db::advanced_queries` for all data access.
 - `crate::services::tag_generation::TagGenerationService` for `/tags/suggest`.
 - `crate::err::CadenzaError` for every error path.
 - Client side: `client-app/src/lib/routes/*.ts` wraps every one of these in an SWR hook.

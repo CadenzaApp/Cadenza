@@ -7,9 +7,10 @@ The data access layer. Everything that touches postgres lives here, so handlers 
 
 | file | role |
 | --- | --- |
-| `mod.rs` | Declares `entity`, `queries`, `tags`. |
+| `mod.rs` | Declares `advanced_queries`, `entity`, `queries`, `tags`. |
 | `tags.rs` | All tag reads and writes: list, look up, usage counts, tags on a song or on many songs, songs with a tag, create, delete, apply, unapply, set the value on an applied tag. |
 | `queries.rs` | Compiles a boolean tag query from JSON to SQL and runs it. |
+| `advanced_queries.rs` | Compiles an advanced (filter based) query to SQL and runs it. Unit tested. |
 | `entity/` | sea-orm-codegen output. `tags`, `user_tags_applied`, `default_tags_applied`, plus `prelude` and `mod`. Do not hand edit. |
 
 ## Schema
@@ -55,14 +56,56 @@ The return value is `song id -> the set of that song's tag ids`, which is what l
 `routes/queries.rs` rank results by how many of the queried tags each song has. Malformed input
 becomes `CadenzaError::QueryFormatError` (422).
 
+## The advanced query compiler
+
+`advanced_queries.rs::run_advanced_query` takes the typed `AdvancedQuery` from
+`routes/json/advanced_query.rs` (see [../routes/README.md](../routes/README.md) for the JSON). It
+is a separate compiler; `queries.rs` is untouched and still serves the simple builder.
+
+Before compiling it checks the tree size (`MAX_NODES` 200, `MAX_DEPTH` 20), looks up the type of
+every tag id the query mentions (user scoped, so another user's tag or a deleted one is a
+`QueryFormatError`), and, only if a datetime filter compares days, checks `timezone` against
+`pg_timezone_names`.
+
+`compile_advanced_query` is pure and emits:
+
+```sql
+SELECT DISTINCT song_id FROM user_tags_applied
+WHERE user_tags_applied.user_id = $1 AND <compiled where clause>
+ORDER BY song_id
+```
+
+- `and` / `or` join children, and an empty one is `TRUE` / `FALSE`. `not` wraps `NOT (...)`
+  directly; there is no De Morgan pass here.
+- Every filter is one correlated `EXISTS` or `NOT EXISTS`. A tag filter looks at that tag's
+  application on the song; `tag_name`, `tag_value` and `tag_type` look at every applied tag,
+  joined to `tags`.
+- A missing tag counts as empty. So positive operators (`is`, `contains`, `before`, `gt`,
+  `is_true`, `is_not_empty`, ...) are `EXISTS` a matching value, and negative ones (`is_not`,
+  `not_on`, `ne`, `is_empty`, `is_null`, `is_not_applied`) are `NOT EXISTS` of the positive
+  condition.
+- Values are text in the db. Numbers compare as `value::double precision`, datetimes as
+  `(value::timestamptz AT TIME ZONE $tz)::date` against a `YYYY-MM-DD` day. Those casts sit inside
+  `CASE WHEN tag_id = $n AND value IS NOT NULL`, because postgres does not promise to evaluate
+  the other `WHERE` terms first and another tag's text would fail the cast.
+- Text comparisons are case-insensitive, using `lower()`, `starts_with`, `right`, and `strpos`
+  rather than `LIKE`, so `%` and `_` in user input are literal.
+- Every value is bound, never interpolated. `Compiler::bind` pushes a value and returns its
+  placeholder, and `$1` is always the user id. The time zone is bound once and reused.
+
+Operator / type mismatches, missing or extra values, bad numbers, and bad dates are all
+`CadenzaError::QueryFormatError` (422) with a message saying which.
+
 ## Connects to
 
 - Called by `src/routes/tags.rs`, `src/routes/songs.rs`, `src/routes/queries.rs`.
+- `advanced_queries.rs` reads its input types from `src/routes/json/advanced_query.rs`.
 - Models convert to wire types through `From<tags::Model> for routes::json::tag::Tag`, and a
   model paired with its applied value through `From<(tags::Model, Option<String>)> for
   routes::json::tag::AppliedTag`.
 - Client side, the JSON tree is produced by
-  `client-app/src/features/query-builder/QueryUtils.ts::queryNodeToJSON`.
+  `client-app/src/features/query-builder/QueryUtils.ts::queryNodeToJSON`, and the advanced one by
+  `client-app/src/features/advanced-query-builder/AdvancedQueryUtils.ts::buildAdvancedQuery`.
 
 ## Gotchas
 
