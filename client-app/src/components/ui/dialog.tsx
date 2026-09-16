@@ -78,8 +78,15 @@ function DialogContent({
                     )}
                     {...props}
                 >
-                    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-                        <GlassSurface style={StyleSheet.absoluteFill} />
+                    <View
+                        pointerEvents="none"
+                        className="bg-card/40"
+                        style={StyleSheet.absoluteFill}
+                    >
+                        <GlassSurface
+                            tintColor={colors.card}
+                            style={StyleSheet.absoluteFill}
+                        />
                     </View>
                     <>{children}</>
                     <DialogPrimitive.Close

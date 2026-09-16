@@ -34,8 +34,10 @@ nothing else; the caller supplies size, radius, and `overflow: "hidden"`. Its op
 Destructive actions keep neutral glass and use red foreground content. The confirmation is used
 by both Account sign-out flows.
 
-`dialog.tsx` paints form dialogs on `GlassSurface` by default. Keep form structure, focus handling,
-and portal behavior in this primitive rather than rebuilding a glass modal at each call site.
+`dialog.tsx` paints form dialogs on `GlassSurface` by default. Its card-color tint and translucent
+underfill keep the material legible inside iOS's full-window portal, where an untinted native glass
+view can otherwise render effectively clear. Keep form structure, focus handling, and portal
+behavior in this primitive rather than rebuilding a glass modal at each call site.
 
 `glass-icon-button.tsx` exports `GlassIconButton`, a round icon button built on it. Header actions,
 detail-screen controls, and every floating circular action use it. Reach for it rather than
