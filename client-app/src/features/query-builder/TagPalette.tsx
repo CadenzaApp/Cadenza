@@ -1,6 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { isLiquidGlassAvailable } from "expo-glass-effect";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ScrollView, View } from "react-native";
+import { ScrollView, StyleSheet, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
     FadeIn,
@@ -9,10 +10,12 @@ import Animated, {
     useSharedValue,
 } from "react-native-reanimated";
 
+import { GlassSurface } from "@/components/ui/glass-surface";
 import { Input } from "@/components/ui/input";
 import { Text } from "@/components/ui/text";
 import { THEME } from "@/lib/theme";
 import type { Tag } from "@/lib/types";
+import { cn } from "@/lib/utils";
 import { useColorScheme } from "nativewind";
 import { DraggablePill } from "./DraggablePill";
 import { DropSlot } from "./DropSlot";
@@ -37,6 +40,7 @@ export function TagPalette({
     const { dragState, hoveredTargetKey } = useDrag();
     const { colorScheme = "light" } = useColorScheme();
     const theme = THEME[colorScheme];
+    const liquidGlassAvailable = isLiquidGlassAvailable();
     const paletteHeight = useSharedValue(height);
     const resizeStartY = useSharedValue(0);
     const resizeStartHeight = useSharedValue(height);
@@ -124,15 +128,33 @@ export function TagPalette({
                             <Text className="text-lg font-bold">Your tags</Text>
                         </View>
                     </GestureDetector>
-                    <Input
-                        value={search}
-                        onChangeText={setSearch}
-                        placeholder="Search"
-                        accessibilityLabel="Search tags"
-                        className="h-10 flex-1 rounded-full border-input bg-background pl-4"
-                        autoCapitalize="none"
-                        autoCorrect={false}
-                    />
+                    <View className="relative h-10 flex-1 overflow-hidden rounded-full">
+                        {liquidGlassAvailable ? (
+                            <View
+                                pointerEvents="none"
+                                style={StyleSheet.absoluteFill}
+                            >
+                                <GlassSurface
+                                    variant="regular"
+                                    style={StyleSheet.absoluteFill}
+                                />
+                            </View>
+                        ) : null}
+                        <Input
+                            value={search}
+                            onChangeText={setSearch}
+                            placeholder="Search"
+                            accessibilityLabel="Search tags"
+                            className={cn(
+                                "h-10 rounded-full pl-4",
+                                liquidGlassAvailable
+                                    ? "border-border bg-transparent"
+                                    : "border-input bg-background",
+                            )}
+                            autoCapitalize="none"
+                            autoCorrect={false}
+                        />
+                    </View>
                 </View>
                 {filtered.length ? (
                     <View className="flex-row flex-wrap gap-2">

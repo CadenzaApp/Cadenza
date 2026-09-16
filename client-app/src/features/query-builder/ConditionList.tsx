@@ -7,7 +7,7 @@ import {
     useState,
     type MutableRefObject,
 } from "react";
-import { Pressable, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 import type { GestureType } from "react-native-gesture-handler";
 import Animated, {
     Easing,
@@ -20,6 +20,7 @@ import Animated, {
     type LayoutAnimationFunction,
 } from "react-native-reanimated";
 
+import { GlassSurface } from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
 import { THEME } from "@/lib/theme";
 import { cn } from "@/lib/utils";
@@ -516,10 +517,16 @@ function ConditionCard({
                     : CONDITION_LAYOUT_TRANSITION
             }
             className={cn(
-                "overflow-hidden rounded-xl border bg-background",
+                "overflow-hidden rounded-xl border",
                 hovered ? "border-ring" : "border-border",
             )}
         >
+            <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+                <GlassSurface
+                    variant="regular"
+                    style={StyleSheet.absoluteFill}
+                />
+            </View>
             <DropSlot
                 targetKey={`condition-${condition.id}`}
                 target={{ kind: "condition", conditionId: condition.id }}

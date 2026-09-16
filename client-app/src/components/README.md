@@ -16,7 +16,7 @@ importing `@/lib/routes/*` into a file under `ui/`, it belongs in `custom/`.
 
 `badge`, `button`, `card`, `dialog`, `glass-surface`, `glass-button`, `glass-confirm-dialog`,
 `glass-icon-button`, `input`,
-`label`, `linear-gradient`, `separator`, `skeleton`, `tabs`, `text`, `native-only-animated-view`, `detail-screen`,
+`label`, `separator`, `skeleton`, `tabs`, `text`, `native-only-animated-view`, `detail-screen`,
 `tint-backdrop`, `floating-close-button`, plus `sign-in-form` and `sign-up-form`.
 
 `floating-close-button.tsx` exports `FloatingCloseButton`, the X a screen that draws its own hero
@@ -43,15 +43,12 @@ behavior in this primitive rather than rebuilding a glass modal at each call sit
 detail-screen controls, and every floating circular action use it. Reach for it rather than
 hand-rolling another circle of glass.
 
-`linear-gradient.tsx` is the shared SVG-backed gradient primitive. It avoids requiring a separate
-native gradient view while serving the artwork tint, artist hero fade, and music-row tag mask.
-
-`tint-backdrop.tsx` exports `TintBackdrop`, the artwork-colored wash behind a page: the color at
-the top, darkening down it and bottoming out at a fraction of its own brightness rather than at
-black. Pass `height` to run it over content taller than the screen, from inside that content, so
-it scrolls with what it is painted behind. It takes the tint `@/lib/artwork-color` hands
-back and renders nothing for a null one, so callers mount it unconditionally. `DetailScreen` takes
-the same color as a `tint` prop and draws one itself.
+`tint-backdrop.tsx` exports `TintBackdrop`, the artwork-colored wash behind a page. It uses
+`expo-linear-gradient` to run the source color at the top continuously into a darker fraction of
+that same color at the bottom, rather than into black. Pass `height` to run it over content taller
+than the screen, from inside that content, so it scrolls with what it is painted behind. It takes
+the tint `@/lib/artwork-color` hands back and renders nothing for a null one, so callers mount it
+unconditionally. `DetailScreen` takes the same color as a `tint` prop and draws one itself.
 
 `reorderable-list.tsx` is in `custom/` rather than `ui/` only because nothing else needs it yet.
 It knows nothing about songs: `data`, `itemHeight`, `renderItem`, and an `onReorder(from, to)`.

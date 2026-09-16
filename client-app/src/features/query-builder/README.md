@@ -47,7 +47,8 @@ instead of changing surface color. Dropping a tag on a single creates an any
 group; dropping on a group adds a member. Query tags can be reordered, moved into another
 condition, extracted from a group, or dropped on the transformed palette to delete them. A
 single condition keeps a stable layout identity when it expands into or collapses from a group.
-The card clips its contents while its height animates, and the HAVE ANY/HAVE ALL control fades
+The condition card uses the shared liquid-glass surface while keeping each tag pill solid. It clips
+its contents while its height animates, and the HAVE ANY/HAVE ALL control fades
 and shifts slightly down when added or up when removed. A
 movement threshold keeps a tap available for toggling NOT. Basic tags use a circle indicator and
 switch it to a close-circle when negated. Attribute tags keep their type icon in both states.
@@ -117,8 +118,9 @@ Removing a top-level condition, including by moving its only tag into another gr
 old condition out while the destination updates.
 
 Out-of-group drop targets preview insertion with a tag-colored line labeled `create new tag
-group`. The line animates outward from its center. The palette search field is outlined and uses the
-screen background. The palette delete target fades a black surface over its contents, then fades in
+group`. The line animates outward from its center. The palette search field uses native liquid glass
+when available and retains its outlined themed surface on Android and older iOS. The palette delete
+target fades a black surface over its contents, then fades in
 a destructive trash icon and label. Both layers fade away when the drag leaves the palette.
 Palette and query tags use the shared app-wide solid-color `TagPill` styling. Negated tags
 replace the standard leading dot with a close-circle icon. Reordering, grouping,
@@ -140,9 +142,11 @@ currently logs that persistence is not implemented. Search text and preview expa
 their surfaces and reset when those surfaces unmount. Query results show row tags and enable Music
 List multi-selection with its built-in Add to Queue action.
 
-The Cadenza screen owns the shared result summary. Its liquid-glass mode button sits between the
-collapsible result count and next arrow, swapping this editor for the filter-based advanced builder
-without navigating or discarding either query tree. Both modes open `/query-results`, which
+The Cadenza screen owns the shared result summary. Its result-count control and mode button use
+liquid glass, with the mode button sitting between the count and next arrow. Expanding the count
+opens a liquid-glass preview layered over the editor instead of resizing or shifting it. The mode
+button swaps this editor for the filter-based advanced builder without navigating or discarding
+either query tree. Both modes open `/query-results`, which
 dispatches to the matching endpoint and renders the same full-screen hero. See
 [../advanced-query-builder/README.md](../advanced-query-builder/README.md).
 

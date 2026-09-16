@@ -1,7 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Portal } from "@rn-primitives/portal";
 import { Fragment, useEffect } from "react";
-import { Platform, View } from "react-native";
+import { Platform, StyleSheet, View } from "react-native";
 import Animated, {
     Easing,
     runOnJS,
@@ -12,6 +12,7 @@ import Animated, {
 import { FullWindowOverlay } from "react-native-screens";
 
 import { TagPill } from "@/components/custom/tag-pill";
+import { GlassSurface } from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
 import { THEME } from "@/lib/theme";
 import { useColorScheme } from "nativewind";
@@ -128,7 +129,13 @@ function ConditionGhostCard({ condition }: { condition: QueryCondition }) {
     const theme = THEME[colorScheme];
 
     return (
-        <View className="overflow-hidden rounded-xl border border-border bg-background">
+        <View className="overflow-hidden rounded-xl border border-border">
+            <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+                <GlassSurface
+                    variant="regular"
+                    style={StyleSheet.absoluteFill}
+                />
+            </View>
             <View
                 className={
                     group

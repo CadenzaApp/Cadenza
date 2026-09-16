@@ -1,11 +1,12 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useState } from "react";
-import { ActivityIndicator, Pressable, View } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
 import type { MusicItem } from "@apple-musickit";
 
 import { MusicList } from "@/components/custom/music-list";
 import { Button } from "@/components/ui/button";
 import { GlassButton } from "@/components/ui/glass-button";
+import { GlassSurface } from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
 import { THEME } from "@/lib/theme";
 import { useZoomSource } from "@/lib/zoom-dismiss";
@@ -42,10 +43,10 @@ export function ResultsSummary({
     const previewHeight = previewRowCount * 68;
 
     return (
-        <View className="border-b border-border bg-background px-2 pb-2 pt-1">
+        <View className="relative z-30 border-b border-border bg-background px-2 pb-2 pt-1">
             <View className="flex-row items-center gap-2">
                 <Pressable
-                    className="min-h-11 min-w-0 flex-1 flex-row items-center rounded-xl border border-border bg-card px-2.5"
+                    className="min-h-11 min-w-0 flex-1 flex-row items-center overflow-hidden rounded-xl border border-border px-2.5"
                     onPress={() => setExpanded((value) => !value)}
                     accessibilityRole="button"
                     accessibilityState={{ expanded }}
@@ -54,6 +55,12 @@ export function ResultsSummary({
                         expanded ? "Collapses results" : "Expands results"
                     }
                 >
+                    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+                        <GlassSurface
+                            variant="regular"
+                            style={StyleSheet.absoluteFill}
+                        />
+                    </View>
                     <Ionicons
                         name="musical-notes-outline"
                         size={19}
@@ -118,9 +125,20 @@ export function ResultsSummary({
 
             {expanded ? (
                 <View
-                    className="mt-2 overflow-hidden rounded-xl border border-border bg-card"
-                    style={{ height: previewHeight }}
+                    className="absolute left-2 right-2 overflow-hidden rounded-xl border border-border"
+                    style={{
+                        top: 56,
+                        height: previewHeight,
+                        zIndex: 100,
+                        elevation: 12,
+                    }}
                 >
+                    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+                        <GlassSurface
+                            variant="regular"
+                            style={StyleSheet.absoluteFill}
+                        />
+                    </View>
                     {count === 0 && !loading && !libraryLoading ? (
                         <View className="flex-1 items-center justify-center px-6">
                             <Text className="text-center text-muted-foreground">
