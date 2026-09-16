@@ -5,6 +5,7 @@ import type { MusicItem } from "@apple-musickit";
 
 import { MusicList } from "@/components/custom/music-list";
 import { Button } from "@/components/ui/button";
+import { GlassButton } from "@/components/ui/glass-button";
 import { Text } from "@/components/ui/text";
 import { THEME } from "@/lib/theme";
 import { useZoomSource } from "@/lib/zoom-dismiss";
@@ -17,6 +18,8 @@ export function ResultsSummary({
     error,
     libraryLoading,
     isLibraryConnected,
+    builderToggleLabel,
+    onBuilderToggle,
     onNext,
 }: {
     songs: MusicItem[];
@@ -25,6 +28,8 @@ export function ResultsSummary({
     error?: unknown;
     libraryLoading: boolean;
     isLibraryConnected: boolean;
+    builderToggleLabel: string;
+    onBuilderToggle: () => void;
     onNext: () => void;
 }) {
     const [expanded, setExpanded] = useState(false);
@@ -38,9 +43,9 @@ export function ResultsSummary({
 
     return (
         <View className="border-b border-border bg-background px-2 pb-2 pt-1">
-            <View className="flex-row items-center gap-3">
+            <View className="flex-row items-center gap-2">
                 <Pressable
-                    className="min-h-11 flex-1 flex-row items-center rounded-xl border border-border bg-card px-3"
+                    className="min-h-11 min-w-0 flex-1 flex-row items-center rounded-xl border border-border bg-card px-2.5"
                     onPress={() => setExpanded((value) => !value)}
                     accessibilityRole="button"
                     accessibilityState={{ expanded }}
@@ -54,7 +59,10 @@ export function ResultsSummary({
                         size={19}
                         color={theme.primary}
                     />
-                    <Text className="ml-2.5 flex-1 text-base font-semibold">
+                    <Text
+                        className="ml-2 flex-1 text-sm font-semibold"
+                        numberOfLines={1}
+                    >
                         {libraryLoading || loading
                             ? "Finding songs..."
                             : `${count} ${noun} found`}
@@ -69,11 +77,16 @@ export function ResultsSummary({
                         />
                     )}
                 </Pressable>
-                <View
-                    ref={zoomRef}
-                    collapsable={false}
-                    className="h-11 w-11"
+                <GlassButton
+                    className="h-11 rounded-xl px-3"
+                    onPress={onBuilderToggle}
+                    accessibilityLabel={`Switch to ${builderToggleLabel.toLowerCase()} query builder`}
                 >
+                    <Text className="text-sm font-semibold">
+                        {builderToggleLabel}
+                    </Text>
+                </GlassButton>
+                <View ref={zoomRef} collapsable={false} className="h-11 w-11">
                     <Button
                         onPress={() => {
                             captureZoom();

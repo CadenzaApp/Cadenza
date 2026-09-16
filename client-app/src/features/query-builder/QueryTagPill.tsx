@@ -16,6 +16,7 @@ export function QueryTagPill({
 }) {
     const { colorScheme = "light" } = useColorScheme();
     const theme = THEME[colorScheme];
+    const isAttributeTag = queryTag.tag.type !== "basic";
 
     return (
         <Pressable
@@ -31,15 +32,17 @@ export function QueryTagPill({
                 outlined={queryTag.negated}
                 strikethrough={queryTag.negated}
                 leadingIcon={
-                    <Ionicons
-                        name={queryTag.negated ? "close-circle" : "ellipse"}
-                        size={13}
-                        color={
-                            queryTag.negated
-                                ? queryTag.tag.color
-                                : theme.background
-                        }
-                    />
+                    isAttributeTag ? undefined : (
+                        <Ionicons
+                            name={queryTag.negated ? "close-circle" : "ellipse"}
+                            size={13}
+                            color={
+                                queryTag.negated
+                                    ? queryTag.tag.color
+                                    : theme.background
+                            }
+                        />
+                    )
                 }
             />
         </Pressable>

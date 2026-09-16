@@ -12,7 +12,7 @@ submitted query, shared preview, and the Simple / Advanced mode toggle.
 | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `types.ts`                 | The builder tree (`AdvancedGroupNode`, `AdvancedFilterNode`), `FilterField`, `FilterOp`, and the wire format (`AdvancedQueryJSON`).                                                                |
 | `AdvancedQueryUtils.ts`    | Pure: operator tables and labels, immutable tree ops, date helpers, and `buildAdvancedQuery`, which compiles the tree for the wire. Unit tested in `AdvancedQueryUtils.test.ts`.                   |
-| `AdvancedQueryBuilder.tsx` | Scrollable root group plus the submit button. Binds the tree ops into a `BuilderActions` object.                                                                                                   |
+| `AdvancedQueryBuilder.tsx` | Scrollable root group. Binds the tree ops into a `BuilderActions` object; the shared result-summary arrow owns navigation.                                                                         |
 | `FilterGroup.tsx`          | One group: the all / any / none selector, its children, and the "Add filter" / "Add filter group" buttons. Recursive. Exports `BuilderTags` and `BuilderActions`.                                  |
 | `FilterRow.tsx`            | One filter line: connector word, field picker, operator picker, value input, and the remove button. Exports `RemoveButton`.                                                                        |
 | `FilterValueInput.tsx`     | The value input for a line: text, number, a calendar day, a date and time, or a tag type.                                                                                                          |
@@ -63,10 +63,12 @@ filter, a deleted tag, a non-numeric number, or a query with no filters at all. 
 `{and: [...]}`, `{or: [...]}`, and none becomes `{not: {or: [...]}}`. Each line becomes
 `{filter: {field, tag_id?, op, value?}}`, and the whole thing is sent as `{where: ...}`.
 
-The Cadenza screen sends a successfully built query through `useAdvancedQueryResults(query)` from
-`@/lib/routes/queries`, as the `q` param of `GET /queries/advanced/results`. Song ids come back
-sorted by id and are mapped to the complete cached Apple Music library. The advanced builder uses
-the same `ResultsSummary` and `/query-results` full-screen `QueryResults` route as the simple one.
+The Cadenza screen compiles the tree as it changes and sends every successfully built query through
+`useAdvancedQueryResults(query)` from `@/lib/routes/queries`, as the `q` param of
+`GET /queries/advanced/results`. Song ids come back sorted by id and are mapped to the complete
+cached Apple Music library. The advanced builder has no separate submit button. It uses the same
+`ResultsSummary` count, preview, and next arrow as the simple builder; the arrow opens the shared
+`/query-results` full-screen `QueryResults` route.
 
 ## Connects to
 
@@ -83,8 +85,8 @@ the same `ResultsSummary` and `/query-results` full-screen `QueryResults` route 
 - Semantics live on the backend. A song without the tag counts as empty, so `is not`, `not on`,
   `ne`, `is empty`, and `is null` match it. Text matching ignores case.
 - Only songs with at least one tag can ever match, same as the simple query.
-- Any edit clears the submitted advanced query and its build error, so stale results never
-  describe the tree currently on screen.
+- An incomplete filter compiles to no request and shows its build error beneath the editor. Once
+  the tree is valid, its result count refreshes automatically.
 - Node ids come from a module-level counter, not `nanoid`, so the pure utils stay import-free.
 
 ---

@@ -16,7 +16,7 @@ importing `@/lib/routes/*` into a file under `ui/`, it belongs in `custom/`.
 
 `badge`, `button`, `card`, `dialog`, `glass-surface`, `glass-button`, `glass-confirm-dialog`,
 `glass-icon-button`, `input`,
-`label`, `separator`, `skeleton`, `tabs`, `text`, `native-only-animated-view`, `detail-screen`,
+`label`, `linear-gradient`, `separator`, `skeleton`, `tabs`, `text`, `native-only-animated-view`, `detail-screen`,
 `tint-backdrop`, `floating-close-button`, plus `sign-in-form` and `sign-up-form`.
 
 `floating-close-button.tsx` exports `FloatingCloseButton`, the X a screen that draws its own hero
@@ -42,6 +42,9 @@ behavior in this primitive rather than rebuilding a glass modal at each call sit
 `glass-icon-button.tsx` exports `GlassIconButton`, a round icon button built on it. Header actions,
 detail-screen controls, and every floating circular action use it. Reach for it rather than
 hand-rolling another circle of glass.
+
+`linear-gradient.tsx` is the shared SVG-backed gradient primitive. It avoids requiring a separate
+native gradient view while serving the artwork tint, artist hero fade, and music-row tag mask.
 
 `tint-backdrop.tsx` exports `TintBackdrop`, the artwork-colored wash behind a page: the color at
 the top, darkening down it and bottoming out at a fraction of its own brightness rather than at
@@ -80,25 +83,25 @@ variables), `tailwind.config.js`, and `global.css`. Class merging goes through
 
 ### custom/
 
-| file                        | role                                                                                                            |
-| --------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `music-list/`               | Scrollable list of `MusicItem`s, with skeletons, paging, sorting, selection, and applied tag values. See below. |
-| `floating-bubble.tsx`       | The liquid-glass round floating action button the list and tag screens sit under.                               |
-| `options-menu/`             | The song, album, and playlist "..." menus, on liquid glass. See below.                                          |
-| `song-tag-editor.tsx`       | Tag editing for one song: applied state, values, mutations, and create-dialog state.                            |
-| `tag-pill.tsx`              | The solid app tag chip. Attribute tags can show their type icon and formatted applied value.                    |
-| `create-tag-dialog.tsx`     | Creates a tag with its name, color, and optional attribute type.                                                |
-| `tag-value-dialog.tsx`      | Liquid-glass per-type editor opened when an attribute tag is applied or edited.                                 |
-| `modal-popup.tsx`           | Small popup used by options, sorting, and selection actions. Liquid glass is the default.                       |
-| `tab-stack.tsx`             | The native stack each bottom tab nests for the shared `TopRail` header.                                         |
-| `top-rail.tsx`              | Shared tab header with optional glass back button, page title, actions, and account initials.                   |
-| `account-initials.ts`       | Pure email-to-initials helper, tested in `account-initials.test.ts`.                                            |
-| `coming-soon-screen.tsx`    | Data-driven preview surface used by stubbed product areas.                                                      |
-| `collection-list.tsx`       | Paged album or playlist rows. Owns screen scrolling and records artwork zoom origins.                           |
-| `artist-list.tsx`           | Paged artist rows and the sideways artist rail. Both record a zoom origin.                                      |
-| `track-collection-view.tsx` | Shared artwork, actions, metadata, and track-list surface for query results, collections, and artist top songs. |
-| `reorderable-list.tsx`      | Generic fixed-row-height drag-to-reorder list.                                                                  |
-| `media-player/`             | The mini player and now-playing sheet body. See [custom/media-player/README.md](custom/media-player/README.md). |
+| file                        | role                                                                                                              |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `music-list/`               | Scrollable list of `MusicItem`s, with skeletons, paging, sorting, selection, and applied tag values. See below.   |
+| `floating-bubble.tsx`       | The liquid-glass round floating action button the list and tag screens sit under.                                 |
+| `options-menu/`             | The song, album, and playlist "..." menus, on liquid glass. See below.                                            |
+| `song-tag-editor.tsx`       | Tag editing for one song: applied state, values, mutations, and create-dialog state.                              |
+| `tag-pill.tsx`              | The solid app tag chip. Attribute tags keep their type icon through query negation and can show formatted values. |
+| `create-tag-dialog.tsx`     | Creates a tag with its name, color, and optional attribute type.                                                  |
+| `tag-value-dialog.tsx`      | Liquid-glass per-type editor opened when an attribute tag is applied or edited.                                   |
+| `modal-popup.tsx`           | Small popup used by options, sorting, and selection actions. Liquid glass is the default.                         |
+| `tab-stack.tsx`             | The native stack each bottom tab nests for the shared `TopRail` header.                                           |
+| `top-rail.tsx`              | Shared tab header with optional glass back button, page title, actions, and account initials.                     |
+| `account-initials.ts`       | Pure email-to-initials helper, tested in `account-initials.test.ts`.                                              |
+| `coming-soon-screen.tsx`    | Data-driven preview surface used by stubbed product areas.                                                        |
+| `collection-list.tsx`       | Paged album or playlist rows. Owns screen scrolling and records artwork zoom origins.                             |
+| `artist-list.tsx`           | Paged artist rows and the sideways artist rail. Both record a zoom origin.                                        |
+| `track-collection-view.tsx` | Shared artwork, actions, metadata, and track-list surface for query results, collections, and artist top songs.   |
+| `reorderable-list.tsx`      | Generic fixed-row-height drag-to-reorder list.                                                                    |
+| `media-player/`             | The mini player and now-playing sheet body. See [custom/media-player/README.md](custom/media-player/README.md).   |
 
 ### custom/music-list/
 

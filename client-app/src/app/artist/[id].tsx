@@ -1,7 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type { ArtistDetail, MusicItem } from "@apple-musickit";
 import { Image } from "expo-image";
-import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useTheme } from "expo-router/react-navigation";
 import { useState } from "react";
@@ -15,6 +14,7 @@ import {
 
 import { TrackCollectionView } from "@/components/custom/track-collection-view";
 import { FloatingCloseButton } from "@/components/ui/floating-close-button";
+import { LinearGradient } from "@/components/ui/linear-gradient";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
 import { TintBackdrop } from "@/components/ui/tint-backdrop";
@@ -172,9 +172,7 @@ export default function ArtistScreen() {
                             </View>
                         ) : null
                     }
-                    closeControl={
-                        <FloatingCloseButton label="Close artist" />
-                    }
+                    closeControl={<FloatingCloseButton label="Close artist" />}
                 />
             </View>
         </ZoomDismissScreen>

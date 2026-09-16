@@ -49,9 +49,10 @@ condition, extracted from a group, or dropped on the transformed palette to dele
 single condition keeps a stable layout identity when it expands into or collapses from a group.
 The card clips its contents while its height animates, and the HAVE ANY/HAVE ALL control fades
 and shifts slightly down when added or up when removed. A
-movement threshold keeps a tap available for toggling NOT. Normal and negated query tags use
-same-size circle indicators; the negated state uses a close-circle icon, a thin text strike, and
-a tag-colored outline instead of a solid fill. The whole HAVE ANY/HAVE ALL control toggles the
+movement threshold keeps a tap available for toggling NOT. Basic tags use a circle indicator and
+switch it to a close-circle when negated. Attribute tags keep their type icon in both states.
+Every negated tag uses a thin text strike and a tag-colored outline instead of a solid fill. The
+whole HAVE ANY/HAVE ALL control toggles the
 group mode. Top-level connector dividers use solid rounded controls and toggle between AND and OR when tapped; dividers before a
 single-tag condition read `AND HAVE` or `OR HAVE`. Dragging the handle or `Your tags` heading resizes the palette between 80 and 360
 pixels. The handle keeps its small visual indicator but uses a larger overlapping touch surface. At minimum height only the resize handle and heading/search row remain visible, providing a
@@ -139,10 +140,10 @@ currently logs that persistence is not implemented. Search text and preview expa
 their surfaces and reset when those surfaces unmount. Query results show row tags and enable Music
 List multi-selection with its built-in Add to Queue action.
 
-The Cadenza screen owns the shared result summary and a liquid-glass mode button above it. The
-button swaps this editor for the filter-based advanced builder without navigating or discarding
-either query tree. Both modes open `/query-results`, which dispatches to the matching endpoint and
-renders the same full-screen hero. See
+The Cadenza screen owns the shared result summary. Its liquid-glass mode button sits between the
+collapsible result count and next arrow, swapping this editor for the filter-based advanced builder
+without navigating or discarding either query tree. Both modes open `/query-results`, which
+dispatches to the matching endpoint and renders the same full-screen hero. See
 [../advanced-query-builder/README.md](../advanced-query-builder/README.md).
 
 ## Connects to

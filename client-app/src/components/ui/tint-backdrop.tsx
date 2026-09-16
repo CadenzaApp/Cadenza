@@ -1,6 +1,6 @@
-import { LinearGradient } from "expo-linear-gradient";
 import { StyleSheet } from "react-native";
 
+import { LinearGradient } from "@/components/ui/linear-gradient";
 import { darken } from "@/lib/artwork-color";
 
 type TintBackdropProps = {

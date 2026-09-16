@@ -25,8 +25,12 @@ const WindowOverlay = Platform.OS === "ios" ? FullWindowOverlay : Fragment;
 const noop = () => {};
 
 export function DragGhost() {
-    const { dragState, rootOffset, conditionRelease, completeConditionRelease } =
-        useDrag();
+    const {
+        dragState,
+        rootOffset,
+        conditionRelease,
+        completeConditionRelease,
+    } = useDrag();
     const releaseTop = useSharedValue(0);
     const releaseStyle = useAnimatedStyle(() => ({ top: releaseTop.get() }));
     useEffect(() => {
@@ -103,7 +107,7 @@ export function DragGhost() {
                 outlined={negated}
                 strikethrough={negated}
                 leadingIcon={
-                    negated ? (
+                    tag.type === "basic" && negated ? (
                         <Ionicons
                             name="close-circle"
                             size={10}
@@ -179,10 +183,7 @@ function ConditionGhostCard({ condition }: { condition: QueryCondition }) {
                                     {group.mode === "any" ? "OR" : "AND"}
                                 </Text>
                             ) : null}
-                            <QueryTagPill
-                                queryTag={queryTag}
-                                onToggle={noop}
-                            />
+                            <QueryTagPill queryTag={queryTag} onToggle={noop} />
                         </View>
                     ))}
                 </View>

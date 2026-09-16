@@ -1,9 +1,9 @@
 import MaskedView from "@react-native-masked-view/masked-view";
-import { LinearGradient } from "expo-linear-gradient";
 import { useState } from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
 
 import { TagPill } from "@/components/custom/tag-pill";
+import { LinearGradient } from "@/components/ui/linear-gradient";
 import type { AppliedTag } from "@/lib/types";
 
 import { tagFadeStart } from "./tag-fade-utils";

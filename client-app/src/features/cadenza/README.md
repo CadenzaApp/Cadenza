@@ -16,12 +16,12 @@ category now, opened from the library screen, so this tab is only the query buil
 
 ## How it works
 
-`CadenzaScreen` fetches the user's tags and complete Apple Music song library. The mode button
-switches between the tactile simple builder and the filter-based advanced builder without
-discarding either tree. The simple path compiles `QueryCondition[]` with `queryToJSON` and sends
-every catalog id as the backend candidate set. The advanced path compiles its tree with
-`buildAdvancedQuery` and runs the advanced endpoint after Create mix is pressed. Both map returned
-ids back to the same cached library tracks and render the same `ResultsSummary`.
+`CadenzaScreen` fetches the user's tags and complete Apple Music song library. The mode button in
+the result-summary row switches between the tactile simple builder and the filter-based advanced
+builder without discarding either tree. The simple path compiles `QueryCondition[]` with
+`queryToJSON` and sends every catalog id as the backend candidate set. The advanced path compiles
+its tree with `buildAdvancedQuery` as it changes. Both map returned ids back to the same cached
+library tracks and render the same `ResultsSummary`; its arrow opens the current mode's results.
 
 Supplying the complete candidate set on the simple path is what lets a NOT query include songs
 that have no Cadenza tags at all. The advanced backend currently evaluates songs represented in

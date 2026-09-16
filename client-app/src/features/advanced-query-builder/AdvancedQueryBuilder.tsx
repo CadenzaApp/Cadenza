@@ -1,14 +1,12 @@
 import { useMemo } from "react";
-import { ActivityIndicator, ScrollView, View } from "react-native";
+import { ScrollView, View } from "react-native";
 
-import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { Tag } from "@/lib/types";
 
 import {
     addChild,
-    countFilters,
     createFilter,
     createGroup,
     removeNode,
@@ -24,9 +22,7 @@ type Props = {
     tags: Tag[];
     root: AdvancedGroupNode;
     setRoot: (update: (root: AdvancedGroupNode) => AdvancedGroupNode) => void;
-    onSubmit: () => void;
-    submitting?: boolean;
-    /** Shown above the submit button: a build error, a backend error, or "no matches". */
+    /** Shown beneath the editor when the current tree cannot be compiled. */
     message?: string | null;
 };
 
@@ -34,14 +30,7 @@ type Props = {
  * Obsidian-style filter builder: nested groups of "where <tag> <op> <value>"
  * lines. The screen owns the tree and the fetch; this only edits the tree.
  */
-export function AdvancedQueryBuilder({
-    tags,
-    root,
-    setRoot,
-    onSubmit,
-    submitting,
-    message,
-}: Props) {
+export function AdvancedQueryBuilder({ tags, root, setRoot, message }: Props) {
     const { contentBottomInset } = useScreenOverlayInsets();
     const builderTags = useMemo<BuilderTags>(
         () => ({
@@ -102,17 +91,6 @@ export function AdvancedQueryBuilder({
                     {message}
                 </Text>
             )}
-
-            <Button
-                onPress={onSubmit}
-                disabled={submitting || countFilters(root) === 0}
-            >
-                {submitting ? (
-                    <ActivityIndicator size="small" />
-                ) : (
-                    <Text> Create mix </Text>
-                )}
-            </Button>
         </View>
     );
 }
