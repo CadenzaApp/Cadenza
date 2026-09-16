@@ -150,6 +150,7 @@ export default function CollectionDetailScreen() {
                             "",
                     ].filter(Boolean)}
                     isPlaying={isCollectionPlaying}
+                    respectTopSafeArea
                     onPlay={play}
                     onShuffle={shuffle}
                     options={[

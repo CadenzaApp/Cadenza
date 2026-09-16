@@ -126,7 +126,9 @@ extracting, and deleting query tags are drag-only interactions; pills have no in
 The query screen owns conditions and the builder/results mode, so returning from the full list
 preserves the query. Directional fade/slide transitions distinguish forward movement into results
 from returning to the builder. The results surface uses `TrackCollectionView` with a weighted artwork
-mosaic, play and shuffle queues, local Music List sorting, and a caller-supplied save option. One
+mosaic, play and shuffle queues, local Music List sorting, and a caller-supplied save option. Its
+page tint averages the representative colors for the four mosaic cells, then uses the same
+full-height darkening gradient as collection details. One
 distinct artwork renders as a single image instead of a repeated grid. The results surface owns the
 save-name dialog. It stays at 75 percent of the screen width and sits above the keyboard; submit
 currently logs that persistence is not implemented. Search text and preview expansion live inside

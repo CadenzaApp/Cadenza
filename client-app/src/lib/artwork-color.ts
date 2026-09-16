@@ -2,6 +2,7 @@ import { ImageColor } from "@image-color";
 import useSWR from "swr";
 
 import { readableTextColor } from "@/components/custom/tag-pill";
+export { averageArtworkColors } from "@/lib/artwork-color-utils";
 
 /**
  * Anything with artwork. `MusicItem`, `ArtistItem`, and `ArtistDetail` all

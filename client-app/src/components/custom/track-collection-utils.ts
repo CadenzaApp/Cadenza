@@ -1,5 +1,25 @@
 import type { MusicItem } from "@apple-musickit";
 
+function artworkUrl(track: MusicItem) {
+    return track.artworkUrlLarge?.trim() || track.artworkUrl?.trim();
+}
+
+/** The representative tracks behind the distinct, weighted artwork ranking. */
+export function rankedArtworkTracks(tracks: readonly MusicItem[]) {
+    const representativeByUrl = new Map<string, MusicItem>();
+    tracks.forEach((track) => {
+        const url = artworkUrl(track);
+        if (url && !representativeByUrl.has(url)) {
+            representativeByUrl.set(url, track);
+        }
+    });
+
+    return rankedArtworkUrls(tracks).flatMap((url) => {
+        const track = representativeByUrl.get(url);
+        return track ? [track] : [];
+    });
+}
+
 /** Ranks distinct artwork by total listening time plus one minute per track. */
 export function rankedArtworkUrls(tracks: readonly MusicItem[]) {
     const artwork = new Map<
@@ -8,7 +28,7 @@ export function rankedArtworkUrls(tracks: readonly MusicItem[]) {
     >();
 
     tracks.forEach((track, index) => {
-        const url = track.artworkUrlLarge?.trim() || track.artworkUrl?.trim();
+        const url = artworkUrl(track);
         if (!url) return;
 
         const current = artwork.get(url);
@@ -30,7 +50,15 @@ export function rankedArtworkUrls(tracks: readonly MusicItem[]) {
 
 /** Always returns four cells when at least one artwork is available. */
 export function collectionArtworkGrid(tracks: readonly MusicItem[]) {
-    const ranked = rankedArtworkUrls(tracks).slice(0, 4);
+    return collectionArtworkGridTracks(tracks).flatMap((track) => {
+        const url = artworkUrl(track);
+        return url ? [url] : [];
+    });
+}
+
+/** Tracks whose colors correspond one-for-one with the artwork grid cells. */
+export function collectionArtworkGridTracks(tracks: readonly MusicItem[]) {
+    const ranked = rankedArtworkTracks(tracks).slice(0, 4);
     if (ranked.length === 0) return [];
     if (ranked.length === 1) return ranked;
     return Array.from(

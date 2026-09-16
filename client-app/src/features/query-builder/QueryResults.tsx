@@ -5,6 +5,7 @@ import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { runOnJS } from "react-native-reanimated";
 
 import { TrackCollectionView } from "@/components/custom/track-collection-view";
+import { collectionArtworkGridTracks } from "@/components/custom/track-collection-utils";
 import { Button } from "@/components/ui/button";
 import {
     Dialog,
@@ -16,6 +17,10 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Text } from "@/components/ui/text";
+import { TintBackdrop } from "@/components/ui/tint-backdrop";
+import { averageArtworkColors, useArtworkTint } from "@/lib/artwork-color";
+
+const TINT_DEPTH = 0.3;
 
 type Props = {
     songs: MusicItem[];
@@ -32,9 +37,28 @@ export default function QueryResults({
     anticipatedTrackCount,
     onBackPress,
 }: Props) {
-    const { width: screenWidth } = useWindowDimensions();
+    const { width: screenWidth, height: screenHeight } = useWindowDimensions();
     const [saveOpen, setSaveOpen] = useState(false);
     const [saveName, setSaveName] = useState("");
+    const [contentHeight, setContentHeight] = useState(screenHeight * 1.5);
+    const tintTracks = useMemo(
+        () => collectionArtworkGridTracks(songs),
+        [songs],
+    );
+    const firstTint = useArtworkTint(tintTracks[0]).tint;
+    const secondTint = useArtworkTint(tintTracks[1]).tint;
+    const thirdTint = useArtworkTint(tintTracks[2]).tint;
+    const fourthTint = useArtworkTint(tintTracks[3]).tint;
+    const tint = useMemo(
+        () =>
+            averageArtworkColors([
+                firstTint,
+                secondTint,
+                thirdTint,
+                fourthTint,
+            ]),
+        [firstTint, fourthTint, secondTint, thirdTint],
+    );
     const saveDialogWidth = Math.round(screenWidth * 0.75);
     const backSwipe = useMemo(
         () =>
@@ -80,6 +104,17 @@ export default function QueryResults({
                 onBackPress={onBackPress}
                 multiSelect={{ includeAddToQueue: true }}
                 showTags
+                containerStyle={tint ? { backgroundColor: tint } : undefined}
+                background={
+                    <TintBackdrop
+                        tint={tint}
+                        height={contentHeight}
+                        depth={TINT_DEPTH}
+                    />
+                }
+                onContentSizeChange={(_, height) =>
+                    setContentHeight(Math.max(screenHeight, height))
+                }
                 options={[
                     {
                         id: "save-query",

@@ -17,6 +17,7 @@ import Animated, {
     useAnimatedStyle,
     useSharedValue,
 } from "react-native-reanimated";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import {
     MusicList,
@@ -71,6 +72,7 @@ type Props = {
     onPlay?: () => void | Promise<void>;
     onShuffle?: () => void | Promise<void>;
     isPlaying?: boolean;
+    respectTopSafeArea?: boolean;
 };
 
 /** Reusable artwork, actions, metadata, and track-list surface for a collection. */
@@ -101,8 +103,10 @@ export function TrackCollectionView({
     onShuffle,
     isPlaying = false,
     closeControl,
+    respectTopSafeArea = false,
 }: Props) {
     const { colors } = useTheme();
+    const insets = useSafeAreaInsets();
     const { playQueue } = usePlaybackCommands();
     const [optionsOpen, setOptionsOpen] = useState(false);
     const scrollY = useSharedValue(0);
@@ -171,7 +175,10 @@ export function TrackCollectionView({
     }
 
     const defaultHeader = (
-        <View className="relative px-4 pb-4 pt-8">
+        <View
+            className="relative px-4 pb-4"
+            style={{ paddingTop: 32 + (respectTopSafeArea ? insets.top : 0) }}
+        >
             {background}
             <View className="items-center">
                 <Animated.View style={artworkStyle}>

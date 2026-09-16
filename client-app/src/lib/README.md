@@ -24,7 +24,8 @@ native module directly.
 | `tag-generation.ts`          | A standalone tag suggestion fetch. Does not use the wrappers. See gotchas.                                                                                                                                         |
 | `theme.ts`                   | `NAV_THEME`, light and dark palettes for react-navigation, `sheetScreenOptions` for sheet routes, and `pushedScreenOptions` for the pushed detail routes.                                                          |
 | `error-utils.ts`             | `getErrorDetails` / `getErrorMessage`, for unwrapping native and backend errors.                                                                                                                                   |
-| `artwork-color.ts`           | `useArtworkTint`, the color a surface paints itself with, plus `withAlpha`.                                                                                                                                        |
+| `artwork-color.ts`           | `useArtworkTint`, the color a surface paints itself with, plus alpha, darkening, and multi-artwork averaging helpers.                                                                                              |
+| `artwork-color-utils.ts`     | Native-free channel averaging for multi-artwork tints.                                                                                                                                                             |
 | `music-routes.ts`            | `collectionRoute` / `albumRouteForTrack`. Hrefs into the resource screens, params and all.                                                                                                                         |
 | `share-track.ts`             | `shareTrack` / `shareCollection`. Builds and fires the native share sheet for a song, album, or playlist's canonical Apple Music link.                                                                             |
 | `screen-overlay.ts`          | `useScreenOverlayInsets`, native tab/accessory visibility, extra overlay clearance, focused-screen suppression, and pushed-screen detection.                                                                       |
@@ -181,7 +182,8 @@ exists. Expo Go has no native module for it and returns null, and a null tint re
 
 `@/components/ui/tint-backdrop::TintBackdrop` is what actually paints it: the color at the top,
 darkening down the page and bottoming out at `depth` of its brightness rather than at black.
-The player sheet, the collection screen, and the artist screen all go through those two.
+The player sheet, collection screen, artist screen, and query-results mosaic all go through those
+two. Query results average the four displayed mosaic-cell colors before painting the gradient.
 
 Hand `useArtworkTint` the **small** artwork. Averaging only needs a thumbnail, and a hero-sized
 one costs a megabyte to reach the same answer. `ArtworkSource.artworkUrlSmall` wins over

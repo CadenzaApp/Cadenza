@@ -4,6 +4,7 @@ import type { MusicItem } from "@apple-musickit";
 
 import {
     collectionArtworkGrid,
+    collectionArtworkGridTracks,
     formatTrackCollectionSummary,
     rankedArtworkUrls,
 } from "./track-collection-utils.ts";
@@ -39,6 +40,10 @@ test("artwork ranking sums duration plus one minute for every song", () => {
         "artwork-a",
         "artwork-b",
     ]);
+    assert.deepEqual(
+        collectionArtworkGridTracks(tracks).map(({ id }) => id),
+        ["a1", "b1", "a1", "b1"],
+    );
 });
 
 test("collection summary includes track count and complete duration", () => {

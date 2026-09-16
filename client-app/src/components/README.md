@@ -145,7 +145,8 @@ match every screen.
 
 `TrackCollectionView` owns the standard mosaic or single-artwork header, play/shuffle row,
 caller-supplied simple options, and the `MusicList`. Routes can supply pagination, playback
-overrides, tint/background content, and close controls. Artist uses its custom hero and albums
+overrides, tint/background content, close controls, and opt the standard header into the device's
+top safe area. Artist uses its custom hero and albums
 rail through the header/footer inputs, while album and playlist details use the standard layout
 and open `CollectionOptionsMenu` from a supplied option.
 
