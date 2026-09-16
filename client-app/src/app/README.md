@@ -27,6 +27,7 @@ logic out.
 | `library-categories.tsx`     | `/library-categories`   | Picks which rows the library shows.                                                                           |
 | `category/[kind].tsx`        | `/category/:kind`       | One library category's contents.                                                                              |
 | `collection/[kind]/[id].tsx` | `/collection/:kind/:id` | The songs in one album or playlist.                                                                           |
+| `query-results.tsx`          | `/query-results`        | Full-screen query matches, refetched from the serialized query while the builder stays mounted underneath.   |
 | `tag/[tagId].tsx`            | `/tag/:tagId`           | One tag and the songs carrying it.                                                                            |
 | `artist/[id].tsx`            | `/artist/:id`           | One catalog artist: the artist image and a play button, top songs, then an albums rail.                       |
 | `add-to-playlist.tsx`        | `/add-to-playlist`      | Picks a library playlist for a song, or makes one.                                                            |
@@ -105,7 +106,7 @@ Because it is a card over another screen rather than a rectangle replacing it, i
 continuous corners while it shrinks. The visible corner size is compensated for the card's scale,
 and the card lands its top-left edge on the artwork rather than hovering around its center.
 
-Both hero screens paint the artwork tint as their own background rather than leaving it to the
+The artwork hero screens paint the artwork tint as their own background rather than leaving it to the
 gradient inside the list. During the close, the list counters iOS's downward overscroll so the
 hero stays anchored near the card's top edge instead of opening a large empty area above it. The
 gradient is always at least one viewport tall, so short albums and playlists do not end in a flat
@@ -142,7 +143,7 @@ sides and along the bottom. Either closes with the X or a drag down.
 Root detail routes are presented above the tab navigator. `PUSHED_DETAIL_SEGMENTS` in
 `@/lib/screen-overlay` only identifies routes that need the custom pull-down close.
 
-All six take `pushedScreenOptions()` from `@/lib/theme`: a transparent modal with **no native
+All pushed details take `pushedScreenOptions()` from `@/lib/theme`: a transparent modal with **no native
 animation**. That is what the zoom below needs, since it has to grow out of and shrink back into a
 screen that is still on display underneath. The cost is the native back swipe, which a transparent
 modal has no edge for; the pull down at the top replaces it.
@@ -167,11 +168,12 @@ The player sheet paints one tint in `DetailScreen`, behind its header and the tr
 All three pages stay mounted side by side, so a swipe reveals live adjacent content continuously
 instead of navigating after a threshold. The custom glass selector follows the same scroll offset.
 
-`/artist/:id` and `/collection/:kind/:id` are the odd ones out of the pushed routes. Both use the
+`/artist/:id`, `/collection/:kind/:id`, and `/query-results` are the odd ones out of the pushed routes. They use the
 shared `TrackCollectionView` instead of a `DetailScreen` header, and float their own X in the
 same corner. The artist supplies its full-bleed image hero and albums rail as custom header and
 footer content. The collection uses the standard single-artwork layout with Play/Pause, Shuffle,
-and a caller-supplied action that opens `CollectionOptionsMenu`.
+and a caller-supplied action that opens `CollectionOptionsMenu`. Query results use the standard
+weighted mosaic plus the same safe-area, tint, zoom, and close presentation as the collection.
 Under the last row it prints the song count and running time, but only once every page is in,
 since a count off a half-loaded list is a wrong number. Everything the collection draws over its
 tint stays inside the same scroll surface. Either way the hero is the `MusicList` header inside
@@ -183,9 +185,9 @@ and the now playing sheet's `...` menu. `/collection/:kind/:id` is reached throu
 artist, both artwork sizes, and the artwork color so the hero and the tint are there before the
 song fetch lands.
 
-Collection detail routes render above the native tab controller, so the tab controller's bottom
+Artwork detail routes render above the native tab controller, so the tab controller's bottom
 accessory cannot appear over them. One `MediaPlayerPushedScreenOverlay` is mounted above the root
-stack and becomes visible over both hero screens once a track is active. The same route predicate
+stack and becomes visible over all three hero screens once a track is active. The same route predicate
 makes their lists reserve exactly that overlay's height.
 
 ## Connects to

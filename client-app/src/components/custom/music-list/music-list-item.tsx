@@ -51,7 +51,6 @@ export const MusicListItem = memo(function MusicListItem({
     animateSelectionTransition,
     fullBleed = false,
     fullBleedHorizontalPadding = 24,
-    rowSurfaceColor = "background",
     compact = false,
     onPress,
     onLongPress,
@@ -68,8 +67,7 @@ export const MusicListItem = memo(function MusicListItem({
         !artworkFailed &&
         typeof artworkUrl === "string" &&
         /^https?:\/\//i.test(artworkUrl);
-    const surfaceColor = theme[rowSurfaceColor];
-    const selectionColor = blendHexColors(surfaceColor, theme.secondary, 0.4);
+    const selectionColor = hexWithAlpha(theme.foreground, 0.12);
     const artworkSize = compact ? 48 : ARTWORK_SIZE;
     const animatedRowStyle = useAnimatedStyle(
         () => ({
@@ -331,27 +329,10 @@ export function MusicListItemSkeleton({
     );
 }
 
-function blendHexColors(
-    background: string,
-    foreground: string,
-    opacity: number,
-) {
-    const backgroundRgb = hexToRgb(background);
-    const foregroundRgb = hexToRgb(foreground);
-    const channel = (backgroundValue: number, foregroundValue: number) =>
-        Math.round(backgroundValue * (1 - opacity) + foregroundValue * opacity);
-
-    return `rgb(${channel(backgroundRgb.red, foregroundRgb.red)}, ${channel(
-        backgroundRgb.green,
-        foregroundRgb.green,
-    )}, ${channel(backgroundRgb.blue, foregroundRgb.blue)})`;
-}
-
-function hexToRgb(hex: string) {
+function hexWithAlpha(hex: string, alpha: number) {
     const normalized = hex.replace("#", "");
-    return {
-        red: Number.parseInt(normalized.slice(0, 2), 16),
-        green: Number.parseInt(normalized.slice(2, 4), 16),
-        blue: Number.parseInt(normalized.slice(4, 6), 16),
-    };
+    const red = Number.parseInt(normalized.slice(0, 2), 16);
+    const green = Number.parseInt(normalized.slice(2, 4), 16);
+    const blue = Number.parseInt(normalized.slice(4, 6), 16);
+    return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 }

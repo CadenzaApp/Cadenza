@@ -1,16 +1,9 @@
-import { useCallback, useMemo, useState } from "react";
-import { ActivityIndicator, BackHandler, View } from "react-native";
-import { useFocusEffect } from "expo-router";
-import Animated, {
-    FadeInLeft,
-    FadeInRight,
-    FadeOutLeft,
-    FadeOutRight,
-} from "react-native-reanimated";
+import { useMemo, useState } from "react";
+import { ActivityIndicator, View } from "react-native";
+import { useRouter } from "expo-router";
 
 import { Text } from "@/components/ui/text";
 import { QueryBuilder } from "@/features/query-builder/QueryBuilder";
-import QueryResults from "@/features/query-builder/QueryResults";
 import { queryToJSON } from "@/features/query-builder/QueryUtils";
 import type { QueryCondition } from "@/features/query-builder/types";
 import { useAllTracksFromLibrary } from "@/lib/musickit-hooks";
@@ -23,9 +16,8 @@ import { useUserTags } from "@/lib/routes/tags";
  */
 export function CadenzaScreen() {
     const { userTags, userTagsLoading, userTagsErr } = useUserTags();
+    const router = useRouter();
     const [conditions, setConditions] = useState<QueryCondition[]>([]);
-    const [showFullResults, setShowFullResults] = useState(false);
-    const showBuilder = useCallback(() => setShowFullResults(false), []);
     const {
         allLibraryTracks,
         allLibraryTracksLoading,
@@ -58,20 +50,6 @@ export function CadenzaScreen() {
         });
     }, [allLibraryTracks, matchedSongIds]);
 
-    useFocusEffect(
-        useCallback(() => {
-            if (!showFullResults) return;
-            const subscription = BackHandler.addEventListener(
-                "hardwareBackPress",
-                () => {
-                    showBuilder();
-                    return true;
-                },
-            );
-            return () => subscription.remove();
-        }, [showBuilder, showFullResults]),
-    );
-
     if (userTagsLoading) {
         return (
             <View className="flex-1 items-center justify-center bg-background">
@@ -92,44 +70,24 @@ export function CadenzaScreen() {
 
     return (
         <View className="flex-1 bg-background">
-            {showFullResults ? (
-                <Animated.View
-                    key="query-results"
-                    className="flex-1"
-                    entering={FadeInRight.duration(240)}
-                    exiting={FadeOutRight.duration(180)}
-                >
-                    <QueryResults
-                        songs={matchedSongs}
-                        isLoading={
-                            queryResultsLoading || allLibraryTracksLoading
-                        }
-                        error={queryResultsErr ?? allLibraryTracksErr}
-                        anticipatedTrackCount={matchedSongIds.length}
-                        onBackPress={showBuilder}
-                    />
-                </Animated.View>
-            ) : (
-                <Animated.View
-                    key="query-builder"
-                    className="flex-1"
-                    entering={FadeInLeft.duration(240)}
-                    exiting={FadeOutLeft.duration(180)}
-                >
-                    <QueryBuilder
-                        tags={userTags ?? []}
-                        conditions={conditions}
-                        setConditions={setConditions}
-                        songs={matchedSongs}
-                        resultCount={matchedSongIds.length}
-                        resultsLoading={queryResultsLoading}
-                        resultsError={queryResultsErr ?? allLibraryTracksErr}
-                        libraryLoading={allLibraryTracksLoading}
-                        isLibraryConnected={isLibraryConnected}
-                        onNext={() => setShowFullResults(true)}
-                    />
-                </Animated.View>
-            )}
+            <QueryBuilder
+                tags={userTags ?? []}
+                conditions={conditions}
+                setConditions={setConditions}
+                songs={matchedSongs}
+                resultCount={matchedSongIds.length}
+                resultsLoading={queryResultsLoading}
+                resultsError={queryResultsErr ?? allLibraryTracksErr}
+                libraryLoading={allLibraryTracksLoading}
+                isLibraryConnected={isLibraryConnected}
+                onNext={() => {
+                    if (!query) return;
+                    router.push({
+                        pathname: "/query-results",
+                        params: { query: JSON.stringify(query) },
+                    });
+                }}
+            />
         </View>
     );
 }

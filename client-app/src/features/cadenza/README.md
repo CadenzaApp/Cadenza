@@ -11,7 +11,7 @@ category now, opened from the library screen, so this tab is only the query buil
 
 | file                | role                                                                    |
 | ------------------- | ----------------------------------------------------------------------- |
-| `CadenzaScreen.tsx` | The query builder, its tag data, the query state, and the results. |
+| `CadenzaScreen.tsx` | The query builder, tag data, query state, live preview, and results-route launch. |
 
 ## How it works
 
@@ -20,9 +20,9 @@ ordered `QueryCondition[]` with `queryToJSON`, sends every catalog id as the bac
 set, and maps the returned ids back to the cached library tracks. Supplying the complete candidate
 set is what lets a NOT query include songs that have no Cadenza tags at all.
 
-The conditions and builder/results mode live on the screen, so they survive tab switches.
-Running a query swaps the builder for `QueryResults`; its back action returns to the existing
-conditions instead of clearing them.
+The conditions live on the tab screen, so they survive tab switches. Opening the full result set
+pushes `/query-results` above the tab navigator and leaves this screen mounted underneath; closing
+the result hero therefore returns to the existing conditions instead of clearing them.
 
 ## Connects to
 

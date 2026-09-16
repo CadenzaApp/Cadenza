@@ -23,7 +23,7 @@ connectors attached to visual boundaries instead of moving them with condition c
 | `DraggablePill.tsx`  | Thresholded tag pans and long-press-activated group pans.                    |
 | `DropSlot.tsx`       | Registers and highlights a typed drop target.                                |
 | `DragGhost.tsx`      | Floating tag shown during an active drag.                                    |
-| `QueryResults.tsx`   | Configures query matches, save dialog, and the iOS results back gesture.     |
+| `QueryResults.tsx`   | Configures the full-screen query-match hero, zoom dismissal, and save dialog. |
 
 ## The model
 
@@ -123,9 +123,10 @@ Palette and query tags use the shared app-wide solid-color `TagPill` styling. Ne
 replace the standard leading dot with a close-circle icon. Reordering, grouping,
 extracting, and deleting query tags are drag-only interactions; pills have no inline controls.
 
-The query screen owns conditions and the builder/results mode, so returning from the full list
-preserves the query. Directional fade/slide transitions distinguish forward movement into results
-from returning to the builder. The results surface uses `TrackCollectionView` with a weighted artwork
+The Cadenza tab owns conditions, so returning from the full list preserves the query. Full results
+are a root detail route presented above the tab navigator with the same zoom/pull dismissal, safe
+area, floating close control, and pushed-player treatment as album details. The results surface uses
+`TrackCollectionView` with a weighted artwork
 mosaic, play and shuffle queues, local Music List sorting, and a caller-supplied save option. Its
 page tint averages the representative colors for the four mosaic cells, then uses the same
 full-height darkening gradient as collection details. One

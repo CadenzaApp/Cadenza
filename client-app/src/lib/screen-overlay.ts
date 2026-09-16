@@ -52,6 +52,7 @@ const PUSHED_DETAIL_SEGMENTS = new Set([
     "tag",
     "library-categories",
     "add-to-playlist",
+    "query-results",
 ]);
 
 type BottomBarVisibility = {
