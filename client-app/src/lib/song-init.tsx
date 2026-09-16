@@ -10,24 +10,32 @@ import { useAppleMusic } from "./apple-music-auth";
 import { useInitSongs, useSetDefaultTags } from "./routes/songs";
 import { initializeSongs } from "./song-init-job";
 
-/** The label the job's running task carries. */
-const TASK_LABEL = "Generating tags";
+/** The search: every Apple Music page, asked about and collected. */
+const SYNC_LABEL = "Syncing with Apple Music";
+const SYNC_FAILURE = "Could not sync with Apple Music";
+
+/** Everything after it: generating the tags and copying them to the user. */
+const SUGGEST_LABEL = "Building tag suggestions";
+const SUGGEST_FAILURE = "Could not build tag suggestions";
 
 /**
  * Initializes the songs in the user's library and library playlists, so
  * queries reach them. Starts once there is an account and a connected Apple
- * Music session, and starts over if either changes. It keeps one running task
- * from the first song that needs tags until the job ends.
+ * Music session, and starts over if either changes.
+ *
+ * It shows the job's two passes as a task each: one while it searches Apple
+ * Music, then one while it builds tags for what that turned up. A run that
+ * finds nothing to tag never shows the second.
  *
  * It is mounted at the root, under the account and Apple Music providers the
- * job needs and under `RunningTasksProvider`.
+ * job needs and under `TasksProvider`.
  */
 export function SongInitProvider({ children }: { children: ReactNode }) {
     const { account } = useAccount();
     const { isConnected, sessionRevision } = useAppleMusic();
     const { initSongs } = useInitSongs();
     const { setDefaultTags } = useSetDefaultTags();
-    // const { addTask, endTaskSuccess, endTaskFail } = useTasks();
+    const { addTask, endTaskSuccess, endTaskFail } = useTasks();
     const accountId = account?.id;
 
     // Not SWR on purpose: this is a one-off background job that reads only to
@@ -39,14 +47,20 @@ export function SongInitProvider({ children }: { children: ReactNode }) {
         // run the job in the background. failures inside it are logged and
         // skipped, so anything caught here stopped the whole job
         let cancelled = false;
-        let taskId: number | null = null;
         let failed = false;
 
-        // one task for the whole job, added as soon as the search turns up a
-        // song to tag. a run that finds none never shows one
-        const startTask = (count: number) => {
-            if (cancelled || count === 0 || taskId !== null) return;
-            // taskId = addTask(TASK_LABEL);
+        // the task for the pass the job is in, and what it says if that pass
+        // is the one that stops the job
+        let task: { id: number; failure: string } | null = {
+            id: addTask(SYNC_LABEL),
+            failure: SYNC_FAILURE,
+        };
+
+        const endPass = () => {
+            if (task === null) return;
+            if (failed) endTaskFail(task.id, task.failure);
+            else endTaskSuccess(task.id);
+            task = null;
         };
 
         initializeSongs({
@@ -60,7 +74,17 @@ export function SongInitProvider({ children }: { children: ReactNode }) {
             // tag list and its counts change. song tag reads initialize their
             // own songs, so they are already current
             onSongsInitialized: () => invalidateAPIData([{ path: "/tags" }]),
-            onUninitializedCountChange: startTask,
+            // the search is over, so its task is too. what it found is what
+            // the next pass works through, and none of it means no task
+            onSearchComplete: (count) => {
+                if (cancelled) return;
+                endPass();
+                if (count === 0) return;
+                task = {
+                    id: addTask(SUGGEST_LABEL),
+                    failure: SUGGEST_FAILURE,
+                };
+            },
             isCancelled: () => cancelled,
         })
             .catch((error) => {
@@ -68,19 +92,17 @@ export function SongInitProvider({ children }: { children: ReactNode }) {
                 console.error("Initializing songs failed:", error);
             })
             .finally(() => {
-                // the job is over, so the task shows how it went and goes
-                if (cancelled || taskId === null) return;
-                // if (failed) endTaskFail(taskId, "Could not generate tags");
-                // else endTaskSuccess(taskId);
-                taskId = null;
+                // the job is over, so the pass it stopped in shows how it went
+                if (cancelled) return;
+                endPass();
             });
 
         // a new account or session stops this run before its next request.
-        // the tagging did not finish, so the task ends as a failure
+        // whichever pass was open did not finish
         return () => {
             cancelled = true;
-            // if (taskId !== null) endTaskFail(taskId, "Tagging stopped");
-            taskId = null;
+            if (task !== null) endTaskFail(task.id, "Tagging stopped");
+            task = null;
         };
     }, [
         accountId,
@@ -88,9 +110,9 @@ export function SongInitProvider({ children }: { children: ReactNode }) {
         sessionRevision,
         initSongs,
         setDefaultTags,
-        // addTask,
-        // endTaskSuccess,
-        // endTaskFail,
+        addTask,
+        endTaskSuccess,
+        endTaskFail,
     ]);
 
     return children;

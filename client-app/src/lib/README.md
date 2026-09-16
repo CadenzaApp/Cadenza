@@ -16,7 +16,7 @@ native module directly.
 | `routes/songs.ts` | Hooks for `/songs`: `useTagsOnSong`, `useTagsOnSongs`, `useApplyTag`, `useUnapplyTag`, `useInitSongs`, `useSetDefaultTags`. |
 | `routes/queries.ts` | Hook for `/queries/results`: `useQueryResults`. |
 | `musickit-hooks.ts` | SWR over the native module: song info, catalog search, library search, library songs, albums, artists, playlists, collection contents and metadata, song and collection favorites, artist search, playlist writes. |
-| `song-init.tsx` | `SongInitProvider`. Runs the song init job on startup and keeps a running task while it still has songs to tag. Holds no context. |
+| `song-init.tsx` | `SongInitProvider`. Runs the song init job on startup and shows a running task for each of its two passes. Holds no context. |
 | `song-init-job.ts` | `initializeSongs`, the job itself: finds uninitialized songs in the library and playlists, then initializes them. Import-free, tested in `song-init-job.test.ts`. |
 | `account.tsx` | `AccountProvider` / `useAccount`. Supabase session and the JWT. |
 | `apple-music-auth.tsx` | `AppleMusicProvider` / `useAppleMusic`. Apple Music tokens, persisted in secure store. |
@@ -301,11 +301,15 @@ A song is initialized once the backend has copied its default tags into the user
 2. **Initialize.** It posts those songs to `POST /songs/default-tags` 100 at a time, then sends
    each batch to `POST /songs/initialize` again, which copies the new default tags to the user.
 
-The provider keeps one running task through `@/components/custom/tasks`, labelled
-"Generating tags". It is added the first time the search reports a song that needs tags, so a run
-that finds none never shows one, and ended through `endTaskSuccess` if it ran to the end and
-`endTaskFail` if it threw. A run cancelled by a new account or session also fails, since its
-tagging did not finish.
+The provider shows a pass at a time through `@/components/custom/tasks`. "Syncing with Apple
+Music" is added when the job starts and ended by `onSearchComplete`, the one dep the job calls
+between its passes. "Building tag suggestions" runs from there until the job settles, and covers
+the generation and everything after it. A search that turns up no songs to tag never starts the
+second, so the usual launch shows one task and not two.
+
+Whichever pass is open when the job stops is the one that reports the failure, each with its own
+message. A run cancelled by a new account or session fails that pass too, since it did not
+finish.
 
 After the search and after each batch, the provider calls `invalidateAPIData` on `/tags`, because
 the copies are new tags of the user's. It leaves song tag reads alone: those initialize their own
@@ -344,9 +348,10 @@ or read back fails is logged and dropped, and its songs wait for the next startu
   song's last tag leaves it with no tags. The defaults do not come back.
 - The song init job spends OpenAI calls. A big library that has never been tagged means a lot of
   them on first launch, and a song the model returned no tags for is retried on every launch.
-- The job's running task ends as a success whenever the job runs to the end, including when the
+- Both of the job's tasks end as a success whenever the job runs to the end, including when the
   model gave some songs no tags and they are left for the next startup. Only a thrown job is a
-  failure. The task carries no count; it says tags are generating and nothing more.
+  failure, and a source that fails to read is logged inside the search rather than thrown, so a
+  half-read library still ends the sync task as a success. Neither task carries a count.
 - The job counts a song as uninitialized when `POST /songs/initialize` returns it. That call also
   returns a song the user tagged by hand and then cleared, if it has no default tags. The job
   generates defaults for that song once, and they never reach the user.

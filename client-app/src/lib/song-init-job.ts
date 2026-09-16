@@ -41,8 +41,12 @@ export type SongInitDeps = {
     ) => Promise<unknown>;
     /** Called after requests that may have initialized songs. */
     onSongsInitialized: () => void;
-    /** Called with how many uninitialized songs the job has found and not finished with. */
-    onUninitializedCountChange: (count: number) => void;
+    /**
+     * Called once the search has covered every source, with how many songs it
+     * found that still need tags. It marks the end of the first pass and the
+     * start of the second, which is how a caller reports the two separately.
+     */
+    onSearchComplete: (uninitializedCount: number) => void;
     isCancelled: () => boolean;
 };
 
@@ -57,6 +61,7 @@ export async function initializeSongs(deps: SongInitDeps) {
 
     // the search read every song, which initialized the ones that already had tags
     deps.onSongsInitialized();
+    deps.onSearchComplete(uninitialized.size);
 
     await initializeInBatches(deps, uninitialized);
 }
@@ -90,9 +95,6 @@ async function findUninitializedSongs(deps: SongInitDeps) {
         for (const songId of uninitializedIds) {
             const song = unchecked.get(songId);
             if (song) uninitialized.set(songId, describeSong(song));
-        }
-        if (uninitializedIds.length > 0) {
-            deps.onUninitializedCountChange(uninitialized.size);
         }
     };
 
@@ -161,10 +163,6 @@ async function initializeInBatches(
         } catch (error) {
             console.error("Initializing a batch of songs failed:", error);
         }
-
-        // the job is done with the batch either way, so it stops counting
-        for (const { song_id } of batch) uninitialized.delete(song_id);
-        deps.onUninitializedCountChange(uninitialized.size);
     }
 }
 

@@ -49,7 +49,7 @@ function fakeDeps({
         initSongs: [] as string[][],
         defaultTags: [] as { song_id: string; desc: string }[][],
         initialized: 0,
-        counts: [] as number[],
+        searched: [] as number[],
     };
 
     const deps: SongInitDeps = {
@@ -73,8 +73,8 @@ function fakeDeps({
         onSongsInitialized: () => {
             calls.initialized += 1;
         },
-        onUninitializedCountChange: (count) => {
-            calls.counts.push(count);
+        onSearchComplete: (count) => {
+            calls.searched.push(count);
         },
         isCancelled: () => false,
     };
@@ -96,7 +96,7 @@ test("asks about the library and then every playlist, once per song", async () =
     // songs go by catalog id, and a song an earlier page had is not asked about again
     assert.deepEqual(calls.initSongs, [["a", "b"], ["c"], ["d"]]);
     assert.deepEqual(calls.defaultTags, []);
-    assert.deepEqual(calls.counts, []);
+    assert.deepEqual(calls.searched, [0]);
     assert.equal(calls.initialized, 1);
 });
 
@@ -126,13 +126,12 @@ test("generates tags for uninitialized songs in batches, then reads each batch b
         calls.defaultTags.map((batch) => batch.map((item) => item.song_id)),
     );
 
-    // the count climbs while searching, then drops a batch at a time
-    assert.equal(Math.max(...calls.counts), uninitializedCount);
-    assert.deepEqual(calls.counts.slice(-2), [20, 0]);
+    // the search reports everything it found once, before any generation
+    assert.deepEqual(calls.searched, [uninitializedCount]);
     assert.equal(calls.initialized, 3);
 });
 
-test("drops a batch whose generation fails, so the count still reaches zero", async (t) => {
+test("drops a batch whose generation fails and keeps going", async (t) => {
     const logged = t.mock.method(console, "error", () => {});
     const { deps, calls } = fakeDeps({
         library: [song("a"), song("b")],
@@ -144,9 +143,9 @@ test("drops a batch whose generation fails, so the count still reaches zero", as
 
     await initializeSongs(deps);
 
-    // the batch is not read back, and it does not keep counting
+    // the batch is not read back
     assert.deepEqual(calls.initSongs, [["a", "b"]]);
-    assert.deepEqual(calls.counts, [1, 0]);
+    assert.deepEqual(calls.searched, [1]);
     assert.equal(calls.initialized, 1);
     assert.equal(logged.mock.callCount(), 1);
 });

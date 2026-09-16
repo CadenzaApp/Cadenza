@@ -19,7 +19,7 @@ category now, opened from the library screen, so this tab is only the query buil
 query tree and its fetched results live on the screen, so they survive navigating away and back.
 Running a query swaps the builder for `QueryResults`; the back button there clears the result and
 returns to the tree. Nothing on this screen says that tags are still generating any more: the song
-init job floats a running task under the top rail instead, from anywhere in the app. See
+init job floats its own running tasks under the top rail instead, from anywhere in the app. See
 [../../lib/README.md](../../lib/README.md).
 
 ## Connects to
