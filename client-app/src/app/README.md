@@ -6,33 +6,33 @@ logic out.
 
 ## Files
 
-| file                                 | route                     | role                                                                                                                          |
-| ------------------------------------ | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `_layout.tsx`                        | root                      | Provider stack, theme, the root `Stack` navigator, and `PortalHost`.                                                          |
-| `(splashscreen)/index.tsx`           | `/`                       | Calls `tryRestoreSession()`, then replaces to `/library` or `/auth`.                                                          |
-| `auth/index.tsx`                     | `/auth`                   | Sign in / sign up. Takes an `initialMode` search param.                                                                       |
-| `(tabs)/_layout.tsx`                 |                           | Protected native tab group, its five triggers, and the media-player bottom accessory.                                         |
-| `(tabs)/*/_layout.tsx`               |                           | One native `Stack` per tab, using `TabStack` for the shared top rail.                                                         |
-| `(tabs)/social/index.tsx`            | `/social`                 | Static previews of planned social features.                                                                                   |
-| `(tabs)/analytics/index.tsx`         | `/analytics`              | Static previews of planned listening analytics.                                                                               |
-| `(tabs)/cadenza/index.tsx`           | `/cadenza`                | The simple / advanced query workspace and shared result preview.                                                              |
-| `(tabs)/library/index.tsx`           | `/library`                | Library index: a row per category, then Recently Added.                                                                       |
-| `(tabs)/library/category/[kind].tsx` | `/library/category/:kind` | One category's normal Library-stack view; preserves the tab bar and bottom player.                                            |
-| `(tabs)/search/index.tsx`            | `/search`                 | Search. A tag shelf until you tap the field, then recents, a scope switch, and results (artists, then songs).                 |
-| `account.tsx`                        | `/account`                | Account sheet. Wires `AccountSettingsScreen`.                                                                                 |
-| `appearance.tsx`                     | `/appearance`             | Appearance preview sheet. Wires `AppearanceSettingsScreen`.                                                                   |
-| `player/_layout.tsx`                 | `/player/*`               | Now playing sheet shell and provider stack for its always-mounted horizontal pager.                                           |
-| `player/index.tsx`                   | `/player`                 | Opens the always-mounted player pager with Player selected.                                                                   |
-| `player/comments.tsx`                | `/player/comments`        | Opens the same pager with Comments selected.                                                                                  |
-| `player/tags.tsx`                    | `/player/tags`            | Opens the same pager with Tags selected and optional focused-song params.                                                     |
-| `library-categories.tsx`             | `/library-categories`     | Picks which rows the library shows.                                                                                           |
-| `category/[kind].tsx`                | `/category/:kind`         | Compatibility root host for the shared library-category body.                                                                 |
-| `collection/[kind]/[id].tsx`         | `/collection/:kind/:id`   | The songs in one album or playlist.                                                                                           |
-| `query-results.tsx`                  | `/query-results`          | Full-screen simple or advanced query matches, refetched from the serialized query while the builder stays mounted underneath. |
-| `tag/[tagId].tsx`                    | `/tag/:tagId`             | One tag and the songs carrying it.                                                                                            |
-| `artist/[id].tsx`                    | `/artist/:id`             | One catalog artist: the artist image and a play button, top songs, then an albums rail.                                       |
-| `add-to-playlist.tsx`                | `/add-to-playlist`        | Picks a library playlist for a song, or makes one.                                                                            |
-| `+not-found.tsx`                     |                           | 404.                                                                                                                          |
+| file                                 | route                     | role                                                                                                          |
+| ------------------------------------ | ------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `_layout.tsx`                        | root                      | Provider stack, theme, the root `Stack` navigator, and `PortalHost`.                                          |
+| `(splashscreen)/index.tsx`           | `/`                       | Calls `tryRestoreSession()`, then replaces to `/library` or `/auth`.                                          |
+| `auth/index.tsx`                     | `/auth`                   | Sign in / sign up. Takes an `initialMode` search param.                                                       |
+| `(tabs)/_layout.tsx`                 |                           | Protected native tab group, its five triggers, and the media-player bottom accessory.                         |
+| `(tabs)/*/_layout.tsx`               |                           | One native `Stack` per tab, using `TabStack` for the shared top rail.                                         |
+| `(tabs)/social/index.tsx`            | `/social`                 | Static previews of planned social features.                                                                   |
+| `(tabs)/analytics/index.tsx`         | `/analytics`              | Static previews of planned listening analytics.                                                               |
+| `(tabs)/cadenza/index.tsx`           | `/cadenza`                | The simple / advanced query workspace and shared result preview.                                              |
+| `(tabs)/library/index.tsx`           | `/library`                | Library index: a row per category, then Recently Added.                                                       |
+| `(tabs)/library/category/[kind].tsx` | `/library/category/:kind` | One category's normal Library-stack view; preserves the tab bar and bottom player.                            |
+| `(tabs)/search/index.tsx`            | `/search`                 | Search. A tag shelf until you tap the field, then recents, a scope switch, and results (artists, then songs). |
+| `account.tsx`                        | `/account`                | Account sheet. Wires `AccountSettingsScreen`.                                                                 |
+| `appearance.tsx`                     | `/appearance`             | Appearance preview sheet. Wires `AppearanceSettingsScreen`.                                                   |
+| `player/_layout.tsx`                 | `/player/*`               | Now playing sheet shell and provider stack for its always-mounted horizontal pager.                           |
+| `player/index.tsx`                   | `/player`                 | Opens the always-mounted player pager with Player selected.                                                   |
+| `player/comments.tsx`                | `/player/comments`        | Opens the same pager with Comments selected.                                                                  |
+| `player/tags.tsx`                    | `/player/tags`            | Opens the same pager with Tags selected and optional focused-song params.                                     |
+| `library-categories.tsx`             | `/library-categories`     | Picks which rows the library shows.                                                                           |
+| `category/[kind].tsx`                | `/category/:kind`         | Compatibility root host for the shared library-category body.                                                 |
+| `collection/[kind]/[id].tsx`         | `/collection/:kind/:id`   | The songs in one album or playlist.                                                                           |
+| `query-results.tsx`                  | `/query-results`          | Opaque full-screen simple or advanced query matches with the compact player overlaid when active.             |
+| `tag/[tagId].tsx`                    | `/tag/:tagId`             | One tag and the songs carrying it.                                                                            |
+| `artist/[id].tsx`                    | `/artist/:id`             | One catalog artist: the artist image and a play button, top songs, then an albums rail.                       |
+| `add-to-playlist.tsx`                | `/add-to-playlist`        | Picks a library playlist for a song, or makes one.                                                            |
+| `+not-found.tsx`                     |                           | 404.                                                                                                          |
 
 `(splashscreen)` and `(tabs)` are route groups, so the parentheses do not appear in the url.
 
@@ -142,7 +142,8 @@ below the status bar. Anything smaller gets iOS 26's inset card, which leaves ga
 sides and along the bottom. Either closes with the X or a drag down.
 
 Root detail routes are presented above the tab navigator. `PUSHED_DETAIL_SEGMENTS` in
-`@/lib/screen-overlay` only identifies routes that need the custom pull-down close.
+`@/lib/screen-overlay` only identifies routes that need the custom pull-down close. Query results
+is a normal opaque root-stack screen and uses the navigator's standard transition and back action.
 
 All pushed details take `pushedScreenOptions()` from `@/lib/theme`: a transparent modal with **no native
 animation**. That is what the zoom below needs, since it has to grow out of and shrink back into a
@@ -169,12 +170,13 @@ The player sheet paints one tint in `DetailScreen`, behind its header and the tr
 All three pages stay mounted side by side, so a swipe reveals live adjacent content continuously
 instead of navigating after a threshold. The custom glass selector follows the same scroll offset.
 
-`/artist/:id`, `/collection/:kind/:id`, and `/query-results` are the odd ones out of the pushed routes. They use the
+`/artist/:id`, `/collection/:kind/:id`, and `/query-results` use the
 shared `TrackCollectionView` instead of a `DetailScreen` header, and float their own X in the
 same corner. The artist supplies its full-bleed image hero and albums rail as custom header and
 footer content. The collection uses the standard single-artwork layout with Play/Pause, Shuffle,
 and a caller-supplied action that opens `CollectionOptionsMenu`. Query results use the standard
-weighted mosaic plus the same safe-area, tint, zoom, and close presentation as the collection.
+weighted mosaic and an edge-to-edge tint, but use a normal opaque stack presentation rather than
+the collection's zoom transition.
 Under the last row it prints the song count and running time, but only once every page is in,
 since a count off a half-loaded list is a wrong number. Everything the collection draws over its
 tint stays inside the same scroll surface. Either way the hero is the `MusicList` header inside
@@ -186,9 +188,9 @@ and the now playing sheet's `...` menu. `/collection/:kind/:id` is reached throu
 artist, both artwork sizes, and the artwork color so the hero and the tint are there before the
 song fetch lands.
 
-Artwork detail routes render above the native tab controller, so the tab controller's bottom
-accessory cannot appear over them. One `MediaPlayerPushedScreenOverlay` is mounted above the root
-stack and becomes visible over all three hero screens once a track is active. The same route predicate
+These root routes render above the native tab controller, so its bottom accessory cannot appear
+over them. One `MediaPlayerPushedScreenOverlay` is mounted above the root stack and becomes visible
+over artist, collection, and query-results screens once a track is active. The same route predicate
 makes their lists reserve exactly that overlay's height.
 
 ## Connects to

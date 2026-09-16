@@ -9,21 +9,21 @@ connectors attached to visual boundaries instead of moving them with condition c
 
 ## Files
 
-| file                 | role                                                                          |
-| -------------------- | ----------------------------------------------------------------------------- |
-| `types.ts`           | Condition, group, tag-instance, drag, drop, and query JSON types.             |
-| `QueryUtils.ts`      | Pure condition edits, group collapse, derived labels, and JSON compilation.   |
-| `QueryUtils.test.ts` | Reducer invariants and wire-format tests.                                     |
-| `QueryBuilder.tsx`   | Composes the scrollable simple workspace and resizable tag palette.           |
-| `ResultsSummary.tsx` | Shared live count and compact-inset tagged preview used by both builders.     |
-| `ConditionList.tsx`  | Single conditions, groups, connectors, mode toggles, and insertion targets.   |
-| `QueryTagPill.tsx`   | Palette and query pill states, including the NOT indicator.                   |
-| `TagPalette.tsx`     | Searchable tag palette and query-tag delete target.                           |
-| `DragContext.tsx`    | Drag state, measured drop-zone registry, and hit testing.                     |
-| `DraggablePill.tsx`  | Thresholded tag pans and long-press-activated group pans.                     |
-| `DropSlot.tsx`       | Registers and highlights a typed drop target.                                 |
-| `DragGhost.tsx`      | Floating tag shown during an active drag.                                     |
-| `QueryResults.tsx`   | Configures the full-screen query-match hero, zoom dismissal, and save dialog. |
+| file                 | role                                                                        |
+| -------------------- | --------------------------------------------------------------------------- |
+| `types.ts`           | Condition, group, tag-instance, drag, drop, and query JSON types.           |
+| `QueryUtils.ts`      | Pure condition edits, group collapse, derived labels, and JSON compilation. |
+| `QueryUtils.test.ts` | Reducer invariants and wire-format tests.                                   |
+| `QueryBuilder.tsx`   | Composes the scrollable simple workspace and resizable tag palette.         |
+| `ResultsSummary.tsx` | Shared live count and compact-inset tagged preview used by both builders.   |
+| `ConditionList.tsx`  | Single conditions, groups, connectors, mode toggles, and insertion targets. |
+| `QueryTagPill.tsx`   | Palette and query pill states, including the NOT indicator.                 |
+| `TagPalette.tsx`     | Searchable tag palette and query-tag delete target.                         |
+| `DragContext.tsx`    | Drag state, measured drop-zone registry, and hit testing.                   |
+| `DraggablePill.tsx`  | Thresholded tag pans and long-press-activated group pans.                   |
+| `DropSlot.tsx`       | Registers and highlights a typed drop target.                               |
+| `DragGhost.tsx`      | Floating tag shown during an active drag.                                   |
+| `QueryResults.tsx`   | Configures the full-screen query-match view, gradient, and save dialog.     |
 
 ## The model
 
@@ -127,17 +127,15 @@ replace the standard leading dot with a close-circle icon. Reordering, grouping,
 extracting, and deleting query tags are drag-only interactions; pills have no inline controls.
 
 The Cadenza tab owns conditions, so returning from the full list preserves the query. Full results
-are a root detail route presented above the tab navigator with the same zoom/pull dismissal, safe
-area, floating close control, and pushed-player treatment as album details. The results surface uses
+are a normal opaque root-stack view rather than a zoom/pull-dismissed card. It keeps its own safe
+area and floating close control, and the app-level compact player renders over it. The results surface uses
 `TrackCollectionView` with a weighted artwork
 mosaic, play and shuffle queues, local Music List sorting, and a caller-supplied save option. Its
 page tint averages the representative colors for the four mosaic cells, then uses the same
 full-height darkening gradient as collection details. One
 distinct artwork renders as a single image instead of a repeated grid. The results surface owns the
 save-name popup, rendered through the same reliable liquid-glass modal path as Sort. Its round Save
-Query action is glass too. The result screen's zoom origin is
-the builder summary's right-arrow control, so opening expands from and closing contracts back into
-that button. The dialog stays at 75 percent of the screen width and sits above the keyboard; submit
+Query action is glass too. The dialog stays at 75 percent of the screen width and sits above the keyboard; submit
 currently logs that persistence is not implemented. Search text and preview expansion live inside
 their surfaces and reset when those surfaces unmount. Query results show row tags and enable Music
 List multi-selection with its built-in Add to Queue action.

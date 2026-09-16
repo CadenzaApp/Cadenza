@@ -162,10 +162,11 @@ edge on other device classes. The absolute-control clearance uses the standard p
 height and the player's maximum regular height. It stays conservative while UIKit transitions
 the accessory to its inline placement.
 
-Pushed root details are above the native tab controller rather than inside it. One app-level
-compact-player overlay is mounted above the root stack and shown for artist and collection routes.
+Root detail screens are above the native tab controller rather than inside it. One app-level
+compact-player overlay is mounted above the root stack and shown for artist, collection, and
+query-results routes.
 The same `useShowsPushedPlayerOverlay` predicate tells `useScreenOverlayInsets` to reserve its
-height. Other pushed screens reserve nothing. Sheets reserve nothing because they cover every
+height. Other root screens reserve nothing. Sheets reserve nothing because they cover every
 player surface.
 
 `DetailScreen` puts `InsideSheetContext` around sheet bodies, where only the device safe area is

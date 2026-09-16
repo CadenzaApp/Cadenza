@@ -64,10 +64,11 @@ The primary native bar and compact player remain mounted underneath a sheet. The
 covers them, which lets both appear on the first frame of dismissal instead of waiting for the
 route transition to finish. Focused Search still suppresses them explicitly.
 
-Artist and collection detail screens sit above the native tab controller, so the controller's
-accessory cannot be raised over them. One app-level `MediaPlayerPushedScreenOverlay`, mounted above
-the root stack, renders the same regular compact content over either route whenever playback has an
-active track. Its route predicate is also the source of truth for descendant insets.
+Artist, collection, and query-results screens sit above the native tab controller, so the
+controller's accessory cannot be raised over them. One app-level
+`MediaPlayerPushedScreenOverlay`, mounted above the root stack, renders the same regular compact
+content over those routes whenever playback has an active track. Its route predicate is also the
+source of truth for descendant insets.
 
 Playback state is unaffected either way, because it lives in `PlaybackProvider`, not here.
 

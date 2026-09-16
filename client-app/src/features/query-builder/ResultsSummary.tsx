@@ -9,7 +9,6 @@ import { GlassButton } from "@/components/ui/glass-button";
 import { GlassSurface } from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
 import { THEME } from "@/lib/theme";
-import { useZoomSource } from "@/lib/zoom-dismiss";
 import { useColorScheme } from "nativewind";
 
 export function ResultsSummary({
@@ -34,7 +33,6 @@ export function ResultsSummary({
     onNext: () => void;
 }) {
     const [expanded, setExpanded] = useState(false);
-    const { ref: zoomRef, capture: captureZoom } = useZoomSource();
     const { colorScheme = "light" } = useColorScheme();
     const theme = THEME[colorScheme];
     const canAdvance = count > 0 && !error;
@@ -93,12 +91,9 @@ export function ResultsSummary({
                         {builderToggleLabel}
                     </Text>
                 </GlassButton>
-                <View ref={zoomRef} collapsable={false} className="h-11 w-11">
+                <View className="h-11 w-11">
                     <Button
-                        onPress={() => {
-                            captureZoom();
-                            onNext();
-                        }}
+                        onPress={onNext}
                         disabled={!canAdvance}
                         size="icon"
                         className="h-11 w-11 rounded-full"

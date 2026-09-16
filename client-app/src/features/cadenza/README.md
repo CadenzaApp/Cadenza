@@ -29,8 +29,8 @@ Cadenza's applied-tag data.
 
 The conditions live on the tab screen, so they survive tab switches. Opening the full result set
 pushes `/query-results` with the active builder kind and serialized query. The route dispatches to
-the matching endpoint but always renders the same `QueryResults` hero. This screen remains mounted
-underneath, so closing the hero returns to the existing query and active mode.
+the matching endpoint but always renders the same normal full-screen `QueryResults` view. The
+builder remains mounted underneath, so going back returns to the existing query and active mode.
 
 ## Connects to
 

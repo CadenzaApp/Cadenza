@@ -12,7 +12,6 @@ import { Label } from "@/components/ui/label";
 import { Text } from "@/components/ui/text";
 import { TintBackdrop } from "@/components/ui/tint-backdrop";
 import { averageArtworkColors, useArtworkTint } from "@/lib/artwork-color";
-import { ZoomDismissScreen } from "@/lib/zoom-dismiss";
 
 const TINT_DEPTH = 0.3;
 const HERO_BUTTON_SIZE = 52;
@@ -68,92 +67,88 @@ export default function QueryResults({
     }
 
     return (
-        <ZoomDismissScreen>
-            <View className="flex-1">
-                <TrackCollectionView
-                    title="Matching Songs"
-                    tracks={songs}
-                    isLoading={isLoading}
-                    error={error}
-                    anticipatedTrackCount={anticipatedTrackCount}
-                    respectTopSafeArea
-                    closeControl={
-                        <FloatingCloseButton
-                            label="Close query results"
-                            size={HERO_BUTTON_SIZE}
-                        />
-                    }
-                    multiSelect={{ includeAddToQueue: true }}
-                    showTags
-                    containerStyle={
-                        tint ? { backgroundColor: tint } : undefined
-                    }
-                    background={
-                        <TintBackdrop
-                            tint={tint}
-                            height={contentHeight}
-                            depth={TINT_DEPTH}
-                        />
-                    }
-                    onContentSizeChange={(_, height) =>
-                        setContentHeight(Math.max(screenHeight, height))
-                    }
-                    options={[
-                        {
-                            id: "save-query",
-                            label: "Save query",
-                            icon: "bookmark-outline",
-                            onPress: () => setSaveOpen(true),
-                        },
-                    ]}
-                />
+        <View className="flex-1">
+            <TrackCollectionView
+                title="Matching Songs"
+                tracks={songs}
+                isLoading={isLoading}
+                error={error}
+                anticipatedTrackCount={anticipatedTrackCount}
+                respectTopSafeArea
+                closeControl={
+                    <FloatingCloseButton
+                        label="Close query results"
+                        size={HERO_BUTTON_SIZE}
+                    />
+                }
+                multiSelect={{ includeAddToQueue: true }}
+                showTags
+                containerStyle={tint ? { backgroundColor: tint } : undefined}
+                background={
+                    <TintBackdrop
+                        tint={tint}
+                        height={contentHeight}
+                        depth={TINT_DEPTH}
+                    />
+                }
+                onContentSizeChange={(_, height) =>
+                    setContentHeight(Math.max(screenHeight, height))
+                }
+                options={[
+                    {
+                        id: "save-query",
+                        label: "Save query",
+                        icon: "bookmark-outline",
+                        onPress: () => setSaveOpen(true),
+                    },
+                ]}
+            />
 
-                <ModalPopup
-                    visible={saveOpen}
-                    onClose={closeSaveDialog}
-                    title="Save Query"
-                    contentStyle={{
-                        width: saveDialogWidth,
-                        minWidth: saveDialogWidth,
-                        maxWidth: saveDialogWidth,
-                        transform: [{ translateY: -96 }],
-                    }}
-                >
-                    <Text className="text-sm text-muted-foreground">
-                        Give this query a name.
-                    </Text>
-                    <View className="gap-1.5">
-                        <Label>Query name</Label>
-                        <Input
-                            value={saveName}
-                            onChangeText={setSaveName}
-                            placeholder="e.g. Late night favorites"
-                            autoFocus
-                            returnKeyType="done"
-                            onSubmitEditing={submitSave}
-                        />
+            <ModalPopup
+                visible={saveOpen}
+                onClose={closeSaveDialog}
+                title="Save Query"
+                contentStyle={{
+                    width: saveDialogWidth,
+                    minWidth: saveDialogWidth,
+                    maxWidth: saveDialogWidth,
+                    transform: [{ translateY: -96 }],
+                }}
+            >
+                <Text className="text-sm text-muted-foreground">
+                    Give this query a name.
+                </Text>
+                <View className="gap-1.5">
+                    <Label>Query name</Label>
+                    <Input
+                        value={saveName}
+                        onChangeText={setSaveName}
+                        placeholder="e.g. Late night favorites"
+                        autoFocus
+                        returnKeyType="done"
+                        onSubmitEditing={submitSave}
+                    />
+                </View>
+                <View className="mt-1 flex-row gap-2.5">
+                    <View className="flex-1">
+                        <GlassButton
+                            className="w-full"
+                            onPress={closeSaveDialog}
+                        >
+                            <Text>Cancel</Text>
+                        </GlassButton>
                     </View>
-                    <View className="mt-1 flex-row gap-2.5">
-                        <View className="flex-1">
-                            <GlassButton
-                                className="w-full"
-                                onPress={closeSaveDialog}
-                            >
-                                <Text>Cancel</Text>
-                            </GlassButton>
-                        </View>
-                        <View className="flex-1">
-                            <GlassButton
-                                className="w-full"
-                                disabled={!saveName.trim()}
-                                onPress={submitSave}
-                            >
-                                <Text>Save</Text>
-                            </GlassButton>
-                        </View>
+                    <View className="flex-1">
+                        <GlassButton
+                            className="w-full"
+                            disabled={!saveName.trim()}
+                            onPress={submitSave}
+                        >
+                            <Text>Save</Text>
+                        </GlassButton>
                     </View>
-                </ModalPopup>
-            </View>
-        </ZoomDismissScreen>
+                </View>
+            </ModalPopup>
+        </View>
     );
 }

@@ -52,7 +52,6 @@ const PUSHED_DETAIL_SEGMENTS = new Set([
     "tag",
     "library-categories",
     "add-to-playlist",
-    "query-results",
 ]);
 
 type BottomBarVisibility = {
@@ -170,14 +169,16 @@ export function useIsPushedDetailScreen() {
     );
 }
 
-/** Root detail routes over which the app-level compact player is visible. */
+/** Root screens over which the app-level compact player is visible. */
 export function useShowsPushedPlayerOverlay() {
     const segments = useSegments();
     const rootSegment: string | undefined = segments[0];
     const insideSheet = useContext(InsideSheetContext);
     return (
         !insideSheet &&
-        (rootSegment === "artist" || rootSegment === "collection")
+        (rootSegment === "artist" ||
+            rootSegment === "collection" ||
+            rootSegment === "query-results")
     );
 }
 
