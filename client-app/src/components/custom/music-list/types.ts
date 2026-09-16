@@ -1,6 +1,6 @@
 import type Ionicons from "@expo/vector-icons/Ionicons";
 import type { MusicItem } from "@apple-musickit";
-import type { ComponentProps } from "react";
+import type { ComponentProps, ReactNode } from "react";
 
 import type { ThemeColorToken } from "@/lib/theme";
 
@@ -58,11 +58,6 @@ export type MusicListAction<T> = {
     onPress: (target: T) => void | Promise<void>;
 };
 
-export type MusicListTrackAction = MusicListAction<MusicItem> & {
-    /** Whether using this action closes the song-options menu. Defaults to true. */
-    dismissMenu?: boolean;
-};
-
 export type MusicListSelectionAction = MusicListAction<readonly MusicItem[]>;
 
 export type MusicListMultiSelectConfig = {
@@ -82,8 +77,6 @@ export type MusicListProps = {
      * track uses the shared playback controller.
      */
     onTrackPressOverride?: ((track: MusicItem) => void | Promise<void>) | null;
-    /** Actions appended after the built-in per-track actions. */
-    trackMenuActions?: readonly MusicListTrackAction[];
     /**
      * Multi-selection is disabled when null or omitted. Supplying a config
      * enables long-press selection.
@@ -96,6 +89,22 @@ export type MusicListProps = {
     /** Receives compactness changes requested by pinch gestures. */
     onCompactChange?: (compact: boolean) => void;
     anticipatedTrackCount?: number;
+    /**
+     * Rendered above the first row, inside the list's own scroll container.
+     * `MusicList` owns its scroll, so a section above it cannot be a sibling.
+     */
+    header?: ReactNode;
+    /**
+     * Rendered below the last row, for the same reason as `header`. It sits
+     * under the pagination skeleton, so a paging list keeps loading into it.
+     */
+    footer?: ReactNode;
+    /**
+     * Reports the scrolled content's size. For a surface that has to draw
+     * something the height of its own content, such as a backdrop behind every
+     * row rather than behind the screen.
+     */
+    onContentSizeChange?: (width: number, height: number) => void;
     /** Required pagination intent. Pass null for a non-paginated list. */
     pagination: MusicListPagination | null;
     /** Sorting is disabled when omitted or null. Pass an object to enable it. */

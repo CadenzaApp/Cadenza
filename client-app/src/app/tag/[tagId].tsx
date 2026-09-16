@@ -1,23 +1,22 @@
-import { View, Pressable } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
-import Ionicons from "@expo/vector-icons/Ionicons";
+import { useLocalSearchParams } from "expo-router";
+import { View } from "react-native";
 
-import { Text } from "@/components/ui/text";
-import { TagPill } from "@/components/custom/tag-pill";
 import { MusicList } from "@/components/custom/music-list";
-import { useTag } from "@/lib/routes/tags";
+import { TagPill } from "@/components/custom/tag-pill";
+import { DetailScreen } from "@/components/ui/detail-screen";
+import { Text } from "@/components/ui/text";
 import { useSongInfo } from "@/lib/musickit-hooks";
+import { useTag } from "@/lib/routes/tags";
 
-// needs to be replaced with a hook to get all song ids for a tag,
-// then select: to map song ids to AppleMusicItem
-
+/**
+ * One tag and the songs carrying it. Opened from the Tags library sheet, so it
+ * is a sheet too.
+ */
 export default function TagDetailScreen() {
     const { tagId } = useLocalSearchParams<{ tagId: string }>();
     const { tag, songIds } = useTag(Number(tagId));
     const { songInfo: tracks = [], songInfoLoading: tracksLoading } =
         useSongInfo(songIds ?? []);
-
-    const router = useRouter();
 
     // Scale the header pill down for longer tag names so it doesn't look weird
     const pillHeight = tag
@@ -25,20 +24,8 @@ export default function TagDetailScreen() {
         : 36;
 
     return (
-        <View className="flex-1 bg-background">
-            {/* Header tag pill */}
-            <View className="px-6 pt-16 pb-6 border-b border-border">
-                <Pressable
-                    onPress={() => router.back()}
-                    className="flex-row items-center gap-1 mb-6"
-                    style={({ pressed }) =>
-                        pressed ? { opacity: 0.6 } : undefined
-                    }
-                >
-                    <Ionicons name="chevron-back" size={20} color="white" />
-                    <Text style={{ color: "white", fontSize: 16 }}>Tags</Text>
-                </Pressable>
-
+        <DetailScreen title={tag?.name ?? "Tag"}>
+            <View className="border-b border-border px-6 pb-5">
                 {tag ? (
                     <TagPill
                         tag={tag}
@@ -50,13 +37,14 @@ export default function TagDetailScreen() {
                 )}
             </View>
 
-            {/* Song list */}
-            <MusicList
-                tracks={tracks}
-                isLoading={tracksLoading}
-                pagination={null}
-                anticipatedTrackCount={songIds?.length ?? 0}
-            />
-        </View>
+            <View className="flex-1">
+                <MusicList
+                    tracks={tracks}
+                    isLoading={tracksLoading}
+                    pagination={null}
+                    anticipatedTrackCount={songIds?.length ?? 0}
+                />
+            </View>
+        </DetailScreen>
     );
 }

@@ -4,6 +4,8 @@ import {
     PlaybackQueueType,
     type MusicItem,
     type PlaybackSnapshot,
+    type RepeatMode,
+    type ShuffleMode,
 } from "./AppleMusicKit.types";
 
 /** Supported playback operations available to package consumers. */
@@ -27,6 +29,18 @@ export interface PlaybackApi {
     ): Promise<void>;
     /** Appends songs to the native queue without interrupting playback. */
     appendSongQueue(tracks: readonly MusicItem[]): Promise<void>;
+    /** Queues songs directly after the entry that is playing. */
+    insertSongsNext(tracks: readonly MusicItem[]): Promise<void>;
+    /** Moves one queued entry, addressed by its position in the whole queue. */
+    moveQueueItem(fromIndex: number, toIndex: number): Promise<void>;
+    /** Drops one queued entry, addressed by its position in the whole queue. */
+    removeQueueItem(index: number): Promise<void>;
+    /** Jumps to a queued entry, dropping everything skipped over to reach it. */
+    playQueueItem(index: number): Promise<void>;
+    /** Sets how the player picks the next entry. */
+    setShuffleMode(mode: ShuffleMode): Promise<void>;
+    /** Sets what the player repeats. */
+    setRepeatMode(mode: RepeatMode): Promise<void>;
     /** Starts playback of the current queue entry. */
     play(): Promise<void>;
     /** Pauses playback of the current queue entry. */
@@ -70,6 +84,14 @@ export const Playback: PlaybackApi = {
     playSongQueue: (tracks, startIndex = 0) =>
         playbackImplementation.playSongQueue(tracks, startIndex),
     appendSongQueue: (tracks) => playbackImplementation.appendSongQueue(tracks),
+    insertSongsNext: (tracks) =>
+        playbackImplementation.insertSongsNext(tracks),
+    moveQueueItem: (fromIndex, toIndex) =>
+        playbackImplementation.moveQueueItem(fromIndex, toIndex),
+    removeQueueItem: (index) => playbackImplementation.removeQueueItem(index),
+    playQueueItem: (index) => playbackImplementation.playQueueItem(index),
+    setShuffleMode: (mode) => playbackImplementation.setShuffleMode(mode),
+    setRepeatMode: (mode) => playbackImplementation.setRepeatMode(mode),
     play: () => playbackImplementation.play(),
     pause: () => playbackImplementation.pause(),
     togglePlayerState: () => playbackImplementation.togglePlayerState(),
@@ -111,6 +133,15 @@ interface PlaybackNativeModule {
         ids: readonly string[],
         types: readonly string[],
     ): Promise<void>;
+    insertSongsNextInQueue(
+        ids: readonly string[],
+        types: readonly string[],
+    ): Promise<void>;
+    moveQueueItem(fromIndex: number, toIndex: number): Promise<void>;
+    removeQueueItem(index: number): Promise<void>;
+    playQueueItem(index: number): Promise<void>;
+    setShuffleMode(mode: ShuffleMode): Promise<void>;
+    setRepeatMode(mode: RepeatMode): Promise<void>;
 }
 
 type NativeSongQueueItem = { id: string; type: string };
@@ -190,6 +221,12 @@ interface PlaybackImplementationApi {
         startIndex: number,
     ): Promise<void>;
     appendSongQueue(tracks: readonly MusicItem[]): Promise<void>;
+    insertSongsNext(tracks: readonly MusicItem[]): Promise<void>;
+    moveQueueItem(fromIndex: number, toIndex: number): Promise<void>;
+    removeQueueItem(index: number): Promise<void>;
+    playQueueItem(index: number): Promise<void>;
+    setShuffleMode(mode: ShuffleMode): Promise<void>;
+    setRepeatMode(mode: RepeatMode): Promise<void>;
     /** Atomically loads and plays one Apple Music item. */
     playTrack(track: MusicItem, type: PlaybackQueueType): Promise<void>;
     /** Starts playback of the current queue entry. */
@@ -330,6 +367,11 @@ const playbackImplementation: PlaybackImplementationApi = {
               : nativeTrack;
         const resolvedSnapshot: PlaybackSnapshot = {
             ...nextSnapshot,
+            // A module that cannot report a mode reports nothing rather than a
+            // wrong value, so keep what we last set instead of clearing it.
+            shuffleMode:
+                nextSnapshot.shuffleMode ?? playbackSnapshot.shuffleMode,
+            repeatMode: nextSnapshot.repeatMode ?? playbackSnapshot.repeatMode,
             isLoading:
                 nextSnapshot.isLoading ||
                 (playbackSnapshot.isLoading &&
@@ -517,6 +559,72 @@ const playbackImplementation: PlaybackImplementationApi = {
                 items.map(({ id }) => id),
                 items.map(({ type }) => type),
             ),
+        );
+    },
+
+    insertSongsNext: async (tracks: readonly MusicItem[]): Promise<void> => {
+        const items = normalizeSongQueueItems(tracks);
+        if (items.length === 0) return;
+        await playbackImplementation.enqueuePlaybackCommand(() =>
+            requirePlaybackNative().insertSongsNextInQueue(
+                items.map(({ id }) => id),
+                items.map(({ type }) => type),
+            ),
+        );
+    },
+
+    /**
+     * Reordering leaves the playing entry alone, so there is nothing to
+     * reconcile afterwards. The same is true of a removal that is not the
+     * current entry, which is the only removal the queue UI offers.
+     */
+    moveQueueItem: async (
+        fromIndex: number,
+        toIndex: number,
+    ): Promise<void> => {
+        if (fromIndex === toIndex) return;
+        const nativeModule = requirePlaybackNative();
+        await playbackImplementation.enqueuePlaybackCommand(() =>
+            nativeModule.moveQueueItem(fromIndex, toIndex),
+        );
+    },
+
+    removeQueueItem: async (index: number): Promise<void> => {
+        const nativeModule = requirePlaybackNative();
+        await playbackImplementation.enqueuePlaybackCommand(() =>
+            nativeModule.removeQueueItem(index),
+        );
+    },
+
+    /** Changes the playing entry, so the snapshot has to catch up. */
+    playQueueItem: async (index: number): Promise<void> => {
+        const nativeModule = requirePlaybackNative();
+        const commandRevision = playbackImplementation.beginPlaybackCommand();
+        await playbackImplementation.enqueuePlaybackCommand(() =>
+            nativeModule.playQueueItem(index),
+        );
+        await playbackImplementation.reconcilePlaybackSnapshot(commandRevision);
+    },
+
+    setShuffleMode: async (mode: ShuffleMode): Promise<void> => {
+        const nativeModule = requirePlaybackNative();
+        playbackImplementation.updatePlaybackSnapshot({
+            ...playbackImplementation.getPlaybackSnapshot(),
+            shuffleMode: mode,
+        });
+        await playbackImplementation.enqueuePlaybackCommand(() =>
+            nativeModule.setShuffleMode(mode),
+        );
+    },
+
+    setRepeatMode: async (mode: RepeatMode): Promise<void> => {
+        const nativeModule = requirePlaybackNative();
+        playbackImplementation.updatePlaybackSnapshot({
+            ...playbackImplementation.getPlaybackSnapshot(),
+            repeatMode: mode,
+        });
+        await playbackImplementation.enqueuePlaybackCommand(() =>
+            nativeModule.setRepeatMode(mode),
         );
     },
 

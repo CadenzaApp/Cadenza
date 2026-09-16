@@ -17,13 +17,15 @@ export default function SplashScreen() {
     useEffect(() => {
         tryRestoreSession()
             .then((success) => {
-                router.replace(success ? "/home" : "/auth?initialMode=signin");
+                router.replace(
+                    success ? "/library" : "/auth?initialMode=signin",
+                );
             })
             .catch((err) => {
                 console.error("error restoring session: ", err);
                 router.replace("/auth?initialMode=signin");
             });
-    }, []);
+    }, [router, tryRestoreSession]);
 
     return <Text> cadenza splash screen!! </Text>;
 }

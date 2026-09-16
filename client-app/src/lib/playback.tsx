@@ -8,9 +8,18 @@ import {
     ReactNode,
 } from "react";
 import { Alert, AppState } from "react-native";
-import { MusicItem, Playback } from "@apple-musickit";
+import { MusicItem, Playback, RepeatMode, ShuffleMode } from "@apple-musickit";
 
 import { useAppleMusic } from "./apple-music-auth";
+import {
+    insertQueueEntriesNext,
+    jumpToQueueEntry,
+    moveQueueEntry,
+    nearestQueuePosition,
+    removeQueueEntry,
+    type QueueState,
+} from "./queue-order";
+import { samePlayableItem } from "./playable-item";
 
 export type PlaybackQueue = {
     tracks: MusicItem[];
@@ -25,10 +34,21 @@ type PlaybackInfo = {
     progress: number;
     queue: MusicItem[];
     queueIndex: number;
+    /** Everything queued after the entry that is playing, in order. */
+    upcoming: MusicItem[];
+    shuffleMode: ShuffleMode;
+    repeatMode: RepeatMode;
     canSkipToNext: boolean;
     canSkipToPrevious: boolean;
     playQueue: (queue: PlaybackQueue) => Promise<void>;
     addToQueue: (tracks: readonly MusicItem[]) => Promise<void>;
+    playNext: (tracks: readonly MusicItem[]) => Promise<void>;
+    /** Positions address the whole queue, not the upcoming slice. */
+    moveQueueItem: (fromIndex: number, toIndex: number) => Promise<void>;
+    removeQueueItem: (index: number) => Promise<void>;
+    playQueueItem: (index: number) => Promise<void>;
+    setShuffleMode: (mode: ShuffleMode) => Promise<void>;
+    setRepeatMode: (mode: RepeatMode) => Promise<void>;
     togglePlayback: (track: MusicItem) => Promise<void>;
     seekTo: (time: number) => Promise<void>;
     skipToNext: () => Promise<void>;
@@ -36,10 +56,28 @@ type PlaybackInfo = {
 };
 
 const PlaybackContext = createContext<PlaybackInfo | null>(null);
+export type PlaybackTrackState = Pick<
+    PlaybackInfo,
+    | "activeTrackId"
+    | "activeTrack"
+    | "isPlaying"
+    | "isLoading"
+    | "canSkipToNext"
+    | "canSkipToPrevious"
+>;
+const PlaybackTrackStateContext = createContext<PlaybackTrackState | null>(
+    null,
+);
 type PlaybackCommands = Pick<
     PlaybackInfo,
     | "playQueue"
     | "addToQueue"
+    | "playNext"
+    | "moveQueueItem"
+    | "removeQueueItem"
+    | "playQueueItem"
+    | "setShuffleMode"
+    | "setRepeatMode"
     | "togglePlayback"
     | "seekTo"
     | "skipToNext"
@@ -49,6 +87,17 @@ const PlaybackCommandsContext = createContext<PlaybackCommands | null>(null);
 
 export function usePlayback() {
     return useContext(PlaybackContext)!;
+}
+
+/** Track and transport state without subscribing to progress-only updates. */
+export function usePlaybackTrackState() {
+    const value = useContext(PlaybackTrackStateContext);
+    if (!value) {
+        throw new Error(
+            "usePlaybackTrackState must run inside PlaybackProvider",
+        );
+    }
+    return value;
 }
 
 /** Playback commands whose identity is stable across progress updates. */
@@ -63,8 +112,13 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     const [queueIndex, setQueueIndex] = useState(-1);
     const commandImplementationsRef = useRef<PlaybackCommands | null>(null);
     const snapshotTrack = snapshot.currentTrack ?? null;
+    // Search outward from the index we already believe in. A queue holding the
+    // same song twice would otherwise always resolve to the first copy, and the
+    // index would stop tracking playback as soon as the second copy played.
     const nativeQueueIndex = snapshotTrack
-        ? queue.findIndex((track) => samePlayableItem(track, snapshotTrack))
+        ? nearestQueuePosition(queue, queueIndex, (track) =>
+              samePlayableItem(track, snapshotTrack),
+          )
         : -1;
     const resolvedQueueIndex =
         nativeQueueIndex >= 0 ? nativeQueueIndex : queueIndex;
@@ -108,7 +162,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
         if (isConnected) return true;
         Alert.alert(
             "Apple Music Not Connected",
-            `Connect Apple Music from the Account tab ${action}.`,
+            `Open Account from the profile button and connect Apple Music ${action}.`,
         );
         return false;
     }
@@ -217,6 +271,101 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
         }
     }
 
+    /**
+     * Applies a mutation to the mirror and to the native queue together. The
+     * mirror moves first so the list does not lag the drag, and rolls back if
+     * native refuses, because a mirror that disagrees with native sends every
+     * later index-addressed command to the wrong entry.
+     */
+    async function mutateQueue(
+        describe: string,
+        project: (state: QueueState<MusicItem>) => QueueState<MusicItem>,
+        apply: () => Promise<void>,
+    ) {
+        const current: QueueState<MusicItem> = {
+            items: queue,
+            index: resolvedQueueIndex,
+        };
+        const next = project(current);
+        if (next === current) return;
+
+        setQueue(next.items);
+        setQueueIndex(next.index);
+        try {
+            await apply();
+        } catch (e) {
+            console.error(`Failed to ${describe}:`, e);
+            setQueue(current.items);
+            setQueueIndex(current.index);
+            Alert.alert("Playback Error", `Failed to ${describe}.`);
+            throw e;
+        }
+    }
+
+    async function playNext(tracks: readonly MusicItem[]) {
+        const playableTracks = tracks.filter((track) =>
+            Boolean(track.playbackId ?? track.id),
+        );
+        if (playableTracks.length === 0) return;
+
+        if (!requireConnected("before queueing songs")) {
+            throw new Error("Apple Music is not connected.");
+        }
+        await ensureConnected();
+
+        // Nothing is playing, so there is no current entry to queue after.
+        if (queue.length === 0 && !activeTrack) {
+            await playQueue({ tracks: playableTracks });
+            return;
+        }
+
+        await mutateQueue(
+            "queue those songs next",
+            (state) => insertQueueEntriesNext(state, playableTracks),
+            () => Playback.insertSongsNext(playableTracks),
+        );
+    }
+
+    async function moveQueueItem(fromIndex: number, toIndex: number) {
+        await mutateQueue(
+            "reorder the queue",
+            (state) => moveQueueEntry(state, fromIndex, toIndex),
+            () => Playback.moveQueueItem(fromIndex, toIndex),
+        );
+    }
+
+    async function removeQueueItem(index: number) {
+        await mutateQueue(
+            "remove that song from the queue",
+            (state) => removeQueueEntry(state, index),
+            () => Playback.removeQueueItem(index),
+        );
+    }
+
+    async function playQueueItem(index: number) {
+        await mutateQueue(
+            "play that song",
+            (state) => jumpToQueueEntry(state, index),
+            () => Playback.playQueueItem(index),
+        );
+    }
+
+    async function setShuffleMode(mode: ShuffleMode) {
+        try {
+            await Playback.setShuffleMode(mode);
+        } catch (e) {
+            console.error("Failed to set the shuffle mode:", e);
+        }
+    }
+
+    async function setRepeatMode(mode: RepeatMode) {
+        try {
+            await Playback.setRepeatMode(mode);
+        } catch (e) {
+            console.error("Failed to set the repeat mode:", e);
+        }
+    }
+
     async function seekTo(time: number) {
         const boundedTime = Math.max(
             0,
@@ -257,6 +406,12 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
         commandImplementationsRef.current = {
             playQueue,
             addToQueue,
+            playNext,
+            moveQueueItem,
+            removeQueueItem,
+            playQueueItem,
+            setShuffleMode,
+            setRepeatMode,
             togglePlayback,
             seekTo,
             skipToNext,
@@ -269,6 +424,21 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
                 commandImplementationsRef.current!.playQueue(nextQueue),
             addToQueue: (tracks) =>
                 commandImplementationsRef.current!.addToQueue(tracks),
+            playNext: (tracks) =>
+                commandImplementationsRef.current!.playNext(tracks),
+            moveQueueItem: (fromIndex, toIndex) =>
+                commandImplementationsRef.current!.moveQueueItem(
+                    fromIndex,
+                    toIndex,
+                ),
+            removeQueueItem: (index) =>
+                commandImplementationsRef.current!.removeQueueItem(index),
+            playQueueItem: (index) =>
+                commandImplementationsRef.current!.playQueueItem(index),
+            setShuffleMode: (mode) =>
+                commandImplementationsRef.current!.setShuffleMode(mode),
+            setRepeatMode: (mode) =>
+                commandImplementationsRef.current!.setRepeatMode(mode),
             togglePlayback: (track) =>
                 commandImplementationsRef.current!.togglePlayback(track),
             seekTo: (time) => commandImplementationsRef.current!.seekTo(time),
@@ -278,45 +448,55 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
         }),
         [],
     );
+    const trackState = useMemo<PlaybackTrackState>(
+        () => ({
+            activeTrackId,
+            activeTrack,
+            isPlaying: snapshot.isPlaying,
+            isLoading: snapshot.isLoading,
+            canSkipToNext:
+                resolvedQueueIndex >= 0 &&
+                resolvedQueueIndex < queue.length - 1,
+            canSkipToPrevious: resolvedQueueIndex > 0,
+        }),
+        [
+            activeTrack,
+            activeTrackId,
+            queue.length,
+            resolvedQueueIndex,
+            snapshot.isLoading,
+            snapshot.isPlaying,
+        ],
+    );
 
     return (
         <PlaybackCommandsContext.Provider value={commands}>
-            <PlaybackContext.Provider
-                value={{
-                    activeTrackId,
-                    activeTrack,
-                    isPlaying: snapshot.isPlaying,
-                    isLoading: snapshot.isLoading,
-                    progress: snapshot.progress,
-                    queue,
-                    queueIndex: resolvedQueueIndex,
-                    canSkipToNext:
-                        resolvedQueueIndex >= 0 &&
-                        resolvedQueueIndex < queue.length - 1,
-                    canSkipToPrevious: resolvedQueueIndex > 0,
-                    ...commands,
-                }}
-            >
-                {children}
-            </PlaybackContext.Provider>
+            <PlaybackTrackStateContext.Provider value={trackState}>
+                <PlaybackContext.Provider
+                    value={{
+                        activeTrackId,
+                        activeTrack,
+                        isPlaying: snapshot.isPlaying,
+                        isLoading: snapshot.isLoading,
+                        progress: snapshot.progress,
+                        queue,
+                        queueIndex: resolvedQueueIndex,
+                        upcoming:
+                            resolvedQueueIndex >= 0
+                                ? queue.slice(resolvedQueueIndex + 1)
+                                : [],
+                        shuffleMode: snapshot.shuffleMode ?? ShuffleMode.Off,
+                        repeatMode: snapshot.repeatMode ?? RepeatMode.Off,
+                        canSkipToNext:
+                            resolvedQueueIndex >= 0 &&
+                            resolvedQueueIndex < queue.length - 1,
+                        canSkipToPrevious: resolvedQueueIndex > 0,
+                        ...commands,
+                    }}
+                >
+                    {children}
+                </PlaybackContext.Provider>
+            </PlaybackTrackStateContext.Provider>
         </PlaybackCommandsContext.Provider>
-    );
-}
-
-/**
- * Blank ids are dropped from both sides, so a snapshot that carried no usable
- * identifier matches nothing and the caller falls back to the index it set.
- * Matching it against an arbitrary queue entry would be worse than not knowing.
- */
-function samePlayableItem(left: MusicItem, right: MusicItem) {
-    const leftIds = playableIdentifiers(left);
-    return [...playableIdentifiers(right)].some((id) => leftIds.has(id));
-}
-
-function playableIdentifiers(item: MusicItem) {
-    return new Set(
-        [item.id, item.playbackId, item.catalogId, item.libraryId].filter(
-            (id): id is string => typeof id === "string" && id.trim() !== "",
-        ),
     );
 }

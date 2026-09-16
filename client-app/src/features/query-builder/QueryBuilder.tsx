@@ -1,21 +1,21 @@
 import { useCallback, useState } from "react";
-import { ScrollView, StyleSheet, View } from "react-native";
+import { StyleSheet, View } from "react-native";
+import Animated from "react-native-reanimated";
 import { Text } from "@/components/ui/text";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 import { QueryNode, PaletteItem, SlotAddress } from "./types";
 import { TagPill } from "@/components/custom/tag-pill";
-import {
-    insertAtSlot,
-    removeNode,
-    findNodeById,
-} from "./QueryUtils";
+import { insertAtSlot, removeNode, findNodeById } from "./QueryUtils";
 import { DragProvider } from "./DragContext";
 import { DragGhost } from "./DragGhost";
 import { PaletteSection } from "./PaletteSection";
 import { LogicNodeBox } from "./LogicNode";
 import { DropSlot } from "./DropSlot";
 import { Button } from "@/components/ui/button";
+import { useScreenOverlayInsets } from "@/lib/screen-overlay";
+import { useScreenScroll } from "@/lib/screen-scroll";
+import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
 import { Tag } from "@/lib/types";
 import { useRouter } from "expo-router";
 
@@ -27,12 +27,14 @@ const LOGIC_ITEMS: PaletteItem[] = [
 
 type Props = {
     tags: Tag[];
-    root: QueryNode | null,
-    setRoot: (root: QueryNode | null) => any,
+    root: QueryNode | null;
+    setRoot: (root: QueryNode | null) => any;
     onSubmit: () => any;
 };
 export function QueryBuilder({ tags, root, setRoot, onSubmit }: Props) {
     const router = useRouter();
+    const { contentBottomInset } = useScreenOverlayInsets();
+    const scroll = useScreenScroll();
 
     const tagPaletteItems: PaletteItem[] = tags.map((t) => ({
         kind: "tag",
@@ -60,7 +62,14 @@ export function QueryBuilder({ tags, root, setRoot, onSubmit }: Props) {
     return (
         <GestureHandlerRootView style={styles.root} className="bg-background">
             <DragProvider>
-                <View style={styles.container}>
+                <View
+                    style={[
+                        styles.container,
+                        // The tab bar floats over this screen, and the
+                        // "Create mix" button sits at the very bottom.
+                        { paddingBottom: contentBottomInset },
+                    ]}
+                >
                     {/* Palette */}
                     <View style={styles.palette}>
                         <PaletteSection
@@ -77,7 +86,9 @@ export function QueryBuilder({ tags, root, setRoot, onSubmit }: Props) {
                     </View>
 
                     {/* Workspace */}
-                    <ScrollView
+                    <ScreenScrollMarker>
+                        <Animated.ScrollView
+                        {...scroll}
                         style={styles.workspace}
                         contentContainerStyle={styles.workspaceContent}
                     >
@@ -110,7 +121,8 @@ export function QueryBuilder({ tags, root, setRoot, onSubmit }: Props) {
                                 />
                             </DropSlot>
                         )}
-                    </ScrollView>
+                    </Animated.ScrollView>
+                    </ScreenScrollMarker>
 
                     <Button onPress={onSubmit}>
                         <Text> Create mix </Text>

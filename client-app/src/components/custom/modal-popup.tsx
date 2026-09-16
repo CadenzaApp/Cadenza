@@ -1,7 +1,16 @@
 import type { ReactNode } from "react";
-import { Modal, Pressable, type StyleProp, type ViewStyle } from "react-native";
+import {
+    Modal,
+    Pressable,
+    StyleSheet,
+    View,
+    type StyleProp,
+    type ViewStyle,
+} from "react-native";
 
+import { GlassSurface } from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
+import { cn } from "@/lib/utils";
 
 type ModalPopupProps = {
     visible: boolean;
@@ -9,6 +18,8 @@ type ModalPopupProps = {
     title?: string;
     children: ReactNode;
     contentStyle?: StyleProp<ViewStyle>;
+    /** "glass" renders the card on liquid glass instead of the flat popover surface. */
+    variant?: "solid" | "glass";
 };
 
 /** Shared modal popup with the app's standard fade and outside-tap dismissal. */
@@ -18,6 +29,7 @@ export function ModalPopup({
     title,
     children,
     contentStyle,
+    variant = "solid",
 }: ModalPopupProps) {
     return (
         <Modal
@@ -32,10 +44,22 @@ export function ModalPopup({
             >
                 <Pressable
                     accessibilityViewIsModal
-                    className="w-[70%] max-w-[400px] min-w-[240px] gap-2 rounded-lg border border-border bg-popover p-4 shadow-lg shadow-black/5"
+                    className={cn(
+                        "w-[70%] max-w-[400px] min-w-[240px] gap-2 overflow-hidden rounded-2xl p-4",
+                        variant === "solid" &&
+                            "border border-border bg-popover shadow-lg shadow-black/5",
+                    )}
                     style={contentStyle}
                     onPress={(event) => event.stopPropagation()}
                 >
+                    {variant === "glass" ? (
+                        <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+                            <GlassSurface
+                                variant="regular"
+                                style={StyleSheet.absoluteFill}
+                            />
+                        </View>
+                    ) : null}
                     {title ? (
                         <Text className="text-lg font-semibold text-popover-foreground">
                             {title}
