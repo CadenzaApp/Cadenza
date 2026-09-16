@@ -16,7 +16,7 @@ fetch. Reached from the "Advanced" button under the simple query builder.
 | `FilterGroup.tsx` | One group: the all / any / none selector, its children, and the "Add filter" / "Add filter group" buttons. Recursive. Exports `BuilderTags` and `BuilderActions`. |
 | `FilterRow.tsx` | One filter line: connector word, field picker, operator picker, value input, and the remove button. Exports `RemoveButton`. |
 | `FilterValueInput.tsx` | The value input for a line: text, number, a calendar day, a date and time, or a tag type. |
-| `OptionPicker.tsx` | Popup list of choices with optional sections and search, built on `ModalPopup`. |
+| `OptionPicker.tsx` | Popup list of choices with optional sections and search. Its own `Modal`, sized for a phone: near full width, up to 80% of the screen tall, 56pt rows. Scrolls vertically and wraps long labels. |
 | `field-icons.ts` | Ionicons per tag type, and the three "property" fields (tag name, tag value, tag type). |
 
 ## The model
@@ -54,7 +54,7 @@ to `useSongInfo` and shows the shared `QueryResults` view, or a "No songs match"
 
 - `@/lib/types::Tag`, `@/lib/tag-values` for type labels, and `@/lib/routes/tags::useUserTags`
   by way of the screen.
-- `@/components/custom/modal-popup`, `@/components/ui/*`, `@react-native-community/datetimepicker`.
+- `@/components/ui/*`, `@react-native-community/datetimepicker`.
 - `@/features/query-builder/QueryResults` for the results view.
 - Backend: `GET /queries/advanced/results`, schema in
   `backend-api/src/routes/json/advanced_query.rs`, compiled to SQL in
