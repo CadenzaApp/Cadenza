@@ -33,6 +33,7 @@ export function TagsPage({ focusedSong }: { focusedSong: FocusedSong }) {
         defaultTags,
         selectTag,
         selectDefaultTag,
+        removeDefaultTag,
         valuePrompt,
         onValueSubmit,
         onValueRemove,
@@ -89,6 +90,7 @@ export function TagsPage({ focusedSong }: { focusedSong: FocusedSong }) {
                 <DefaultTagSection
                     tags={defaultTags}
                     onSelectTag={selectDefaultTag}
+                    onRemoveTag={removeDefaultTag}
                 />
                 <TagSection
                     heading="Your other tags"
@@ -171,15 +173,17 @@ function TagSection({
  * The song's shared default tags, unfilled because they belong to everyone
  * rather than to this user. Tapping one copies it into the user's own tags and
  * puts it on the song, so it moves up to "On this song". A long press opens
- * `SuggestedTagMenu` for that pill instead. Nothing shows when the song has
- * none.
+ * `SuggestedTagMenu` for that pill instead, which is how one gets removed.
+ * Nothing shows when the song has none.
  */
 function DefaultTagSection({
     tags,
     onSelectTag,
+    onRemoveTag,
 }: {
     tags: Tag[];
     onSelectTag: (tagId: number) => void;
+    onRemoveTag: (tagId: number) => Promise<void>;
 }) {
     const [menuTag, setMenuTag] = useState<Tag | null>(null);
 
@@ -205,35 +209,49 @@ function DefaultTagSection({
                 ))}
             </View>
 
-            <SuggestedTagMenu tag={menuTag} onClose={() => setMenuTag(null)} />
+            <SuggestedTagMenu
+                tag={menuTag}
+                onRemove={onRemoveTag}
+                onClose={() => setMenuTag(null)}
+            />
         </View>
     );
 }
 
 /**
  * The long-press menu on one suggested tag. Same liquid-glass `ModalPopup` the
- * "..." menus use, with one action. Hide suggested tag is a placeholder: it
- * closes the menu and does nothing else until the backend can record it.
+ * "..." menus use, with one action: Remove this takes the suggestion off the
+ * song for this user only, leaving it there for everyone else.
+ *
+ * The menu closes first and the removal runs after, the same as the `...`
+ * menus, so the sheet never sits there waiting on a request. The pill itself
+ * goes when the default tag read comes back without it, and
+ * `MusicListActionButton` logs a removal that did not save.
  */
 function SuggestedTagMenu({
     tag,
+    onRemove,
     onClose,
 }: {
     tag: Tag | null;
+    onRemove: (tagId: number) => Promise<void>;
     onClose: () => void;
 }) {
     if (!tag) return null;
 
-    const hideAction: MusicListAction<Tag> = {
+    const removeAction: MusicListAction<Tag> = {
         id: "remove-suggested-tag",
         label: "Remove this",
         icon: "eye-off-outline",
-        onPress: onClose,
+        onPress: (target) => {
+            onClose();
+            return onRemove(target.id);
+        },
     };
 
     return (
         <ModalPopup visible onClose={onClose}>
-            <MusicListActionButton action={hideAction} target={tag} />
+            <MusicListActionButton action={removeAction} target={tag} />
         </ModalPopup>
     );
 }

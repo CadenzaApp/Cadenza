@@ -13,7 +13,7 @@ native module directly.
 | `api-endpoints.ts`           | `matchesEndpoint`, the cache-key matcher behind invalidation. Import-free so it can be unit tested.                                                                                                                                                                                               |
 | `swr-utils.ts`               | `clearCache` and `useSimpleMutation`, for things that are not plain backend calls.                                                                                                                                                                                                                |
 | `routes/tags.ts`             | Hooks for `/tags`: `useUserTags`, `useTag`, `useCreateTag`, `useDeleteTag`, `useDefaultTags`, `useSuggestTags`.                                                                                                                                                                                   |
-| `routes/songs.ts`            | Hooks for local and default tag reads (one song and batched), local tag writes, missing-default checks, and generation.                                                                                                                                                                           |
+| `routes/songs.ts`            | Hooks for local and default tag reads (one song and batched), local tag writes, removing a suggested tag, missing-default checks, and generation.                                                                                                                                                                           |
 | `routes/queries.ts`          | `useQueryResults`, the one cached hook for `/queries/results`. Both builders go through it, and it carries the suggested-tag flag.                                                                                                                                                                |
 | `routes/comments.ts`         | Hooks for `/comments`: `useSongComments`, `useCreateComment`, `useDeleteComment`, `useVoteOnComment`.                                                                                                                                                                                             |
 | `comment-votes.ts`           | `applyCommentVote`, the optimistic update `useVoteOnComment` makes to cached comment threads. `sortThreadsByVotes` and `orderThreadsLike`, which `CommentsPage` uses to sort threads by score and then hold that order while it is in view. Only type imports, tested in `comment-votes.test.ts`. |
@@ -120,6 +120,7 @@ One file per backend router, and every backend endpoint has at least one hook.
 |                      | `GET /songs/default-tags`        | `songs.ts` -> `useDefaultTagsOnSong(songId)`   |
 |                      | `POST /songs/default-tags/batch` | `songs.ts` -> `useDefaultTagsOnSongs(songIds)` |
 |                      | `POST /songs/default-tags`       | `songs.ts` -> `useSetDefaultTags()`            |
+|                      | `DELETE /songs/default-tags`     | `songs.ts` -> `useRemoveDefaultTag()`          |
 |                      | `POST /songs/local-tags`         | `songs.ts` -> `useApplyTag()`                  |
 |                      | `PATCH /songs/local-tags`        | `songs.ts` -> `useSetTagValue()`               |
 |                      | `DELETE /songs/local-tags`       | `songs.ts` -> `useUnapplyTag()`                |
@@ -151,6 +152,11 @@ the user's own tags. `tag-values.ts::unownedDefaultTags` drops the defaults whos
 already has on the song, since a name applied by enough users is promoted to a default tag and
 would otherwise show twice. Applying a user tag can trigger that promotion, so `useApplyTag`
 invalidates both default-tag reads.
+
+`useRemoveDefaultTag` is the other side: it drops one suggestion from one song for this user
+only, so it invalidates both default-tag reads plus `/queries/results`, which counts suggested
+tags when the caller asks it to. It leaves `/tags` and the local tag reads alone, since the
+user's own tags do not change.
 
 `musickit-hooks.ts` does the same job for the native module, using plain `useSWR` with tuple
 keys like `["MusicKit.getSongInfo", ids]`. `useSongFavoriteStatus` and `useCollectionFavoriteStatus`

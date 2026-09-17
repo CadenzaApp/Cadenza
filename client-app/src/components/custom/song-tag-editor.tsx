@@ -3,6 +3,7 @@ import { useState } from "react";
 import {
     useApplyTag,
     useDefaultTagsOnSong,
+    useRemoveDefaultTag,
     useSetTagValue,
     useTagsOnSong,
     useUnapplyTag,
@@ -16,9 +17,9 @@ export type EditableSongTag = AppliedTag & { applied: boolean };
 /**
  * Tag editing for one song, independent of whether it is playing: the data
  * behind it, not the layout. Every one of the user's tags, annotated with
- * whether it is applied and its value, the song's shared default tags and the
- * copy-to-my-tags they do when tapped, the toggle/value mutations, and the
- * "New" tag dialog's open state.
+ * whether it is applied and its value, the song's shared default tags with the
+ * copy-to-my-tags they do when tapped and the removal that hides one, the
+ * toggle/value mutations, and the "New" tag dialog's open state.
  * `media-player/tags-page.tsx` (the now-playing sheet's Tags page) is the one
  * caller; it owns the page itself.
  */
@@ -30,6 +31,7 @@ export function useSongTagEditor(songId: string) {
     const { createTag } = useCreateTag();
     const { unapplyTag } = useUnapplyTag();
     const { setTagValue } = useSetTagValue();
+    const { removeDefaultTag } = useRemoveDefaultTag();
     const [createTagOpen, setCreateTagOpen] = useState(false);
     // the attribute tag whose value is being asked for, if any
     const [valuePrompt, setValuePrompt] = useState<{
@@ -115,6 +117,16 @@ export function useSongTagEditor(songId: string) {
         if (typeof createdTagId === "number") await applyTagById(createdTagId);
     }
 
+    /**
+     * Drops one of the song's suggested tags for this user. It stays a default
+     * tag on the song for everyone else, and the pill goes as soon as the
+     * default tag read comes back without it. The count it leaves behind makes
+     * the name harder to promote elsewhere.
+     */
+    async function removeDefaultTagById(tagId: number) {
+        await removeDefaultTag({ song_id: songId, tag_id: tagId });
+    }
+
     async function handleValueSubmit(value: string | null) {
         if (!valuePrompt) return;
         const payload = { song_id: songId, tag_id: valuePrompt.tag.id, value };
@@ -136,9 +148,11 @@ export function useSongTagEditor(songId: string) {
         defaultTags,
         selectTag: (tagId: number) => void selectTag(tagId),
         selectDefaultTag: (tagId: number) => void adoptDefaultTag(tagId),
+        // the one callback that hands its promise back, so the menu pressing it
+        // can report a removal that did not save
+        removeDefaultTag: (tagId: number) => removeDefaultTagById(tagId),
         valuePrompt,
-        onValueSubmit: (value: string | null) =>
-            void handleValueSubmit(value),
+        onValueSubmit: (value: string | null) => void handleValueSubmit(value),
         onValueRemove: () => void handleValueRemove(),
         onValueDialogClose: () => setValuePrompt(null),
         createTagOpen,

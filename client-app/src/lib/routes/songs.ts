@@ -122,7 +122,35 @@ export function useUnapplyTag() {
     };
 }
 
-/** Returns the shared default tags on one song. */
+type RemoveDefaultTagPayload = {
+    song_id: string;
+    tag_id: number;
+};
+/**
+ * Removes one of the song's suggested tags for this user. The default tag stays
+ * on the song for everyone else, so this only changes what the default tag reads
+ * return here, plus query results that count suggested tags. It also counts
+ * against that name, which makes it harder to become a default tag elsewhere.
+ */
+export function useRemoveDefaultTag() {
+    const x = useAPIMutation<RemoveDefaultTagPayload, void>(
+        "DELETE",
+        "/songs/default-tags",
+        ({ song_id }) => [
+            { path: "/songs/default-tags", params: { song_id } },
+            { path: "/songs/default-tags/batch" },
+            { path: "/queries/results" },
+        ],
+    );
+    return {
+        removeDefaultTagErr: x.error,
+        removeDefaultTagLoading: x.isMutating,
+        resetRemoveDefaultTag: x.reset,
+        removeDefaultTag: x.trigger,
+    };
+}
+
+/** Returns the shared default tags on one song, minus the ones this user removed. */
 export function useDefaultTagsOnSong(songId?: string) {
     const x = useAPIData<Tag[]>("/songs/default-tags", {
         song_id: songId,
