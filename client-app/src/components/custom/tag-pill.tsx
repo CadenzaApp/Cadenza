@@ -82,7 +82,6 @@ export function useTagScreenColor(tagColor: string) {
  * @param inverted  - Swaps the pill's text and background colors, so the tag
  *                    color becomes the content over a screen-colored interior
  *                    with a tag-colored outline.
- * @param strikethrough - Draws a standard thin line through the tag label.
  * @param onRemove  - If provided, renders an × button inside the pill.
  *                   Called when the user taps it and caller decides what to do.
  */
@@ -94,7 +93,6 @@ export function TagPill({
     leadingIcon,
     showIcon = true,
     inverted = false,
-    strikethrough = false,
     onRemove,
 }: {
     tag: Tag;
@@ -104,7 +102,6 @@ export function TagPill({
     leadingIcon?: ReactNode;
     showIcon?: boolean;
     inverted?: boolean;
-    strikethrough?: boolean;
     onRemove?: () => void;
 }) {
     const screenColor = useTagScreenColor(tag.color);
@@ -162,9 +159,6 @@ export function TagPill({
                     textAlign: "center",
                     textAlignVertical: "center",
                     includeFontPadding: false,
-                    textDecorationLine: strikethrough ? "line-through" : "none",
-                    textDecorationStyle: "solid",
-                    textDecorationColor: contentColor,
                 }}
             >
                 {tag.name}
