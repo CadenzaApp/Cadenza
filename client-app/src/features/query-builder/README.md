@@ -9,21 +9,21 @@ connectors attached to visual boundaries instead of moving them with condition c
 
 ## Files
 
-| file                 | role                                                                        |
-| -------------------- | --------------------------------------------------------------------------- |
-| `types.ts`           | Condition, group, tag-instance, drag, drop, and query JSON types.           |
-| `QueryUtils.ts`      | Pure condition edits, group collapse, derived labels, and JSON compilation. |
-| `QueryUtils.test.ts` | Reducer invariants and wire-format tests.                                   |
-| `QueryBuilder.tsx`   | Composes the scrollable simple workspace and resizable tag palette.         |
-| `ResultsSummary.tsx` | Shared live count and compact-inset tagged preview used by both builders.   |
-| `ConditionList.tsx`  | Single conditions, groups, connectors, mode toggles, and insertion targets. |
-| `QueryTagPill.tsx`   | Palette and query pill states, including the NOT indicator.                 |
-| `TagPalette.tsx`     | Searchable tag palette and query-tag delete target.                         |
-| `DragContext.tsx`    | Drag state, measured drop-zone registry, and hit testing.                   |
-| `DraggablePill.tsx`  | Platform-tuned tag pans and handle-only condition pans.                     |
-| `DropSlot.tsx`       | Registers and highlights a typed drop target.                               |
-| `DragGhost.tsx`      | Floating tag shown during an active drag.                                   |
-| `QueryResults.tsx`   | Configures the full-screen query-match view, gradient, and save dialog.     |
+| file                 | role                                                                               |
+| -------------------- | ---------------------------------------------------------------------------------- |
+| `types.ts`           | Condition, group, tag-instance, drag, drop, and query JSON types.                  |
+| `QueryUtils.ts`      | Pure condition edits, group collapse, derived labels, and JSON compilation.        |
+| `QueryUtils.test.ts` | Reducer invariants and wire-format tests.                                          |
+| `QueryBuilder.tsx`   | Composes the scrollable simple workspace and resizable tag palette.                |
+| `ResultsSummary.tsx` | Shared live count and compact-inset tagged preview used by both builders.          |
+| `ConditionList.tsx`  | Single conditions, groups, connectors, mode toggles, and insertion targets.        |
+| `QueryTagPill.tsx`   | Palette and query pill states, including the NOT indicator.                        |
+| `TagPalette.tsx`     | Searchable tag palette and query-tag delete target.                                |
+| `DragContext.tsx`    | Drag payload state, shared-value coordinates, drop-zone registry, and hit testing. |
+| `DraggablePill.tsx`  | Platform-tuned tag pans and handle-only condition pans.                            |
+| `DropSlot.tsx`       | Registers and highlights a typed drop target.                                      |
+| `DragGhost.tsx`      | Floating tag shown during an active drag.                                          |
+| `QueryResults.tsx`   | Configures the full-screen query-match view, gradient, and save dialog.            |
 
 ## The model
 
@@ -43,7 +43,9 @@ becomes `{not: tagId}`. An empty query returns `null` and does not fetch.
 Palette tags are drag-only and can be dropped on an insertion point. On Android, tag drags wait for
 a short hold so vertical movement is claimed by the surrounding scroll view first. iOS retains its
 immediate movement-threshold drag because its native scroll arbitration otherwise steals deliberate
-tag drags too readily. The blank workspace all
+tag drags too readily. Tag coordinates travel through Reanimated shared values, so moving a tag does
+not rerender the complete builder on every pointer event; React state changes only when the active
+drop target changes. The blank workspace all
 the way down to the palette is also an append target. A reserved bottom inset keeps some of this
 append target visible after the existing conditions. The empty state uses the base theme background
 instead of changing surface color. Dropping a tag on a single creates an any

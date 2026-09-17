@@ -7,6 +7,7 @@ import {
     type ReactNode,
 } from "react";
 import { View } from "react-native";
+import { useSharedValue, type SharedValue } from "react-native-reanimated";
 
 import type { DragPayload, DragState, DropTarget } from "./types";
 
@@ -31,6 +32,8 @@ type ConditionRelease = {
 
 type DragContextValue = {
     dragState: DragState;
+    dragX: SharedValue<number>;
+    dragY: SharedValue<number>;
     conditionLayoutAnimationsSuppressed: boolean;
     settlingConditionId: string | null;
     conditionRelease: ConditionRelease | null;
@@ -58,6 +61,8 @@ export function DragProvider({
     onDrop: (payload: DragPayload, target: DropTarget) => void;
 }) {
     const [dragState, setDragState] = useState<DragState>(null);
+    const dragX = useSharedValue(0);
+    const dragY = useSharedValue(0);
     const [
         conditionLayoutAnimationsSuppressed,
         setConditionLayoutAnimationsSuppressed,
@@ -70,6 +75,7 @@ export function DragProvider({
     const [hoveredTargetKey, setHoveredTargetKey] = useState<string | null>(
         null,
     );
+    const hoveredTargetKeyRef = useRef<string | null>(null);
     const [rootOffset, setRootOffset] = useState({ x: 0, y: 0 });
     const containerRef = useRef<View>(null);
     const zones = useRef(new Map<string, RegisteredZone>());
@@ -89,6 +95,11 @@ export function DragProvider({
     );
     const unregisterDropZone = useCallback((key: string) => {
         zones.current.delete(key);
+    }, []);
+    const updateHoveredTargetKey = useCallback((key: string | null) => {
+        if (hoveredTargetKeyRef.current === key) return;
+        hoveredTargetKeyRef.current = key;
+        setHoveredTargetKey(key);
     }, []);
 
     const findZoneAt = useCallback(
@@ -149,6 +160,8 @@ export function DragProvider({
             conditionReorderIndex.current = null;
             pendingConditionReorderIndex.current = null;
             const session = dragSession.current;
+            dragX.set(x);
+            dragY.set(y);
             setDragState({ payload, x, y });
             const measured = await Promise.all(
                 [...zones.current.entries()].map(async ([key, zone]) => {
@@ -166,17 +179,24 @@ export function DragProvider({
             );
             if (session !== dragSession.current) return;
             cachedRects.current = nextRects;
-            setHoveredTargetKey(findZoneAt(payload, x, y)?.key ?? null);
+            updateHoveredTargetKey(
+                findZoneAt(payload, dragX.get(), dragY.get())?.key ?? null,
+            );
         },
-        [findZoneAt],
+        [dragX, dragY, findZoneAt, updateHoveredTargetKey],
     );
 
     const moveDrag = useCallback(
         (payload: DragPayload, x: number, y: number) => {
-            setDragState({ payload, x, y });
-            setHoveredTargetKey(findZoneAt(payload, x, y)?.key ?? null);
+            dragX.set(x);
+            dragY.set(y);
+            if (payload.source === "condition") {
+                setDragState({ payload, x, y });
+            }
+            const nextHoveredKey = findZoneAt(payload, x, y)?.key ?? null;
+            updateHoveredTargetKey(nextHoveredKey);
         },
-        [findZoneAt],
+        [dragX, dragY, findZoneAt, updateHoveredTargetKey],
     );
     const prepareDragRelease = useCallback(
         (x: number, y: number) => {
@@ -274,7 +294,7 @@ export function DragProvider({
         const wasConditionDrag = activePayload.current?.source === "condition";
         activePayload.current = null;
         setDragState(null);
-        setHoveredTargetKey(null);
+        updateHoveredTargetKey(null);
         cachedRects.current.clear();
         conditionReorderIndex.current = null;
         pendingConditionReorderIndex.current = null;
@@ -300,12 +320,14 @@ export function DragProvider({
             setConditionLayoutAnimationsSuppressed(false);
             setSettlingConditionId(null);
         }
-    }, []);
+    }, [updateHoveredTargetKey]);
 
     return (
         <DragContext.Provider
             value={{
                 dragState,
+                dragX,
+                dragY,
                 conditionLayoutAnimationsSuppressed,
                 settlingConditionId,
                 conditionRelease,

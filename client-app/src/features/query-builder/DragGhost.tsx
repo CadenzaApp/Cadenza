@@ -28,12 +28,18 @@ const noop = () => {};
 export function DragGhost() {
     const {
         dragState,
+        dragX,
+        dragY,
         rootOffset,
         conditionRelease,
         completeConditionRelease,
     } = useDrag();
     const releaseTop = useSharedValue(0);
     const releaseStyle = useAnimatedStyle(() => ({ top: releaseTop.get() }));
+    const tagPositionStyle = useAnimatedStyle(() => ({
+        left: dragX.get() - rootOffset.x - 45,
+        top: dragY.get() - rootOffset.y - 22,
+    }));
     useEffect(() => {
         if (!conditionRelease) return;
         if (conditionRelease.targetCenterY == null) {
@@ -89,14 +95,10 @@ export function DragGhost() {
             ? dragState.payload.tag
             : dragState.payload.queryTag.tag;
     return (
-        <View
+        <Animated.View
             pointerEvents="none"
             className="absolute z-50 flex-row items-center rounded-full bg-background p-1"
-            style={{
-                left: dragState.x - rootOffset.x - 45,
-                top: dragState.y - rootOffset.y - 22,
-                transform: [{ scale: 1.06 }],
-            }}
+            style={[tagPositionStyle, { transform: [{ scale: 1.06 }] }]}
         >
             {dragState.payload.source === "query" ? (
                 <QueryTagPill
@@ -107,7 +109,7 @@ export function DragGhost() {
             ) : (
                 <TagPill tag={tag} height={10} />
             )}
-        </View>
+        </Animated.View>
     );
 }
 

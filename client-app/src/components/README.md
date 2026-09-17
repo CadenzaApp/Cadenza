@@ -90,7 +90,7 @@ variables), `tailwind.config.js`, and `global.css`. Class merging goes through
 | `options-menu/`             | The song, album, and playlist "..." menus, on liquid glass. See below.                                            |
 | `song-tag-editor.tsx`       | Tag editing for one song: applied state, values, mutations, and create-dialog state.                              |
 | `tag-pill.tsx`              | The solid app tag chip. Attribute tags keep their type icon through query negation and can show formatted values. |
-| `create-tag-dialog.tsx`     | Creates a tag with its name, color, and optional attribute type.                                                  |
+| `create-tag-dialog.tsx`     | Creates a tag with its name, color, and optional attribute type on the reliable glass `ModalPopup` path.          |
 | `tag-value-dialog.tsx`      | Liquid-glass per-type editor opened when an attribute tag is applied or edited.                                   |
 | `modal-popup.tsx`           | Small popup used by options, sorting, and selection actions. Liquid glass is the default.                         |
 | `tab-stack.tsx`             | The native stack each bottom tab nests for the shared `TopRail` header.                                           |
