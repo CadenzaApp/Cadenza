@@ -107,9 +107,9 @@ export function toggleConditionConnector(
     return conditions.map((condition, index) =>
         index > 0 && condition.id === conditionId
             ? {
-                  ...condition,
-                  connector: condition.connector === "and" ? "or" : "and",
-              }
+                ...condition,
+                connector: condition.connector === "and" ? "or" : "and",
+            }
             : condition,
     );
 }
@@ -118,6 +118,11 @@ export function conditionConnectorLabel(condition: QueryCondition): string {
     const connector = condition.connector.toUpperCase();
     const itemCount = condition.kind === "group" ? condition.members.length : 1;
     return itemCount === 1 ? `${connector} HAVE` : connector;
+}
+
+export function groupMemberConnectorLabel(mode: QueryGroupMode): string {
+    if (mode === "any") return "OR";
+    return mode === "none" ? "NOR" : "AND";
 }
 
 export function removeQueryTag(

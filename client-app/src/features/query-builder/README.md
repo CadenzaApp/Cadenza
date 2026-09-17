@@ -74,7 +74,7 @@ animate the indicator over 270 ms with an ease-in-out cubic curve to the chosen 
 horizontal slide snaps the indicator toward the segment nearest the touch point and produces the
 same haptic each time it crosses into a new segment, but commits the query mode only when the finger
 releases. Vertical movement remains available to the surrounding scroll view. `HAVE NONE`
-separates members with AND, like `HAVE ALL`. Top-level connector dividers use solid rounded controls and toggle between AND and OR when tapped; dividers before a
+separates members with NOR. Top-level connector dividers use solid rounded controls and toggle between AND and OR when tapped; dividers before a
 single-tag condition read `AND HAVE` or `OR HAVE`. Dragging the dedicated handle resizes the palette between 80 and 360
 pixels. The handle keeps its small visual indicator but uses a larger overlapping touch surface. At minimum height only the resize handle and heading/search row remain visible, providing a
 collapsed palette state. Its initial 208-pixel height increases by the visible mini-player inset so the player does

@@ -37,6 +37,7 @@ import { QueryTagPill } from "./QueryTagPill";
 import {
     conditionConnectorLabel,
     getConditionReorderPosition,
+    groupMemberConnectorLabel,
 } from "./QueryUtils";
 import type {
     DragPayload,
@@ -238,11 +239,11 @@ export function ConditionList({
     const reorderPosition =
         previewConditionDrag && dragState
             ? getConditionReorderPosition(
-                  conditions,
-                  previewConditionDrag.condition.id,
-                  dragState.y,
-                  conditionCenters,
-              )
+                conditions,
+                previewConditionDrag.condition.id,
+                dragState.y,
+                conditionCenters,
+            )
             : null;
     const reorderFinalIndex = reorderPosition?.finalIndex ?? null;
     const reorderInsertionIndex = reorderPosition?.insertionIndex ?? null;
@@ -252,8 +253,8 @@ export function ConditionList({
 
     const remainingConditions = previewConditionDrag
         ? conditions.filter(
-              (condition) => condition.id !== previewConditionDrag.condition.id,
-          )
+            (condition) => condition.id !== previewConditionDrag.condition.id,
+        )
         : [];
     const originalFinalIndex = previewConditionDrag
         ? Math.min(previewConditionDrag.originIndex, remainingConditions.length)
@@ -303,7 +304,7 @@ export function ConditionList({
                 conditions.length > 0 && "pb-14",
                 conditions.length === 0 && "items-center justify-center",
                 conditions.length === 0 &&
-                    "border border-dashed border-border bg-background",
+                "border border-dashed border-border bg-background",
             )}
             style={{ flexGrow: 1 }}
         >
@@ -326,7 +327,7 @@ export function ConditionList({
                             hidden={
                                 releaseConnectorIndex === index ||
                                 previewConditionDrag?.condition.id ===
-                                    condition.id ||
+                                condition.id ||
                                 collapsedConnectorIndex === index
                             }
                             visible={index > 0}
@@ -340,17 +341,17 @@ export function ConditionList({
                             collapsable={false}
                             layout={
                                 conditionDrag?.condition.id === condition.id ||
-                                settlingConditionId === condition.id
+                                    settlingConditionId === condition.id
                                     ? undefined
                                     : conditionLayoutAnimationsSuppressed
-                                      ? POSITION_ONLY_LAYOUT_TRANSITION
-                                      : CONDITION_LAYOUT_TRANSITION
+                                        ? POSITION_ONLY_LAYOUT_TRANSITION
+                                        : CONDITION_LAYOUT_TRANSITION
                             }
                             style={{
                                 zIndex:
                                     conditionDrag?.condition.id ===
                                         condition.id ||
-                                    settlingConditionId === condition.id
+                                        settlingConditionId === condition.id
                                         ? 1000
                                         : 0,
                             }}
@@ -385,8 +386,8 @@ export function ConditionList({
                                                     ? -previewConditionDrag.height
                                                     : movedFromOrigin &&
                                                         index > 0
-                                                      ? CONNECTOR_HEIGHT
-                                                      : 0
+                                                        ? CONNECTOR_HEIGHT
+                                                        : 0
                                                 : 0
                                         }
                                         onToggleConditionNegation={
@@ -586,9 +587,9 @@ function ReorderSpacer({
             settleImmediately
                 ? targetHeight
                 : withTiming(targetHeight, {
-                      duration: REORDER_DURATION,
-                      easing: SOFT_EASING,
-                  }),
+                    duration: REORDER_DURATION,
+                    easing: SOFT_EASING,
+                }),
         );
     }, [settleImmediately, spacerHeight, targetHeight]);
     const animatedStyle = useAnimatedStyle(() => ({
@@ -665,7 +666,7 @@ function ConditionCard({
                                 className="text-[10px] font-bold"
                                 style={{ color: theme.mutedForeground }}
                             >
-                                {group.mode === "any" ? "OR" : "AND"}
+                                {groupMemberConnectorLabel(group.mode)}
                             </Text>
                         ) : null}
                         <Animated.View
@@ -758,7 +759,7 @@ function ModeToggle({
                         (x -
                             MODE_CONTROL_HORIZONTAL_PADDING -
                             MODE_OPTION_WIDTH / 2) /
-                            MODE_OPTION_STEP,
+                        MODE_OPTION_STEP,
                     ),
                 ),
             );
@@ -962,12 +963,12 @@ function InsertionSlot({
     const baseHeight = collapse
         ? 0
         : previewVisible
-          ? CONNECTOR_HEIGHT
-          : visible
             ? CONNECTOR_HEIGHT
-            : expanded
-              ? 16
-              : 8;
+            : visible
+                ? CONNECTOR_HEIGHT
+                : expanded
+                    ? 16
+                    : 8;
     const slotHeight = useSharedValue(baseHeight);
     const connectorProgress = useSharedValue(0);
     const connectorNeedsSettling = useRef(false);
@@ -976,9 +977,9 @@ function InsertionSlot({
             settleImmediately
                 ? baseHeight
                 : withTiming(baseHeight, {
-                      duration: REORDER_DURATION,
-                      easing: SOFT_EASING,
-                  }),
+                    duration: REORDER_DURATION,
+                    easing: SOFT_EASING,
+                }),
         );
     }, [baseHeight, settleImmediately, slotHeight]);
     useEffect(() => {

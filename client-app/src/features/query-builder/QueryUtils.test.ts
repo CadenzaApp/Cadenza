@@ -7,6 +7,7 @@ import {
     appendTag,
     conditionConnectorLabel,
     getConditionReorderPosition,
+    groupMemberConnectorLabel,
     moveConditionToIndex,
     moveQueryTagToCondition,
     moveQueryTagToIndex,
@@ -214,6 +215,9 @@ test("toggles top-level connectors and labels the condition below", () => {
 
     assert.equal(conditionConnectorLabel(single), "AND HAVE");
     assert.equal(conditionConnectorLabel(group), "AND");
+    assert.equal(groupMemberConnectorLabel("any"), "OR");
+    assert.equal(groupMemberConnectorLabel("all"), "AND");
+    assert.equal(groupMemberConnectorLabel("none"), "NOR");
     const toggled = toggleConditionConnector(
         [queryTag("rainy", rainy), single],
         single.id,
