@@ -9,12 +9,12 @@ native module directly.
 | file                         | role                                                                                                                                                                                     |
 | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `backend.ts`                 | `BACKEND_URL`. One constant, currently hardcoded.                                                                                                                                        |
-| `api-actions.ts`             | The generic SWR wrappers: `useAPIData`, `useAPIPostDataBatched`, `useAPIFetch`, `useAPIMutation`.                                                                                        |
+| `api-actions.ts`             | The generic SWR wrappers: `useAPIData`, `useAPIPostData`, `useAPIPostDataBatched`, `useAPIFetch`, `useAPIMutation`.                                                                      |
 | `api-endpoints.ts`           | `matchesEndpoint`, the cache-key matcher behind invalidation. Import-free so it can be unit tested.                                                                                      |
 | `swr-utils.ts`               | `clearCache` and `useSimpleMutation`, for things that are not plain backend calls.                                                                                                       |
-| `routes/tags.ts`             | Hooks for `/tags`: `useUserTags`, `useTag`, `useCreateTag`, `useDeleteTag`, `useSuggestTags`.                                                                                            |
+| `routes/tags.ts`             | Hooks for `/tags`: `useUserTags`, `useTag`, `useCreateTag`, `useDeleteTag`, `useDefaultTags`, `useSuggestTags`.                                                                          |
 | `routes/songs.ts`            | Hooks for local and default tag reads (one song and batched), local tag writes, missing-default checks, and generation.                                                                  |
-| `routes/queries.ts`          | `useQueryResults`, the one cached hook for `/queries/results`. Both builders go through it.                                                                                              |
+| `routes/queries.ts`          | `useQueryResults`, the one cached hook for `/queries/results`. Both builders go through it, and it carries the suggested-tag flag.                                                       |
 | `musickit-hooks.ts`          | SWR over the native module: song info, catalog search, paged and complete-library songs, albums, artists, playlists, collection metadata, favorites, artist search, and playlist writes. |
 | `song-init.tsx`              | `SongInitProvider`, which runs the default-tag population job after account and Apple Music authorization.                                                                              |
 | `song-init-job.ts`           | Import-free, tested scan and generation job for songs without default tags.                                                                                                              |
@@ -50,7 +50,7 @@ Five, in `api-actions.ts`, and picking the right one is most of the work:
 | `useAPIData<Output>(path, params?)`                         | idempotent reads, fetch on mount                                       | `{ keyType: "api-data", path, params, accountId }`       |
 | `useAPIPostData<Body, Output>(path, body)`                  | one cached idempotent read with a large body                           | `{ keyType: "api-data", method, path, body, accountId }` |
 | `useAPIPostDataBatched<Item, Body, Out>(path, items, opts)` | an idempotent read whose payload is a list too long for a query string | `{ keyType: "api-data", path, items, accountId }`        |
-| `useAPIFetch<In, Out>(path)`                                | a GET you only want on demand (search, suggestions)                    | `path` string                                            |
+| `useAPIFetch<In, Out>(path)`                                | a one-shot GET fired by a user action, never on render                 | `path` string                                            |
 | `useAPIMutation<Body, Res>(method, path, invalidates?)`     | user-triggered writes                                                  | `[method, path, accountId]`                              |
 
 All five pull the JWT from `useAccount()` and send `Authorization: Bearer <jwt>`. All five
@@ -62,7 +62,11 @@ top of the `clearCache()` that already runs on every account change.
 
 `useAPIData` disables itself (passes a `null` key) if there is no account, or if **any** param
 value is null or undefined. That is how `useTag(undefined)` and `useTagsOnSong(undefined)` stay
-dormant until an id arrives.
+dormant until an id arrives. An empty string is a real value, so a blank search still fetches.
+
+`useAPIData` takes an optional third argument passed straight to SWR. `keepPreviousData` is the
+one that matters for a search-as-you-type read, where each keystroke is a new key and `data` would
+otherwise drop to undefined between responses. `useDefaultTags` is the caller.
 
 `useAPIPostDataBatched` exists for reads whose request is a list too long for a query string. It
 splits the list into parallel requests and merges the responses, but stays **one** `api-data`
@@ -102,6 +106,7 @@ One file per backend router, and every backend endpoint has at least one hook.
 | `routes/tags.rs`    | `GET /tags`                      | `tags.ts` -> `useUserTags()`, `useTag(tagId)`  |
 |                     | `POST /tags`                     | `tags.ts` -> `useCreateTag()`                  |
 |                     | `DELETE /tags`                   | `tags.ts` -> `useDeleteTag()`                  |
+|                     | `GET /tags/default-tags`         | `tags.ts` -> `useDefaultTags(search)`          |
 |                     | `GET /tags/suggest`              | `tags.ts` -> `useSuggestTags()`                |
 | `routes/songs.rs`   | `GET /songs/local-tags`          | `songs.ts` -> `useTagsOnSong(songId)`          |
 |                     | `POST /songs/local-tags/batch`   | `songs.ts` -> `useTagsOnSongs(songIds)`        |
@@ -336,6 +341,10 @@ model returned no tags are retried on the next run.
   metro restart with `--clear`, not just a refresh.
 - `useAPIFetch` uses the bare `path` as its SWR key, so two `useAPIFetch` hooks on the same path
   share a mutation key. `useAPIMutation` keys on `[method, path, accountId]`, so it does not.
+- `useAPIFetch` does not populate the cache, so it repeats a request it has already made. A live
+  search field belongs on `useAPIData` with the search text in the params and `keepPreviousData`,
+  which caches per search. `useAPIFetch` is for a one-shot the user asks for, like `useSuggestTags`
+  spending an OpenAI call.
 - Tags key on `catalogId ?? id`, not the library id, everywhere a song id crosses into the
   backend. Library ids differ per user for the same song; catalog ids do not.
 - The default-tag job spends OpenAI calls. A song for which the model returns no tags is retried

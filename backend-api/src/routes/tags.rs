@@ -125,6 +125,36 @@ async fn get_songs_with_user_tag_handler(
     ))
 }
 
+/// How many default tags one search returns at most.
+const DEFAULT_TAG_SEARCH_LIMIT: u64 = 5;
+
+#[derive(Deserialize)]
+struct DefaultTagSearchParams {
+    /// A blank search, or none at all, matches every default tag.
+    #[serde(default)]
+    search: String,
+}
+
+/// Returns up to 5 default tags whose names contain `search`, ignoring case. A
+/// blank search still returns 5 tags.
+///
+/// These are the shared default tags (`user_id IS NULL`), not the caller's own,
+/// so two users searching the same text get the same tags back.
+///
+/// JSON return value format:
+/// ```json
+/// [ { "id": 3, "name": "chill", "color": "#7c3aed", "type": "basic" }, ... ]
+/// ```
+async fn search_default_tags_handler(
+    State(db): State<DatabaseConnection>,
+    _: Claims<SupabaseClaims>, // must have credentials to use this route
+    Query(params): Query<DefaultTagSearchParams>,
+) -> Result<Json<Vec<Tag>>, CadenzaError> {
+    Ok(Json(vec_into(
+        db::tags::search_default_tags(&db, &params.search, DEFAULT_TAG_SEARCH_LIMIT).await?,
+    )))
+}
+
 #[derive(Deserialize)]
 struct TagSuggestionQueryParams {
     song_desc: String,
@@ -151,5 +181,6 @@ pub fn get_tags_router() -> Router<AppState> {
         .route("/", get(get_user_tags_handler))
         .route("/", post(new_user_tag_handler))
         .route("/", delete(delete_user_tag_handler))
+        .route("/default-tags", get(search_default_tags_handler))
         .route("/suggest", get(suggest_tags_handler))
 }

@@ -3,8 +3,8 @@ use std::collections::{HashMap, HashSet};
 use chrono::{DateTime, NaiveDate, Utc};
 use sea_orm::prelude::Uuid;
 use sea_orm::{
-    ColumnTrait, DatabaseConnection, DbBackend, EntityTrait, FromQueryResult, QueryFilter,
-    Statement,
+    ColumnTrait, Condition, DatabaseConnection, DbBackend, EntityTrait, FromQueryResult,
+    QueryFilter, Statement,
 };
 
 use crate::db::entity::sea_orm_active_enums::TagType;
@@ -28,13 +28,19 @@ struct SongTagPair {
 ///
 /// With `candidate_song_ids` the query runs over exactly those songs, so a song
 /// carrying no tags at all can still satisfy a negative filter. Without them it
-/// runs over the songs that already carry one of the user's tags, and a song
-/// with no tag rows can never come back.
+/// runs over the songs that already carry a tag, and a song with no tag rows can
+/// never come back.
+///
+/// With `consider_default_tags` a song's shared default tags count as tags on it
+/// too, both for matching and for ranking, and the query may name a default tag
+/// id. Otherwise only the user's own tags exist as far as the query is
+/// concerned.
 pub async fn run_query(
     db: &DatabaseConnection,
     query: &Query,
     user_id: Uuid,
     candidate_song_ids: Option<&[String]>,
+    consider_default_tags: bool,
 ) -> Result<Vec<String>, CadenzaError> {
     if candidate_song_ids.is_some_and(|song_ids| song_ids.is_empty()) {
         return Ok(Vec::new());
@@ -44,9 +50,15 @@ pub async fn run_query(
 
     let mut tag_ids = HashSet::new();
     collect_tag_ids(&query.root, &mut tag_ids);
-    let tag_types = get_owned_tag_types(db, user_id, &tag_ids).await?;
+    let tag_types = get_queryable_tag_types(db, user_id, &tag_ids, consider_default_tags).await?;
 
-    let (sql, values) = compile_query(query, &tag_types, user_id, candidate_song_ids)?;
+    let (sql, values) = compile_query(
+        query,
+        &tag_types,
+        user_id,
+        candidate_song_ids,
+        consider_default_tags,
+    )?;
 
     let song_tag_pairs = SongTagPair::find_by_statement(Statement::from_sql_and_values(
         DbBackend::Postgres,
@@ -91,18 +103,27 @@ fn rank_songs(song_tag_pairs: Vec<SongTagPair>, mentioned_tags: &HashSet<i64>) -
 
 /// Looks up the type of every tag the query mentions. A tag that does not exist
 /// or belongs to someone else is a `QueryFormatError`.
-async fn get_owned_tag_types(
+///
+/// With `consider_default_tags` a shared default tag (`user_id IS NULL`) is
+/// queryable as well, so the query may name one.
+async fn get_queryable_tag_types(
     db: &DatabaseConnection,
     user_id: Uuid,
     tag_ids: &HashSet<i64>,
+    consider_default_tags: bool,
 ) -> Result<HashMap<i64, TagType>, CadenzaError> {
     if tag_ids.is_empty() {
         return Ok(HashMap::new());
     }
 
+    let mut owned_by_caller = Condition::any().add(tags::Column::UserId.eq(user_id));
+    if consider_default_tags {
+        owned_by_caller = owned_by_caller.add(tags::Column::UserId.is_null());
+    }
+
     let tag_types: HashMap<i64, TagType> = tags::Entity::find()
         .filter(tags::Column::TagId.is_in(tag_ids.iter().copied()))
-        .filter(tags::Column::UserId.eq(user_id))
+        .filter(owned_by_caller)
         .all(db)
         .await?
         .into_iter()
@@ -162,6 +183,30 @@ fn collect_tag_ids(node: &QueryNode, out: &mut HashSet<i64>) {
     }
 }
 
+/// The rows that count as tags on a song, as a `FROM` item. Every part of the
+/// statement reads its tags through this, so the caller's choice about default
+/// tags is made in exactly one place.
+///
+/// Both branches expose the same `(song_id, tag_id, value)` shape. A default tag
+/// has no value column to read, so it comes through as null, which is what makes
+/// it behave like an attribute tag applied without a value.
+///
+/// This is a subquery rather than a CTE on purpose: postgres pushes the
+/// correlated `song_id` down into each `UNION ALL` branch, so the per-filter
+/// lookups still use the song id indexes. A materialized CTE would be scanned
+/// once per song instead.
+fn applied_tags_source(consider_default_tags: bool) -> &'static str {
+    if consider_default_tags {
+        "(
+            SELECT song_id, tag_id, value FROM user_tags_applied WHERE user_id=$1
+            UNION ALL
+            SELECT song_id, tag_id, NULL::text AS value FROM default_tags_applied
+        )"
+    } else {
+        "(SELECT song_id, tag_id, value FROM user_tags_applied WHERE user_id=$1)"
+    }
+}
+
 /// Converts the query to a full SQL statement and its values. `tag_types` must
 /// hold the type of every tag id the query mentions.
 ///
@@ -179,13 +224,19 @@ fn compile_query(
     tag_types: &HashMap<i64, TagType>,
     user_id: Uuid,
     candidate_song_ids: Option<&[String]>,
+    consider_default_tags: bool,
 ) -> Result<(String, Vec<sea_query::Value>), CadenzaError> {
     let mut values = vec![sea_query::Value::Uuid(Some(user_id))];
     if let Some(song_ids) = candidate_song_ids {
         values.push(song_ids.to_vec().into());
     }
 
-    let mut compiler = Compiler { tag_types, values };
+    let applied_tags = applied_tags_source(consider_default_tags);
+    let mut compiler = Compiler {
+        tag_types,
+        values,
+        applied_tags,
+    };
     let where_clause = compiler.node(&query.root)?;
 
     let sql = if candidate_song_ids.is_some() {
@@ -193,9 +244,8 @@ fn compile_query(
             r#"
                 SELECT query_songs.song_id, applied_tags.tag_id
                 FROM unnest($2::text[]) AS query_songs(song_id)
-                LEFT JOIN user_tags_applied AS applied_tags
+                LEFT JOIN {applied_tags} AS applied_tags
                     ON applied_tags.song_id=query_songs.song_id
-                    AND applied_tags.user_id=$1
                 WHERE {where_clause}
             "#
         )
@@ -203,8 +253,8 @@ fn compile_query(
         format!(
             r#"
                 SELECT query_songs.song_id, query_songs.tag_id
-                FROM user_tags_applied AS query_songs
-                WHERE query_songs.user_id=$1 AND {where_clause}
+                FROM {applied_tags} AS query_songs
+                WHERE {where_clause}
             "#
         )
     };
@@ -217,6 +267,8 @@ struct Compiler<'a> {
     /// `$1` is always the user id, and `$2` the candidate song ids when the
     /// caller supplied any.
     values: Vec<sea_query::Value>,
+    /// The `FROM` item every filter reads its tags through.
+    applied_tags: &'static str,
 }
 
 /// How a filter's operator relates to the song's applied tags.
@@ -268,7 +320,7 @@ impl Compiler<'_> {
             Filter::TagName { op, value } => {
                 let matched =
                     self.text_match("filter_tag.name", *op, value, "filter_tag.name <> ''")?;
-                Ok(joined_exists(matched))
+                Ok(joined_exists(self.applied_tags, matched))
             }
             Filter::TagValue { op, value } => {
                 let matched = self.text_match(
@@ -277,14 +329,14 @@ impl Compiler<'_> {
                     value,
                     "filter_check.value IS NOT NULL",
                 )?;
-                Ok(joined_exists(matched))
+                Ok(joined_exists(self.applied_tags, matched))
             }
             Filter::TagType { op, value } => {
                 let tag_type = self.bind(tag_type_name(*value));
                 let condition = format!("filter_tag.type::text = {}", tag_type);
                 match op {
-                    FilterOp::Is => Ok(joined_exists(Match::Any(condition))),
-                    FilterOp::IsNot => Ok(joined_exists(Match::None(condition))),
+                    FilterOp::Is => Ok(joined_exists(self.applied_tags, Match::Any(condition))),
+                    FilterOp::IsNot => Ok(joined_exists(self.applied_tags, Match::None(condition))),
                     _ => Err(unsupported_op(*op, "the tag type")),
                 }
             }
@@ -414,7 +466,7 @@ impl Compiler<'_> {
             } else {
                 Match::None("TRUE".to_string())
             };
-            return Ok(tag_exists(&tag_param, false, matched));
+            return Ok(tag_exists(self.applied_tags, &tag_param, false, matched));
         }
 
         let matched = match tag_type {
@@ -474,7 +526,7 @@ impl Compiler<'_> {
             }
         };
 
-        Ok(tag_exists(&tag_param, true, matched))
+        Ok(tag_exists(self.applied_tags, &tag_param, true, matched))
     }
 }
 
@@ -484,7 +536,7 @@ impl Compiler<'_> {
 /// It sits inside a `CASE` because postgres does not promise to check the
 /// other `WHERE` terms first, and a cast like `value::double precision` would
 /// fail on another tag's text value. Without it, any application counts.
-fn tag_exists(tag_param: &str, on_value: bool, matched: Match) -> String {
+fn tag_exists(applied_tags: &str, tag_param: &str, on_value: bool, matched: Match) -> String {
     let (negate, condition) = match matched {
         Match::Any(condition) => ("", condition),
         Match::None(condition) => ("NOT ", condition),
@@ -501,8 +553,8 @@ fn tag_exists(tag_param: &str, on_value: bool, matched: Match) -> String {
     format!(
         r#"
             {negate}EXISTS (
-                SELECT 1 FROM user_tags_applied AS filter_check
-                WHERE filter_check.song_id=query_songs.song_id AND filter_check.user_id=$1 AND filter_check.tag_id={tag_param} AND {condition}
+                SELECT 1 FROM {applied_tags} AS filter_check
+                WHERE filter_check.song_id=query_songs.song_id AND filter_check.tag_id={tag_param} AND {condition}
             )
         "#
     )
@@ -510,7 +562,7 @@ fn tag_exists(tag_param: &str, on_value: bool, matched: Match) -> String {
 
 /// `EXISTS` over every tag applied to the song, joined to the tag itself, for
 /// filters on tag names, values and types.
-fn joined_exists(matched: Match) -> String {
+fn joined_exists(applied_tags: &str, matched: Match) -> String {
     let (negate, condition) = match matched {
         Match::Any(condition) => ("", condition),
         Match::None(condition) => ("NOT ", condition),
@@ -519,9 +571,9 @@ fn joined_exists(matched: Match) -> String {
     format!(
         r#"
             {negate}EXISTS (
-                SELECT 1 FROM user_tags_applied AS filter_check
+                SELECT 1 FROM {applied_tags} AS filter_check
                 JOIN tags AS filter_tag ON filter_tag.tag_id=filter_check.tag_id
-                WHERE filter_check.song_id=query_songs.song_id AND filter_check.user_id=$1 AND {condition}
+                WHERE filter_check.song_id=query_songs.song_id AND {condition}
             )
         "#
     )
@@ -621,14 +673,24 @@ mod tests {
     }
 
     fn compile(json: &str) -> Result<(String, Vec<sea_query::Value>), CadenzaError> {
-        compile_query(&parse(json), &tag_types(), Uuid::nil(), None)
+        compile_query(&parse(json), &tag_types(), Uuid::nil(), None, false)
     }
 
     fn compile_over(
         json: &str,
         candidates: &[String],
     ) -> Result<(String, Vec<sea_query::Value>), CadenzaError> {
-        compile_query(&parse(json), &tag_types(), Uuid::nil(), Some(candidates))
+        compile_query(
+            &parse(json),
+            &tag_types(),
+            Uuid::nil(),
+            Some(candidates),
+            false,
+        )
+    }
+
+    fn compile_with_defaults(json: &str) -> Result<(String, Vec<sea_query::Value>), CadenzaError> {
+        compile_query(&parse(json), &tag_types(), Uuid::nil(), None, true)
     }
 
     fn pair(song_id: &str, tag_id: Option<i64>) -> SongTagPair {
@@ -685,16 +747,16 @@ mod tests {
     #[test]
     fn user_id_is_always_the_first_param() {
         let (sql, values) = compile(r#"{ "where": { "and": [] } }"#).unwrap();
-        assert!(sql.contains("query_songs.user_id=$1 AND TRUE"));
+        assert!(sql.contains("WHERE user_id=$1"), "{sql}");
         assert_eq!(values, vec![sea_query::Value::Uuid(Some(Uuid::nil()))]);
     }
 
     #[test]
     fn empty_groups_are_true_for_and_and_false_for_or() {
         let (sql, _) = compile(r#"{ "where": { "or": [] } }"#).unwrap();
-        assert!(sql.contains("AND FALSE"));
+        assert!(sql.contains("WHERE FALSE"), "{sql}");
         let (sql, _) = compile(r#"{ "where": { "not": { "or": [] } } }"#).unwrap();
-        assert!(sql.contains("AND NOT (FALSE)"));
+        assert!(sql.contains("WHERE NOT (FALSE)"), "{sql}");
     }
 
     #[test]
@@ -896,7 +958,11 @@ mod tests {
         .unwrap();
 
         assert!(sql.contains("FROM unnest($2::text[]) AS query_songs(song_id)"));
-        assert!(sql.contains("LEFT JOIN user_tags_applied AS applied_tags"));
+        assert!(sql.contains("AS applied_tags"), "{sql}");
+        assert!(
+            sql.contains("FROM user_tags_applied WHERE user_id=$1"),
+            "{sql}"
+        );
         assert!(sql.contains("NOT EXISTS"));
         // $1 is the user id and $2 the candidates, so the first tag lands on $3.
         assert!(sql.contains("filter_check.tag_id=$3"));
@@ -913,10 +979,53 @@ mod tests {
         )
         .unwrap();
 
-        assert!(sql.contains("FROM user_tags_applied AS query_songs"));
+        assert!(sql.contains("AS query_songs"), "{sql}");
         assert!(sql.contains("filter_check.tag_id=$2"));
         assert!(sql.contains("filter_check.tag_id=$3"));
         assert_eq!(values.len(), 3);
+    }
+
+    /// The flag decides what a tag on a song is, so it has to reach the outer
+    /// row source, the candidate join, and every filter subquery alike. Missing
+    /// one would silently match on user tags while ranking on both, or worse.
+    #[test]
+    fn default_tags_join_the_row_source_everywhere_or_nowhere() {
+        let query = r#"{ "where": { "and": [
+            { "filter": { "field": "tag", "tag_id": 1, "op": "is_applied" } },
+            { "filter": { "field": "tag_name", "op": "contains", "value": "live" } }
+        ] } }"#;
+
+        let (without, _) = compile(query).unwrap();
+        assert!(!without.contains("default_tags_applied"), "{without}");
+
+        let (with, _) = compile_with_defaults(query).unwrap();
+        // The outer row source, plus one per filter subquery.
+        assert_eq!(
+            with.matches("FROM default_tags_applied").count(),
+            3,
+            "{with}"
+        );
+        assert_eq!(with.matches("NULL::text AS value").count(), 3, "{with}");
+        // The user's own tags are still in there, never replaced.
+        assert_eq!(
+            with.matches("FROM user_tags_applied WHERE user_id=$1")
+                .count(),
+            3,
+            "{with}"
+        );
+    }
+
+    #[test]
+    fn a_default_tag_carries_no_value() {
+        let (sql, _) = compile_with_defaults(&filter(
+            r#"{ "field": "tag", "tag_id": 2, "op": "is_empty" }"#,
+        ))
+        .unwrap();
+
+        // is_empty is NOT EXISTS of a present value, and a default tag's value
+        // is always null, so a song holding only the default matches it.
+        assert!(sql.contains("NOT EXISTS"), "{sql}");
+        assert!(sql.contains("NULL::text AS value"), "{sql}");
     }
 
     #[test]

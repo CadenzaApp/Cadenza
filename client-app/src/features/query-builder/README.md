@@ -11,14 +11,14 @@ connectors attached to visual boundaries instead of moving them with condition c
 
 | file                 | role                                                                        |
 | -------------------- | --------------------------------------------------------------------------- |
-| `types.ts`           | Condition, group, tag-instance, drag, and drop types.                       |
+| `types.ts`           | Condition, group, tag-instance (with `suggested`), drag, and drop types.    |
 | `QueryUtils.ts`      | Pure condition edits, group collapse, derived labels, and JSON compilation. |
 | `QueryUtils.test.ts` | Reducer invariants and wire-format tests.                                   |
 | `QueryBuilder.tsx`   | Composes the suggested-tag switch, simple workspace, and tag palette.       |
 | `ResultsSummary.tsx` | Shared live count and compact-inset tagged preview used by both builders.   |
 | `ConditionList.tsx`  | Single conditions, groups, connectors, mode toggles, and insertion targets. |
-| `QueryTagPill.tsx`   | Palette and query pill states, including the NOT indicator.                 |
-| `TagPalette.tsx`     | Searchable tag palette and query-tag delete target.                         |
+| `QueryTagPill.tsx`   | Palette, suggested, and query pill states, including the NOT indicator.     |
+| `TagPalette.tsx`     | Searchable tag palette, suggested-tag section, and query-tag delete target. |
 | `DragContext.tsx`    | Drag state, measured drop-zone registry, and hit testing.                   |
 | `DraggablePill.tsx`  | Thresholded tag pans and long-press-activated group pans.                   |
 | `DropSlot.tsx`       | Registers and highlights a typed drop target.                               |
@@ -28,7 +28,9 @@ connectors attached to visual boundaries instead of moving them with condition c
 ## The model
 
 `QueryCondition[]` preserves the user's top-level order. Each appearance of a tag has a session
-ID and its own `negated` value. The same tag can appear in separate conditions, but a group rejects
+ID, its own `negated` value, and a `suggested` flag recording whether it was dragged out of the
+suggested-tag section rather than `Your tags`. The flag survives grouping, extraction, and
+reordering, because those rewrite a tag rather than rebuild it. The same tag can appear in separate conditions, but a group rejects
 duplicate tag IDs. A group has `mode: "any"|"all"` and an ordered `members` array. Helpers never leave a one-member group: removing or extracting
 a member immediately replaces that group with its remaining tag.
 
@@ -44,8 +46,24 @@ fetch.
 ## Interaction flow
 
 A glass `Include suggested tags` switch sits above the query heading, at the top of the builder.
-It is a placeholder: `CadenzaScreen` owns its state so it survives mode and tab switches, but
-nothing reads it yet, so flipping it does not change the compiled query or the results.
+`CadenzaScreen` owns its state, so it survives mode and tab switches. Turning it on reveals a
+`Suggested tags` section in the palette, beneath `Your tags`. The section has its own search field
+and its own heading row, laid out like the one above it, and holds up to five shared default tags
+from `GET /tags/default-tags`, most used first. A blank search still fills it.
+
+The toggle also sets `consider_default_tags` on the results request, so with it on a song's shared
+default tags count as tags on it for both matching and ranking. That flag is what makes a suggested
+tag in the query resolve at all, so the toggle both supplies the tags and licenses them.
+
+Suggested tags use `TagPill`'s `inverted` state in the palette, so they read as tag-colored content
+and outline on the screen color rather than a filled pill. They drag into the query exactly like
+the user's own tags, and once in the query they are drawn identically to them: nothing on the pill
+says a tag came from the suggested section. The distinction is tracked in state, not shown.
+
+Turning the toggle off while the query holds a suggested tag clears the whole query.
+`CadenzaScreen` owns that, through `hasSuggestedTag`. Leaving the tag in place would send a query
+naming a default tag id without `consider_default_tags`, which the backend rejects as an unknown
+tag, so the same visible query would start returning nothing.
 
 Palette tags are drag-only and can be dropped on an insertion point. The blank workspace all
 the way down to the palette is also an append target. A reserved bottom inset keeps some of this
@@ -162,10 +180,11 @@ renders the same full-screen hero. See
 - `src/features/cadenza/CadenzaScreen.tsx` for session state, the suggested-tag switch value, and
   full-library result wiring.
 - `@/lib/routes/queries::useQueryResults` for live candidate-based query evaluation.
+- `@/lib/routes/tags::useDefaultTags` for the suggested-tag section.
 - `@/lib/musickit-hooks::useAllTracksFromLibrary` for the complete library candidate set.
 - `@/components/custom/music-list` for preview and full results.
-- Backend `POST /queries/results` for correct NOT behavior on completely untagged songs. The
-  wire types are in `@/lib/query-json`.
+- Backend `POST /queries/results` for correct NOT behavior on completely untagged songs, and for
+  `consider_default_tags`. The wire types are in `@/lib/query-json`.
 
 ## Gotchas
 
@@ -176,8 +195,16 @@ renders the same full-screen hero. See
   missing-navigation-context error; use an inline style for a stateful visual instead.
 - The backend accepts at most 50,000 candidate song IDs in one query request.
 - A disconnected Apple Music account can edit a query, but cannot produce library results.
-- `Include suggested tags` does nothing yet. Wire it into `queryToJSON` and the results request
-  before describing it as working.
+- Turning `Include suggested tags` off clears the query if it holds a suggested tag. It is the only
+  thing in the builder that discards work without a drag, so it is worth knowing before changing
+  the toggle's wiring.
+- A suggested tag in the query looks exactly like a user tag, so nothing on screen explains that
+  clearing. Giving `QueryTag.suggested` a visual state is the obvious follow-up; the flag is
+  already there to render from.
+- A suggested tag and a user tag can never collide on id, so group deduplication treats them as the
+  distinct tags they are.
+- Both search fields in the palette are independent. The `Your tags` one filters the already
+  loaded list on the client; the `Suggested tags` one is a backend request per keystroke.
 
 ---
 

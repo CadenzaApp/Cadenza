@@ -48,7 +48,7 @@ type Props = {
     conditions: QueryCondition[];
     setConditions: Dispatch<SetStateAction<QueryCondition[]>>;
     includeSuggestedTags: boolean;
-    setIncludeSuggestedTags: Dispatch<SetStateAction<boolean>>;
+    onIncludeSuggestedTagsChange: (value: boolean) => void;
 };
 const DEFAULT_PALETTE_HEIGHT = 208;
 
@@ -57,7 +57,7 @@ export function QueryBuilder({
     conditions,
     setConditions,
     includeSuggestedTags,
-    setIncludeSuggestedTags,
+    onIncludeSuggestedTagsChange,
 }: Props) {
     const { compactPlayerVisible, playerBottomInset } =
         useScreenOverlayInsets();
@@ -106,13 +106,19 @@ export function QueryBuilder({
                             current,
                             payload.tag,
                             target.conditionId,
+                            payload.suggested,
                         );
                     }
                     if (target.kind === "insert") {
-                        return insertTag(current, payload.tag, target.index);
+                        return insertTag(
+                            current,
+                            payload.tag,
+                            target.index,
+                            payload.suggested,
+                        );
                     }
                     if (target.kind === "query-end") {
-                        return appendTag(current, payload.tag);
+                        return appendTag(current, payload.tag, payload.suggested);
                     }
                     return current;
                 }
@@ -178,7 +184,7 @@ export function QueryBuilder({
                         </Text>
                         <GlassToggle
                             value={includeSuggestedTags}
-                            onValueChange={setIncludeSuggestedTags}
+                            onValueChange={onIncludeSuggestedTagsChange}
                             accessibilityLabel="Include suggested tags"
                         />
                     </View>
@@ -222,6 +228,7 @@ export function QueryBuilder({
                     tags={tags}
                     height={paletteHeight}
                     onHeightChange={handlePaletteHeightChange}
+                    includeSuggestedTags={includeSuggestedTags}
                 />
             </KeyboardAvoidingView>
             <DragGhost />

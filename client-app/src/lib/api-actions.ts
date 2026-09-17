@@ -61,7 +61,18 @@ export function useAPIMutation<RequestBody, Response>(
     );
 }
 
-export function useAPIData<Output>(path: string, params?: Record<string, any>) {
+/**
+ * Cached idempotent read.
+ *
+ * `options` is passed through to SWR. `keepPreviousData` is the useful one for
+ * a search-as-you-type key, which otherwise drops to undefined on every
+ * keystroke.
+ */
+export function useAPIData<Output>(
+    path: string,
+    params?: Record<string, any>,
+    options?: { keepPreviousData?: boolean },
+) {
     const { account } = useAccount();
 
     // disable this query if any param value is null/undefined
@@ -90,6 +101,7 @@ export function useAPIData<Output>(path: string, params?: Record<string, any>) {
 
             return json as Output;
         },
+        options,
     );
 }
 

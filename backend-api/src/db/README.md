@@ -8,7 +8,7 @@ The data access layer. Everything that touches postgres lives here, so handlers 
 | file | role |
 | --- | --- |
 | `mod.rs` | Declares `entity`, `queries`, `tag_votes`, `tags`. |
-| `tags.rs` | User tag CRUD and applied values, plus reading, generating, and applying default tags. User tag reads never copy or return defaults. |
+| `tags.rs` | User tag CRUD and applied values, plus searching, reading, generating, and applying default tags. User tag reads never copy or return defaults. |
 | `tag_votes.rs` | Counts user apply/unapply votes in `default_tag_votes` and promotes popular names to default tags. Holds the in-memory recent-vote cache. |
 | `queries.rs` | Compiles a tag query to SQL, runs it, and ranks the matches. Unit tested. |
 | `entity/` | sea-orm-codegen output. Includes tag, default-tag, and comment tables, plus `prelude` and `mod`. Do not hand edit. |
@@ -33,7 +33,15 @@ The tag tables are keyed on song ids that come from Apple Music.
 ## Default tags and votes
 
 Default tags remain separate from user tags. They are never copied into `tags` or
-`user_tags_applied`, and user tag reads and boolean queries do not include them.
+`user_tags_applied`, and user tag reads do not include them. A query includes them only when the
+caller passes `consider_default_tags`.
+
+`search_default_tags` searches the default tag pool itself rather than what is applied to a song:
+it matches `tags` rows with a null `user_id` by name, capped by the caller. Results come back by
+popularity, meaning how many `default_tags_applied` rows the tag has, most first, with name then
+tag id breaking ties. That is a left join and a `GROUP BY tags.tag_id`, so a default tag applied to
+no songs still comes back, last. It uses `strpos` rather than `LIKE`, so `%` and `_` typed into a
+search box stay literal, same as the query compiler.
 
 `get_songs_without_default_tags` returns requested song ids with no row in
 `default_tags_applied`. `/songs/no-default-tags` uses it to tell the client which songs need
@@ -48,22 +56,32 @@ vote moves a count rather than adding another one. The cache is process-local an
 ## The query compiler
 
 `queries.rs::run_query` is the interesting part. It takes the typed `Query` from
-`routes/json/query.rs` (see [../routes/README.md](../routes/README.md) for the JSON) plus an
-optional list of candidate song ids, and returns matching song ids most relevant first. There is
-one compiler; the drag and drop builder just sends a query built only from `is_applied` and
-`is_not_applied` tag filters.
+`routes/json/query.rs` (see [../routes/README.md](../routes/README.md) for the JSON), an optional
+list of candidate song ids, and a `consider_default_tags` flag, and returns matching song ids most
+relevant first. There is one compiler; the drag and drop builder just sends a query built only
+from `is_applied` and `is_not_applied` tag filters.
 
 Before compiling it checks the tree size (`MAX_NODES` 200, `MAX_DEPTH` 20), then looks up the type
-of every tag id the query mentions (user scoped, so another user's tag or a deleted one is a
-`QueryFormatError`).
+of every tag id the query mentions. `get_queryable_tag_types` is user scoped, so another user's tag
+or a deleted one is a `QueryFormatError`; with `consider_default_tags` a shared default tag is
+queryable as well.
+
+`applied_tags_source` is the single definition of what counts as a tag on a song, and every part
+of the statement reads through it: the outer row source, the candidate left join, and each filter
+subquery. Without the flag it is the user's own applied tags. With it, those `UNION ALL` the rows
+in `default_tags_applied`, whose `value` comes through as `NULL::text` because that table has no
+value column. So a default tag behaves exactly like an attribute tag applied without a value, and
+`is_empty` matches a song that carries only the default. It is a subquery rather than a CTE so
+postgres can push the correlated song id down into both branches and keep using the song id
+indexes.
 
 `compile_query` is pure and emits `(song id, tag id)` pairs in one of two shapes. Without
 candidates it evaluates over songs that already have user tag rows:
 
 ```sql
 SELECT query_songs.song_id, query_songs.tag_id
-FROM user_tags_applied AS query_songs
-WHERE query_songs.user_id=$1 AND <compiled where clause>
+FROM <applied tags source> AS query_songs
+WHERE <compiled where clause>
 ```
 
 With candidates it starts from `unnest($2::text[])` and left joins the user's tag rows for
@@ -72,8 +90,8 @@ scoring, which is what lets a library song with no tag rows satisfy a negative f
 ```sql
 SELECT query_songs.song_id, applied_tags.tag_id
 FROM unnest($2::text[]) AS query_songs(song_id)
-LEFT JOIN user_tags_applied AS applied_tags
-    ON applied_tags.song_id=query_songs.song_id AND applied_tags.user_id=$1
+LEFT JOIN <applied tags source> AS applied_tags
+    ON applied_tags.song_id=query_songs.song_id
 WHERE <compiled where clause>
 ```
 
@@ -82,9 +100,10 @@ the same in both.
 
 - `and` / `or` join children, and an empty one is `TRUE` / `FALSE`. `not` wraps `NOT (...)`
   directly; there is no De Morgan pass here.
-- Every filter is one correlated `EXISTS` or `NOT EXISTS`. A tag filter looks at that tag's
-  application on the song; `tag_name`, `tag_value` and `tag_type` look at every applied tag,
-  joined to `tags`.
+- Every filter is one correlated `EXISTS` or `NOT EXISTS` over the applied tags source. A tag
+  filter looks at that tag's application on the song; `tag_name`, `tag_value` and `tag_type` look
+  at every applied tag, joined to `tags`. The user id lives inside the source, not in each
+  subquery's `WHERE`.
 - A missing tag counts as empty. So positive operators (`is`, `contains`, `before`, `gt`,
   `is_true`, `is_not_empty`, ...) are `EXISTS` a matching value, and negative ones (`is_not`,
   `not_on`, `ne`, `is_empty`, `is_null`, `is_not_applied`) are `NOT EXISTS` of the positive

@@ -10,7 +10,10 @@ import {
 } from "@/features/advanced-query-builder/AdvancedQueryUtils";
 import type { AdvancedGroupNode } from "@/features/advanced-query-builder/types";
 import { QueryBuilder } from "@/features/query-builder/QueryBuilder";
-import { queryToJSON } from "@/features/query-builder/QueryUtils";
+import {
+    hasSuggestedTag,
+    queryToJSON,
+} from "@/features/query-builder/QueryUtils";
 import { ResultsSummary } from "@/features/query-builder/ResultsSummary";
 import type { QueryCondition } from "@/features/query-builder/types";
 import { useAllTracksFromLibrary } from "@/lib/musickit-hooks";
@@ -63,7 +66,18 @@ export function CadenzaScreen() {
             isLibraryConnected &&
                 !allLibraryTracksLoading &&
                 !allLibraryTracksErr,
+            includeSuggestedTags,
         );
+    // A suggested tag only matches while the request carries
+    // consider_default_tags, so leaving one in the query after the toggle goes
+    // off would quietly change what the same query returns. Clear it instead.
+    const handleIncludeSuggestedTags = useCallback((next: boolean) => {
+        setIncludeSuggestedTags(next);
+        if (next) return;
+        setConditions((current) =>
+            hasSuggestedTag(current) ? [] : current,
+        );
+    }, []);
     const setAdvancedRoot = useCallback(
         (update: (root: AdvancedGroupNode) => AdvancedGroupNode) => {
             setAdvancedRootState(update);
@@ -120,7 +134,10 @@ export function CadenzaScreen() {
                     if (!query) return;
                     router.push({
                         pathname: "/query-results",
-                        params: { query: JSON.stringify(query) },
+                        params: {
+                            query: JSON.stringify(query),
+                            suggested: includeSuggestedTags ? "1" : "",
+                        },
                     });
                 }}
             />
@@ -130,7 +147,7 @@ export function CadenzaScreen() {
                     conditions={conditions}
                     setConditions={setConditions}
                     includeSuggestedTags={includeSuggestedTags}
-                    setIncludeSuggestedTags={setIncludeSuggestedTags}
+                    onIncludeSuggestedTagsChange={handleIncludeSuggestedTags}
                 />
             ) : (
                 <AdvancedQueryBuilder

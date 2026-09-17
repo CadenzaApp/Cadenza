@@ -19,6 +19,7 @@ export function makeQueryId(prefix: "tag" | "group" | "condition"): string {
 export function makeQueryTag(
     tag: Tag,
     connector: QueryConnector = "and",
+    suggested = false,
 ): QueryTag {
     return {
         kind: "tag",
@@ -26,6 +27,7 @@ export function makeQueryTag(
         layoutId: makeQueryId("condition"),
         tag,
         negated: false,
+        suggested,
         connector,
     };
 }
@@ -33,10 +35,15 @@ export function makeQueryTag(
 export function appendTag(
     conditions: readonly QueryCondition[],
     tag: Tag,
+    suggested = false,
 ): QueryCondition[] {
     return [
         ...conditions,
-        makeQueryTag(tag, connectorForInsertion(conditions, conditions.length)),
+        makeQueryTag(
+            tag,
+            connectorForInsertion(conditions, conditions.length),
+            suggested,
+        ),
     ];
 }
 
@@ -44,13 +51,18 @@ export function insertTag(
     conditions: readonly QueryCondition[],
     tag: Tag,
     index: number,
+    suggested = false,
 ): QueryCondition[] {
     const next = [...conditions];
     const insertionIndex = clampInsertionIndex(index, next.length);
     next.splice(
         insertionIndex,
         0,
-        makeQueryTag(tag, connectorForInsertion(conditions, insertionIndex)),
+        makeQueryTag(
+            tag,
+            connectorForInsertion(conditions, insertionIndex),
+            suggested,
+        ),
     );
     return next;
 }
@@ -59,8 +71,13 @@ export function addTagToCondition(
     conditions: readonly QueryCondition[],
     tag: Tag,
     conditionId: string,
+    suggested = false,
 ): QueryCondition[] {
-    return addQueryTagToCondition(conditions, makeQueryTag(tag), conditionId);
+    return addQueryTagToCondition(
+        conditions,
+        makeQueryTag(tag, "and", suggested),
+        conditionId,
+    );
 }
 
 export function toggleTagNegation(
@@ -275,6 +292,21 @@ function conditionsToJSON(
                 ),
             conditionToJSON(conditions[0]),
         );
+}
+
+/**
+ * Whether any tag in the query came from the suggested-tag section. Those only
+ * match while the results request carries `consider_default_tags`, so turning
+ * `Include suggested tags` off has to deal with them.
+ */
+export function hasSuggestedTag(
+    conditions: readonly QueryCondition[],
+): boolean {
+    return conditions.some((condition) =>
+        condition.kind === "tag"
+            ? condition.suggested
+            : condition.members.some((member) => member.suggested),
+    );
 }
 
 export function usedTagIds(

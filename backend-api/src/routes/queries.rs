@@ -15,6 +15,10 @@ struct QueryResultsBody {
     query: Query,
     #[serde(default)]
     song_ids: Option<Vec<String>>,
+    /// Defaults to false, so a caller that predates suggested tags keeps seeing
+    /// only its own tags.
+    #[serde(default)]
+    consider_default_tags: bool,
 }
 
 /// Returns JSON array of ids of matching songs from the given query, most
@@ -23,13 +27,18 @@ struct QueryResultsBody {
 /// `song_ids` is the caller's current Apple Music library. Sending it evaluates
 /// the query over exactly those songs, which is what lets a negative filter
 /// match a song with no tags on it at all. Leaving it out evaluates the query
-/// over the songs that already carry one of the user's tags.
+/// over the songs that already carry a tag.
+///
+/// `consider_default_tags` widens what counts as a tag on a song to include the
+/// shared default tags, for matching and for ranking, and lets the query name a
+/// default tag id.
 ///
 /// Request JSON:
 /// ```json
 /// {
 ///   "query": { "where": { "filter": { "field": "tag", "tag_id": 3, "op": "is_not_applied" } } },
-///   "song_ids": ["123", "456"]
+///   "song_ids": ["123", "456"],
+///   "consider_default_tags": false
 /// }
 /// ```
 ///
@@ -56,7 +65,14 @@ async fn query_results_handler(
     }
 
     Ok(Json(
-        db::queries::run_query(&db, &body.query, claims.user_id, body.song_ids.as_deref()).await?,
+        db::queries::run_query(
+            &db,
+            &body.query,
+            claims.user_id,
+            body.song_ids.as_deref(),
+            body.consider_default_tags,
+        )
+        .await?,
     ))
 }
 

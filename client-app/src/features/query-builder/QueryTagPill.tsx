@@ -49,6 +49,23 @@ export function QueryTagPill({
     );
 }
 
+/**
+ * A suggested (default) tag in the palette. Inverted so it reads as a shared
+ * suggestion rather than one of the user's own tags.
+ */
+export function SuggestedTagPill({ tag }: { tag: Tag }) {
+    return (
+        <View
+            className="min-h-9 justify-center"
+            accessible
+            accessibilityLabel={`${tag.name}, suggested tag`}
+            accessibilityHint="Drag this tag into the query"
+        >
+            <TagPill tag={tag} height={14} inverted />
+        </View>
+    );
+}
+
 export function PaletteTagPill({ tag }: { tag: Tag }) {
     return (
         <View

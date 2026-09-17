@@ -11,6 +11,7 @@ import {
     moveQueryTagToCondition,
     moveQueryTagToIndex,
     queryHeading,
+    hasSuggestedTag,
     queryToJSON,
     removeCondition,
     removeQueryTag,
@@ -39,8 +40,9 @@ function queryTag(
     tag: Tag,
     negated = false,
     connector: QueryConnector = "and",
+    suggested = false,
 ): QueryTag {
-    return { kind: "tag", id, tag, negated, connector };
+    return { kind: "tag", id, tag, negated, suggested, connector };
 }
 
 test("serializes top-level AND, group mode, and per-tag NOT", () => {
@@ -405,4 +407,46 @@ test("keeps connector operators in their visual slots while reordering", () => {
         moved.map((condition) => condition.connector),
         ["and", "or", "and"],
     );
+});
+
+test("a suggested tag stays suggested through every move", () => {
+    const suggested = appendTag([], rainy, true);
+    assert.equal(hasSuggestedTag(suggested), true);
+
+    // Dropping another tag on it collapses both into a group; the flag has to
+    // survive that rewrite, and the ordinary tag must not pick it up.
+    const grouped = addTagToCondition(suggested, chill, suggested[0].id);
+    const group = grouped[0];
+    assert.equal(group.kind, "group");
+    if (group.kind !== "group") return;
+    assert.deepEqual(
+        group.members.map((member) => member.suggested),
+        [true, false],
+    );
+    assert.equal(hasSuggestedTag(grouped), true);
+
+    // Pulling it back out of the group keeps it too.
+    const extracted = moveQueryTagToIndex(
+        grouped,
+        group.members[0].id,
+        0,
+    );
+    assert.equal(hasSuggestedTag(extracted), true);
+});
+
+test("a query of only ordinary tags has no suggested tags", () => {
+    const ordinary = appendTag(appendTag([], rainy), chill);
+    assert.equal(hasSuggestedTag(ordinary), false);
+    assert.equal(hasSuggestedTag([]), false);
+
+    // Removing the only suggested tag clears the flag for the whole query.
+    const mixed = appendTag(ordinary, jazz, true);
+    assert.equal(hasSuggestedTag(mixed), true);
+    assert.equal(hasSuggestedTag(removeCondition(mixed, mixed[2].id)), false);
+});
+
+test("a suggested tag compiles to the same filter as any other tag", () => {
+    assert.deepEqual(queryToJSON(appendTag([], rainy, true)), {
+        where: { and: [applied(1)] },
+    });
 });

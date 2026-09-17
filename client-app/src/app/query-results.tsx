@@ -8,8 +8,10 @@ import { useQueryResults } from "@/lib/routes/queries";
 
 /** Full-screen query matches, presented like the album and playlist heroes. */
 export default function QueryResultsScreen() {
-    const { query: encodedQuery } = useLocalSearchParams<{
+    const { query: encodedQuery, suggested } = useLocalSearchParams<{
         query?: string;
+        /** "1" when the builder had Include suggested tags on. */
+        suggested?: string;
     }>();
     const query = useMemo(() => parseQuery(encodedQuery), [encodedQuery]);
     const {
@@ -29,6 +31,7 @@ export default function QueryResultsScreen() {
             isLibraryConnected &&
                 !allLibraryTracksLoading &&
                 !allLibraryTracksErr,
+            suggested === "1",
         );
     const matchedSongs = useMemo(() => {
         const tracksByQueryId = new Map(

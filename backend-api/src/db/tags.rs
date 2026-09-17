@@ -4,9 +4,9 @@ use sea_orm::{
     ActiveModelTrait,
     ActiveValue::{NotSet, Set},
     ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, FromQueryResult, JoinType,
-    ModelTrait, QueryFilter, QueryOrder, QuerySelect, TransactionTrait,
+    ModelTrait, QueryFilter, QueryOrder, QuerySelect, RelationTrait, Select, TransactionTrait,
     prelude::Uuid,
-    sea_query::OnConflict,
+    sea_query::{Expr, OnConflict},
 };
 use serde::Serialize;
 
@@ -25,6 +25,51 @@ pub async fn get_all_user_tags(
         .filter(tags::Column::UserId.eq(user_id))
         .all(db)
         .await?)
+}
+
+/// Returns up to `limit` default tags whose names contain `search`, ignoring
+/// case. A blank search matches every default tag.
+///
+/// Ordered by popularity, meaning how many songs carry the tag in
+/// `default_tags_applied`, most first. Name then tag id break ties, so the same
+/// search always returns the same tags in the same order. The join is a left
+/// join, so a default tag on no songs still comes back, last.
+///
+/// Uses `strpos` rather than `LIKE`, so `%` and `_` typed into a search box are
+/// literal. Same reasoning as the query compiler in `queries.rs`.
+pub async fn search_default_tags(
+    db: &DatabaseConnection,
+    search: &str,
+    limit: u64,
+) -> Result<Vec<tags::Model>, CadenzaError> {
+    Ok(default_tag_search_query(search, limit).all(db).await?)
+}
+
+/// The statement behind [`search_default_tags`], split out so the tests can read
+/// the SQL it actually builds.
+fn default_tag_search_query(search: &str, limit: u64) -> Select<tags::Entity> {
+    let mut query = tags::Entity::find().filter(tags::Column::UserId.is_null());
+
+    let search = search.trim();
+    if !search.is_empty() {
+        query = query.filter(Expr::cust_with_values(
+            "strpos(lower(tags.name), lower($1)) > 0",
+            [search],
+        ));
+    }
+
+    query
+        .join_rev(
+            JoinType::LeftJoin,
+            default_tags_applied::Relation::Tags.def(),
+        )
+        // Grouping on the primary key lets postgres select the rest of the tag
+        // columns alongside the count.
+        .group_by(tags::Column::TagId)
+        .order_by_desc(default_tags_applied::Column::SongId.count())
+        .order_by_asc(tags::Column::Name)
+        .order_by_asc(tags::Column::TagId)
+        .limit(limit)
 }
 
 pub async fn get_tag(
@@ -483,4 +528,80 @@ pub async fn set_default_tags_on_songs(
         .await?;
 
     Ok(res)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sea_orm::QueryTrait;
+
+    fn search_sql(search: &str) -> String {
+        default_tag_search_query(search, 5)
+            .build(sea_orm::DatabaseBackend::Postgres)
+            .sql
+    }
+
+    /// `cust_with_values` has to bind the search rather than inline it, or a
+    /// quote typed into the search box would break the statement. The `$1` in
+    /// the snippet is local to it; the builder renumbers every value globally.
+    #[test]
+    fn default_tag_search_binds_the_search_text() {
+        let statement =
+            default_tag_search_query("o'brien", 5).build(sea_orm::DatabaseBackend::Postgres);
+
+        assert!(
+            statement
+                .sql
+                .contains("strpos(lower(tags.name), lower($1)) > 0"),
+            "{}",
+            statement.sql
+        );
+        assert!(!statement.sql.contains("o'brien"), "{}", statement.sql);
+        assert_eq!(
+            statement.values.as_ref().unwrap().0[0],
+            sea_query::Value::from("o'brien")
+        );
+    }
+
+    #[test]
+    fn a_blank_search_drops_the_name_filter_entirely() {
+        assert!(
+            !search_sql("   ").contains("strpos"),
+            "{}",
+            search_sql("   ")
+        );
+        assert!(
+            search_sql("rock").contains("strpos"),
+            "{}",
+            search_sql("rock")
+        );
+    }
+
+    /// Ordering by popularity is a left join plus a group by, which is easy to
+    /// get subtly wrong: an inner join would drop a tag applied to no songs,
+    /// and counting the joined tag id instead of the song id would count that
+    /// tag as 1 rather than 0.
+    ///
+    /// Asserted with a search in place as well as without, because the search is
+    /// a `WHERE` conjunct on `tags.name`: it removes whole tags, so it must
+    /// never reorder the ones it keeps.
+    #[test]
+    fn default_tag_search_orders_by_how_many_songs_carry_the_tag() {
+        for search in ["", "at"] {
+            let sql = search_sql(search);
+            assert!(
+                sql.contains(
+                    r#"LEFT JOIN "default_tags_applied" ON "default_tags_applied"."tag_id" = "tags"."tag_id""#
+                ),
+                "{sql}"
+            );
+            assert!(sql.contains(r#"GROUP BY "tags"."tag_id""#), "{sql}");
+            assert!(
+                sql.contains(
+                    r#"ORDER BY COUNT("default_tags_applied"."song_id") DESC, "tags"."name" ASC, "tags"."tag_id" ASC"#
+                ),
+                "{sql}"
+            );
+        }
+    }
 }

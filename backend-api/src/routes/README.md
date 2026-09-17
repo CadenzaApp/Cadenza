@@ -9,7 +9,7 @@ call into `src/db/` or `src/services/`, and shape the response.
 | file | role |
 | --- | --- |
 | `mod.rs` | Declares `json`, `queries`, `tags`, `songs`. |
-| `tags.rs` | Tag CRUD for the signed-in user, plus LLM tag suggestion. Mounted at `/tags`. |
+| `tags.rs` | Tag CRUD for the signed-in user, default tag search, plus LLM tag suggestion. Mounted at `/tags`. |
 | `songs.rs` | Reading and changing user tags, reading default tags, checking for missing defaults, and generating default tags. Mounted at `/songs`. |
 | `queries.rs` | Runs a tag query and returns song ids by relevance. Mounted at `/queries`. |
 | `json/mod.rs` | `vec_into`, a small `Vec<A> -> Vec<B>` helper. Declares `query` and `tag`. |
@@ -26,6 +26,7 @@ Every route below requires `Authorization: Bearer <supabase jwt>`.
 | GET | `/tags?tag_id=N` | query param | `{"One": {tag, song_ids}}`, 404 if the tag does not exist |
 | POST | `/tags` | `{name, color, type?}` | the new tag id, as a bare number in the body |
 | DELETE | `/tags` | `{tag_id}` | empty. Silently no-ops if the tag is not yours |
+| GET | `/tags/default-tags` | `?search=...` | `[Tag]`, at most 5 default tags matching the search, most used first |
 | GET | `/tags/suggest` | `?song_desc=...&requested_tag_count=N` | `[{name, color}, ...]` |
 | GET | `/songs/local-tags` | `?song_id=...` | `[AppliedTag]`, the user's tags on that song |
 | POST | `/songs/local-tags/batch` | `{song_ids: [...]}` | `{song_id: [AppliedTag]}`, an entry per requested song |
@@ -36,7 +37,7 @@ Every route below requires `Authorization: Bearer <supabase jwt>`.
 | POST | `/songs/local-tags` | `{song_id, tag_id, value?}` | empty. Also votes yes on the tag name |
 | PATCH | `/songs/local-tags` | `{song_id, tag_id, value}` | empty. A null value clears it |
 | DELETE | `/songs/local-tags` | `{song_id, tag_id}` | empty. Votes no when it removes the tag |
-| POST | `/queries/results` | `{query, song_ids?}` | `["songid", ...]`, most relevant first |
+| POST | `/queries/results` | `{query, song_ids?, consider_default_tags?}` | `["songid", ...]`, most relevant first |
 | GET | `/test` | none | `server is reachable`. Defined inline in `main.rs`, not here |
 
 `GET /tags` returns a serde-tagged enum, so the two shapes come back wrapped in `"One"` or
@@ -108,6 +109,10 @@ Handlers take what they need out of `AppState` by `FromRef`, so most take
 `State(tag_gen_service)`. Routes that operate only on shared defaults still require credentials
 with a bare `_: Claims<SupabaseClaims>`.
 
+`GET /tags/default-tags` searches the shared default tag pool by name and is not song scoped.
+It is the odd one out next to `/songs/default-tags`, which reads the defaults applied to one song.
+Its results are ordered by how many songs carry the tag, most first.
+
 `GET /songs/default-tags` reads `default_tags_applied` and returns only tags whose `user_id` is
 null. `POST /songs/default-tags/batch` is the same read for a list of songs, and fills in an
 empty list for the songs `db::tags::get_default_tags_on_songs` leaves out.
@@ -124,6 +129,10 @@ the compiling, running, and ranking.
 the query over exactly those songs, which is what lets `is_not_applied` and other negative
 filters match songs with no Cadenza tag rows. Omitting it evaluates over the previously
 tagged-song universe instead.
+
+`consider_default_tags` defaults to false. True widens what counts as a tag on a song to include
+the shared default tags, for matching and for ranking, and lets the query name a default tag id.
+The client sets it from the `Include suggested tags` toggle.
 
 `json/` exists so the wire format is decoupled from the SeaORM models. Anything that leaves the
 api as JSON should have a type here rather than serializing an entity model directly.
@@ -144,6 +153,9 @@ api as JSON should have a type here rather than serializing an entity model dire
   same data comes back from `GET /tags?tag_id=N`.
 - `GET /tags/suggest` uses `requested_tag_count` as a **required** query param, not optional, so
   a request without it is a 422. The service clamps it to at most 20.
+- `GET /tags/default-tags` treats a missing `search` the same as a blank one, and a blank search
+  returns 5 tags rather than none. The cap of 5 is `DEFAULT_TAG_SEARCH_LIMIT` and is not a
+  client-settable param.
 - `POST /tags` returns the id as a bare string body, not JSON.
 - `DELETE /tags` and `DELETE /songs/local-tags` take a JSON body. Some HTTP clients will not send
   one on a DELETE.
