@@ -44,12 +44,15 @@ logic out.
 GestureHandlerRootView
   AccountProvider          supabase session -> the jwt everything else needs
     AppleMusicProvider     apple music auth, restored from secure store
-      PlaybackProvider     reads the native playback snapshot
-        ThemeProvider      light/dark nav theme from nativewind's colorScheme
-          BottomBarVisibilityProvider   temporary native-tab visibility exceptions
-            ZoomOriginProvider          the rect a pushed screen minimizes back into
-              Stack                     the routes
-              PortalHost                where dialogs and modals render
+      TasksProvider        background task state
+        SongInitProvider   generates missing default tags after auth
+          PlaybackProvider     reads the native playback snapshot
+            ThemeProvider      light/dark nav theme from nativewind's colorScheme
+              BottomBarVisibilityProvider   temporary native-tab visibility exceptions
+                ZoomOriginProvider          the rect a pushed screen minimizes back into
+                  Stack                     the routes
+                  TasksHost                 background task status
+                  PortalHost                where dialogs and modals render
 ```
 
 `LibraryCategoriesProvider` (`@/features/library`) sits inside `ThemeProvider` and wraps both

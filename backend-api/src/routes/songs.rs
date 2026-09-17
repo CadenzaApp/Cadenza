@@ -12,31 +12,52 @@ use crate::{
         },
     },
     err::CadenzaError,
-    routes::json::{tag::AppliedTag, vec_into},
+    routes::json::{
+        tag::{AppliedTag, Tag},
+        vec_into,
+    },
     services::tag_generation::{TagGenerationService, TagSpecs},
 };
 use axum::{
     Json, Router,
     extract::{Query, State},
-    routing::{delete, get, patch, post},
+    routing::{get, post},
 };
 use axum_jwt_auth::Claims;
 use sea_orm::DatabaseConnection;
 use serde::Deserialize;
 
 #[derive(Deserialize)]
-pub struct GetTagsOnSongQueryParams {
+pub struct SongIdQueryParams {
     song_id: String,
 }
 
 /// Returns the user's tags on one song. Default tags are not included.
-async fn get_tags_on_song_handler(
+async fn get_local_tags_on_song_handler(
     State(db): State<DatabaseConnection>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
-    Query(params): Query<GetTagsOnSongQueryParams>,
+    Query(params): Query<SongIdQueryParams>,
 ) -> Result<Json<Vec<AppliedTag>>, CadenzaError> {
     let user_tags = get_user_tags_on_song(&db, claims.user_id, &params.song_id).await?;
     Ok(Json(vec_into(user_tags)))
+}
+
+/// Returns the shared default tags on one song. Every returned tag has a null
+/// `user_id` in the database.
+///
+/// ```json
+/// [{"id": 12, "name": "rock", "color": "#808080", "type": "basic"}]
+/// ```
+async fn get_default_tags_on_song_handler(
+    State(db): State<DatabaseConnection>,
+    _: Claims<SupabaseClaims>,
+    Query(params): Query<SongIdQueryParams>,
+) -> Result<Json<Vec<Tag>>, CadenzaError> {
+    let mut tags_by_song =
+        get_default_tags_on_songs(&db, std::slice::from_ref(&params.song_id)).await?;
+    Ok(Json(vec_into(
+        tags_by_song.remove(&params.song_id).unwrap_or_default(),
+    )))
 }
 
 /// A list screen asks for a page of songs at a time, so cap it well above the
@@ -60,7 +81,7 @@ pub struct SongIdsPayload {
 
 /// Returns the user's tags on each requested song, keyed by song id. Default
 /// tags are not included. A song with no user tags gets an empty list.
-async fn get_tags_on_songs_handler(
+async fn get_local_tags_on_songs_handler(
     State(db): State<DatabaseConnection>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Json(payload): Json<SongIdsPayload>,
@@ -205,14 +226,20 @@ async fn unapply_user_tag_handler(
 
 pub fn get_songs_router() -> Router<AppState> {
     Router::new()
-        .route("/default-tags", post(set_default_tags_on_songs_handler))
+        .route(
+            "/default-tags",
+            get(get_default_tags_on_song_handler).post(set_default_tags_on_songs_handler),
+        )
         .route(
             "/no-default-tags",
             post(get_songs_without_default_tags_handler),
         )
-        .route("/tags", get(get_tags_on_song_handler))
-        .route("/tags/batch", post(get_tags_on_songs_handler))
-        .route("/tags", post(apply_user_tag_handler))
-        .route("/tags", patch(set_user_tag_value_handler))
-        .route("/tags", delete(unapply_user_tag_handler))
+        .route(
+            "/local-tags",
+            get(get_local_tags_on_song_handler)
+                .post(apply_user_tag_handler)
+                .patch(set_user_tag_value_handler)
+                .delete(unapply_user_tag_handler),
+        )
+        .route("/local-tags/batch", post(get_local_tags_on_songs_handler))
 }

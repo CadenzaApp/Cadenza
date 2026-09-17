@@ -13,15 +13,16 @@ native module directly.
 | `api-endpoints.ts`           | `matchesEndpoint`, the cache-key matcher behind invalidation. Import-free so it can be unit tested.                                                                                      |
 | `swr-utils.ts`               | `clearCache` and `useSimpleMutation`, for things that are not plain backend calls.                                                                                                       |
 | `routes/tags.ts`             | Hooks for `/tags`: `useUserTags`, `useTag`, `useCreateTag`, `useDeleteTag`, `useSuggestTags`.                                                                                            |
-| `routes/songs.ts`            | Hooks for `/songs/tags`: `useTagsOnSong`, `useTagsOnSongs`, `useApplyTag`, `useSetTagValue`, `useUnapplyTag`.                                                                            |
+| `routes/songs.ts`            | Hooks for local and default tag reads, local tag writes, missing-default checks, and generation.                                                                                         |
 | `routes/queries.ts`          | Cached hooks for `/queries/results` and `/queries/advanced/results`: `useQueryResults`, `useAdvancedQueryResults`.                                                                       |
 | `musickit-hooks.ts`          | SWR over the native module: song info, catalog search, paged and complete-library songs, albums, artists, playlists, collection metadata, favorites, artist search, and playlist writes. |
+| `song-init.tsx`              | `SongInitProvider`, which runs the default-tag population job after account and Apple Music authorization.                                                                              |
+| `song-init-job.ts`           | Import-free, tested scan and generation job for songs without default tags.                                                                                                              |
 | `account.tsx`                | `AccountProvider` / `useAccount`. Supabase session and the JWT.                                                                                                                          |
 | `apple-music-auth.tsx`       | `AppleMusicProvider` / `useAppleMusic`. Apple Music tokens, persisted in secure store.                                                                                                   |
 | `playback.tsx`               | `PlaybackProvider`, broad `usePlayback`, lightweight `usePlaybackTrackState`, and stable `usePlaybackCommands`. Queue and the native playback snapshot.                                  |
 | `queue-order.ts`             | Pure index math for the queue mirror. Tested in `queue-order.test.ts`.                                                                                                                   |
 | `supabase.ts`                | The Supabase client, backed by AsyncStorage.                                                                                                                                             |
-| `tag-generation.ts`          | A standalone tag suggestion fetch. Does not use the wrappers. See gotchas.                                                                                                               |
 | `theme.ts`                   | `NAV_THEME`, light and dark palettes for react-navigation, `sheetScreenOptions` for sheet routes, and `pushedScreenOptions` for the pushed detail routes.                                |
 | `error-utils.ts`             | `getErrorDetails` / `getErrorMessage`, for unwrapping native and backend errors.                                                                                                         |
 | `artwork-color.ts`           | `useArtworkTint`, the color a surface paints itself with, plus alpha, darkening, and multi-artwork averaging helpers.                                                                    |
@@ -75,13 +76,13 @@ Invalidation is the part to get right, and it is entirely manual. `useAPIMutatio
 of `{ path, params? }` endpoints, or a function from the request body to that list when the key
 depends on what was just written. After a successful request it matches every `api-data` key
 whose `path` is equal and whose `params` are a **superset** of the listed ones. So a bare
-`{ path: "/songs/tags" }` invalidates the tags of every song, while
-`{ path: "/songs/tags", params: { song_id } }` invalidates just the one that changed.
+`{ path: "/songs/local-tags" }` invalidates the local tags of every song, while
+`{ path: "/songs/local-tags", params: { song_id } }` invalidates just the one that changed.
 
 ```ts
 // invalidate only this song's tag list, plus the tag counts
-useAPIMutation<ApplyTagPayload, void>("POST", "/songs/tags", ({ song_id }) => [
-    { path: "/songs/tags", params: { song_id } },
+useAPIMutation<ApplyTagPayload, void>("POST", "/songs/local-tags", ({ song_id }) => [
+    { path: "/songs/local-tags", params: { song_id } },
     { path: "/tags" },
 ]);
 ```
@@ -99,11 +100,14 @@ One file per backend router, and every backend endpoint has at least one hook.
 |                     | `POST /tags`                    | `tags.ts` -> `useCreateTag()`                 |
 |                     | `DELETE /tags`                  | `tags.ts` -> `useDeleteTag()`                 |
 |                     | `GET /tags/suggest`             | `tags.ts` -> `useSuggestTags()`               |
-| `routes/songs.rs`   | `GET /songs/tags`               | `songs.ts` -> `useTagsOnSong(songId)`         |
-|                     | `POST /songs/tags/batch`        | `songs.ts` -> `useTagsOnSongs(songIds)`       |
-|                     | `POST /songs/tags`              | `songs.ts` -> `useApplyTag()`                 |
-|                     | `PATCH /songs/tags`             | `songs.ts` -> `useSetTagValue()`              |
-|                     | `DELETE /songs/tags`            | `songs.ts` -> `useUnapplyTag()`               |
+| `routes/songs.rs`   | `GET /songs/local-tags`         | `songs.ts` -> `useTagsOnSong(songId)`         |
+|                     | `POST /songs/local-tags/batch`  | `songs.ts` -> `useTagsOnSongs(songIds)`       |
+|                     | `POST /songs/no-default-tags`   | `songs.ts` -> `useSongsWithoutDefaultTags()`  |
+|                     | `GET /songs/default-tags`       | `songs.ts` -> `useDefaultTagsOnSong(songId)`  |
+|                     | `POST /songs/default-tags`      | `songs.ts` -> `useSetDefaultTags()`           |
+|                     | `POST /songs/local-tags`        | `songs.ts` -> `useApplyTag()`                 |
+|                     | `PATCH /songs/local-tags`       | `songs.ts` -> `useSetTagValue()`              |
+|                     | `DELETE /songs/local-tags`      | `songs.ts` -> `useUnapplyTag()`               |
 | `routes/queries.rs` | `POST /queries/results`         | `queries.ts` -> `useQueryResults()`           |
 |                     | `GET /queries/advanced/results` | `queries.ts` -> `useAdvancedQueryResults()`   |
 
@@ -270,6 +274,8 @@ remaining distance. A short pull still springs back to full size.
 - `AppleMusicProvider` owns the Apple Music developer and user tokens, restores them from
   `expo-secure-store` on mount, and pushes them into the native module. `isConnected` means
   authorized **and** holding a user token. `ensureConnected()` before any playback call.
+- `SongInitProvider` runs after account and Apple Music authorization. It scans the library and
+  library playlists for songs without default tags, then asks the backend to generate them.
 - `PlaybackProvider` hands the queue to the native player (`playSongQueue`, `appendSongQueue`)
   and mirrors it, since the snapshot reports the current track but not its position in the
   queue. It finds the index by matching the snapshot track against the mirrored list, searching
@@ -291,6 +297,19 @@ remaining distance. A short pull still springs back to full size.
   changes, so a list row can hold a play handler without re-rendering on every tick. Reach for
   `usePlaybackCommands` unless you actually need to read playback state.
 
+## The song default-tag job
+
+`song-init-job.ts::initializeSongs` pages through library songs and every library playlist. It
+sends each unique catalog song id to `POST /songs/no-default-tags` and keeps the returned ids
+with their `"title by artist"` descriptions. It then sends those songs to
+`POST /songs/default-tags` in batches of 100. Defaults remain separate from user tags, so the job
+does not invalidate user tag reads or make a second request after generation.
+
+`song-init.tsx::SongInitProvider` wires the job to MusicKit, the backend hooks, cancellation, and
+the task overlay. The job is imperative rather than SWR because its reads only decide what to
+write. Failed sources are logged and skipped. Failed generation batches and songs for which the
+model returned no tags are retried on the next run.
+
 ## Connects to
 
 - `backend-api`, through `BACKEND_URL`.
@@ -305,14 +324,12 @@ remaining distance. A short pull still springs back to full size.
   `http://localhost:3000`. On a physical device localhost is the phone, so that fallback only
   works in a simulator. Metro inlines `EXPO_PUBLIC_*` at bundle time, so editing `.env` needs a
   metro restart with `--clear`, not just a refresh.
-- **`tag-generation.ts` is a second, parallel path.** It resolves its own base url (env var, then
-  the Expo host, then a platform default) and posts to `POST /tag-generation`. The backend has no
-  such route; the real one is `GET /tags/suggest`, which `routes/tags.ts::useSuggestTags` already
-  wraps correctly. Treat `tag-generation.ts` as dead or stale until proven otherwise.
 - `useAPIFetch` uses the bare `path` as its SWR key, so two `useAPIFetch` hooks on the same path
   share a mutation key. `useAPIMutation` keys on `[method, path, accountId]`, so it does not.
 - Tags key on `catalogId ?? id`, not the library id, everywhere a song id crosses into the
   backend. Library ids differ per user for the same song; catalog ids do not.
+- The default-tag job spends OpenAI calls. A song for which the model returns no tags is retried
+  on every app launch.
 - `api-actions.ts` reads `account?.jwt` at hook call time. A component rendered before the
   session is restored sends `Bearer undefined`.
 

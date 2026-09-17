@@ -167,8 +167,7 @@ impl fmt::Display for RecordedVote {
 ///
 /// Returns the vote to hand to [`TagVoteCache::remember`] after the commit.
 ///
-/// Only `tags::apply_user_tag` and `tags::unapply_user_tag` vote. Copying a
-/// song's default tags to a user when it is initialized is not a vote.
+/// Only `tags::apply_user_tag` and `tags::unapply_user_tag` vote.
 pub async fn record_tag_vote(
     db: &impl ConnectionTrait,
     votes: &TagVoteCache,

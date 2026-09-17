@@ -10,7 +10,7 @@ call into `src/db/` or `src/services/`, and shape the response.
 | --- | --- |
 | `mod.rs` | Declares `json`, `queries`, `tags`, `songs`. |
 | `tags.rs` | Tag CRUD for the signed-in user, plus LLM tag suggestion. Mounted at `/tags`. |
-| `songs.rs` | Reading and changing which tags are on a song. Mounted at `/songs`. |
+| `songs.rs` | Reading and changing user tags, checking for missing defaults, and generating default tags. Mounted at `/songs`. |
 | `queries.rs` | Runs a boolean tag query and returns song ids by relevance, and runs an advanced query. Mounted at `/queries`. |
 | `json/mod.rs` | `vec_into`, a small `Vec<A> -> Vec<B>` helper. Declares `advanced_query` and `tag`. |
 | `json/tag.rs` | `TagType`, `Tag`, and `AppliedTag`, the wire shapes of a tag. `From<tags::Model>` drops `user_id`. |
@@ -26,12 +26,15 @@ Every route below requires `Authorization: Bearer <supabase jwt>`.
 | GET | `/tags?tag_id=N` | query param | `{"One": {tag, song_ids}}`, 404 if the tag does not exist |
 | POST | `/tags` | `{name, color, type?}` | the new tag id, as a bare number in the body |
 | DELETE | `/tags` | `{tag_id}` | empty. Silently no-ops if the tag is not yours |
-| GET | `/tags/suggest` | `?song_desc=...&requested_tag_count=N` | `["vocaloid", "japanese", ...]` |
-| GET | `/songs/tags` | `?song_id=...` | `[AppliedTag]`, the user's tags on that song |
-| POST | `/songs/tags/batch` | `{song_ids: [...]}` | `{song_id: [AppliedTag]}`, an entry per requested song |
-| POST | `/songs/tags` | `{song_id, tag_id, value?}` | empty |
-| PATCH | `/songs/tags` | `{song_id, tag_id, value}` | empty. A null value clears it |
-| DELETE | `/songs/tags` | `{song_id, tag_id}` | empty |
+| GET | `/tags/suggest` | `?song_desc=...&requested_tag_count=N` | `[{name, color}, ...]` |
+| GET | `/songs/local-tags` | `?song_id=...` | `[AppliedTag]`, the user's tags on that song |
+| POST | `/songs/local-tags/batch` | `{song_ids: [...]}` | `{song_id: [AppliedTag]}`, an entry per requested song |
+| POST | `/songs/no-default-tags` | `{song_ids: [...]}` | requested song ids with no default tags, in input order |
+| GET | `/songs/default-tags` | `?song_id=...` | `[Tag]`, the shared default tags on that song |
+| POST | `/songs/default-tags` | `[{song_id, desc}]` | empty. Generates defaults for songs that have none |
+| POST | `/songs/local-tags` | `{song_id, tag_id, value?}` | empty. Also votes yes on the tag name |
+| PATCH | `/songs/local-tags` | `{song_id, tag_id, value}` | empty. A null value clears it |
+| DELETE | `/songs/local-tags` | `{song_id, tag_id}` | empty. Votes no when it removes the tag |
 | GET | `/queries/results` | `?q=<query json>` | `["songid", ...]`, most relevant first |
 | POST | `/queries/results` | `{query, song_ids}` | Matching candidate song ids, most relevant first |
 | GET | `/queries/advanced/results` | `?q=<advanced query json>` | `["songid", ...]`, sorted by song id |
@@ -44,10 +47,11 @@ Every route below requires `Authorization: Bearer <supabase jwt>`.
 count without walking the list.
 
 `AppliedTag` is a `Tag` with the applied value flattened in, so it serializes as the tag's own
-fields plus `value`. Both reads that return tags on a song use it. `value` is always null for a
-basic tag, and null for an attribute tag applied without one.
+fields plus `value`. Both local-tag reads use it. `value` is always null for a basic tag, and null
+for an attribute tag applied without one. Default tags have no values, so their read returns
+`Tag` instead.
 
-`type` on `POST /tags` and `POST` / `PATCH /songs/tags` is one of `basic`, `text`, `datetime`,
+`type` on `POST /tags` and `POST` / `PATCH /songs/local-tags` is one of `basic`, `text`, `datetime`,
 `date`, `number`, `checkbox` (see `sea_orm_active_enums::TagType`), and defaults to `basic` when omitted.
 A `value` that does not fit the tag's type (not a number, not RFC 3339, not a
 `YYYY-MM-DD` date, not `true`/`false`, or
@@ -97,9 +101,15 @@ Semantics and limits are in [../db/README.md](../db/README.md). Anything malform
 ## How it works
 
 Handlers take what they need out of `AppState` by `FromRef`, so most take
-`State(db): State<DatabaseConnection>` and nothing else. `tags.rs::suggest_tags_handler` takes
-`State(tag_gen_service)` instead, plus a bare `_: Claims<SupabaseClaims>` purely to force
-authentication without using the claims.
+`State(db): State<DatabaseConnection>` and nothing else. Song apply/unapply handlers also take
+`State(tag_votes): State<TagVoteCache>`. Tag suggestion and default generation take
+`State(tag_gen_service)`. Routes that operate only on shared defaults still require credentials
+with a bare `_: Claims<SupabaseClaims>`.
+
+`GET /songs/default-tags` reads `default_tags_applied` and returns only tags whose `user_id` is
+null. `POST /songs/no-default-tags` checks the same application table without creating user
+state. `POST /songs/default-tags` skips songs that already have defaults, generates tags for the
+rest, and stores them through `db::tags::set_default_tags_on_songs`.
 
 `queries.rs` is the only one with real logic in the route, and it is ranking, not data access.
 The query tree arrives as a `q` query param holding JSON. `QueryResultsParams::into_json_query`
@@ -122,7 +132,8 @@ api as JSON should have a type here rather than serializing an entity model dire
 ## Connects to
 
 - `crate::db::tags`, `crate::db::queries`, and `crate::db::advanced_queries` for all data access.
-- `crate::services::tag_generation::TagGenerationService` for `/tags/suggest`.
+- `crate::services::tag_generation::TagGenerationService` for `/tags/suggest` and
+  `POST /songs/default-tags`.
 - `crate::err::CadenzaError` for every error path.
 - Client side: `client-app/src/lib/routes/*.ts` wraps every one of these in an SWR hook.
 
@@ -135,14 +146,16 @@ api as JSON should have a type here rather than serializing an entity model dire
 - `GET /tags/suggest` uses `requested_tag_count` as a **required** query param, not optional, so
   a request without it is a 422. The service clamps it to at most 20.
 - `POST /tags` returns the id as a bare string body, not JSON.
-- `DELETE /tags` and `DELETE /songs/tags` take a JSON body. Some HTTP clients will not send one
-  on a DELETE.
-- `GET /songs/tags` returns only the user's own tags now. Default tags (`user_id IS NULL`) are
-  not included, and nothing reads the `default_tags_applied` table yet.
-- `POST /songs/tags/batch` is a read, not a write. It is a POST only because the id list does
-  not belong in a query string. It caps out at 200 ids and answers `QueryFormatError` past that;
-  the client chunks at 25. Songs with no tags come back as an empty list, never missing.
-- `POST /songs/tags` inserts without checking first, so re-applying a tag relies on the unique
+- `DELETE /tags` and `DELETE /songs/local-tags` take a JSON body. Some HTTP clients will not send
+  one on a DELETE.
+- `GET /songs/local-tags` returns only the user's own tags. Default tags (`user_id IS NULL`) are
+  available separately from `GET /songs/default-tags`.
+- `POST /songs/local-tags/batch` and `POST /songs/no-default-tags` are reads. They are POSTs because
+  their id lists do not belong in a query string. Both cap out at 200 ids; the tag batch client
+  chunks at 25. Songs with no user tags come back as an empty list, never missing.
+- A vote can promote a user tag name to a default tag once it has at least 10 votes and more than
+  1.5 times as many yes votes as no votes. This never copies the default into user tags.
+- `POST /songs/local-tags` inserts without checking first, so re-applying a tag relies on the unique
   violation mapping in `err.rs`. That mapping keys off the table name `applied_tags`, but the
   entity declares `user_tags_applied`, so it falls through to a generic `DatabaseError` instead
   of `TagAlreadyApplied`. See the table naming note in `../db/README.md`.

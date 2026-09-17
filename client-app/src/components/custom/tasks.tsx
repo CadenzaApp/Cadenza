@@ -1,13 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useColorScheme } from "nativewind";
-import {
-    createContext,
-    useContext,
-    useEffect,
-    useMemo,
-    useRef,
-    useState,
-} from "react";
+import { createContext, useContext, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { ActivityIndicator, Platform, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -76,9 +69,7 @@ const TaskListContext = createContext<Task[]>([]);
 export function useTasks() {
     const value = useContext(TasksContext);
     if (!value) {
-        throw new Error(
-            "useTasks must be used under TasksProvider",
-        );
+        throw new Error("useTasks must be used under TasksProvider");
     }
     return value;
 }

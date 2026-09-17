@@ -102,6 +102,7 @@ pub async fn get_user_tags_on_song(
 ) -> Result<Vec<(tags::Model, Option<String>)>, CadenzaError> {
     let tags_with_applications = tags::Entity::find()
         .find_also_related(user_tags_applied::Entity)
+        .filter(tags::Column::UserId.eq(user_id))
         .filter(user_tags_applied::Column::SongId.eq(song_id))
         .filter(user_tags_applied::Column::UserId.eq(user_id))
         .all(db)
@@ -134,6 +135,7 @@ pub async fn get_user_tags_on_songs(
         .filter(user_tags_applied::Column::UserId.eq(user_id))
         .filter(user_tags_applied::Column::SongId.is_in(song_ids.iter().map(String::as_str)))
         .find_also_related(tags::Entity)
+        .filter(tags::Column::UserId.eq(user_id))
         .all(db)
         .await?;
 
@@ -391,6 +393,7 @@ pub async fn get_default_tags_on_songs(
     let applied = default_tags_applied::Entity::find()
         .filter(default_tags_applied::Column::SongId.is_in(song_ids))
         .find_also_related(tags::Entity)
+        .filter(tags::Column::UserId.is_null())
         .all(db)
         .await?;
 

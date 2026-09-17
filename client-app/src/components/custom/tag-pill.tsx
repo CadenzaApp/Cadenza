@@ -26,6 +26,8 @@ function hexToRgba(hex: string, alpha: number) {
  * @param count     - If provided, renders a count badge on the right side.
  * @param leadingIcon - Replaces the leading dot when provided.
  * @param showIcon  - Whether to render the leading dot or icon.
+ * @param fill      - Whether to fill the pill with the tag color. An unfilled
+ *                    pill has a black interior and a tag-colored outline.
  * @param outlined  - Uses the tag color for its border and content with no fill.
  * @param strikethrough - Draws a standard thin line through the tag label.
  * @param onRemove  - If provided, renders an × button inside the pill.
@@ -38,6 +40,7 @@ export function TagPill({
     count,
     leadingIcon,
     showIcon = true,
+    fill = true,
     outlined = false,
     strikethrough = false,
     onRemove,
@@ -48,13 +51,14 @@ export function TagPill({
     count?: number;
     leadingIcon?: ReactNode;
     showIcon?: boolean;
+    fill?: boolean;
     outlined?: boolean;
     strikethrough?: boolean;
     onRemove?: () => void;
 }) {
     const { colorScheme = "light" } = useColorScheme();
     const backgroundColor = THEME[colorScheme].background;
-    const contentColor = outlined ? tag.color : backgroundColor;
+    const contentColor = outlined || !fill ? tag.color : backgroundColor;
     const iconSize = 1.15 * height;
     const dotSize = 0.8 * height;
     const fontSize = 1 * height;
@@ -68,8 +72,12 @@ export function TagPill({
             variant="outline"
             pointerEvents={onRemove ? "box-none" : "none"}
             style={{
-                backgroundColor: outlined ? "transparent" : tag.color,
-                borderColor: outlined ? tag.color : "transparent",
+                backgroundColor: outlined
+                    ? "transparent"
+                    : fill
+                      ? tag.color
+                      : "#000000",
+                borderColor: outlined || !fill ? tag.color : "transparent",
                 paddingHorizontal: 0.7 * height,
                 paddingVertical: 0.2 * height,
                 gap: 0.5 * height,

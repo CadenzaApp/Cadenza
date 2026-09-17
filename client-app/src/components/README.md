@@ -89,7 +89,7 @@ variables), `tailwind.config.js`, and `global.css`. Class merging goes through
 | `floating-bubble.tsx`       | The liquid-glass round floating action button the list and tag screens sit under.                                 |
 | `options-menu/`             | The song, album, and playlist "..." menus, on liquid glass. See below.                                            |
 | `song-tag-editor.tsx`       | Tag editing for one song: applied state, values, mutations, and create-dialog state.                              |
-| `tag-pill.tsx`              | The solid app tag chip. Attribute tags keep their type icon through query negation and can show formatted values. |
+| `tag-pill.tsx`              | The app tag chip. It is solid by default and supports a black fill with a tag-colored outline. Attribute tags keep their type icon through query negation and can show formatted values. |
 | `create-tag-dialog.tsx`     | Creates a tag with its name, color, and optional attribute type.                                                  |
 | `tag-value-dialog.tsx`      | Liquid-glass per-type editor opened when an attribute tag is applied or edited.                                   |
 | `modal-popup.tsx`           | Small popup used by options, sorting, and selection actions. Liquid glass is the default.                         |
@@ -97,6 +97,7 @@ variables), `tailwind.config.js`, and `global.css`. Class merging goes through
 | `top-rail.tsx`              | Shared tab header with optional glass back button, page title, actions, and account initials.                     |
 | `account-initials.ts`       | Pure email-to-initials helper, tested in `account-initials.test.ts`.                                              |
 | `coming-soon-screen.tsx`    | Data-driven preview surface used by stubbed product areas.                                                        |
+| `tasks.tsx`                 | Root task provider and floating status rows used by default-tag generation.                                      |
 | `collection-list.tsx`       | Paged album or playlist rows. Owns screen scrolling and records artwork zoom origins.                             |
 | `artist-list.tsx`           | Paged artist rows and the sideways artist rail. Both record a zoom origin.                                        |
 | `track-collection-view.tsx` | Shared artwork, actions, metadata, and track-list surface for query results, collections, and artist top songs.   |

@@ -7,15 +7,16 @@ The data access layer. Everything that touches postgres lives here, so handlers 
 
 | file | role |
 | --- | --- |
-| `mod.rs` | Declares `advanced_queries`, `entity`, `queries`, `tags`. |
-| `tags.rs` | All tag reads and writes: list, look up, usage counts, tags on a song or on many songs, songs with a tag, create, delete, apply, unapply, set the value on an applied tag. |
+| `mod.rs` | Declares `advanced_queries`, `entity`, `queries`, `tag_votes`, `tags`. |
+| `tags.rs` | User tag CRUD and applied values, plus reading, generating, and applying default tags. User tag reads never copy or return defaults. |
+| `tag_votes.rs` | Counts user apply/unapply votes in `default_tag_votes` and promotes popular names to default tags. Holds the in-memory recent-vote cache. |
 | `queries.rs` | Compiles a boolean tag query from JSON to SQL and runs it. |
 | `advanced_queries.rs` | Compiles an advanced (filter based) query to SQL and runs it. Unit tested. |
-| `entity/` | sea-orm-codegen output. `tags`, `user_tags_applied`, `default_tags_applied`, plus `prelude` and `mod`. Do not hand edit. |
+| `entity/` | sea-orm-codegen output. Includes tag, default-tag, and comment tables, plus `prelude` and `mod`. Do not hand edit. |
 
 ## Schema
 
-Three tables, keyed on song ids that come from Apple Music.
+The tag tables are keyed on song ids that come from Apple Music.
 
 - `tags` - `tag_id` (bigserial pk), `name`, `color`, nullable `user_id`, `type` (`tag_type` enum:
   `basic`, `text`, `datetime`, `number`, `checkbox`, `date`; defaults to `basic`). A null `user_id` means
@@ -23,9 +24,27 @@ Three tables, keyed on song ids that come from Apple Music.
 - `user_tags_applied` - tags a user put on a song, plus a nullable `value` (text column, always
   the tag's canonical string form regardless of `type`; see
   [../services/README.md](../services/README.md)). Composite pk of `(song_id, user_id, tag_id)`.
-  Cascades on delete from `tags`. This is the only applied-tag table anything reads today.
+  Cascades on delete from `tags`. Local tag reads and queries use this table.
 - `default_tags_applied` - default tags on a song, composite pk of `(song_id, tag_id)`, no user.
-  The entity exists but no code reads or writes it yet.
+  `get_default_tags_on_songs` reads it, and `set_default_tags_on_songs` replaces a song's rows.
+- `default_tag_votes` - yes/no counts for a tag name on a song. A qualifying vote promotes the
+  name to `default_tags_applied` and removes the vote row.
+- `song_meta` - retained in the database but unused by the api. It has no generated entity now.
+
+## Default tags and votes
+
+Default tags remain separate from user tags. They are never copied into `tags` or
+`user_tags_applied`, and user tag reads and boolean queries do not include them.
+
+`get_songs_without_default_tags` returns requested song ids with no row in
+`default_tags_applied`. `/songs/no-default-tags` uses it to tell the client which songs need
+generated defaults. `GET /songs/default-tags` reads them, while `POST /songs/default-tags`
+generates and stores them.
+
+Applying a user tag votes yes on its name for the song, and removing it votes no. Once a name has
+at least 10 votes and more than 1.5 times as many yes votes as no votes, it becomes a default tag
+on that song. `TagVoteCache` remembers the latest vote per user, song, and tag name so a changed
+vote moves a count rather than adding another one. The cache is process-local and best effort.
 
 ## The query compiler
 
@@ -49,10 +68,7 @@ WHERE query_songs.user_id = $1 AND <compiled where clause>
 ```
 
 `decode_query_json_node` walks the tree and emits one correlated `EXISTS (...)` subquery per tag
-id, joined with `AND` / `OR`. `not` is not emitted as a wrapping `NOT (...)`. Instead it flips an
-`inverted` flag that is threaded down the recursion, and De Morgan is applied on the way: an
-inverted `and` joins with `OR`, an inverted `or` joins with `AND`, and an inverted tag id becomes
-`NOT EXISTS`. Double negation cancels, since `not` just flips the flag again.
+id, joined with `AND` / `OR`. `not` wraps its child expression in `NOT (...)`.
 
 Tag ids are bound as parameters, never interpolated. `param_counter` starts at 2 when `$1` is
 the user id, or 3 when `$2` contains candidate ids. Each recursive call returns the next index.
@@ -111,6 +127,7 @@ Operator / type mismatches, missing or extra values, bad numbers, and bad dates 
 - Models convert to wire types through `From<tags::Model> for routes::json::tag::Tag`, and a
   model paired with its applied value through `From<(tags::Model, Option<String>)> for
   routes::json::tag::AppliedTag`.
+- `set_default_tags_on_songs` accepts `services::tag_generation::TagSpecs` from the generator.
 - Client side, the simple JSON tree is produced by
   `client-app/src/features/query-builder/QueryUtils.ts::queryToJSON`, and the advanced one by
   `client-app/src/features/advanced-query-builder/AdvancedQueryUtils.ts::buildAdvancedQuery`.
@@ -124,9 +141,10 @@ Operator / type mismatches, missing or extra values, bad numbers, and bad dates 
 - `get_tag` does **not** filter by user, so `GET /tags?tag_id=N` will happily return another
   user's tag. The `song_ids` beside it are correctly user-scoped, so the leak is the tag name and
   color only. Worth fixing.
-- Everything here is user scoped and ignores default tags. `get_user_tags_on_song`,
-  `get_user_tags_on_songs`, `get_songs_with_user_tag`, `get_all_user_tags`, and
-  `get_user_tags_metadata` all filter on `user_id`, and nothing joins `default_tags_applied`.
+- Local tag reads ignore default tags. `get_user_tags_on_song` and `get_user_tags_on_songs`
+  filter both the application and its joined tag by `user_id`; `get_songs_with_user_tag`,
+  `get_all_user_tags`, and `get_user_tags_metadata` are user-scoped as well. None join
+  `default_tags_applied`.
 - `get_user_tags_on_songs` seeds its map from the requested ids first, so every song asked for
   has an entry whether or not it has tags. Same idea as `get_user_tags_metadata`.
 - `get_user_tags_on_song` and `get_user_tags_on_songs` both return `(tags::Model, Option<String>)`
@@ -139,7 +157,9 @@ Operator / type mismatches, missing or extra values, bad numbers, and bad dates 
   on `tags.user_id = user_id` to look up the tag's `type` for value validation. As a side effect
   this also closes off applying or setting a value on another user's tag id (previously
   unchecked). It also means a default tag (`user_id IS NULL`) can never be applied this way,
-  though nothing currently creates default tags.
+  even though the generation and voting paths can create defaults.
+- Existing default tags copied into user tables by older code are not removed by this change.
+- `TagVoteCache` is per process. Restarts, evictions, and multiple instances can overcount votes.
 
 ---
 Touching files in this directory? Update this README in the same change.

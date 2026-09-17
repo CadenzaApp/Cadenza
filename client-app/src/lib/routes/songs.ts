@@ -4,13 +4,13 @@ import {
     useAPIMutation,
     useAPIPostDataBatched,
 } from "../api-actions";
-import { AppliedTag } from "@/lib/types";
+import { AppliedTag, Tag } from "@/lib/types";
 
 // the backend caps a batch at 200 ids
 const TAGS_ON_SONGS_BATCH_SIZE = 200;
 
 export function useTagsOnSong(songId?: string) {
-    const x = useAPIData<AppliedTag[]>("/songs/tags", {
+    const x = useAPIData<AppliedTag[]>("/songs/local-tags", {
         song_id: songId,
     });
 
@@ -31,7 +31,7 @@ export function useTagsOnSongs(songIds: readonly string[]) {
         string,
         { song_ids: string[] },
         Record<string, AppliedTag[]>
-    >("/songs/tags/batch", normalizedIds, {
+    >("/songs/local-tags/batch", normalizedIds, {
         batchSize: TAGS_ON_SONGS_BATCH_SIZE,
         toBody: (song_ids) => ({ song_ids }),
         merge: (responses) => Object.assign({}, ...responses),
@@ -56,10 +56,11 @@ type ApplyTagPayload = {
 export function useApplyTag() {
     const x = useAPIMutation<ApplyTagPayload, void>(
         "POST",
-        "/songs/tags",
+        "/songs/local-tags",
         ({ song_id }) => [
-            { path: "/songs/tags", params: { song_id } },
-            { path: "/songs/tags/batch" },
+            { path: "/songs/local-tags", params: { song_id } },
+            { path: "/songs/local-tags/batch" },
+            { path: "/songs/default-tags", params: { song_id } },
             { path: "/tags" },
             { path: "/queries/results" },
             { path: "/queries/advanced/results" },
@@ -82,10 +83,10 @@ type SetTagValuePayload = {
 export function useSetTagValue() {
     const x = useAPIMutation<SetTagValuePayload, void>(
         "PATCH",
-        "/songs/tags",
+        "/songs/local-tags",
         ({ song_id }) => [
-            { path: "/songs/tags", params: { song_id } },
-            { path: "/songs/tags/batch" },
+            { path: "/songs/local-tags", params: { song_id } },
+            { path: "/songs/local-tags/batch" },
             { path: "/tags" },
             { path: "/queries/results" },
             { path: "/queries/advanced/results" },
@@ -106,10 +107,10 @@ type UnapplyTagPayload = {
 export function useUnapplyTag() {
     const x = useAPIMutation<UnapplyTagPayload, void>(
         "DELETE",
-        "/songs/tags",
+        "/songs/local-tags",
         ({ song_id }) => [
-            { path: "/songs/tags", params: { song_id } },
-            { path: "/songs/tags/batch" },
+            { path: "/songs/local-tags", params: { song_id } },
+            { path: "/songs/local-tags/batch" },
             { path: "/tags" },
             { path: "/queries/results" },
             { path: "/queries/advanced/results" },
@@ -120,6 +121,19 @@ export function useUnapplyTag() {
         unapplyTagLoading: x.isMutating,
         resetUnpplyTag: x.reset,
         unapplyTag: x.trigger,
+    };
+}
+
+/** Returns the shared default tags on one song. */
+export function useDefaultTagsOnSong(songId?: string) {
+    const x = useAPIData<Tag[]>("/songs/default-tags", {
+        song_id: songId,
+    });
+
+    return {
+        defaultTagsOnSong: x.data,
+        defaultTagsOnSongLoading: x.isLoading,
+        defaultTagsOnSongErr: x.error,
     };
 }
 
@@ -146,6 +160,11 @@ export function useSetDefaultTags() {
     const x = useAPIMutation<SongIdAndDesc[], void>(
         "POST",
         "/songs/default-tags",
+        (songs) =>
+            songs.map(({ song_id }) => ({
+                path: "/songs/default-tags",
+                params: { song_id },
+            })),
     );
     return {
         setDefaultTagsErr: x.error,

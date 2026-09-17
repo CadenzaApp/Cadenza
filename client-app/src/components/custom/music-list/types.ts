@@ -113,6 +113,8 @@ export type MusicListProps = {
     footer?: ReactNode;
     /** Reports the complete scroll content size. */
     onContentSizeChange?: (width: number, height: number) => void;
+    /** Controls native offscreen view clipping for backdrops that span the list. */
+    removeClippedSubviews?: boolean;
     /** Optional scroll observer for coordinated header animation. */
     onScroll?: ReturnType<typeof useAnimatedScrollHandler>;
     /** Required pagination intent. Pass null for a non-paginated list. */

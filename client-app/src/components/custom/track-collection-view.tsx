@@ -71,6 +71,7 @@ type Props = {
     pagination?: MusicListPagination | null;
     sorting?: MusicListSorting | null;
     onContentSizeChange?: (width: number, height: number) => void;
+    removeClippedSubviews?: boolean;
     onPlay?: () => void | Promise<void>;
     onShuffle?: () => void | Promise<void>;
     isPlaying?: boolean;
@@ -102,6 +103,7 @@ export function TrackCollectionView({
         defaultValue: { option: "title", direction: "ascending" },
     },
     onContentSizeChange,
+    removeClippedSubviews,
     onPlay,
     onShuffle,
     isPlaying = false,
@@ -277,6 +279,7 @@ export function TrackCollectionView({
                 header={header ?? defaultHeader}
                 footer={footer}
                 onContentSizeChange={onContentSizeChange}
+                removeClippedSubviews={removeClippedSubviews}
                 onScroll={header ? undefined : onScroll}
                 multiSelect={multiSelect}
                 showTags={showTags}

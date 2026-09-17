@@ -62,6 +62,7 @@ export function MusicList({
     listHeader,
     footer,
     onContentSizeChange,
+    removeClippedSubviews,
     onScroll,
     pagination,
     sorting,
@@ -411,6 +412,7 @@ export function MusicList({
                                     </>
                                 }
                                 onContentSizeChange={onContentSizeChange}
+                                removeClippedSubviews={removeClippedSubviews}
                                 onScroll={composedOnScroll}
                                 onEndReached={handleEndReached}
                                 onEndReachedThreshold={0.1}
