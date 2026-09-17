@@ -7,11 +7,10 @@ The data access layer. Everything that touches postgres lives here, so handlers 
 
 | file | role |
 | --- | --- |
-| `mod.rs` | Declares `advanced_queries`, `entity`, `queries`, `tag_votes`, `tags`. |
+| `mod.rs` | Declares `entity`, `queries`, `tag_votes`, `tags`. |
 | `tags.rs` | User tag CRUD and applied values, plus reading, generating, and applying default tags. User tag reads never copy or return defaults. |
 | `tag_votes.rs` | Counts user apply/unapply votes in `default_tag_votes` and promotes popular names to default tags. Holds the in-memory recent-vote cache. |
-| `queries.rs` | Compiles a boolean tag query from JSON to SQL and runs it. |
-| `advanced_queries.rs` | Compiles an advanced (filter based) query to SQL and runs it. Unit tested. |
+| `queries.rs` | Compiles a tag query to SQL, runs it, and ranks the matches. Unit tested. |
 | `entity/` | sea-orm-codegen output. Includes tag, default-tag, and comment tables, plus `prelude` and `mod`. Do not hand edit. |
 
 ## Schema
@@ -48,52 +47,38 @@ vote moves a count rather than adding another one. The cache is process-local an
 
 ## The query compiler
 
-`queries.rs::run_json_query` is the interesting part. Input is a recursive JSON tree where a
-number is a tag id, plus an optional list of candidate song ids:
+`queries.rs::run_query` is the interesting part. It takes the typed `Query` from
+`routes/json/query.rs` (see [../routes/README.md](../routes/README.md) for the JSON) plus an
+optional list of candidate song ids, and returns matching song ids most relevant first. There is
+one compiler; the drag and drop builder just sends a query built only from `is_applied` and
+`is_not_applied` tag filters.
 
-```json
-{ "and": [ 12, { "or": [ 7, 9 ] }, { "not": 3 } ] }
-```
-
-Without candidates, `decode_query` evaluates the expression over songs that already have user
-tag rows. With candidates, it starts from `unnest($2::text[])`, left joins user tag rows for
-scoring, and evaluates the same correlated `EXISTS` clauses. This lets a library song with no
-tag rows satisfy a negative condition.
-
-The non-candidate form wraps the expression in:
-
-```sql
-SELECT song_id, tag_id FROM user_tags_applied AS query_songs
-WHERE query_songs.user_id = $1 AND <compiled where clause>
-```
-
-`decode_query_json_node` walks the tree and emits one correlated `EXISTS (...)` subquery per tag
-id, joined with `AND` / `OR`. `not` wraps its child expression in `NOT (...)`.
-
-Tag ids are bound as parameters, never interpolated. `param_counter` starts at 2 when `$1` is
-the user id, or 3 when `$2` contains candidate ids. Each recursive call returns the next index.
-
-The return value is `song id -> the set of that song's tag ids`, which is what lets
-`routes/queries.rs` rank results by how many of the queried tags each song has. Malformed input
-becomes `CadenzaError::QueryFormatError` (422).
-
-## The advanced query compiler
-
-`advanced_queries.rs::run_advanced_query` takes the typed `AdvancedQuery` from
-`routes/json/advanced_query.rs` (see [../routes/README.md](../routes/README.md) for the JSON). It
-is a separate compiler; `queries.rs` is untouched and still serves the simple builder.
-
-Before compiling it checks the tree size (`MAX_NODES` 200, `MAX_DEPTH` 20), looks up the type of
-every tag id the query mentions (user scoped, so another user's tag or a deleted one is a
+Before compiling it checks the tree size (`MAX_NODES` 200, `MAX_DEPTH` 20), then looks up the type
+of every tag id the query mentions (user scoped, so another user's tag or a deleted one is a
 `QueryFormatError`).
 
-`compile_advanced_query` is pure and emits:
+`compile_query` is pure and emits `(song id, tag id)` pairs in one of two shapes. Without
+candidates it evaluates over songs that already have user tag rows:
 
 ```sql
-SELECT DISTINCT song_id FROM user_tags_applied
-WHERE user_tags_applied.user_id = $1 AND <compiled where clause>
-ORDER BY song_id
+SELECT query_songs.song_id, query_songs.tag_id
+FROM user_tags_applied AS query_songs
+WHERE query_songs.user_id=$1 AND <compiled where clause>
 ```
+
+With candidates it starts from `unnest($2::text[])` and left joins the user's tag rows for
+scoring, which is what lets a library song with no tag rows satisfy a negative filter:
+
+```sql
+SELECT query_songs.song_id, applied_tags.tag_id
+FROM unnest($2::text[]) AS query_songs(song_id)
+LEFT JOIN user_tags_applied AS applied_tags
+    ON applied_tags.song_id=query_songs.song_id AND applied_tags.user_id=$1
+WHERE <compiled where clause>
+```
+
+Either way `query_songs` is the row every filter correlates against, so the compiled clause is
+the same in both.
 
 - `and` / `or` join children, and an empty one is `TRUE` / `FALSE`. `not` wraps `NOT (...)`
   directly; there is no De Morgan pass here.
@@ -115,21 +100,31 @@ ORDER BY song_id
 - Text comparisons are case-insensitive, using `lower()`, `starts_with`, `right`, and `strpos`
   rather than `LIKE`, so `%` and `_` in user input are literal.
 - Every value is bound, never interpolated. `Compiler::bind` pushes a value and returns its
-  placeholder, and `$1` is always the user id.
+  placeholder. `$1` is always the user id, and `$2` the candidate song ids when there are any, so
+  the first filter binds at `$2` or `$3`.
 
 Operator / type mismatches, missing or extra values, bad numbers, and bad dates are all
 `CadenzaError::QueryFormatError` (422) with a message saying which.
 
+## Ranking
+
+The statement returns pairs rather than bare song ids so `rank_songs` can score each song by how
+many of the tag ids the query names it actually carries, most first. Equal scores fall back to
+song id, so the same query comes back in the same order every time.
+
+A query built only from `tag_name`, `tag_value` or `tag_type` filters names no tag ids at all, so
+every song scores zero and the whole list is ordered by song id.
+
 ## Connects to
 
 - Called by `src/routes/tags.rs`, `src/routes/songs.rs`, `src/routes/queries.rs`.
-- `advanced_queries.rs` reads its input types from `src/routes/json/advanced_query.rs`.
+- `queries.rs` reads its input types from `src/routes/json/query.rs`.
 - Models convert to wire types through `From<tags::Model> for routes::json::tag::Tag`, and a
   model paired with its applied value through `From<(tags::Model, Option<String>)> for
   routes::json::tag::AppliedTag`.
 - `set_default_tags_on_songs` accepts `services::tag_generation::TagSpecs` from the generator.
-- Client side, the simple JSON tree is produced by
-  `client-app/src/features/query-builder/QueryUtils.ts::queryToJSON`, and the advanced one by
+- Client side the same JSON comes from either
+  `client-app/src/features/query-builder/QueryUtils.ts::queryToJSON` or
   `client-app/src/features/advanced-query-builder/AdvancedQueryUtils.ts::buildAdvancedQuery`.
 
 ## Gotchas

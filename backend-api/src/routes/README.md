@@ -11,10 +11,10 @@ call into `src/db/` or `src/services/`, and shape the response.
 | `mod.rs` | Declares `json`, `queries`, `tags`, `songs`. |
 | `tags.rs` | Tag CRUD for the signed-in user, plus LLM tag suggestion. Mounted at `/tags`. |
 | `songs.rs` | Reading and changing user tags, reading default tags, checking for missing defaults, and generating default tags. Mounted at `/songs`. |
-| `queries.rs` | Runs a boolean tag query and returns song ids by relevance, and runs an advanced query. Mounted at `/queries`. |
-| `json/mod.rs` | `vec_into`, a small `Vec<A> -> Vec<B>` helper. Declares `advanced_query` and `tag`. |
+| `queries.rs` | Runs a tag query and returns song ids by relevance. Mounted at `/queries`. |
+| `json/mod.rs` | `vec_into`, a small `Vec<A> -> Vec<B>` helper. Declares `query` and `tag`. |
 | `json/tag.rs` | `TagType`, `Tag`, and `AppliedTag`, the wire shapes of a tag. `From<tags::Model>` drops `user_id`. |
-| `json/advanced_query.rs` | `AdvancedQuery`, `AdvancedQueryNode`, `AdvancedFilter`, `FilterOp`: the input schema of an advanced query. |
+| `json/query.rs` | `Query`, `QueryNode`, `Filter`, `FilterOp`: the input schema of a tag query. Both client builders produce it. |
 
 ## Endpoints
 
@@ -36,9 +36,7 @@ Every route below requires `Authorization: Bearer <supabase jwt>`.
 | POST | `/songs/local-tags` | `{song_id, tag_id, value?}` | empty. Also votes yes on the tag name |
 | PATCH | `/songs/local-tags` | `{song_id, tag_id, value}` | empty. A null value clears it |
 | DELETE | `/songs/local-tags` | `{song_id, tag_id}` | empty. Votes no when it removes the tag |
-| GET | `/queries/results` | `?q=<query json>` | `["songid", ...]`, most relevant first |
-| POST | `/queries/results` | `{query, song_ids}` | Matching candidate song ids, most relevant first |
-| GET | `/queries/advanced/results` | `?q=<advanced query json>` | `["songid", ...]`, sorted by song id |
+| POST | `/queries/results` | `{query, song_ids?}` | `["songid", ...]`, most relevant first |
 | GET | `/test` | none | `server is reachable`. Defined inline in `main.rs`, not here |
 
 `GET /tags` returns a serde-tagged enum, so the two shapes come back wrapped in `"One"` or
@@ -59,9 +57,11 @@ A `value` that does not fit the tag's type (not a number, not RFC 3339, not a
 any non-blank value on a `basic` tag) is rejected with `CadenzaError::InvalidTagValue` (422). See
 [../services/README.md](../services/README.md) for the exact per-type rules.
 
-### Advanced query JSON
+### Query JSON
 
-`q` on `/queries/advanced/results` is an `AdvancedQuery`:
+`query` on `/queries/results` is a `Query`. There is one query format; the drag
+and drop builder is the subset of it that only uses `is_applied` and
+`is_not_applied` tag filters:
 
 ```json
 {
@@ -78,7 +78,8 @@ any non-blank value on a `basic` tag) is rejected with `CadenzaError::InvalidTag
 
 - `where` is the only top-level key. Anything else, including the old `timezone`, is rejected.
 - A node is exactly one of `{"and": [node]}`, `{"or": [node]}`, `{"not": node}`,
-  `{"filter": filter}`. The client's "none of the following" group is `{"not": {"or": [...]}}`.
+  `{"filter": filter}`. The advanced builder's "none of the following" group is
+  `{"not": {"or": [...]}}`.
 - A filter is tagged by `field`: `tag` (with `tag_id`), `tag_name`, `tag_value`, or `tag_type`.
   `value` is always a string, and is omitted (or null) for operators that take none.
 
@@ -114,27 +115,22 @@ empty list for the songs `db::tags::get_default_tags_on_songs` leaves out.
 state. `POST /songs/default-tags` skips songs that already have defaults, generates tags for the
 rest, and stores them through `db::tags::set_default_tags_on_songs`.
 
-`queries.rs` is the only one with real logic in the route, and it is ranking, not data access.
-The query tree arrives as a `q` query param holding JSON. `QueryResultsParams::into_json_query`
-parses it, and a bad parse is `QueryFormatError`. `db::queries::run_json_query` returns
-`song id -> its matched tag ids`. The handler walks the original query JSON to collect every tag
-id mentioned, scores each song by how many of those it carries, and sorts descending. Ties keep
-hashmap order, so equal-score results are unstable between requests.
+`queries.rs` is one handler. The query arrives already typed, because serde parses the body
+straight into `Query`, so a bad shape is a `QueryFormatError` carrying serde's message. The
+handler checks the `song_ids` cap and hands everything to `db::queries::run_query`, which does
+the compiling, running, and ranking.
 
-The POST form receives current Apple Music library ids from the client and caps the list at
-50,000. Candidate-based evaluation lets a negated tag match songs with no Cadenza tag rows. The
-GET form remains available for callers that only need the previously tagged-song universe.
-
-`advanced_query_results_handler` parses `q` straight into `AdvancedQuery` with serde, so a bad
-shape is a `QueryFormatError` carrying serde's message, then hands it to
-`db::advanced_queries::run_advanced_query`. There is no ranking; the db sorts by song id.
+`song_ids` is the client's current Apple Music library, capped at 50,000. Sending it evaluates
+the query over exactly those songs, which is what lets `is_not_applied` and other negative
+filters match songs with no Cadenza tag rows. Omitting it evaluates over the previously
+tagged-song universe instead.
 
 `json/` exists so the wire format is decoupled from the SeaORM models. Anything that leaves the
 api as JSON should have a type here rather than serializing an entity model directly.
 
 ## Connects to
 
-- `crate::db::tags`, `crate::db::queries`, and `crate::db::advanced_queries` for all data access.
+- `crate::db::tags` and `crate::db::queries` for all data access.
 - `crate::services::tag_generation::TagGenerationService` for `/tags/suggest` and
   `POST /songs/default-tags`.
 - `crate::err::CadenzaError` for every error path.
@@ -142,8 +138,8 @@ api as JSON should have a type here rather than serializing an entity model dire
 
 ## Gotchas
 
-- `queries.rs` also accepts a `query_id` param for a saved query, but that branch is a `todo!()`.
-  Sending `query_id` without `q` panics the handler. Only `q` works today.
+- Saved queries are gone from the route. It used to take a `query_id` param whose branch was a
+  `todo!()` that panicked the handler.
 - `tags.rs::get_songs_with_user_tag_handler` exists but is not routed anywhere. Dead code. The
   same data comes back from `GET /tags?tag_id=N`.
 - `GET /tags/suggest` uses `requested_tag_count` as a **required** query param, not optional, so

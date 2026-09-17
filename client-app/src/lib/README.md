@@ -14,7 +14,7 @@ native module directly.
 | `swr-utils.ts`               | `clearCache` and `useSimpleMutation`, for things that are not plain backend calls.                                                                                                       |
 | `routes/tags.ts`             | Hooks for `/tags`: `useUserTags`, `useTag`, `useCreateTag`, `useDeleteTag`, `useSuggestTags`.                                                                                            |
 | `routes/songs.ts`            | Hooks for local and default tag reads (one song and batched), local tag writes, missing-default checks, and generation.                                                                  |
-| `routes/queries.ts`          | Cached hooks for `/queries/results` and `/queries/advanced/results`: `useQueryResults`, `useAdvancedQueryResults`.                                                                       |
+| `routes/queries.ts`          | `useQueryResults`, the one cached hook for `/queries/results`. Both builders go through it.                                                                                              |
 | `musickit-hooks.ts`          | SWR over the native module: song info, catalog search, paged and complete-library songs, albums, artists, playlists, collection metadata, favorites, artist search, and playlist writes. |
 | `song-init.tsx`              | `SongInitProvider`, which runs the default-tag population job after account and Apple Music authorization.                                                                              |
 | `song-init-job.ts`           | Import-free, tested scan and generation job for songs without default tags.                                                                                                              |
@@ -37,6 +37,7 @@ native module directly.
 | `zoom-dismiss.tsx`           | `ZoomOriginProvider`, `useZoomSource`, `ZoomDismissScreen`, `useCloseScreen`. Closing a pushed screen by shrinking it back into the artwork that opened it.                              |
 | `zoom-dismiss-geometry.ts`   | Pure pull, transform, timing, and corner math for `zoom-dismiss`, tested without React Native.                                                                                           |
 | `types.ts`                   | Shared wire types: `TagType`, `Tag`, `AppliedTag` and `TagMetadata`.                                                                                                                     |
+| `query-json.ts`              | The tag query wire format: `QueryJSON`, `QueryJSONNode`, `FilterJSON`, `FilterOp`. Types only, so the pure builder utils stay testable under `node --test`.                              |
 | `tag-values.ts`              | Per-type tag helpers: `TAG_TYPES`, labels, descriptions, `TAG_TYPE_ICONS`, value validation, canonicalization, formatting, the date-only helpers, and `unownedDefaultTags`.              |
 | `utils.ts`                   | `cn()`, the clsx + tailwind-merge helper.                                                                                                                                                |
 
@@ -112,7 +113,6 @@ One file per backend router, and every backend endpoint has at least one hook.
 |                     | `PATCH /songs/local-tags`        | `songs.ts` -> `useSetTagValue()`               |
 |                     | `DELETE /songs/local-tags`       | `songs.ts` -> `useUnapplyTag()`                |
 | `routes/queries.rs` | `POST /queries/results`          | `queries.ts` -> `useQueryResults()`            |
-|                     | `GET /queries/advanced/results`  | `queries.ts` -> `useAdvancedQueryResults()`    |
 
 `GET /tags` has two hooks because the handler returns a tagged union: without `tag_id` it
 responds with `All { tags, metadata }`, with one it responds with `One { tag, song_ids }`.

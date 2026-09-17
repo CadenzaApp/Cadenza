@@ -25,6 +25,15 @@ const rainy: Tag = { id: 1, name: "rainy", color: "#2563eb", type: "basic" };
 const chill: Tag = { id: 2, name: "chill", color: "#7c3aed", type: "basic" };
 const jazz: Tag = { id: 3, name: "jazz", color: "#db2777", type: "basic" };
 
+/** The wire shape of a plain tag in the query, and of a negated one. */
+function applied(tagId: number) {
+    return { filter: { field: "tag", tag_id: tagId, op: "is_applied" } };
+}
+
+function notApplied(tagId: number) {
+    return { filter: { field: "tag", tag_id: tagId, op: "is_not_applied" } };
+}
+
 function queryTag(
     id: string,
     tag: Tag,
@@ -47,7 +56,7 @@ test("serializes top-level AND, group mode, and per-tag NOT", () => {
     ];
 
     assert.deepEqual(queryToJSON(conditions), {
-        and: [{ or: [1, { not: 2 }] }, 3],
+        where: { and: [{ or: [applied(1), notApplied(2)] }, applied(3)] },
     });
     assert.equal(queryToJSON([]), null);
 });
@@ -156,7 +165,7 @@ test("toggles mode and negation without changing tag identity", () => {
     const negated = toggleTagNegation(all, "rainy");
 
     assert.deepEqual(queryToJSON(negated), {
-        and: [{ and: [{ not: 1 }, 2] }],
+        where: { and: [{ and: [notApplied(1), applied(2)] }] },
     });
 });
 
@@ -204,7 +213,7 @@ test("serializes mixed top-level connectors from left to right", () => {
     ];
 
     assert.deepEqual(queryToJSON(conditions), {
-        or: [{ and: [1, 2] }, 3],
+        where: { or: [{ and: [applied(1), applied(2)] }, applied(3)] },
     });
 });
 
@@ -364,7 +373,9 @@ test("remembers a deleted trailing connector when a replacement is appended", ()
     const replaced = appendTag(remaining, jazz);
 
     assert.equal(replaced[1].connector, "or");
-    assert.deepEqual(queryToJSON(replaced), { or: [1, 3] });
+    assert.deepEqual(queryToJSON(replaced), {
+        where: { or: [applied(1), applied(3)] },
+    });
 });
 
 test("remembers a connector when deleting the only tag in a condition", () => {

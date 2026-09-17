@@ -2,7 +2,10 @@
 // Advanced query builder types
 /////////////////////////
 
+import type { FilterOp } from "@/lib/query-json";
 import type { TagType } from "@/lib/types";
+
+export type { FilterOp };
 
 /**
  * How a group combines its children. "none" means none of the children may
@@ -22,38 +25,6 @@ export type FilterField =
  * otherwise the field itself.
  */
 export type FieldKind = TagType | "tag_name" | "tag_value" | "tag_type";
-
-export type FilterOp =
-    // text, tag name, tag value
-    | "is"
-    | "is_not"
-    | "starts_with"
-    | "ends_with"
-    | "contains"
-    | "is_empty"
-    // datetime, date and number
-    | "is_not_empty"
-    // datetime and date
-    | "on"
-    | "not_on"
-    | "before"
-    | "after"
-    | "on_or_before"
-    | "on_or_after"
-    // number
-    | "eq"
-    | "ne"
-    | "lt"
-    | "le"
-    | "gt"
-    | "ge"
-    // checkbox
-    | "is_true"
-    | "is_false"
-    | "is_null"
-    // basic
-    | "is_applied"
-    | "is_not_applied";
 
 /** Which input a filter shows for its value. */
 export type ValueKind =
@@ -87,23 +58,3 @@ export type AdvancedGroupNode = {
 };
 
 export type AdvancedNode = AdvancedFilterNode | AdvancedGroupNode;
-
-/////////////////////////
-// Wire format, see backend-api/src/routes/json/advanced_query.rs
-/////////////////////////
-
-export type AdvancedQueryJSON = {
-    where: AdvancedQueryJSONNode;
-};
-
-export type AdvancedQueryJSONNode =
-    | { and: AdvancedQueryJSONNode[] }
-    | { or: AdvancedQueryJSONNode[] }
-    | { not: AdvancedQueryJSONNode }
-    | { filter: AdvancedFilterJSON };
-
-export type AdvancedFilterJSON =
-    | { field: "tag"; tag_id: number; op: FilterOp; value?: string }
-    | { field: "tag_name"; op: FilterOp; value?: string }
-    | { field: "tag_value"; op: FilterOp; value?: string }
-    | { field: "tag_type"; op: FilterOp; value: TagType };

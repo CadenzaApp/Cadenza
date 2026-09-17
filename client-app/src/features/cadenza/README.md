@@ -20,18 +20,18 @@ category now, opened from the library screen, so this tab is only the query buil
 simple builder's `Include suggested tags` switch, which is a placeholder that nothing reads yet. The mode button in
 the result-summary row switches between the tactile simple builder and the filter-based advanced
 builder without discarding either tree. The simple path compiles `QueryCondition[]` with
-`queryToJSON` and sends every catalog id as the backend candidate set. The advanced path compiles
-its tree with `buildAdvancedQuery` as it changes. Both map returned ids back to the same cached
-library tracks and render the same `ResultsSummary`; its arrow opens the current mode's results.
+`queryToJSON` and the advanced path compiles its tree with `buildAdvancedQuery`, but both produce
+the same wire format, so the active mode only decides which tree is sent. One
+`useQueryResults` call handles both. Returned ids map back to the same cached library tracks and
+render the same `ResultsSummary`; its arrow opens the current mode's results.
 
-Supplying the complete candidate set on the simple path is what lets a NOT query include songs
-that have no Cadenza tags at all. The advanced backend currently evaluates songs represented in
-Cadenza's applied-tag data.
+Every catalog id goes along as the backend candidate set, whichever mode is active. That is what
+lets a negated query include songs with no Cadenza tags at all.
 
 The conditions live on the tab screen, so they survive tab switches. Opening the full result set
-pushes `/query-results` with the active builder kind and serialized query. The route dispatches to
-the matching endpoint but always renders the same normal full-screen `QueryResults` view. The
-builder remains mounted underneath, so going back returns to the existing query and active mode.
+pushes `/query-results` with the serialized query, and the route renders the same normal
+full-screen `QueryResults` view. The builder remains mounted underneath, so going back returns to
+the existing query and active mode.
 
 ## Connects to
 

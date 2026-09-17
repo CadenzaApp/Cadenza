@@ -28,7 +28,7 @@ logic out.
 | `library-categories.tsx`             | `/library-categories`     | Picks which rows the library shows.                                                                           |
 | `category/[kind].tsx`                | `/category/:kind`         | Compatibility root host for the shared library-category body.                                                 |
 | `collection/[kind]/[id].tsx`         | `/collection/:kind/:id`   | The songs in one album or playlist.                                                                           |
-| `query-results.tsx`                  | `/query-results`          | Opaque full-screen simple or advanced query matches with the compact player overlaid when active.             |
+| `query-results.tsx`                  | `/query-results`          | Opaque full-screen query matches with the compact player overlaid when active.                                |
 | `tag/[tagId].tsx`                    | `/tag/:tagId`             | One tag and the songs carrying it.                                                                            |
 | `artist/[id].tsx`                    | `/artist/:id`             | One catalog artist: the artist image and a play button, top songs, then an albums rail.                       |
 | `add-to-playlist.tsx`                | `/add-to-playlist`        | Picks a library playlist for a song, or makes one.                                                            |

@@ -11,7 +11,7 @@ connectors attached to visual boundaries instead of moving them with condition c
 
 | file                 | role                                                                        |
 | -------------------- | --------------------------------------------------------------------------- |
-| `types.ts`           | Condition, group, tag-instance, drag, drop, and query JSON types.           |
+| `types.ts`           | Condition, group, tag-instance, drag, and drop types.                       |
 | `QueryUtils.ts`      | Pure condition edits, group collapse, derived labels, and JSON compilation. |
 | `QueryUtils.test.ts` | Reducer invariants and wire-format tests.                                   |
 | `QueryBuilder.tsx`   | Composes the suggested-tag switch, simple workspace, and tag palette.       |
@@ -32,11 +32,14 @@ ID and its own `negated` value. The same tag can appear in separate conditions, 
 duplicate tag IDs. A group has `mode: "any"|"all"` and an ordered `members` array. Helpers never leave a one-member group: removing or extracting
 a member immediately replaces that group with its remaining tag.
 
-`queryToJSON` emits the backend's recursive format. Top-level connectors compose from left to right,
-with adjacent uses of the same operator flattened into one expression. A divider's connector belongs
-to the condition below it. An individual top-level condition retains the existing `{and: [...]}` wrapper,
-an any group becomes `{or: [...]}`, an all group becomes `{and: [...]}`, and a negated tag
-becomes `{not: tagId}`. An empty query returns `null` and does not fetch.
+`queryToJSON` emits the shared wire format in `@/lib/query-json`, the same one the advanced
+builder produces. Top-level connectors compose from left to right, with adjacent uses of the same
+operator flattened into one expression. A divider's connector belongs to the condition below it.
+An individual top-level condition retains the existing `{and: [...]}` wrapper, an any group becomes
+`{or: [...]}`, and an all group becomes `{and: [...]}`. A tag becomes an `is_applied` filter on it
+and a negated tag an `is_not_applied` filter, which is the only part of the format this builder
+uses. The whole tree is wrapped in `{where: ...}`. An empty query returns `null` and does not
+fetch.
 
 ## Interaction flow
 
@@ -150,8 +153,8 @@ The Cadenza screen owns the shared result summary. Its result-count control and 
 liquid glass, with the mode button sitting between the count and next arrow. Expanding the count
 opens a liquid-glass preview layered over the editor instead of resizing or shifting it. The mode
 button swaps this editor for the filter-based advanced builder without navigating or discarding
-either query tree. Both modes open `/query-results`, which
-dispatches to the matching endpoint and renders the same full-screen hero. See
+either query tree. Both modes compile to the same wire format and open `/query-results`, which
+renders the same full-screen hero. See
 [../advanced-query-builder/README.md](../advanced-query-builder/README.md).
 
 ## Connects to
@@ -161,7 +164,8 @@ dispatches to the matching endpoint and renders the same full-screen hero. See
 - `@/lib/routes/queries::useQueryResults` for live candidate-based query evaluation.
 - `@/lib/musickit-hooks::useAllTracksFromLibrary` for the complete library candidate set.
 - `@/components/custom/music-list` for preview and full results.
-- Backend `POST /queries/results` for correct NOT behavior on completely untagged songs.
+- Backend `POST /queries/results` for correct NOT behavior on completely untagged songs. The
+  wire types are in `@/lib/query-json`.
 
 ## Gotchas
 

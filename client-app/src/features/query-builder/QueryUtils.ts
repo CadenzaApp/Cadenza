@@ -1,3 +1,4 @@
+import type { QueryJSON, QueryJSONNode } from "@/lib/query-json";
 import type { Tag } from "@/lib/types";
 
 import type {
@@ -5,7 +6,6 @@ import type {
     QueryConnector,
     QueryGroup,
     QueryGroupMode,
-    QueryJSONNode,
     QueryTag,
 } from "./types";
 
@@ -244,7 +244,19 @@ export function moveQueryTagToCondition(
     );
 }
 
+/**
+ * Compiles the tree into the shared wire format, the same one the advanced
+ * builder produces. A tag becomes an "is applied" filter on it, and a negated
+ * tag an "is not applied" filter.
+ */
 export function queryToJSON(
+    conditions: readonly QueryCondition[],
+): QueryJSON | null {
+    const where = conditionsToJSON(conditions);
+    return where ? { where } : null;
+}
+
+function conditionsToJSON(
     conditions: readonly QueryCondition[],
 ): QueryJSONNode | null {
     if (conditions.length === 0) return null;
@@ -394,7 +406,13 @@ function conditionToJSON(condition: QueryCondition): QueryJSONNode {
 }
 
 function queryTagToJSON(queryTag: QueryTag): QueryJSONNode {
-    return queryTag.negated ? { not: queryTag.tag.id } : queryTag.tag.id;
+    return {
+        filter: {
+            field: "tag",
+            tag_id: queryTag.tag.id,
+            op: queryTag.negated ? "is_not_applied" : "is_applied",
+        },
+    };
 }
 
 function joinJSONNodes(
@@ -402,10 +420,10 @@ function joinJSONNodes(
     right: QueryJSONNode,
     connector: QueryConnector,
 ): QueryJSONNode {
-    if (connector === "and" && typeof left === "object" && "and" in left) {
+    if (connector === "and" && "and" in left) {
         return { and: [...left.and, right] };
     }
-    if (connector === "or" && typeof left === "object" && "or" in left) {
+    if (connector === "or" && "or" in left) {
         return { or: [...left.or, right] };
     }
     return connector === "and" ? { and: [left, right] } : { or: [left, right] };

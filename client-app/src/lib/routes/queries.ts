@@ -1,16 +1,24 @@
 import { useMemo } from "react";
 
-import type { AdvancedQueryJSON } from "@/features/advanced-query-builder/types";
-import type { QueryJSONNode } from "@/features/query-builder/types";
-import { useAPIData, useAPIPostData } from "../api-actions";
+import type { QueryJSON } from "@/lib/query-json";
+import { useAPIPostData } from "../api-actions";
 
 type QueryResultsBody = {
-    query: QueryJSONNode;
+    query: QueryJSON;
     song_ids: string[];
 };
 
+/**
+ * Song ids matching `query`, most relevant first. Both builders compile to the
+ * same wire format, so this is the only query hook.
+ *
+ * `candidateSongIds` is the current Apple Music library, which the backend
+ * evaluates the query over. It is what lets a "not applied" filter match a song
+ * with no tags on it at all, so the hook waits for `candidatesReady` rather than
+ * querying against a partial library.
+ */
 export function useQueryResults(
-    query: QueryJSONNode | null,
+    query: QueryJSON | null,
     candidateSongIds: readonly string[],
     candidatesReady: boolean,
 ) {
@@ -30,17 +38,5 @@ export function useQueryResults(
         matchedSongIds: body ? (x.data ?? []) : [],
         queryResultsLoading: body !== null && x.isLoading,
         queryResultsErr: x.error,
-    };
-}
-
-export function useAdvancedQueryResults(query: AdvancedQueryJSON | null) {
-    const x = useAPIData<string[]>("/queries/advanced/results", {
-        q: query ? JSON.stringify(query) : null,
-    });
-
-    return {
-        matchedSongIds: query ? (x.data ?? []) : [],
-        advancedQueryResultsLoading: query !== null && x.isLoading,
-        advancedQueryResultsErr: x.error,
     };
 }

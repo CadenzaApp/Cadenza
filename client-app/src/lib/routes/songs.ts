@@ -64,7 +64,6 @@ export function useApplyTag() {
             { path: "/songs/default-tags/batch" },
             { path: "/tags" },
             { path: "/queries/results" },
-            { path: "/queries/advanced/results" },
         ],
     );
     return {
@@ -90,7 +89,6 @@ export function useSetTagValue() {
             { path: "/songs/local-tags/batch" },
             { path: "/tags" },
             { path: "/queries/results" },
-            { path: "/queries/advanced/results" },
         ],
     );
     return {
@@ -114,7 +112,6 @@ export function useUnapplyTag() {
             { path: "/songs/local-tags/batch" },
             { path: "/tags" },
             { path: "/queries/results" },
-            { path: "/queries/advanced/results" },
         ],
     );
     return {

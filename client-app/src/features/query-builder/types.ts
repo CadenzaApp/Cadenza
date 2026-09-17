@@ -25,12 +25,6 @@ export type QueryGroup = {
 
 export type QueryCondition = QueryTag | QueryGroup;
 
-export type QueryJSONNode =
-    | number
-    | { and: QueryJSONNode[] }
-    | { or: QueryJSONNode[] }
-    | { not: QueryJSONNode };
-
 export type QueryTagOrigin = {
     conditionId: string;
 };
