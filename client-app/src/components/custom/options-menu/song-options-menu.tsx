@@ -5,7 +5,10 @@ import { Alert } from "react-native";
 
 import { ModalPopup } from "@/components/custom/modal-popup";
 import { MusicListActionButton } from "@/components/custom/music-list/music-list-action-button";
-import type { MusicListAction } from "@/components/custom/music-list/types";
+import type {
+    MusicListAction,
+    MusicListTrackAction,
+} from "@/components/custom/music-list/types";
 import { GlassButton } from "@/components/ui/glass-button";
 import { Text } from "@/components/ui/text";
 import { albumRouteForTrack } from "@/lib/music-routes";
@@ -29,18 +32,20 @@ type SongOptionsMenuProps = {
     /**
      * What Modify Tags does. Defaults to opening the now-playing sheet's Tags
      * page for this track via a route push (`tagsSongId` and friends, read by
-     * `app/player.tsx`), which is what a list row menu needs since it has no
+     * `app/player/_layout.tsx`), which is what a list row menu needs since it has no
      * sheet to already be inside. The now-playing sheet's own menu passes a
-     * function that moves its pager to the Tags page in place instead.
+     * function that selects its native Tags tab in place instead.
      */
     onModifyTags?: (track: MusicItem) => void;
+    /** Caller-specific actions appended after the standard song actions. */
+    extraActions?: readonly MusicListTrackAction[];
 };
 
 /** Opens the now-playing sheet's Tags page for a track that may not be playing. */
 function defaultModifyTags(navigate: NavigateFn) {
     return (track: MusicItem) => {
         navigate({
-            pathname: "/player",
+            pathname: "/player/tags",
             params: {
                 tagsSongId: track.catalogId ?? track.id,
                 tagsSongTitle: track.title ?? "",
@@ -62,6 +67,7 @@ export function SongOptionsMenu({
     onClose,
     navigate = (href) => router.push(href),
     onModifyTags = defaultModifyTags(navigate),
+    extraActions = [],
 }: SongOptionsMenuProps) {
     const favoriteId = track?.catalogId ?? track?.id;
     const {
@@ -117,7 +123,10 @@ export function SongOptionsMenu({
         onClose();
         navigate({
             pathname: "/artist/[id]",
-            params: { id: artistId, name: selectedTrack.artistName ?? "Artist" },
+            params: {
+                id: artistId,
+                name: selectedTrack.artistName ?? "Artist",
+            },
         });
     }
 
@@ -161,7 +170,7 @@ export function SongOptionsMenu({
     ];
 
     return (
-        <ModalPopup visible onClose={onClose} variant="glass">
+        <ModalPopup visible onClose={onClose}>
             {favoriteStatusErr ? (
                 <FavoriteShareRow
                     target={selectedTrack}
@@ -196,6 +205,25 @@ export function SongOptionsMenu({
                     />
                 );
             })}
+
+            {extraActions.map((action) => (
+                <MusicListActionButton
+                    key={action.id}
+                    action={action}
+                    target={selectedTrack}
+                    onPress={() => {
+                        if (action.dismissMenu !== false) onClose();
+                        void Promise.resolve(action.onPress(selectedTrack)).catch(
+                            (error) => {
+                                console.error(
+                                    `Song option ${action.id} failed:`,
+                                    error,
+                                );
+                            },
+                        );
+                    }}
+                />
+            ))}
 
             <GlassButton
                 className="mt-1"

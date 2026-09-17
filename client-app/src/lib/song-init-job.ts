@@ -30,49 +30,44 @@ export type SongInitDeps = {
         playlistId: string,
         options: PageOptions,
     ) => Promise<SongInitPage>;
-    /**
-     * `POST /songs/initialize`. Initializes the requested songs that have tags
-     * of either kind, and returns the ones with none.
-     */
-    initSongs: (body: { song_ids: string[] }) => Promise<string[]>;
+    /** `POST /songs/no-default-tags`. Returns ids with no default tags. */
+    getSongsWithoutDefaultTags: (body: {
+        song_ids: string[];
+    }) => Promise<string[]>;
     /** `POST /songs/default-tags`. */
     setDefaultTags: (
         songs: { song_id: string; desc: string }[],
     ) => Promise<unknown>;
-    /** Called after requests that may have initialized songs. */
-    onSongsInitialized: () => void;
     /**
      * Called once the search has covered every source, with how many songs it
      * found that still need tags. It marks the end of the first pass and the
      * start of the second, which is how a caller reports the two separately.
      */
-    onSearchComplete: (uninitializedCount: number) => void;
+    onSearchComplete: (songsWithoutDefaultsCount: number) => void;
     isCancelled: () => boolean;
 };
 
 /**
- * Finds the songs in the user's library and library playlists that are not
- * initialized yet, then initializes them. The search covers every source
- * before any tags are generated, so the count is known before the slow part.
+ * Finds songs in the user's library and library playlists that have no default
+ * tags, then generates them. The search covers every source before generation,
+ * so the count is known before the slow part.
  */
 export async function initializeSongs(deps: SongInitDeps) {
-    const uninitialized = await findUninitializedSongs(deps);
+    const songsWithoutDefaults = await findSongsWithoutDefaultTags(deps);
     if (deps.isCancelled()) return;
 
-    // the search read every song, which initialized the ones that already had tags
-    deps.onSongsInitialized();
-    deps.onSearchComplete(uninitialized.size);
+    deps.onSearchComplete(songsWithoutDefaults.size);
 
-    await initializeInBatches(deps, uninitialized);
+    await setDefaultTagsInBatches(deps, songsWithoutDefaults);
 }
 
 /**
  * Asks the backend about every song in the library, then in each playlist,
- * once per song. Returns the uninitialized ones as song id -> description. A
- * source that fails to read is logged and skipped.
+ * once per song. Returns the ones without default tags as song id ->
+ * description. A source that fails to read is logged and skipped.
  */
-async function findUninitializedSongs(deps: SongInitDeps) {
-    const uninitialized = new Map<string, string>();
+async function findSongsWithoutDefaultTags(deps: SongInitDeps) {
+    const songsWithoutDefaults = new Map<string, string>();
     const checked = new Set<string>();
 
     const checkPage = async (songs: SongInitItem[]) => {
@@ -85,16 +80,15 @@ async function findUninitializedSongs(deps: SongInitDeps) {
         }
         if (unchecked.size === 0 || deps.isCancelled()) return;
 
-        // reading the songs initializes the ones with tags and returns the rest
-        const uninitializedIds = await deps.initSongs({
+        const idsWithoutDefaults = await deps.getSongsWithoutDefaultTags({
             song_ids: [...unchecked.keys()],
         });
         for (const songId of unchecked.keys()) checked.add(songId);
 
         // keep a description of each, to generate its tags from later
-        for (const songId of uninitializedIds) {
+        for (const songId of idsWithoutDefaults) {
             const song = unchecked.get(songId);
-            if (song) uninitialized.set(songId, describeSong(song));
+            if (song) songsWithoutDefaults.set(songId, describeSong(song));
         }
     };
 
@@ -125,20 +119,18 @@ async function findUninitializedSongs(deps: SongInitDeps) {
         ),
     );
 
-    return uninitialized;
+    return songsWithoutDefaults;
 }
 
 /**
- * Generates default tags for the uninitialized songs a batch at a time, then
- * reads each batch back, which initializes the songs that got tags. A batch
- * that fails is logged and dropped. Its songs, like songs the model gave no
- * tags, stay uninitialized until the job runs again.
+ * Generates default tags for songs that lack them, one batch at a time. A
+ * failed batch and songs the model gave no tags are retried on the next run.
  */
-async function initializeInBatches(
+async function setDefaultTagsInBatches(
     deps: SongInitDeps,
-    uninitialized: Map<string, string>,
+    songsWithoutDefaults: Map<string, string>,
 ) {
-    const songs = [...uninitialized].map(([song_id, desc]) => ({
+    const songs = [...songsWithoutDefaults].map(([song_id, desc]) => ({
         song_id,
         desc,
     }));
@@ -153,15 +145,11 @@ async function initializeInBatches(
         try {
             // generate and store default tags for the batch
             await deps.setDefaultTags(batch);
-            if (deps.isCancelled()) return;
-
-            // read the batch back, which copies the new default tags to the user
-            await deps.initSongs({
-                song_ids: batch.map((song) => song.song_id),
-            });
-            deps.onSongsInitialized();
         } catch (error) {
-            console.error("Initializing a batch of songs failed:", error);
+            console.error(
+                "Generating default tags for a song batch failed:",
+                error,
+            );
         }
     }
 }
@@ -194,7 +182,10 @@ async function trySearch(source: string, search: () => Promise<void>) {
     try {
         await search();
     } catch (error) {
-        console.error(`Searching ${source} for uninitialized songs failed:`, error);
+        console.error(
+            `Searching ${source} for songs without default tags failed:`,
+            error,
+        );
     }
 }
 

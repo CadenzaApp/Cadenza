@@ -5,6 +5,7 @@ import { Text } from "@/components/ui/text";
 import { useUserTags } from "@/lib/routes/tags";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { useScreenScroll } from "@/lib/screen-scroll";
+import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
 
 import { TagShelf } from "./tag-shelf";
 
@@ -30,7 +31,8 @@ export function SearchLanding() {
     }
 
     return (
-        <Animated.ScrollView
+        <ScreenScrollMarker>
+            <Animated.ScrollView
             {...scroll}
             className="flex-1"
             contentContainerStyle={{ paddingBottom: listBottomInset }}
@@ -38,5 +40,6 @@ export function SearchLanding() {
         >
             <TagShelf />
         </Animated.ScrollView>
+        </ScreenScrollMarker>
     );
 }

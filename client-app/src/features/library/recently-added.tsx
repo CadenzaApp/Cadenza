@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { useScreenScroll } from "@/lib/screen-scroll";
+import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
 import { usePlaybackCommands } from "@/lib/playback";
 import { useZoomSource } from "@/lib/zoom-dismiss";
 
@@ -51,7 +52,8 @@ export function RecentlyAddedGrid({
     const showSkeletons = isLoading && items.length === 0;
 
     return (
-        <Animated.FlatList
+        <ScreenScrollMarker>
+            <Animated.FlatList
             {...scroll}
             className="flex-1 bg-background"
             data={items}
@@ -100,6 +102,7 @@ export function RecentlyAddedGrid({
             onEndReachedThreshold={0.3}
             showsVerticalScrollIndicator={false}
         />
+        </ScreenScrollMarker>
     );
 }
 

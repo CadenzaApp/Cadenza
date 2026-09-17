@@ -14,6 +14,7 @@ import {
 import { Text } from "@/components/ui/text";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { useScreenScroll } from "@/lib/screen-scroll";
+import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
 
 type IoniconName = keyof typeof Ionicons.glyphMap;
 
@@ -43,7 +44,8 @@ export function ComingSoonScreen({
     const scroll = useScreenScroll();
 
     return (
-        <Animated.ScrollView
+        <ScreenScrollMarker>
+            <Animated.ScrollView
             {...scroll}
             className="flex-1 bg-background"
             contentContainerClassName="gap-4 px-5 pt-5"
@@ -108,5 +110,6 @@ export function ComingSoonScreen({
                 ))}
             </View>
         </Animated.ScrollView>
+        </ScreenScrollMarker>
     );
 }

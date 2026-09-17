@@ -1,5 +1,12 @@
 import type { ReactNode } from "react";
-import { Pressable, StyleSheet, View, type PressableProps } from "react-native";
+import {
+    Pressable,
+    StyleSheet,
+    View,
+    type PressableProps,
+    type StyleProp,
+    type ViewStyle,
+} from "react-native";
 
 import { GlassSurface } from "@/components/ui/glass-surface";
 import { cn } from "@/lib/utils";
@@ -8,6 +15,7 @@ type GlassIconButtonProps = Omit<PressableProps, "children" | "style"> & {
     /** Diameter in points. The button is always a circle. */
     size?: number;
     className?: string;
+    style?: StyleProp<ViewStyle>;
     children: ReactNode;
 };
 
@@ -27,6 +35,7 @@ type GlassIconButtonProps = Omit<PressableProps, "children" | "style"> & {
 export function GlassIconButton({
     size = 40,
     className,
+    style,
     children,
     ...rest
 }: GlassIconButtonProps) {
@@ -36,7 +45,7 @@ export function GlassIconButton({
         <Pressable
             accessibilityRole="button"
             hitSlop={8}
-            style={({ pressed }) => (pressed ? styles.pressed : null)}
+            style={({ pressed }) => [style, pressed ? styles.pressed : null]}
             {...rest}
         >
             <View

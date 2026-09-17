@@ -6,49 +6,53 @@ native module directly.
 
 ## Files
 
-| file | role |
-| --- | --- |
-| `backend.ts` | `BACKEND_URL`. One constant, currently hardcoded. |
-| `api-actions.ts` | The generic SWR wrappers: `useAPIData`, `useAPIPostDataBatched`, `useAPIFetch`, `useAPIMutation`. Also `invalidateAPIData`, the invalidation `useAPIMutation` runs, for callers outside a mutation. |
-| `api-endpoints.ts` | `matchesEndpoint`, the cache-key matcher behind invalidation. Import-free so it can be unit tested. |
-| `swr-utils.ts` | `clearCache` and `useSimpleMutation`, for things that are not plain backend calls. |
-| `routes/tags.ts` | Hooks for `/tags`: `useUserTags`, `useTag`, `useCreateTag`, `useDeleteTag`, `useSuggestTags`. |
-| `routes/songs.ts` | Hooks for `/songs`: `useTagsOnSong`, `useTagsOnSongs`, `useApplyTag`, `useUnapplyTag`, `useInitSongs`, `useSetDefaultTags`. |
-| `routes/queries.ts` | Hook for `/queries/results`: `useQueryResults`. |
-| `musickit-hooks.ts` | SWR over the native module: song info, catalog search, library search, library songs, albums, artists, playlists, collection contents and metadata, song and collection favorites, artist search, playlist writes. |
-| `song-init.tsx` | `SongInitProvider`. Runs the song init job on startup and shows a running task for each of its two passes. Holds no context. |
-| `song-init-job.ts` | `initializeSongs`, the job itself: finds uninitialized songs in the library and playlists, then initializes them. Import-free, tested in `song-init-job.test.ts`. |
-| `account.tsx` | `AccountProvider` / `useAccount`. Supabase session and the JWT. |
-| `apple-music-auth.tsx` | `AppleMusicProvider` / `useAppleMusic`. Apple Music tokens, persisted in secure store. |
-| `playback.tsx` | `PlaybackProvider`, `usePlayback` (state) and `usePlaybackCommands` (actions). Queue and the native playback snapshot. |
-| `queue-order.ts` | Pure index math for the queue mirror. Tested in `queue-order.test.ts`. |
-| `supabase.ts` | The Supabase client, backed by AsyncStorage. |
-| `theme.ts` | `NAV_THEME`, light and dark palettes for react-navigation, `sheetScreenOptions` for sheet routes, and `pushedScreenOptions` for the pushed detail routes. |
-| `error-utils.ts` | `getErrorDetails` / `getErrorMessage`, for unwrapping native and backend errors. |
-| `artwork-color.ts` | `useArtworkTint`, the color a surface paints itself with, plus `withAlpha`. |
-| `music-routes.ts` | `collectionRoute` / `albumRouteForTrack`. Hrefs into the resource screens, params and all. |
-| `share-track.ts` | `shareTrack` / `shareCollection`. Builds and fires the native share sheet for a song, album, or playlist's canonical Apple Music link. |
-| `screen-overlay.ts` | `useScreenOverlayInsets`, bottom bar geometry and visibility, `BottomBarVisibilityProvider`, focused-screen suppression, and pushed-screen detection. |
-| `player-dock.tsx` | `PlayerDockProvider` / `usePlayerDock`. Whether the mini player floats above the tab bar or sits docked inside it. |
-| `screen-scroll.ts` | `useScreenScroll`, the props a screen's top-level scroller spreads to get tab-press-scrolls-to-top, scroll-docks-the-player, and pull-down-to-close. |
-| `zoom-dismiss.tsx` | `ZoomOriginProvider`, `useZoomSource`, `ZoomDismissScreen`, `useCloseScreen`. Closing a pushed screen by shrinking it back into the artwork that opened it. |
-| `zoom-dismiss-geometry.ts` | Pure pull, transform, timing, and corner math for `zoom-dismiss`, tested without React Native. |
-| `types.ts` | Shared wire types: `Tag` and `TagMetadata`. |
-| `utils.ts` | `cn()`, the clsx + tailwind-merge helper. |
+| file                         | role                                                                                                                                                                                     |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `backend.ts`                 | `BACKEND_URL`. One constant, currently hardcoded.                                                                                                                                        |
+| `api-actions.ts`             | The generic SWR wrappers: `useAPIData`, `useAPIPostDataBatched`, `useAPIFetch`, `useAPIMutation`.                                                                                        |
+| `api-endpoints.ts`           | `matchesEndpoint`, the cache-key matcher behind invalidation. Import-free so it can be unit tested.                                                                                      |
+| `swr-utils.ts`               | `clearCache` and `useSimpleMutation`, for things that are not plain backend calls.                                                                                                       |
+| `routes/tags.ts`             | Hooks for `/tags`: `useUserTags`, `useTag`, `useCreateTag`, `useDeleteTag`, `useSuggestTags`.                                                                                            |
+| `routes/songs.ts`            | Hooks for `/songs/tags`: `useTagsOnSong`, `useTagsOnSongs`, `useApplyTag`, `useSetTagValue`, `useUnapplyTag`.                                                                            |
+| `routes/queries.ts`          | Cached hooks for `/queries/results` and `/queries/advanced/results`: `useQueryResults`, `useAdvancedQueryResults`.                                                                       |
+| `musickit-hooks.ts`          | SWR over the native module: song info, catalog search, paged and complete-library songs, albums, artists, playlists, collection metadata, favorites, artist search, and playlist writes. |
+| `account.tsx`                | `AccountProvider` / `useAccount`. Supabase session and the JWT.                                                                                                                          |
+| `apple-music-auth.tsx`       | `AppleMusicProvider` / `useAppleMusic`. Apple Music tokens, persisted in secure store.                                                                                                   |
+| `playback.tsx`               | `PlaybackProvider`, broad `usePlayback`, lightweight `usePlaybackTrackState`, and stable `usePlaybackCommands`. Queue and the native playback snapshot.                                  |
+| `queue-order.ts`             | Pure index math for the queue mirror. Tested in `queue-order.test.ts`.                                                                                                                   |
+| `supabase.ts`                | The Supabase client, backed by AsyncStorage.                                                                                                                                             |
+| `tag-generation.ts`          | A standalone tag suggestion fetch. Does not use the wrappers. See gotchas.                                                                                                               |
+| `theme.ts`                   | `NAV_THEME`, light and dark palettes for react-navigation, `sheetScreenOptions` for sheet routes, and `pushedScreenOptions` for the pushed detail routes.                                |
+| `error-utils.ts`             | `getErrorDetails` / `getErrorMessage`, for unwrapping native and backend errors.                                                                                                         |
+| `artwork-color.ts`           | `useArtworkTint`, the color a surface paints itself with, plus alpha, darkening, and multi-artwork averaging helpers.                                                                    |
+| `artwork-color-utils.ts`     | Native-free channel averaging for multi-artwork tints.                                                                                                                                   |
+| `music-routes.ts`            | `collectionRoute` / `albumRouteForTrack`. Hrefs into the resource screens, params and all.                                                                                               |
+| `share-track.ts`             | `shareTrack` / `shareCollection`. Builds and fires the native share sheet for a song, album, or playlist's canonical Apple Music link.                                                   |
+| `screen-overlay.ts`          | `useScreenOverlayInsets`, native tab/accessory visibility, extra overlay clearance, focused-screen suppression, and pushed-screen detection.                                             |
+| `screen-overlay-geometry.ts` | Pure, tested bottom-inset arithmetic shared by tab-hosted and pushed-screen compact players.                                                                                             |
+| `playable-item.ts`           | Pure identity and collection-membership helpers for library/catalog forms of a playable item.                                                                                            |
+| `screen-scroll.ts`           | `useScreenScroll`, the props a screen's top-level scroller spreads to get tab-press-scrolls-to-top and pull-down-to-close.                                                               |
+| `screen-scroll-marker.*`     | iOS registration wrapper for native-tab inset and scroll-to-top integration with nested and virtualized scrollers; a fragment elsewhere.                                                 |
+| `zoom-dismiss.tsx`           | `ZoomOriginProvider`, `useZoomSource`, `ZoomDismissScreen`, `useCloseScreen`. Closing a pushed screen by shrinking it back into the artwork that opened it.                              |
+| `zoom-dismiss-geometry.ts`   | Pure pull, transform, timing, and corner math for `zoom-dismiss`, tested without React Native.                                                                                           |
+| `types.ts`                   | Shared wire types: `TagType`, `Tag`, `AppliedTag` and `TagMetadata`.                                                                                                                     |
+| `tag-values.ts`              | Per-type tag helpers: `TAG_TYPES`, labels, descriptions, `TAG_TYPE_ICONS`, value validation, canonicalization, formatting, and the date-only helpers.                                    |
+| `utils.ts`                   | `cn()`, the clsx + tailwind-merge helper.                                                                                                                                                |
 
 ## The SWR wrappers
 
-Four, in `api-actions.ts`, and picking the right one is most of the work:
+Five, in `api-actions.ts`, and picking the right one is most of the work:
 
-| wrapper | for | key |
-| --- | --- | --- |
-| `useAPIData<Output>(path, params?)` | idempotent reads, fetch on mount | `{ keyType: "api-data", path, params, accountId }` |
-| `useAPIPostDataBatched<Item, Body, Out>(path, items, opts)` | an idempotent read whose payload is a list too long for a query string | `{ keyType: "api-data", path, items, accountId }` |
-| `useAPIFetch<In, Out>(path)` | a GET you only want on demand (search, suggestions) | `path` string |
-| `useAPIMutation<Body, Res>(method, path, invalidates?)` | user-triggered writes | `[method, path, accountId]` |
+| wrapper                                                     | for                                                                    | key                                                      |
+| ----------------------------------------------------------- | ---------------------------------------------------------------------- | -------------------------------------------------------- |
+| `useAPIData<Output>(path, params?)`                         | idempotent reads, fetch on mount                                       | `{ keyType: "api-data", path, params, accountId }`       |
+| `useAPIPostData<Body, Output>(path, body)`                  | one cached idempotent read with a large body                           | `{ keyType: "api-data", method, path, body, accountId }` |
+| `useAPIPostDataBatched<Item, Body, Out>(path, items, opts)` | an idempotent read whose payload is a list too long for a query string | `{ keyType: "api-data", path, items, accountId }`        |
+| `useAPIFetch<In, Out>(path)`                                | a GET you only want on demand (search, suggestions)                    | `path` string                                            |
+| `useAPIMutation<Body, Res>(method, path, invalidates?)`     | user-triggered writes                                                  | `[method, path, accountId]`                              |
 
-All four pull the JWT from `useAccount()` and send `Authorization: Bearer <jwt>`. All four
-tolerate an empty response body, and all four throw the parsed error body on a non-2xx, so a
+All five pull the JWT from `useAccount()` and send `Authorization: Bearer <jwt>`. All five
+tolerate an empty response body, and all five throw the parsed error body on a non-2xx, so a
 caught error is the backend's `{ error_type, message }` object, not an `Error`.
 
 The `accountId` in every key means a cached read can never be served to a different user, on
@@ -76,11 +80,10 @@ whose `path` is equal and whose `params` are a **superset** of the listed ones. 
 
 ```ts
 // invalidate only this song's tag list, plus the tag counts
-useAPIMutation<ApplyTagPayload, void>("POST", "/songs/tags",
-    ({ song_id }) => [
-        { path: "/songs/tags", params: { song_id } },
-        { path: "/tags" },
-    ]);
+useAPIMutation<ApplyTagPayload, void>("POST", "/songs/tags", ({ song_id }) => [
+    { path: "/songs/tags", params: { song_id } },
+    { path: "/tags" },
+]);
 ```
 
 `invalidatedEndpoints` defaults to `[]`. A mutation that lists nothing leaves every cached
@@ -90,26 +93,26 @@ useAPIMutation<ApplyTagPayload, void>("POST", "/songs/tags",
 
 One file per backend router, and every backend endpoint has at least one hook.
 
-| backend | endpoint | hook |
-| --- | --- | --- |
-| `routes/tags.rs` | `GET /tags` | `tags.ts` -> `useUserTags()`, `useTag(tagId)` |
-| | `POST /tags` | `tags.ts` -> `useCreateTag()` |
-| | `DELETE /tags` | `tags.ts` -> `useDeleteTag()` |
-| | `GET /tags/suggest` | `tags.ts` -> `useSuggestTags()` |
-| `routes/songs.rs` | `GET /songs/tags` | `songs.ts` -> `useTagsOnSong(songId)` |
-| | `POST /songs/tags/batch` | `songs.ts` -> `useTagsOnSongs(songIds)` |
-| | `POST /songs/initialize` | `songs.ts` -> `useInitSongs()` |
-| | `POST /songs/default-tags` | `songs.ts` -> `useSetDefaultTags()` |
-| | `POST /songs/tags` | `songs.ts` -> `useApplyTag()` |
-| | `DELETE /songs/tags` | `songs.ts` -> `useUnapplyTag()` |
-| `routes/queries.rs` | `GET /queries/results` | `queries.ts` -> `useQueryResults()` |
+| backend             | endpoint                        | hook                                          |
+| ------------------- | ------------------------------- | --------------------------------------------- |
+| `routes/tags.rs`    | `GET /tags`                     | `tags.ts` -> `useUserTags()`, `useTag(tagId)` |
+|                     | `POST /tags`                    | `tags.ts` -> `useCreateTag()`                 |
+|                     | `DELETE /tags`                  | `tags.ts` -> `useDeleteTag()`                 |
+|                     | `GET /tags/suggest`             | `tags.ts` -> `useSuggestTags()`               |
+| `routes/songs.rs`   | `GET /songs/tags`               | `songs.ts` -> `useTagsOnSong(songId)`         |
+|                     | `POST /songs/tags/batch`        | `songs.ts` -> `useTagsOnSongs(songIds)`       |
+|                     | `POST /songs/tags`              | `songs.ts` -> `useApplyTag()`                 |
+|                     | `PATCH /songs/tags`             | `songs.ts` -> `useSetTagValue()`              |
+|                     | `DELETE /songs/tags`            | `songs.ts` -> `useUnapplyTag()`               |
+| `routes/queries.rs` | `POST /queries/results`         | `queries.ts` -> `useQueryResults()`           |
+|                     | `GET /queries/advanced/results` | `queries.ts` -> `useAdvancedQueryResults()`   |
 
 `GET /tags` has two hooks because the handler returns a tagged union: without `tag_id` it
 responds with `All { tags, metadata }`, with one it responds with `One { tag, song_ids }`.
 `useUserTags` and `useTag` each unwrap one variant.
 
 Adding an endpoint: add the route in `backend-api/src/routes/*.rs`, then add a hook in the
-matching `routes/*.ts` built on one of the four wrappers. For writes, list the endpoints the
+matching `routes/*.ts` built on the shared wrappers. For writes, list the endpoints the
 change invalidates. Rename the returned fields to something readable (`tagsOnSong`,
 `tagsOnSongLoading`, `tagsOnSongErr`) rather than re-exporting SWR's `data` / `error` /
 `isLoading`.
@@ -117,8 +120,9 @@ change invalidates. Rename the returned fields to something readable (`tagsOnSon
 `musickit-hooks.ts` does the same job for the native module, using plain `useSWR` with tuple
 keys like `["MusicKit.getSongInfo", ids]`. `useSongFavoriteStatus` and `useCollectionFavoriteStatus`
 are the optimistic updates in the codebase, both with `rollbackOnError`. `useCollectionInfo`
-fetches an album/playlist's own metadata (title, artwork, `shareUrl`) - `useCollectionSongs`
-only ever fetches its songs. `usePlaylistMutations` is the exception to the wrapper
+fetches an album/playlist's own metadata (title, artwork, `shareUrl`). `useCollectionSongs`
+pages a detail screen, while `useAllTracksFromLibrary` walks every song page into one cached
+candidate set for live query evaluation. `usePlaylistMutations` is the exception to the wrapper
 rule: playlist writes are not backend calls, so they are plain async functions that invalidate
 every cached playlist key by predicate afterwards.
 
@@ -144,31 +148,32 @@ scrolling list.
 `useCollectionSongs(kind, id)` takes `"album" | "playlist"` rather than splitting into two
 hooks, so a screen that renders either does not branch. Pass the collection's `libraryId`.
 
-## Bottom overlay geometry
+## Native tab and overlay geometry
 
-`screen-overlay.ts` owns where the two floating bottom bars sit, because both the bars and the
-padding screens leave for them have to come from the same numbers.
+Expo Router's `NativeTabs` owns the tab bar and the iOS 26 player accessory. Native scrolling
+content receives its tab/accessory inset from the navigator. `screen-overlay.ts` returns app
+spacing for scroll content and conservative clearance for absolute controls. On iOS with the
+native player accessory, UIKit has already shortened the usable overlay area, so floating actions
+add only the safe-area gap instead of counting the tab bar and player twice. Pushed screens and
+compatibility players still reserve their full explicit height.
 
-Neither bar is in the layout: the tab bar is `position: "absolute"` and the compact player is
-positioned by `compactPlayerBottom`. **Nothing reserves space for them**, so every scrolling
-surface owes itself `contentBottomInset` (or `listBottomInset` when a floating button is also
-over it), or its last row hides under a bar.
+Expo does not expose the native tab bar's measured height because the bar can move to another
+edge on other device classes. The absolute-control clearance uses the standard platform bar
+height and the player's maximum regular height. It stays conservative while UIKit transitions
+the accessory to its inline placement.
 
-Sheet content is the exception. `DetailScreen` puts `InsideSheetContext` around its body when it
-is presented as a sheet, and the hook then returns sheet-local numbers: no tab bar, no compact
-player, just the safe area. Account, Appearance, and Player are the current sheets. A `MusicList`
-inside one would otherwise leave a tab bar's worth of dead space at the bottom.
+Root detail screens are above the native tab controller rather than inside it. One app-level
+compact-player overlay is mounted above the root stack and shown for artist, collection, and
+query-results routes.
+The same `useShowsPushedPlayerOverlay` predicate tells `useScreenOverlayInsets` to reserve its
+height. Other root screens reserve nothing. Sheets reserve nothing because they cover every
+player surface.
 
-`TAB_BAR_HEIGHT`, `TAB_BAR_MARGIN`, and `bottomBarBottom` are what `@/components/custom/tab-bar`
-positions itself with, so the bar and the padding screens leave for it cannot drift.
-`TAB_BAR_ITEM_INSET` and `DOCKED_PLAYER_HEIGHT` are the box *inside* the bar, shared by the
-selection bubble and the docked player so they line up.
-
-This hook decides **whether either bar renders at all**, and both follow the same answer:
-`bottomBarsVisible` for the tab bar, that plus a playing track for the player. Auth and splash
-are the only barless base routes. Native sheets hide the overlay while open. An in-place screen
-state can call `useSuppressBottomBars`; focused Search is the current caller. Suppression uses a
-token set, so overlapping callers cannot reveal the bars until all of them release their token.
+`DetailScreen` puts `InsideSheetContext` around sheet bodies, where only the device safe area is
+relevant. Native sheets cover the primary bar and player without unmounting or hiding them, so
+they are ready on the first dismissal frame. `useBottomBarsHidden` handles temporary suppression;
+focused Search is the current caller. Suppression uses a token set, so overlapping callers cannot
+reveal the native bar or accessory until all of them release their token.
 
 ## Artwork color
 
@@ -185,36 +190,38 @@ exists. Expo Go has no native module for it and returns null, and a null tint re
 
 `@/components/ui/tint-backdrop::TintBackdrop` is what actually paints it: the color at the top,
 darkening down the page and bottoming out at `depth` of its brightness rather than at black.
-The player sheet, the collection screen, and the artist screen all go through those two.
+The player sheet, collection screen, artist screen, and query-results mosaic all go through those
+two. Query results average the four displayed mosaic-cell colors before painting the gradient.
 
 Hand `useArtworkTint` the **small** artwork. Averaging only needs a thumbnail, and a hero-sized
 one costs a megabyte to reach the same answer. `ArtworkSource.artworkUrlSmall` wins over
 `artworkUrl` for that reason, and `music-routes.ts` passes the small URL as `artworkUrl` and the
 hero-sized one separately as `artworkUrlLarge`, which the collection screen draws its cover from.
 
-## Docking the player
+## Screen scrolling and the player accessory
 
-`player-dock.tsx` holds one animated `progress`: 0 floating above the bar, 1 docked inside it
-over the middle tab slots, fractional while a finger is dragging it. Three things move it.
+The primary `NativeTabs` uses `minimizeBehavior="onScrollDown"`. On iOS 26 UIKit minimizes the bar
+and moves its `BottomAccessory` between regular and inline placement. UIKit exposes no public
+imperative placement API, so the compact player does not add a separate vertical docking gesture.
 
-- `screen-scroll.ts`, when the focused screen scrolls away from the top, and back at the top.
-- The drag on the player itself, in `media-player.tsx`.
-- Leaving a screen, which floats it again.
+Expo documents limited `FlatList` integration with native tabs. On iOS, every primary scroller is
+therefore placed directly inside `ScreenScrollMarker` from the underlying `react-native-screens`
+package. That marker registers the real native scroll view through the nested tab stack for native
+insets, scroll-to-top, and tab-bar minimization. The wrapper is a fragment elsewhere.
 
-It also carries the tab bar's measured width and tab count, which `TabBarGlass` reports and the
-player uses to size itself to three slots. Docking changes nothing about the insets screens pad
-with: it is an overlay on the bar, so a page cannot reflow underneath a scroll that caused it.
-
-`useScreenScroll()` is what a tab screen's top-level scroller spreads:
+`useScreenScroll()` is what a screen's top-level scroller spreads:
 
 ```tsx
 const scroll = useScreenScroll();
-<Animated.FlatList {...scroll} ... />
+<ScreenScrollMarker>
+    <Animated.FlatList {...scroll} ... />
+</ScreenScrollMarker>
 ```
 
-It has to be an `Animated.FlatList` / `Animated.ScrollView`, because the offset is read on the UI
-thread. Tab-press-scrolls-to-top comes free with it, through react-navigation's `useScrollToTop`.
-A surface that skips the hook keeps the player floating and ignores tab presses.
+It has to be an `Animated.FlatList` / `Animated.ScrollView`, because the pull-dismiss offset is
+read on the UI thread. `ScreenScrollMarker` must have that scroller as its single direct child;
+otherwise the native registration cannot resolve the underlying `UIScrollView`. The explicit
+react-navigation `useScrollToTop` subscription remains as a cross-platform fallback.
 
 It also drives the close of a pushed detail screen. Overscroll at the top feeds the minimize
 continuously, and letting go past the shared threshold finishes it; short of that it springs
@@ -284,49 +291,11 @@ remaining distance. A short pull still springs back to full size.
   changes, so a list row can hold a play handler without re-rendering on every tick. Reach for
   `usePlaybackCommands` unless you actually need to read playback state.
 
-## The song init job
-
-`song-init.tsx::SongInitProvider` is mounted once, from the root layout, right under
-`AppleMusicProvider` and `TasksProvider`. It runs `song-init-job.ts::initializeSongs` when
-there is an account and a connected Apple Music session, and starts over if either changes. It
-wraps the routes only because it sits high in the tree; it holds no context of its own.
-
-A song is initialized once the backend has copied its default tags into the user's own tags (see
-`backend-api/src/db/README.md`). Until then, queries do not see it. The job makes two passes:
-
-1. **Search.** It pages through the library, then every library playlist, 100 songs at a time,
-   and sends each song id it has not sent yet to `POST /songs/initialize`. That call initializes
-   the songs that already have tags and returns the ones with none. The job keeps those, described
-   as `"title by artist"`.
-2. **Initialize.** It posts those songs to `POST /songs/default-tags` 100 at a time, then sends
-   each batch to `POST /songs/initialize` again, which copies the new default tags to the user.
-
-The provider shows a pass at a time through `@/components/custom/tasks`. "Syncing with Apple
-Music" is added when the job starts and ended by `onSearchComplete`, the one dep the job calls
-between its passes. "Building tag suggestions" runs from there until the job settles, and covers
-the generation and everything after it. A search that turns up no songs to tag never starts the
-second, so the usual launch shows one task and not two.
-
-Whichever pass is open when the job stops is the one that reports the failure, each with its own
-message. A run cancelled by a new account or session fails that pass too, since it did not
-finish.
-
-After the search and after each batch, the provider calls `invalidateAPIData` on `/tags`, because
-the copies are new tags of the user's. It leaves song tag reads alone: those initialize their own
-songs when they run, and `useSetDefaultTags` already invalidates them after each generation.
-
-It is deliberately not SWR. It is a background job that reads only to decide what to write, so
-the provider calls the two `useAPIMutation` triggers from an effect. The job takes MusicKit and
-the backend as arguments, which keeps it import-free and testable. A source that fails to read
-(the library, the playlist list, or one playlist) is logged and skipped. A batch whose generation
-or read back fails is logged and dropped, and its songs wait for the next startup.
-
 ## Connects to
 
 - `backend-api`, through `BACKEND_URL`.
 - Supabase auth, through `supabase.ts`.
-- `@apple-musickit`, from `musickit-hooks.ts`, `apple-music-auth.tsx`, `playback.tsx`, and
-  `song-init.tsx`.
+- `@apple-musickit`, from `musickit-hooks.ts`, `apple-music-auth.tsx`, and `playback.tsx`.
 - `@image-color`, from `artwork-color.ts` and nowhere else.
 - Consumed by everything in `src/app`, `src/features`, and `src/components/custom`.
 
@@ -336,26 +305,18 @@ or read back fails is logged and dropped, and its songs wait for the next startu
   `http://localhost:3000`. On a physical device localhost is the phone, so that fallback only
   works in a simulator. Metro inlines `EXPO_PUBLIC_*` at bundle time, so editing `.env` needs a
   metro restart with `--clear`, not just a refresh.
+- **`tag-generation.ts` is a second, parallel path.** It resolves its own base url (env var, then
+  the Expo host, then a platform default) and posts to `POST /tag-generation`. The backend has no
+  such route; the real one is `GET /tags/suggest`, which `routes/tags.ts::useSuggestTags` already
+  wraps correctly. Treat `tag-generation.ts` as dead or stale until proven otherwise.
 - `useAPIFetch` uses the bare `path` as its SWR key, so two `useAPIFetch` hooks on the same path
   share a mutation key. `useAPIMutation` keys on `[method, path, accountId]`, so it does not.
 - Tags key on `catalogId ?? id`, not the library id, everywhere a song id crosses into the
   backend. Library ids differ per user for the same song; catalog ids do not.
 - `api-actions.ts` reads `account?.jwt` at hook call time. A component rendered before the
   session is restored sends `Bearer undefined`.
-- `useTagsOnSong` and `useTagsOnSongs` can return copies of a song's default tags. The backend
-  copies them into the user's own tags the first time it initializes the song for the user, so
-  `useUnapplyTag` removes them and `useUserTags` lists them once it next revalidates. Unapplying a
-  song's last tag leaves it with no tags. The defaults do not come back.
-- The song init job spends OpenAI calls. A big library that has never been tagged means a lot of
-  them on first launch, and a song the model returned no tags for is retried on every launch.
-- Both of the job's tasks end as a success whenever the job runs to the end, including when the
-  model gave some songs no tags and they are left for the next startup. Only a thrown job is a
-  failure, and a source that fails to read is logged inside the search rather than thrown, so a
-  half-read library still ends the sync task as a success. Neither task carries a count.
-- The job counts a song as uninitialized when `POST /songs/initialize` returns it. That call also
-  returns a song the user tagged by hand and then cleared, if it has no default tags. The job
-  generates defaults for that song once, and they never reach the user.
 
 ---
+
 Touching files in this directory? Update this README in the same change.
 See [../../../AGENT_GUIDE.md](../../../AGENT_GUIDE.md).

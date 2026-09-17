@@ -6,46 +6,38 @@ use crate::{
     db::{
         self,
         tag_votes::TagVoteCache,
-        tags::{get_default_tags_on_songs, get_uninitialized_songs, get_user_tags_on_songs, set_default_tags_on_songs},
+        tags::{
+            get_default_tags_on_songs, get_songs_without_default_tags, get_user_tags_on_song,
+            get_user_tags_on_songs, set_default_tags_on_songs,
+        },
     },
     err::CadenzaError,
-    routes::json::{tag::Tag, vec_into}, services::tag_generation::{TagSpecs, TagGenerationService},
+    routes::json::{tag::AppliedTag, vec_into},
+    services::tag_generation::{TagGenerationService, TagSpecs},
 };
 use axum::{
     Json, Router,
     extract::{Query, State},
-    routing::{delete, get, post},
+    routing::{delete, get, patch, post},
 };
 use axum_jwt_auth::Claims;
 use sea_orm::DatabaseConnection;
 use serde::Deserialize;
-
 
 #[derive(Deserialize)]
 pub struct GetTagsOnSongQueryParams {
     song_id: String,
 }
 
-/// Returns the user's tags on one song. If the song is new to the user, it gets
-/// copies of its default tags first (see `db::tags::get_user_tags_on_songs`).
-///
-/// JSON return value format:
-/// ```json
-/// [ { "id": 12, "name": "vocaloid", "color": "#39c5bb" }, ... ]
-/// ```
+/// Returns the user's tags on one song. Default tags are not included.
 async fn get_tags_on_song_handler(
     State(db): State<DatabaseConnection>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Query(params): Query<GetTagsOnSongQueryParams>,
-) -> Result<Json<Vec<Tag>>, CadenzaError> {
-    let mut song_to_tags =
-        get_user_tags_on_songs(&db, claims.user_id, std::slice::from_ref(&params.song_id)).await?;
-
-    // every requested song gets an entry, so the default is never used
-    let tags = song_to_tags.remove(&params.song_id).unwrap_or_default();
-    Ok(Json(vec_into(tags)))
+) -> Result<Json<Vec<AppliedTag>>, CadenzaError> {
+    let user_tags = get_user_tags_on_song(&db, claims.user_id, &params.song_id).await?;
+    Ok(Json(vec_into(user_tags)))
 }
-
 
 /// A list screen asks for a page of songs at a time, so cap it well above the
 /// client's batch size but short of something that would blow up the query.
@@ -66,22 +58,15 @@ pub struct SongIdsPayload {
     song_ids: Vec<String>,
 }
 
-/// Returns the user's tags on each requested song, keyed by song id. Songs new
-/// to the user get copies of their default tags first. A song with no tags
-/// comes back as an empty list.
-///
-/// JSON return value format:
-/// ```json
-/// { "1440857781": [ { "id": 12, "name": "vocaloid", "color": "#39c5bb" } ], "1613600188": [] }
-/// ```
+/// Returns the user's tags on each requested song, keyed by song id. Default
+/// tags are not included. A song with no user tags gets an empty list.
 async fn get_tags_on_songs_handler(
     State(db): State<DatabaseConnection>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Json(payload): Json<SongIdsPayload>,
-) -> Result<Json<HashMap<String, Vec<Tag>>>, CadenzaError> {
+) -> Result<Json<HashMap<String, Vec<AppliedTag>>>, CadenzaError> {
     check_batch_size(payload.song_ids.len())?;
 
-    // the user's tags on each song, copying default tags onto songs new to them
     let tags_by_song = get_user_tags_on_songs(&db, claims.user_id, &payload.song_ids).await?;
 
     Ok(Json(
@@ -92,49 +77,36 @@ async fn get_tags_on_songs_handler(
     ))
 }
 
-/// Initializes the requested songs, which is when a song new to the user gets
-/// copies of its default tags. Returns the ones it could not initialize,
-/// meaning those with no tags of either kind, in request order.
-///
-/// JSON return value format:
-/// ```json
-/// [ "1440857781", "1613600188", ... ]
-/// ```
-async fn initialize_songs_handler(
+/// Returns the requested songs that have no default tags, in request order.
+async fn get_songs_without_default_tags_handler(
     State(db): State<DatabaseConnection>,
-    Claims { claims, .. }: Claims<SupabaseClaims>,
+    _: Claims<SupabaseClaims>,
     Json(payload): Json<SongIdsPayload>,
 ) -> Result<Json<Vec<String>>, CadenzaError> {
     check_batch_size(payload.song_ids.len())?;
-
     Ok(Json(
-        get_uninitialized_songs(&db, claims.user_id, &payload.song_ids).await?,
+        get_songs_without_default_tags(&db, &payload.song_ids).await?,
     ))
 }
-
 
 #[derive(Deserialize)]
 pub struct SongIdAndDesc {
     song_id: String,
-    /// description of the song used to generate tags, e.g. "Override by Yoshida Yasei"
+    /// Description used to generate tags, for example "Override by Yoshida Yasei".
     desc: String,
 }
 
-/// Generates and stores default tags for each requested song that has none yet.
-/// Songs that already have default tags are left alone. Returns an empty body.
+/// Generates and stores default tags for each requested song that has none.
 async fn set_default_tags_on_songs_handler(
-    _: Claims<SupabaseClaims>, // only authorized users allowed
+    _: Claims<SupabaseClaims>,
     State(db): State<DatabaseConnection>,
     State(tag_gen_service): State<TagGenerationService>,
     Json(songs): Json<Vec<SongIdAndDesc>>,
 ) -> Result<(), CadenzaError> {
     check_batch_size(songs.len())?;
 
-    // find which of the songs already have default tags
     let song_ids: Vec<String> = songs.iter().map(|song| song.song_id.clone()).collect();
     let existing_default_tags = get_default_tags_on_songs(&db, &song_ids).await?;
-
-    // only songs without default tags need any
     let songs_without_defaults: Vec<&SongIdAndDesc> = songs
         .iter()
         .filter(|song| !existing_default_tags.contains_key(&song.song_id))
@@ -144,14 +116,11 @@ async fn set_default_tags_on_songs_handler(
         return Ok(());
     }
 
-    // generate tags from each song's description, returned in the same order
-    let descs: Vec<String> = songs_without_defaults
+    let descriptions: Vec<String> = songs_without_defaults
         .iter()
         .map(|song| song.desc.clone())
         .collect();
-    let generated = tag_gen_service.generate_tags(&descs, None).await?;
-
-    // pair each song with its generated tags and store them as its defaults
+    let generated = tag_gen_service.generate_tags(&descriptions, None).await?;
     let generated_tags: HashMap<String, Vec<TagSpecs>> = songs_without_defaults
         .iter()
         .zip(generated)
@@ -159,15 +128,16 @@ async fn set_default_tags_on_songs_handler(
         .collect();
 
     set_default_tags_on_songs(&db, generated_tags).await?;
-
     Ok(())
 }
-
 
 #[derive(Deserialize)]
 pub struct ApplyTagPayload {
     song_id: String,
     tag_id: i64,
+    /// Only meaningful for attribute tags. Omitting it applies the tag without a value.
+    #[serde(default)]
+    value: Option<String>,
 }
 
 async fn apply_user_tag_handler(
@@ -176,7 +146,39 @@ async fn apply_user_tag_handler(
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Json(payload): Json<ApplyTagPayload>,
 ) -> Result<(), CadenzaError> {
-    db::tags::apply_user_tag(db, &tag_votes, claims.user_id, payload.song_id, payload.tag_id).await
+    db::tags::apply_user_tag(
+        db,
+        &tag_votes,
+        claims.user_id,
+        payload.song_id,
+        payload.tag_id,
+        payload.value,
+    )
+    .await
+}
+
+#[derive(Deserialize)]
+pub struct SetTagValuePayload {
+    song_id: String,
+    tag_id: i64,
+    /// `null` clears the value while leaving the tag applied.
+    #[serde(default)]
+    value: Option<String>,
+}
+
+async fn set_user_tag_value_handler(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Json(payload): Json<SetTagValuePayload>,
+) -> Result<(), CadenzaError> {
+    db::tags::set_user_tag_value(
+        db,
+        claims.user_id,
+        payload.song_id,
+        payload.tag_id,
+        payload.value,
+    )
+    .await
 }
 
 #[derive(Deserialize)]
@@ -184,23 +186,33 @@ pub struct UnapplyTagPayload {
     song_id: String,
     tag_id: i64,
 }
+
 async fn unapply_user_tag_handler(
     State(db): State<DatabaseConnection>,
     State(tag_votes): State<TagVoteCache>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Json(payload): Json<UnapplyTagPayload>,
 ) -> Result<(), CadenzaError> {
-    db::tags::unapply_user_tag(db, &tag_votes, claims.user_id, payload.song_id, payload.tag_id)
-        .await
+    db::tags::unapply_user_tag(
+        db,
+        &tag_votes,
+        claims.user_id,
+        payload.song_id,
+        payload.tag_id,
+    )
+    .await
 }
-
 
 pub fn get_songs_router() -> Router<AppState> {
     Router::new()
         .route("/default-tags", post(set_default_tags_on_songs_handler))
-        .route("/initialize", post(initialize_songs_handler))
+        .route(
+            "/no-default-tags",
+            post(get_songs_without_default_tags_handler),
+        )
         .route("/tags", get(get_tags_on_song_handler))
         .route("/tags/batch", post(get_tags_on_songs_handler))
         .route("/tags", post(apply_user_tag_handler))
+        .route("/tags", patch(set_user_tag_value_handler))
         .route("/tags", delete(unapply_user_tag_handler))
 }

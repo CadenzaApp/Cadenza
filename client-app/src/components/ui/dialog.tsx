@@ -1,10 +1,11 @@
 import { NativeOnlyAnimatedView } from "@/components/ui/native-only-animated-view";
+import { GlassSurface } from "@/components/ui/glass-surface";
 import { cn } from "@/lib/utils";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTheme } from "expo-router/react-navigation";
 import * as DialogPrimitive from "@rn-primitives/dialog";
 import * as React from "react";
-import { Platform, Text, View, type ViewProps } from "react-native";
+import { Platform, StyleSheet, Text, View, type ViewProps } from "react-native";
 import { FadeIn, FadeOut } from "react-native-reanimated";
 import { FullWindowOverlay as RNFullWindowOverlay } from "react-native-screens";
 
@@ -69,7 +70,7 @@ function DialogContent({
             <DialogOverlay>
                 <DialogPrimitive.Content
                     className={cn(
-                        "bg-popover border-border z-50 mx-auto flex w-full max-w-[calc(100%-2rem)] flex-col gap-4 rounded-lg border p-6 shadow-lg shadow-black/5 sm:max-w-lg",
+                        "border-border z-50 mx-auto flex w-full max-w-[calc(100%-2rem)] flex-col gap-4 overflow-hidden rounded-lg border p-6 shadow-lg shadow-black/5 sm:max-w-lg",
                         Platform.select({
                             web: "animate-in fade-in-0 zoom-in-95 duration-200",
                         }),
@@ -77,6 +78,16 @@ function DialogContent({
                     )}
                     {...props}
                 >
+                    <View
+                        pointerEvents="none"
+                        className="bg-card/40"
+                        style={StyleSheet.absoluteFill}
+                    >
+                        <GlassSurface
+                            tintColor={colors.card}
+                            style={StyleSheet.absoluteFill}
+                        />
+                    </View>
                     <>{children}</>
                     <DialogPrimitive.Close
                         className={cn(

@@ -1,4 +1,4 @@
-use crate::services::tag_generation::{TagSpecs, MAX_COMBINED_SONG_DESC_LENGTH, TagGenerator};
+use crate::services::tag_generation::{MAX_COMBINED_SONG_DESC_LENGTH, TagGenerator, TagSpecs};
 use crate::services::tag_normalizer::normalize_tag_name;
 use dotenvy::dotenv;
 use reqwest::Client;
@@ -331,7 +331,9 @@ mod tests {
 
     #[test]
     fn normalize_tag_color_falls_back_on_bad_input() {
-        for bad in ["", "red", "#12345", "#1234567", "#ggghhh", "1a2b3c", "#1a2b3g"] {
+        for bad in [
+            "", "red", "#12345", "#1234567", "#ggghhh", "1a2b3c", "#1a2b3g",
+        ] {
             assert_eq!(
                 normalize_tag_color(bad),
                 FALLBACK_TAG_COLOR,
@@ -382,8 +384,14 @@ mod tests {
         );
 
         assert_eq!(res.len(), 2);
-        assert_eq!((res[0][0].name.as_str(), res[0][0].color.as_str()), ("pop", "#ff6f61"));
-        assert_eq!((res[1][0].name.as_str(), res[1][0].color.as_str()), ("metal", "#000000"));
+        assert_eq!(
+            (res[0][0].name.as_str(), res[0][0].color.as_str()),
+            ("pop", "#ff6f61")
+        );
+        assert_eq!(
+            (res[1][0].name.as_str(), res[1][0].color.as_str()),
+            ("metal", "#000000")
+        );
     }
 
     #[test]
@@ -391,7 +399,11 @@ mod tests {
         let res = to_tag_specs(
             vec![raw_song(
                 "song",
-                vec![raw_tag("a", "#111111"), raw_tag("b", "#222222"), raw_tag("c", "#333333")],
+                vec![
+                    raw_tag("a", "#111111"),
+                    raw_tag("b", "#222222"),
+                    raw_tag("c", "#333333"),
+                ],
             )],
             &descs(&["song"]),
             2,
@@ -438,7 +450,10 @@ mod tests {
         let res = to_tag_specs(
             vec![
                 raw_song("Jolene by Dolly Parton", vec![raw_tag("folk", "#c19a6b")]),
-                raw_song("Linger by The Cranberries", vec![raw_tag("dreamy", "#a1c6ea")]),
+                raw_song(
+                    "Linger by The Cranberries",
+                    vec![raw_tag("dreamy", "#a1c6ea")],
+                ),
             ],
             &descs(&[
                 "Jolene by Dolly Parton",
@@ -504,7 +519,10 @@ mod tests {
     fn to_tag_specs_gives_two_songs_sharing_a_description_the_same_tags() {
         // the same title and artist can turn up under two song ids
         let res = to_tag_specs(
-            vec![raw_song("One by Metallica", vec![raw_tag("metal", "#000000")])],
+            vec![raw_song(
+                "One by Metallica",
+                vec![raw_tag("metal", "#000000")],
+            )],
             &descs(&["One by Metallica", "One by Metallica"]),
             10,
         );
@@ -691,7 +709,10 @@ mod tests {
     #[ignore]
     async fn colors_absent_when_no_tags() {
         let g = OpenAiTagGenerator::new();
-        let res = g.generate_tags(&["One by Metallica".into()], 0).await.unwrap();
+        let res = g
+            .generate_tags(&["One by Metallica".into()], 0)
+            .await
+            .unwrap();
 
         assert_eq!(res.len(), 1);
         assert!(res[0].is_empty());

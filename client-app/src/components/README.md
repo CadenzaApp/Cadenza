@@ -15,7 +15,7 @@ importing `@/lib/routes/*` into a file under `ui/`, it belongs in `custom/`.
 ### ui/
 
 `badge`, `button`, `card`, `dialog`, `glass-surface`, `glass-button`, `glass-confirm-dialog`,
-`glass-icon-button`, `icon`, `input`,
+`glass-icon-button`, `input`,
 `label`, `separator`, `skeleton`, `tabs`, `text`, `native-only-animated-view`, `detail-screen`,
 `tint-backdrop`, `floating-close-button`, plus `sign-in-form` and `sign-up-form`.
 
@@ -24,34 +24,34 @@ floats in the top right. It closes through `@/lib/zoom-dismiss::useCloseScreen`,
 same minimize the pull does. It has to be a component rather than a call in the screen, because
 the controller lives in the `ZoomDismissScreen` that screen renders.
 
-`glass-surface.tsx` exports `GlassSurface`, the translucent background layer behind both
-floating bottom bars. It renders liquid glass on iOS 26, an `expo-blur` `BlurView` on anything
+`glass-surface.tsx` exports `GlassSurface`, the translucent background layer behind app-owned
+glass controls and compatibility surfaces. It renders liquid glass on iOS 26, an `expo-blur` `BlurView` on anything
 older, and a flat translucent card on web, all behind one component. It paints a background and
 nothing else; the caller supplies size, radius, and `overflow: "hidden"`. Its optional
 `tintColor` reaches native liquid glass and gets a translucent approximation on fallbacks.
-
-Android cannot blur whatever is behind a view. `expo-blur` blurs a `BlurTargetView` it samples
-instead, so the same file exports `GlassBlurTarget` and `GlassBlurTargetProvider`. The root
-layout wraps `Stack` in the target and puts the provider above it and its siblings, which hands
-the target to the glass beside it: both bottom bars and anything rendered through `PortalHost`.
-Those get a real blur on Android 12 and up; `GlassSurface` withholds the target below that. Glass
-inside the target, meaning every surface inside a screen and anything in an RN `Modal` opened from
-one, gets no target and paints a semi-transparent fill.
 
 `glass-button.tsx` and `glass-confirm-dialog.tsx` provide regular and destructive glass actions.
 Destructive actions keep neutral glass and use red foreground content. The confirmation is used
 by both Account sign-out flows.
 
-`glass-icon-button.tsx` exports `GlassIconButton`, a round icon button built on it. The account
-button and the library type button in the top rail are the callers. Reach for it rather than
+`dialog.tsx` paints form dialogs on `GlassSurface` by default. Its card-color tint and translucent
+underfill keep the material legible inside iOS's full-window portal, where an untinted native glass
+view can otherwise render effectively clear. Keep form structure, focus handling, and portal
+behavior in this primitive rather than rebuilding a glass modal at each call site.
+
+`glass-icon-button.tsx` exports `GlassIconButton`, a round icon button built on it. Header actions,
+detail-screen controls, and every floating circular action use it. Reach for it rather than
 hand-rolling another circle of glass.
 
-`tint-backdrop.tsx` exports `TintBackdrop`, the artwork-colored wash behind a page: the color at
-the top, darkening down it and bottoming out at a fraction of its own brightness rather than at
-black. Pass `height` to run it over content taller than the screen, from inside that content, so
-it scrolls with what it is painted behind. It takes the tint `@/lib/artwork-color` hands
-back and renders nothing for a null one, so callers mount it unconditionally. `DetailScreen` takes
-the same color as a `tint` prop and draws one itself.
+`tint-backdrop.tsx` exports `TintBackdrop`, the artwork-colored wash behind a page. It uses
+`expo-linear-gradient` to run the source color at the top continuously into a darker fraction of
+that same color at the bottom, rather than into black. Pass `height` to run it over content taller
+than the screen, from inside that content, so it scrolls with what it is painted behind. It takes
+the tint `@/lib/artwork-color` hands back and renders nothing for a null one, so callers mount it
+unconditionally. `TintOverscrollBackdrop` paints the exact start color above the exact end color
+under a scrolling gradient. Its center boundary stays covered by content, while elastic scrolling
+reveals a matching solid endpoint. `DetailScreen` takes the same color as a `tint` prop and draws
+one itself.
 
 `reorderable-list.tsx` is in `custom/` rather than `ui/` only because nothing else needs it yet.
 It knows nothing about songs: `data`, `itemHeight`, `renderItem`, and an `onReorder(from, to)`.
@@ -75,75 +75,48 @@ overlay insets inside it stop counting the tab bar and the compact player. Every
 uses it, which is what keeps them identical. An optional `tint` washes the whole sheet in an
 artwork color through `TintBackdrop`; the now playing and album sheets pass one.
 
+There is no `icon` primitive. Icons come straight from `@expo/vector-icons/Ionicons`.
+
 Config lives in `client-app/components.json` (shadcn "new-york", base color neutral, css
 variables), `tailwind.config.js`, and `global.css`. Class merging goes through
 `@/lib/utils::cn`. Variants use `class-variance-authority`.
 
 ### custom/
 
-| file | role |
-| --- | --- |
-| `music-list/` | Scrollable list of `MusicItem`s, with skeletons, paging, and sorting. See below. |
-| `floating-bubble.tsx` | The round floating action button the list and tag screens sit under. |
-| `options-menu/` | The song, album, and playlist "..." menus, on liquid glass. See below. |
-| `song-tag-editor.tsx` | `useSongTagEditor`, the tag-editing data for one song id: user tags annotated as applied, the toggle mutation, and the "New" tag dialog's open state. Used by `media-player/tags-page.tsx`, the now-playing sheet's Tags page. |
-| `tag-pill.tsx` | A tag chip, colored from `tag.color`. Also exports `readableTextColor`. |
-| `tasks.tsx` | `TasksProvider` / `useTasks` / `TasksHost`. Holds the running tasks and floats one spinner row per task under the top rail, on the right. See below. |
-| `create-tag-dialog.tsx` | `CreateTagDialog` (controlled name + color picker, calls `useCreateTag`) and `CreateTagBubble` (floating trigger + dialog). |
-| `modal-popup.tsx` | Small anchored popup used by the options menus and the selection actions. `variant="glass"` renders the card on `GlassSurface` instead of the flat popover background; every other caller is unaffected. On Android the glass variant renders through `PortalHost` instead of an RN `Modal`, so its glass blurs the app behind it. |
-| `bottom-bars-overlay.tsx` | Mounts the global tab bar and mini player in iOS's window overlay so native detail screens cannot cover them. |
-| `tab-bar.tsx` | The whole floating tab bar: `TABS`, `TabBarHost`, `TabSelectionProvider`, the selection bubble, and the items that move aside for the docked player. The bubble mounts after the bar is measured so native glass starts at its real size. Mounted at the root, not in the navigator. |
-| `top-rail.tsx` | Shared tab header: page title on the left, an optional `actions` slot and the account initials on the right. Exports `TOP_RAIL_HEIGHT`, the row it draws above its safe-area padding. |
-| `account-initials.ts` | Pure email-to-initials helper, tested in `account-initials.test.ts`. |
-| `coming-soon-screen.tsx` | Data-driven preview surface used by stubbed product areas. |
-| `collection-list.tsx` | Paged list of albums or playlists. Tapping a row opens it. Owns its screen's scroll through `useScreenScroll`, and each row's artwork is a zoom origin. |
-| `artist-list.tsx` | `ArtistList` (paged rows, owns the screen scroll) and `ArtistRail` (a sideways strip of tiles). Both record a zoom origin. |
-| `reorderable-list.tsx` | Generic drag-to-reorder list. Fixed row height, hands back two indices on drop. |
-| `media-player/` | The mini player and the now playing sheet body. See [custom/media-player/README.md](custom/media-player/README.md). |
-
-`tasks.tsx` is the provider and its UI in one file, the same shape as `tab-bar.tsx`.
-`useTasks()` hands back `addTask(label)`, which returns an id, then `endTaskSuccess(id)` and
-`endTaskFail(id, message)` to finish with. All three keep the same identity
-for the life of the provider, so an effect can list them in its dependencies. The rows live in a
-second context of their own, which is what keeps that true: a new task changes the list without
-touching the three functions. A label is fixed while the task runs. Only a failure changes it,
-for its message: a caller that wants the label kept passes it back as the message.
-
-`TasksProvider` draws nothing. `TasksHost` does, and the root layout mounts it much lower, beside
-`GlassBlurTarget`, for the blur target below. It draws nothing while there is no task.
-
-Ending a task does not remove its row. The row swaps its spinner for an Ionicons
-`checkmark-circle` or `close-circle` and stays a second, then goes. So a task is on screen for at
-least that second, and ending a task that is already ending does nothing rather than
-restarting the second. A failure draws its cross and its message in `destructive` red, which is
-the only thing that colors a row. Spinner and icon
-sit in the same 20pt box, so the row does not resize when one replaces the other.
-
-The rows start below the top rail: safe area, then `TOP_RAIL_HEIGHT` from `top-rail.tsx`, then a
-gap. So they clear the page title and the account button rather than covering them. The offset is
-unconditional, so on a screen with no rail, such as a sheet or `/auth`, the rows sit that much
-lower. They are `pointerEvents="none"` either way, so they never take a tap from what is under
-them. On iOS the stack goes in a
-`FullWindowOverlay`, for the same reason `BottomBarsOverlay` does: a native presentation otherwise
-draws over ordinary React siblings. The row paints its background with a `GlassSurface` layer
-under the border and the shadow, the same shape the compact player uses, since a view that clips
-itself cannot also carry an iOS shadow. That glass is the whole reason `TasksHost` is a separate
-component: mounted inside `TasksProvider`, which sits above `GlassBlurTargetProvider`, it reads no
-blur target and Android falls back to a flat fill.
+| file                        | role                                                                                                              |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `music-list/`               | Scrollable list of `MusicItem`s, with skeletons, paging, sorting, selection, and applied tag values. See below.   |
+| `floating-bubble.tsx`       | The liquid-glass round floating action button the list and tag screens sit under.                                 |
+| `options-menu/`             | The song, album, and playlist "..." menus, on liquid glass. See below.                                            |
+| `song-tag-editor.tsx`       | Tag editing for one song: applied state, values, mutations, and create-dialog state.                              |
+| `tag-pill.tsx`              | The solid app tag chip. Attribute tags keep their type icon through query negation and can show formatted values. |
+| `create-tag-dialog.tsx`     | Creates a tag with its name, color, and optional attribute type.                                                  |
+| `tag-value-dialog.tsx`      | Liquid-glass per-type editor opened when an attribute tag is applied or edited.                                   |
+| `modal-popup.tsx`           | Small popup used by options, sorting, and selection actions. Liquid glass is the default.                         |
+| `tab-stack.tsx`             | The native stack each bottom tab nests for the shared `TopRail` header.                                           |
+| `top-rail.tsx`              | Shared tab header with optional glass back button, page title, actions, and account initials.                     |
+| `account-initials.ts`       | Pure email-to-initials helper, tested in `account-initials.test.ts`.                                              |
+| `coming-soon-screen.tsx`    | Data-driven preview surface used by stubbed product areas.                                                        |
+| `collection-list.tsx`       | Paged album or playlist rows. Owns screen scrolling and records artwork zoom origins.                             |
+| `artist-list.tsx`           | Paged artist rows and the sideways artist rail. Both record a zoom origin.                                        |
+| `track-collection-view.tsx` | Shared artwork, actions, metadata, and track-list surface for query results, collections, and artist top songs.   |
+| `reorderable-list.tsx`      | Generic fixed-row-height drag-to-reorder list.                                                                    |
+| `media-player/`             | The mini player and now-playing sheet body. See [custom/media-player/README.md](custom/media-player/README.md).   |
 
 ### custom/music-list/
 
-| file | role |
-| --- | --- |
-| `index.tsx` | The `MusicList` itself. Owns sort state, paging, selection, density, and the modals. |
-| `music-list-item.tsx` | One row, plus `MusicListItemSkeleton`. |
-| `music-list-sort-button.tsx` | The floating sort control. |
-| `music-list-action-button.tsx` | One button in the selection toolbar. |
-| `music-list-selection-toolbar.tsx` | The bar that slides up while rows are selected. |
-| `use-music-list-selection.ts` | Selection state, haptics, and pruning. Tested in `use-music-list-selection.test.ts`. |
-| `selection-utils.ts` | `reduceMusicListSelection`, the pure reducer behind the hook. |
-| `sort-tracks.ts` | `sortTracks` / `nextSort`. Pure, unit tested in `sort-tracks.test.ts`. |
-| `types.ts` | `MusicListProps` and the sort types, so callers do not import from `index.tsx`. |
+| file                               | role                                                                                                                                  |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `index.tsx`                        | The `MusicList` itself. Owns sort state, paging, selection, density, and the modals.                                                  |
+| `music-list-item.tsx`              | One row, plus `MusicListItemSkeleton`.                                                                                                |
+| `tag-fade-rail.tsx`                | Overflow-aware horizontal tag rail whose alpha mask preserves the surface behind it. Takes `AppliedTag[]` and shows each tag's value. |
+| `music-list-sort-button.tsx`       | The floating sort control.                                                                                                            |
+| `music-list-action-button.tsx`     | One button in the selection toolbar.                                                                                                  |
+| `music-list-selection-toolbar.tsx` | The bar that slides up while rows are selected.                                                                                       |
+| `use-music-list-selection.ts`      | Selection state, haptics, and pruning. Tested in `use-music-list-selection.test.ts`.                                                  |
+| `selection-utils.ts`               | `reduceMusicListSelection`, the pure reducer behind the hook.                                                                         |
+| `sort-tracks.ts`                   | `sortTracks` / `nextSort`. Pure, unit tested in `sort-tracks.test.ts`.                                                                |
+| `types.ts`                         | `MusicListProps` and the sort types, so callers do not import from `index.tsx`.                                                       |
 
 Sorting is either `"local"` (this folder sorts the array it was handed) or `"remote"` (the
 caller refetches sorted and only wants the control rendered). The library screen uses
@@ -157,6 +130,14 @@ Multi-select is opt-in too, via `multiSelect`. Selection is scoped to what is cu
 displayed: if paging or a filter drops a row, its id is pruned. A long press starts a selection,
 a tap toggles one, and clearing everything leaves selection mode. Pinching the list toggles
 compact rows; pass `compact` and `onCompactChange` to control that from outside.
+
+Rows use the query-revamp spacing, artwork alignment, skeletons, and solid-color `TagPill`
+appearance. The density gesture changes row size without switching back to the older translucent
+pill design. Selected rows use a light foreground tint with alpha instead of an opaque replacement
+color, so artwork gradients remain visible. The floating selection toolbar and its overflow popup
+are liquid glass. The toolbar uses the same screen-aware bottom anchor as the sort bubble, so native
+tab and player insets are not counted twice. `trackMenuActions` appends caller actions to the shared `SongOptionsMenu`; do not
+restore the deleted list-specific track menu.
 
 `collection-list.tsx` is deliberately not `MusicList`. Sorting, multi-select, tagging, and the
 song options menu all describe songs; none of them mean anything for an album, so the collection
@@ -172,33 +153,47 @@ sitting above a list that owns the scroll.
 `MusicList` hides its scroll indicator. Overscrolling at the top is how a detail screen closes,
 and an indicator flicking in over the shrinking card is noise.
 
+Tag rails use `MaskedView` with an opaque-to-transparent trailing mask. Do not replace it with a
+gradient painted in a theme color: rows also sit over artwork tints, so no single fill color can
+match every screen.
+
+`TrackCollectionView` owns the standard mosaic or single-artwork header, play/shuffle row,
+caller-supplied simple glass options, and the `MusicList`. Routes can supply pagination, playback
+overrides, scrolling tint content, a fixed overscroll background, close controls, and opt the
+standard header into the device's top safe area. Gradient-backed routes pair scrolling content
+with the fixed endpoint underlay, so elastic scrolling reveals the exact top or bottom color
+without placing a second gradient seam at the bounce boundary. Artist uses its custom hero and albums
+rail through the header/footer inputs, while album and playlist details use the standard layout
+and open `CollectionOptionsMenu` from a supplied option.
+
 `MusicList` takes a `header` for exactly that case, and a `footer` for the other end. It also
 reports its content size through `onContentSizeChange`, which is how the artist screen sizes a
-backdrop to its own content rather than to the screen. That backdrop paints past the header's own
-bounds, so both hero screens also pass `removeClippedSubviews={false}`. Android's `FlatList` has it
-on by default and detaches the header by its own bounds once it scrolls out of view, backdrop and
-all. `MusicList` owns its
+backdrop to its own content rather than to the screen. It owns its
 own `FlatList`, so anything above the first row or below the last has to go inside it rather than
 beside it. The search tab's Artists section is the header's current user; `RecentlyAddedGrid`
 takes a `header` for the same reason. The artist screen uses both at once: the artist image as
 the header, the albums rail as the footer. The footer sits below the pagination skeleton, so a
 paging list keeps loading into it.
 
+Top-level `MusicList`, `CollectionList`, `ArtistList`, and coming-soon scrollers fill and sit
+directly inside `@/lib/screen-scroll-marker`. This lets the native tab stack locate a full-height
+scroll view for inset, scroll-to-top, and tab-bar/accessory minimization.
+
 ### custom/options-menu/
 
-| file | role |
-| --- | --- |
-| `song-options-menu.tsx` | `SongOptionsMenu`. Favorite + Share, Add to Playlist, Play Next, Add to Queue, Go to Album, Go to Artist, then a pronounced Modify Tags footer. Self-contained: owns its own favorite and artist state from just a `track`. Used by the music list row menu and the now-playing sheet. |
-| `collection-options-menu.tsx` | `CollectionOptionsMenu`. Favorite + Share for the album/playlist itself, then Play Next / Add to Queue against its songs. Used by `/collection/[kind]/[id]`. |
-| `favorite-share-row.tsx` | `FavoriteShareRow`, the icon row + divider both menus lead with. Generic over the target type. |
+| file                          | role                                                                                                                                                                                                                                                                                   |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `song-options-menu.tsx`       | `SongOptionsMenu`. Favorite + Share, Add to Playlist, Play Next, Add to Queue, Go to Album, Go to Artist, then a pronounced Modify Tags footer. Self-contained: owns its own favorite and artist state from just a `track`. Used by the music list row menu and the now-playing sheet. |
+| `collection-options-menu.tsx` | `CollectionOptionsMenu`. Favorite + Share for the album/playlist itself, then Play Next / Add to Queue against its songs. Used by `/collection/[kind]/[id]`.                                                                                                                           |
+| `favorite-share-row.tsx`      | `FavoriteShareRow`, the icon row + divider both menus lead with. Generic over the target type.                                                                                                                                                                                         |
 
-Both menus render through `ModalPopup` with `variant="glass"`. Neither owns navigation directly:
+Both menus render through the liquid-glass default in `ModalPopup`. Neither owns navigation directly:
 `SongOptionsMenu` takes an optional `navigate` (defaulting to a plain `router.push`), so the
 now-playing sheet can pass a function that dismisses itself first, without that assumption living
 in the shared component. Modify Tags is the same shape: `SongOptionsMenu` takes an optional
-`onModifyTags`, defaulting to a route push to `/player` with `tagsSongId` and friends (opening the
+`onModifyTags`, defaulting to a route push to `/player/tags` with `tagsSongId` and friends (opening the
 now-playing sheet's Tags page for a song that may not be playing), while the now-playing sheet's
-own menu instance passes a function that moves its pager to the Tags page in place instead - see
+own menu instance passes a function that selects its native Tags tab in place instead - see
 [custom/media-player/README.md](custom/media-player/README.md).
 
 Gotchas carried over from before the two "..." menus were merged: `SongOptionsMenu` resolves the
@@ -222,12 +217,8 @@ library-only song, which has none.
   Use `className` for anything new.
 - Anything portal-based (dialogs) needs `PortalHost` mounted, which happens in the root layout.
   It will render nothing if you host a screen outside that tree.
-- Portal content renders under `PortalHost`, so it only sees the providers above `PortalHost` in
-  the root layout, not the screen that opened it. On Android that includes the glass
-  `ModalPopup`, so a hook in the song or collection menu that needs a screen's context
-  (`useNavigation`, `InsideSheetContext`) breaks there, and only on Android.
-- Both floating bottom bars sit over the content rather than in it. Any new scrolling surface
-  owes itself the padding from `@/lib/screen-overlay::useScreenOverlayInsets`.
+- Native tabs inset scroll content themselves. App-owned floating actions and compatibility
+  surfaces use `@/lib/screen-overlay::useScreenOverlayInsets` for extra clearance.
 - Theme colors come from the nav theme (`@/lib/theme::NAV_THEME`) in some places and tailwind
   tokens (`bg-background`, `text-foreground`) in others. They are configured separately and can
   drift.
@@ -241,5 +232,6 @@ library-only song, which has none.
   all. It still typechecks and still lints.
 
 ---
+
 Touching files in this directory? Update this README in the same change.
 See [../../../AGENT_GUIDE.md](../../../AGENT_GUIDE.md).

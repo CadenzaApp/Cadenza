@@ -1,15 +1,29 @@
-import { MusicList } from "@/components/custom/music-list";
-import { Button } from "@/components/ui/button";
-import { useScreenOverlayInsets } from "@/lib/screen-overlay";
-import { MusicItem } from "@apple-musickit";
-import { View, Text, StyleSheet } from "react-native";
+import type { MusicItem } from "@apple-musickit";
+import { useMemo, useState } from "react";
+import { useWindowDimensions, View } from "react-native";
+
+import { TrackCollectionView } from "@/components/custom/track-collection-view";
+import { collectionArtworkGridTracks } from "@/components/custom/track-collection-utils";
+import { ModalPopup } from "@/components/custom/modal-popup";
+import { FloatingCloseButton } from "@/components/ui/floating-close-button";
+import { GlassButton } from "@/components/ui/glass-button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Text } from "@/components/ui/text";
+import {
+    TintBackdrop,
+    TintOverscrollBackdrop,
+} from "@/components/ui/tint-backdrop";
+import { averageArtworkColors, useArtworkTint } from "@/lib/artwork-color";
+
+const TINT_DEPTH = 0.3;
+const HERO_BUTTON_SIZE = 52;
 
 type Props = {
     songs: MusicItem[];
     isLoading: boolean;
     error?: unknown;
     anticipatedTrackCount?: number;
-    onBackPress: () => any;
 };
 
 export default function QueryResults({
@@ -17,51 +31,129 @@ export default function QueryResults({
     isLoading,
     error,
     anticipatedTrackCount,
-    onBackPress,
 }: Props) {
-    const { contentBottomInset } = useScreenOverlayInsets();
+    const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+    const [saveOpen, setSaveOpen] = useState(false);
+    const [saveName, setSaveName] = useState("");
+    const [contentHeight, setContentHeight] = useState(screenHeight * 1.5);
+    const tintTracks = useMemo(
+        () => collectionArtworkGridTracks(songs),
+        [songs],
+    );
+    const firstTint = useArtworkTint(tintTracks[0]).tint;
+    const secondTint = useArtworkTint(tintTracks[1]).tint;
+    const thirdTint = useArtworkTint(tintTracks[2]).tint;
+    const fourthTint = useArtworkTint(tintTracks[3]).tint;
+    const tint = useMemo(
+        () =>
+            averageArtworkColors([
+                firstTint,
+                secondTint,
+                thirdTint,
+                fourthTint,
+            ]),
+        [firstTint, fourthTint, secondTint, thirdTint],
+    );
+    const saveDialogWidth = Math.round(screenWidth * 0.75);
+    function closeSaveDialog() {
+        setSaveOpen(false);
+        setSaveName("");
+    }
+
+    function submitSave() {
+        const name = saveName.trim();
+        if (!name) return;
+        console.info(
+            `[QueryResults] Saving query "${name}" is not implemented yet.`,
+        );
+        closeSaveDialog();
+    }
 
     return (
-        <View
-            style={[
-                styles.container,
-                // The tab bar floats over this screen, and the back button
-                // sits at the very bottom.
-                { paddingBottom: contentBottomInset },
-            ]}
-        >
-            <Text style={styles.headerText} className="text-foreground">
-                Your Mix
-            </Text>
-            <View style={styles.container}>
-                {error ? (
-                    <Text className="text-destructive text-center">
-                        Failed to load song metadata.
-                    </Text>
-                ) : null}
-                <MusicList
-                    tracks={songs}
-                    isLoading={isLoading}
-                    pagination={null}
-                    anticipatedTrackCount={anticipatedTrackCount}
-                />
-            </View>
-            <Button onPress={onBackPress}>
-                <Text> Back </Text>
-            </Button>
+        <View className="flex-1">
+            <TrackCollectionView
+                title="Matching Songs"
+                tracks={songs}
+                isLoading={isLoading}
+                error={error}
+                anticipatedTrackCount={anticipatedTrackCount}
+                respectTopSafeArea
+                closeControl={
+                    <FloatingCloseButton
+                        label="Close query results"
+                        size={HERO_BUTTON_SIZE}
+                    />
+                }
+                multiSelect={{ includeAddToQueue: true }}
+                showTags
+                overscrollBackground={
+                    <TintOverscrollBackdrop tint={tint} depth={TINT_DEPTH} />
+                }
+                background={
+                    <TintBackdrop
+                        tint={tint}
+                        height={contentHeight}
+                        depth={TINT_DEPTH}
+                    />
+                }
+                onContentSizeChange={(_, height) =>
+                    setContentHeight(Math.max(screenHeight, height))
+                }
+                options={[
+                    {
+                        id: "save-query",
+                        label: "Save query",
+                        icon: "bookmark-outline",
+                        onPress: () => setSaveOpen(true),
+                    },
+                ]}
+            />
+
+            <ModalPopup
+                visible={saveOpen}
+                onClose={closeSaveDialog}
+                title="Save Query"
+                contentStyle={{
+                    width: saveDialogWidth,
+                    minWidth: saveDialogWidth,
+                    maxWidth: saveDialogWidth,
+                    transform: [{ translateY: -96 }],
+                }}
+            >
+                <Text className="text-sm text-muted-foreground">
+                    Give this query a name.
+                </Text>
+                <View className="gap-1.5">
+                    <Label>Query name</Label>
+                    <Input
+                        value={saveName}
+                        onChangeText={setSaveName}
+                        placeholder="e.g. Late night favorites"
+                        autoFocus
+                        returnKeyType="done"
+                        onSubmitEditing={submitSave}
+                    />
+                </View>
+                <View className="mt-1 flex-row gap-2.5">
+                    <View className="flex-1">
+                        <GlassButton
+                            className="w-full"
+                            onPress={closeSaveDialog}
+                        >
+                            <Text>Cancel</Text>
+                        </GlassButton>
+                    </View>
+                    <View className="flex-1">
+                        <GlassButton
+                            className="w-full"
+                            disabled={!saveName.trim()}
+                            onPress={submitSave}
+                        >
+                            <Text>Save</Text>
+                        </GlassButton>
+                    </View>
+                </View>
+            </ModalPopup>
         </View>
     );
 }
-
-const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        padding: 16,
-        gap: 12,
-    },
-    headerText: {
-        fontWeight: "600",
-        fontSize: 13,
-        letterSpacing: 0.5,
-    },
-});

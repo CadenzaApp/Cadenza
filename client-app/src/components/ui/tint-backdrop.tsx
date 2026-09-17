@@ -1,5 +1,5 @@
 import { LinearGradient } from "expo-linear-gradient";
-import { StyleSheet } from "react-native";
+import { StyleSheet, View } from "react-native";
 
 import { darken } from "@/lib/artwork-color";
 
@@ -52,5 +52,27 @@ export function TintBackdrop({
             }
             colors={[tint, darken(tint, depth)]}
         />
+    );
+}
+
+/**
+ * Fixed colors beneath a scrolling tint. The scrolling gradient hides the
+ * center boundary; elastic overscroll reveals only the matching endpoint at
+ * the edge being pulled.
+ */
+export function TintOverscrollBackdrop({
+    tint,
+    depth = DEFAULT_DEPTH,
+}: Pick<TintBackdropProps, "tint" | "depth">) {
+    if (!tint) return null;
+
+    return (
+        <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+            <View className="flex-1" style={{ backgroundColor: tint }} />
+            <View
+                className="flex-1"
+                style={{ backgroundColor: darken(tint, depth) }}
+            />
+        </View>
     );
 }

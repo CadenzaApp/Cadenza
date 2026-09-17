@@ -246,12 +246,18 @@ mod tests {
     async fn generate_tags_truncates_descriptions_over_the_limit() {
         // one byte, then 2 byte chars, so the limit falls in the middle of a char
         let service = TagGenerationService::new(EchoTagGenerator { drop_last: false });
-        let descs = vec![format!("a{}", "\u{e9}".repeat(MAX_COMBINED_SONG_DESC_LENGTH))];
+        let descs = vec![format!(
+            "a{}",
+            "\u{e9}".repeat(MAX_COMBINED_SONG_DESC_LENGTH)
+        )];
 
         let res = service.generate_tags(&descs, None).await.unwrap();
 
         // the cut backs off to the last whole char under the limit
-        let expected = format!("a{}", "\u{e9}".repeat((MAX_COMBINED_SONG_DESC_LENGTH - 1) / 2));
+        let expected = format!(
+            "a{}",
+            "\u{e9}".repeat((MAX_COMBINED_SONG_DESC_LENGTH - 1) / 2)
+        );
         assert_eq!(res[0][0].name, expected);
     }
 

@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { useScreenScroll } from "@/lib/screen-scroll";
+import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
 import { useZoomSource } from "@/lib/zoom-dismiss";
 import { cn } from "@/lib/utils";
 
@@ -64,7 +65,8 @@ export function ArtistList({
     }
 
     return (
-        <Animated.FlatList
+        <ScreenScrollMarker>
+            <Animated.FlatList
             {...scroll}
             className="flex-1"
             data={artists}
@@ -87,6 +89,7 @@ export function ArtistList({
             onEndReachedThreshold={0.1}
             showsVerticalScrollIndicator={false}
         />
+        </ScreenScrollMarker>
     );
 }
 

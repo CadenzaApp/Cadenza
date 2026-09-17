@@ -1,12 +1,16 @@
 import { useMemo } from "react";
-import { useAPIData, useAPIMutation, useAPIPostDataBatched } from "../api-actions";
-import { Tag } from "@/lib/types";
+import {
+    useAPIData,
+    useAPIMutation,
+    useAPIPostDataBatched,
+} from "../api-actions";
+import { AppliedTag } from "@/lib/types";
 
 // the backend caps a batch at 200 ids
 const TAGS_ON_SONGS_BATCH_SIZE = 200;
 
 export function useTagsOnSong(songId?: string) {
-    const x = useAPIData<Tag[]>("/songs/tags", {
+    const x = useAPIData<AppliedTag[]>("/songs/tags", {
         song_id: songId,
     });
 
@@ -23,15 +27,15 @@ export function useTagsOnSongs(songIds: readonly string[]) {
         () => [...new Set(songIds.filter(Boolean))],
         [songIds],
     );
-    const x = useAPIPostDataBatched<string, { song_ids: string[] }, Record<string, Tag[]>>(
-        "/songs/tags/batch",
-        normalizedIds,
-        {
-            batchSize: TAGS_ON_SONGS_BATCH_SIZE,
-            toBody: (song_ids) => ({ song_ids }),
-            merge: (responses) => Object.assign({}, ...responses),
-        },
-    );
+    const x = useAPIPostDataBatched<
+        string,
+        { song_ids: string[] },
+        Record<string, AppliedTag[]>
+    >("/songs/tags/batch", normalizedIds, {
+        batchSize: TAGS_ON_SONGS_BATCH_SIZE,
+        toBody: (song_ids) => ({ song_ids }),
+        merge: (responses) => Object.assign({}, ...responses),
+    });
     const tagsBySong = x.data ?? EMPTY_TAGS_BY_SONG;
 
     return {
@@ -41,11 +45,13 @@ export function useTagsOnSongs(songIds: readonly string[]) {
     };
 }
 
-const EMPTY_TAGS_BY_SONG: Record<string, Tag[]> = {};
+const EMPTY_TAGS_BY_SONG: Record<string, AppliedTag[]> = {};
 
 type ApplyTagPayload = {
     song_id: string;
     tag_id: number;
+    /** Only meaningful for attribute tags; omit to apply without a value. */
+    value?: string | null;
 };
 export function useApplyTag() {
     const x = useAPIMutation<ApplyTagPayload, void>(
@@ -55,6 +61,8 @@ export function useApplyTag() {
             { path: "/songs/tags", params: { song_id } },
             { path: "/songs/tags/batch" },
             { path: "/tags" },
+            { path: "/queries/results" },
+            { path: "/queries/advanced/results" },
         ],
     );
     return {
@@ -65,7 +73,36 @@ export function useApplyTag() {
     };
 }
 
-type UnapplyTagPayload = ApplyTagPayload;
+type SetTagValuePayload = {
+    song_id: string;
+    tag_id: number;
+    /** null clears the value while leaving the tag applied. */
+    value: string | null;
+};
+export function useSetTagValue() {
+    const x = useAPIMutation<SetTagValuePayload, void>(
+        "PATCH",
+        "/songs/tags",
+        ({ song_id }) => [
+            { path: "/songs/tags", params: { song_id } },
+            { path: "/songs/tags/batch" },
+            { path: "/tags" },
+            { path: "/queries/results" },
+            { path: "/queries/advanced/results" },
+        ],
+    );
+    return {
+        setTagValueErr: x.error,
+        setTagValueLoading: x.isMutating,
+        resetSetTagValue: x.reset,
+        setTagValue: x.trigger,
+    };
+}
+
+type UnapplyTagPayload = {
+    song_id: string;
+    tag_id: number;
+};
 export function useUnapplyTag() {
     const x = useAPIMutation<UnapplyTagPayload, void>(
         "DELETE",
@@ -74,6 +111,8 @@ export function useUnapplyTag() {
             { path: "/songs/tags", params: { song_id } },
             { path: "/songs/tags/batch" },
             { path: "/tags" },
+            { path: "/queries/results" },
+            { path: "/queries/advanced/results" },
         ],
     );
     return {
@@ -84,21 +123,16 @@ export function useUnapplyTag() {
     };
 }
 
-/**
- * Initializes the given songs, which is when a song new to the user gets copies
- * of its default tags, and returns the ones it could not initialize, meaning
- * those with no tags of either kind. Triggered on demand by the song init job
- * instead of cached for rendering, so it goes through `useAPIMutation`.
- */
-export function useInitSongs() {
+/** Returns the requested song ids that do not have default tags. */
+export function useSongsWithoutDefaultTags() {
     const x = useAPIMutation<{ song_ids: string[] }, string[]>(
         "POST",
-        "/songs/initialize",
+        "/songs/no-default-tags",
     );
     return {
-        initSongsErr: x.error,
-        initSongsLoading: x.isMutating,
-        initSongs: x.trigger,
+        songsWithoutDefaultTagsErr: x.error,
+        songsWithoutDefaultTagsLoading: x.isMutating,
+        getSongsWithoutDefaultTags: x.trigger,
     };
 }
 
@@ -112,8 +146,6 @@ export function useSetDefaultTags() {
     const x = useAPIMutation<SongIdAndDesc[], void>(
         "POST",
         "/songs/default-tags",
-        // the next read copies new default tags onto songs new to the user, so any song's tags may change
-        [{ path: "/songs/tags" }, { path: "/songs/tags/batch" }],
     );
     return {
         setDefaultTagsErr: x.error,

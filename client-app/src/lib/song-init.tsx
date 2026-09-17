@@ -5,23 +5,22 @@ import type { ReactNode } from "react";
 import { useTasks } from "@/components/custom/tasks";
 
 import { useAccount } from "./account";
-import { invalidateAPIData } from "./api-actions";
 import { useAppleMusic } from "./apple-music-auth";
-import { useInitSongs, useSetDefaultTags } from "./routes/songs";
+import { useSetDefaultTags, useSongsWithoutDefaultTags } from "./routes/songs";
 import { initializeSongs } from "./song-init-job";
 
 /** The search: every Apple Music page, asked about and collected. */
 const SYNC_LABEL = "Syncing with Apple Music";
 const SYNC_FAILURE = "Could not sync with Apple Music";
 
-/** Everything after it: generating the tags and copying them to the user. */
+/** Everything after it: generating the default tags. */
 const SUGGEST_LABEL = "Building tag suggestions";
 const SUGGEST_FAILURE = "Could not build tag suggestions";
 
 /**
- * Initializes the songs in the user's library and library playlists, so
- * queries reach them. Starts once there is an account and a connected Apple
- * Music session, and starts over if either changes.
+ * Generates missing default tags for songs in the user's library and library
+ * playlists. Starts once there is an account and a connected Apple Music
+ * session, and starts over if either changes.
  *
  * It shows the job's two passes as a task each: one while it searches Apple
  * Music, then one while it builds tags for what that turned up. A run that
@@ -33,7 +32,7 @@ const SUGGEST_FAILURE = "Could not build tag suggestions";
 export function SongInitProvider({ children }: { children: ReactNode }) {
     const { account } = useAccount();
     const { isConnected, sessionRevision } = useAppleMusic();
-    const { initSongs } = useInitSongs();
+    const { getSongsWithoutDefaultTags } = useSongsWithoutDefaultTags();
     const { setDefaultTags } = useSetDefaultTags();
     const { addTask, endTaskSuccess, endTaskFail } = useTasks();
     const accountId = account?.id;
@@ -68,12 +67,9 @@ export function SongInitProvider({ children }: { children: ReactNode }) {
             getUserPlaylists: (options) => MusicKit.getUserPlaylists(options),
             getPlaylistSongs: (playlistId, options) =>
                 MusicKit.getPlaylistSongs(playlistId, options),
-            initSongs: (body) => initSongs(body),
+            getSongsWithoutDefaultTags: (body) =>
+                getSongsWithoutDefaultTags(body),
             setDefaultTags: (songs) => setDefaultTags(songs),
-            // initializing copies default tags into the user's own tags, so the
-            // tag list and its counts change. song tag reads initialize their
-            // own songs, so they are already current
-            onSongsInitialized: () => invalidateAPIData([{ path: "/tags" }]),
             // the search is over, so its task is too. what it found is what
             // the next pass works through, and none of it means no task
             onSearchComplete: (count) => {
@@ -108,7 +104,7 @@ export function SongInitProvider({ children }: { children: ReactNode }) {
         accountId,
         isConnected,
         sessionRevision,
-        initSongs,
+        getSongsWithoutDefaultTags,
         setDefaultTags,
         addTask,
         endTaskSuccess,

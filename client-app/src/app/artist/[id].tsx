@@ -13,17 +13,21 @@ import {
     View,
 } from "react-native";
 
-import { MusicList } from "@/components/custom/music-list";
+import { TrackCollectionView } from "@/components/custom/track-collection-view";
 import { FloatingCloseButton } from "@/components/ui/floating-close-button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
-import { TintBackdrop } from "@/components/ui/tint-backdrop";
+import {
+    TintBackdrop,
+    TintOverscrollBackdrop,
+} from "@/components/ui/tint-backdrop";
 import { darken, useArtworkTint, withAlpha } from "@/lib/artwork-color";
 import { getErrorMessage } from "@/lib/error-utils";
 import { useZoomSource, ZoomDismissScreen } from "@/lib/zoom-dismiss";
 import { collectionRoute } from "@/lib/music-routes";
 import { useArtist } from "@/lib/musickit-hooks";
-import { usePlaybackCommands } from "@/lib/playback";
+import { samePlayableItem } from "@/lib/playable-item";
+import { usePlaybackCommands, usePlaybackTrackState } from "@/lib/playback";
 
 const ALBUM_TILE_WIDTH = 132;
 const ALBUM_PLACEHOLDER_COUNT = 4;
@@ -58,9 +62,16 @@ export default function ArtistScreen() {
     const { height: windowHeight } = useWindowDimensions();
     const { artist, artistLoading, artistErr } = useArtist(id);
     const { tint } = useArtworkTint(artist);
-    const { playQueue } = usePlaybackCommands();
+    const { activeTrack, isLoading, isPlaying } = usePlaybackTrackState();
+    const { playQueue, togglePlayback } = usePlaybackCommands();
+    const [playbackCommandPending, setPlaybackCommandPending] = useState(false);
     const albums = artist?.albums ?? [];
     const topSongs = artist?.topSongs ?? [];
+    const isCurrentArtist =
+        activeTrack != null &&
+        (activeTrack.artistId === id ||
+            topSongs.some((song) => samePlayableItem(song, activeTrack)));
+    const isArtistPlaying = isCurrentArtist && isPlaying;
     // The wash runs the height of the whole page rather than the screen, so
     // scrolling moves through one gradient instead of repeating it. Until the
     // list has measured itself, a screen and a half is the better guess.
@@ -72,31 +83,43 @@ export default function ArtistScreen() {
     }
 
     /** Replaces the queue with the top songs, in Apple's order. */
-    function playTopSongs() {
-        if (topSongs.length === 0) return;
-        void playQueue({ tracks: topSongs });
+    async function playTopSongs() {
+        if (topSongs.length === 0 || playbackCommandPending) return;
+        setPlaybackCommandPending(true);
+        try {
+            if (isCurrentArtist && activeTrack) {
+                await togglePlayback(activeTrack);
+                return;
+            }
+            await playQueue({ tracks: topSongs });
+        } finally {
+            setPlaybackCommandPending(false);
+        }
     }
 
     return (
         <ZoomDismissScreen>
-            {/* The tint rather than the flat card color, so overscrolling at
-                the top uncovers the wash and not a gray ceiling. */}
-            <View
-                className="flex-1 bg-card"
-                style={tint ? { backgroundColor: tint } : undefined}
-            >
+            <View className="flex-1 bg-card">
                 {artistErr ? (
                     <Text className="my-2 px-6 text-center text-destructive">
                         {getErrorMessage(artistErr)}
                     </Text>
                 ) : null}
 
-                <MusicList
+                <TrackCollectionView
+                    title={artist?.name ?? name ?? "Artist"}
                     tracks={topSongs}
                     isLoading={artistLoading}
+                    error={artistErr}
                     pagination={NO_PAGINATION}
+                    sorting={null}
                     multiSelect={DEFAULT_MULTI_SELECT_CONFIG}
-                    fullBleedRows
+                    overscrollBackground={
+                        <TintOverscrollBackdrop
+                            tint={tint}
+                            depth={TINT_DEPTH}
+                        />
+                    }
                     onContentSizeChange={(_, height) =>
                         setContentHeight(Math.max(windowHeight, height))
                     }
@@ -133,7 +156,9 @@ export default function ArtistScreen() {
                                         : null
                                 }
                                 canPlay={topSongs.length > 0}
-                                onPlay={playTopSongs}
+                                isPlaying={isArtistPlaying}
+                                isLoading={isLoading || playbackCommandPending}
+                                onPlay={() => void playTopSongs()}
                             />
                             <Text className="px-6 pb-1 pt-5 text-xl font-bold text-foreground">
                                 Top Songs
@@ -154,12 +179,8 @@ export default function ArtistScreen() {
                             </View>
                         ) : null
                     }
+                    closeControl={<FloatingCloseButton label="Close artist" />}
                 />
-
-                {/* Floats over the hero rather than scrolling with it. Top right
-                and an X, the same place and the same glyph every sheet in the
-                app closes from, because this is the same gesture. */}
-                <FloatingCloseButton label="Close artist" />
             </View>
         </ZoomDismissScreen>
     );
@@ -182,6 +203,8 @@ function ArtistHero({
     tint,
     fadeTo,
     canPlay,
+    isPlaying,
+    isLoading,
     onPlay,
 }: {
     artist?: ArtistDetail;
@@ -190,6 +213,8 @@ function ArtistHero({
     tint: string | null;
     fadeTo: string | null;
     canPlay: boolean;
+    isPlaying: boolean;
+    isLoading: boolean;
     onPlay: () => void;
 }) {
     const { colors } = useTheme();
@@ -240,7 +265,11 @@ function ArtistHero({
                 >
                     {name}
                 </Text>
-                <PlayButton disabled={!canPlay} onPress={onPlay} />
+                <PlayButton
+                    disabled={!canPlay || isLoading}
+                    isPlaying={isPlaying}
+                    onPress={onPlay}
+                />
             </View>
         </View>
     );
@@ -252,15 +281,19 @@ function ArtistHero({
  */
 function PlayButton({
     disabled,
+    isPlaying,
     onPress,
 }: {
     disabled: boolean;
+    isPlaying: boolean;
     onPress: () => void;
 }) {
     return (
         <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Play top songs"
+            accessibilityLabel={
+                isPlaying ? "Pause top songs" : "Play top songs"
+            }
             accessibilityState={{ disabled }}
             disabled={disabled}
             onPress={onPress}
@@ -270,10 +303,10 @@ function PlayButton({
             {/* Nudged right: a triangle looks off-center in a circle when its
                 bounding box is centered. */}
             <Ionicons
-                name="play"
+                name={isPlaying ? "pause" : "play"}
                 size={28}
                 color="#000000"
-                style={{ marginLeft: 3 }}
+                style={isPlaying ? undefined : { marginLeft: 3 }}
             />
         </Pressable>
     );

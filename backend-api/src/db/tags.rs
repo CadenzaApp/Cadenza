@@ -3,17 +3,19 @@ use std::collections::{HashMap, HashSet};
 use sea_orm::{
     ActiveModelTrait,
     ActiveValue::{NotSet, Set},
-    ColumnTrait, ConnectionTrait, DatabaseConnection, DbBackend, EntityTrait, FromQueryResult,
-    JoinType, ModelTrait, QueryFilter, QueryOrder, QuerySelect, Statement, TransactionTrait,
+    ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, FromQueryResult, JoinType,
+    ModelTrait, QueryFilter, QueryOrder, QuerySelect, TransactionTrait,
     prelude::Uuid,
     sea_query::OnConflict,
 };
 use serde::Serialize;
 
+use crate::db::entity::sea_orm_active_enums::TagType;
 use crate::db::entity::*;
 use crate::db::tag_votes::{TagVote, TagVoteCache, record_tag_vote};
 use crate::err::CadenzaError;
 use crate::services::tag_generation::TagSpecs;
+use crate::services::tag_values::canonicalize_tag_value;
 
 pub async fn get_all_user_tags(
     db: &DatabaseConnection,
@@ -30,6 +32,20 @@ pub async fn get_tag(
     tag_id: i64,
 ) -> Result<Option<tags::Model>, CadenzaError> {
     Ok(tags::Entity::find_by_id(tag_id).one(db).await?)
+}
+
+/// Fetches a tag belonging to the given user. Applying a tag needs its type in
+/// order to validate the value, so this doubles as the ownership check.
+async fn get_owned_tag(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+    tag_id: i64,
+) -> Result<tags::Model, CadenzaError> {
+    tags::Entity::find_by_id(tag_id)
+        .filter(tags::Column::UserId.eq(user_id))
+        .one(db)
+        .await?
+        .ok_or(CadenzaError::NotFound)
 }
 
 #[derive(FromQueryResult)]
@@ -77,30 +93,43 @@ pub async fn get_user_tags_metadata(
     Ok(res)
 }
 
-/// Returns the user's tags on each requested song. Songs new to the user are
-/// initialized first (see [`init_user_songs`]), which is when they get copies of
-/// their default tags. Every requested song gets an entry, so a song with no
-/// tags comes back as an empty list.
+/// Returns each tag on the song paired with the value it was applied with.
+/// The value is always `None` for basic tags.
+pub async fn get_user_tags_on_song(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+    song_id: &str,
+) -> Result<Vec<(tags::Model, Option<String>)>, CadenzaError> {
+    let tags_with_applications = tags::Entity::find()
+        .find_also_related(user_tags_applied::Entity)
+        .filter(user_tags_applied::Column::SongId.eq(song_id))
+        .filter(user_tags_applied::Column::UserId.eq(user_id))
+        .all(db)
+        .await?;
+
+    Ok(tags_with_applications
+        .into_iter()
+        .map(|(tag, applied)| (tag, applied.and_then(|applied| applied.value)))
+        .collect())
+}
+
+/// Same as `get_user_tags_on_song`, for many songs at once, so each tag comes
+/// back paired with the value it was applied with. Every requested song gets an
+/// entry, so songs with no tags come back as an empty list.
 pub async fn get_user_tags_on_songs(
     db: &DatabaseConnection,
     user_id: Uuid,
     song_ids: &[String],
-) -> Result<HashMap<String, Vec<tags::Model>>, CadenzaError> {
-    // start every requested song off with no tags
-    let mut songs_to_tags: HashMap<String, Vec<tags::Model>> = song_ids
+) -> Result<HashMap<String, Vec<(tags::Model, Option<String>)>>, CadenzaError> {
+    let mut tags_by_song: HashMap<String, Vec<(tags::Model, Option<String>)>> = song_ids
         .iter()
         .map(|song_id| (song_id.clone(), Vec::new()))
         .collect();
 
-    // no songs requested, so nothing to look up
-    if songs_to_tags.is_empty() {
-        return Ok(songs_to_tags);
+    if tags_by_song.is_empty() {
+        return Ok(tags_by_song);
     }
 
-    // copy default tags onto songs new to the user, so the read below includes them
-    init_user_songs(db, user_id, song_ids).await?;
-
-    // fill in the user's tags on each song
     let applied = user_tags_applied::Entity::find()
         .filter(user_tags_applied::Column::UserId.eq(user_id))
         .filter(user_tags_applied::Column::SongId.is_in(song_ids.iter().map(String::as_str)))
@@ -110,103 +139,27 @@ pub async fn get_user_tags_on_songs(
 
     for (applied_tag, tag) in applied {
         let Some(tag) = tag else { continue };
-        songs_to_tags
-            .entry(applied_tag.song_id)
-            .or_default()
-            .push(tag);
+        let user_tags_applied::Model { song_id, value, .. } = applied_tag;
+        tags_by_song.entry(song_id).or_default().push((tag, value));
     }
 
-    Ok(songs_to_tags)
+    Ok(tags_by_song)
 }
 
-/// Initializes the requested songs that have no `song_meta` row for the user,
-/// by adding one. A song is only ever initialized once, and that is the only
-/// time it gets copies of its default tags, so removing its last tag later
-/// leaves it empty. A song the user already has tags on keeps just those. A song
-/// with no tags of either kind stays uninitialized, so default tags generated
-/// for it later still get copied.
-async fn init_user_songs(
+/// Returns the requested songs that do not have default tags, preserving input
+/// order.
+pub async fn get_songs_without_default_tags(
     db: &DatabaseConnection,
-    user_id: Uuid,
     song_ids: &[String],
-) -> Result<(), CadenzaError> {
-    // nothing to initialize, so skip the transaction and the lock
-    if find_songs_to_init(db, user_id, song_ids).await?.song_ids.is_empty() {
-        return Ok(());
+) -> Result<Vec<String>, CadenzaError> {
+    if song_ids.is_empty() {
+        return Ok(Vec::new());
     }
 
-    let txn = db.begin().await?;
-
-    // hold a per-user lock until commit, so two racing reads can't both
-    // initialize the same song or create the same tag for this user
-    txn.execute_raw(Statement::from_sql_and_values(
-        DbBackend::Postgres,
-        "SELECT pg_advisory_xact_lock(hashtext('init_user_songs'), hashtext($1))",
-        [user_id.to_string().into()],
-    ))
-    .await?;
-
-    // look again under the lock, in case a racing read initialized some first
-    let to_init = find_songs_to_init(&txn, user_id, song_ids).await?;
-
-    // copy the default tags, then mark the songs initialized
-    copy_default_tags_to_user(&txn, user_id, &to_init.default_tags).await?;
-    insert_song_meta(&txn, user_id, to_init.song_ids).await?;
-
-    txn.commit().await?;
-
-    Ok(())
-}
-
-/// What [`init_user_songs`] does to a set of requested songs.
-#[derive(Default)]
-struct SongsToInit {
-    /// The songs to add a `song_meta` row for.
-    song_ids: Vec<String>,
-    /// The default tags to copy to the user, keyed by song id.
-    default_tags: HashMap<String, Vec<tags::Model>>,
-}
-
-/// Returns which of the requested songs to initialize, out of the ones with no
-/// `song_meta` row for the user. A song the user already has tags on is
-/// initialized without its default tags. A song with default tags is initialized
-/// with them. A song with no tags of either kind is left out, so a read made
-/// before its default tags are generated doesn't initialize it.
-async fn find_songs_to_init(
-    db: &impl ConnectionTrait,
-    user_id: Uuid,
-    song_ids: &[String],
-) -> Result<SongsToInit, CadenzaError> {
-    // the songs already initialized for the user
-    let initialized: HashSet<String> = song_meta::Entity::find()
-        .filter(song_meta::Column::UserId.eq(user_id))
-        .filter(song_meta::Column::SongId.is_in(song_ids.iter().map(String::as_str)))
+    let with_default_tags: HashSet<String> = default_tags_applied::Entity::find()
+        .filter(default_tags_applied::Column::SongId.is_in(song_ids.iter().map(String::as_str)))
         .select_only()
-        .column(song_meta::Column::SongId)
-        .into_tuple::<String>()
-        .all(db)
-        .await?
-        .into_iter()
-        .collect();
-
-    // the requested songs not initialized yet
-    let uninitialized: Vec<String> = song_ids
-        .iter()
-        .filter(|song_id| !initialized.contains(*song_id))
-        .cloned()
-        .collect();
-
-    // every song is initialized already, so skip the tag lookups
-    if uninitialized.is_empty() {
-        return Ok(SongsToInit::default());
-    }
-
-    // the uninitialized songs the user already has tags on
-    let user_tagged: HashSet<String> = user_tags_applied::Entity::find()
-        .filter(user_tags_applied::Column::UserId.eq(user_id))
-        .filter(user_tags_applied::Column::SongId.is_in(uninitialized.iter().map(String::as_str)))
-        .select_only()
-        .column(user_tags_applied::Column::SongId)
+        .column(default_tags_applied::Column::SongId)
         .distinct()
         .into_tuple::<String>()
         .all(db)
@@ -214,160 +167,10 @@ async fn find_songs_to_init(
         .into_iter()
         .collect();
 
-    // default tags on the rest, since a song the user has tags on keeps just those
-    let without_user_tags: Vec<String> = uninitialized
+    Ok(song_ids
         .iter()
-        .filter(|song_id| !user_tagged.contains(*song_id))
+        .filter(|song_id| !with_default_tags.contains(*song_id))
         .cloned()
-        .collect();
-    let default_tags = get_default_tags_on_songs(db, &without_user_tags).await?;
-
-    // initialize the songs with tags of either kind. a song with neither waits,
-    // so the default tags generated for it after this read still get copied
-    let song_ids = uninitialized
-        .into_iter()
-        .filter(|song_id| user_tagged.contains(song_id) || default_tags.contains_key(song_id))
-        .collect();
-
-    Ok(SongsToInit {
-        song_ids,
-        default_tags,
-    })
-}
-
-/// Adds a `song_meta` row for the user on each given song, marking it
-/// initialized. Songs that already have one keep it.
-async fn insert_song_meta(
-    db: &impl ConnectionTrait,
-    user_id: Uuid,
-    song_ids: impl IntoIterator<Item = String>,
-) -> Result<(), CadenzaError> {
-    let rows = song_ids.into_iter().map(|song_id| song_meta::ActiveModel {
-        song_id: Set(song_id),
-        user_id: Set(user_id),
-        times_listened: NotSet,
-    });
-
-    song_meta::Entity::insert_many(rows)
-        .on_conflict(
-            OnConflict::columns([song_meta::Column::SongId, song_meta::Column::UserId])
-                .do_nothing()
-                .to_owned(),
-        )
-        .exec_without_returning(db)
-        .await?;
-
-    Ok(())
-}
-
-/// Copies default tags into the user's own tags and applies the copies to the
-/// songs. A default tag reuses the user's tag with the same name when they have
-/// one, and otherwise becomes a new tag of theirs with the default's name,
-/// color, and type. Run it inside the lock [`init_user_songs`] takes, so racing
-/// reads can't create the same tag twice.
-async fn copy_default_tags_to_user(
-    txn: &impl ConnectionTrait,
-    user_id: Uuid,
-    default_tags: &HashMap<String, Vec<tags::Model>>,
-) -> Result<(), CadenzaError> {
-    // no default tags, so nothing to copy
-    if default_tags.is_empty() {
-        return Ok(());
-    }
-
-    // find the user's tags that already have a default tag's name
-    let default_names: HashSet<&str> = default_tags
-        .values()
-        .flatten()
-        .map(|tag| tag.name.as_str())
-        .collect();
-
-    let mut name_to_user_tag: HashMap<String, tags::Model> = tags::Entity::find()
-        .filter(tags::Column::UserId.eq(user_id))
-        .filter(tags::Column::Name.is_in(default_names.iter().copied()))
-        .all(txn)
-        .await?
-        .into_iter()
-        .map(|tag| (tag.name.clone(), tag))
-        .collect();
-
-    // create a tag for the user for each default name they don't have yet, once per name
-    let new_tags: HashMap<&str, tags::ActiveModel> = default_tags
-        .values()
-        .flatten()
-        .filter(|tag| !name_to_user_tag.contains_key(&tag.name))
-        .map(|tag| {
-            let new_tag = tags::ActiveModel {
-                tag_id: NotSet,
-                user_id: Set(Some(user_id)),
-                name: Set(tag.name.clone()),
-                color: Set(tag.color.clone()),
-                r#type: Set(tag.r#type.clone()),
-            };
-            (tag.name.as_str(), new_tag)
-        })
-        .collect();
-
-    let created = tags::Entity::insert_many(new_tags.into_values())
-        .exec_with_returning(txn)
-        .await?;
-    name_to_user_tag.extend(created.into_iter().map(|tag| (tag.name.clone(), tag)));
-
-    // put the user's copies on the songs in place of the default tags. rows that
-    // already exist are skipped
-    let applied = default_tags.iter().flat_map(|(song_id, defaults)| {
-        defaults
-            .iter()
-            .filter_map(|tag| name_to_user_tag.get(&tag.name))
-            .map(|copy| user_tags_applied::ActiveModel {
-                song_id: Set(song_id.clone()),
-                user_id: Set(user_id),
-                tag_id: Set(copy.tag_id),
-                value: NotSet,
-            })
-    });
-
-    user_tags_applied::Entity::insert_many(applied)
-        .on_conflict(
-            OnConflict::columns([
-                user_tags_applied::Column::SongId,
-                user_tags_applied::Column::UserId,
-                user_tags_applied::Column::TagId,
-            ])
-            .do_nothing()
-            .to_owned(),
-        )
-        .exec_without_returning(txn)
-        .await?;
-
-    Ok(())
-}
-
-/// Initializes the requested songs through [`get_user_tags_on_songs`], then
-/// returns the ones it could not initialize, meaning those with no tags of
-/// either kind. Keeps the order the ids were given in.
-pub async fn get_uninitialized_songs(
-    db: &DatabaseConnection,
-    user_id: Uuid,
-    song_ids: &[String],
-) -> Result<Vec<String>, CadenzaError> {
-    // tags on each song, after copying default tags onto songs new to the user
-    let tags_by_song = get_user_tags_on_songs(db, user_id, song_ids).await?;
-
-    // the songs that came back with none
-    let songs_without_tags: Vec<String> = song_ids
-        .iter()
-        .filter(|song_id| tags_by_song.get(*song_id).is_none_or(Vec::is_empty))
-        .cloned()
-        .collect();
-
-    // an initialized song can still have default tags the user no longer sees,
-    // like after removing all of its tags. those are initialized, so leave them out
-    let default_tags = get_default_tags_on_songs(db, &songs_without_tags).await?;
-
-    Ok(songs_without_tags
-        .into_iter()
-        .filter(|song_id| !default_tags.contains_key(song_id))
         .collect())
 }
 
@@ -393,13 +196,14 @@ pub async fn new_user_tag(
     user_id: Uuid,
     name: String,
     color: String,
+    tag_type: TagType,
 ) -> Result<i64, CadenzaError> {
     let new_tag = tags::ActiveModel {
         tag_id: NotSet,
         user_id: Set(Some(user_id)),
         name: Set(name),
         color: Set(color),
-        r#type: NotSet,
+        r#type: Set(tag_type),
     };
     let new_tag = new_tag.insert(&db).await?;
 
@@ -423,47 +227,61 @@ pub async fn delete_user_tag(
     Ok(())
 }
 
-/// Puts one of the user's tags on a song, and initializes the song for the user
-/// if it isn't yet. Otherwise removing this tag would leave the song
-/// uninitialized, and the next read would copy its default tags onto it. Also
-/// votes yes on the tag's name for the song, which can make the name a default
-/// tag there (see [`record_tag_vote`]).
+/// Puts one of the user's tags on a song and votes yes on its name, which can
+/// make the name a default tag there (see [`record_tag_vote`]).
 pub async fn apply_user_tag(
     db: DatabaseConnection,
     votes: &TagVoteCache,
     user_id: Uuid,
     song_id: String,
     tag_id: i64,
+    value: Option<String>,
 ) -> Result<(), CadenzaError> {
+    let tag = get_owned_tag(&db, user_id, tag_id).await?;
+    let value = canonicalize_tag_value(&tag.r#type, value)?;
     let txn = db.begin().await?;
 
-    // put the tag on the song
     let new_tag_relation = user_tags_applied::ActiveModel {
         user_id: Set(user_id),
         song_id: Set(song_id.clone()),
         tag_id: Set(tag_id),
-        value: NotSet,
+        value: Set(value),
     };
     new_tag_relation.insert(&txn).await?;
 
     // the user put this tag on the song, so its name gets a yes vote
-    let tag = tags::Entity::find_by_id(tag_id).one(&txn).await?;
-    let recorded = match &tag {
-        Some(tag) => {
-            Some(record_tag_vote(&txn, votes, user_id, &song_id, tag, TagVote::Yes).await?)
-        }
-        None => None,
-    };
-
-    // the song has a tag of the user's now, so it counts as initialized
-    insert_song_meta(&txn, user_id, [song_id]).await?;
+    let recorded = record_tag_vote(&txn, votes, user_id, &song_id, &tag, TagVote::Yes).await?;
 
     txn.commit().await?;
 
     // update the vote cache only once the vote is committed
-    if let Some(recorded) = recorded {
-        votes.remember(recorded);
-    }
+    votes.remember(recorded);
+    Ok(())
+}
+
+/// Sets (or, with `None`, clears) the value of a tag already applied to a song.
+pub async fn set_user_tag_value(
+    db: DatabaseConnection,
+    user_id: Uuid,
+    song_id: String,
+    tag_id: i64,
+    value: Option<String>,
+) -> Result<(), CadenzaError> {
+    let tag = get_owned_tag(&db, user_id, tag_id).await?;
+    let value = canonicalize_tag_value(&tag.r#type, value)?;
+
+    let applied_tag = user_tags_applied::Entity::find()
+        .filter(user_tags_applied::Column::SongId.eq(song_id))
+        .filter(user_tags_applied::Column::UserId.eq(user_id))
+        .filter(user_tags_applied::Column::TagId.eq(tag_id))
+        .one(&db)
+        .await?
+        .ok_or(CadenzaError::NotFound)?;
+
+    let mut applied_tag: user_tags_applied::ActiveModel = applied_tag.into();
+    applied_tag.value = Set(value);
+    applied_tag.update(&db).await?;
+
     Ok(())
 }
 
@@ -509,8 +327,7 @@ pub async fn unapply_user_tag(
 
 /// Puts the default tag with the given name on the song, creating that default
 /// tag with the given color if there isn't one. Only touches default tags, so
-/// users who already initialized the song don't get it. Songs that already have
-/// it are left alone.
+/// it is not copied to users. Songs that already have it are left alone.
 pub async fn add_default_tag_to_song(
     db: &impl ConnectionTrait,
     song_id: &str,
@@ -559,7 +376,6 @@ pub async fn add_default_tag_to_song(
 
     Ok(())
 }
-
 
 /// Returns the default tags on each given song, keyed by song id. Songs with no
 /// default tags are left out.

@@ -1,6 +1,7 @@
 import type Ionicons from "@expo/vector-icons/Ionicons";
 import type { MusicItem } from "@apple-musickit";
 import type { ComponentProps, ReactNode } from "react";
+import type { useAnimatedScrollHandler } from "react-native-reanimated";
 
 import type { ThemeColorToken } from "@/lib/theme";
 
@@ -58,6 +59,11 @@ export type MusicListAction<T> = {
     onPress: (target: T) => void | Promise<void>;
 };
 
+export type MusicListTrackAction = MusicListAction<MusicItem> & {
+    /** Whether using this action closes the song-options menu. Defaults to true. */
+    dismissMenu?: boolean;
+};
+
 export type MusicListSelectionAction = MusicListAction<readonly MusicItem[]>;
 
 export type MusicListMultiSelectConfig = {
@@ -77,41 +83,38 @@ export type MusicListProps = {
      * track uses the shared playback controller.
      */
     onTrackPressOverride?: ((track: MusicItem) => void | Promise<void>) | null;
+    /** Actions appended after the built-in per-track actions. */
+    trackMenuActions?: readonly MusicListTrackAction[];
     /**
      * Multi-selection is disabled when null or omitted. Supplying a config
      * enables long-press selection.
      */
     multiSelect?: MusicListMultiSelectConfig | null;
-    /** Extends row backgrounds and dividers edge-to-edge while preserving content insets. */
+    /** Extends row backgrounds edge-to-edge while preserving content insets. */
     fullBleedRows?: boolean;
+    /** Overrides the 24px content inset used by full-bleed rows. */
+    fullBleedRowHorizontalPadding?: number;
+    /** Theme surface beneath transparent rows and their tag-edge fade. */
+    rowSurfaceColor?: ThemeColorToken;
+    /** Removes screen-level bottom insets when nested in another surface. */
+    embedded?: boolean;
     /** Controlled compactness. Omit to let pinch gestures own the value. */
     compact?: boolean;
     /** Receives compactness changes requested by pinch gestures. */
     onCompactChange?: (compact: boolean) => void;
+    /** Whether to load and display Cadenza tags beneath each track. Defaults to true. */
+    showTags?: boolean;
     anticipatedTrackCount?: number;
-    /**
-     * Rendered above the first row, inside the list's own scroll container.
-     * `MusicList` owns its scroll, so a section above it cannot be a sibling.
-     */
+    /** Content rendered above the first row inside the list's scroll surface. */
     header?: ReactNode;
-    /**
-     * Rendered below the last row, for the same reason as `header`. It sits
-     * under the pagination skeleton, so a paging list keeps loading into it.
-     */
+    /** Backward-compatible alias for `header`. */
+    listHeader?: ReactNode;
+    /** Content rendered below pagination rows inside the scroll surface. */
     footer?: ReactNode;
-    /**
-     * Reports the scrolled content's size. For a surface that has to draw
-     * something the height of its own content, such as a backdrop behind every
-     * row rather than behind the screen.
-     */
+    /** Reports the complete scroll content size. */
     onContentSizeChange?: (width: number, height: number) => void;
-    /**
-     * Forwarded to the `FlatList`. Omit for React Native's default, which is on
-     * for Android only. Pass false when the header paints past its own bounds,
-     * such as a backdrop the height of the content: Android detaches a
-     * scrolled-off view by its own bounds, so the backdrop goes with it.
-     */
-    removeClippedSubviews?: boolean;
+    /** Optional scroll observer for coordinated header animation. */
+    onScroll?: ReturnType<typeof useAnimatedScrollHandler>;
     /** Required pagination intent. Pass null for a non-paginated list. */
     pagination: MusicListPagination | null;
     /** Sorting is disabled when omitted or null. Pass an object to enable it. */

@@ -17,6 +17,7 @@ import Animated, {
 
 import { Button } from "@/components/ui/button";
 import { ModalPopup } from "@/components/custom/modal-popup";
+import { GlassSurface } from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
 import { usePlaybackCommands } from "@/lib/playback";
 
@@ -142,10 +143,13 @@ export function MusicListSelectionToolbar({
         >
             <GestureDetector gesture={swipeGesture}>
                 <Animated.View
-                    className="gap-1 rounded-xl border border-border bg-popover p-2 shadow-lg shadow-black/10"
+                    className="gap-1 overflow-hidden rounded-xl border border-border p-2 shadow-lg shadow-black/10"
                     style={swipeStyle}
                     onLayout={handleLayout}
                 >
+                    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+                        <GlassSurface style={StyleSheet.absoluteFill} />
+                    </View>
                     <View className="relative min-h-7 justify-center">
                         <Text className="px-8 text-center text-sm font-bold text-popover-foreground">
                             {tracks.length} selected

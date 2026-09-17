@@ -33,7 +33,7 @@ function paged(items: SongInitItem[]) {
 
 /**
  * A fake MusicKit and backend. `playlists` is keyed by library id. A song in
- * `tagless` has no tags until `setDefaultTags` gives it some.
+ * `tagless` has no default tags until `setDefaultTags` gives it some.
  */
 function fakeDeps({
     library = [],
@@ -46,9 +46,8 @@ function fakeDeps({
 }) {
     const songsWithoutTags = new Set(tagless);
     const calls = {
-        initSongs: [] as string[][],
+        noDefaultTags: [] as string[][],
         defaultTags: [] as { song_id: string; desc: string }[][],
-        initialized: 0,
         searched: [] as number[],
     };
 
@@ -62,16 +61,13 @@ function fakeDeps({
         ),
         getPlaylistSongs: (playlistId, options) =>
             paged(playlists[playlistId] ?? [])(options),
-        initSongs: async ({ song_ids }) => {
-            calls.initSongs.push(song_ids);
+        getSongsWithoutDefaultTags: async ({ song_ids }) => {
+            calls.noDefaultTags.push(song_ids);
             return song_ids.filter((songId) => songsWithoutTags.has(songId));
         },
         setDefaultTags: async (songs) => {
             calls.defaultTags.push(songs);
             for (const { song_id } of songs) songsWithoutTags.delete(song_id);
-        },
-        onSongsInitialized: () => {
-            calls.initialized += 1;
         },
         onSearchComplete: (count) => {
             calls.searched.push(count);
@@ -94,25 +90,26 @@ test("asks about the library and then every playlist, once per song", async () =
     await initializeSongs(deps);
 
     // songs go by catalog id, and a song an earlier page had is not asked about again
-    assert.deepEqual(calls.initSongs, [["a", "b"], ["c"], ["d"]]);
+    assert.deepEqual(calls.noDefaultTags, [["a", "b"], ["c"], ["d"]]);
     assert.deepEqual(calls.defaultTags, []);
     assert.deepEqual(calls.searched, [0]);
-    assert.equal(calls.initialized, 1);
 });
 
-test("generates tags for uninitialized songs in batches, then reads each batch back", async () => {
+test("generates tags for songs without defaults in batches", async () => {
     const library = Array.from({ length: SONG_INIT_PAGE_SIZE + 50 }, (_, i) =>
         song(`s${i}`),
     );
-    const uninitializedCount = SONG_INIT_BATCH_SIZE + 20;
+    const songsWithoutDefaultsCount = SONG_INIT_BATCH_SIZE + 20;
     const { deps, calls } = fakeDeps({
         library,
-        tagless: library.slice(0, uninitializedCount).map((item) => item.id),
+        tagless: library
+            .slice(0, songsWithoutDefaultsCount)
+            .map((item) => item.id),
     });
 
     await initializeSongs(deps);
 
-    // two batches, each described for generation and then read back
+    // two batches, each described for generation
     assert.deepEqual(
         calls.defaultTags.map((batch) => batch.length),
         [SONG_INIT_BATCH_SIZE, 20],
@@ -121,14 +118,8 @@ test("generates tags for uninitialized songs in batches, then reads each batch b
         song_id: "s0",
         desc: "Song s0 by Artist",
     });
-    assert.deepEqual(
-        calls.initSongs.slice(-2),
-        calls.defaultTags.map((batch) => batch.map((item) => item.song_id)),
-    );
-
     // the search reports everything it found once, before any generation
-    assert.deepEqual(calls.searched, [uninitializedCount]);
-    assert.equal(calls.initialized, 3);
+    assert.deepEqual(calls.searched, [songsWithoutDefaultsCount]);
 });
 
 test("drops a batch whose generation fails and keeps going", async (t) => {
@@ -143,10 +134,8 @@ test("drops a batch whose generation fails and keeps going", async (t) => {
 
     await initializeSongs(deps);
 
-    // the batch is not read back
-    assert.deepEqual(calls.initSongs, [["a", "b"]]);
+    assert.deepEqual(calls.noDefaultTags, [["a", "b"]]);
     assert.deepEqual(calls.searched, [1]);
-    assert.equal(calls.initialized, 1);
     assert.equal(logged.mock.callCount(), 1);
 });
 
@@ -165,17 +154,16 @@ test("skips a playlist that fails to read and keeps searching", async (t) => {
 
     await initializeSongs(deps);
 
-    assert.deepEqual(calls.initSongs, [["b"]]);
+    assert.deepEqual(calls.noDefaultTags, [["b"]]);
     assert.equal(logged.mock.callCount(), 1);
 });
 
 test("stops before generating tags once cancelled", async () => {
     const { deps, calls } = fakeDeps({ library: [song("a")], tagless: ["a"] });
     // cancel as soon as the search has asked about anything
-    deps.isCancelled = () => calls.initSongs.length > 0;
+    deps.isCancelled = () => calls.noDefaultTags.length > 0;
 
     await initializeSongs(deps);
 
     assert.deepEqual(calls.defaultTags, []);
-    assert.equal(calls.initialized, 0);
 });

@@ -1,143 +1,179 @@
-import type { MusicItem } from "@apple-musickit";
-import { useState } from "react";
-import { useWindowDimensions, View } from "react-native";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import Ionicons from "@expo/vector-icons/Ionicons";
+import { useTheme } from "expo-router/react-navigation";
+import { useEffect, useRef, useState } from "react";
+import {
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    useWindowDimensions,
+    View,
+} from "react-native";
 import Animated, {
-    Easing,
-    runOnJS,
+    useAnimatedScrollHandler,
     useAnimatedStyle,
-    useDerivedValue,
     useSharedValue,
-    withTiming,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { GlassSurface } from "@/components/ui/glass-surface";
+import { Text } from "@/components/ui/text";
+
 import { CommentsPage } from "./comments-page";
-import { MiniTabBar, PLAYER_PAGE_KEYS, type PlayerPageKey } from "./mini-tab-bar";
 import { PlayerPage } from "./player-page";
+import { usePlayerScope } from "./player-scope";
 import { TagsPage } from "./tags-page";
+import { PLAYER_TABS, type PlayerTab, usePlayerTabs } from "./player-tabs";
 
-const SWIPE = { duration: 260, easing: Easing.out(Easing.cubic) };
-/** How far, or how fast, a drag has to go to change the page. */
-const SWIPE_DISTANCE_RATIO = 0.25;
-const SWIPE_VELOCITY_THRESHOLD = 600;
+const TAB_BAR_HEIGHT = 72;
+const TAB_PRESENTATION = {
+    comments: {
+        label: "Comments",
+        activeIcon: "chatbubble",
+        inactiveIcon: "chatbubble-outline",
+    },
+    player: {
+        label: "Player",
+        activeIcon: "musical-note",
+        inactiveIcon: "musical-note-outline",
+    },
+    tags: {
+        label: "Tags",
+        activeIcon: "pricetag",
+        inactiveIcon: "pricetag-outline",
+    },
+} as const;
 
-export type FocusedSong = {
-    id: string;
-    title: string;
-    artworkUrl?: string;
-    artworkColor?: string;
-};
-
-function focusedSongFromTrack(track: MusicItem): FocusedSong {
-    return {
-        id: track.catalogId ?? track.id,
-        title: track.title,
-        artworkUrl: track.artworkUrl,
-        artworkColor: track.artworkColor,
-    };
-}
-
-/**
- * The now playing sheet's three pages: Comments, Player, Tags, with a small
- * glass tab bar of its own at the bottom. Player is the default and the only
- * one that touches playback; Comments and Tags both address `focusedSong`,
- * which starts as whatever `app/player.tsx` resolved from the route (the
- * playing track, or a target song id from Modify Tags on a song that was not
- * playing) and can be retargeted in place by Modify Tags on the Player page's
- * own menu.
- *
- * The swipe gesture never fights the scrubber's own pan for a drag that
- * starts on it: the scrubber activates at 4px (`activeOffsetX([-4, 4])`,
- * `PlayerPage`), tighter than this pager's 10px, so on any real drag the
- * scrubber's pan wins the race and the pager's never gets the chance to
- * activate - the same threshold-race arbitration `seekGesture` already uses
- * between its own pan and tap. This pager also keeps `failOffsetY`, so a
- * vertical pull still reaches the sheet's native dismiss - see the
- * media-player README gotcha about widening that.
- */
-export function PlayerPager({
-    initialPage,
-    focusedSong,
-}: {
-    initialPage: "player" | "tags";
-    focusedSong: FocusedSong;
-}) {
+/** Three always-mounted pages in one native horizontal scroll surface. */
+export function PlayerPager() {
+    const { focusedSong, showTagsFor } = usePlayerScope();
+    const { selectedTab, selectTab } = usePlayerTabs();
     const { width } = useWindowDimensions();
     const insets = useSafeAreaInsets();
-    const initialIndex = PLAYER_PAGE_KEYS.indexOf(initialPage);
-    const [pageIndex, setPageIndex] = useState(initialIndex);
-    const [currentFocusedSong, setCurrentFocusedSong] =
-        useState<FocusedSong>(focusedSong);
-    const translateX = useSharedValue(-initialIndex * width);
-    const position = useDerivedValue(() => -translateX.value / (width || 1));
+    const scrollRef = useRef<ScrollView>(null);
+    const scrollX = useSharedValue(PLAYER_TABS.indexOf(selectedTab) * width);
+    const [tabBarWidth, setTabBarWidth] = useState(0);
+    const selectedIndex = PLAYER_TABS.indexOf(selectedTab);
 
-    function goToPage(index: number) {
-        const clamped = Math.max(
-            0,
-            Math.min(index, PLAYER_PAGE_KEYS.length - 1),
-        );
-        translateX.value = withTiming(-clamped * width, SWIPE);
-        setPageIndex(clamped);
-    }
-
-    function goToTagsFor(track: MusicItem) {
-        setCurrentFocusedSong(focusedSongFromTrack(track));
-        goToPage(PLAYER_PAGE_KEYS.indexOf("tags" satisfies PlayerPageKey));
-    }
-
-    const panGesture = Gesture.Pan()
-        .activeOffsetX([-10, 10])
-        .failOffsetY([-15, 15])
-        .onUpdate((event) => {
-            translateX.value = -pageIndex * width + event.translationX;
-        })
-        .onEnd((event) => {
-            const pastThreshold =
-                Math.abs(event.translationX) > width * SWIPE_DISTANCE_RATIO ||
-                Math.abs(event.velocityX) > SWIPE_VELOCITY_THRESHOLD;
-            const direction = event.translationX < 0 ? 1 : -1;
-            const next = pastThreshold ? pageIndex + direction : pageIndex;
-            runOnJS(goToPage)(next);
+    useEffect(() => {
+        scrollRef.current?.scrollTo({
+            x: selectedIndex * width,
+            y: 0,
+            animated: true,
         });
+    }, [selectedIndex, width]);
 
-    const trackStyle = useAnimatedStyle(() => ({
-        transform: [{ translateX: translateX.value }],
-    }));
+    const scrollHandler = useAnimatedScrollHandler({
+        onScroll: (event) => {
+            scrollX.value = event.contentOffset.x;
+        },
+    });
+    const selectionStyle = useAnimatedStyle(() => {
+        const itemWidth = tabBarWidth / PLAYER_TABS.length;
+        return {
+            width: itemWidth,
+            transform: [
+                {
+                    translateX:
+                        width > 0 ? (scrollX.value / width) * itemWidth : 0,
+                },
+            ],
+        };
+    });
 
     return (
         <View className="flex-1">
-            <GestureDetector gesture={panGesture}>
-                <View className="flex-1" style={{ overflow: "hidden" }}>
-                    <Animated.View
-                        style={[
-                            {
-                                flex: 1,
-                                flexDirection: "row",
-                                width: width * PLAYER_PAGE_KEYS.length,
-                            },
-                            trackStyle,
-                        ]}
-                    >
-                        <View style={{ width }}>
-                            <CommentsPage focusedSong={currentFocusedSong} />
-                        </View>
-                        <View style={{ width }}>
-                            <PlayerPage onModifyTags={goToTagsFor} />
-                        </View>
-                        <View style={{ width }}>
-                            <TagsPage focusedSong={currentFocusedSong} />
-                        </View>
-                    </Animated.View>
+            <Animated.ScrollView
+                ref={scrollRef}
+                horizontal
+                pagingEnabled
+                bounces={false}
+                directionalLockEnabled
+                removeClippedSubviews={false}
+                showsHorizontalScrollIndicator={false}
+                scrollEventThrottle={16}
+                contentOffset={{ x: selectedIndex * width, y: 0 }}
+                onScroll={scrollHandler}
+                onMomentumScrollEnd={(event) => {
+                    const index = Math.max(
+                        0,
+                        Math.min(
+                            PLAYER_TABS.length - 1,
+                            Math.round(
+                                event.nativeEvent.contentOffset.x / width,
+                            ),
+                        ),
+                    );
+                    selectTab(PLAYER_TABS[index]);
+                }}
+            >
+                <View style={{ width }}>
+                    <CommentsPage focusedSong={focusedSong} />
                 </View>
-            </GestureDetector>
+                <View style={{ width }}>
+                    <PlayerPage onModifyTags={showTagsFor} />
+                </View>
+                <View style={{ width }}>
+                    <TagsPage focusedSong={focusedSong} />
+                </View>
+            </Animated.ScrollView>
 
             <View
-                className="px-4 pt-2"
-                style={{ paddingBottom: insets.bottom || 12 }}
+                className="items-center px-6 pt-2"
+                style={{ paddingBottom: Math.max(insets.bottom, 8) }}
             >
-                <MiniTabBar position={position} onSelect={goToPage} />
+                <View
+                    className="relative w-[76%] flex-row overflow-hidden rounded-full border border-border"
+                    style={{ height: TAB_BAR_HEIGHT }}
+                    onLayout={(event) =>
+                        setTabBarWidth(event.nativeEvent.layout.width)
+                    }
+                >
+                    <GlassSurface style={StyleSheet.absoluteFill} />
+                    {tabBarWidth > 0 ? (
+                        <Animated.View
+                            pointerEvents="none"
+                            className="absolute bottom-1 top-1 rounded-full bg-foreground/15"
+                            style={selectionStyle}
+                        />
+                    ) : null}
+                    {PLAYER_TABS.map((tab) => (
+                        <PlayerTabButton
+                            key={tab}
+                            tab={tab}
+                            selected={selectedTab === tab}
+                            onPress={() => selectTab(tab)}
+                        />
+                    ))}
+                </View>
             </View>
         </View>
+    );
+}
+
+function PlayerTabButton({
+    tab,
+    selected,
+    onPress,
+}: {
+    tab: PlayerTab;
+    selected: boolean;
+    onPress: () => void;
+}) {
+    const { colors } = useTheme();
+    const presentation = TAB_PRESENTATION[tab];
+    const icon = selected ? presentation.activeIcon : presentation.inactiveIcon;
+    const label = presentation.label;
+
+    return (
+        <Pressable
+            accessibilityRole="tab"
+            accessibilityLabel={label}
+            accessibilityState={{ selected }}
+            onPress={onPress}
+            className="flex-1 items-center justify-center active:opacity-70"
+        >
+            <Ionicons name={icon} size={26} color={colors.text} />
+            <Text className="mt-0.5 text-xs font-medium">{label}</Text>
+        </Pressable>
     );
 }

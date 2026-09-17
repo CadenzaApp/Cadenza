@@ -10,15 +10,13 @@ use axum::{Router, extract::FromRef};
 use axum_jwt_auth::Decoder;
 use dotenvy::dotenv;
 use sea_orm::{Database, DatabaseConnection};
-use std::net::SocketAddr;
 use std::env;
+use std::net::SocketAddr;
 
 use crate::{
     auth::{SupabaseClaims, new_jwt_decoder},
     db::tag_votes::TagVoteCache,
-    routes::{
-        queries::get_queries_router, songs::get_songs_router, tags::get_tags_router
-    },
+    routes::{queries::get_queries_router, songs::get_songs_router, tags::get_tags_router},
     services::tag_generation::{TagGenerationService, openai_tag_generator::OpenAiTagGenerator},
 };
 
@@ -69,9 +67,9 @@ async fn main() {
     // Defaults to loopback. Set BIND_ADDR=0.0.0.0:3000 to accept connections
     // from a phone or another machine on the network.
     let addr: SocketAddr = env::var("BIND_ADDR")
-        .unwrap_or_else(|_| "127.0.0.1:3000".to_string())
+        .unwrap_or_else(|_| "0.0.0.0:3000".to_string())
         .parse()
-        .expect("BIND_ADDR must look like 127.0.0.1:3000");
+        .expect("BIND_ADDR must look like 0.0.0.0:3000");
     println!("Running on http://{}", addr);
 
     axum_server::bind(addr)

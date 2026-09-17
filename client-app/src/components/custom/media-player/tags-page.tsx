@@ -4,13 +4,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { CreateTagDialog } from "@/components/custom/create-tag-dialog";
 import { TagPill } from "@/components/custom/tag-pill";
+import { TagValueDialog } from "@/components/custom/tag-value-dialog";
 import { GlassSurface } from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
-import { TintBackdrop } from "@/components/ui/tint-backdrop";
-import { useArtworkTint } from "@/lib/artwork-color";
 
 import { useSongTagEditor, type EditableSongTag } from "../song-tag-editor";
-import type { FocusedSong } from "./player-pager";
+import type { FocusedSong } from "./player-scope";
 
 /**
  * The now-playing sheet's Tags page: every one of the user's tags for the
@@ -18,15 +17,18 @@ import type { FocusedSong } from "./player-pager";
  * old stacked-modal tag editor (`TagEditorSheet`) now that Tags is a page of
  * its own rather than something opened over the "..." menu.
  *
- * No artwork, no playback controls - only the gradient wash behind it, same
- * as Comments. That is the Player page's job alone.
+ * No artwork and no playback controls. The shared sheet shell paints the
+ * gradient behind this page and the other two tabs.
  */
 export function TagsPage({ focusedSong }: { focusedSong: FocusedSong }) {
     const insets = useSafeAreaInsets();
-    const { tint } = useArtworkTint(focusedSong);
     const {
         songTags,
-        toggleTag,
+        selectTag,
+        valuePrompt,
+        onValueSubmit,
+        onValueRemove,
+        onValueDialogClose,
         createTagOpen,
         openCreateTag,
         onCreateTagOpenChange,
@@ -37,7 +39,6 @@ export function TagsPage({ focusedSong }: { focusedSong: FocusedSong }) {
 
     return (
         <View className="flex-1">
-            <TintBackdrop tint={tint} />
             <ScrollView
                 contentContainerClassName="gap-6 px-6 pt-4"
                 contentContainerStyle={{ paddingBottom: insets.bottom + 16 }}
@@ -59,7 +60,9 @@ export function TagsPage({ focusedSong }: { focusedSong: FocusedSong }) {
                         accessibilityRole="button"
                         accessibilityLabel="Create a new tag"
                         onPress={openCreateTag}
-                        style={({ pressed }) => (pressed ? { opacity: 0.7 } : null)}
+                        style={({ pressed }) =>
+                            pressed ? { opacity: 0.7 } : null
+                        }
                     >
                         <View className="h-10 flex-row items-center gap-1 overflow-hidden rounded-full border border-border px-3">
                             <GlassSurface style={StyleSheet.absoluteFill} />
@@ -73,13 +76,13 @@ export function TagsPage({ focusedSong }: { focusedSong: FocusedSong }) {
                     heading="On this song"
                     tags={appliedTags}
                     emptyLabel="No tags on this song yet."
-                    onToggleTag={toggleTag}
+                    onSelectTag={selectTag}
                 />
                 <TagSection
                     heading="Your other tags"
                     tags={availableTags}
                     emptyLabel="Every tag you have is already on this song."
-                    onToggleTag={toggleTag}
+                    onSelectTag={selectTag}
                 />
             </ScrollView>
 
@@ -87,6 +90,16 @@ export function TagsPage({ focusedSong }: { focusedSong: FocusedSong }) {
                 open={createTagOpen}
                 onOpenChange={onCreateTagOpenChange}
                 onCreated={onTagCreated}
+            />
+
+            <TagValueDialog
+                open={valuePrompt != null}
+                tag={valuePrompt?.tag ?? null}
+                initialValue={valuePrompt?.initialValue}
+                mode={valuePrompt?.mode ?? "apply"}
+                onSubmit={onValueSubmit}
+                onRemove={onValueRemove}
+                onClose={onValueDialogClose}
             />
         </View>
     );
@@ -96,12 +109,12 @@ function TagSection({
     heading,
     tags,
     emptyLabel,
-    onToggleTag,
+    onSelectTag,
 }: {
     heading: string;
     tags: EditableSongTag[];
     emptyLabel: string;
-    onToggleTag: (tagId: number) => void;
+    onSelectTag: (tagId: number) => void;
 }) {
     return (
         <View className="gap-2">
@@ -120,7 +133,7 @@ function TagSection({
                             accessibilityRole="button"
                             accessibilityLabel={`${tag.applied ? "Remove" : "Add"} ${tag.name} tag`}
                             accessibilityState={{ selected: tag.applied }}
-                            onPress={() => onToggleTag(tag.id)}
+                            onPress={() => onSelectTag(tag.id)}
                             // Unapplied tags read as available rather than as
                             // absent, so they are dimmed, not restyled.
                             className={
@@ -129,7 +142,11 @@ function TagSection({
                                     : "opacity-45 active:opacity-70"
                             }
                         >
-                            <TagPill tag={tag} height={14} />
+                            <TagPill
+                                tag={tag}
+                                height={14}
+                                value={tag.applied ? tag.value : null}
+                            />
                         </Pressable>
                     ))}
                 </View>
