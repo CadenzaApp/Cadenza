@@ -83,7 +83,8 @@ their idle reorder grip uses the same muted foreground color as their AND/OR wor
 animates to the theme primary color while that group is reordered. The heading and search field share one comfortably spaced row inside the
 same vertical scroll surface as the tags; only the resize handle stays fixed.
 Every top-level condition, including a single-tag condition, uses the screen background and can
-be reordered from its vertically centered leading 48-point Mono Icons `reorder-alt` drag handle. The rest of the card remains available to the
+be reordered from its vertically centered leading 48-point Mono Icons `reorder-alt` drag handle.
+That grip has no press-and-hold delay and activates after 3 points of intentional movement. The rest of the card remains available to the
 scroll view and interactive controls, so scrolling or changing the group mode cannot activate a
 whole-condition drag. Query-tag drags use the same immediate movement threshold as palette tags. Tag destinations
 remain visual previews until release.

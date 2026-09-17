@@ -15,6 +15,9 @@ import { useDrag } from "./DragContext";
 const DRAG_SETTLE_DURATION = 320;
 const DRAG_SETTLE_EASING = Easing.bezier(0.22, 0.8, 0.3, 1);
 const DRAG_MIN_DISTANCE = 12;
+// The dedicated reorder grip has no tap action to protect, so it should
+// engage at the first intentional movement rather than feeling like a hold.
+const HANDLE_DRAG_MIN_DISTANCE = 3;
 
 class ReleaseLatch {
     private pending = false;
@@ -87,7 +90,9 @@ export function DraggablePill({
 
     const pan = useMemo(() => {
         const gesture = Gesture.Pan()
-            .minDistance(DRAG_MIN_DISTANCE)
+            .minDistance(
+                dragHandle ? HANDLE_DRAG_MIN_DISTANCE : DRAG_MIN_DISTANCE,
+            )
             .maxPointers(1)
             .runOnJS(true);
         return gesture
@@ -190,6 +195,7 @@ export function DraggablePill({
             });
     }, [
         cancelDrag,
+        dragHandle,
         finish,
         compensationY,
         isDragging,
