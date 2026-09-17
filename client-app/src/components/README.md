@@ -91,8 +91,8 @@ variables), `tailwind.config.js`, and `global.css`. Class merging goes through
 | `music-list/`               | Scrollable list of `MusicItem`s, with skeletons, paging, sorting, selection, and tags. See below.                 |
 | `floating-bubble.tsx`       | The liquid-glass round floating action button the list and tag screens sit under.                                 |
 | `options-menu/`             | The song, album, and playlist "..." menus, on liquid glass. See below.                                            |
-| `song-tag-editor.tsx`       | Tag editing for one song: applied state, values, the song's default tags, mutations, and create-dialog state.     |
-| `tag-pill.tsx`              | The app tag chip. It is solid by default and supports a black fill with a tag-colored outline. Attribute tags keep their type icon through query negation and can show formatted values. |
+| `song-tag-editor.tsx`       | Tag editing for one song: applied state, values, adopting a default tag, mutations, and dialog state.             |
+| `tag-pill.tsx`              | The app tag chip. It is solid by default; `inverted` swaps its text and background, giving tag-colored content and outline on the screen color. A dark tag color lightens that screen color so it still reads, which only moves in a dark theme. Attribute tags keep their type icon through query negation and can show formatted values. Exports `readableTextColor`. |
 | `create-tag-dialog.tsx`     | Creates a tag with its name, color, and optional attribute type.                                                  |
 | `tag-value-dialog.tsx`      | Liquid-glass per-type editor opened when an attribute tag is applied or edited.                                   |
 | `modal-popup.tsx`           | Small popup used by options, sorting, and selection actions. Liquid glass is the default.                         |

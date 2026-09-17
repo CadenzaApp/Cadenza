@@ -15,7 +15,7 @@ import type { FocusedSong } from "./player-scope";
 /**
  * The now-playing sheet's Tags page: every one of the user's tags for the
  * focused song, applied ones first and solid, the rest dimmed, with the song's
- * shared default tags in between as unfilled pills. Replaces the old
+ * shared default tags in between as unfilled pills that a tap adopts. Replaces the old
  * stacked-modal tag editor (`TagEditorSheet`) now that Tags is a page of
  * its own rather than something opened over the "..." menu.
  *
@@ -28,6 +28,7 @@ export function TagsPage({ focusedSong }: { focusedSong: FocusedSong }) {
         songTags,
         defaultTags,
         selectTag,
+        selectDefaultTag,
         valuePrompt,
         onValueSubmit,
         onValueRemove,
@@ -81,7 +82,10 @@ export function TagsPage({ focusedSong }: { focusedSong: FocusedSong }) {
                     emptyLabel="No tags on this song yet."
                     onSelectTag={selectTag}
                 />
-                <DefaultTagSection tags={defaultTags} />
+                <DefaultTagSection
+                    tags={defaultTags}
+                    onSelectTag={selectDefaultTag}
+                />
                 <TagSection
                     heading="Your other tags"
                     tags={availableTags}
@@ -160,21 +164,36 @@ function TagSection({
 }
 
 /**
- * The song's shared default tags. They belong to everyone rather than to this
- * user, so they render unfilled and do not respond to a tap. Nothing shows
- * when the song has none.
+ * The song's shared default tags, unfilled because they belong to everyone
+ * rather than to this user. Tapping one copies it into the user's own tags and
+ * puts it on the song, so it moves up to "On this song". Nothing shows when
+ * the song has none.
  */
-function DefaultTagSection({ tags }: { tags: Tag[] }) {
+function DefaultTagSection({
+    tags,
+    onSelectTag,
+}: {
+    tags: Tag[];
+    onSelectTag: (tagId: number) => void;
+}) {
     if (tags.length === 0) return null;
 
     return (
         <View className="gap-2">
             <Text className="text-sm font-medium text-muted-foreground">
-                Default tags
+                Suggested tags
             </Text>
             <View className="flex-row flex-wrap gap-2">
                 {tags.map((tag) => (
-                    <TagPill key={tag.id} tag={tag} height={14} fill={false} />
+                    <Pressable
+                        key={tag.id}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Add ${tag.name} tag`}
+                        onPress={() => onSelectTag(tag.id)}
+                        className="active:opacity-70"
+                    >
+                        <TagPill tag={tag} height={14} inverted />
+                    </Pressable>
                 ))}
             </View>
         </View>

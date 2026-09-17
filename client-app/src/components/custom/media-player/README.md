@@ -17,7 +17,7 @@ are three always-mounted pages in one horizontal pager at the bottom of that she
 | `player-scope.tsx`       | Resolves and shares the focused song across the sheet's three pages, and selects Tags for Modify Tags.                  |
 | `player-page.tsx`        | The Player route: artwork or the queue, the scrubber, and the transport. The only route that touches playback.          |
 | `comments-page.tsx`      | The Comments route: a stub social feed for `focusedSong`. Local state only, no backend, no seed data.                   |
-| `tags-page.tsx`          | The Tags route: every user tag for `focusedSong`, applied first, plus the song's default tags as unfilled pills.        |
+| `tags-page.tsx`          | The Tags route: every user tag for `focusedSong`, applied first, plus default tags a tap adopts.                        |
 | `compact.tsx`            | Regular and inline compact content. Adds glass only for the compatibility fallback.                                     |
 | `playback-details.tsx`   | `MediaPlayerTrackHeading` (title, artist, favorite, `...`) and `MediaPlayerProgress` (scrubber and timestamps).         |
 | `queue-view.tsx`         | What replaces the artwork when the queue is open: compact heading, shuffle/repeat pills, and the reorderable next list. |
@@ -149,7 +149,10 @@ smoothly between the 750ms native snapshot polls, and scrubbing overrides it wit
   gotchas now live with `SongOptionsMenu` - see [../../README.md](../../README.md) rather than
   this file. `TagsPage` lists **all** of the user's tags, not just applied ones (via
   `useSongTagEditor`, `@/components/custom/song-tag-editor`), so it grows unbounded with the tag
-  count, and a tag created from its New button is applied to `focusedSong` straight away.
+  count, and a tag created from its New button is applied to `focusedSong` straight away. The
+  Default tags section works the same way in reverse: tapping one of the song's shared defaults
+  copies it into the user's tags (or reuses their tag of that name) and applies it, so the pill
+  moves up to On this song.
 
 ---
 

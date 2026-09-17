@@ -74,7 +74,7 @@ export function TagFadeRail({
                         tag={tag}
                         height={compact ? 8 : 9}
                         showIcon={false}
-                        fill={false}
+                        inverted
                     />
                 ))}
             </ScrollView>

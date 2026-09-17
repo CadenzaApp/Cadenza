@@ -29,7 +29,7 @@ export function QueryTagPill({
             <TagPill
                 tag={queryTag.tag}
                 height={12.5}
-                outlined={queryTag.negated}
+                inverted={queryTag.negated}
                 strikethrough={queryTag.negated}
                 leadingIcon={
                     isAttributeTag ? undefined : (

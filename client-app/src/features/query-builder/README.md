@@ -56,7 +56,8 @@ its contents while its height animates, and the HAVE ANY/HAVE ALL control fades
 and shifts slightly down when added or up when removed. A
 movement threshold keeps a tap available for toggling NOT. Basic tags use a circle indicator and
 switch it to a close-circle when negated. Attribute tags keep their type icon in both states.
-Every negated tag uses a thin text strike and a tag-colored outline instead of a solid fill. The
+Every negated tag uses a thin text strike and `TagPill`'s `inverted` state, so it reads as
+tag-colored content and outline on the screen color instead of a tag-colored fill. The
 whole HAVE ANY/HAVE ALL control toggles the
 group mode. Top-level connector dividers use solid rounded controls and toggle between AND and OR when tapped; dividers before a
 single-tag condition read `AND HAVE` or `OR HAVE`. Dragging the handle or `Your tags` heading resizes the palette between 80 and 360

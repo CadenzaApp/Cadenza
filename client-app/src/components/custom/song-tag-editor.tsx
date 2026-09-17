@@ -7,7 +7,7 @@ import {
     useTagsOnSong,
     useUnapplyTag,
 } from "@/lib/routes/songs";
-import { useUserTags } from "@/lib/routes/tags";
+import { useCreateTag, useUserTags } from "@/lib/routes/tags";
 import { isAttributeTag, unownedDefaultTags } from "@/lib/tag-values";
 import type { AppliedTag, Tag } from "@/lib/types";
 
@@ -16,8 +16,9 @@ export type EditableSongTag = AppliedTag & { applied: boolean };
 /**
  * Tag editing for one song, independent of whether it is playing: the data
  * behind it, not the layout. Every one of the user's tags, annotated with
- * whether it is applied and its value, the song's shared default tags, the
- * toggle/value mutations, and the "New" tag dialog's open state.
+ * whether it is applied and its value, the song's shared default tags and the
+ * copy-to-my-tags they do when tapped, the toggle/value mutations, and the
+ * "New" tag dialog's open state.
  * `media-player/tags-page.tsx` (the now-playing sheet's Tags page) is the one
  * caller; it owns the page itself.
  */
@@ -26,6 +27,7 @@ export function useSongTagEditor(songId: string) {
     const { tagsOnSong = [] } = useTagsOnSong(songId);
     const { defaultTagsOnSong = [] } = useDefaultTagsOnSong(songId);
     const { applyTag } = useApplyTag();
+    const { createTag } = useCreateTag();
     const { unapplyTag } = useUnapplyTag();
     const { setTagValue } = useSetTagValue();
     const [createTagOpen, setCreateTagOpen] = useState(false);
@@ -73,6 +75,46 @@ export function useSongTagEditor(songId: string) {
         else await applyTag({ song_id: songId, tag_id: tag.id });
     }
 
+    /**
+     * A tapped default tag ends up on the song as one of the user's own: their
+     * tag of that name if they already have one, otherwise a copy of the
+     * default. The pill then moves from Default tags to On this song, because
+     * `unownedDefaultTags` drops a default the user now has on the song.
+     */
+    async function adoptDefaultTag(tagId: number) {
+        const defaultTag = defaultTags.find(
+            (candidate) => candidate.id === tagId,
+        );
+        if (!defaultTag) return;
+
+        const ownedName = defaultTag.name.trim().toLowerCase();
+        const owned = userTags.find(
+            (candidate) => candidate.name.trim().toLowerCase() === ownedName,
+        );
+
+        if (owned) {
+            // an owned attribute tag asks for its value first, the same as a
+            // tap anywhere else on this page
+            if (isAttributeTag(owned.type)) {
+                setValuePrompt({
+                    tag: owned,
+                    mode: "apply",
+                    initialValue: null,
+                });
+                return;
+            }
+            await applyTag({ song_id: songId, tag_id: owned.id });
+            return;
+        }
+
+        const createdTagId = await createTag({
+            name: defaultTag.name,
+            color: defaultTag.color,
+            type: defaultTag.type,
+        });
+        if (typeof createdTagId === "number") await applyTagById(createdTagId);
+    }
+
     async function handleValueSubmit(value: string | null) {
         if (!valuePrompt) return;
         const payload = { song_id: songId, tag_id: valuePrompt.tag.id, value };
@@ -93,6 +135,7 @@ export function useSongTagEditor(songId: string) {
         songTags,
         defaultTags,
         selectTag: (tagId: number) => void selectTag(tagId),
+        selectDefaultTag: (tagId: number) => void adoptDefaultTag(tagId),
         valuePrompt,
         onValueSubmit: (value: string | null) =>
             void handleValueSubmit(value),

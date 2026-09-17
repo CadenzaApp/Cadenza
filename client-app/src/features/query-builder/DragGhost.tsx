@@ -105,7 +105,7 @@ export function DragGhost() {
             <TagPill
                 tag={tag}
                 height={10}
-                outlined={negated}
+                inverted={negated}
                 strikethrough={negated}
                 leadingIcon={
                     tag.type === "basic" && negated ? (
