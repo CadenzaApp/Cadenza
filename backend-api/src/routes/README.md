@@ -10,7 +10,7 @@ call into `src/db/` or `src/services/`, and shape the response.
 | --- | --- |
 | `mod.rs` | Declares `json`, `queries`, `tags`, `songs`. |
 | `tags.rs` | Tag CRUD for the signed-in user, plus LLM tag suggestion. Mounted at `/tags`. |
-| `songs.rs` | Reading and changing user tags, checking for missing defaults, and generating default tags. Mounted at `/songs`. |
+| `songs.rs` | Reading and changing user tags, reading default tags, checking for missing defaults, and generating default tags. Mounted at `/songs`. |
 | `queries.rs` | Runs a boolean tag query and returns song ids by relevance, and runs an advanced query. Mounted at `/queries`. |
 | `json/mod.rs` | `vec_into`, a small `Vec<A> -> Vec<B>` helper. Declares `advanced_query` and `tag`. |
 | `json/tag.rs` | `TagType`, `Tag`, and `AppliedTag`, the wire shapes of a tag. `From<tags::Model>` drops `user_id`. |
@@ -31,6 +31,7 @@ Every route below requires `Authorization: Bearer <supabase jwt>`.
 | POST | `/songs/local-tags/batch` | `{song_ids: [...]}` | `{song_id: [AppliedTag]}`, an entry per requested song |
 | POST | `/songs/no-default-tags` | `{song_ids: [...]}` | requested song ids with no default tags, in input order |
 | GET | `/songs/default-tags` | `?song_id=...` | `[Tag]`, the shared default tags on that song |
+| POST | `/songs/default-tags/batch` | `{song_ids: [...]}` | `{song_id: [Tag]}`, an entry per requested song |
 | POST | `/songs/default-tags` | `[{song_id, desc}]` | empty. Generates defaults for songs that have none |
 | POST | `/songs/local-tags` | `{song_id, tag_id, value?}` | empty. Also votes yes on the tag name |
 | PATCH | `/songs/local-tags` | `{song_id, tag_id, value}` | empty. A null value clears it |
@@ -107,7 +108,9 @@ Handlers take what they need out of `AppState` by `FromRef`, so most take
 with a bare `_: Claims<SupabaseClaims>`.
 
 `GET /songs/default-tags` reads `default_tags_applied` and returns only tags whose `user_id` is
-null. `POST /songs/no-default-tags` checks the same application table without creating user
+null. `POST /songs/default-tags/batch` is the same read for a list of songs, and fills in an
+empty list for the songs `db::tags::get_default_tags_on_songs` leaves out.
+`POST /songs/no-default-tags` checks the same application table without creating user
 state. `POST /songs/default-tags` skips songs that already have defaults, generates tags for the
 rest, and stores them through `db::tags::set_default_tags_on_songs`.
 
@@ -150,9 +153,10 @@ api as JSON should have a type here rather than serializing an entity model dire
   one on a DELETE.
 - `GET /songs/local-tags` returns only the user's own tags. Default tags (`user_id IS NULL`) are
   available separately from `GET /songs/default-tags`.
-- `POST /songs/local-tags/batch` and `POST /songs/no-default-tags` are reads. They are POSTs because
-  their id lists do not belong in a query string. Both cap out at 200 ids; the tag batch client
-  chunks at 25. Songs with no user tags come back as an empty list, never missing.
+- `POST /songs/local-tags/batch`, `POST /songs/default-tags/batch`, and `POST /songs/no-default-tags`
+  are reads. They are POSTs because their id lists do not belong in a query string. All three cap
+  out at 200 ids. Songs with no tags come back as an empty list from the two tag batches, never
+  missing.
 - A vote can promote a user tag name to a default tag once it has at least 10 votes and more than
   1.5 times as many yes votes as no votes. This never copies the default into user tags.
 - `POST /songs/local-tags` inserts without checking first, so re-applying a tag relies on the unique

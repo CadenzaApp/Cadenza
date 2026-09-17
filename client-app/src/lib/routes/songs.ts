@@ -61,6 +61,7 @@ export function useApplyTag() {
             { path: "/songs/local-tags", params: { song_id } },
             { path: "/songs/local-tags/batch" },
             { path: "/songs/default-tags", params: { song_id } },
+            { path: "/songs/default-tags/batch" },
             { path: "/tags" },
             { path: "/queries/results" },
             { path: "/queries/advanced/results" },
@@ -137,6 +138,32 @@ export function useDefaultTagsOnSong(songId?: string) {
     };
 }
 
+/** Default tags for many songs at once, batched the same way as `useTagsOnSongs`. */
+export function useDefaultTagsOnSongs(songIds: readonly string[]) {
+    const normalizedIds = useMemo(
+        () => [...new Set(songIds.filter(Boolean))],
+        [songIds],
+    );
+    const x = useAPIPostDataBatched<
+        string,
+        { song_ids: string[] },
+        Record<string, Tag[]>
+    >("/songs/default-tags/batch", normalizedIds, {
+        batchSize: TAGS_ON_SONGS_BATCH_SIZE,
+        toBody: (song_ids) => ({ song_ids }),
+        merge: (responses) => Object.assign({}, ...responses),
+    });
+    const defaultTagsBySong = x.data ?? EMPTY_DEFAULT_TAGS_BY_SONG;
+
+    return {
+        defaultTagsBySong,
+        defaultTagsBySongLoading: x.isLoading,
+        defaultTagsBySongErr: x.error,
+    };
+}
+
+const EMPTY_DEFAULT_TAGS_BY_SONG: Record<string, Tag[]> = {};
+
 /** Returns the requested song ids that do not have default tags. */
 export function useSongsWithoutDefaultTags() {
     const x = useAPIMutation<{ song_ids: string[] }, string[]>(
@@ -160,11 +187,13 @@ export function useSetDefaultTags() {
     const x = useAPIMutation<SongIdAndDesc[], void>(
         "POST",
         "/songs/default-tags",
-        (songs) =>
-            songs.map(({ song_id }) => ({
+        (songs) => [
+            ...songs.map(({ song_id }) => ({
                 path: "/songs/default-tags",
                 params: { song_id },
             })),
+            { path: "/songs/default-tags/batch" },
+        ],
     );
     return {
         setDefaultTagsErr: x.error,

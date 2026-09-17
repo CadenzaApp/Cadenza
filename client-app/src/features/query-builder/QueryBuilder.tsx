@@ -10,6 +10,7 @@ import { KeyboardAvoidingView, Platform, Pressable, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import Animated from "react-native-reanimated";
 
+import { GlassToggle } from "@/components/ui/glass-toggle";
 import { Text } from "@/components/ui/text";
 import { THEME } from "@/lib/theme";
 import type { Tag } from "@/lib/types";
@@ -46,10 +47,18 @@ type Props = {
     tags: Tag[];
     conditions: QueryCondition[];
     setConditions: Dispatch<SetStateAction<QueryCondition[]>>;
+    includeSuggestedTags: boolean;
+    setIncludeSuggestedTags: Dispatch<SetStateAction<boolean>>;
 };
 const DEFAULT_PALETTE_HEIGHT = 208;
 
-export function QueryBuilder({ tags, conditions, setConditions }: Props) {
+export function QueryBuilder({
+    tags,
+    conditions,
+    setConditions,
+    includeSuggestedTags,
+    setIncludeSuggestedTags,
+}: Props) {
     const { compactPlayerVisible, playerBottomInset } =
         useScreenOverlayInsets();
     const defaultPaletteHeight =
@@ -158,6 +167,21 @@ export function QueryBuilder({ tags, conditions, setConditions }: Props) {
                 keyboardVerticalOffset={80}
             >
                 <View className="flex-1 bg-background">
+                    <View className="flex-row items-center gap-3 px-4 pt-2">
+                        <Ionicons
+                            name="sparkles-outline"
+                            size={17}
+                            color={theme.mutedForeground}
+                        />
+                        <Text className="flex-1 text-sm font-medium text-muted-foreground">
+                            Include suggested tags
+                        </Text>
+                        <GlassToggle
+                            value={includeSuggestedTags}
+                            onValueChange={setIncludeSuggestedTags}
+                            accessibilityLabel="Include suggested tags"
+                        />
+                    </View>
                     <View className="flex-row items-center px-4 pb-1 pt-2">
                         <Text className="flex-1 text-lg font-bold">
                             {queryHeading(conditions)}

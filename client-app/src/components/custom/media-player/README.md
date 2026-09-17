@@ -17,7 +17,7 @@ are three always-mounted pages in one horizontal pager at the bottom of that she
 | `player-scope.tsx`       | Resolves and shares the focused song across the sheet's three pages, and selects Tags for Modify Tags.                  |
 | `player-page.tsx`        | The Player route: artwork or the queue, the scrubber, and the transport. The only route that touches playback.          |
 | `comments-page.tsx`      | The Comments route: a stub social feed for `focusedSong`. Local state only, no backend, no seed data.                   |
-| `tags-page.tsx`          | The Tags route: every user tag for `focusedSong`, applied first. Replaces the old stacked-modal tag editor.             |
+| `tags-page.tsx`          | The Tags route: every user tag for `focusedSong`, applied first, plus the song's default tags as unfilled pills.        |
 | `compact.tsx`            | Regular and inline compact content. Adds glass only for the compatibility fallback.                                     |
 | `playback-details.tsx`   | `MediaPlayerTrackHeading` (title, artist, favorite, `...`) and `MediaPlayerProgress` (scrubber and timestamps).         |
 | `queue-view.tsx`         | What replaces the artwork when the queue is open: compact heading, shuffle/repeat pills, and the reorderable next list. |

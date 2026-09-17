@@ -28,6 +28,8 @@ export function CadenzaScreen() {
     const router = useRouter();
     const [mode, setMode] = useState<BuilderMode>("simple");
     const [conditions, setConditions] = useState<QueryCondition[]>([]);
+    // Not wired to the query yet: the switch only holds its own state.
+    const [includeSuggestedTags, setIncludeSuggestedTags] = useState(false);
     const [advancedRoot, setAdvancedRootState] = useState<AdvancedGroupNode>(
         () => createGroup(),
     );
@@ -141,6 +143,8 @@ export function CadenzaScreen() {
                     tags={userTags ?? []}
                     conditions={conditions}
                     setConditions={setConditions}
+                    includeSuggestedTags={includeSuggestedTags}
+                    setIncludeSuggestedTags={setIncludeSuggestedTags}
                 />
             ) : (
                 <AdvancedQueryBuilder

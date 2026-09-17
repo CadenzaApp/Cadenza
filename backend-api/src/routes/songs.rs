@@ -98,6 +98,35 @@ async fn get_local_tags_on_songs_handler(
     ))
 }
 
+/// Returns the shared default tags on each requested song, keyed by song id. A
+/// song with no default tags gets an empty list.
+///
+/// ```json
+/// {"1234567": [{"id": 12, "name": "rock", "color": "#808080", "type": "basic"}]}
+/// ```
+async fn get_default_tags_on_songs_handler(
+    State(db): State<DatabaseConnection>,
+    _: Claims<SupabaseClaims>,
+    Json(payload): Json<SongIdsPayload>,
+) -> Result<Json<HashMap<String, Vec<Tag>>>, CadenzaError> {
+    check_batch_size(payload.song_ids.len())?;
+
+    let mut tags_by_song = get_default_tags_on_songs(&db, &payload.song_ids).await?;
+
+    // the db read leaves out songs with no defaults, but a caller keyed on the
+    // request should not have to tell "none" apart from "missing"
+    Ok(Json(
+        payload
+            .song_ids
+            .into_iter()
+            .map(|song_id| {
+                let tags = tags_by_song.remove(&song_id).unwrap_or_default();
+                (song_id, vec_into(tags))
+            })
+            .collect(),
+    ))
+}
+
 /// Returns the requested songs that have no default tags, in request order.
 async fn get_songs_without_default_tags_handler(
     State(db): State<DatabaseConnection>,
@@ -229,6 +258,10 @@ pub fn get_songs_router() -> Router<AppState> {
         .route(
             "/default-tags",
             get(get_default_tags_on_song_handler).post(set_default_tags_on_songs_handler),
+        )
+        .route(
+            "/default-tags/batch",
+            post(get_default_tags_on_songs_handler),
         )
         .route(
             "/no-default-tags",

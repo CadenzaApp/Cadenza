@@ -7,14 +7,16 @@ import { TagPill } from "@/components/custom/tag-pill";
 import { TagValueDialog } from "@/components/custom/tag-value-dialog";
 import { GlassSurface } from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
+import type { Tag } from "@/lib/types";
 
 import { useSongTagEditor, type EditableSongTag } from "../song-tag-editor";
 import type { FocusedSong } from "./player-scope";
 
 /**
  * The now-playing sheet's Tags page: every one of the user's tags for the
- * focused song, applied ones first and solid, the rest dimmed. Replaces the
- * old stacked-modal tag editor (`TagEditorSheet`) now that Tags is a page of
+ * focused song, applied ones first and solid, the rest dimmed, with the song's
+ * shared default tags in between as unfilled pills. Replaces the old
+ * stacked-modal tag editor (`TagEditorSheet`) now that Tags is a page of
  * its own rather than something opened over the "..." menu.
  *
  * No artwork and no playback controls. The shared sheet shell paints the
@@ -24,6 +26,7 @@ export function TagsPage({ focusedSong }: { focusedSong: FocusedSong }) {
     const insets = useSafeAreaInsets();
     const {
         songTags,
+        defaultTags,
         selectTag,
         valuePrompt,
         onValueSubmit,
@@ -78,6 +81,7 @@ export function TagsPage({ focusedSong }: { focusedSong: FocusedSong }) {
                     emptyLabel="No tags on this song yet."
                     onSelectTag={selectTag}
                 />
+                <DefaultTagSection tags={defaultTags} />
                 <TagSection
                     heading="Your other tags"
                     tags={availableTags}
@@ -151,6 +155,28 @@ function TagSection({
                     ))}
                 </View>
             )}
+        </View>
+    );
+}
+
+/**
+ * The song's shared default tags. They belong to everyone rather than to this
+ * user, so they render unfilled and do not respond to a tap. Nothing shows
+ * when the song has none.
+ */
+function DefaultTagSection({ tags }: { tags: Tag[] }) {
+    if (tags.length === 0) return null;
+
+    return (
+        <View className="gap-2">
+            <Text className="text-sm font-medium text-muted-foreground">
+                Default tags
+            </Text>
+            <View className="flex-row flex-wrap gap-2">
+                {tags.map((tag) => (
+                    <TagPill key={tag.id} tag={tag} height={14} fill={false} />
+                ))}
+            </View>
         </View>
     );
 }

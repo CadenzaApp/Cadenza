@@ -16,7 +16,8 @@ category now, opened from the library screen, so this tab is only the query buil
 
 ## How it works
 
-`CadenzaScreen` fetches the user's tags and complete Apple Music song library. The mode button in
+`CadenzaScreen` fetches the user's tags and complete Apple Music song library. It also holds the
+simple builder's `Include suggested tags` switch, which is a placeholder that nothing reads yet. The mode button in
 the result-summary row switches between the tactile simple builder and the filter-based advanced
 builder without discarding either tree. The simple path compiles `QueryCondition[]` with
 `queryToJSON` and sends every catalog id as the backend candidate set. The advanced path compiles
@@ -43,7 +44,7 @@ builder remains mounted underneath, so going back returns to the existing query 
 ## Gotchas
 
 - Both query trees last for the lifetime of the mounted Cadenza tab. They are not persisted across app
-  launches.
+  launches. The `Include suggested tags` switch has the same lifetime and no effect on results.
 - Tag creation lives in the Tags library sheet, not here. Query needs tags to exist before it is
   useful, so a user with no tags has to go make one from the library first.
 

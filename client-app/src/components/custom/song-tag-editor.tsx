@@ -2,12 +2,13 @@ import { useState } from "react";
 
 import {
     useApplyTag,
+    useDefaultTagsOnSong,
     useSetTagValue,
     useTagsOnSong,
     useUnapplyTag,
 } from "@/lib/routes/songs";
 import { useUserTags } from "@/lib/routes/tags";
-import { isAttributeTag } from "@/lib/tag-values";
+import { isAttributeTag, unownedDefaultTags } from "@/lib/tag-values";
 import type { AppliedTag, Tag } from "@/lib/types";
 
 export type EditableSongTag = AppliedTag & { applied: boolean };
@@ -15,13 +16,15 @@ export type EditableSongTag = AppliedTag & { applied: boolean };
 /**
  * Tag editing for one song, independent of whether it is playing: the data
  * behind it, not the layout. Every one of the user's tags, annotated with
- * whether it is applied and its value, the toggle/value mutations, and the
- * "New" tag dialog's open state. `media-player/tags-page.tsx` (the
- * now-playing sheet's Tags page) is the one caller; it owns the page itself.
+ * whether it is applied and its value, the song's shared default tags, the
+ * toggle/value mutations, and the "New" tag dialog's open state.
+ * `media-player/tags-page.tsx` (the now-playing sheet's Tags page) is the one
+ * caller; it owns the page itself.
  */
 export function useSongTagEditor(songId: string) {
     const { userTags = [] } = useUserTags();
     const { tagsOnSong = [] } = useTagsOnSong(songId);
+    const { defaultTagsOnSong = [] } = useDefaultTagsOnSong(songId);
     const { applyTag } = useApplyTag();
     const { unapplyTag } = useUnapplyTag();
     const { setTagValue } = useSetTagValue();
@@ -41,6 +44,8 @@ export function useSongTagEditor(songId: string) {
         applied: appliedTagValues.has(tag.id),
         value: appliedTagValues.get(tag.id) ?? null,
     }));
+    // shared, not the user's, so they are shown but never toggled here
+    const defaultTags = unownedDefaultTags(defaultTagsOnSong, tagsOnSong);
 
     async function applyTagById(tagId: number) {
         await applyTag({ song_id: songId, tag_id: tagId });
@@ -86,6 +91,7 @@ export function useSongTagEditor(songId: string) {
 
     return {
         songTags,
+        defaultTags,
         selectTag: (tagId: number) => void selectTag(tagId),
         valuePrompt,
         onValueSubmit: (value: string | null) =>

@@ -14,7 +14,7 @@ connectors attached to visual boundaries instead of moving them with condition c
 | `types.ts`           | Condition, group, tag-instance, drag, drop, and query JSON types.           |
 | `QueryUtils.ts`      | Pure condition edits, group collapse, derived labels, and JSON compilation. |
 | `QueryUtils.test.ts` | Reducer invariants and wire-format tests.                                   |
-| `QueryBuilder.tsx`   | Composes the scrollable simple workspace and resizable tag palette.         |
+| `QueryBuilder.tsx`   | Composes the suggested-tag switch, simple workspace, and tag palette.       |
 | `ResultsSummary.tsx` | Shared live count and compact-inset tagged preview used by both builders.   |
 | `ConditionList.tsx`  | Single conditions, groups, connectors, mode toggles, and insertion targets. |
 | `QueryTagPill.tsx`   | Palette and query pill states, including the NOT indicator.                 |
@@ -39,6 +39,10 @@ an any group becomes `{or: [...]}`, an all group becomes `{and: [...]}`, and a n
 becomes `{not: tagId}`. An empty query returns `null` and does not fetch.
 
 ## Interaction flow
+
+A glass `Include suggested tags` switch sits above the query heading, at the top of the builder.
+It is a placeholder: `CadenzaScreen` owns its state so it survives mode and tab switches, but
+nothing reads it yet, so flipping it does not change the compiled query or the results.
 
 Palette tags are drag-only and can be dropped on an insertion point. The blank workspace all
 the way down to the palette is also an append target. A reserved bottom inset keeps some of this
@@ -151,7 +155,8 @@ dispatches to the matching endpoint and renders the same full-screen hero. See
 
 ## Connects to
 
-- `src/features/cadenza/CadenzaScreen.tsx` for session state and full-library result wiring.
+- `src/features/cadenza/CadenzaScreen.tsx` for session state, the suggested-tag switch value, and
+  full-library result wiring.
 - `@/lib/routes/queries::useQueryResults` for live candidate-based query evaluation.
 - `@/lib/musickit-hooks::useAllTracksFromLibrary` for the complete library candidate set.
 - `@/components/custom/music-list` for preview and full results.
@@ -166,6 +171,8 @@ dispatches to the matching endpoint and renders the same full-screen hero. See
   missing-navigation-context error; use an inline style for a stateful visual instead.
 - The backend accepts at most 50,000 candidate song IDs in one query request.
 - A disconnected Apple Music account can edit a query, but cannot produce library results.
+- `Include suggested tags` does nothing yet. Wire it into `queryToJSON` and the results request
+  before describing it as working.
 
 ---
 

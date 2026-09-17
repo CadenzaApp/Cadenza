@@ -13,7 +13,7 @@ native module directly.
 | `api-endpoints.ts`           | `matchesEndpoint`, the cache-key matcher behind invalidation. Import-free so it can be unit tested.                                                                                      |
 | `swr-utils.ts`               | `clearCache` and `useSimpleMutation`, for things that are not plain backend calls.                                                                                                       |
 | `routes/tags.ts`             | Hooks for `/tags`: `useUserTags`, `useTag`, `useCreateTag`, `useDeleteTag`, `useSuggestTags`.                                                                                            |
-| `routes/songs.ts`            | Hooks for local and default tag reads, local tag writes, missing-default checks, and generation.                                                                                         |
+| `routes/songs.ts`            | Hooks for local and default tag reads (one song and batched), local tag writes, missing-default checks, and generation.                                                                  |
 | `routes/queries.ts`          | Cached hooks for `/queries/results` and `/queries/advanced/results`: `useQueryResults`, `useAdvancedQueryResults`.                                                                       |
 | `musickit-hooks.ts`          | SWR over the native module: song info, catalog search, paged and complete-library songs, albums, artists, playlists, collection metadata, favorites, artist search, and playlist writes. |
 | `song-init.tsx`              | `SongInitProvider`, which runs the default-tag population job after account and Apple Music authorization.                                                                              |
@@ -37,7 +37,7 @@ native module directly.
 | `zoom-dismiss.tsx`           | `ZoomOriginProvider`, `useZoomSource`, `ZoomDismissScreen`, `useCloseScreen`. Closing a pushed screen by shrinking it back into the artwork that opened it.                              |
 | `zoom-dismiss-geometry.ts`   | Pure pull, transform, timing, and corner math for `zoom-dismiss`, tested without React Native.                                                                                           |
 | `types.ts`                   | Shared wire types: `TagType`, `Tag`, `AppliedTag` and `TagMetadata`.                                                                                                                     |
-| `tag-values.ts`              | Per-type tag helpers: `TAG_TYPES`, labels, descriptions, `TAG_TYPE_ICONS`, value validation, canonicalization, formatting, and the date-only helpers.                                    |
+| `tag-values.ts`              | Per-type tag helpers: `TAG_TYPES`, labels, descriptions, `TAG_TYPE_ICONS`, value validation, canonicalization, formatting, the date-only helpers, and `unownedDefaultTags`.              |
 | `utils.ts`                   | `cn()`, the clsx + tailwind-merge helper.                                                                                                                                                |
 
 ## The SWR wrappers
@@ -65,7 +65,9 @@ dormant until an id arrives.
 
 `useAPIPostDataBatched` exists for reads whose request is a list too long for a query string. It
 splits the list into parallel requests and merges the responses, but stays **one** `api-data`
-key so invalidation works like every other read. `useTagsOnSongs` is the one caller.
+key so invalidation works like every other read. `useTagsOnSongs` and `useDefaultTagsOnSongs`
+are the callers: a list screen reads both, so each row can show the user's tags and the song's
+shared defaults.
 
 Do not reach for `useSWRInfinite` here. `mutate(filterFn)` skips `$inf$` keys outright, and the
 per-page keys it does visit have no subscribed revalidator, so a filtered `mutate` silently
@@ -94,22 +96,23 @@ useAPIMutation<ApplyTagPayload, void>("POST", "/songs/local-tags", ({ song_id })
 
 One file per backend router, and every backend endpoint has at least one hook.
 
-| backend             | endpoint                        | hook                                          |
-| ------------------- | ------------------------------- | --------------------------------------------- |
-| `routes/tags.rs`    | `GET /tags`                     | `tags.ts` -> `useUserTags()`, `useTag(tagId)` |
-|                     | `POST /tags`                    | `tags.ts` -> `useCreateTag()`                 |
-|                     | `DELETE /tags`                  | `tags.ts` -> `useDeleteTag()`                 |
-|                     | `GET /tags/suggest`             | `tags.ts` -> `useSuggestTags()`               |
-| `routes/songs.rs`   | `GET /songs/local-tags`         | `songs.ts` -> `useTagsOnSong(songId)`         |
-|                     | `POST /songs/local-tags/batch`  | `songs.ts` -> `useTagsOnSongs(songIds)`       |
-|                     | `POST /songs/no-default-tags`   | `songs.ts` -> `useSongsWithoutDefaultTags()`  |
-|                     | `GET /songs/default-tags`       | `songs.ts` -> `useDefaultTagsOnSong(songId)`  |
-|                     | `POST /songs/default-tags`      | `songs.ts` -> `useSetDefaultTags()`           |
-|                     | `POST /songs/local-tags`        | `songs.ts` -> `useApplyTag()`                 |
-|                     | `PATCH /songs/local-tags`       | `songs.ts` -> `useSetTagValue()`              |
-|                     | `DELETE /songs/local-tags`      | `songs.ts` -> `useUnapplyTag()`               |
-| `routes/queries.rs` | `POST /queries/results`         | `queries.ts` -> `useQueryResults()`           |
-|                     | `GET /queries/advanced/results` | `queries.ts` -> `useAdvancedQueryResults()`   |
+| backend             | endpoint                         | hook                                           |
+| ------------------- | -------------------------------- | ---------------------------------------------- |
+| `routes/tags.rs`    | `GET /tags`                      | `tags.ts` -> `useUserTags()`, `useTag(tagId)`  |
+|                     | `POST /tags`                     | `tags.ts` -> `useCreateTag()`                  |
+|                     | `DELETE /tags`                   | `tags.ts` -> `useDeleteTag()`                  |
+|                     | `GET /tags/suggest`              | `tags.ts` -> `useSuggestTags()`                |
+| `routes/songs.rs`   | `GET /songs/local-tags`          | `songs.ts` -> `useTagsOnSong(songId)`          |
+|                     | `POST /songs/local-tags/batch`   | `songs.ts` -> `useTagsOnSongs(songIds)`        |
+|                     | `POST /songs/no-default-tags`    | `songs.ts` -> `useSongsWithoutDefaultTags()`   |
+|                     | `GET /songs/default-tags`        | `songs.ts` -> `useDefaultTagsOnSong(songId)`   |
+|                     | `POST /songs/default-tags/batch` | `songs.ts` -> `useDefaultTagsOnSongs(songIds)` |
+|                     | `POST /songs/default-tags`       | `songs.ts` -> `useSetDefaultTags()`            |
+|                     | `POST /songs/local-tags`         | `songs.ts` -> `useApplyTag()`                  |
+|                     | `PATCH /songs/local-tags`        | `songs.ts` -> `useSetTagValue()`               |
+|                     | `DELETE /songs/local-tags`       | `songs.ts` -> `useUnapplyTag()`                |
+| `routes/queries.rs` | `POST /queries/results`          | `queries.ts` -> `useQueryResults()`            |
+|                     | `GET /queries/advanced/results`  | `queries.ts` -> `useAdvancedQueryResults()`    |
 
 `GET /tags` has two hooks because the handler returns a tagged union: without `tag_id` it
 responds with `All { tags, metadata }`, with one it responds with `One { tag, song_ids }`.
@@ -120,6 +123,13 @@ matching `routes/*.ts` built on the shared wrappers. For writes, list the endpoi
 change invalidates. Rename the returned fields to something readable (`tagsOnSong`,
 `tagsOnSongLoading`, `tagsOnSongErr`) rather than re-exporting SWR's `data` / `error` /
 `isLoading`.
+
+A song's default tags are read separately from its user tags, by `useDefaultTagsOnSong` for one
+song and `useDefaultTagsOnSongs` for a list. Both surfaces draw them as unfilled pills next to
+the user's own tags. `tag-values.ts::unownedDefaultTags` drops the defaults whose name the user
+already has on the song, since a name applied by enough users is promoted to a default tag and
+would otherwise show twice. Applying a user tag can trigger that promotion, so `useApplyTag`
+invalidates both default-tag reads.
 
 `musickit-hooks.ts` does the same job for the native module, using plain `useSWR` with tuple
 keys like `["MusicKit.getSongInfo", ids]`. `useSongFavoriteStatus` and `useCollectionFavoriteStatus`

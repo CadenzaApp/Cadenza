@@ -14,7 +14,7 @@ import Animated, {
 import { Text } from "@/components/ui/text";
 import { SongOptionsMenu } from "@/components/custom/options-menu/song-options-menu";
 import { usePlaybackCommands } from "@/lib/playback";
-import { useTagsOnSongs } from "@/lib/routes/songs";
+import { useDefaultTagsOnSongs, useTagsOnSongs } from "@/lib/routes/songs";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { useScreenScroll } from "@/lib/screen-scroll";
 import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
@@ -112,6 +112,7 @@ export function MusicList({
         [showTags, tracks],
     );
     const { tagsBySong } = useTagsOnSongs(taggableIds);
+    const { defaultTagsBySong } = useDefaultTagsOnSongs(taggableIds);
     const displayedTracks = useMemo(
         () =>
             sortingEnabled && sortStrategy === "local"
@@ -367,6 +368,14 @@ export function MusicList({
                                             tags={
                                                 showTags
                                                     ? tagsBySong[
+                                                          item.catalogId ??
+                                                              item.id
+                                                      ]
+                                                    : undefined
+                                            }
+                                            defaultTags={
+                                                showTags
+                                                    ? defaultTagsBySong[
                                                           item.catalogId ??
                                                               item.id
                                                       ]
