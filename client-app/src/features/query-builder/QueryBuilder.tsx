@@ -180,12 +180,12 @@ export function QueryBuilder({
                             color={theme.mutedForeground}
                         />
                         <Text className="flex-1 text-sm font-medium text-muted-foreground">
-                            Include suggested tags
+                            Consider suggested tags too
                         </Text>
                         <GlassToggle
                             value={includeSuggestedTags}
                             onValueChange={onIncludeSuggestedTagsChange}
-                            accessibilityLabel="Include suggested tags"
+                            accessibilityLabel="Consider suggested tags too"
                         />
                     </View>
                     <View className="flex-row items-center px-4 pb-1 pt-2">
