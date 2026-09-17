@@ -45,10 +45,15 @@ export function MediaPlayerFallbackOverlay({
     failedArtworkUrl,
     onArtworkError,
 }: PlayerArtworkStateProps & { hidden: boolean }) {
-    const { activeTrack } = usePlaybackTrackState();
+    const { activeTrack, isPlayerDismissed } = usePlaybackTrackState();
     const insets = useSafeAreaInsets();
 
-    if (hidden || supportsNativeTabBottomAccessory() || !activeTrack) {
+    if (
+        hidden ||
+        supportsNativeTabBottomAccessory() ||
+        !activeTrack ||
+        isPlayerDismissed
+    ) {
         return null;
     }
 
@@ -82,14 +87,14 @@ export function MediaPlayerFallbackOverlay({
 
 /** Compact player over a root detail screen, where native tabs sit underneath. */
 export function MediaPlayerPushedScreenOverlay() {
-    const { activeTrack } = usePlaybackTrackState();
+    const { activeTrack, isPlayerDismissed } = usePlaybackTrackState();
     const visible = useShowsPushedPlayerOverlay();
     const insets = useSafeAreaInsets();
     const [failedArtworkUrl, setFailedArtworkUrl] = useState<string | null>(
         null,
     );
 
-    if (!visible || !activeTrack) return null;
+    if (!visible || !activeTrack || isPlayerDismissed) return null;
 
     return (
         <View

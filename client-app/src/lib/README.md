@@ -18,7 +18,7 @@ native module directly.
 | `musickit-hooks.ts`          | SWR over the native module: song info, catalog search, paged and complete-library songs, albums, artists, playlists, collection metadata, favorites, artist search, and playlist writes. |
 | `account.tsx`                | `AccountProvider` / `useAccount`. Supabase session and the JWT.                                                                                                                          |
 | `apple-music-auth.tsx`       | `AppleMusicProvider` / `useAppleMusic`. Apple Music tokens, persisted in secure store.                                                                                                   |
-| `playback.tsx`               | `PlaybackProvider`, broad `usePlayback`, lightweight `usePlaybackTrackState`, and stable `usePlaybackCommands`. Queue and the native playback snapshot.                                  |
+| `playback.tsx`               | `PlaybackProvider`, broad `usePlayback`, lightweight `usePlaybackTrackState`, and stable `usePlaybackCommands`. Queue, native playback snapshot, and compact-player dismissal state.     |
 | `queue-order.ts`             | Pure index math for the queue mirror. Tested in `queue-order.test.ts`.                                                                                                                   |
 | `supabase.ts`                | The Supabase client, backed by AsyncStorage.                                                                                                                                             |
 | `tag-generation.ts`          | A standalone tag suggestion fetch. Does not use the wrappers. See gotchas.                                                                                                               |
@@ -203,6 +203,11 @@ hero-sized one separately as `artworkUrlLarge`, which the collection screen draw
 The primary `NativeTabs` uses `minimizeBehavior="onScrollDown"`. On iOS 26 UIKit minimizes the bar
 and moves its `BottomAccessory` between regular and inline placement. UIKit exposes no public
 imperative placement API, so the compact player does not add a separate vertical docking gesture.
+Its horizontal swipe-away gesture calls `dismissPlayer`, which pauses deterministically and hides
+all compact-player hosts. The iOS tab host maps that state to its animated
+`bottomAccessoryHidden` prop so UIKit removes the complete native accessory. The provider restores
+the player when a new queue starts or when a paused, dismissed track resumes through a system
+transport.
 
 Expo documents limited `FlatList` integration with native tabs. On iOS, every primary scroller is
 therefore placed directly inside `ScreenScrollMarker` from the underlying `react-native-screens`

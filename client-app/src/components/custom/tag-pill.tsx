@@ -24,8 +24,8 @@ function hexToRgba(hex: string, alpha: number) {
  * @param value     - If provided, renders the attribute tag's value after the
  *                   name, formatted for the tag's type.
  * @param count     - If provided, renders a count badge on the right side.
- * @param leadingIcon - Replaces the leading dot when provided.
- * @param showIcon  - Whether to render the leading dot or icon.
+ * @param leadingIcon - Replaces the leading icon when provided.
+ * @param showIcon  - Whether to render the leading icon.
  * @param outlined  - Uses the tag color for its border and content with no fill.
  * @param strikethrough - Draws a standard thin line through the tag label.
  * @param onRemove  - If provided, renders an × button inside the pill.
@@ -56,7 +56,6 @@ export function TagPill({
     const backgroundColor = THEME[colorScheme].background;
     const contentColor = outlined ? tag.color : backgroundColor;
     const iconSize = 1.15 * height;
-    const dotSize = 0.8 * height;
     const fontSize = 1 * height;
     const countFontSize = 0.9 * height;
     const countPaddingHorizontal = 0.9 * height;
@@ -80,13 +79,12 @@ export function TagPill({
             {showIcon
                 ? (leadingIcon ??
                   (tag.type === "basic" ? (
-                      <View
-                          style={{
-                              backgroundColor: contentColor,
-                              width: dotSize,
-                              height: dotSize,
-                              borderRadius: 999,
-                          }}
+                      <Ionicons
+                          name="pricetag"
+                          size={iconSize}
+                          color={contentColor}
+                          accessibilityElementsHidden
+                          importantForAccessibility="no"
                       />
                   ) : (
                       <Ionicons

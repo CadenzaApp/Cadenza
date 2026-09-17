@@ -29,6 +29,10 @@ type ConditionRelease = {
     startCenterY: number;
     targetCenterY: number | null;
 };
+type ConditionReorderResolver = (
+    payload: Extract<DragPayload, { source: "condition" }>,
+    y: number,
+) => number | null;
 
 type DragContextValue = {
     dragState: DragState;
@@ -46,6 +50,9 @@ type DragContextValue = {
     prepareDragRelease: (x: number, y: number) => boolean;
     finishDrag: (payload: DragPayload, x: number, y: number) => void;
     setConditionReorderIndex: (index: number | null) => void;
+    setConditionReorderResolver: (
+        resolver: ConditionReorderResolver | null,
+    ) => void;
     setConditionReleaseTarget: (centerY: number) => void;
     completeConditionRelease: () => void;
     cancelDrag: () => void;
@@ -83,6 +90,9 @@ export function DragProvider({
     const dragSession = useRef(0);
     const activePayload = useRef<DragPayload | null>(null);
     const conditionReorderIndex = useRef<number | null>(null);
+    const conditionReorderResolver = useRef<ConditionReorderResolver | null>(
+        null,
+    );
     const pendingConditionReorderIndex = useRef<number | null>(null);
     const conditionReleasePending = useRef(false);
     const conditionAnimationTimer = useRef<ReturnType<
@@ -191,7 +201,14 @@ export function DragProvider({
             dragX.set(x);
             dragY.set(y);
             if (payload.source === "condition") {
-                setDragState({ payload, x, y });
+                const nextIndex = conditionReorderResolver.current?.(
+                    payload,
+                    y,
+                );
+                if (nextIndex !== conditionReorderIndex.current) {
+                    conditionReorderIndex.current = nextIndex ?? null;
+                    setDragState({ payload, x, y });
+                }
             }
             const nextHoveredKey = findZoneAt(payload, x, y)?.key ?? null;
             updateHoveredTargetKey(nextHoveredKey);
@@ -265,6 +282,12 @@ export function DragProvider({
     const setConditionReorderIndex = useCallback((index: number | null) => {
         conditionReorderIndex.current = index;
     }, []);
+    const setConditionReorderResolver = useCallback(
+        (resolver: ConditionReorderResolver | null) => {
+            conditionReorderResolver.current = resolver;
+        },
+        [],
+    );
     const setConditionReleaseTarget = useCallback((centerY: number) => {
         setConditionRelease((current) =>
             current ? { ...current, targetCenterY: centerY } : current,
@@ -340,6 +363,7 @@ export function DragProvider({
                 prepareDragRelease,
                 finishDrag,
                 setConditionReorderIndex,
+                setConditionReorderResolver,
                 setConditionReleaseTarget,
                 completeConditionRelease,
                 cancelDrag,

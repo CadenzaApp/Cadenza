@@ -14,12 +14,13 @@ import { GlassSurface } from "@/components/ui/glass-surface";
 import { Input } from "@/components/ui/input";
 import { Text } from "@/components/ui/text";
 import { THEME } from "@/lib/theme";
-import type { Tag } from "@/lib/types";
+import type { Tag, TagMetadata } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { useColorScheme } from "nativewind";
-import { DraggablePill, SCROLLABLE_TAG_DRAG_HOLD_MS } from "./DraggablePill";
+import { DraggablePill } from "./DraggablePill";
 import { DropSlot } from "./DropSlot";
 import { PaletteTagPill } from "./QueryTagPill";
+import { sortTagsByApplicationCount } from "./QueryUtils";
 import { useDrag } from "./DragContext";
 
 // Vertical padding + resize handle + heading/search row. At this height the
@@ -29,10 +30,12 @@ export const TAG_PALETTE_MAX_HEIGHT = 360;
 
 export function TagPalette({
     tags,
+    tagMetadata,
     height,
     onHeightChange,
 }: {
     tags: readonly Tag[];
+    tagMetadata?: Readonly<Record<number, TagMetadata>>;
     height: number;
     onHeightChange: (height: number) => void;
 }) {
@@ -50,12 +53,13 @@ export function TagPalette({
     const deletingGroup = dragState?.payload.source === "condition";
     const filtered = useMemo(() => {
         const needle = search.trim().toLocaleLowerCase();
-        return needle
+        const matchingTags = needle
             ? tags.filter((tag) =>
                   tag.name.toLocaleLowerCase().includes(needle),
               )
             : [...tags];
-    }, [search, tags]);
+        return sortTagsByApplicationCount(matchingTags, tagMetadata);
+    }, [search, tagMetadata, tags]);
     useEffect(() => {
         paletteHeight.set(height);
     }, [height, paletteHeight]);
@@ -145,7 +149,7 @@ export function TagPalette({
                     </View>
                 </View>
                 {filtered.length ? (
-                    <View className="flex-row flex-wrap gap-2">
+                    <View className="flex-row flex-wrap gap-x-2 gap-y-0.5">
                         {filtered.map((tag) => (
                             <DraggablePaletteTag key={tag.id} tag={tag} />
                         ))}
@@ -192,10 +196,7 @@ function DraggablePaletteTag({ tag }: { tag: Tag }) {
         [tag],
     );
     return (
-        <DraggablePill
-            payload={dragPayload}
-            activateAfterLongPress={SCROLLABLE_TAG_DRAG_HOLD_MS}
-        >
+        <DraggablePill payload={dragPayload}>
             <PaletteTagPill tag={tag} />
         </DraggablePill>
     );

@@ -7,24 +7,30 @@ import {
     useState,
 } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
-import Ionicons from "@expo/vector-icons/Ionicons";
+import * as Haptics from "expo-haptics";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
     Easing,
     FadeOut,
     Keyframe,
+    interpolateColor,
+    runOnJS,
     useAnimatedStyle,
+    useAnimatedProps,
     useSharedValue,
     withDelay,
     withTiming,
     type LayoutAnimationFunction,
+    type SharedValue,
 } from "react-native-reanimated";
+import Svg, { Path } from "react-native-svg";
 
 import { GlassSurface } from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
 import { THEME } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { useColorScheme } from "nativewind";
-import { DraggablePill, SCROLLABLE_TAG_DRAG_HOLD_MS } from "./DraggablePill";
+import { DraggablePill } from "./DraggablePill";
 import { useDrag } from "./DragContext";
 import { DropSlot } from "./DropSlot";
 import { QueryTagPill } from "./QueryTagPill";
@@ -32,7 +38,12 @@ import {
     conditionConnectorLabel,
     getConditionReorderPosition,
 } from "./QueryUtils";
-import type { QueryCondition, QueryGroupMode, QueryTag } from "./types";
+import type {
+    DragPayload,
+    QueryCondition,
+    QueryGroupMode,
+    QueryTag,
+} from "./types";
 
 const REORDER_DURATION = 320;
 const CONNECTOR_REVEAL_DURATION = 220;
@@ -85,6 +96,19 @@ const POSITION_ONLY_LAYOUT_TRANSITION: LayoutAnimationFunction = (values) => {
 };
 const TAG_LAYOUT_TRANSITION = CONDITION_LAYOUT_TRANSITION;
 const CONNECTOR_HEIGHT = 42;
+const GROUP_MODES = ["any", "all", "none"] as const;
+const MODE_OPTION_WIDTH = 70;
+const MODE_OPTION_GAP = 5;
+const MODE_OPTION_STEP = MODE_OPTION_WIDTH + MODE_OPTION_GAP;
+const MODE_KNOB_WIDTH = MODE_OPTION_WIDTH + 8;
+const MODE_KNOB_OFFSET = (MODE_KNOB_WIDTH - MODE_OPTION_WIDTH) / 2;
+const MODE_CONTROL_VERTICAL_PADDING = 2;
+const MODE_CONTROL_HORIZONTAL_PADDING = 6;
+const MODE_KNOB_EASING = {
+    duration: 270,
+    easing: Easing.inOut(Easing.cubic),
+};
+const AnimatedPath = Animated.createAnimatedComponent(Path);
 const SELECTOR_ENTER_TRANSITION = new Keyframe({
     0: { opacity: 0, transform: [{ translateY: -6 }] },
     100: { opacity: 1, transform: [{ translateY: 0 }] },
@@ -96,12 +120,12 @@ const SELECTOR_EXIT_TRANSITION = new Keyframe({
 
 export function ConditionList({
     conditions,
-    onToggleNegation,
+    onToggleConditionNegation,
     onModeChange,
     onConnectorToggle,
 }: {
     conditions: readonly QueryCondition[];
-    onToggleNegation: (queryTagId: string) => void;
+    onToggleConditionNegation: (conditionId: string) => void;
     onModeChange: (groupId: string, mode: QueryGroupMode) => void;
     onConnectorToggle: (conditionId: string) => void;
 }) {
@@ -113,10 +137,12 @@ export function ConditionList({
         settlingConditionId,
         setConditionReleaseTarget,
         setConditionReorderIndex,
+        setConditionReorderResolver,
     } = useDrag();
     const [conditionCenters, setConditionCenters] = useState(
         () => new Map<string, number>(),
     );
+    const conditionCentersRef = useRef(conditionCenters);
     const conditionRefs = useRef(new Map<string, View>());
     const queryEndHovered = hoveredTargetKey === "query-end";
     const conditionDrag =
@@ -136,17 +162,24 @@ export function ConditionList({
     const queryEndPreviewVisible = Boolean(queryEndHovered && !conditionDrag);
     const previewColor = dragState ? dragTagColor(dragState.payload) : null;
     const previewLabel = "CREATE A NEW TAG GROUP";
+    const updateConditionCenter = useCallback(
+        (conditionId: string, centerY: number) => {
+            if (conditionCentersRef.current.get(conditionId) === centerY) {
+                return;
+            }
+            const next = new Map(conditionCentersRef.current);
+            next.set(conditionId, centerY);
+            conditionCentersRef.current = next;
+            setConditionCenters(next);
+        },
+        [],
+    );
     const recordConditionCenter = useCallback(
         (conditionId: string, centerY: number) => {
             if (conditionDrag) return;
-            setConditionCenters((current) => {
-                if (current.get(conditionId) === centerY) return current;
-                const next = new Map(current);
-                next.set(conditionId, centerY);
-                return next;
-            });
+            updateConditionCenter(conditionId, centerY);
         },
-        [conditionDrag],
+        [conditionDrag, updateConditionCenter],
     );
     const registerConditionRef = useCallback(
         (conditionId: string, view: View | null) => {
@@ -159,16 +192,24 @@ export function ConditionList({
         conditionRefs.current.forEach((view, conditionId) => {
             view.measureInWindow((_x, y, _width, height) => {
                 if (height <= 0) return;
-                setConditionCenters((current) => {
-                    const centerY = y + height / 2;
-                    if (current.get(conditionId) === centerY) return current;
-                    const next = new Map(current);
-                    next.set(conditionId, centerY);
-                    return next;
-                });
+                updateConditionCenter(conditionId, y + height / 2);
             });
         });
-    }, []);
+    }, [updateConditionCenter]);
+    const resolveConditionReorderIndex = useCallback(
+        (payload: Extract<DragPayload, { source: "condition" }>, y: number) =>
+            getConditionReorderPosition(
+                conditions,
+                payload.condition.id,
+                y,
+                conditionCentersRef.current,
+            )?.insertionIndex ?? null,
+        [conditions],
+    );
+    useEffect(() => {
+        setConditionReorderResolver(resolveConditionReorderIndex);
+        return () => setConditionReorderResolver(null);
+    }, [resolveConditionReorderIndex, setConditionReorderResolver]);
     useEffect(() => {
         if (!releaseConditionId || !settlingConditionId || dragState) return;
         let secondFrame: number | undefined;
@@ -267,16 +308,11 @@ export function ConditionList({
             style={{ flexGrow: 1 }}
         >
             {conditions.length === 0 ? (
-                queryEndHovered && previewColor ? (
-                    <NewGroupInsertionPreview
-                        color={previewColor}
-                        label={previewLabel}
-                    />
-                ) : (
-                    <Text className="px-5 text-center text-sm text-muted-foreground">
-                        Drag a tag here to start a query.
-                    </Text>
-                )
+                <Text className="px-5 text-center text-sm text-muted-foreground">
+                    {queryEndHovered
+                        ? "Create a new tag group."
+                        : "Drag a tag here to start a query."}
+                </Text>
             ) : (
                 <>
                     {conditions.flatMap((condition, index) => [
@@ -353,7 +389,9 @@ export function ConditionList({
                                                       : 0
                                                 : 0
                                         }
-                                        onToggleNegation={onToggleNegation}
+                                        onToggleConditionNegation={
+                                            onToggleConditionNegation
+                                        }
                                         onModeChange={onModeChange}
                                         onCenterChange={recordConditionCenter}
                                         onPrepareDrag={refreshConditionCenters}
@@ -391,7 +429,7 @@ function DraggableCondition({
     condition,
     index,
     layoutCompensationY,
-    onToggleNegation,
+    onToggleConditionNegation,
     onModeChange,
     onCenterChange,
     onPrepareDrag,
@@ -400,7 +438,7 @@ function DraggableCondition({
     condition: QueryCondition;
     index: number;
     layoutCompensationY: number;
-    onToggleNegation: (queryTagId: string) => void;
+    onToggleConditionNegation: (conditionId: string) => void;
     onModeChange: (groupId: string, mode: QueryGroupMode) => void;
     onCenterChange: (conditionId: string, centerY: number) => void;
     onPrepareDrag: () => void;
@@ -424,16 +462,38 @@ function DraggableCondition({
         }),
         [condition, height, index],
     );
+    const toggleNegation = useCallback(
+        () => onToggleConditionNegation(condition.id),
+        [condition.id, onToggleConditionNegation],
+    );
     return (
         <DraggablePill
             payload={dragPayload}
             dragHandle={<ConditionDragHandle condition={condition} />}
             layoutCompensationY={layoutCompensationY}
+            onContentTap={condition.kind === "tag" ? toggleNegation : undefined}
             onPrepareDrag={onPrepareDrag}
             verticalOnly
         >
             <View
                 ref={setConditionRef}
+                accessible={condition.kind === "tag"}
+                accessibilityRole={
+                    condition.kind === "tag" ? "button" : undefined
+                }
+                accessibilityLabel={
+                    condition.kind === "tag"
+                        ? `${condition.tag.name}, ${condition.negated ? "not applied" : "applied"}`
+                        : undefined
+                }
+                accessibilityHint={
+                    condition.kind === "tag"
+                        ? "Toggles whether this tag must not be applied"
+                        : undefined
+                }
+                onAccessibilityTap={
+                    condition.kind === "tag" ? toggleNegation : undefined
+                }
                 onLayout={(event) => {
                     setHeight(event.nativeEvent.layout.height);
                     conditionRef.current?.measureInWindow(
@@ -447,7 +507,6 @@ function DraggableCondition({
             >
                 <ConditionCard
                     condition={condition}
-                    onToggleNegation={onToggleNegation}
                     onModeChange={onModeChange}
                 />
             </View>
@@ -463,22 +522,50 @@ export function ConditionDragHandle({
     const { colorScheme = "light" } = useColorScheme();
     const theme = THEME[colorScheme];
     const label = condition.kind === "group" ? "tag group" : "tag";
+    const { dragState } = useDrag();
+    const isGroupReordering =
+        condition.kind === "group" &&
+        dragState?.payload.source === "condition" &&
+        dragState.payload.condition.id === condition.id;
+    const gripColorProgress = useSharedValue(isGroupReordering ? 1 : 0);
+
+    useEffect(() => {
+        gripColorProgress.set(
+            withTiming(isGroupReordering ? 1 : 0, {
+                duration: 160,
+                easing: Easing.out(Easing.cubic),
+            }),
+        );
+    }, [gripColorProgress, isGroupReordering]);
+
+    const gripPathProps = useAnimatedProps(() => ({
+        fill: interpolateColor(
+            gripColorProgress.get(),
+            [0, 1],
+            [theme.mutedForeground, theme.primary],
+        ),
+    }));
 
     return (
         <View
-            className="h-11 w-11 items-center justify-center"
+            className="h-12 w-12 items-center justify-center"
             accessible
             accessibilityRole="button"
             accessibilityLabel={`Reorder ${label}`}
             accessibilityHint="Drag to move this condition"
         >
-            <Ionicons
-                name="reorder-two"
-                size={22}
-                color={theme.mutedForeground}
-                accessibilityElementsHidden
+            <Svg
+                width={22}
+                height={22}
+                viewBox="0 0 24 24"
+                accessible={false}
                 importantForAccessibility="no"
-            />
+            >
+                <AnimatedPath
+                    animatedProps={gripPathProps}
+                    d="M8.5 7a2 2 0 1 0 0-4a2 2 0 0 0 0 4m0 7a2 2 0 1 0 0-4a2 2 0 0 0 0 4m2 5a2 2 0 1 1-4 0a2 2 0 0 1 4 0m5-12a2 2 0 1 0 0-4a2 2 0 0 0 0 4m2 5a2 2 0 1 1-4 0a2 2 0 0 1 4 0m-2 9a2 2 0 1 0 0-4a2 2 0 0 0 0 4"
+                />
+            </Svg>
         </View>
     );
 }
@@ -512,19 +599,96 @@ function ReorderSpacer({
 
 function ConditionCard({
     condition,
-    onToggleNegation,
     onModeChange,
 }: {
     condition: QueryCondition;
-    onToggleNegation: (queryTagId: string) => void;
     onModeChange: (groupId: string, mode: QueryGroupMode) => void;
 }) {
     const group = condition.kind === "group" ? condition : null;
     const members = group ? group.members : [condition as QueryTag];
+    const { colorScheme = "light" } = useColorScheme();
+    const theme = THEME[colorScheme];
     const { conditionLayoutAnimationsSuppressed, dragState, hoveredTargetKey } =
         useDrag();
     const hovered = Boolean(
         dragState && hoveredTargetKey === `condition-${condition.id}`,
+    );
+    const contents = (
+        <DropSlot
+            targetKey={`condition-${condition.id}`}
+            target={{ kind: "condition", conditionId: condition.id }}
+            priority={30}
+            className={cn(
+                "pl-12 pr-3",
+                group ? "pb-2.5 pt-2" : "min-h-12 flex-row items-center py-1.5",
+                hovered && "bg-accent",
+            )}
+        >
+            {group ? (
+                <Animated.View
+                    collapsable={false}
+                    entering={
+                        conditionLayoutAnimationsSuppressed
+                            ? undefined
+                            : SELECTOR_ENTER_TRANSITION
+                    }
+                    exiting={
+                        conditionLayoutAnimationsSuppressed
+                            ? undefined
+                            : SELECTOR_EXIT_TRANSITION
+                    }
+                >
+                    <ModeToggle
+                        mode={group.mode}
+                        onChange={(mode) => onModeChange(group.id, mode)}
+                    />
+                </Animated.View>
+            ) : null}
+            <View
+                className={cn(
+                    "flex-row flex-wrap items-center gap-x-2 gap-y-0.5",
+                    group && "mt-2",
+                )}
+            >
+                {members.map((queryTag, index) => (
+                    <Animated.View
+                        key={queryTag.id}
+                        layout={
+                            conditionLayoutAnimationsSuppressed
+                                ? undefined
+                                : TAG_LAYOUT_TRANSITION
+                        }
+                        className="flex-row items-center gap-2"
+                    >
+                        {group && index > 0 ? (
+                            <Text
+                                className="text-[10px] font-bold"
+                                style={{ color: theme.mutedForeground }}
+                            >
+                                {group.mode === "any" ? "OR" : "AND"}
+                            </Text>
+                        ) : null}
+                        <Animated.View
+                            layout={
+                                conditionLayoutAnimationsSuppressed
+                                    ? undefined
+                                    : TAG_LAYOUT_TRANSITION
+                            }
+                        >
+                            <DraggableQueryTag
+                                queryTag={queryTag}
+                                conditionId={condition.id}
+                            />
+                        </Animated.View>
+                        {condition.kind === "tag" && condition.negated ? (
+                            <Text className="text-[10px] font-bold text-muted-foreground">
+                                NOT APPLIED
+                            </Text>
+                        ) : null}
+                    </Animated.View>
+                ))}
+            </View>
+        </DropSlot>
     );
     return (
         <Animated.View
@@ -544,76 +708,7 @@ function ConditionCard({
                     style={StyleSheet.absoluteFill}
                 />
             </View>
-            <DropSlot
-                targetKey={`condition-${condition.id}`}
-                target={{ kind: "condition", conditionId: condition.id }}
-                priority={30}
-                className={cn(
-                    "pl-12 pr-3",
-                    group
-                        ? "pb-2.5 pt-2"
-                        : "min-h-12 flex-row items-center py-1.5",
-                    hovered && "bg-accent",
-                )}
-            >
-                {group ? (
-                    <Animated.View
-                        collapsable={false}
-                        entering={
-                            conditionLayoutAnimationsSuppressed
-                                ? undefined
-                                : SELECTOR_ENTER_TRANSITION
-                        }
-                        exiting={
-                            conditionLayoutAnimationsSuppressed
-                                ? undefined
-                                : SELECTOR_EXIT_TRANSITION
-                        }
-                    >
-                        <ModeToggle
-                            mode={group.mode}
-                            onChange={(mode) => onModeChange(group.id, mode)}
-                        />
-                    </Animated.View>
-                ) : null}
-                <View
-                    className={cn(
-                        "flex-row flex-wrap items-center gap-2",
-                        group && "mt-2",
-                    )}
-                >
-                    {members.map((queryTag, index) => (
-                        <Animated.View
-                            key={queryTag.id}
-                            layout={
-                                conditionLayoutAnimationsSuppressed
-                                    ? undefined
-                                    : TAG_LAYOUT_TRANSITION
-                            }
-                            className="flex-row items-center gap-2"
-                        >
-                            {group && index > 0 ? (
-                                <Text className="text-[10px] font-bold text-muted-foreground">
-                                    {group.mode === "any" ? "OR" : "AND"}
-                                </Text>
-                            ) : null}
-                            <Animated.View
-                                layout={
-                                    conditionLayoutAnimationsSuppressed
-                                        ? undefined
-                                        : TAG_LAYOUT_TRANSITION
-                                }
-                            >
-                                <DraggableQueryTag
-                                    queryTag={queryTag}
-                                    conditionId={condition.id}
-                                    onToggleNegation={onToggleNegation}
-                                />
-                            </Animated.View>
-                        </Animated.View>
-                    ))}
-                </View>
-            </DropSlot>
+            {contents}
         </Animated.View>
     );
 }
@@ -627,46 +722,209 @@ function ModeToggle({
 }) {
     const { colorScheme = "light" } = useColorScheme();
     const theme = THEME[colorScheme];
+    const modeIndex = GROUP_MODES.indexOf(mode);
+    const previewIndex = useSharedValue(modeIndex);
+    const thumbX = useSharedValue(modeIndex * MODE_OPTION_STEP);
+    const isSliding = useSharedValue(0);
+    const slideCompleted = useSharedValue(0);
+
+    useEffect(() => {
+        if (isSliding.get()) return;
+        previewIndex.set(modeIndex);
+        thumbX.set(withTiming(modeIndex * MODE_OPTION_STEP, MODE_KNOB_EASING));
+    }, [isSliding, modeIndex, previewIndex, thumbX]);
+
+    const commitIndex = useCallback(
+        (index: number) => onChange(GROUP_MODES[index]),
+        [onChange],
+    );
+    const animateAndCommit = useCallback(
+        (index: number) => {
+            if (previewIndex.get() !== index) triggerModeHaptic();
+            previewIndex.set(index);
+            thumbX.set(withTiming(index * MODE_OPTION_STEP, MODE_KNOB_EASING));
+            commitIndex(index);
+        },
+        [commitIndex, previewIndex, thumbX],
+    );
+    const gesture = useMemo(() => {
+        const indexForTouch = (x: number) => {
+            "worklet";
+            return Math.max(
+                0,
+                Math.min(
+                    GROUP_MODES.length - 1,
+                    Math.round(
+                        (x -
+                            MODE_CONTROL_HORIZONTAL_PADDING -
+                            MODE_OPTION_WIDTH / 2) /
+                            MODE_OPTION_STEP,
+                    ),
+                ),
+            );
+        };
+        const snapToTouch = (x: number) => {
+            "worklet";
+            const nextIndex = indexForTouch(x);
+            if (previewIndex.get() === nextIndex) return;
+            previewIndex.set(nextIndex);
+            thumbX.set(
+                withTiming(nextIndex * MODE_OPTION_STEP, MODE_KNOB_EASING),
+            );
+            runOnJS(triggerModeHaptic)();
+        };
+        const pan = Gesture.Pan()
+            .activeOffsetX([-4, 4])
+            .failOffsetY([-8, 8])
+            .onStart((event) => {
+                isSliding.set(1);
+                slideCompleted.set(0);
+                snapToTouch(event.x);
+            })
+            .onUpdate((event) => snapToTouch(event.x))
+            .onEnd(() => {
+                slideCompleted.set(1);
+                runOnJS(commitIndex)(previewIndex.get());
+            })
+            .onFinalize(() => {
+                if (isSliding.get() && !slideCompleted.get()) {
+                    previewIndex.set(modeIndex);
+                    thumbX.set(
+                        withTiming(
+                            modeIndex * MODE_OPTION_STEP,
+                            MODE_KNOB_EASING,
+                        ),
+                    );
+                }
+                isSliding.set(0);
+            });
+        const tap = Gesture.Tap()
+            .maxDistance(8)
+            .onEnd((event, success) => {
+                if (!success) return;
+                const nextIndex = indexForTouch(event.x);
+                if (previewIndex.get() !== nextIndex) {
+                    runOnJS(triggerModeHaptic)();
+                }
+                previewIndex.set(nextIndex);
+                thumbX.set(
+                    withTiming(nextIndex * MODE_OPTION_STEP, MODE_KNOB_EASING),
+                );
+                runOnJS(commitIndex)(nextIndex);
+            });
+        return Gesture.Race(pan, tap);
+    }, [
+        commitIndex,
+        isSliding,
+        modeIndex,
+        previewIndex,
+        slideCompleted,
+        thumbX,
+    ]);
+    const thumbStyle = useAnimatedStyle(() => ({
+        transform: [{ translateX: thumbX.get() }],
+    }));
 
     return (
-        <Pressable
-            onPress={() => onChange(mode === "any" ? "all" : "any")}
-            className="self-start flex-row rounded-full bg-secondary p-0.5"
-            hitSlop={{ top: 7, bottom: 7, left: 4, right: 4 }}
-            accessibilityRole="switch"
-            accessibilityState={{ checked: mode === "all" }}
-            accessibilityLabel={
-                mode === "any"
-                    ? "Match any tag in group. Tap to match all tags."
-                    : "Match all tags in group. Tap to match any tag."
-            }
-        >
-            {(["any", "all"] as const).map((option) => {
-                const selected = option === mode;
-                return (
-                    <View
+        <GestureDetector gesture={gesture}>
+            <View
+                className="self-start flex-row rounded-full bg-secondary"
+                style={{
+                    paddingHorizontal: MODE_CONTROL_HORIZONTAL_PADDING,
+                    paddingVertical: MODE_CONTROL_VERTICAL_PADDING,
+                    gap: MODE_OPTION_GAP,
+                }}
+                accessibilityRole="radiogroup"
+            >
+                <Animated.View
+                    pointerEvents="none"
+                    className="absolute rounded-full"
+                    style={[
+                        {
+                            left:
+                                MODE_CONTROL_HORIZONTAL_PADDING -
+                                MODE_KNOB_OFFSET,
+                            top: MODE_CONTROL_VERTICAL_PADDING,
+                            bottom: MODE_CONTROL_VERTICAL_PADDING,
+                            width: MODE_KNOB_WIDTH,
+                            backgroundColor: theme.background,
+                        },
+                        thumbStyle,
+                    ]}
+                />
+                {GROUP_MODES.map((option, index) => (
+                    <ModeOption
                         key={option}
-                        className="min-h-7 justify-center rounded-full px-3"
-                        style={
-                            selected
-                                ? { backgroundColor: theme.background }
-                                : undefined
-                        }
-                    >
-                        <Text
-                            className="text-[10px] font-bold tracking-wider"
-                            style={{
-                                color: selected
-                                    ? theme.foreground
-                                    : theme.mutedForeground,
-                            }}
-                        >
-                            {option === "any" ? "HAVE ANY" : "HAVE ALL"}
-                        </Text>
-                    </View>
-                );
-            })}
-        </Pressable>
+                        label={`HAVE ${option.toUpperCase()}`}
+                        index={index}
+                        mode={mode}
+                        option={option}
+                        thumbX={thumbX}
+                        foreground={theme.foreground}
+                        mutedForeground={theme.mutedForeground}
+                        onAccessibilitySelect={() => animateAndCommit(index)}
+                    />
+                ))}
+            </View>
+        </GestureDetector>
+    );
+}
+
+function triggerModeHaptic() {
+    void Haptics.selectionAsync().catch(() => {
+        // Haptics are best-effort and should never block mode selection.
+    });
+}
+
+function ModeOption({
+    label,
+    index,
+    mode,
+    option,
+    thumbX,
+    foreground,
+    mutedForeground,
+    onAccessibilitySelect,
+}: {
+    label: string;
+    index: number;
+    mode: QueryGroupMode;
+    option: QueryGroupMode;
+    thumbX: SharedValue<number>;
+    foreground: string;
+    mutedForeground: string;
+    onAccessibilitySelect: () => void;
+}) {
+    const textStyle = useAnimatedStyle(() => {
+        const distance = Math.min(
+            1,
+            Math.abs(thumbX.get() / MODE_OPTION_STEP - index),
+        );
+        return {
+            color: interpolateColor(
+                distance,
+                [0, 1],
+                [foreground, mutedForeground],
+            ),
+        };
+    });
+    return (
+        <View
+            className="min-h-7 items-center justify-center"
+            style={{ width: MODE_OPTION_WIDTH }}
+            accessible
+            accessibilityRole="radio"
+            accessibilityState={{ checked: mode === option }}
+            accessibilityLabel={label}
+            onAccessibilityTap={onAccessibilitySelect}
+        >
+            <Animated.Text
+                className="text-[10px] font-bold tracking-wider"
+                style={textStyle}
+            >
+                {label}
+            </Animated.Text>
+        </View>
     );
 }
 
@@ -845,11 +1103,9 @@ function dragTagColor(payload: import("./types").DragPayload) {
 function DraggableQueryTag({
     queryTag,
     conditionId,
-    onToggleNegation,
 }: {
     queryTag: QueryTag;
     conditionId: string;
-    onToggleNegation: (queryTagId: string) => void;
 }) {
     const dragPayload = useMemo(
         () => ({
@@ -859,19 +1115,9 @@ function DraggableQueryTag({
         }),
         [conditionId, queryTag],
     );
-    // A new identity here would rebuild the pill's gestures on every render,
-    // including renders caused by an active drag.
-    const toggleNegation = useCallback(
-        () => onToggleNegation(queryTag.id),
-        [onToggleNegation, queryTag.id],
-    );
     return (
-        <DraggablePill
-            payload={dragPayload}
-            activateAfterLongPress={SCROLLABLE_TAG_DRAG_HOLD_MS}
-            onTap={toggleNegation}
-        >
-            <QueryTagPill queryTag={queryTag} onToggle={toggleNegation} />
+        <DraggablePill payload={dragPayload}>
+            <QueryTagPill queryTag={queryTag} />
         </DraggablePill>
     );
 }

@@ -40,6 +40,7 @@ type PlaybackInfo = {
     repeatMode: RepeatMode;
     canSkipToNext: boolean;
     canSkipToPrevious: boolean;
+    isPlayerDismissed: boolean;
     playQueue: (queue: PlaybackQueue) => Promise<void>;
     addToQueue: (tracks: readonly MusicItem[]) => Promise<void>;
     playNext: (tracks: readonly MusicItem[]) => Promise<void>;
@@ -53,6 +54,7 @@ type PlaybackInfo = {
     seekTo: (time: number) => Promise<void>;
     skipToNext: () => Promise<void>;
     skipToPrevious: () => Promise<void>;
+    dismissPlayer: () => Promise<void>;
 };
 
 const PlaybackContext = createContext<PlaybackInfo | null>(null);
@@ -64,6 +66,7 @@ export type PlaybackTrackState = Pick<
     | "isLoading"
     | "canSkipToNext"
     | "canSkipToPrevious"
+    | "isPlayerDismissed"
 >;
 const PlaybackTrackStateContext = createContext<PlaybackTrackState | null>(
     null,
@@ -82,6 +85,7 @@ type PlaybackCommands = Pick<
     | "seekTo"
     | "skipToNext"
     | "skipToPrevious"
+    | "dismissPlayer"
 >;
 const PlaybackCommandsContext = createContext<PlaybackCommands | null>(null);
 
@@ -110,6 +114,9 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     const snapshot = Playback.usePlaybackSnapshot();
     const [queue, setQueue] = useState<MusicItem[]>([]);
     const [queueIndex, setQueueIndex] = useState(-1);
+    const [isPlayerDismissed, setIsPlayerDismissed] = useState(false);
+    const isPlayerDismissedRef = useRef(false);
+    const dismissalAwaitingPauseRef = useRef(false);
     const commandImplementationsRef = useRef<PlaybackCommands | null>(null);
     const snapshotTrack = snapshot.currentTrack ?? null;
     // Search outward from the index we already believe in. A queue holding the
@@ -131,15 +138,37 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
             : snapshotTrack;
     const activeTrackId = activeTrack?.id ?? null;
 
+    function showPlayer() {
+        isPlayerDismissedRef.current = false;
+        dismissalAwaitingPauseRef.current = false;
+        setIsPlayerDismissed(false);
+    }
+
     useEffect(() => {
         let active = true;
 
         const refreshPlaybackSnapshot = () => {
             if (!active || AppState.currentState !== "active") return;
 
-            void Playback.refreshPlaybackSnapshot().catch((error) => {
-                console.warn("Failed to refresh playback snapshot:", error);
-            });
+            void Playback.refreshPlaybackSnapshot()
+                .then((nextSnapshot) => {
+                    if (dismissalAwaitingPauseRef.current) {
+                        if (!nextSnapshot.isPlaying) {
+                            dismissalAwaitingPauseRef.current = false;
+                        }
+                        return;
+                    }
+
+                    if (
+                        isPlayerDismissedRef.current &&
+                        nextSnapshot.isPlaying
+                    ) {
+                        showPlayer();
+                    }
+                })
+                .catch((error) => {
+                    console.warn("Failed to refresh playback snapshot:", error);
+                });
         };
 
         refreshPlaybackSnapshot();
@@ -181,6 +210,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
         );
         const previousQueue = queue;
         const previousQueueIndex = queueIndex;
+        showPlayer();
         setQueue(playableTracks);
         setQueueIndex(boundedIndex);
         try {
@@ -212,6 +242,10 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
 
         try {
             if (!isNewTrack) {
+                if (isPlayerDismissed) {
+                    showPlayer();
+                    if (snapshot.isPlaying) return;
+                }
                 await Playback.togglePlayerState();
             } else {
                 // Song lookup/list playback intentionally creates a one-song
@@ -402,6 +436,24 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
         }
     }
 
+    async function dismissPlayer() {
+        dismissalAwaitingPauseRef.current = true;
+        isPlayerDismissedRef.current = true;
+        setIsPlayerDismissed(true);
+
+        try {
+            await Playback.pause();
+            const nextSnapshot = await Playback.refreshPlaybackSnapshot();
+            dismissalAwaitingPauseRef.current = false;
+            if (nextSnapshot.isPlaying) showPlayer();
+        } catch (e) {
+            showPlayer();
+            console.error("Failed to dismiss the media player:", e);
+            Alert.alert("Playback Error", "Failed to stop playback.");
+            throw e;
+        }
+    }
+
     useEffect(() => {
         commandImplementationsRef.current = {
             playQueue,
@@ -416,6 +468,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
             seekTo,
             skipToNext,
             skipToPrevious,
+            dismissPlayer,
         };
     });
     const commands = useMemo<PlaybackCommands>(
@@ -445,6 +498,8 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
             skipToNext: () => commandImplementationsRef.current!.skipToNext(),
             skipToPrevious: () =>
                 commandImplementationsRef.current!.skipToPrevious(),
+            dismissPlayer: () =>
+                commandImplementationsRef.current!.dismissPlayer(),
         }),
         [],
     );
@@ -458,6 +513,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
                 resolvedQueueIndex >= 0 &&
                 resolvedQueueIndex < queue.length - 1,
             canSkipToPrevious: resolvedQueueIndex > 0,
+            isPlayerDismissed,
         }),
         [
             activeTrack,
@@ -466,6 +522,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
             resolvedQueueIndex,
             snapshot.isLoading,
             snapshot.isPlaying,
+            isPlayerDismissed,
         ],
     );
 
@@ -491,6 +548,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
                             resolvedQueueIndex >= 0 &&
                             resolvedQueueIndex < queue.length - 1,
                         canSkipToPrevious: resolvedQueueIndex > 0,
+                        isPlayerDismissed,
                         ...commands,
                     }}
                 >

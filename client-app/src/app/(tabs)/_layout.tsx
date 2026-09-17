@@ -9,7 +9,7 @@ import {
     MediaPlayerFallbackOverlay,
 } from "@/components/custom/media-player";
 import { useAccount } from "@/lib/account";
-import { usePlayback } from "@/lib/playback";
+import { usePlaybackTrackState } from "@/lib/playback";
 import { useBottomBarsHidden } from "@/lib/screen-overlay";
 import { THEME } from "@/lib/theme";
 
@@ -35,7 +35,7 @@ const IOS_UNSELECTED_TAB_COLOR =
  */
 export default function TabLayout() {
     const { account } = useAccount();
-    const { activeTrack } = usePlayback();
+    const { activeTrack, isPlayerDismissed } = usePlaybackTrackState();
     const { colors } = useTheme();
     const hidden = useBottomBarsHidden();
     const [failedArtworkUrl, setFailedArtworkUrl] = useState<string | null>(
@@ -69,7 +69,9 @@ export default function TabLayout() {
                 indicatorColor={colors.border}
                 tabBarRespectsIMEInsets
                 unstable_nativeProps={{
-                    ios: { bottomAccessoryHidden: hidden },
+                    ios: {
+                        bottomAccessoryHidden: hidden || isPlayerDismissed,
+                    },
                 }}
             >
                 {activeTrack ? (

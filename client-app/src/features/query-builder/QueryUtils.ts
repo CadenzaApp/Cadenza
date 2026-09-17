@@ -1,4 +1,4 @@
-import type { Tag } from "@/lib/types";
+import type { Tag, TagMetadata } from "@/lib/types";
 
 import type {
     QueryCondition,
@@ -10,6 +10,20 @@ import type {
 } from "./types";
 
 let nextQueryId = 0;
+
+export function sortTagsByApplicationCount(
+    tags: readonly Tag[],
+    metadata?: Readonly<Record<number, TagMetadata>>,
+): Tag[] {
+    return [...tags].sort((left, right) => {
+        const countDifference =
+            (metadata?.[right.id]?.count ?? 0) -
+            (metadata?.[left.id]?.count ?? 0);
+        if (countDifference !== 0) return countDifference;
+        const nameDifference = left.name.localeCompare(right.name);
+        return nameDifference !== 0 ? nameDifference : left.id - right.id;
+    });
+}
 
 export function makeQueryId(prefix: "tag" | "group" | "condition"): string {
     nextQueryId += 1;
@@ -63,25 +77,15 @@ export function addTagToCondition(
     return addQueryTagToCondition(conditions, makeQueryTag(tag), conditionId);
 }
 
-export function toggleTagNegation(
+export function toggleConditionNegation(
     conditions: readonly QueryCondition[],
-    queryTagId: string,
+    conditionId: string,
 ): QueryCondition[] {
-    return conditions.map((condition) => {
-        if (condition.kind === "tag") {
-            return condition.id === queryTagId
-                ? { ...condition, negated: !condition.negated }
-                : condition;
-        }
-        return {
-            ...condition,
-            members: condition.members.map((member) =>
-                member.id === queryTagId
-                    ? { ...member, negated: !member.negated }
-                    : member,
-            ),
-        };
-    });
+    return conditions.map((condition) =>
+        condition.kind === "tag" && condition.id === conditionId
+            ? { ...condition, negated: !condition.negated }
+            : condition,
+    );
 }
 
 export function setGroupMode(
@@ -299,7 +303,7 @@ function addQueryTagToCondition(
         return {
             kind: "group",
             id: makeQueryId("group"),
-            mode: "any",
+            mode: condition.negated ? "none" : "any",
             connector: condition.connector,
             rememberedNextConnector: condition.rememberedNextConnector,
             layoutId: condition.layoutId ?? makeQueryId("condition"),
@@ -356,6 +360,7 @@ function detachQueryTag(
             condition.connector,
             condition.rememberedNextConnector,
             condition.layoutId ?? condition.id,
+            condition.mode === "none",
         );
     } else next[conditionIndex] = { ...condition, members: remaining };
 
@@ -389,7 +394,8 @@ function conditionContainsTag(
 
 function conditionToJSON(condition: QueryCondition): QueryJSONNode {
     if (condition.kind === "tag") return queryTagToJSON(condition);
-    const children = condition.members.map(queryTagToJSON);
+    const children = condition.members.map((member) => member.tag.id);
+    if (condition.mode === "none") return { not: { or: children } };
     return condition.mode === "any" ? { or: children } : { and: children };
 }
 
@@ -437,7 +443,11 @@ function removeConditionAtIndex(
 }
 
 function asGroupMember(queryTag: QueryTag): QueryTag {
-    const member = { ...queryTag, connector: "and" as const };
+    const member = {
+        ...queryTag,
+        negated: false,
+        connector: "and" as const,
+    };
     delete member.rememberedNextConnector;
     delete member.layoutId;
     return member;
@@ -448,8 +458,9 @@ function asTopLevelTag(
     connector: QueryConnector,
     rememberedNextConnector?: QueryConnector,
     layoutId?: string,
+    negated = false,
 ): QueryTag {
-    const topLevelTag = { ...queryTag, connector };
+    const topLevelTag = { ...queryTag, negated, connector };
     delete topLevelTag.rememberedNextConnector;
     delete topLevelTag.layoutId;
     if (rememberedNextConnector) {
