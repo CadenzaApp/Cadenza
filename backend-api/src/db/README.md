@@ -7,9 +7,9 @@ The data access layer. Everything that touches postgres lives here, so handlers 
 
 | file | role |
 | --- | --- |
-| `mod.rs` | Declares `comment_votes`, `comments`, `entity`, `queries`, `tag_votes`, `tags`. |
+| `mod.rs` | Declares `comment_votes`, `comments`, `entity`, `queries`, `tag_activity`, `tags`. |
 | `tags.rs` | User tag CRUD and applied values, plus searching, reading, generating, and applying default tags. User tag reads never copy or return defaults. |
-| `tag_votes.rs` | Counts user apply/unapply votes in `default_tag_votes` and promotes popular names to default tags. Holds the in-memory recent-vote cache. |
+| `tag_activity.rs` | Counts applies and removes of a tag name on a song in `default_tag_activity`, and promotes popular names to default tags. |
 | `queries.rs` | Compiles a tag query to SQL, runs it, and ranks the matches. Unit tested. |
 | `comments.rs` | Comment reads and writes: every comment on a song paired into threads, leaving a comment or a reply, and deleting the user's own comment. |
 | `comment_votes.rs` | `CommentVote` and `VoteTally`. `set_comment_vote`, which casts, switches, or takes back the user's vote on a comment, and `get_song_vote_tallies`, the votes on each comment of a song as the reading user sees them. |
@@ -28,8 +28,15 @@ The tables below are keyed on song ids that come from Apple Music.
   Cascades on delete from `tags`. Local tag reads and queries use this table.
 - `default_tags_applied` - default tags on a song, composite pk of `(song_id, tag_id)`, no user.
   `get_default_tags_on_songs` reads it, and `set_default_tags_on_songs` replaces a song's rows.
-- `default_tag_votes` - yes/no counts for a tag name on a song. A qualifying vote promotes the
-  name to `default_tags_applied` and removes the vote row.
+- `default_tag_activity` - what users did with a tag name on a song, composite pk of
+  `(song_id, tag_name)`. `apply_count` is how many users have a tag of that name on the song, and
+  `remove_count` how many removed it as a suggested tag. The row is written once and never
+  deleted, so the counts outlive the promotion to `default_tags_applied`.
+- `default_tags_removed` - one row per user who removed a default tag from a song, composite pk of
+  `(user_id, tag_id, song_id)`, so a removal counts once. Its fk to `default_tags_applied`
+  cascades, so a default tag coming off a song takes its removals with it. Default tag reads and
+  queries hide the rows a user has here, and nothing else changes: the tag stays on the song for
+  everyone else.
 - `song_meta` - retained in the database but unused by the api. It has no generated entity now.
 - `comment` - a comment a user left on a song. `id` (identity pk), `content`, `song_id`, `user_id`,
   and `created_at`, a `timestamp` with no time zone that defaults to `now()`. A reply sets `parent`
@@ -40,11 +47,12 @@ The tables below are keyed on song ids that come from Apple Music.
   vote per user per comment, and `is_upvote`. Both fks cascade, to `comment` and to `auth.users`,
   so deleting a comment or a user deletes its votes.
 
-## Default tags and votes
+## Default tags, applies, and removes
 
 Default tags remain separate from user tags. They are never copied into `tags` or
 `user_tags_applied`, and user tag reads do not include them. A query includes them only when the
-caller passes `consider_default_tags`.
+caller passes `consider_default_tags`. Either way, a default tag the reading user removed is left
+out for them.
 
 `search_default_tags` searches the default tag pool itself rather than what is applied to a song:
 it matches `tags` rows with a null `user_id` by name, capped by the caller. Results come back by
@@ -53,15 +61,28 @@ tag id breaking ties. That is a left join and a `GROUP BY tags.tag_id`, so a def
 no songs still comes back, last. It uses `strpos` rather than `LIKE`, so `%` and `_` typed into a
 search box stay literal, same as the query compiler.
 
-`get_songs_without_default_tags` returns requested song ids with no row in
-`default_tags_applied`. `/songs/no-default-tags` uses it to tell the client which songs need
-generated defaults. `GET /songs/default-tags` reads them, while `POST /songs/default-tags`
-generates and stores them.
+`get_default_tags_on_songs` is user scoped: it left joins `default_tags_removed` on this user and
+keeps the rows that found none, so a default tag they removed does not come back. Songs left with
+no default tags drop out of the map.
 
-Applying a user tag votes yes on its name for the song, and removing it votes no. Once a name has
-at least 10 votes and more than 1.5 times as many yes votes as no votes, it becomes a default tag
-on that song. `TagVoteCache` remembers the latest vote per user, song, and tag name so a changed
-vote moves a count rather than adding another one. The cache is process-local and best effort.
+`get_songs_without_default_tags` returns requested song ids with no row in
+`default_tags_applied`, whoever removed what. `/songs/no-default-tags` uses it to tell the client
+which songs need generated defaults, and `POST /songs/default-tags` uses it to pick the songs to
+generate for. That is the point of the split: a song whose only default tag one user removed still
+has default tags, so it must not be generated again.
+
+Applying a user tag counts an apply for its name on the song, and taking the tag off counts that
+apply back off. Removing one of the song's suggested tags counts a remove. Every count comes from a
+request that really wrote its row, the application row for an apply and the `default_tags_removed`
+row for a remove, so nobody is counted twice. A name becomes a default tag on the song once it has
+10 counts, applies and removes together, with more than 1.5 times as many applies as removes.
+
+`count_tag_applied` upserts the row and adds 1 to `apply_count`, `count_tag_removed` does the same
+for `remove_count`, and `count_tag_unapplied` takes 1 off `apply_count` with an update filtered on
+`apply_count > 0`, so a count never goes negative and a missing row is a no-op. Activity rows are
+never deleted, so `apply_promotes_tag` promotes only on the apply that first makes the counts
+qualify. Only applies promote: an unapply lowers `apply_count`, and a remove is only possible on a
+name that is already a default tag there.
 
 ## Comments
 
@@ -100,13 +121,14 @@ from `is_applied` and `is_not_applied` tag filters.
 Before compiling it checks the tree size (`MAX_NODES` 200, `MAX_DEPTH` 20), then looks up the type
 of every tag id the query mentions. `get_queryable_tag_types` is user scoped, so another user's tag
 or a deleted one is a `QueryFormatError`; with `consider_default_tags` a shared default tag is
-queryable as well.
+queryable as well, removed or not. A query naming a default tag the user removed is valid and
+simply matches nothing of theirs.
 
 `applied_tags_source` is the single definition of what counts as a tag on a song, and every part
 of the statement reads through it: the outer row source, the candidate left join, and each filter
 subquery. Without the flag it is the user's own applied tags. With it, those `UNION ALL` the rows
-in `default_tags_applied`, whose `value` comes through as `NULL::text` because that table has no
-value column. So a default tag behaves exactly like an attribute tag applied without a value, and
+in `default_tags_applied` that the user has no `default_tags_removed` row for, whose `value` comes
+through as `NULL::text` because that table has no value column. So a default tag behaves exactly like an attribute tag applied without a value, and
 `is_empty` matches a song that carries only the default. It is a subquery rather than a CTE so
 postgres can push the correlated song id down into both branches and keep using the song id
 indexes.
@@ -211,7 +233,19 @@ every song scores zero and the whole list is ordered by song id.
   unchecked). It also means a default tag (`user_id IS NULL`) can never be applied this way,
   even though the generation and voting paths can create defaults.
 - Existing default tags copied into user tables by older code are not removed by this change.
-- `TagVoteCache` is per process. Restarts, evictions, and multiple instances can overcount votes.
+- Promotion does not demote. A default tag stays on the song however far its counts fall after
+  that, and a later apply that makes them qualify again promotes a name that is already there,
+  which `add_default_tag_to_song` treats as a no-op.
+- Counts that already qualify without the name being a default tag, which old data can leave
+  behind, promote on the next apply that crosses the line, not before.
+- Counts are per tag name, not per user. A user with two tags of the same name on one song counts
+  twice.
+- A removal hides the default tag from that user's reads and queries, but never takes it off
+  `default_tags_applied`. Other users still see it, and `get_songs_without_default_tags` still
+  counts the song as having defaults.
+- The removal join sits in two places, `default_tags_on_songs_query` and the default branch of
+  `queries.rs::applied_tags_source`. A new read of `default_tags_applied` has to exclude removals
+  itself.
 - `comment` has no index on `song_id` or `parent`, so `get_song_comments` scans the table, and so
   does `get_song_vote_tallies`, whose join to `comment` filters on `song_id`. The `comment_votes` pk
   leads with `user_id`, so that join's `comment_id` side cannot use it either.

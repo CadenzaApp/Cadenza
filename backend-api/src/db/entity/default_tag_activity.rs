@@ -3,14 +3,14 @@
 use sea_orm::entity::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
-#[sea_orm(table_name = "default_tag_votes")]
+#[sea_orm(table_name = "default_tag_activity")]
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false, column_type = "Text")]
     pub song_id: String,
     #[sea_orm(primary_key, auto_increment = false, column_type = "Text")]
     pub tag_name: String,
-    pub votes_yes: i32,
-    pub votes_no: i32,
+    pub apply_count: i32,
+    pub remove_count: i32,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

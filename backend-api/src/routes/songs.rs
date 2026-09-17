@@ -1,11 +1,10 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::{
     AppState,
     auth::SupabaseClaims,
     db::{
         self,
-        tag_votes::TagVoteCache,
         tags::{
             get_default_tags_on_songs, get_songs_without_default_tags, get_user_tags_on_song,
             get_user_tags_on_songs, set_default_tags_on_songs,
@@ -42,19 +41,20 @@ async fn get_local_tags_on_song_handler(
     Ok(Json(vec_into(user_tags)))
 }
 
-/// Returns the shared default tags on one song. Every returned tag has a null
-/// `user_id` in the database.
+/// Returns the shared default tags on one song, minus the ones the signed in
+/// user removed. Every returned tag has a null `user_id` in the database.
 ///
 /// ```json
 /// [{"id": 12, "name": "rock", "color": "#808080", "type": "basic"}]
 /// ```
 async fn get_default_tags_on_song_handler(
     State(db): State<DatabaseConnection>,
-    _: Claims<SupabaseClaims>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
     Query(params): Query<SongIdQueryParams>,
 ) -> Result<Json<Vec<Tag>>, CadenzaError> {
     let mut tags_by_song =
-        get_default_tags_on_songs(&db, std::slice::from_ref(&params.song_id)).await?;
+        get_default_tags_on_songs(&db, claims.user_id, std::slice::from_ref(&params.song_id))
+            .await?;
     Ok(Json(vec_into(
         tags_by_song.remove(&params.song_id).unwrap_or_default(),
     )))
@@ -98,20 +98,22 @@ async fn get_local_tags_on_songs_handler(
     ))
 }
 
-/// Returns the shared default tags on each requested song, keyed by song id. A
-/// song with no default tags gets an empty list.
+/// Returns the shared default tags on each requested song, minus the ones the
+/// signed in user removed, keyed by song id. A song with no default tags left
+/// gets an empty list.
 ///
 /// ```json
 /// {"1234567": [{"id": 12, "name": "rock", "color": "#808080", "type": "basic"}]}
 /// ```
 async fn get_default_tags_on_songs_handler(
     State(db): State<DatabaseConnection>,
-    _: Claims<SupabaseClaims>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
     Json(payload): Json<SongIdsPayload>,
 ) -> Result<Json<HashMap<String, Vec<Tag>>>, CadenzaError> {
     check_batch_size(payload.song_ids.len())?;
 
-    let mut tags_by_song = get_default_tags_on_songs(&db, &payload.song_ids).await?;
+    let mut tags_by_song =
+        get_default_tags_on_songs(&db, claims.user_id, &payload.song_ids).await?;
 
     // the db read leaves out songs with no defaults, but a caller keyed on the
     // request should not have to tell "none" apart from "missing"
@@ -155,11 +157,16 @@ async fn set_default_tags_on_songs_handler(
 ) -> Result<(), CadenzaError> {
     check_batch_size(songs.len())?;
 
+    // a song that has default tags is done, whoever removed them for themselves,
+    // so this asks the application table rather than any one user's view of it
     let song_ids: Vec<String> = songs.iter().map(|song| song.song_id.clone()).collect();
-    let existing_default_tags = get_default_tags_on_songs(&db, &song_ids).await?;
+    let missing_defaults: HashSet<String> = get_songs_without_default_tags(&db, &song_ids)
+        .await?
+        .into_iter()
+        .collect();
     let songs_without_defaults: Vec<&SongIdAndDesc> = songs
         .iter()
-        .filter(|song| !existing_default_tags.contains_key(&song.song_id))
+        .filter(|song| missing_defaults.contains(&song.song_id))
         .collect();
 
     if songs_without_defaults.is_empty() {
@@ -192,13 +199,11 @@ pub struct ApplyTagPayload {
 
 async fn apply_user_tag_handler(
     State(db): State<DatabaseConnection>,
-    State(tag_votes): State<TagVoteCache>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Json(payload): Json<ApplyTagPayload>,
 ) -> Result<(), CadenzaError> {
     db::tags::apply_user_tag(
         db,
-        &tag_votes,
         claims.user_id,
         payload.song_id,
         payload.tag_id,
@@ -232,6 +237,27 @@ async fn set_user_tag_value_handler(
 }
 
 #[derive(Deserialize)]
+pub struct RemoveDefaultTagPayload {
+    song_id: String,
+    tag_id: i64,
+}
+
+/// Removes one of the song's suggested tags for the signed in user, and counts
+/// the removal against that tag name on the song. Returns an empty body.
+///
+/// The default tag stays on the song. Removing it again does nothing, and the
+/// removal is only remembered for this user. 404 if the tag is not one of the
+/// song's default tags.
+async fn remove_default_tag_handler(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Json(payload): Json<RemoveDefaultTagPayload>,
+) -> Result<(), CadenzaError> {
+    db::tags::remove_default_tag_from_song(db, claims.user_id, payload.song_id, payload.tag_id)
+        .await
+}
+
+#[derive(Deserialize)]
 pub struct UnapplyTagPayload {
     song_id: String,
     tag_id: i64,
@@ -239,25 +265,19 @@ pub struct UnapplyTagPayload {
 
 async fn unapply_user_tag_handler(
     State(db): State<DatabaseConnection>,
-    State(tag_votes): State<TagVoteCache>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Json(payload): Json<UnapplyTagPayload>,
 ) -> Result<(), CadenzaError> {
-    db::tags::unapply_user_tag(
-        db,
-        &tag_votes,
-        claims.user_id,
-        payload.song_id,
-        payload.tag_id,
-    )
-    .await
+    db::tags::unapply_user_tag(db, claims.user_id, payload.song_id, payload.tag_id).await
 }
 
 pub fn get_songs_router() -> Router<AppState> {
     Router::new()
         .route(
             "/default-tags",
-            get(get_default_tags_on_song_handler).post(set_default_tags_on_songs_handler),
+            get(get_default_tags_on_song_handler)
+                .post(set_default_tags_on_songs_handler)
+                .delete(remove_default_tag_handler),
         )
         .route(
             "/default-tags/batch",

@@ -33,12 +33,13 @@ Every route below requires `Authorization: Bearer <supabase jwt>`.
 | GET | `/songs/local-tags` | `?song_id=...` | `[AppliedTag]`, the user's tags on that song |
 | POST | `/songs/local-tags/batch` | `{song_ids: [...]}` | `{song_id: [AppliedTag]}`, an entry per requested song |
 | POST | `/songs/no-default-tags` | `{song_ids: [...]}` | requested song ids with no default tags, in input order |
-| GET | `/songs/default-tags` | `?song_id=...` | `[Tag]`, the shared default tags on that song |
-| POST | `/songs/default-tags/batch` | `{song_ids: [...]}` | `{song_id: [Tag]}`, an entry per requested song |
+| GET | `/songs/default-tags` | `?song_id=...` | `[Tag]`, the shared default tags on that song, minus the ones this user removed |
+| POST | `/songs/default-tags/batch` | `{song_ids: [...]}` | `{song_id: [Tag]}`, the same read for a list of songs, an entry per requested song |
 | POST | `/songs/default-tags` | `[{song_id, desc}]` | empty. Generates defaults for songs that have none |
-| POST | `/songs/local-tags` | `{song_id, tag_id, value?}` | empty. Also votes yes on the tag name |
+| DELETE | `/songs/default-tags` | `{song_id, tag_id}` | empty. Records that this user removed the suggested tag and counts it. 404 if the tag is not a default tag on the song |
+| POST | `/songs/local-tags` | `{song_id, tag_id, value?}` | empty. Also votes for the tag name |
 | PATCH | `/songs/local-tags` | `{song_id, tag_id, value}` | empty. A null value clears it |
-| DELETE | `/songs/local-tags` | `{song_id, tag_id}` | empty. Votes no when it removes the tag |
+| DELETE | `/songs/local-tags` | `{song_id, tag_id}` | empty. Takes that vote back when it removes the tag |
 | POST | `/queries/results` | `{query, song_ids?, consider_default_tags?}` | `["songid", ...]`, most relevant first |
 | GET | `/comments` | `?song_id=...` | `[CommentThread]`, every user's comments on the song, newest first, each with its `replies` oldest first |
 | POST | `/comments` | `{song_id, content, parent_id?}` | the new `Comment`. `parent_id` makes it a reply to a top level comment on that song. `content` is trimmed and must then be 1 to 2000 characters |
@@ -116,9 +117,8 @@ Semantics and limits are in [../db/README.md](../db/README.md). Anything malform
 ## How it works
 
 Handlers take what they need out of `AppState` by `FromRef`, so most take
-`State(db): State<DatabaseConnection>` and nothing else. Song apply/unapply handlers also take
-`State(tag_votes): State<TagVoteCache>`. Tag suggestion and default generation take
-`State(tag_gen_service)`. Routes that operate only on shared defaults still require credentials
+`State(db): State<DatabaseConnection>` and nothing else. Tag suggestion and default generation
+take `State(tag_gen_service)`. Routes that operate only on shared defaults still require credentials
 with a bare `_: Claims<SupabaseClaims>`.
 
 `GET /tags/default-tags` searches the shared default tag pool by name and is not song scoped.
@@ -126,11 +126,19 @@ It is the odd one out next to `/songs/default-tags`, which reads the defaults ap
 Its results are ordered by how many songs carry the tag, most first.
 
 `GET /songs/default-tags` reads `default_tags_applied` and returns only tags whose `user_id` is
-null. `POST /songs/default-tags/batch` is the same read for a list of songs, and fills in an
-empty list for the songs `db::tags::get_default_tags_on_songs` leaves out.
+null, leaving out the ones the signed in user removed. `POST /songs/default-tags/batch` is the
+same read for a list of songs, and fills in an empty list for the songs
+`db::tags::get_default_tags_on_songs` leaves out.
 `POST /songs/no-default-tags` checks the same application table without creating user
 state. `POST /songs/default-tags` skips songs that already have defaults, generates tags for the
 rest, and stores them through `db::tags::set_default_tags_on_songs`.
+
+`DELETE /songs/default-tags` remembers in `default_tags_removed` that this user removed the song's
+suggested tag and counts a remove against that tag name, which makes the name harder to promote
+elsewhere. It does not take the default tag off the song: it stays there for everyone else, and
+the generation path still treats the song as having defaults. The two reads above and a query run
+with `consider_default_tags` all leave out this user's removals, so the tag stops coming back for
+them.
 
 `queries.rs` is one handler. The query arrives already typed, because serde parses the body
 straight into `Query`, so a bad shape is a `QueryFormatError` carrying serde's message. The
@@ -144,7 +152,8 @@ tagged-song universe instead.
 
 `consider_default_tags` defaults to false. True widens what counts as a tag on a song to include
 the shared default tags, for matching and for ranking, and lets the query name a default tag id.
-The client sets it from the `Include suggested tags` toggle.
+Default tags the caller removed do not count, same as the reads. The client sets it from the
+`Include suggested tags` toggle.
 
 `comments.rs` handlers convert models with `json::comment`, passing `claims.user_id` so each
 comment can say whether it is `mine`. `GET /comments` makes two reads, `db::comments::get_song_comments`
@@ -186,8 +195,11 @@ api as JSON should have a type here rather than serializing an entity model dire
   are reads. They are POSTs because their id lists do not belong in a query string. All three cap
   out at 200 ids. Songs with no tags come back as an empty list from the two tag batches, never
   missing.
-- A vote can promote a user tag name to a default tag once it has at least 10 votes and more than
-  1.5 times as many yes votes as no votes. This never copies the default into user tags.
+- A user tag name becomes a default tag on a song once it has 10 counts in `default_tag_activity`,
+  applies and removes together, with more than 1.5 times as many applies as removes. Applying a
+  tag counts an apply, unapplying takes that apply back off, and `DELETE /songs/default-tags`
+  counts a remove. This never copies the default into user tags, and nothing takes a default tag
+  back off a song when the counts stop qualifying.
 - `POST /songs/local-tags` inserts without checking first, so re-applying a tag relies on the unique
   violation mapping in `err.rs`. That mapping keys off the table name `applied_tags`, but the
   entity declares `user_tags_applied`, so it falls through to a generic `DatabaseError` instead

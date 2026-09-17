@@ -1,8 +1,12 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { useState } from "react";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { CreateTagDialog } from "@/components/custom/create-tag-dialog";
+import { ModalPopup } from "@/components/custom/modal-popup";
+import { MusicListActionButton } from "@/components/custom/music-list/music-list-action-button";
+import type { MusicListAction } from "@/components/custom/music-list/types";
 import { TagPill } from "@/components/custom/tag-pill";
 import { TagValueDialog } from "@/components/custom/tag-value-dialog";
 import { GlassSurface } from "@/components/ui/glass-surface";
@@ -166,8 +170,9 @@ function TagSection({
 /**
  * The song's shared default tags, unfilled because they belong to everyone
  * rather than to this user. Tapping one copies it into the user's own tags and
- * puts it on the song, so it moves up to "On this song". Nothing shows when
- * the song has none.
+ * puts it on the song, so it moves up to "On this song". A long press opens
+ * `SuggestedTagMenu` for that pill instead. Nothing shows when the song has
+ * none.
  */
 function DefaultTagSection({
     tags,
@@ -176,6 +181,8 @@ function DefaultTagSection({
     tags: Tag[];
     onSelectTag: (tagId: number) => void;
 }) {
+    const [menuTag, setMenuTag] = useState<Tag | null>(null);
+
     if (tags.length === 0) return null;
 
     return (
@@ -190,12 +197,43 @@ function DefaultTagSection({
                         accessibilityRole="button"
                         accessibilityLabel={`Add ${tag.name} tag`}
                         onPress={() => onSelectTag(tag.id)}
+                        onLongPress={() => setMenuTag(tag)}
                         className="active:opacity-70"
                     >
                         <TagPill tag={tag} height={14} inverted />
                     </Pressable>
                 ))}
             </View>
+
+            <SuggestedTagMenu tag={menuTag} onClose={() => setMenuTag(null)} />
         </View>
+    );
+}
+
+/**
+ * The long-press menu on one suggested tag. Same liquid-glass `ModalPopup` the
+ * "..." menus use, with one action. Hide suggested tag is a placeholder: it
+ * closes the menu and does nothing else until the backend can record it.
+ */
+function SuggestedTagMenu({
+    tag,
+    onClose,
+}: {
+    tag: Tag | null;
+    onClose: () => void;
+}) {
+    if (!tag) return null;
+
+    const hideAction: MusicListAction<Tag> = {
+        id: "remove-suggested-tag",
+        label: "Remove this",
+        icon: "eye-off-outline",
+        onPress: onClose,
+    };
+
+    return (
+        <ModalPopup visible onClose={onClose}>
+            <MusicListActionButton action={hideAction} target={tag} />
+        </ModalPopup>
     );
 }

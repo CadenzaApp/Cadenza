@@ -17,7 +17,7 @@ are three always-mounted pages in one horizontal pager at the bottom of that she
 | `player-scope.tsx`       | Resolves and shares the focused song across the sheet's three pages, and selects Tags for Modify Tags.                                               |
 | `player-page.tsx`        | The Player route: artwork or the queue, the scrubber, and the transport. The only route that touches playback.                                       |
 | `comments-page.tsx`      | The Comments route: every user's comments on `focusedSong`, highest score first. Posts, replies, votes, and deletes through `@/lib/routes/comments`. |
-| `tags-page.tsx`          | The Tags route: every user tag for `focusedSong`, applied first, plus default tags a tap adopts.                                                     |
+| `tags-page.tsx`          | The Tags route: every user tag for `focusedSong`, applied first, plus default tags a tap adopts and a long press opens a menu on.                    |
 | `compact.tsx`            | Regular and inline compact content. Adds glass only for the compatibility fallback.                                                                  |
 | `playback-details.tsx`   | `MediaPlayerTrackHeading` (title, artist, favorite, `...`) and `MediaPlayerProgress` (scrubber and timestamps).                                      |
 | `queue-view.tsx`         | What replaces the artwork when the queue is open: compact heading, shuffle/repeat pills, and the reorderable next list.                              |
@@ -169,6 +169,10 @@ smoothly between the 750ms native snapshot polls, and scrubbing overrides it wit
   Default tags section works the same way in reverse: tapping one of the song's shared defaults
   copies it into the user's tags (or reuses their tag of that name) and applies it, so the pill
   moves up to On this song.
+- Long pressing a Suggested tags pill opens `SuggestedTagMenu`, the same glass `ModalPopup` the
+  `...` menus use, holding one Hide suggested tag action. That action is a placeholder: it only
+  closes the menu. There is no hide endpoint yet, so wire that button up rather than adding a
+  second menu when there is one.
 
 ---
 

@@ -2,7 +2,8 @@
 
 pub use super::comment::Entity as Comment;
 pub use super::comment_votes::Entity as CommentVotes;
-pub use super::default_tag_votes::Entity as DefaultTagVotes;
+pub use super::default_tag_activity::Entity as DefaultTagActivity;
 pub use super::default_tags_applied::Entity as DefaultTagsApplied;
+pub use super::default_tags_removed::Entity as DefaultTagsRemoved;
 pub use super::tags::Entity as Tags;
 pub use super::user_tags_applied::Entity as UserTagsApplied;

@@ -191,6 +191,10 @@ fn collect_tag_ids(node: &QueryNode, out: &mut HashSet<i64>) {
 /// has no value column to read, so it comes through as null, which is what makes
 /// it behave like an attribute tag applied without a value.
 ///
+/// A default tag the user removed is not one of their tags, so the default
+/// branch leaves out the rows they have in `default_tags_removed`. It stays a
+/// default tag for everyone else.
+///
 /// This is a subquery rather than a CTE on purpose: postgres pushes the
 /// correlated `song_id` down into each `UNION ALL` branch, so the per-filter
 /// lookups still use the song id indexes. A materialized CTE would be scanned
@@ -200,7 +204,14 @@ fn applied_tags_source(consider_default_tags: bool) -> &'static str {
         "(
             SELECT song_id, tag_id, value FROM user_tags_applied WHERE user_id=$1
             UNION ALL
-            SELECT song_id, tag_id, NULL::text AS value FROM default_tags_applied
+            SELECT applied.song_id, applied.tag_id, NULL::text AS value
+            FROM default_tags_applied AS applied
+            WHERE NOT EXISTS (
+                SELECT 1 FROM default_tags_removed AS removed
+                WHERE removed.user_id=$1
+                    AND removed.tag_id=applied.tag_id
+                    AND removed.song_id=applied.song_id
+            )
         )"
     } else {
         "(SELECT song_id, tag_id, value FROM user_tags_applied WHERE user_id=$1)"
@@ -1013,6 +1024,31 @@ mod tests {
             3,
             "{with}"
         );
+    }
+
+    /// A default tag the user removed is not one of their tags any more, so the
+    /// exclusion has to ride along with the default branch everywhere it
+    /// appears. One branch without it would let a removed tag satisfy a filter
+    /// or score a song.
+    #[test]
+    fn removed_default_tags_are_left_out_of_every_default_branch() {
+        let query = r#"{ "where": { "and": [
+            { "filter": { "field": "tag", "tag_id": 1, "op": "is_applied" } },
+            { "filter": { "field": "tag_name", "op": "contains", "value": "live" } }
+        ] } }"#;
+
+        let (with, _) = compile_with_defaults(query).unwrap();
+        assert_eq!(
+            with.matches("FROM default_tags_applied AS applied").count(),
+            with.matches("FROM default_tags_removed AS removed").count(),
+            "{with}"
+        );
+        // the removals are the reading user's own, so they bind the same $1
+        assert_eq!(with.matches("removed.user_id=$1").count(), 3, "{with}");
+
+        // nothing reads removals when defaults are out of the query
+        let (without, _) = compile(query).unwrap();
+        assert!(!without.contains("default_tags_removed"), "{without}");
     }
 
     #[test]

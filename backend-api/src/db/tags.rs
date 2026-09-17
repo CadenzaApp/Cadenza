@@ -4,15 +4,16 @@ use sea_orm::{
     ActiveModelTrait,
     ActiveValue::{NotSet, Set},
     ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, FromQueryResult, JoinType,
-    ModelTrait, QueryFilter, QueryOrder, QuerySelect, RelationTrait, Select, TransactionTrait,
+    ModelTrait, QueryFilter, QueryOrder, QuerySelect, RelationTrait, Select, SelectTwo,
+    TransactionTrait,
     prelude::Uuid,
-    sea_query::{Expr, OnConflict},
+    sea_query::{Expr, ExprTrait, IntoCondition, OnConflict},
 };
 use serde::Serialize;
 
 use crate::db::entity::sea_orm_active_enums::TagType;
 use crate::db::entity::*;
-use crate::db::tag_votes::{TagVote, TagVoteCache, record_tag_vote};
+use crate::db::tag_activity::{count_tag_applied, count_tag_removed, count_tag_unapplied};
 use crate::err::CadenzaError;
 use crate::services::tag_generation::TagSpecs;
 use crate::services::tag_values::canonicalize_tag_value;
@@ -274,11 +275,10 @@ pub async fn delete_user_tag(
     Ok(())
 }
 
-/// Puts one of the user's tags on a song and votes yes on its name, which can
-/// make the name a default tag there (see [`record_tag_vote`]).
+/// Puts one of the user's tags on a song and counts an apply for its name, which
+/// can make the name a default tag there (see [`count_tag_applied`]).
 pub async fn apply_user_tag(
     db: DatabaseConnection,
-    votes: &TagVoteCache,
     user_id: Uuid,
     song_id: String,
     tag_id: i64,
@@ -296,13 +296,14 @@ pub async fn apply_user_tag(
     };
     new_tag_relation.insert(&txn).await?;
 
-    // the user put this tag on the song, so its name gets a yes vote
-    let recorded = record_tag_vote(&txn, votes, user_id, &song_id, &tag, TagVote::Yes).await?;
+    // the insert above would have failed if the tag was already on the song, so
+    // this request is the one that put it there, and its name gets an apply
+    let recorded = count_tag_applied(&txn, user_id, &song_id, &tag).await?;
 
     txn.commit().await?;
 
-    // update the vote cache only once the vote is committed
-    votes.remember(recorded);
+    // log the count only once it is committed
+    recorded.log();
     Ok(())
 }
 
@@ -332,11 +333,11 @@ pub async fn set_user_tag_value(
     Ok(())
 }
 
-/// Takes one of the user's tags off a song, and votes no on the tag's name for
-/// the song (see [`record_tag_vote`]). No-ops if the tag isn't on the song.
+/// Takes one of the user's tags off a song, and takes their apply of the tag's
+/// name on the song back off its count (see [`count_tag_unapplied`]). No-ops if
+/// the tag isn't on the song.
 pub async fn unapply_user_tag(
     db: DatabaseConnection,
-    votes: &TagVoteCache,
     user_id: Uuid,
     song_id: String,
     tag_id: i64,
@@ -352,22 +353,80 @@ pub async fn unapply_user_tag(
         .one(&txn)
         .await?;
 
-    // the vote this request cast, if it is the one that removed the tag
+    // the count this request took off, if it is the one that removed the tag
     let mut recorded = None;
     if let Some((applied_tag, tag)) = applied {
-        // a racing request may have removed it first, so only vote if this delete did
+        // a racing request may have removed it first, so only count if this delete did
         let deleted = applied_tag.delete(&txn).await?;
         if let (1.., Some(tag)) = (deleted.rows_affected, tag) {
-            recorded =
-                Some(record_tag_vote(&txn, votes, user_id, &song_id, &tag, TagVote::No).await?);
+            recorded = Some(count_tag_unapplied(&txn, user_id, &song_id, &tag.name).await?);
         }
     }
 
     txn.commit().await?;
 
-    // update the vote cache only once the vote is committed
+    // log the count only once it is committed
     if let Some(recorded) = recorded {
-        votes.remember(recorded);
+        recorded.log();
+    }
+    Ok(())
+}
+
+/// Removes one of the song's suggested tags for this user: remembers it in
+/// `default_tags_removed` and counts a remove for the tag's name (see
+/// [`count_tag_removed`]).
+///
+/// The default tag itself stays on the song, for this user and everyone else.
+/// Only the user's first removal of it counts, so nobody can run the count up.
+/// `NotFound` if the tag is not one of the song's default tags.
+pub async fn remove_default_tag_from_song(
+    db: DatabaseConnection,
+    user_id: Uuid,
+    song_id: String,
+    tag_id: i64,
+) -> Result<(), CadenzaError> {
+    let txn = db.begin().await?;
+
+    // the tag has to be a default tag on the song, and it carries the name the
+    // counts are keyed on
+    let (_, tag) = default_tags_applied::Entity::find_by_id((song_id.clone(), tag_id))
+        .find_also_related(tags::Entity)
+        .filter(tags::Column::UserId.is_null())
+        .one(&txn)
+        .await?
+        .ok_or(CadenzaError::NotFound)?;
+    let tag = tag.ok_or(CadenzaError::NotFound)?;
+
+    let removal = default_tags_removed::ActiveModel {
+        user_id: Set(user_id),
+        tag_id: Set(tag_id),
+        song_id: Set(song_id.clone()),
+    };
+    let removals = default_tags_removed::Entity::insert(removal)
+        .on_conflict(
+            OnConflict::columns([
+                default_tags_removed::Column::UserId,
+                default_tags_removed::Column::TagId,
+                default_tags_removed::Column::SongId,
+            ])
+            .do_nothing()
+            .to_owned(),
+        )
+        .exec_without_returning(&txn)
+        .await?;
+
+    // a removal the user had already made inserts nothing, so it stays counted
+    // once
+    let recorded = match removals {
+        1.. => Some(count_tag_removed(&txn, user_id, &song_id, &tag.name).await?),
+        0 => None,
+    };
+
+    txn.commit().await?;
+
+    // log the count only once it is committed
+    if let Some(recorded) = recorded {
+        recorded.log();
     }
     Ok(())
 }
@@ -424,10 +483,43 @@ pub async fn add_default_tag_to_song(
     Ok(())
 }
 
-/// Returns the default tags on each given song, keyed by song id. Songs with no
-/// default tags are left out.
+/// The default tags on the given songs, paired with the tag itself, minus the
+/// ones `user_id` removed.
+///
+/// The removals are a left join kept to this user plus an `IS NULL` check, so a
+/// row that found no removal of theirs survives and one that found theirs is
+/// dropped. Another user's removal never hides the tag.
+fn default_tags_on_songs_query(
+    user_id: Uuid,
+    song_ids: &[String],
+) -> SelectTwo<default_tags_applied::Entity, tags::Entity> {
+    default_tags_applied::Entity::find()
+        .filter(default_tags_applied::Column::SongId.is_in(song_ids))
+        .join(
+            JoinType::LeftJoin,
+            default_tags_applied::Relation::DefaultTagsRemoved
+                .def()
+                .on_condition(move |_applied, removed| {
+                    Expr::col((removed, default_tags_removed::Column::UserId))
+                        .eq(user_id)
+                        .into_condition()
+                }),
+        )
+        .filter(default_tags_removed::Column::UserId.is_null())
+        .find_also_related(tags::Entity)
+        .filter(tags::Column::UserId.is_null())
+}
+
+/// Returns the default tags on each given song as this user sees them, keyed by
+/// song id. Default tags the user removed are left out, and so are songs with
+/// none left.
+///
+/// Removals are per user, so this is not what the song has for everyone.
+/// `get_songs_without_default_tags` is the read that answers that, and the
+/// generation path uses it rather than this.
 pub async fn get_default_tags_on_songs(
     db: &impl ConnectionTrait,
+    user_id: Uuid,
     song_ids: &[String],
 ) -> Result<HashMap<String, Vec<tags::Model>>, CadenzaError> {
     // no songs, so nothing to look up
@@ -435,10 +527,7 @@ pub async fn get_default_tags_on_songs(
         return Ok(HashMap::new());
     }
 
-    let applied = default_tags_applied::Entity::find()
-        .filter(default_tags_applied::Column::SongId.is_in(song_ids))
-        .find_also_related(tags::Entity)
-        .filter(tags::Column::UserId.is_null())
+    let applied = default_tags_on_songs_query(user_id, song_ids)
         .all(db)
         .await?;
 
@@ -534,6 +623,33 @@ pub async fn set_default_tags_on_songs(
 mod tests {
     use super::*;
     use sea_orm::QueryTrait;
+
+    /// The removal join has to carry the user id, and the `IS NULL` is what drops
+    /// the rows it matched. Without the user id on the join a removal would hide
+    /// the tag from everyone; without the `IS NULL` it would hide it from nobody.
+    #[test]
+    fn default_tag_read_leaves_out_this_users_removals() {
+        let statement = default_tags_on_songs_query(Uuid::nil(), &["song".to_owned()])
+            .build(sea_orm::DatabaseBackend::Postgres);
+
+        assert!(
+            statement.sql.contains(concat!(
+                r#"LEFT JOIN "default_tags_removed" ON "#,
+                r#""default_tags_applied"."tag_id" = "default_tags_removed"."tag_id" AND "#,
+                r#""default_tags_applied"."song_id" = "default_tags_removed"."song_id" AND "#,
+                r#""default_tags_removed"."user_id" = $1"#,
+            )),
+            "{}",
+            statement.sql
+        );
+        assert!(
+            statement
+                .sql
+                .contains(r#""default_tags_removed"."user_id" IS NULL"#),
+            "{}",
+            statement.sql
+        );
+    }
 
     fn search_sql(search: &str) -> String {
         default_tag_search_query(search, 5)

@@ -15,7 +15,6 @@ use std::net::SocketAddr;
 
 use crate::{
     auth::{SupabaseClaims, new_jwt_decoder},
-    db::tag_votes::TagVoteCache,
     routes::{
         comments::get_comments_router, queries::get_queries_router, songs::get_songs_router,
         tags::get_tags_router,
@@ -28,7 +27,6 @@ struct AppState {
     db: DatabaseConnection,
     jwt_decoder: Decoder<SupabaseClaims>,
     tag_gen_service: TagGenerationService,
-    tag_votes: TagVoteCache,
 }
 
 #[tokio::main]
@@ -48,14 +46,10 @@ async fn main() {
     // init tag generation service
     let tag_gen_service = TagGenerationService::new(OpenAiTagGenerator::new());
 
-    // remembers recent tag votes, so a user changing their vote switches it
-    let tag_votes = TagVoteCache::new();
-
     let app_state = AppState {
         db,
         jwt_decoder,
         tag_gen_service,
-        tag_votes,
     };
 
     // route paths
