@@ -9,21 +9,21 @@ connectors attached to visual boundaries instead of moving them with condition c
 
 ## Files
 
-| file                 | role                                                                        |
-| -------------------- | --------------------------------------------------------------------------- |
-| `types.ts`           | Condition, group, tag-instance (with `suggested`), drag, and drop types.    |
-| `QueryUtils.ts`      | Pure condition edits, group collapse, derived labels, and JSON compilation. |
-| `QueryUtils.test.ts` | Reducer invariants and wire-format tests.                                   |
-| `QueryBuilder.tsx`   | Composes the suggested-tag switch, simple workspace, and tag palette.       |
-| `ResultsSummary.tsx` | Shared live count and compact-inset tagged preview used by both builders.   |
-| `ConditionList.tsx`  | Single conditions, groups, connectors, mode toggles, and insertion targets. |
-| `QueryTagPill.tsx`   | Palette, suggested, and query pill states, including the NOT indicator.     |
-| `TagPalette.tsx`     | Searchable tag palette, suggested-tag section, and query-tag delete target. |
-| `DragContext.tsx`    | Drag state, measured drop-zone registry, and hit testing.                   |
-| `DraggablePill.tsx`  | Thresholded tag pans and long-press-activated group pans.                   |
-| `DropSlot.tsx`       | Registers and highlights a typed drop target.                               |
-| `DragGhost.tsx`      | Floating tag shown during an active drag.                                   |
-| `QueryResults.tsx`   | Configures the full-screen query-match view, gradient, and save dialog.     |
+| file                 | role                                                                               |
+| -------------------- | ---------------------------------------------------------------------------------- |
+| `types.ts`           | Condition, group, tag-instance (with `suggested`), drag, and drop types.           |
+| `QueryUtils.ts`      | Pure condition edits, group collapse, derived labels, and JSON compilation.        |
+| `QueryUtils.test.ts` | Reducer invariants and wire-format tests.                                          |
+| `QueryBuilder.tsx`   | Composes the suggested-tag switch, scrollable workspace, and resizable palette.    |
+| `ResultsSummary.tsx` | Shared live count and compact-inset tagged preview used by both builders.          |
+| `ConditionList.tsx`  | Single conditions, groups, connectors, mode toggles, and insertion targets.        |
+| `QueryTagPill.tsx`   | Palette, suggested, and query pill states, including the joined NOT pill.          |
+| `TagPalette.tsx`     | Searchable tag palette, suggested-tag section, and query-tag delete target.        |
+| `DragContext.tsx`    | Drag payload state, shared-value coordinates, drop-zone registry, and hit testing. |
+| `DraggablePill.tsx`  | Platform-tuned tag pans and handle-only condition pans.                            |
+| `DropSlot.tsx`       | Registers and highlights a typed drop target.                                      |
+| `DragGhost.tsx`      | Floating tag shown during an active drag.                                          |
+| `QueryResults.tsx`   | Configures the full-screen query-match view, gradient, and save dialog.            |
 
 ## The model
 
@@ -55,17 +55,22 @@ The toggle also sets `consider_default_tags` on the results request, so with it 
 default tags count as tags on it for both matching and ranking. That flag is what makes a suggested
 tag in the query resolve at all, so the toggle both supplies the tags and licenses them.
 
-Suggested tags use `TagPill`'s `inverted` state in the palette, so they read as tag-colored content
-and outline on the screen color rather than a filled pill. They drag into the query exactly like
-the user's own tags, and once in the query they are drawn identically to them: nothing on the pill
-says a tag came from the suggested section. The distinction is tracked in state, not shown.
+Suggested tags are inverted wherever they appear, in the palette, in flight, and in the query, so
+they read as tag-colored content and outline on the screen color rather than a filled pill. They
+drag into the query exactly like the user's own tags. A query tag is inverted when it is suggested;
+a negated one gets the joined NOT pill described below instead, which reads as inverted too.
 
 Turning the toggle off while the query holds a suggested tag clears the whole query.
 `CadenzaScreen` owns that, through `hasSuggestedTag`. Leaving the tag in place would send a query
 naming a default tag id without `consider_default_tags`, which the backend rejects as an unknown
 tag, so the same visible query would start returning nothing.
 
-Palette tags are drag-only and can be dropped on an insertion point. The blank workspace all
+Palette tags are drag-only and can be dropped on an insertion point. On Android, tag drags wait for
+a short hold so vertical movement is claimed by the surrounding scroll view first. iOS retains its
+immediate movement-threshold drag because its native scroll arbitration otherwise steals deliberate
+tag drags too readily. Tag coordinates travel through Reanimated shared values, so moving a tag does
+not rerender the complete builder on every pointer event; React state changes only when the active
+drop target changes. The blank workspace all
 the way down to the palette is also an append target. A reserved bottom inset keeps some of this
 append target visible after the existing conditions. The empty state uses the base theme background
 instead of changing surface color. Dropping a tag on a single creates an any
@@ -74,23 +79,28 @@ condition, extracted from a group, or dropped on the transformed palette to dele
 single condition keeps a stable layout identity when it expands into or collapses from a group.
 The condition card uses the shared liquid-glass surface while keeping each tag pill solid. It clips
 its contents while its height animates, and the HAVE ANY/HAVE ALL control fades
-and shifts slightly down when added or up when removed. A
-movement threshold keeps a tap available for toggling NOT. Basic tags use a circle indicator and
-switch it to a close-circle when negated. Attribute tags keep their type icon in both states.
-Every negated tag uses a thin text strike and `TagPill`'s `inverted` state, so it reads as
-tag-colored content and outline on the screen color instead of a tag-colored fill. The
+and shifts slightly down when added or up when removed. Toggling NOT is a tap gesture that races
+the query tag's drag inside the gesture system, not a pressable child competing with it through the
+React Native responder system. The drag threshold on a query tag matches the tap's allowed travel,
+so ordinary tap drift cannot start a drag, and every travel distance resolves to either a tap or a
+drag. A negated tag becomes a joined pill: its
+solid left segment contains the existing icon and a NOT label, while its tag-name segment keeps a
+tag-colored outline over the same screen color `TagPill`'s `inverted` state would have used, so a
+dark tag color stays legible there too. It reads that color through `useTagScreenColor`, because it
+paints its two segments separately rather than going through `TagPill`. Basic tags use a
+close-circle icon in that segment, while attribute tags retain their type icon. The
 whole HAVE ANY/HAVE ALL control toggles the
 group mode. Top-level connector dividers use solid rounded controls and toggle between AND and OR when tapped; dividers before a
-single-tag condition read `AND HAVE` or `OR HAVE`. Dragging the handle or `Your tags` heading resizes the palette between 80 and 360
+single-tag condition read `AND HAVE` or `OR HAVE`. Dragging the dedicated handle resizes the palette between 80 and 360
 pixels. The handle keeps its small visual indicator but uses a larger overlapping touch surface. At minimum height only the resize handle and heading/search row remain visible, providing a
 collapsed palette state. Its initial 208-pixel height increases by the visible mini-player inset so the player does
 not cover the first tag rows. The heading and search field share one comfortably spaced row inside the
 same vertical scroll surface as the tags; only the resize handle stays fixed.
 Every top-level condition, including a single-tag condition, uses the screen background and can
-be reordered. Pressing and holding its surface for 300 milliseconds activates a whole-condition
-drag. Tag pills block that parent gesture so they can only start individual tag drags. The parent
-gesture also maintains an explicit descendant-touch lock, so native gesture arbitration cannot
-activate a condition drag from a tag pill. Tag destinations remain visual previews until release.
+be reordered from its vertically centered leading 44-point `reorder-two` drag handle. The rest of the card remains available to the
+scroll view and interactive controls, so scrolling or changing HAVE ANY/HAVE ALL cannot activate a
+whole-condition drag. Query-tag drags use the same short hold as palette tags. Tag destinations
+remain visual previews until release.
 Idle cards use their natural content height, including groups whose tags wrap across many rows.
 Only an active drag freezes the original card at its measured width and height and collapses a
 same-size source reservation. Release explicitly restores `auto` height so the native animated
@@ -148,8 +158,8 @@ group`. The line animates outward from its center. The palette search field uses
 when available and retains its outlined themed surface on Android and older iOS. The palette delete
 target fades a black surface over its contents, then fades in
 a destructive trash icon and label. Both layers fade away when the drag leaves the palette.
-Palette and query tags use the shared app-wide solid-color `TagPill` styling. Negated tags
-replace the standard leading dot with a close-circle icon. Reordering, grouping,
+Palette and normal query tags use the shared app-wide solid-color `TagPill` styling. Negated query
+tags use the joined solid-NOT/outlined-name treatment described above. Reordering, grouping,
 extracting, and deleting query tags are drag-only interactions; pills have no inline controls.
 
 The Cadenza tab owns conditions, so returning from the full list preserves the query. Full results
@@ -188,6 +198,13 @@ renders the same full-screen hero. See
 
 ## Gotchas
 
+- Do not give a pan both `activateAfterLongPress` and a minimum distance. Android activates a pan
+  once its travel reaches that distance, so a zero distance activates on the first touch event and
+  the hold timer never runs, which reads as a drag starting on finger down. `DraggablePill` sets one
+  or the other, never both. `src/components/custom/reorderable-list.tsx` follows the same rule.
+- Do not put a `Pressable` inside a query-builder `GestureDetector`. The surrounding pan wins that
+  cross-system race often enough that the control looks broken. Compose a `Gesture.Tap` with the
+  pan instead, as `DraggablePill`'s `onTap` does.
 - Drop rectangles are measured when dragging activates. Scrolling while a drag is active can
   make those cached coordinates stale.
 - Do not dynamically toggle NativeWind shadow or alpha (`/…`) utilities on query-builder
@@ -198,9 +215,6 @@ renders the same full-screen hero. See
 - Turning `Include suggested tags` off clears the query if it holds a suggested tag. It is the only
   thing in the builder that discards work without a drag, so it is worth knowing before changing
   the toggle's wiring.
-- A suggested tag in the query looks exactly like a user tag, so nothing on screen explains that
-  clearing. Giving `QueryTag.suggested` a visual state is the obvious follow-up; the flag is
-  already there to render from.
 - A suggested tag and a user tag can never collide on id, so group deduplication treats them as the
   distinct tags they are.
 - Both search fields in the palette are independent. The `Your tags` one filters the already

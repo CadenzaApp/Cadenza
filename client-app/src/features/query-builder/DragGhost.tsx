@@ -1,4 +1,3 @@
-import Ionicons from "@expo/vector-icons/Ionicons";
 import { Portal } from "@rn-primitives/portal";
 import { Fragment, useEffect } from "react";
 import { Platform, StyleSheet, View } from "react-native";
@@ -16,6 +15,7 @@ import { GlassSurface } from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
 import { THEME } from "@/lib/theme";
 import { useColorScheme } from "nativewind";
+import { ConditionDragHandle } from "./ConditionList";
 import { useDrag } from "./DragContext";
 import { QueryTagPill } from "./QueryTagPill";
 import type { QueryCondition } from "./types";
@@ -28,12 +28,18 @@ const noop = () => {};
 export function DragGhost() {
     const {
         dragState,
+        dragX,
+        dragY,
         rootOffset,
         conditionRelease,
         completeConditionRelease,
     } = useDrag();
     const releaseTop = useSharedValue(0);
     const releaseStyle = useAnimatedStyle(() => ({ top: releaseTop.get() }));
+    const tagPositionStyle = useAnimatedStyle(() => ({
+        left: dragX.get() - rootOffset.x - 45,
+        top: dragY.get() - rootOffset.y - 22,
+    }));
     useEffect(() => {
         if (!conditionRelease) return;
         if (conditionRelease.targetCenterY == null) {
@@ -88,36 +94,28 @@ export function DragGhost() {
         dragState.payload.source === "palette"
             ? dragState.payload.tag
             : dragState.payload.queryTag.tag;
-    const negated =
-        dragState.payload.source === "query" &&
-        dragState.payload.queryTag.negated;
-
     return (
-        <View
+        <Animated.View
             pointerEvents="none"
             className="absolute z-50 flex-row items-center rounded-full bg-background p-1"
-            style={{
-                left: dragState.x - rootOffset.x - 45,
-                top: dragState.y - rootOffset.y - 22,
-                transform: [{ scale: 1.06 }],
-            }}
+            style={[tagPositionStyle, { transform: [{ scale: 1.06 }] }]}
         >
-            <TagPill
-                tag={tag}
-                height={10}
-                inverted={negated}
-                strikethrough={negated}
-                leadingIcon={
-                    tag.type === "basic" && negated ? (
-                        <Ionicons
-                            name="close-circle"
-                            size={10}
-                            color={tag.color}
-                        />
-                    ) : undefined
-                }
-            />
-        </View>
+            {dragState.payload.source === "query" ? (
+                <QueryTagPill
+                    queryTag={dragState.payload.queryTag}
+                    onToggle={noop}
+                    height={10}
+                />
+            ) : (
+                // A suggested tag looks the same in flight as it does in the
+                // palette it left and the query it is heading for.
+                <TagPill
+                    tag={tag}
+                    height={10}
+                    inverted={dragState.payload.suggested}
+                />
+            )}
+        </Animated.View>
     );
 }
 
@@ -129,7 +127,7 @@ function ConditionGhostCard({ condition }: { condition: QueryCondition }) {
     const theme = THEME[colorScheme];
 
     return (
-        <View className="overflow-hidden rounded-xl border border-border">
+        <View className="relative overflow-hidden rounded-xl border border-border">
             <View pointerEvents="none" style={StyleSheet.absoluteFill}>
                 <GlassSurface
                     variant="regular"
@@ -139,8 +137,8 @@ function ConditionGhostCard({ condition }: { condition: QueryCondition }) {
             <View
                 className={
                     group
-                        ? "px-3 pb-2.5 pt-2"
-                        : "min-h-12 flex-row items-center px-3 py-1.5"
+                        ? "pb-2.5 pl-12 pr-3 pt-2"
+                        : "min-h-12 flex-row items-center pl-12 pr-3 py-1.5"
                 }
             >
                 {group ? (
@@ -194,6 +192,9 @@ function ConditionGhostCard({ condition }: { condition: QueryCondition }) {
                         </View>
                     ))}
                 </View>
+            </View>
+            <View className="absolute bottom-0 left-0 top-0 justify-center">
+                <ConditionDragHandle condition={condition} />
             </View>
         </View>
     );

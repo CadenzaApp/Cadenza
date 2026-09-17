@@ -8,14 +8,8 @@ import {
     useWindowDimensions,
     View,
 } from "react-native";
-import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogHeader,
-    DialogTitle,
-} from "@/components/ui/dialog";
 import { ScreenFloatingBubble } from "@/components/custom/floating-bubble";
+import { ModalPopup } from "@/components/custom/modal-popup";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -32,13 +26,11 @@ import { TagType } from "@/lib/types";
 // Light red used for the "Advanced" disclosure label + chevron.
 const ADVANCED_COLOR = "#f07a72";
 
-// DialogContent's `max-w-*` classes don't resolve on native, so the dialog
-// sizes itself to its widest child. We give it an explicit width instead and
-// derive every inner measurement from it.
+// The native modal gets an explicit width, and every inner measurement derives
+// from it so the color grid stays stable across phone sizes.
 const MAX_DIALOG_WIDTH = 330;
 const SCREEN_MARGIN = 20;
-const DIALOG_PADDING = 24; // p-6
-const DIALOG_BORDER = 1;
+const DIALOG_PADDING = 24;
 
 // The chevron sits to the right of the word "Advanced", which itself starts
 // flush with the "Tag Name" / "Color" labels above it.
@@ -124,8 +116,8 @@ export function CreateTagDialog({
         screenWidth - SCREEN_MARGIN * 2,
         MAX_DIALOG_WIDTH,
     );
-    // Usable width inside the dialog's padding and border.
-    const innerWidth = dialogWidth - (DIALOG_PADDING + DIALOG_BORDER) * 2;
+    // Usable width inside the dialog's padding.
+    const innerWidth = dialogWidth - DIALOG_PADDING * 2;
     // Swatches stay square and together span the full inner width.
     const colorBoxSize =
         (innerWidth - GRID_GAP * (COLOR_COLUMNS - 1)) / COLOR_COLUMNS;
@@ -163,212 +155,217 @@ export function CreateTagDialog({
     }
 
     return (
-        <Dialog open={open} onOpenChange={setOpen}>
-            <DialogContent
-                className="gap-3.5"
-                style={{ width: dialogWidth, maxWidth: dialogWidth }}
+        <ModalPopup
+            visible={open}
+            onClose={() => setOpen(false)}
+            contentStyle={{
+                width: dialogWidth,
+                maxWidth: dialogWidth,
+                padding: DIALOG_PADDING,
+                gap: 14,
+            }}
+        >
+            <Pressable
+                onPress={() => setOpen(false)}
+                hitSlop={12}
+                className="absolute right-4 top-4 z-10 rounded opacity-70 active:opacity-100"
+                accessibilityRole="button"
+                accessibilityLabel="Close create tag dialog"
             >
-                <DialogHeader>
-                    <DialogTitle>Create New Tag</DialogTitle>
-                    <DialogDescription>
-                        Give your tag a name and a color
-                    </DialogDescription>
-                </DialogHeader>
+                <Ionicons name="close" size={18} color={colors.text} />
+            </Pressable>
+            <View className="gap-2 pr-6">
+                <Text className="text-lg font-semibold leading-none">
+                    Create New Tag
+                </Text>
+                <Text className="text-sm text-muted-foreground">
+                    Give your tag a name and a color
+                </Text>
+            </View>
 
-                <View className="gap-1.5">
-                    <Label>Tag Name</Label>
-                    <Input
-                        value={name}
-                        onChangeText={setName}
-                        placeholder="e.g. Instrumental"
-                        returnKeyType="done"
-                    />
-                </View>
+            <View className="gap-1.5">
+                <Label>Tag Name</Label>
+                <Input
+                    value={name}
+                    onChangeText={setName}
+                    placeholder="e.g. Instrumental"
+                    returnKeyType="done"
+                />
+            </View>
 
-                <View className="gap-1.5">
-                    <Label>Color</Label>
-                    <View style={{ gap: GRID_GAP }}>
-                        {COLOR_ROWS.map((rowIndex) => (
-                            <View
-                                key={rowIndex}
-                                className="flex-row"
-                                style={{ gap: GRID_GAP }}
-                            >
-                                {COLOR_OPTIONS.slice(
-                                    rowIndex * COLOR_COLUMNS,
-                                    rowIndex * COLOR_COLUMNS + COLOR_COLUMNS,
-                                ).map((color) => {
-                                    const isSelected = color === selectedColor;
-                                    return (
-                                        <Pressable
-                                            key={color}
-                                            onPress={() =>
-                                                setSelectedColor(color)
-                                            }
-                                            className={`rounded-md items-center justify-center ${isSelected ? "border-2 border-foreground" : ""}`}
-                                            style={{
-                                                width: colorBoxSize,
-                                                height: colorBoxSize,
-                                                backgroundColor: color,
-                                            }}
-                                        />
-                                    );
-                                })}
-                            </View>
-                        ))}
-                    </View>
-                </View>
-
-                <View>
-                    <Pressable
-                        onPress={() => setShowAdvanced((prev) => !prev)}
-                        hitSlop={8}
-                        className="flex-row items-center py-1 self-start"
-                        style={{ gap: CHEVRON_GAP }}
-                    >
-                        <Text
-                            className="text-sm font-medium"
-                            style={{ color: ADVANCED_COLOR }}
-                        >
-                            Advanced
-                        </Text>
-                        <Ionicons
-                            name={
-                                showAdvanced ? "chevron-down" : "chevron-forward"
-                            }
-                            size={CHEVRON_SIZE}
-                            color={ADVANCED_COLOR}
-                        />
-                    </Pressable>
-
-                    {showAdvanced && (
+            <View className="gap-1.5">
+                <Label>Color</Label>
+                <View style={{ gap: GRID_GAP }}>
+                    {COLOR_ROWS.map((rowIndex) => (
                         <View
-                            className="gap-1.5 mt-1.5"
-                            style={{ width: innerWidth }}
+                            key={rowIndex}
+                            className="flex-row"
+                            style={{ gap: GRID_GAP }}
                         >
-                            <View
-                                className="flex-row items-center"
-                                style={{ gap: 6 }}
+                            {COLOR_OPTIONS.slice(
+                                rowIndex * COLOR_COLUMNS,
+                                rowIndex * COLOR_COLUMNS + COLOR_COLUMNS,
+                            ).map((color) => {
+                                const isSelected = color === selectedColor;
+                                return (
+                                    <Pressable
+                                        key={color}
+                                        onPress={() => setSelectedColor(color)}
+                                        className={`rounded-md items-center justify-center ${isSelected ? "border-2 border-foreground" : ""}`}
+                                        style={{
+                                            width: colorBoxSize,
+                                            height: colorBoxSize,
+                                            backgroundColor: color,
+                                        }}
+                                    />
+                                );
+                            })}
+                        </View>
+                    ))}
+                </View>
+            </View>
+
+            <View>
+                <Pressable
+                    onPress={() => setShowAdvanced((prev) => !prev)}
+                    hitSlop={8}
+                    className="flex-row items-center py-1 self-start"
+                    style={{ gap: CHEVRON_GAP }}
+                >
+                    <Text
+                        className="text-sm font-medium"
+                        style={{ color: ADVANCED_COLOR }}
+                    >
+                        Advanced
+                    </Text>
+                    <Ionicons
+                        name={showAdvanced ? "chevron-down" : "chevron-forward"}
+                        size={CHEVRON_SIZE}
+                        color={ADVANCED_COLOR}
+                    />
+                </Pressable>
+
+                {showAdvanced && (
+                    <View
+                        className="gap-1.5 mt-1.5"
+                        style={{ width: innerWidth }}
+                    >
+                        <View
+                            className="flex-row items-center"
+                            style={{ gap: 6 }}
+                        >
+                            <Label>Type</Label>
+                            <Pressable
+                                onPress={() => setShowTypeHelp((prev) => !prev)}
+                                onLongPress={() => setShowTypeHelp(true)}
+                                hitSlop={10}
+                                accessibilityRole="button"
+                                accessibilityLabel="What are tag types?"
+                                className="border-muted-foreground items-center justify-center rounded-full border"
+                                style={{
+                                    width: HELP_ICON_SIZE,
+                                    height: HELP_ICON_SIZE,
+                                }}
                             >
-                                <Label>Type</Label>
-                                <Pressable
-                                    onPress={() =>
-                                        setShowTypeHelp((prev) => !prev)
-                                    }
-                                    onLongPress={() => setShowTypeHelp(true)}
-                                    hitSlop={10}
-                                    accessibilityRole="button"
-                                    accessibilityLabel="What are tag types?"
-                                    className="border-muted-foreground items-center justify-center rounded-full border"
+                                <Text
+                                    className="text-muted-foreground font-bold"
                                     style={{
-                                        width: HELP_ICON_SIZE,
-                                        height: HELP_ICON_SIZE,
+                                        fontSize: 10,
+                                        lineHeight: 12,
                                     }}
                                 >
-                                    <Text
-                                        className="text-muted-foreground font-bold"
-                                        style={{
-                                            fontSize: 10,
-                                            lineHeight: 12,
-                                        }}
-                                    >
-                                        ?
-                                    </Text>
-                                </Pressable>
-                            </View>
-
-                            {showTypeHelp && (
-                                <Pressable
-                                    onPress={() => setShowTypeHelp(false)}
-                                    className="border-border bg-secondary rounded-md border px-3 py-2"
-                                >
-                                    <Text className="text-muted-foreground text-xs">
-                                        {TYPE_HELP_TEXT}
-                                    </Text>
-                                </Pressable>
-                            )}
-
-                            <ScrollView
-                                horizontal
-                                showsHorizontalScrollIndicator={false}
-                                keyboardShouldPersistTaps="handled"
-                                className="flex-grow-0"
-                                style={{ width: innerWidth }}
-                                contentContainerClassName="flex-row gap-2 pr-2"
-                            >
-                                {TAG_TYPES.map((type) => {
-                                    const isSelected = type === selectedType;
-                                    return (
-                                        <Pressable
-                                            key={type}
-                                            onPress={() =>
-                                                setSelectedType(type)
-                                            }
-                                            className={`shrink-0 flex-row items-center rounded-md border px-3 py-2 ${
-                                                isSelected
-                                                    ? "border-foreground bg-secondary"
-                                                    : "border-border"
-                                            }`}
-                                            style={{ gap: TYPE_ICON_GAP }}
-                                        >
-                                            <Ionicons
-                                                name={TAG_TYPE_ICONS[type]}
-                                                size={TYPE_ICON_SIZE}
-                                                color={colors.text}
-                                                style={{
-                                                    opacity: isSelected
-                                                        ? 1
-                                                        : 0.6,
-                                                }}
-                                            />
-                                            <Text
-                                                className={`text-sm ${
-                                                    isSelected
-                                                        ? "text-foreground font-medium"
-                                                        : "text-muted-foreground"
-                                                }`}
-                                            >
-                                                {TAG_TYPE_LABELS[type]}
-                                            </Text>
-                                        </Pressable>
-                                    );
-                                })}
-                            </ScrollView>
-                            <Text className="text-muted-foreground text-xs">
-                                {TAG_TYPE_DESCRIPTIONS[selectedType]}
-                            </Text>
+                                    ?
+                                </Text>
+                            </Pressable>
                         </View>
-                    )}
-                </View>
 
-                {createTagErr && (
-                    <Text className="text-destructive text-sm mb-2">
-                        {JSON.stringify(createTagErr)}
-                    </Text>
-                )}
-
-                <View className="flex-row gap-2.5 mt-0.5">
-                    <Button
-                        variant="secondary"
-                        onPress={() => setOpen(false)}
-                        disabled={createTagLoading}
-                        className="flex-1"
-                    >
-                        <Text>Cancel</Text>
-                    </Button>
-                    <Button
-                        onPress={handleCreate}
-                        disabled={!name.trim() || createTagLoading}
-                        className="flex-1"
-                    >
-                        {createTagLoading ? (
-                            <ActivityIndicator size="small" color="#ffffff" />
-                        ) : (
-                            <Text>Create</Text>
+                        {showTypeHelp && (
+                            <Pressable
+                                onPress={() => setShowTypeHelp(false)}
+                                className="border-border bg-secondary rounded-md border px-3 py-2"
+                            >
+                                <Text className="text-muted-foreground text-xs">
+                                    {TYPE_HELP_TEXT}
+                                </Text>
+                            </Pressable>
                         )}
-                    </Button>
-                </View>
-            </DialogContent>
-        </Dialog>
+
+                        <ScrollView
+                            horizontal
+                            showsHorizontalScrollIndicator={false}
+                            keyboardShouldPersistTaps="handled"
+                            className="flex-grow-0"
+                            style={{ width: innerWidth }}
+                            contentContainerClassName="flex-row gap-2 pr-2"
+                        >
+                            {TAG_TYPES.map((type) => {
+                                const isSelected = type === selectedType;
+                                return (
+                                    <Pressable
+                                        key={type}
+                                        onPress={() => setSelectedType(type)}
+                                        className={`shrink-0 flex-row items-center rounded-md border px-3 py-2 ${
+                                            isSelected
+                                                ? "border-foreground bg-secondary"
+                                                : "border-border"
+                                        }`}
+                                        style={{ gap: TYPE_ICON_GAP }}
+                                    >
+                                        <Ionicons
+                                            name={TAG_TYPE_ICONS[type]}
+                                            size={TYPE_ICON_SIZE}
+                                            color={colors.text}
+                                            style={{
+                                                opacity: isSelected ? 1 : 0.6,
+                                            }}
+                                        />
+                                        <Text
+                                            className={`text-sm ${
+                                                isSelected
+                                                    ? "text-foreground font-medium"
+                                                    : "text-muted-foreground"
+                                            }`}
+                                        >
+                                            {TAG_TYPE_LABELS[type]}
+                                        </Text>
+                                    </Pressable>
+                                );
+                            })}
+                        </ScrollView>
+                        <Text className="text-muted-foreground text-xs">
+                            {TAG_TYPE_DESCRIPTIONS[selectedType]}
+                        </Text>
+                    </View>
+                )}
+            </View>
+
+            {createTagErr && (
+                <Text className="text-destructive text-sm mb-2">
+                    {JSON.stringify(createTagErr)}
+                </Text>
+            )}
+
+            <View className="flex-row gap-2.5 mt-0.5">
+                <Button
+                    variant="secondary"
+                    onPress={() => setOpen(false)}
+                    disabled={createTagLoading}
+                    className="flex-1"
+                >
+                    <Text>Cancel</Text>
+                </Button>
+                <Button
+                    onPress={handleCreate}
+                    disabled={!name.trim() || createTagLoading}
+                    className="flex-1"
+                >
+                    {createTagLoading ? (
+                        <ActivityIndicator size="small" color="#ffffff" />
+                    ) : (
+                        <Text>Create</Text>
+                    )}
+                </Button>
+            </View>
+        </ModalPopup>
     );
 }

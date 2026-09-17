@@ -5,10 +5,9 @@ import {
     useMemo,
     useRef,
     useState,
-    type MutableRefObject,
 } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
-import type { GestureType } from "react-native-gesture-handler";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import Animated, {
     Easing,
     FadeOut,
@@ -25,7 +24,7 @@ import { Text } from "@/components/ui/text";
 import { THEME } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { useColorScheme } from "nativewind";
-import { DragBlocker, DraggablePill } from "./DraggablePill";
+import { DraggablePill, SCROLLABLE_TAG_DRAG_HOLD_MS } from "./DraggablePill";
 import { useDrag } from "./DragContext";
 import { DropSlot } from "./DropSlot";
 import { QueryTagPill } from "./QueryTagPill";
@@ -407,8 +406,6 @@ function DraggableCondition({
     onPrepareDrag: () => void;
     onRefChange: (conditionId: string, view: View | null) => void;
 }) {
-    const conditionGestureRef = useRef<GestureType | undefined>(undefined);
-    const tagTouchBlocker = useMemo(() => new DragBlocker(), []);
     const conditionRef = useRef<View>(null);
     const [height, setHeight] = useState(0);
     const setConditionRef = useCallback(
@@ -430,9 +427,7 @@ function DraggableCondition({
     return (
         <DraggablePill
             payload={dragPayload}
-            activateAfterLongPress={300}
-            dragBlocker={tagTouchBlocker}
-            gestureRef={conditionGestureRef}
+            dragHandle={<ConditionDragHandle condition={condition} />}
             layoutCompensationY={layoutCompensationY}
             onPrepareDrag={onPrepareDrag}
             verticalOnly
@@ -452,13 +447,39 @@ function DraggableCondition({
             >
                 <ConditionCard
                     condition={condition}
-                    groupGestureRef={conditionGestureRef}
-                    tagTouchBlocker={tagTouchBlocker}
                     onToggleNegation={onToggleNegation}
                     onModeChange={onModeChange}
                 />
             </View>
         </DraggablePill>
+    );
+}
+
+export function ConditionDragHandle({
+    condition,
+}: {
+    condition: QueryCondition;
+}) {
+    const { colorScheme = "light" } = useColorScheme();
+    const theme = THEME[colorScheme];
+    const label = condition.kind === "group" ? "tag group" : "tag";
+
+    return (
+        <View
+            className="h-11 w-11 items-center justify-center"
+            accessible
+            accessibilityRole="button"
+            accessibilityLabel={`Reorder ${label}`}
+            accessibilityHint="Drag to move this condition"
+        >
+            <Ionicons
+                name="reorder-two"
+                size={22}
+                color={theme.mutedForeground}
+                accessibilityElementsHidden
+                importantForAccessibility="no"
+            />
+        </View>
     );
 }
 
@@ -491,14 +512,10 @@ function ReorderSpacer({
 
 function ConditionCard({
     condition,
-    groupGestureRef,
-    tagTouchBlocker,
     onToggleNegation,
     onModeChange,
 }: {
     condition: QueryCondition;
-    groupGestureRef: MutableRefObject<GestureType | undefined>;
-    tagTouchBlocker: DragBlocker;
     onToggleNegation: (queryTagId: string) => void;
     onModeChange: (groupId: string, mode: QueryGroupMode) => void;
 }) {
@@ -532,7 +549,7 @@ function ConditionCard({
                 target={{ kind: "condition", conditionId: condition.id }}
                 priority={30}
                 className={cn(
-                    "px-3",
+                    "pl-12 pr-3",
                     group
                         ? "pb-2.5 pt-2"
                         : "min-h-12 flex-row items-center py-1.5",
@@ -590,8 +607,6 @@ function ConditionCard({
                                 <DraggableQueryTag
                                     queryTag={queryTag}
                                     conditionId={condition.id}
-                                    blocksGroupGesture={groupGestureRef}
-                                    groupDragBlocker={tagTouchBlocker}
                                     onToggleNegation={onToggleNegation}
                                 />
                             </Animated.View>
@@ -617,6 +632,7 @@ function ModeToggle({
         <Pressable
             onPress={() => onChange(mode === "any" ? "all" : "any")}
             className="self-start flex-row rounded-full bg-secondary p-0.5"
+            hitSlop={{ top: 7, bottom: 7, left: 4, right: 4 }}
             accessibilityRole="switch"
             accessibilityState={{ checked: mode === "all" }}
             accessibilityLabel={
@@ -829,14 +845,10 @@ function dragTagColor(payload: import("./types").DragPayload) {
 function DraggableQueryTag({
     queryTag,
     conditionId,
-    blocksGroupGesture,
-    groupDragBlocker,
     onToggleNegation,
 }: {
     queryTag: QueryTag;
     conditionId: string;
-    blocksGroupGesture?: MutableRefObject<GestureType | undefined>;
-    groupDragBlocker?: DragBlocker;
     onToggleNegation: (queryTagId: string) => void;
 }) {
     const dragPayload = useMemo(
@@ -847,23 +859,19 @@ function DraggableQueryTag({
         }),
         [conditionId, queryTag],
     );
-    const markTagTouchActive = useCallback(() => {
-        groupDragBlocker?.block();
-    }, [groupDragBlocker]);
-    const markTagTouchInactive = useCallback(() => {
-        groupDragBlocker?.unblock();
-    }, [groupDragBlocker]);
+    // A new identity here would rebuild the pill's gestures on every render,
+    // including renders caused by an active drag.
+    const toggleNegation = useCallback(
+        () => onToggleNegation(queryTag.id),
+        [onToggleNegation, queryTag.id],
+    );
     return (
         <DraggablePill
             payload={dragPayload}
-            blocksExternalGesture={blocksGroupGesture}
-            onTouchBegin={markTagTouchActive}
-            onTouchFinalize={markTagTouchInactive}
+            activateAfterLongPress={SCROLLABLE_TAG_DRAG_HOLD_MS}
+            onTap={toggleNegation}
         >
-            <QueryTagPill
-                queryTag={queryTag}
-                onToggle={() => onToggleNegation(queryTag.id)}
-            />
+            <QueryTagPill queryTag={queryTag} onToggle={toggleNegation} />
         </DraggablePill>
     );
 }

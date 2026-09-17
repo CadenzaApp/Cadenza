@@ -60,6 +60,16 @@ function screenColorFor(screenHex: string, tagHex: string) {
 }
 
 /**
+ * The screen color a pill of this tag color pairs with. Exported for surfaces
+ * that are built by hand rather than through `TagPill` but still have to sit
+ * beside one, like the query builder's negated pill.
+ */
+export function useTagScreenColor(tagColor: string) {
+    const { colorScheme = "light" } = useColorScheme();
+    return screenColorFor(THEME[colorScheme].background, tagColor);
+}
+
+/**
  * A pill shaped badge that represents a tag
  *
  * @param tag       - The tag object (id, name, hex color, type).
@@ -97,11 +107,7 @@ export function TagPill({
     strikethrough?: boolean;
     onRemove?: () => void;
 }) {
-    const { colorScheme = "light" } = useColorScheme();
-    const screenColor = screenColorFor(
-        THEME[colorScheme].background,
-        tag.color,
-    );
+    const screenColor = useTagScreenColor(tag.color);
     const contentColor = inverted ? tag.color : screenColor;
     const iconSize = 1.15 * height;
     const dotSize = 0.8 * height;

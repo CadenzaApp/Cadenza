@@ -211,7 +211,7 @@ export function QueryBuilder({
                         <Animated.ScrollView
                             {...scroll}
                             className="flex-1"
-                            contentContainerClassName="flex-grow px-4 pb-2"
+                            contentContainerClassName="flex-grow px-5 pb-2"
                             keyboardShouldPersistTaps="handled"
                         >
                             <ConditionList

@@ -1,9 +1,6 @@
-import { useCallback, useEffect, useMemo, type MutableRefObject } from "react";
-import {
-    Gesture,
-    GestureDetector,
-    type GestureType,
-} from "react-native-gesture-handler";
+import { useCallback, useEffect, useMemo, type ReactNode } from "react";
+import { Platform, StyleSheet } from "react-native";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
     Easing,
     useAnimatedStyle,
@@ -17,22 +14,16 @@ import { useDrag } from "./DragContext";
 
 const DRAG_SETTLE_DURATION = 320;
 const DRAG_SETTLE_EASING = Easing.bezier(0.22, 0.8, 0.3, 1);
-
-export class DragBlocker {
-    private blocked = false;
-
-    block() {
-        this.blocked = true;
-    }
-
-    unblock() {
-        this.blocked = false;
-    }
-
-    isBlocked() {
-        return this.blocked;
-    }
-}
+export const SCROLLABLE_TAG_DRAG_HOLD_MS =
+    Platform.OS === "android" ? 240 : undefined;
+const DRAG_MIN_DISTANCE = 8;
+// A finger drifts a few points during an ordinary tap. A pill that also
+// answers a tap needs a wider drag threshold than a drag-only pill, and the
+// tap uses the same number so no travel distance falls between the two.
+const TAP_TOLERANCE = 14;
+// Long enough that a slow, deliberate tap still counts. On Android the pan
+// takes over at the hold threshold well before this.
+const TAP_MAX_DURATION = 600;
 
 class ReleaseLatch {
     private pending = false;
@@ -53,25 +44,19 @@ class ReleaseLatch {
 export function DraggablePill({
     payload,
     children,
+    dragHandle,
     activateAfterLongPress,
-    gestureRef,
-    blocksExternalGesture,
-    dragBlocker,
     onPrepareDrag,
-    onTouchBegin,
-    onTouchFinalize,
+    onTap,
     verticalOnly = false,
     layoutCompensationY = 0,
 }: {
     payload: DragPayload;
-    children: React.ReactNode;
+    children: ReactNode;
+    dragHandle?: ReactNode;
     activateAfterLongPress?: number;
-    gestureRef?: MutableRefObject<GestureType | undefined>;
-    blocksExternalGesture?: MutableRefObject<GestureType | undefined>;
-    dragBlocker?: DragBlocker;
     onPrepareDrag?: () => void;
-    onTouchBegin?: () => void;
-    onTouchFinalize?: () => void;
+    onTap?: () => void;
     verticalOnly?: boolean;
     layoutCompensationY?: number;
 }) {
@@ -112,27 +97,27 @@ export function DraggablePill({
     );
 
     const pan = useMemo(() => {
-        const gesture = Gesture.Pan()
-            .minDistance(activateAfterLongPress ? 0 : 8)
-            .maxPointers(1)
-            .runOnJS(true);
+        const gesture = Gesture.Pan().maxPointers(1).runOnJS(true);
         if (activateAfterLongPress) {
+            // Never pair a minimum distance with the hold. Android activates a
+            // pan as soon as its travel reaches that distance, so a zero
+            // distance activates on the first touch event and the hold timer
+            // never runs. Left alone, the distance stays at the platform touch
+            // slop, which is the same number Android uses to fail a pan that
+            // moves before the hold completes, so the scroll view still wins a
+            // swipe and the timer owns activation.
             gesture.activateAfterLongPress(activateAfterLongPress);
-        }
-        if (gestureRef) gesture.withRef(gestureRef);
-        if (blocksExternalGesture) {
-            gesture.blocksExternalGesture(blocksExternalGesture);
+        } else {
+            gesture.minDistance(onTap ? TAP_TOLERANCE : DRAG_MIN_DISTANCE);
         }
         return gesture
             .onBegin((event) => {
-                onTouchBegin?.();
                 onPrepareDrag?.();
                 startX.set(event.absoluteX);
                 startY.set(event.absoluteY);
                 touchOffsetY.set(event.y);
             })
             .onStart(() => {
-                if (dragBlocker?.isBlocked()) return;
                 if (verticalOnly) {
                     reservationHeight.set(measuredHeight.get());
                     reservationHeight.set(
@@ -212,7 +197,6 @@ export function DraggablePill({
             })
             .onFinalize(() => {
                 const didDrag = isDragging.get() === 1;
-                onTouchFinalize?.();
                 if (releaseLatch.isPending()) return;
                 isDragging.set(0);
                 translateY.set(
@@ -226,17 +210,13 @@ export function DraggablePill({
             });
     }, [
         activateAfterLongPress,
+        onTap,
         cancelDrag,
         finish,
-        blocksExternalGesture,
         compensationY,
-        dragBlocker,
-        gestureRef,
         isDragging,
         move,
         onPrepareDrag,
-        onTouchBegin,
-        onTouchFinalize,
         measuredHeight,
         opacity,
         prepareDragRelease,
@@ -249,6 +229,25 @@ export function DraggablePill({
         touchOffsetY,
         verticalOnly,
     ]);
+    // A tap has to arbitrate with the drag inside the gesture system. A
+    // Pressable child would compete through the separate React Native
+    // responder system instead, and the pan wins that race often enough that
+    // toggling NOT stops working.
+    const tap = useMemo(
+        () =>
+            Gesture.Tap()
+                .maxDuration(TAP_MAX_DURATION)
+                .maxDistance(TAP_TOLERANCE)
+                .runOnJS(true)
+                .onEnd((_event, success) => {
+                    if (success) onTap?.();
+                }),
+        [onTap],
+    );
+    const gesture = useMemo(
+        () => (onTap ? Gesture.Race(pan, tap) : pan),
+        [onTap, pan, tap],
+    );
     const animatedStyle = useAnimatedStyle(() => ({
         width:
             verticalOnly && isDragging.get() && measuredWidth.get() > 0
@@ -288,24 +287,45 @@ export function DraggablePill({
         };
     });
 
-    return (
-        <GestureDetector gesture={pan}>
-            <Animated.View style={reservationStyle}>
-                <Animated.View
-                    style={animatedStyle}
-                    onLayout={(event) => {
-                        const { width, height } = event.nativeEvent.layout;
-                        if (width > 0) {
-                            measuredWidth.set(width);
-                        }
-                        if (height > 0) {
-                            measuredHeight.set(height);
-                        }
-                    }}
-                >
-                    {children}
-                </Animated.View>
+    const content = (
+        <Animated.View style={reservationStyle}>
+            <Animated.View
+                style={animatedStyle}
+                onLayout={(event) => {
+                    const { width, height } = event.nativeEvent.layout;
+                    if (width > 0) {
+                        measuredWidth.set(width);
+                    }
+                    if (height > 0) {
+                        measuredHeight.set(height);
+                    }
+                }}
+            >
+                {children}
+                {dragHandle ? (
+                    <GestureDetector gesture={gesture}>
+                        <Animated.View style={styles.dragHandle}>
+                            {dragHandle}
+                        </Animated.View>
+                    </GestureDetector>
+                ) : null}
             </Animated.View>
-        </GestureDetector>
+        </Animated.View>
+    );
+
+    return dragHandle ? (
+        content
+    ) : (
+        <GestureDetector gesture={gesture}>{content}</GestureDetector>
     );
 }
+
+const styles = StyleSheet.create({
+    dragHandle: {
+        position: "absolute",
+        left: 0,
+        top: "50%",
+        transform: [{ translateY: -22 }],
+        zIndex: 2,
+    },
+});
