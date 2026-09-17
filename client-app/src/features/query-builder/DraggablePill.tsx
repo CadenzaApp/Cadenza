@@ -1,9 +1,6 @@
-import { useCallback, useEffect, useMemo, type MutableRefObject } from "react";
-import {
-    Gesture,
-    GestureDetector,
-    type GestureType,
-} from "react-native-gesture-handler";
+import { useCallback, useEffect, useMemo, type ReactNode } from "react";
+import { Platform, StyleSheet } from "react-native";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
     Easing,
     useAnimatedStyle,
@@ -17,22 +14,8 @@ import { useDrag } from "./DragContext";
 
 const DRAG_SETTLE_DURATION = 320;
 const DRAG_SETTLE_EASING = Easing.bezier(0.22, 0.8, 0.3, 1);
-
-export class DragBlocker {
-    private blocked = false;
-
-    block() {
-        this.blocked = true;
-    }
-
-    unblock() {
-        this.blocked = false;
-    }
-
-    isBlocked() {
-        return this.blocked;
-    }
-}
+export const SCROLLABLE_TAG_DRAG_HOLD_MS =
+    Platform.OS === "android" ? 240 : undefined;
 
 class ReleaseLatch {
     private pending = false;
@@ -53,25 +36,17 @@ class ReleaseLatch {
 export function DraggablePill({
     payload,
     children,
+    dragHandle,
     activateAfterLongPress,
-    gestureRef,
-    blocksExternalGesture,
-    dragBlocker,
     onPrepareDrag,
-    onTouchBegin,
-    onTouchFinalize,
     verticalOnly = false,
     layoutCompensationY = 0,
 }: {
     payload: DragPayload;
-    children: React.ReactNode;
+    children: ReactNode;
+    dragHandle?: ReactNode;
     activateAfterLongPress?: number;
-    gestureRef?: MutableRefObject<GestureType | undefined>;
-    blocksExternalGesture?: MutableRefObject<GestureType | undefined>;
-    dragBlocker?: DragBlocker;
     onPrepareDrag?: () => void;
-    onTouchBegin?: () => void;
-    onTouchFinalize?: () => void;
     verticalOnly?: boolean;
     layoutCompensationY?: number;
 }) {
@@ -119,20 +94,14 @@ export function DraggablePill({
         if (activateAfterLongPress) {
             gesture.activateAfterLongPress(activateAfterLongPress);
         }
-        if (gestureRef) gesture.withRef(gestureRef);
-        if (blocksExternalGesture) {
-            gesture.blocksExternalGesture(blocksExternalGesture);
-        }
         return gesture
             .onBegin((event) => {
-                onTouchBegin?.();
                 onPrepareDrag?.();
                 startX.set(event.absoluteX);
                 startY.set(event.absoluteY);
                 touchOffsetY.set(event.y);
             })
             .onStart(() => {
-                if (dragBlocker?.isBlocked()) return;
                 if (verticalOnly) {
                     reservationHeight.set(measuredHeight.get());
                     reservationHeight.set(
@@ -212,7 +181,6 @@ export function DraggablePill({
             })
             .onFinalize(() => {
                 const didDrag = isDragging.get() === 1;
-                onTouchFinalize?.();
                 if (releaseLatch.isPending()) return;
                 isDragging.set(0);
                 translateY.set(
@@ -228,15 +196,10 @@ export function DraggablePill({
         activateAfterLongPress,
         cancelDrag,
         finish,
-        blocksExternalGesture,
         compensationY,
-        dragBlocker,
-        gestureRef,
         isDragging,
         move,
         onPrepareDrag,
-        onTouchBegin,
-        onTouchFinalize,
         measuredHeight,
         opacity,
         prepareDragRelease,
@@ -288,24 +251,45 @@ export function DraggablePill({
         };
     });
 
-    return (
-        <GestureDetector gesture={pan}>
-            <Animated.View style={reservationStyle}>
-                <Animated.View
-                    style={animatedStyle}
-                    onLayout={(event) => {
-                        const { width, height } = event.nativeEvent.layout;
-                        if (width > 0) {
-                            measuredWidth.set(width);
-                        }
-                        if (height > 0) {
-                            measuredHeight.set(height);
-                        }
-                    }}
-                >
-                    {children}
-                </Animated.View>
+    const content = (
+        <Animated.View style={reservationStyle}>
+            <Animated.View
+                style={animatedStyle}
+                onLayout={(event) => {
+                    const { width, height } = event.nativeEvent.layout;
+                    if (width > 0) {
+                        measuredWidth.set(width);
+                    }
+                    if (height > 0) {
+                        measuredHeight.set(height);
+                    }
+                }}
+            >
+                {children}
+                {dragHandle ? (
+                    <GestureDetector gesture={pan}>
+                        <Animated.View style={styles.dragHandle}>
+                            {dragHandle}
+                        </Animated.View>
+                    </GestureDetector>
+                ) : null}
             </Animated.View>
-        </GestureDetector>
+        </Animated.View>
+    );
+
+    return dragHandle ? (
+        content
+    ) : (
+        <GestureDetector gesture={pan}>{content}</GestureDetector>
     );
 }
+
+const styles = StyleSheet.create({
+    dragHandle: {
+        position: "absolute",
+        left: 0,
+        top: "50%",
+        transform: [{ translateY: -22 }],
+        zIndex: 2,
+    },
+});

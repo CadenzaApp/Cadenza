@@ -17,7 +17,7 @@ import { THEME } from "@/lib/theme";
 import type { Tag } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { useColorScheme } from "nativewind";
-import { DraggablePill } from "./DraggablePill";
+import { DraggablePill, SCROLLABLE_TAG_DRAG_HOLD_MS } from "./DraggablePill";
 import { DropSlot } from "./DropSlot";
 import { PaletteTagPill } from "./QueryTagPill";
 import { useDrag } from "./DragContext";
@@ -63,35 +63,29 @@ export function TagPalette({
         (nextHeight: number) => onHeightChange(nextHeight),
         [onHeightChange],
     );
-    const resizeGestures = useMemo(() => {
-        const createResizeGesture = () =>
-            Gesture.Pan()
-                .minDistance(3)
-                .maxPointers(1)
-                .onStart((event) => {
-                    resizeStartY.set(event.absoluteY);
-                    resizeStartHeight.set(paletteHeight.get());
-                })
-                .onUpdate((event) => {
-                    const nextHeight = Math.round(
-                        Math.max(
-                            TAG_PALETTE_MIN_HEIGHT,
-                            Math.min(
-                                TAG_PALETTE_MAX_HEIGHT,
-                                resizeStartHeight.get() +
-                                    resizeStartY.get() -
-                                    event.absoluteY,
-                            ),
+    const resizeGesture = useMemo(() => {
+        return Gesture.Pan()
+            .minDistance(3)
+            .maxPointers(1)
+            .onStart((event) => {
+                resizeStartY.set(event.absoluteY);
+                resizeStartHeight.set(paletteHeight.get());
+            })
+            .onUpdate((event) => {
+                const nextHeight = Math.round(
+                    Math.max(
+                        TAG_PALETTE_MIN_HEIGHT,
+                        Math.min(
+                            TAG_PALETTE_MAX_HEIGHT,
+                            resizeStartHeight.get() +
+                                resizeStartY.get() -
+                                event.absoluteY,
                         ),
-                    );
-                    paletteHeight.set(nextHeight);
-                    runOnJS(commitHeight)(nextHeight);
-                });
-
-        return {
-            handle: createResizeGesture(),
-            heading: createResizeGesture(),
-        };
+                    ),
+                );
+                paletteHeight.set(nextHeight);
+                runOnJS(commitHeight)(nextHeight);
+            });
     }, [commitHeight, paletteHeight, resizeStartHeight, resizeStartY]);
 
     return (
@@ -99,10 +93,10 @@ export function TagPalette({
             targetKey="delete"
             target={{ kind: "delete" }}
             priority={40}
-            className="relative border-t border-border bg-background px-4 pb-2 pt-1"
+            className="relative border-t border-border bg-background pb-2 pt-1"
             style={{ height }}
         >
-            <GestureDetector gesture={resizeGestures.handle}>
+            <GestureDetector gesture={resizeGesture}>
                 <View
                     collapsable={false}
                     className="-mb-2 -mt-1 h-7 items-center justify-center"
@@ -114,20 +108,14 @@ export function TagPalette({
             </GestureDetector>
             <ScrollView
                 className="flex-1"
+                contentContainerClassName="px-5"
                 keyboardShouldPersistTaps="handled"
                 showsVerticalScrollIndicator={false}
             >
                 <View className="mb-3 flex-row items-center gap-4">
-                    <GestureDetector gesture={resizeGestures.heading}>
-                        <View
-                            collapsable={false}
-                            className="h-10 justify-center"
-                            accessibilityLabel="Your tags resize handle"
-                            accessibilityHint="Drag up or down to resize the tag palette"
-                        >
-                            <Text className="text-lg font-bold">Your tags</Text>
-                        </View>
-                    </GestureDetector>
+                    <View className="h-10 justify-center">
+                        <Text className="text-lg font-bold">Your tags</Text>
+                    </View>
                     <View className="relative h-10 flex-1 overflow-hidden rounded-full">
                         {liquidGlassAvailable ? (
                             <View
@@ -204,7 +192,10 @@ function DraggablePaletteTag({ tag }: { tag: Tag }) {
         [tag],
     );
     return (
-        <DraggablePill payload={dragPayload}>
+        <DraggablePill
+            payload={dragPayload}
+            activateAfterLongPress={SCROLLABLE_TAG_DRAG_HOLD_MS}
+        >
             <PaletteTagPill tag={tag} />
         </DraggablePill>
     );

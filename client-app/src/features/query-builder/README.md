@@ -20,7 +20,7 @@ connectors attached to visual boundaries instead of moving them with condition c
 | `QueryTagPill.tsx`   | Palette and query pill states, including the NOT indicator.                 |
 | `TagPalette.tsx`     | Searchable tag palette and query-tag delete target.                         |
 | `DragContext.tsx`    | Drag state, measured drop-zone registry, and hit testing.                   |
-| `DraggablePill.tsx`  | Thresholded tag pans and long-press-activated group pans.                   |
+| `DraggablePill.tsx`  | Platform-tuned tag pans and handle-only condition pans.                     |
 | `DropSlot.tsx`       | Registers and highlights a typed drop target.                               |
 | `DragGhost.tsx`      | Floating tag shown during an active drag.                                   |
 | `QueryResults.tsx`   | Configures the full-screen query-match view, gradient, and save dialog.     |
@@ -40,7 +40,10 @@ becomes `{not: tagId}`. An empty query returns `null` and does not fetch.
 
 ## Interaction flow
 
-Palette tags are drag-only and can be dropped on an insertion point. The blank workspace all
+Palette tags are drag-only and can be dropped on an insertion point. On Android, tag drags wait for
+a short hold so vertical movement is claimed by the surrounding scroll view first. iOS retains its
+immediate movement-threshold drag because its native scroll arbitration otherwise steals deliberate
+tag drags too readily. The blank workspace all
 the way down to the palette is also an append target. A reserved bottom inset keeps some of this
 append target visible after the existing conditions. The empty state uses the base theme background
 instead of changing surface color. Dropping a tag on a single creates an any
@@ -50,21 +53,22 @@ single condition keeps a stable layout identity when it expands into or collapse
 The condition card uses the shared liquid-glass surface while keeping each tag pill solid. It clips
 its contents while its height animates, and the HAVE ANY/HAVE ALL control fades
 and shifts slightly down when added or up when removed. A
-movement threshold keeps a tap available for toggling NOT. Basic tags use a circle indicator and
-switch it to a close-circle when negated. Attribute tags keep their type icon in both states.
-Every negated tag uses a thin text strike and a tag-colored outline instead of a solid fill. The
+movement threshold keeps a tap available for toggling NOT. A negated tag becomes a joined pill: its
+solid left segment contains the existing icon and a NOT label, while its tag-name segment keeps a
+transparent fill and tag-colored outline. Basic tags use a close-circle icon in that segment, while
+attribute tags retain their type icon. The
 whole HAVE ANY/HAVE ALL control toggles the
 group mode. Top-level connector dividers use solid rounded controls and toggle between AND and OR when tapped; dividers before a
-single-tag condition read `AND HAVE` or `OR HAVE`. Dragging the handle or `Your tags` heading resizes the palette between 80 and 360
+single-tag condition read `AND HAVE` or `OR HAVE`. Dragging the dedicated handle resizes the palette between 80 and 360
 pixels. The handle keeps its small visual indicator but uses a larger overlapping touch surface. At minimum height only the resize handle and heading/search row remain visible, providing a
 collapsed palette state. Its initial 208-pixel height increases by the visible mini-player inset so the player does
 not cover the first tag rows. The heading and search field share one comfortably spaced row inside the
 same vertical scroll surface as the tags; only the resize handle stays fixed.
 Every top-level condition, including a single-tag condition, uses the screen background and can
-be reordered. Pressing and holding its surface for 300 milliseconds activates a whole-condition
-drag. Tag pills block that parent gesture so they can only start individual tag drags. The parent
-gesture also maintains an explicit descendant-touch lock, so native gesture arbitration cannot
-activate a condition drag from a tag pill. Tag destinations remain visual previews until release.
+be reordered from its vertically centered leading 44-point `reorder-two` drag handle. The rest of the card remains available to the
+scroll view and interactive controls, so scrolling or changing HAVE ANY/HAVE ALL cannot activate a
+whole-condition drag. Query-tag drags use the same short hold as palette tags. Tag destinations
+remain visual previews until release.
 Idle cards use their natural content height, including groups whose tags wrap across many rows.
 Only an active drag freezes the original card at its measured width and height and collapses a
 same-size source reservation. Release explicitly restores `auto` height so the native animated
@@ -122,8 +126,8 @@ group`. The line animates outward from its center. The palette search field uses
 when available and retains its outlined themed surface on Android and older iOS. The palette delete
 target fades a black surface over its contents, then fades in
 a destructive trash icon and label. Both layers fade away when the drag leaves the palette.
-Palette and query tags use the shared app-wide solid-color `TagPill` styling. Negated tags
-replace the standard leading dot with a close-circle icon. Reordering, grouping,
+Palette and normal query tags use the shared app-wide solid-color `TagPill` styling. Negated query
+tags use the joined solid-NOT/outlined-name treatment described above. Reordering, grouping,
 extracting, and deleting query tags are drag-only interactions; pills have no inline controls.
 
 The Cadenza tab owns conditions, so returning from the full list preserves the query. Full results
