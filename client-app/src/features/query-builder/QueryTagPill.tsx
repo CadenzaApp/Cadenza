@@ -1,5 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { Pressable, View } from "react-native";
+import { View } from "react-native";
 
 import { TagPill } from "@/components/custom/tag-pill";
 import { Text } from "@/components/ui/text";
@@ -15,20 +15,24 @@ export function QueryTagPill({
     height = 12.5,
 }: {
     queryTag: QueryTag;
-    onToggle: () => void;
+    onToggle?: () => void;
     height?: number;
 }) {
     const { colorScheme = "light" } = useColorScheme();
     const theme = THEME[colorScheme];
     const isAttributeTag = queryTag.tag.type !== "basic";
 
+    // The tap that toggles NOT belongs to the wrapping drag gesture, so this
+    // surface stays a plain View. A Pressable here would fight that gesture
+    // through the React Native responder system.
     return (
-        <Pressable
-            onPress={onToggle}
+        <View
             className="min-h-8 justify-center"
+            accessible
             accessibilityRole="button"
             accessibilityLabel={`${queryTag.negated ? "Not " : ""}${queryTag.tag.name}`}
             accessibilityHint="Toggles whether this tag is excluded"
+            onAccessibilityTap={onToggle}
         >
             {queryTag.negated ? (
                 <NegatedTagPill tag={queryTag.tag} height={height} />
@@ -47,7 +51,7 @@ export function QueryTagPill({
                     }
                 />
             )}
-        </Pressable>
+        </View>
     );
 }
 

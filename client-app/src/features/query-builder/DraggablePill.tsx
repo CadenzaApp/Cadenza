@@ -16,6 +16,14 @@ const DRAG_SETTLE_DURATION = 320;
 const DRAG_SETTLE_EASING = Easing.bezier(0.22, 0.8, 0.3, 1);
 export const SCROLLABLE_TAG_DRAG_HOLD_MS =
     Platform.OS === "android" ? 240 : undefined;
+const DRAG_MIN_DISTANCE = 8;
+// A finger drifts a few points during an ordinary tap. A pill that also
+// answers a tap needs a wider drag threshold than a drag-only pill, and the
+// tap uses the same number so no travel distance falls between the two.
+const TAP_TOLERANCE = 14;
+// Long enough that a slow, deliberate tap still counts. On Android the pan
+// takes over at the hold threshold well before this.
+const TAP_MAX_DURATION = 600;
 
 class ReleaseLatch {
     private pending = false;
@@ -39,6 +47,7 @@ export function DraggablePill({
     dragHandle,
     activateAfterLongPress,
     onPrepareDrag,
+    onTap,
     verticalOnly = false,
     layoutCompensationY = 0,
 }: {
@@ -47,6 +56,7 @@ export function DraggablePill({
     dragHandle?: ReactNode;
     activateAfterLongPress?: number;
     onPrepareDrag?: () => void;
+    onTap?: () => void;
     verticalOnly?: boolean;
     layoutCompensationY?: number;
 }) {
@@ -87,12 +97,18 @@ export function DraggablePill({
     );
 
     const pan = useMemo(() => {
-        const gesture = Gesture.Pan()
-            .minDistance(activateAfterLongPress ? 0 : 8)
-            .maxPointers(1)
-            .runOnJS(true);
+        const gesture = Gesture.Pan().maxPointers(1).runOnJS(true);
         if (activateAfterLongPress) {
+            // Never pair a minimum distance with the hold. Android activates a
+            // pan as soon as its travel reaches that distance, so a zero
+            // distance activates on the first touch event and the hold timer
+            // never runs. Left alone, the distance stays at the platform touch
+            // slop, which is the same number Android uses to fail a pan that
+            // moves before the hold completes, so the scroll view still wins a
+            // swipe and the timer owns activation.
             gesture.activateAfterLongPress(activateAfterLongPress);
+        } else {
+            gesture.minDistance(onTap ? TAP_TOLERANCE : DRAG_MIN_DISTANCE);
         }
         return gesture
             .onBegin((event) => {
@@ -194,6 +210,7 @@ export function DraggablePill({
             });
     }, [
         activateAfterLongPress,
+        onTap,
         cancelDrag,
         finish,
         compensationY,
@@ -212,6 +229,25 @@ export function DraggablePill({
         touchOffsetY,
         verticalOnly,
     ]);
+    // A tap has to arbitrate with the drag inside the gesture system. A
+    // Pressable child would compete through the separate React Native
+    // responder system instead, and the pan wins that race often enough that
+    // toggling NOT stops working.
+    const tap = useMemo(
+        () =>
+            Gesture.Tap()
+                .maxDuration(TAP_MAX_DURATION)
+                .maxDistance(TAP_TOLERANCE)
+                .runOnJS(true)
+                .onEnd((_event, success) => {
+                    if (success) onTap?.();
+                }),
+        [onTap],
+    );
+    const gesture = useMemo(
+        () => (onTap ? Gesture.Race(pan, tap) : pan),
+        [onTap, pan, tap],
+    );
     const animatedStyle = useAnimatedStyle(() => ({
         width:
             verticalOnly && isDragging.get() && measuredWidth.get() > 0
@@ -267,7 +303,7 @@ export function DraggablePill({
             >
                 {children}
                 {dragHandle ? (
-                    <GestureDetector gesture={pan}>
+                    <GestureDetector gesture={gesture}>
                         <Animated.View style={styles.dragHandle}>
                             {dragHandle}
                         </Animated.View>
@@ -280,7 +316,7 @@ export function DraggablePill({
     return dragHandle ? (
         content
     ) : (
-        <GestureDetector gesture={pan}>{content}</GestureDetector>
+        <GestureDetector gesture={gesture}>{content}</GestureDetector>
     );
 }
 

@@ -859,15 +859,19 @@ function DraggableQueryTag({
         }),
         [conditionId, queryTag],
     );
+    // A new identity here would rebuild the pill's gestures on every render,
+    // including renders caused by an active drag.
+    const toggleNegation = useCallback(
+        () => onToggleNegation(queryTag.id),
+        [onToggleNegation, queryTag.id],
+    );
     return (
         <DraggablePill
             payload={dragPayload}
             activateAfterLongPress={SCROLLABLE_TAG_DRAG_HOLD_MS}
+            onTap={toggleNegation}
         >
-            <QueryTagPill
-                queryTag={queryTag}
-                onToggle={() => onToggleNegation(queryTag.id)}
-            />
+            <QueryTagPill queryTag={queryTag} onToggle={toggleNegation} />
         </DraggablePill>
     );
 }

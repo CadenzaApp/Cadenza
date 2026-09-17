@@ -54,8 +54,11 @@ condition, extracted from a group, or dropped on the transformed palette to dele
 single condition keeps a stable layout identity when it expands into or collapses from a group.
 The condition card uses the shared liquid-glass surface while keeping each tag pill solid. It clips
 its contents while its height animates, and the HAVE ANY/HAVE ALL control fades
-and shifts slightly down when added or up when removed. A
-movement threshold keeps a tap available for toggling NOT. A negated tag becomes a joined pill: its
+and shifts slightly down when added or up when removed. Toggling NOT is a tap gesture that races
+the query tag's drag inside the gesture system, not a pressable child competing with it through the
+React Native responder system. The drag threshold on a query tag matches the tap's allowed travel,
+so ordinary tap drift cannot start a drag, and every travel distance resolves to either a tap or a
+drag. A negated tag becomes a joined pill: its
 solid left segment contains the existing icon and a NOT label, while its tag-name segment keeps a
 transparent fill and tag-colored outline. Basic tags use a close-circle icon in that segment, while
 attribute tags retain their type icon. The
@@ -165,6 +168,13 @@ dispatches to the matching endpoint and renders the same full-screen hero. See
 
 ## Gotchas
 
+- Do not give a pan both `activateAfterLongPress` and a minimum distance. Android activates a pan
+  once its travel reaches that distance, so a zero distance activates on the first touch event and
+  the hold timer never runs, which reads as a drag starting on finger down. `DraggablePill` sets one
+  or the other, never both. `src/components/custom/reorderable-list.tsx` follows the same rule.
+- Do not put a `Pressable` inside a query-builder `GestureDetector`. The surrounding pan wins that
+  cross-system race often enough that the control looks broken. Compose a `Gesture.Tap` with the
+  pan instead, as `DraggablePill`'s `onTap` does.
 - Drop rectangles are measured when dragging activates. Scrolling while a drag is active can
   make those cached coordinates stale.
 - Do not dynamically toggle NativeWind shadow or alpha (`/…`) utilities on query-builder
