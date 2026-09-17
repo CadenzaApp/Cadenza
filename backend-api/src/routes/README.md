@@ -8,12 +8,14 @@ call into `src/db/` or `src/services/`, and shape the response.
 
 | file | role |
 | --- | --- |
-| `mod.rs` | Declares `json`, `queries`, `tags`, `songs`. |
+| `mod.rs` | Declares `json`, `comments`, `queries`, `tags`, `songs`. |
 | `tags.rs` | Tag CRUD for the signed-in user, default tag search, plus LLM tag suggestion. Mounted at `/tags`. |
 | `songs.rs` | Reading and changing user tags, reading default tags, checking for missing defaults, and generating default tags. Mounted at `/songs`. |
 | `queries.rs` | Runs a tag query and returns song ids by relevance. Mounted at `/queries`. |
-| `json/mod.rs` | `vec_into`, a small `Vec<A> -> Vec<B>` helper. Declares `query` and `tag`. |
+| `comments.rs` | Reading, leaving, deleting, and voting on comments on songs. Mounted at `/comments`. |
+| `json/mod.rs` | `vec_into`, a small `Vec<A> -> Vec<B>` helper. Declares `comment`, `query`, and `tag`. |
 | `json/tag.rs` | `TagType`, `Tag`, and `AppliedTag`, the wire shapes of a tag. `From<tags::Model>` drops `user_id`. |
+| `json/comment.rs` | `Comment` and `CommentThread`, the wire shapes of a comment and of a top level comment with its replies. Both take the reading user's id, to turn `user_id` into `mine`, and each comment's vote tally. |
 | `json/query.rs` | `Query`, `QueryNode`, `Filter`, `FilterOp`: the input schema of a tag query. Both client builders produce it. |
 
 ## Endpoints
@@ -38,6 +40,10 @@ Every route below requires `Authorization: Bearer <supabase jwt>`.
 | PATCH | `/songs/local-tags` | `{song_id, tag_id, value}` | empty. A null value clears it |
 | DELETE | `/songs/local-tags` | `{song_id, tag_id}` | empty. Votes no when it removes the tag |
 | POST | `/queries/results` | `{query, song_ids?, consider_default_tags?}` | `["songid", ...]`, most relevant first |
+| GET | `/comments` | `?song_id=...` | `[CommentThread]`, every user's comments on the song, newest first, each with its `replies` oldest first |
+| POST | `/comments` | `{song_id, content, parent_id?}` | the new `Comment`. `parent_id` makes it a reply to a top level comment on that song. `content` is trimmed and must then be 1 to 2000 characters |
+| DELETE | `/comments` | `{comment_id}` | empty. Also deletes every reply to it. 404 if the user has no comment with that id |
+| POST | `/comments/votes` | `{comment_id, vote}` | empty. `vote` is `"up"` or `"down"`, replacing the user's earlier vote, or `null` to take it back. 404 if an up or down vote names no comment |
 | GET | `/test` | none | `server is reachable`. Defined inline in `main.rs`, not here |
 
 `GET /tags` returns a serde-tagged enum, so the two shapes come back wrapped in `"One"` or
@@ -57,6 +63,12 @@ A `value` that does not fit the tag's type (not a number, not RFC 3339, not a
 `YYYY-MM-DD` date, not `true`/`false`, or
 any non-blank value on a `basic` tag) is rejected with `CadenzaError::InvalidTagValue` (422). See
 [../services/README.md](../services/README.md) for the exact per-type rules.
+
+A `Comment` is `{id, content, created_at, mine, votes, my_vote}`, and a `CommentThread` is a top
+level `Comment` with a `replies` array of `Comment`s beside those fields. `mine` is true on the
+signed in user's comments and stands in for the author, whose user id never leaves the api.
+`created_at` is RFC 3339 in UTC, like `2026-09-15T18:03:11.482913Z`. `votes` is up votes minus down
+votes, and `my_vote` is the signed in user's vote: `"up"`, `"down"`, or `null`.
 
 ### Query JSON
 
@@ -134,16 +146,25 @@ tagged-song universe instead.
 the shared default tags, for matching and for ranking, and lets the query name a default tag id.
 The client sets it from the `Include suggested tags` toggle.
 
+`comments.rs` handlers convert models with `json::comment`, passing `claims.user_id` so each
+comment can say whether it is `mine`. `GET /comments` makes two reads, `db::comments::get_song_comments`
+for the threads and `db::comment_votes::get_song_vote_tallies` for the votes, and `json::comment`
+pairs them up by comment id. Grouping replies under their comments, the reply and content checks,
+and storing votes live in `db::comments` and `db::comment_votes`. See `../db/README.md`.
+
 `json/` exists so the wire format is decoupled from the SeaORM models. Anything that leaves the
 api as JSON should have a type here rather than serializing an entity model directly.
 
 ## Connects to
 
-- `crate::db::tags` and `crate::db::queries` for all data access.
+- `crate::db::tags`, `crate::db::queries`, `crate::db::comments`, and `crate::db::comment_votes` for
+  all data access.
 - `crate::services::tag_generation::TagGenerationService` for `/tags/suggest` and
   `POST /songs/default-tags`.
 - `crate::err::CadenzaError` for every error path.
-- Client side: `client-app/src/lib/routes/*.ts` wraps every one of these in an SWR hook.
+- Client side: `client-app/src/lib/routes/*.ts` wraps every one of these in an SWR hook,
+  including `client-app/src/lib/routes/comments.ts` for the `/comments` routes behind the
+  player sheet's `CommentsPage`.
 
 ## Gotchas
 
@@ -157,8 +178,8 @@ api as JSON should have a type here rather than serializing an entity model dire
   returns 5 tags rather than none. The cap of 5 is `DEFAULT_TAG_SEARCH_LIMIT` and is not a
   client-settable param.
 - `POST /tags` returns the id as a bare string body, not JSON.
-- `DELETE /tags` and `DELETE /songs/local-tags` take a JSON body. Some HTTP clients will not send
-  one on a DELETE.
+- `DELETE /tags`, `DELETE /songs/local-tags`, and `DELETE /comments` take a JSON body. Some HTTP
+  clients will not send one on a DELETE.
 - `GET /songs/local-tags` returns only the user's own tags. Default tags (`user_id IS NULL`) are
   available separately from `GET /songs/default-tags`.
 - `POST /songs/local-tags/batch`, `POST /songs/default-tags/batch`, and `POST /songs/no-default-tags`
@@ -171,6 +192,15 @@ api as JSON should have a type here rather than serializing an entity model dire
   violation mapping in `err.rs`. That mapping keys off the table name `applied_tags`, but the
   entity declares `user_tags_applied`, so it falls through to a generic `DatabaseError` instead
   of `TagAlreadyApplied`. See the table naming note in `../db/README.md`.
+- `GET /comments` returns every comment on the song in one response. There is no paging.
+- Replies go one level deep. `POST /comments` answers `QueryFormatError` when `parent_id` names a
+  reply or a comment on another song, and `NotFound` when it names no comment.
+- Deleting a comment deletes every reply to it, other users' replies included.
+- A comment's author never leaves the api, only `mine`. There is no profile table, so the client
+  signs the user's own comments with their email and everyone else's with a placeholder.
+- `POST /comments/votes` treats a missing `vote` field like `null`, so it takes the vote back.
+- `GET /comments` reads comments and votes in two queries, so a comment or vote written between
+  them can come back with a stale tally until the next read.
 
 ---
 Touching files in this directory? Update this README in the same change.

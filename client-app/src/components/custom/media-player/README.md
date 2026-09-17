@@ -7,21 +7,21 @@ are three always-mounted pages in one horizontal pager at the bottom of that she
 
 ## Files
 
-| file                     | role                                                                                                                    |
-| ------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
-| `index.ts`               | Public exports for the native accessory and compatibility overlay.                                                      |
-| `media-player-host.tsx`  | Adapts native accessory placement and positions the fallback on old platforms and root detail screens.                  |
-| `media-player.tsx`       | Playback wiring shared by both native placements and the fallback.                                                      |
-| `player-pager.tsx`       | Always-mounted horizontal pager plus its glass Comments / Player / Tags selector.                                       |
-| `player-tabs.tsx`        | Selected-page context shared by the pager and Modify Tags actions.                                                      |
-| `player-scope.tsx`       | Resolves and shares the focused song across the sheet's three pages, and selects Tags for Modify Tags.                  |
-| `player-page.tsx`        | The Player route: artwork or the queue, the scrubber, and the transport. The only route that touches playback.          |
-| `comments-page.tsx`      | The Comments route: a stub social feed for `focusedSong`. Local state only, no backend, no seed data.                   |
-| `tags-page.tsx`          | The Tags route: every user tag for `focusedSong`, applied first, plus default tags a tap adopts.                        |
-| `compact.tsx`            | Regular and inline compact content. Adds glass only for the compatibility fallback.                                     |
-| `playback-details.tsx`   | `MediaPlayerTrackHeading` (title, artist, favorite, `...`) and `MediaPlayerProgress` (scrubber and timestamps).         |
-| `queue-view.tsx`         | What replaces the artwork when the queue is open: compact heading, shuffle/repeat pills, and the reorderable next list. |
-| `transport-controls.tsx` | Shuffle, skip, play, skip, queue.                                                                                       |
+| file                     | role                                                                                                                                                 |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `index.ts`               | Public exports for the native accessory and compatibility overlay.                                                                                   |
+| `media-player-host.tsx`  | Adapts native accessory placement and positions the fallback on old platforms and root detail screens.                                               |
+| `media-player.tsx`       | Playback wiring shared by both native placements and the fallback.                                                                                   |
+| `player-pager.tsx`       | Always-mounted horizontal pager plus its glass Comments / Player / Tags selector.                                                                    |
+| `player-tabs.tsx`        | Selected-page context shared by the pager and Modify Tags actions.                                                                                   |
+| `player-scope.tsx`       | Resolves and shares the focused song across the sheet's three pages, and selects Tags for Modify Tags.                                               |
+| `player-page.tsx`        | The Player route: artwork or the queue, the scrubber, and the transport. The only route that touches playback.                                       |
+| `comments-page.tsx`      | The Comments route: every user's comments on `focusedSong`, highest score first. Posts, replies, votes, and deletes through `@/lib/routes/comments`. |
+| `tags-page.tsx`          | The Tags route: every user tag for `focusedSong`, applied first, plus default tags a tap adopts.                                                     |
+| `compact.tsx`            | Regular and inline compact content. Adds glass only for the compatibility fallback.                                                                  |
+| `playback-details.tsx`   | `MediaPlayerTrackHeading` (title, artist, favorite, `...`) and `MediaPlayerProgress` (scrubber and timestamps).                                      |
+| `queue-view.tsx`         | What replaces the artwork when the queue is open: compact heading, shuffle/repeat pills, and the reorderable next list.                              |
+| `transport-controls.tsx` | Shuffle, skip, play, skip, queue.                                                                                                                    |
 
 The `...` menu and its tag editor are **not** in this directory any more. They moved to
 `@/components/custom/options-menu::SongOptionsMenu` and `@/components/custom/song-tag-editor`,
@@ -54,6 +54,9 @@ use outlines. The three page instances stay mounted for the sheet's lifetime.
 `tagsArtworkColor` params and shares it across the three routes. Modify Tags on a song that is not
 playing pushes `/player/tags` with those params. Modify Tags from the Player page updates the
 scope and selects the already-mounted Tags page without changing routes.
+
+`CommentsPage` also takes `active`, whether the pager is on it, so it knows when to hold its
+comment order. The pager derives that from the selected tab, which settles on momentum scroll end.
 
 Only `PlayerPage` touches playback. `CommentsPage` and `TagsPage` take only `focusedSong` and never
 read `usePlayback()`. `DetailScreen` paints the tint once behind the header and the transparent
@@ -104,6 +107,8 @@ smoothly between the 750ms native snapshot polls, and scrubbing overrides it wit
 
 - `@/lib/playback::usePlayback` for all transport.
 - `@/lib/musickit-hooks::useSongFavoriteStatus` for the heading/queue heart.
+- `@/lib/routes/comments` for the Comments page, and `@/lib/account::useAccount` for the email it
+  signs the user's own comments with.
 - `@/lib/screen-overlay` for the shared visibility rules and fallback clearance.
 - `@/components/custom/reorderable-list::ReorderableList` for the up-next list.
 - `@/components/custom/options-menu::SongOptionsMenu` for the `...` menu, documented in
@@ -145,6 +150,17 @@ smoothly between the 750ms native snapshot polls, and scrubbing overrides it wit
   not `KeyboardAvoidingView`. The page sits inside a native form sheet (`DetailScreen`), and the
   sheet's own offset from the screen top throws off `KeyboardAvoidingView`'s padding math, leaving
   the composer under the keyboard.
+- Comment authors are placeholders. The backend sends `mine` and no author, so `CommentsPage` signs
+  the user's own comments with their email and everyone else's with `Anonymous`.
+- Only top level comments get vote buttons and a Reply button, since replies go one level deep.
+  The backend takes votes on replies too; the page just does not offer them.
+- The backend sends comments newest first, and that is the order the SWR cache keeps. `CommentsPage`
+  reorders them as it renders, through `@/lib/comment-votes`: highest score first, newest first
+  among equal scores. Replies stay oldest first. While the page is `active` it holds the order it
+  sorted when it came into view, so a vote changes a score without moving the comment. Comments
+  posted since go on top, and deleted ones drop out. It sorts again when it comes back into view or
+  the song changes. Out of view it sorts live, so a changed order settles while the page slides
+  away rather than while it slides in.
 - The `...` menu, its artist resolution, Go to Artist's library-only disabling, and its own
   gotchas now live with `SongOptionsMenu` - see [../../README.md](../../README.md) rather than
   this file. `TagsPage` lists **all** of the user's tags, not just applied ones (via

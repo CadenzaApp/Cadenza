@@ -1,4 +1,5 @@
 /// this module has objects that are to be returned from API as json.
+pub mod comment;
 pub mod query;
 pub mod tag;
 

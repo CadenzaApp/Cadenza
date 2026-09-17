@@ -16,7 +16,10 @@ use std::net::SocketAddr;
 use crate::{
     auth::{SupabaseClaims, new_jwt_decoder},
     db::tag_votes::TagVoteCache,
-    routes::{queries::get_queries_router, songs::get_songs_router, tags::get_tags_router},
+    routes::{
+        comments::get_comments_router, queries::get_queries_router, songs::get_songs_router,
+        tags::get_tags_router,
+    },
     services::tag_generation::{TagGenerationService, openai_tag_generator::OpenAiTagGenerator},
 };
 
@@ -60,6 +63,7 @@ async fn main() {
         .nest("/tags", get_tags_router())
         .nest("/songs", get_songs_router())
         .nest("/queries", get_queries_router())
+        .nest("/comments", get_comments_router())
         .route("/test", axum::routing::get(async || "server is reachable"))
         .with_state(app_state);
 
