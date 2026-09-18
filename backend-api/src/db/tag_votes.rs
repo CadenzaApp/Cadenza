@@ -12,7 +12,7 @@ use sea_orm::{
     sea_query::{Expr, ExprTrait, OnConflict},
 };
 
-use crate::db::entity::{default_tag_votes, tags};
+use crate::db::entity::{default_tag_activity, tags};
 use crate::db::tags::add_default_tag_to_song;
 use crate::err::CadenzaError;
 
@@ -23,7 +23,7 @@ const MAX_CACHED_VOTES: NonZeroUsize = NonZeroUsize::new(4000).unwrap();
 /// can become one of the song's default tags.
 const MIN_VOTES_TO_PROMOTE: i32 = 10;
 
-/// Which count in `default_tag_votes` a vote goes to.
+/// Which count in `default_tag_activity` a vote goes to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TagVote {
     /// A user put the tag on the song.
@@ -33,11 +33,11 @@ pub enum TagVote {
 }
 
 impl TagVote {
-    /// Returns the `default_tag_votes` column this vote counts toward.
-    fn column(self) -> default_tag_votes::Column {
+    /// Returns the `default_tag_activity` column this vote counts toward.
+    fn column(self) -> default_tag_activity::Column {
         match self {
-            TagVote::Yes => default_tag_votes::Column::VotesYes,
-            TagVote::No => default_tag_votes::Column::VotesNo,
+            TagVote::Yes => default_tag_activity::Column::ApplyCount,
+            TagVote::No => default_tag_activity::Column::RemoveCount,
         }
     }
 }
@@ -155,7 +155,7 @@ impl fmt::Display for RecordedVote {
     }
 }
 
-/// Counts the user's vote on the tag's name on the song in `default_tag_votes`,
+/// Counts the user's vote on the tag's name on the song in `default_tag_activity`,
 /// creating the row if there isn't one. Checks `votes` first: with no cached
 /// vote this adds one to the vote's count, with the other vote cached it moves
 /// one count over from that side, and with the same vote cached it changes
@@ -197,11 +197,11 @@ pub async fn record_tag_vote(
         .exec_with_returning(db)
         .await?;
     recorded.switched_from = previous;
-    recorded.counts = Some((counts.votes_yes, counts.votes_no));
+    recorded.counts = Some((counts.apply_count, counts.remove_count));
 
     // enough users agree on the name, so it becomes one of the song's default
     // tags, and its votes start over
-    if votes_promote_tag(counts.votes_yes, counts.votes_no) {
+    if votes_promote_tag(counts.apply_count, counts.remove_count) {
         counts.delete(db).await?;
         add_default_tag_to_song(db, song_id, &tag.name, &tag.color).await?;
         recorded.promoted = true;
@@ -227,34 +227,34 @@ fn vote_upsert(
     tag_name: &str,
     vote: TagVote,
     switched_from: Option<TagVote>,
-) -> Insert<default_tag_votes::ActiveModel> {
-    let (votes_yes, votes_no) = match vote {
+) -> Insert<default_tag_activity::ActiveModel> {
+    let (apply_count, remove_count) = match vote {
         TagVote::Yes => (1, 0),
         TagVote::No => (0, 1),
     };
 
-    let row = default_tag_votes::ActiveModel {
+    let row = default_tag_activity::ActiveModel {
         song_id: Set(song_id.to_owned()),
         tag_name: Set(tag_name.to_owned()),
-        votes_yes: Set(votes_yes),
-        votes_no: Set(votes_no),
+        apply_count: Set(apply_count),
+        remove_count: Set(remove_count),
     };
 
     // qualified, since postgres finds a bare column name ambiguous in DO UPDATE
-    let count = |vote: TagVote| Expr::col((default_tag_votes::Entity, vote.column()));
+    let count = |vote: TagVote| Expr::col((default_tag_activity::Entity, vote.column()));
 
     // on an existing row, add one to this vote's count, and take one off the vote
     // the user is switching from
     let mut on_conflict = OnConflict::columns([
-        default_tag_votes::Column::SongId,
-        default_tag_votes::Column::TagName,
+        default_tag_activity::Column::SongId,
+        default_tag_activity::Column::TagName,
     ]);
     on_conflict.value(vote.column(), count(vote).add(1));
     if let Some(switched_from) = switched_from {
         on_conflict.value(switched_from.column(), count(switched_from).sub(1));
     }
 
-    default_tag_votes::Entity::insert(row).on_conflict(on_conflict)
+    default_tag_activity::Entity::insert(row).on_conflict(on_conflict)
 }
 
 #[cfg(test)]
@@ -409,7 +409,7 @@ mod tests {
 
         assert_eq!(
             sql,
-            r#"INSERT INTO "default_tag_votes" ("song_id", "tag_name", "votes_yes", "votes_no") VALUES ('song', 'rock', 1, 0) ON CONFLICT ("song_id", "tag_name") DO UPDATE SET "votes_yes" = "default_tag_votes"."votes_yes" + 1"#
+            r#"INSERT INTO "default_tag_activity" ("song_id", "tag_name", "apply_count", "remove_count") VALUES ('song', 'rock', 1, 0) ON CONFLICT ("song_id", "tag_name") DO UPDATE SET "apply_count" = "default_tag_activity"."apply_count" + 1"#
         );
     }
 
@@ -421,7 +421,7 @@ mod tests {
 
         assert_eq!(
             sql,
-            r#"INSERT INTO "default_tag_votes" ("song_id", "tag_name", "votes_yes", "votes_no") VALUES ('song', 'rock', 0, 1) ON CONFLICT ("song_id", "tag_name") DO UPDATE SET "votes_no" = "default_tag_votes"."votes_no" + 1, "votes_yes" = "default_tag_votes"."votes_yes" - 1"#
+            r#"INSERT INTO "default_tag_activity" ("song_id", "tag_name", "apply_count", "remove_count") VALUES ('song', 'rock', 0, 1) ON CONFLICT ("song_id", "tag_name") DO UPDATE SET "remove_count" = "default_tag_activity"."remove_count" + 1, "apply_count" = "default_tag_activity"."apply_count" - 1"#
         );
     }
 }

@@ -106,4 +106,4 @@ See [../AGENT_GUIDE.md](../AGENT_GUIDE.md).
   tags of which songs, capped at 4000 votes. It is lost on restart and not shared between
   instances. A user whose vote is not in the cache, because of a restart, an eviction, or a
   request to a different instance, gets a new vote counted instead of their old one switched, so
-  `default_tag_votes` can overcount. Running more than one instance makes this worse.
+  `default_tag_activity` can overcount. Running more than one instance makes this worse.

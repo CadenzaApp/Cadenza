@@ -36,4 +36,13 @@ impl Related<super::user_tags_applied::Entity> for Entity {
     }
 }
 
+impl Related<super::default_tags_removed::Entity> for Entity {
+    fn to() -> RelationDef {
+        super::default_tags_applied::Relation::DefaultTagsRemoved.def()
+    }
+    fn via() -> Option<RelationDef> {
+        Some(super::default_tags_applied::Relation::Tags.def().rev())
+    }
+}
+
 impl ActiveModelBehavior for ActiveModel {}

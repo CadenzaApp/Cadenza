@@ -9,7 +9,7 @@ The data access layer. Everything that touches postgres lives here, so handlers 
 | --- | --- |
 | `mod.rs` | Declares `comment_votes`, `comments`, `entity`, `queries`, `tag_votes`, `tags`. |
 | `tags.rs` | User tag CRUD and applied values, plus searching, reading, generating, and applying default tags. User tag reads never copy or return defaults. |
-| `tag_votes.rs` | Counts user apply/unapply votes in `default_tag_votes` and promotes popular names to default tags. Holds the in-memory recent-vote cache. |
+| `tag_votes.rs` | Counts user apply/unapply votes in `default_tag_activity` and promotes popular names to default tags. Holds the in-memory recent-vote cache. |
 | `queries.rs` | Compiles a tag query to SQL, runs it, and ranks the matches. Unit tested. |
 | `comments.rs` | Comment reads and writes: every comment on a song paired into threads, leaving a comment or a reply, and deleting the user's own comment. |
 | `comment_votes.rs` | `CommentVote` and `VoteTally`. `set_comment_vote`, which casts, switches, or takes back the user's vote on a comment, and `get_song_vote_tallies`, the votes on each comment of a song as the reading user sees them. |
@@ -28,8 +28,12 @@ The tables below are keyed on song ids that come from Apple Music.
   Cascades on delete from `tags`. Local tag reads and queries use this table.
 - `default_tags_applied` - default tags on a song, composite pk of `(song_id, tag_id)`, no user.
   `get_default_tags_on_songs` reads it, and `set_default_tags_on_songs` replaces a song's rows.
-- `default_tag_votes` - yes/no counts for a tag name on a song. A qualifying vote promotes the
-  name to `default_tags_applied` and removes the vote row.
+- `default_tag_activity` - `apply_count` and `remove_count` for a tag name on a song, composite pk
+  of `(song_id, tag_name)`. A yes vote adds to `apply_count` and a no vote to `remove_count`. A
+  qualifying vote promotes the name to `default_tags_applied` and removes the row.
+- `default_tags_removed` - a default tag a user took off a song. Composite pk of
+  `(user_id, tag_id, song_id)`, with an fk on `(tag_id, song_id)` to `default_tags_applied` that
+  cascades. The api does not read or write it yet.
 - `song_meta` - retained in the database but unused by the api. It has no generated entity now.
 - `comment` - a comment a user left on a song. `id` (identity pk), `content`, `song_id`, `user_id`,
   and `created_at`, a `timestamp` with no time zone that defaults to `now()`. A reply sets `parent`
