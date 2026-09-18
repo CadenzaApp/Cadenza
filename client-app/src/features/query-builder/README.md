@@ -1,8 +1,8 @@
 # query-builder
 
 An ordered, tactile boolean query builder. Each top-level condition after the first has an AND/OR connector.
-A condition is either one tag or a flat group of two or more tags in `any` (OR) or `all` (AND)
-mode. Every tag instance can be negated independently.
+A condition is either one tag or a flat group of two or more tags in `any` (OR), `all` (AND),
+or `none` (NOT OR) mode. A one-tag condition can be negated as a whole.
 When a top-level condition is removed, the condition before it remembers that boundary's connector.
 Adding a replacement in the same position restores the prior AND/OR choice. Reordering keeps
 connectors attached to visual boundaries instead of moving them with condition cards.
@@ -16,11 +16,11 @@ connectors attached to visual boundaries instead of moving them with condition c
 | `QueryUtils.test.ts` | Reducer invariants and wire-format tests.                                          |
 | `QueryBuilder.tsx`   | Composes the suggested-tag switch, scrollable workspace, and resizable palette.    |
 | `ResultsSummary.tsx` | Shared live count and compact-inset tagged preview used by both builders.          |
-| `ConditionList.tsx`  | Single conditions, groups, connectors, mode toggles, and insertion targets.        |
-| `QueryTagPill.tsx`   | Palette, suggested, and query pill states, including the joined NOT pill.          |
-| `TagPalette.tsx`     | Searchable tag palette, suggested-tag section, and query-tag delete target.        |
+| `ConditionList.tsx`  | Single conditions, groups, connectors, mode slider, and insertion targets.         |
+| `QueryTagPill.tsx`   | Shared tag-pill rendering for palette, suggested, query, and drag states.          |
+| `TagPalette.tsx`     | Usage-sorted palette, suggested-tag section, and query-tag delete target.          |
 | `DragContext.tsx`    | Drag payload state, shared-value coordinates, drop-zone registry, and hit testing. |
-| `DraggablePill.tsx`  | Platform-tuned tag pans and handle-only condition pans.                            |
+| `DraggablePill.tsx`  | Tag pans, condition-card taps, and handle-only condition pans.                     |
 | `DropSlot.tsx`       | Registers and highlights a typed drop target.                                      |
 | `DragGhost.tsx`      | Floating tag shown during an active drag.                                          |
 | `QueryResults.tsx`   | Configures the full-screen query-match view, gradient, and save dialog.            |
@@ -30,18 +30,21 @@ connectors attached to visual boundaries instead of moving them with condition c
 `QueryCondition[]` preserves the user's top-level order. Each appearance of a tag has a session
 ID, its own `negated` value, and a `suggested` flag recording whether it was dragged out of the
 suggested-tag section rather than `Your tags`. The flag survives grouping, extraction, and
-reordering, because those rewrite a tag rather than rebuild it. The same tag can appear in separate conditions, but a group rejects
-duplicate tag IDs. A group has `mode: "any"|"all"` and an ordered `members` array. Helpers never leave a one-member group: removing or extracting
-a member immediately replaces that group with its remaining tag.
+reordering, because those rewrite a tag rather than rebuild it. The same tag can appear in separate
+conditions, but a group rejects duplicate tag IDs. A group has `mode: "any"|"all"|"none"` and an
+ordered `members` array. Only a top-level one-tag condition can carry `negated: true`; group members
+are always positive. Helpers never leave a one-member group: removing or extracting a member
+immediately replaces that group with its remaining tag. Collapsing a `none` group creates a negated
+one-tag condition.
 
 `queryToJSON` emits the shared wire format in `@/lib/query-json`, the same one the advanced
 builder produces. Top-level connectors compose from left to right, with adjacent uses of the same
 operator flattened into one expression. A divider's connector belongs to the condition below it.
 An individual top-level condition retains the existing `{and: [...]}` wrapper, an any group becomes
-`{or: [...]}`, and an all group becomes `{and: [...]}`. A tag becomes an `is_applied` filter on it
-and a negated tag an `is_not_applied` filter, which is the only part of the format this builder
-uses. The whole tree is wrapped in `{where: ...}`. An empty query returns `null` and does not
-fetch.
+`{or: [...]}`, an all group becomes `{and: [...]}`, and a none group becomes `{not: {or: [...]}}`.
+A tag becomes an `is_applied` filter on it and a negated one-tag condition an `is_not_applied`
+filter, which is the only part of the format this builder uses. The whole tree is wrapped in
+`{where: ...}`. An empty query returns `null` and does not fetch.
 
 ## Interaction flow
 
@@ -57,49 +60,57 @@ tag in the query resolve at all, so the toggle both supplies the tags and licens
 
 Suggested tags are inverted wherever they appear, in the palette, in flight, and in the query, so
 they read as tag-colored content and outline on the screen color rather than a filled pill. They
-drag into the query exactly like the user's own tags. A query tag is inverted when it is suggested;
-a negated one gets the joined NOT pill described below instead, which reads as inverted too.
+drag into the query exactly like the user's own tags.
 
 Turning the toggle off while the query holds a suggested tag clears the whole query.
 `CadenzaScreen` owns that, through `hasSuggestedTag`. Leaving the tag in place would send a query
 naming a default tag id without `consider_default_tags`, which the backend rejects as an unknown
 tag, so the same visible query would start returning nothing.
 
-Palette tags are drag-only and can be dropped on an insertion point. On Android, tag drags wait for
-a short hold so vertical movement is claimed by the surrounding scroll view first. iOS retains its
-immediate movement-threshold drag because its native scroll arbitration otherwise steals deliberate
-tag drags too readily. Tag coordinates travel through Reanimated shared values, so moving a tag does
+Palette tags are drag-only and can be dropped on an insertion point. Tag drags begin as soon as
+movement passes the shared drag threshold on both iOS and Android. Tag coordinates travel through
+Reanimated shared values, so moving a tag does
 not rerender the complete builder on every pointer event; React state changes only when the active
-drop target changes. The blank workspace all
+drop target changes. Whole-condition reorders likewise rerender only when a card crosses a reorder
+boundary, not for every movement frame. The palette sorts tags by the cached `/tags` application count from most used
+to least used, with tag name and ID as deterministic tie breakers. Search results keep that order.
+Its tag rows use a 2-pixel vertical gap while preserving the 8-pixel horizontal gap. The blank workspace all
 the way down to the palette is also an append target. A reserved bottom inset keeps some of this
 append target visible after the existing conditions. The empty state uses the base theme background
-instead of changing surface color. Dropping a tag on a single creates an any
-group; dropping on a group adds a member. Query tags can be reordered, moved into another
+instead of changing surface color. While a palette tag hovers over an empty query, the empty-state
+copy changes from `Drag a tag here to start a query` to `Create a new tag group` without showing
+the colored insertion line. Dropping a tag on a positive single creates an any group;
+dropping one on a negated single creates a none group, and dropping on a group adds a member.
+Query tags can be reordered, moved into another
 condition, extracted from a group, or dropped on the transformed palette to delete them. A
 single condition keeps a stable layout identity when it expands into or collapses from a group.
 The condition card uses the shared liquid-glass surface while keeping each tag pill solid. It clips
-its contents while its height animates, and the HAVE ANY/HAVE ALL control fades
-and shifts slightly down when added or up when removed. Toggling NOT is a tap gesture that races
-the query tag's drag inside the gesture system, not a pressable child competing with it through the
-React Native responder system. The drag threshold on a query tag matches the tap's allowed travel,
-so ordinary tap drift cannot start a drag, and every travel distance resolves to either a tap or a
-drag. A negated tag becomes a joined pill: its
-solid left segment contains the existing icon and a NOT label, while its tag-name segment keeps a
-tag-colored outline over the same screen color `TagPill`'s `inverted` state would have used, so a
-dark tag color stays legible there too. It reads that color through `useTagScreenColor`, because it
-paints its two segments separately rather than going through `TagPill`. Basic tags use a
-close-circle icon in that segment, while attribute tags retain their type icon. The
-whole HAVE ANY/HAVE ALL control toggles the
-group mode. Top-level connector dividers use solid rounded controls and toggle between AND and OR when tapped; dividers before a
+its contents while its height animates, and the HAVE ANY/HAVE ALL/HAVE NONE control fades and
+shifts slightly down when added or up when removed. Tapping a one-tag condition toggles its
+condition-level NOT. The card tap stays in gesture-handler and is separate from both the nested tag
+pan and the handle-only condition pan, so it does not introduce a responder-system conflict on iOS
+or Android. A negated one-tag condition keeps the normal solid tag pill and shows `NOT APPLIED`
+after it. Adding another tag to that condition creates a `HAVE NONE` group. Multi-tag groups do not
+show `NOT APPLIED`. The HAVE ANY/HAVE ALL/HAVE NONE control selects the group mode. Its three
+compact segments have 5-pixel gaps and share an animated selection indicator that is 8 pixels wider
+than each segment and centered over it. The control keeps 6-pixel horizontal edge padding. Taps
+animate the indicator over 270 ms with an ease-in-out cubic curve to the chosen segment and produce a light selection haptic. A
+horizontal slide snaps the indicator toward the segment nearest the touch point and produces the
+same haptic each time it crosses into a new segment, but commits the query mode only when the finger
+releases. Vertical movement remains available to the surrounding scroll view. `HAVE NONE`
+separates members with NOR. Top-level connector dividers use solid rounded controls and toggle between AND and OR when tapped; dividers before a
 single-tag condition read `AND HAVE` or `OR HAVE`. Dragging the dedicated handle resizes the palette between 80 and 360
 pixels. The handle keeps its small visual indicator but uses a larger overlapping touch surface. At minimum height only the resize handle and heading/search row remain visible, providing a
 collapsed palette state. Its initial 208-pixel height increases by the visible mini-player inset so the player does
-not cover the first tag rows. The heading and search field share one comfortably spaced row inside the
+not cover the first tag rows. Group tag rows use the same 2-pixel vertical gap as the palette, and
+their idle reorder grip uses the same muted foreground color as their AND/OR words. Its color
+animates to the theme primary color while that group is reordered. The heading and search field share one comfortably spaced row inside the
 same vertical scroll surface as the tags; only the resize handle stays fixed.
 Every top-level condition, including a single-tag condition, uses the screen background and can
-be reordered from its vertically centered leading 44-point `reorder-two` drag handle. The rest of the card remains available to the
-scroll view and interactive controls, so scrolling or changing HAVE ANY/HAVE ALL cannot activate a
-whole-condition drag. Query-tag drags use the same short hold as palette tags. Tag destinations
+be reordered from its vertically centered leading 48-point Mono Icons `reorder-alt` drag handle.
+That grip has no press-and-hold delay and activates after 3 points of intentional movement. The rest of the card remains available to the
+scroll view and interactive controls, so scrolling or changing the group mode cannot activate a
+whole-condition drag. Query-tag drags use the same immediate movement threshold as palette tags. Tag destinations
 remain visual previews until release.
 Idle cards use their natural content height, including groups whose tags wrap across many rows.
 Only an active drag freezes the original card at its measured width and height and collapses a
@@ -112,7 +123,7 @@ Release is staged across two frames: the first arms the moved card's layout tran
 its position, and the next animation frame commits the new order so settling begins at the finger's final coordinate.
 A synchronous release latch keeps finalization from clearing the captured reorder or delete target
 between those frames.
-Whole-condition drags suppress card-height, member-tag layout, and HAVE ANY/HAVE ALL entrance or
+Whole-condition drags suppress card-height, member-tag layout, and group-mode selector entrance or
 exit animations through the complete release settle. Non-dragged cards use a position-only transition,
 while position-keyed connector slots preserve the inter-card geometry throughout the live preview. The
 actively dragged condition opts out of that outer transition. On release, the card clears
@@ -148,18 +159,17 @@ transitions carry the preview into the committed order on release. Connectors th
 after a reorder or new-condition insertion reserve their height while the preview is active, remain
 invisible until that reserved space has settled, then fade and expand horizontally at their final
 vertical coordinate. Reorder, compensation, and connector-space changes share a softer 320 ms easing
-curve. Switching HAVE ANY and HAVE ALL animates member tags into the space required by the
-changing OR and AND labels, including movement between wrapped rows.
+curve. Switching group modes animates member tags into the space required by the changing OR and
+AND labels, including movement between wrapped rows.
 Removing a top-level condition, including by moving its only tag into another group, fades the
 old condition out while the destination updates.
 
-Out-of-group drop targets preview insertion with a tag-colored line labeled `create new tag
-group`. The line animates outward from its center. The palette search field uses native liquid glass
+Out-of-group drop targets in a non-empty query preview insertion with a tag-colored line labeled
+`create new tag group`. The line animates outward from its center. The palette search field uses native liquid glass
 when available and retains its outlined themed surface on Android and older iOS. The palette delete
 target fades a black surface over its contents, then fades in
 a destructive trash icon and label. Both layers fade away when the drag leaves the palette.
-Palette and normal query tags use the shared app-wide solid-color `TagPill` styling. Negated query
-tags use the joined solid-NOT/outlined-name treatment described above. Reordering, grouping,
+Palette and query tags use the shared app-wide solid-color `TagPill` styling. Reordering, grouping,
 extracting, and deleting query tags are drag-only interactions; pills have no inline controls.
 
 The Cadenza tab owns conditions, so returning from the full list preserves the query. Full results
@@ -198,13 +208,9 @@ renders the same full-screen hero. See
 
 ## Gotchas
 
-- Do not give a pan both `activateAfterLongPress` and a minimum distance. Android activates a pan
-  once its travel reaches that distance, so a zero distance activates on the first touch event and
-  the hold timer never runs, which reads as a drag starting on finger down. `DraggablePill` sets one
-  or the other, never both. `src/components/custom/reorderable-list.tsx` follows the same rule.
-- Do not put a `Pressable` inside a query-builder `GestureDetector`. The surrounding pan wins that
-  cross-system race often enough that the control looks broken. Compose a `Gesture.Tap` with the
-  pan instead, as `DraggablePill`'s `onTap` does.
+- Do not use a React Native `Pressable` to arbitrate a query-builder tap against a drag. Keep both
+  interactions in gesture-handler. `DraggablePill` gives condition-card taps and the dedicated
+  reorder handle separate gesture detectors, while tag pans use the same movement threshold.
 - Drop rectangles are measured when dragging activates. Scrolling while a drag is active can
   make those cached coordinates stale.
 - Do not dynamically toggle NativeWind shadow or alpha (`/…`) utilities on query-builder
