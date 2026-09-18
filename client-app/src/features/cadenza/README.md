@@ -16,23 +16,24 @@ category now, opened from the library screen, so this tab is only the query buil
 
 ## How it works
 
-`CadenzaScreen` fetches the user's tags, their cached application-count metadata, and the complete
-Apple Music song library. It passes the count metadata to the simple builder so its palette can
-order tags from most applied to least. The mode button in the result-summary row switches between
-the tactile simple builder and the filter-based advanced builder without discarding either tree.
-The simple path compiles `QueryCondition[]` with
-`queryToJSON` and sends every catalog id as the backend candidate set. The advanced path compiles
-its tree with `buildAdvancedQuery` as it changes. Both map returned ids back to the same cached
-library tracks and render the same `ResultsSummary`; its arrow opens the current mode's results.
+`CadenzaScreen` fetches the user's tags and complete Apple Music song library. It also holds the
+simple builder's `Include suggested tags` switch, which reveals the palette's suggested-tag
+section, makes default tags count in the query, and clears the query when it is turned off with a
+suggested tag still in it. The mode button in
+the result-summary row switches between the tactile simple builder and the filter-based advanced
+builder without discarding either tree. The simple path compiles `QueryCondition[]` with
+`queryToJSON` and the advanced path compiles its tree with `buildAdvancedQuery`, but both produce
+the same wire format, so the active mode only decides which tree is sent. One
+`useQueryResults` call handles both. Returned ids map back to the same cached library tracks and
+render the same `ResultsSummary`; its arrow opens the current mode's results.
 
-Supplying the complete candidate set on the simple path is what lets a NOT query include songs
-that have no Cadenza tags at all. The advanced backend currently evaluates songs represented in
-Cadenza's applied-tag data.
+Every catalog id goes along as the backend candidate set, whichever mode is active. That is what
+lets a negated query include songs with no Cadenza tags at all.
 
 The conditions live on the tab screen, so they survive tab switches. Opening the full result set
-pushes `/query-results` with the active builder kind and serialized query. The route dispatches to
-the matching endpoint but always renders the same normal full-screen `QueryResults` view. The
-builder remains mounted underneath, so going back returns to the existing query and active mode.
+pushes `/query-results` with the serialized query and a `suggested` flag, and the route renders
+the same normal full-screen `QueryResults` view. The builder remains mounted underneath, so going back returns to
+the existing query and active mode.
 
 ## Connects to
 
@@ -45,7 +46,11 @@ builder remains mounted underneath, so going back returns to the existing query 
 ## Gotchas
 
 - Both query trees last for the lifetime of the mounted Cadenza tab. They are not persisted across app
-  launches.
+  launches. The `Include suggested tags` switch has the same lifetime. It shows the suggested-tag
+  section in the palette and sets `consider_default_tags` on the results request.
+- Turning that switch off discards the whole simple query when a suggested tag is in it, because a
+  default tag id does not resolve without `consider_default_tags`. The advanced tree is untouched:
+  its tag picker only ever offers the user's own tags.
 - Tag creation lives in the Tags library sheet, not here. Query needs tags to exist before it is
   useful, so a user with no tags has to go make one from the library first.
 

@@ -11,16 +11,12 @@ import { DetailScreen } from "@/components/ui/detail-screen";
 import { GlassButton } from "@/components/ui/glass-button";
 import { GlassConfirmDialog } from "@/components/ui/glass-confirm-dialog";
 import { GlassSurface } from "@/components/ui/glass-surface";
+import { GlassToggle } from "@/components/ui/glass-toggle";
 import { Text } from "@/components/ui/text";
 import { useAccount } from "@/lib/account";
 import { useAppleMusic } from "@/lib/apple-music-auth";
 
-import {
-    GlassSettingsPanel,
-    GlassToggle,
-    SettingsIcon,
-    SettingsRow,
-} from "./settings-ui";
+import { GlassSettingsPanel, SettingsIcon, SettingsRow } from "./settings-ui";
 
 type ConfirmationTarget = "cadenza" | "apple-music";
 

@@ -1,25 +1,43 @@
-use crate::services::tag_generation::TagGenerator;
+use crate::services::tag_generation::{MAX_COMBINED_SONG_DESC_LENGTH, TagGenerator, TagSpecs};
 use crate::services::tag_normalizer::normalize_tag_name;
 use dotenvy::dotenv;
 use reqwest::Client;
 use sea_orm::prelude::async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{Value, json};
+use std::collections::HashMap;
 use std::env;
 use std::time::Duration;
 
 const OPENAI_RESPONSES_URL: &str = "https://api.openai.com/v1/responses";
-const OPENAI_HTTP_TIMEOUT_SECS: u64 = 20;
+const OPENAI_HTTP_TIMEOUT_SECS: u64 = 60;
 const OPENAI_MODEL: &str = "gpt-4o-mini";
-const TAG_GENERATION_SYSTEM_PROMPT: &str = r#"Generate one word music tags for each given song. The ordering of the returned 2d array must match the order of input songs. Generate `requested_tag_count` tags per song."#;
-const MAX_COMBINED_SONG_DESC_LENGTH: usize = 200;
+const TAG_GENERATION_SYSTEM_PROMPT: &str = r#"Generate one word music tags for each given song. Prefer tags that describe the song's genre or sound (e.g. pop, metal, instrumental). Return one entry per input song, copying that song's description back exactly in `song` alongside its tags, so tags are never matched to the wrong song. Generate `requested_tag_count` tags per song. Give every tag a `#RRGGBB` hex color that reflects what it evokes - its mood, energy, genre or era. Warm bright colors for energetic or happy tags, cool dark colors for somber or calm ones. When the same tag appears on more than one song, give it the same color each time."#;
+
+/// color used when the model returns a color we can't parse
+const FALLBACK_TAG_COLOR: &str = "#808080";
+
+fn normalize_tag_color(color: &str) -> String {
+    let color = color.trim();
+
+    let is_hex_color = color.len() == 7
+        && color.starts_with('#')
+        && color[1..].chars().all(|c| c.is_ascii_hexdigit());
+
+    match is_hex_color {
+        true => color.to_lowercase(),
+        false => FALLBACK_TAG_COLOR.to_owned(),
+    }
+}
 
 fn get_tag_generation_req_body(song_descs: &[String], requested_tag_count: usize) -> Value {
-    let user_content = format!(
-        "{{ songs: [{}], requested_tag_count: {} }}",
-        song_descs.join(","),
-        requested_tag_count
-    );
+    // serde does the quoting and escaping, so a comma or a quote inside a title
+    // cannot split one song into two entries
+    let user_content = json!({
+        "songs": song_descs,
+        "requested_tag_count": requested_tag_count,
+    })
+    .to_string();
 
     json!({
         "model": OPENAI_MODEL,
@@ -45,10 +63,31 @@ fn get_tag_generation_req_body(song_descs: &[String], requested_tag_count: usize
                     "properties": {
                         "tags": {
                             "type": "array",
+                            "description": "one entry per input song, each echoing that song's description",
                             "items": {
-                                "type": "array",
-                                "items": {
-                                    "type": "string"
+                                "type": "object",
+                                "required": ["song", "tags"],
+                                "additionalProperties": false,
+                                "properties": {
+                                    "song": {
+                                        "type": "string",
+                                        "description": "the input song description these tags belong to, copied exactly"
+                                    },
+                                    "tags": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "required": ["name", "color"],
+                                            "additionalProperties": false,
+                                            "properties": {
+                                                "name": { "type": "string" },
+                                                "color": {
+                                                    "type": "string",
+                                                    "description": "#RRGGBB hex color reflecting the tag's mood"
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -94,9 +133,105 @@ struct ResponseOutputText {
     text: String,
 }
 
+/// one song's tags, tied back to its song by the description the model echoes
+#[derive(Deserialize)]
+struct SongTags {
+    /// the input description these tags are for, copied back by the model
+    song: String,
+    tags: Vec<TagSpecs>,
+}
+
+/// the key a description is matched by, so a description echoed back with different casing
+/// or spacing still lands on the right song
+fn desc_match_key(desc: &str) -> String {
+    desc.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
+}
+
+/// the reply the json schema asks for: one entry per song, each tag carrying its own color
 #[derive(Deserialize)]
 struct OpenAiGeneratedTags {
-    tags: Vec<Vec<String>>,
+    tags: Vec<SongTags>,
+}
+
+/// Cleans up the model's tags and returns exactly one list per input song, in input order.
+///
+/// Each entry goes to the song whose description it echoes, so a song the model skipped, repeated,
+/// or answered out of order leaves an empty list instead of shifting every later song onto the
+/// wrong tags. Two songs sharing a description get the same tags. Keeps at most
+/// `requested_tag_count` tags per song, normalizes every name and color, and gives every copy of a
+/// name the first usable color that name got anywhere in the reply. A name that never got a usable
+/// color falls back to `FALLBACK_TAG_COLOR`.
+fn to_tag_specs(
+    generated_tags: Vec<SongTags>,
+    song_descs: &[String],
+    requested_tag_count: usize,
+) -> Vec<Vec<TagSpecs>> {
+    // every input position each description sits at, so a description shared by more than
+    // one song fills all of them
+    let mut desc_to_indices: HashMap<String, Vec<usize>> = HashMap::new();
+    for (index, desc) in song_descs.iter().enumerate() {
+        desc_to_indices
+            .entry(desc_match_key(desc))
+            .or_default()
+            .push(index);
+    }
+
+    // one slot per input song, left empty for any song the model did not answer for
+    let mut songs_tags: Vec<Vec<TagSpecs>> = vec![Vec::new(); song_descs.len()];
+    let mut answered = vec![false; song_descs.len()];
+
+    // drop tags past the requested count, and normalize each name and color
+    for song in generated_tags {
+        // a description matching no input song belongs in no slot
+        let Some(indices) = desc_to_indices.get(&desc_match_key(&song.song)) else {
+            continue;
+        };
+
+        let tags: Vec<TagSpecs> = song
+            .tags
+            .into_iter()
+            .take(requested_tag_count)
+            .map(|tag| TagSpecs {
+                name: normalize_tag_name(&tag.name),
+                color: normalize_tag_color(&tag.color),
+            })
+            .collect();
+
+        // a second entry for a description already answered is dropped
+        for &index in indices {
+            if answered[index] {
+                continue;
+            }
+            answered[index] = true;
+            songs_tags[index] = tags.clone();
+        }
+    }
+
+    // the first usable color each name got, so one name is one color across the whole reply
+    let mut name_to_color: HashMap<String, String> = HashMap::new();
+    for tag in songs_tags.iter().flatten() {
+        if tag.color != FALLBACK_TAG_COLOR {
+            name_to_color
+                .entry(tag.name.clone())
+                .or_insert_with(|| tag.color.clone());
+        }
+    }
+
+    // give each tag its name's color, keeping the fallback for names that never got a usable one
+    songs_tags
+        .into_iter()
+        .map(|tags| {
+            tags.into_iter()
+                .map(|TagSpecs { name, color }| {
+                    let color = name_to_color.get(&name).cloned().unwrap_or(color);
+                    TagSpecs { name, color }
+                })
+                .collect()
+        })
+        .collect()
 }
 
 #[derive(Clone)]
@@ -124,7 +259,7 @@ impl TagGenerator for OpenAiTagGenerator {
         &self,
         song_descs: &[String],
         requested_tag_count: usize,
-    ) -> Result<Vec<Vec<String>>, String> {
+    ) -> Result<Vec<Vec<TagSpecs>>, String> {
         if song_descs.is_empty() {
             return Ok(vec![]);
         }
@@ -156,30 +291,314 @@ impl TagGenerator for OpenAiTagGenerator {
             .map_err(|err| format!("openai returned malformed response: {}", err))?
             .into_text()?;
 
-        let mut generated_tags: OpenAiGeneratedTags =
+        let generated_tags: OpenAiGeneratedTags =
             serde_json::from_str(&resp_text).map_err(|e| e.to_string())?;
 
-        // normalize all generated tags (if more tags returned than requested, ignore them)
-        for tags in &mut generated_tags.tags {
-            if tags.len() > requested_tag_count {
-                *tags = tags[..requested_tag_count].to_vec();
-            }
-            for tag in tags.iter_mut() {
-                *tag = normalize_tag_name(tag);
-            }
-        }
-
-        Ok(generated_tags.tags)
+        Ok(to_tag_specs(
+            generated_tags.tags,
+            song_descs,
+            requested_tag_count,
+        ))
     }
 }
 
 // ---------------------------------------------------------------------------------------------
-// These tests call the OpenAI API and use tokens! Remove #[ignore] to run them.
-// Last ran: Jul 26
+// These tests call the OpenAI API and use tokens! Use `cargo test -- --ignored` to run them.
+// Last ran: Sep 16
 // ---------------------------------------------------------------------------------------------
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::test_utils::string_of_length;
+
+    /// true if `color` is a lowercase `#rrggbb` hex color
+    fn is_normalized_hex_color(color: &str) -> bool {
+        color.len() == 7
+            && color.starts_with('#')
+            && color[1..]
+                .chars()
+                .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
+    }
+
+    // ----- normalize_tag_color, no api calls -----
+
+    #[test]
+    fn normalize_tag_color_keeps_hex_colors() {
+        assert_eq!(normalize_tag_color("#1a2b3c"), "#1a2b3c");
+        assert_eq!(normalize_tag_color("#FF0000"), "#ff0000");
+        assert_eq!(normalize_tag_color("  #00ff00  "), "#00ff00");
+    }
+
+    #[test]
+    fn normalize_tag_color_falls_back_on_bad_input() {
+        for bad in [
+            "", "red", "#12345", "#1234567", "#ggghhh", "1a2b3c", "#1a2b3g",
+        ] {
+            assert_eq!(
+                normalize_tag_color(bad),
+                FALLBACK_TAG_COLOR,
+                "expected fallback for {:?}",
+                bad
+            );
+        }
+    }
+
+    #[test]
+    fn fallback_tag_color_is_normalized() {
+        assert!(is_normalized_hex_color(FALLBACK_TAG_COLOR));
+    }
+
+    // ----- to_tag_specs, no api calls -----
+
+    /// a tag as the model might return it, before any cleanup
+    fn raw_tag(name: &str, color: &str) -> TagSpecs {
+        TagSpecs {
+            name: name.into(),
+            color: color.into(),
+        }
+    }
+
+    /// one song's reply as the model might return it, before any cleanup
+    fn raw_song(song: &str, tags: Vec<TagSpecs>) -> SongTags {
+        SongTags {
+            song: song.into(),
+            tags,
+        }
+    }
+
+    /// the input descriptions a test batch was built from
+    fn descs(descs: &[&str]) -> Vec<String> {
+        descs.iter().map(|desc| (*desc).to_owned()).collect()
+    }
+
+    #[test]
+    fn to_tag_specs_reads_the_schema_shape() {
+        // a reply in the shape the json schema asks for
+        let reply = r##"{"tags": [{"song": "Bad Guy by Billie Eilish", "tags": [{"name": "Pop", "color": "#FF6F61"}]}, {"song": "One by Metallica", "tags": [{"name": "metal", "color": "#000000"}]}]}"##;
+        let generated: OpenAiGeneratedTags = serde_json::from_str(reply).unwrap();
+
+        let res = to_tag_specs(
+            generated.tags,
+            &descs(&["Bad Guy by Billie Eilish", "One by Metallica"]),
+            10,
+        );
+
+        assert_eq!(res.len(), 2);
+        assert_eq!(
+            (res[0][0].name.as_str(), res[0][0].color.as_str()),
+            ("pop", "#ff6f61")
+        );
+        assert_eq!(
+            (res[1][0].name.as_str(), res[1][0].color.as_str()),
+            ("metal", "#000000")
+        );
+    }
+
+    #[test]
+    fn to_tag_specs_drops_tags_past_the_requested_count() {
+        let res = to_tag_specs(
+            vec![raw_song(
+                "song",
+                vec![
+                    raw_tag("a", "#111111"),
+                    raw_tag("b", "#222222"),
+                    raw_tag("c", "#333333"),
+                ],
+            )],
+            &descs(&["song"]),
+            2,
+        );
+
+        assert_eq!(res[0].len(), 2);
+    }
+
+    #[test]
+    fn to_tag_specs_gives_a_repeated_name_its_first_usable_color() {
+        // the first copy has a bad color, so the second copy's color should win everywhere
+        let res = to_tag_specs(
+            vec![
+                raw_song("first", vec![raw_tag("Dreamy", "not a color")]),
+                raw_song("second", vec![raw_tag("dreamy", "#A1C6EA")]),
+                raw_song("third", vec![raw_tag(" dreamy ", "#000000")]),
+            ],
+            &descs(&["first", "second", "third"]),
+            10,
+        );
+
+        for tags in &res {
+            assert_eq!(tags[0].name, "dreamy");
+            assert_eq!(tags[0].color, "#a1c6ea");
+        }
+    }
+
+    #[test]
+    fn to_tag_specs_falls_back_when_a_name_never_gets_a_usable_color() {
+        let res = to_tag_specs(
+            vec![raw_song("song", vec![raw_tag("dreamy", "blue")])],
+            &descs(&["song"]),
+            10,
+        );
+
+        assert_eq!(res[0][0].color, FALLBACK_TAG_COLOR);
+    }
+
+    /// the shape of the reported bug: the model answered for one song fewer than it was
+    /// given, which used to slide every later song onto the previous song's tags
+    #[test]
+    fn to_tag_specs_leaves_a_skipped_song_empty_instead_of_shifting() {
+        // three songs, but the model never answers for Master of Puppets
+        let res = to_tag_specs(
+            vec![
+                raw_song("Jolene by Dolly Parton", vec![raw_tag("folk", "#c19a6b")]),
+                raw_song(
+                    "Linger by The Cranberries",
+                    vec![raw_tag("dreamy", "#a1c6ea")],
+                ),
+            ],
+            &descs(&[
+                "Jolene by Dolly Parton",
+                "Master of Puppets by Metallica",
+                "Linger by The Cranberries",
+            ]),
+            10,
+        );
+
+        // Linger keeps its own tags rather than taking Master of Puppets'
+        assert_eq!(res.len(), 3);
+        assert_eq!(res[0][0].name, "folk");
+        assert!(res[1].is_empty());
+        assert_eq!(res[2][0].name, "dreamy");
+    }
+
+    #[test]
+    fn to_tag_specs_puts_out_of_order_songs_back_in_input_order() {
+        let res = to_tag_specs(
+            vec![
+                raw_song("c", vec![raw_tag("third", "#333333")]),
+                raw_song("a", vec![raw_tag("first", "#111111")]),
+                raw_song("b", vec![raw_tag("second", "#222222")]),
+            ],
+            &descs(&["a", "b", "c"]),
+            10,
+        );
+
+        let names: Vec<&str> = res.iter().map(|tags| tags[0].name.as_str()).collect();
+        assert_eq!(names, ["first", "second", "third"]);
+    }
+
+    #[test]
+    fn to_tag_specs_drops_a_description_that_matches_no_input_song() {
+        let res = to_tag_specs(
+            vec![
+                raw_song("a song never sent", vec![raw_tag("invented", "#111111")]),
+                raw_song("real song", vec![raw_tag("real", "#222222")]),
+            ],
+            &descs(&["real song"]),
+            10,
+        );
+
+        assert_eq!(res.len(), 1);
+        assert_eq!(res[0][0].name, "real");
+    }
+
+    #[test]
+    fn to_tag_specs_matches_a_description_echoed_with_different_case_and_spacing() {
+        let res = to_tag_specs(
+            vec![raw_song(
+                "linger   BY The   Cranberries",
+                vec![raw_tag("dreamy", "#a1c6ea")],
+            )],
+            &descs(&["Linger by The Cranberries"]),
+            10,
+        );
+
+        assert_eq!(res[0][0].name, "dreamy");
+    }
+
+    #[test]
+    fn to_tag_specs_gives_two_songs_sharing_a_description_the_same_tags() {
+        // the same title and artist can turn up under two song ids
+        let res = to_tag_specs(
+            vec![raw_song(
+                "One by Metallica",
+                vec![raw_tag("metal", "#000000")],
+            )],
+            &descs(&["One by Metallica", "One by Metallica"]),
+            10,
+        );
+
+        assert_eq!(res.len(), 2);
+        assert_eq!(res[0][0].name, "metal");
+        assert_eq!(res[1][0].name, "metal");
+    }
+
+    #[test]
+    fn to_tag_specs_keeps_the_first_entry_for_a_repeated_description() {
+        let res = to_tag_specs(
+            vec![
+                raw_song("song", vec![raw_tag("first", "#111111")]),
+                raw_song("song", vec![raw_tag("duplicate", "#222222")]),
+            ],
+            &descs(&["song"]),
+            10,
+        );
+
+        assert_eq!(res[0].len(), 1);
+        assert_eq!(res[0][0].name, "first");
+    }
+
+    // ----- get_tag_generation_req_body, no api calls -----
+
+    /// pulls the user message back out of the request body and parses it
+    fn user_content_of(body: &Value) -> Value {
+        let content = body["input"][1]["content"].as_str().unwrap().to_owned();
+        serde_json::from_str(&content).unwrap()
+    }
+
+    /// a comma in a title used to split one song into two entries, which slid every
+    /// later song onto the previous song's tags
+    #[test]
+    fn req_body_keeps_a_title_with_a_comma_as_one_song() {
+        let body = get_tag_generation_req_body(
+            &[
+                "September by Earth, Wind & Fire".into(),
+                "Linger by The Cranberries".into(),
+            ],
+            10,
+        );
+
+        let content = user_content_of(&body);
+        let songs = content["songs"].as_array().unwrap();
+
+        assert_eq!(songs.len(), 2);
+        assert_eq!(songs[0], "September by Earth, Wind & Fire");
+        assert_eq!(songs[1], "Linger by The Cranberries");
+    }
+
+    #[test]
+    fn req_body_escapes_quotes_and_brackets_in_a_title() {
+        let body = get_tag_generation_req_body(&[r#"Say "Hello" [Remix] by Someone"#.into()], 10);
+
+        let content = user_content_of(&body);
+        let songs = content["songs"].as_array().unwrap();
+
+        assert_eq!(songs.len(), 1);
+        assert_eq!(songs[0], r#"Say "Hello" [Remix] by Someone"#);
+    }
+
+    #[test]
+    fn req_body_sends_songs_as_strings_in_input_order() {
+        let body = get_tag_generation_req_body(&["a".into(), "b".into(), "c".into()], 7);
+
+        let content = user_content_of(&body);
+        let songs = content["songs"].as_array().unwrap();
+
+        assert_eq!(content["requested_tag_count"], 7);
+        let sent: Vec<&str> = songs.iter().map(|s| s.as_str().unwrap()).collect();
+        assert_eq!(sent, ["a", "b", "c"]);
+    }
+
+    // ----- these call the api -----
 
     #[tokio::test]
     #[ignore]
@@ -198,7 +617,18 @@ mod tests {
 
         assert_eq!(res.len(), 2);
         assert_eq!(res[0].len(), 3);
-        assert_eq!(res[0].len(), 3);
+        assert_eq!(res[1].len(), 3);
+
+        // every tag gets a usable color
+        for tags in &res {
+            for tag in tags {
+                assert!(
+                    is_normalized_hex_color(&tag.color),
+                    "{:?} is not a #rrggbb color",
+                    tag
+                );
+            }
+        }
 
         println!(
             "generate_tags_works -- Into The Night by YOASOBI: {:?}, As It Was by Harry Styles: {:?}",
@@ -271,6 +701,20 @@ mod tests {
 
         assert_eq!(metallica_tags.len(), 1);
         assert_eq!(harry_tags.len(), 1);
-        assert_ne!(metallica_tags[0], harry_tags[0]);
+        assert_ne!(metallica_tags[0].name, harry_tags[0].name);
+    }
+
+    /// requesting zero tags means no colors to assign
+    #[tokio::test]
+    #[ignore]
+    async fn colors_absent_when_no_tags() {
+        let g = OpenAiTagGenerator::new();
+        let res = g
+            .generate_tags(&["One by Metallica".into()], 0)
+            .await
+            .unwrap();
+
+        assert_eq!(res.len(), 1);
+        assert!(res[0].is_empty());
     }
 }

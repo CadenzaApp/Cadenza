@@ -6,38 +6,42 @@ native module directly.
 
 ## Files
 
-| file                         | role                                                                                                                                                                                     |
-| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `backend.ts`                 | `BACKEND_URL`. One constant, currently hardcoded.                                                                                                                                        |
-| `api-actions.ts`             | The generic SWR wrappers: `useAPIData`, `useAPIPostDataBatched`, `useAPIFetch`, `useAPIMutation`.                                                                                        |
-| `api-endpoints.ts`           | `matchesEndpoint`, the cache-key matcher behind invalidation. Import-free so it can be unit tested.                                                                                      |
-| `swr-utils.ts`               | `clearCache` and `useSimpleMutation`, for things that are not plain backend calls.                                                                                                       |
-| `routes/tags.ts`             | Hooks for `/tags`: `useUserTags`, `useTag`, `useCreateTag`, `useDeleteTag`, `useSuggestTags`.                                                                                            |
-| `routes/songs.ts`            | Hooks for `/songs/tags`: `useTagsOnSong`, `useTagsOnSongs`, `useApplyTag`, `useSetTagValue`, `useUnapplyTag`.                                                                            |
-| `routes/queries.ts`          | Cached hooks for `/queries/results` and `/queries/advanced/results`: `useQueryResults`, `useAdvancedQueryResults`.                                                                       |
-| `musickit-hooks.ts`          | SWR over the native module: song info, catalog search, paged and complete-library songs, albums, artists, playlists, collection metadata, favorites, artist search, and playlist writes. |
-| `account.tsx`                | `AccountProvider` / `useAccount`. Supabase session and the JWT.                                                                                                                          |
-| `apple-music-auth.tsx`       | `AppleMusicProvider` / `useAppleMusic`. Apple Music tokens, persisted in secure store.                                                                                                   |
-| `playback.tsx`               | `PlaybackProvider`, broad `usePlayback`, lightweight `usePlaybackTrackState`, and stable `usePlaybackCommands`. Queue, native playback snapshot, and compact-player dismissal state.     |
-| `queue-order.ts`             | Pure index math for the queue mirror. Tested in `queue-order.test.ts`.                                                                                                                   |
-| `supabase.ts`                | The Supabase client, backed by AsyncStorage.                                                                                                                                             |
-| `tag-generation.ts`          | A standalone tag suggestion fetch. Does not use the wrappers. See gotchas.                                                                                                               |
-| `theme.ts`                   | `NAV_THEME`, light and dark palettes for react-navigation, `sheetScreenOptions` for sheet routes, and `pushedScreenOptions` for the pushed detail routes.                                |
-| `error-utils.ts`             | `getErrorDetails` / `getErrorMessage`, for unwrapping native and backend errors.                                                                                                         |
-| `artwork-color.ts`           | `useArtworkTint`, the color a surface paints itself with, plus alpha, darkening, and multi-artwork averaging helpers.                                                                    |
-| `artwork-color-utils.ts`     | Native-free channel averaging for multi-artwork tints.                                                                                                                                   |
-| `music-routes.ts`            | `collectionRoute` / `albumRouteForTrack`. Hrefs into the resource screens, params and all.                                                                                               |
-| `share-track.ts`             | `shareTrack` / `shareCollection`. Builds and fires the native share sheet for a song, album, or playlist's canonical Apple Music link.                                                   |
-| `screen-overlay.ts`          | `useScreenOverlayInsets`, native tab/accessory visibility, extra overlay clearance, focused-screen and keyboard suppression, and pushed-screen detection.                                |
-| `screen-overlay-geometry.ts` | Pure, tested bottom-inset arithmetic shared by tab-hosted and pushed-screen compact players.                                                                                             |
-| `playable-item.ts`           | Pure identity and collection-membership helpers for library/catalog forms of a playable item.                                                                                            |
-| `screen-scroll.ts`           | `useScreenScroll`, the props a screen's top-level scroller spreads to get tab-press-scrolls-to-top and pull-down-to-close.                                                               |
-| `screen-scroll-marker.*`     | iOS registration wrapper for native-tab inset and scroll-to-top integration with nested and virtualized scrollers; a fragment elsewhere.                                                 |
-| `zoom-dismiss.tsx`           | `ZoomOriginProvider`, `useZoomSource`, `ZoomDismissScreen`, `useCloseScreen`. Closing a pushed screen by shrinking it back into the artwork that opened it.                              |
-| `zoom-dismiss-geometry.ts`   | Pure pull, transform, timing, and corner math for `zoom-dismiss`, tested without React Native.                                                                                           |
-| `types.ts`                   | Shared wire types: `TagType`, `Tag`, `AppliedTag` and `TagMetadata`.                                                                                                                     |
-| `tag-values.ts`              | Per-type tag helpers: `TAG_TYPES`, labels, descriptions, `TAG_TYPE_ICONS`, value validation, canonicalization, formatting, and the date-only helpers.                                    |
-| `utils.ts`                   | `cn()`, the clsx + tailwind-merge helper.                                                                                                                                                |
+| file                         | role                                                                                                                                                                                                                                                                                              |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `backend.ts`                 | `BACKEND_URL`. One constant, currently hardcoded.                                                                                                                                                                                                                                                 |
+| `api-actions.ts`             | The generic SWR wrappers: `useAPIData`, `useAPIPostData`, `useAPIPostDataBatched`, `useAPIFetch`, `useAPIMutation`.                                                                                                                                                                               |
+| `api-endpoints.ts`           | `matchesEndpoint`, the cache-key matcher behind invalidation. Import-free so it can be unit tested.                                                                                                                                                                                               |
+| `swr-utils.ts`               | `clearCache` and `useSimpleMutation`, for things that are not plain backend calls.                                                                                                                                                                                                                |
+| `routes/tags.ts`             | Hooks for `/tags`: `useUserTags`, `useTag`, `useCreateTag`, `useDeleteTag`, `useDefaultTags`, `useSuggestTags`.                                                                                                                                                                                   |
+| `routes/songs.ts`            | Hooks for local and default tag reads (one song and batched), local tag writes, removing a suggested tag, missing-default checks, and generation.                                                                                                                                                 |
+| `routes/queries.ts`          | `useQueryResults`, the one cached hook for `/queries/results`. Both builders go through it, and it carries the suggested-tag flag.                                                                                                                                                                |
+| `routes/comments.ts`         | Hooks for `/comments`: `useSongComments`, `useCreateComment`, `useDeleteComment`, `useVoteOnComment`.                                                                                                                                                                                             |
+| `comment-votes.ts`           | `applyCommentVote`, the optimistic update `useVoteOnComment` makes to cached comment threads. `sortThreadsByVotes` and `orderThreadsLike`, which `CommentsPage` uses to sort threads by score and then hold that order while it is in view. Only type imports, tested in `comment-votes.test.ts`. |
+| `musickit-hooks.ts`          | SWR over the native module: song info, catalog search, paged and complete-library songs, albums, artists, playlists, collection metadata, favorites, artist search, and playlist writes.                                                                                                          |
+| `song-init.tsx`              | `SongInitProvider`, which runs the default-tag population job after account and Apple Music authorization.                                                                                                                                                                                        |
+| `song-init-job.ts`           | Import-free, tested scan and generation job for songs without default tags.                                                                                                                                                                                                                       |
+| `account.tsx`                | `AccountProvider` / `useAccount`. Supabase session and the JWT.                                                                                                                                                                                                                                   |
+| `apple-music-auth.tsx`       | `AppleMusicProvider` / `useAppleMusic`. Apple Music tokens, persisted in secure store.                                                                                                                                                                                                            |
+| `playback.tsx`               | `PlaybackProvider`, broad `usePlayback`, lightweight `usePlaybackTrackState`, and stable `usePlaybackCommands`. Queue, native playback snapshot, and compact-player dismissal state.                                                                                                              |
+| `queue-order.ts`             | Pure index math for the queue mirror. Tested in `queue-order.test.ts`.                                                                                                                                                                                                                            |
+| `supabase.ts`                | The Supabase client, backed by AsyncStorage.                                                                                                                                                                                                                                                      |
+| `theme.ts`                   | `NAV_THEME`, light and dark palettes for react-navigation, `sheetScreenOptions` for sheet routes, and `pushedScreenOptions` for the pushed detail routes.                                                                                                                                         |
+| `error-utils.ts`             | `getErrorDetails` / `getErrorMessage`, for unwrapping native and backend errors.                                                                                                                                                                                                                  |
+| `artwork-color.ts`           | `useArtworkTint`, the color a surface paints itself with, plus alpha, darkening, and multi-artwork averaging helpers.                                                                                                                                                                             |
+| `artwork-color-utils.ts`     | Native-free channel averaging for multi-artwork tints.                                                                                                                                                                                                                                            |
+| `music-routes.ts`            | `collectionRoute` / `albumRouteForTrack`. Hrefs into the resource screens, params and all.                                                                                                                                                                                                        |
+| `share-track.ts`             | `shareTrack` / `shareCollection`. Builds and fires the native share sheet for a song, album, or playlist's canonical Apple Music link.                                                                                                                                                            |
+| `screen-overlay.ts`          | `useScreenOverlayInsets`, native tab/accessory visibility, extra overlay clearance, focused-screen and keyboard suppression, and pushed-screen detection.                                                                                                                                         |
+| `screen-overlay-geometry.ts` | Pure, tested bottom-inset arithmetic shared by tab-hosted and pushed-screen compact players.                                                                                                                                                                                                      |
+| `playable-item.ts`           | Pure identity and collection-membership helpers for library/catalog forms of a playable item.                                                                                                                                                                                                     |
+| `screen-scroll.ts`           | `useScreenScroll`, the props a screen's top-level scroller spreads to get tab-press-scrolls-to-top and pull-down-to-close.                                                                                                                                                                        |
+| `screen-scroll-marker.*`     | iOS registration wrapper for native-tab inset and scroll-to-top integration with nested and virtualized scrollers; a fragment elsewhere.                                                                                                                                                          |
+| `zoom-dismiss.tsx`           | `ZoomOriginProvider`, `useZoomSource`, `ZoomDismissScreen`, `useCloseScreen`. Closing a pushed screen by shrinking it back into the artwork that opened it.                                                                                                                                       |
+| `zoom-dismiss-geometry.ts`   | Pure pull, transform, timing, and corner math for `zoom-dismiss`, tested without React Native.                                                                                                                                                                                                    |
+| `types.ts`                   | Shared wire types: `TagType`, `Tag`, `AppliedTag` and `TagMetadata`.                                                                                                                                                                                                                              |
+| `query-json.ts`              | The tag query wire format: `QueryJSON`, `QueryJSONNode`, `FilterJSON`, `FilterOp`. Types only, so the pure builder utils stay testable under `node --test`.                                                                                                                                       |
+| `tag-values.ts`              | Per-type tag helpers: `TAG_TYPES`, labels, descriptions, `TAG_TYPE_ICONS`, value validation, canonicalization, formatting, the date-only helpers, and `unownedDefaultTags`.                                                                                                                       |
+| `utils.ts`                   | `cn()`, the clsx + tailwind-merge helper.                                                                                                                                                                                                                                                         |
 
 ## The SWR wrappers
 
@@ -48,7 +52,7 @@ Five, in `api-actions.ts`, and picking the right one is most of the work:
 | `useAPIData<Output>(path, params?)`                         | idempotent reads, fetch on mount                                       | `{ keyType: "api-data", path, params, accountId }`       |
 | `useAPIPostData<Body, Output>(path, body)`                  | one cached idempotent read with a large body                           | `{ keyType: "api-data", method, path, body, accountId }` |
 | `useAPIPostDataBatched<Item, Body, Out>(path, items, opts)` | an idempotent read whose payload is a list too long for a query string | `{ keyType: "api-data", path, items, accountId }`        |
-| `useAPIFetch<In, Out>(path)`                                | a GET you only want on demand (search, suggestions)                    | `path` string                                            |
+| `useAPIFetch<In, Out>(path)`                                | a one-shot GET fired by a user action, never on render                 | `path` string                                            |
 | `useAPIMutation<Body, Res>(method, path, invalidates?)`     | user-triggered writes                                                  | `[method, path, accountId]`                              |
 
 All five pull the JWT from `useAccount()` and send `Authorization: Bearer <jwt>`. All five
@@ -60,11 +64,17 @@ top of the `clearCache()` that already runs on every account change.
 
 `useAPIData` disables itself (passes a `null` key) if there is no account, or if **any** param
 value is null or undefined. That is how `useTag(undefined)` and `useTagsOnSong(undefined)` stay
-dormant until an id arrives.
+dormant until an id arrives. An empty string is a real value, so a blank search still fetches.
+
+`useAPIData` takes an optional third argument passed straight to SWR. `keepPreviousData` is the
+one that matters for a search-as-you-type read, where each keystroke is a new key and `data` would
+otherwise drop to undefined between responses. `useDefaultTags` is the caller.
 
 `useAPIPostDataBatched` exists for reads whose request is a list too long for a query string. It
 splits the list into parallel requests and merges the responses, but stays **one** `api-data`
-key so invalidation works like every other read. `useTagsOnSongs` is the one caller.
+key so invalidation works like every other read. `useTagsOnSongs` and `useDefaultTagsOnSongs`
+are the callers: a list screen reads both, so each row can show the user's tags and the song's
+shared defaults.
 
 Do not reach for `useSWRInfinite` here. `mutate(filterFn)` skips `$inf$` keys outright, and the
 per-page keys it does visit have no subscribed revalidator, so a filtered `mutate` silently
@@ -75,15 +85,19 @@ Invalidation is the part to get right, and it is entirely manual. `useAPIMutatio
 of `{ path, params? }` endpoints, or a function from the request body to that list when the key
 depends on what was just written. After a successful request it matches every `api-data` key
 whose `path` is equal and whose `params` are a **superset** of the listed ones. So a bare
-`{ path: "/songs/tags" }` invalidates the tags of every song, while
-`{ path: "/songs/tags", params: { song_id } }` invalidates just the one that changed.
+`{ path: "/songs/local-tags" }` invalidates the local tags of every song, while
+`{ path: "/songs/local-tags", params: { song_id } }` invalidates just the one that changed.
 
 ```ts
 // invalidate only this song's tag list, plus the tag counts
-useAPIMutation<ApplyTagPayload, void>("POST", "/songs/tags", ({ song_id }) => [
-    { path: "/songs/tags", params: { song_id } },
-    { path: "/tags" },
-]);
+useAPIMutation<ApplyTagPayload, void>(
+    "POST",
+    "/songs/local-tags",
+    ({ song_id }) => [
+        { path: "/songs/local-tags", params: { song_id } },
+        { path: "/tags" },
+    ],
+);
 ```
 
 `invalidatedEndpoints` defaults to `[]`. A mutation that lists nothing leaves every cached
@@ -93,29 +107,56 @@ useAPIMutation<ApplyTagPayload, void>("POST", "/songs/tags", ({ song_id }) => [
 
 One file per backend router, and every backend endpoint has at least one hook.
 
-| backend             | endpoint                        | hook                                          |
-| ------------------- | ------------------------------- | --------------------------------------------- |
-| `routes/tags.rs`    | `GET /tags`                     | `tags.ts` -> `useUserTags()`, `useTag(tagId)` |
-|                     | `POST /tags`                    | `tags.ts` -> `useCreateTag()`                 |
-|                     | `DELETE /tags`                  | `tags.ts` -> `useDeleteTag()`                 |
-|                     | `GET /tags/suggest`             | `tags.ts` -> `useSuggestTags()`               |
-| `routes/songs.rs`   | `GET /songs/tags`               | `songs.ts` -> `useTagsOnSong(songId)`         |
-|                     | `POST /songs/tags/batch`        | `songs.ts` -> `useTagsOnSongs(songIds)`       |
-|                     | `POST /songs/tags`              | `songs.ts` -> `useApplyTag()`                 |
-|                     | `PATCH /songs/tags`             | `songs.ts` -> `useSetTagValue()`              |
-|                     | `DELETE /songs/tags`            | `songs.ts` -> `useUnapplyTag()`               |
-| `routes/queries.rs` | `POST /queries/results`         | `queries.ts` -> `useQueryResults()`           |
-|                     | `GET /queries/advanced/results` | `queries.ts` -> `useAdvancedQueryResults()`   |
+| backend              | endpoint                         | hook                                           |
+| -------------------- | -------------------------------- | ---------------------------------------------- |
+| `routes/tags.rs`     | `GET /tags`                      | `tags.ts` -> `useUserTags()`, `useTag(tagId)`  |
+|                      | `POST /tags`                     | `tags.ts` -> `useCreateTag()`                  |
+|                      | `DELETE /tags`                   | `tags.ts` -> `useDeleteTag()`                  |
+|                      | `GET /tags/default-tags`         | `tags.ts` -> `useDefaultTags(search)`          |
+|                      | `GET /tags/suggest`              | `tags.ts` -> `useSuggestTags()`                |
+| `routes/songs.rs`    | `GET /songs/local-tags`          | `songs.ts` -> `useTagsOnSong(songId)`          |
+|                      | `POST /songs/local-tags/batch`   | `songs.ts` -> `useTagsOnSongs(songIds)`        |
+|                      | `POST /songs/no-default-tags`    | `songs.ts` -> `useSongsWithoutDefaultTags()`   |
+|                      | `GET /songs/default-tags`        | `songs.ts` -> `useDefaultTagsOnSong(songId)`   |
+|                      | `POST /songs/default-tags/batch` | `songs.ts` -> `useDefaultTagsOnSongs(songIds)` |
+|                      | `POST /songs/default-tags`       | `songs.ts` -> `useSetDefaultTags()`            |
+|                      | `DELETE /songs/default-tags`     | `songs.ts` -> `useRemoveDefaultTag()`          |
+|                      | `POST /songs/local-tags`         | `songs.ts` -> `useApplyTag()`                  |
+|                      | `PATCH /songs/local-tags`        | `songs.ts` -> `useSetTagValue()`               |
+|                      | `DELETE /songs/local-tags`       | `songs.ts` -> `useUnapplyTag()`                |
+| `routes/queries.rs`  | `POST /queries/results`          | `queries.ts` -> `useQueryResults()`            |
+| `routes/comments.rs` | `GET /comments`                  | `comments.ts` -> `useSongComments(songId)`     |
+|                      | `POST /comments`                 | `comments.ts` -> `useCreateComment()`          |
+|                      | `DELETE /comments`               | `comments.ts` -> `useDeleteComment()`          |
+|                      | `POST /comments/votes`           | `comments.ts` -> `useVoteOnComment(songId)`    |
 
 `GET /tags` has two hooks because the handler returns a tagged union: without `tag_id` it
 responds with `All { tags, metadata }`, with one it responds with `One { tag, song_ids }`.
 `useUserTags` and `useTag` each unwrap one variant.
+
+`useVoteOnComment(songId)` is the one backend write that updates optimistically. It runs the vote
+inside the bound `mutate` of that song's `/comments` read, with `comment-votes.ts::applyCommentVote`
+as the optimistic data and `rollbackOnError`, then revalidates the read whether the vote saved or
+not. So its `useAPIMutation` lists nothing to invalidate. `useDeleteComment` invalidates every
+song's comments, because its payload carries no song id.
 
 Adding an endpoint: add the route in `backend-api/src/routes/*.rs`, then add a hook in the
 matching `routes/*.ts` built on the shared wrappers. For writes, list the endpoints the
 change invalidates. Rename the returned fields to something readable (`tagsOnSong`,
 `tagsOnSongLoading`, `tagsOnSongErr`) rather than re-exporting SWR's `data` / `error` /
 `isLoading`.
+
+A song's default tags are read separately from its user tags, by `useDefaultTagsOnSong` for one
+song and `useDefaultTagsOnSongs` for a list. Both surfaces draw them as unfilled pills next to
+the user's own tags. `tag-values.ts::unownedDefaultTags` drops the defaults whose name the user
+already has on the song, since a name applied by enough users is promoted to a default tag and
+would otherwise show twice. Applying a user tag can trigger that promotion, so `useApplyTag`
+invalidates both default-tag reads.
+
+`useRemoveDefaultTag` is the other side: it drops one suggestion from one song for this user
+only, so it invalidates both default-tag reads plus `/queries/results`, which counts suggested
+tags when the caller asks it to. It leaves `/tags` and the local tag reads alone, since the
+user's own tags do not change.
 
 `musickit-hooks.ts` does the same job for the native module, using plain `useSWR` with tuple
 keys like `["MusicKit.getSongInfo", ids]`. `useSongFavoriteStatus` and `useCollectionFavoriteStatus`
@@ -282,6 +323,8 @@ remaining distance. A short pull still springs back to full size.
 - `AppleMusicProvider` owns the Apple Music developer and user tokens, restores them from
   `expo-secure-store` on mount, and pushes them into the native module. `isConnected` means
   authorized **and** holding a user token. `ensureConnected()` before any playback call.
+- `SongInitProvider` runs after account and Apple Music authorization. It scans the library and
+  library playlists for songs without default tags, then asks the backend to generate them.
 - `PlaybackProvider` hands the queue to the native player (`playSongQueue`, `appendSongQueue`)
   and mirrors it, since the snapshot reports the current track but not its position in the
   queue. It finds the index by matching the snapshot track against the mirrored list, searching
@@ -303,6 +346,19 @@ remaining distance. A short pull still springs back to full size.
   changes, so a list row can hold a play handler without re-rendering on every tick. Reach for
   `usePlaybackCommands` unless you actually need to read playback state.
 
+## The song default-tag job
+
+`song-init-job.ts::initializeSongs` pages through library songs and every library playlist. It
+sends each unique catalog song id to `POST /songs/no-default-tags` and keeps the returned ids
+with their `"title by artist"` descriptions. It then sends those songs to
+`POST /songs/default-tags` in batches of 100. Defaults remain separate from user tags, so the job
+does not invalidate user tag reads or make a second request after generation.
+
+`song-init.tsx::SongInitProvider` wires the job to MusicKit, the backend hooks, cancellation, and
+the task overlay. The job is imperative rather than SWR because its reads only decide what to
+write. Failed sources are logged and skipped. Failed generation batches and songs for which the
+model returned no tags are retried on the next run.
+
 ## Connects to
 
 - `backend-api`, through `BACKEND_URL`.
@@ -317,16 +373,20 @@ remaining distance. A short pull still springs back to full size.
   `http://localhost:3000`. On a physical device localhost is the phone, so that fallback only
   works in a simulator. Metro inlines `EXPO_PUBLIC_*` at bundle time, so editing `.env` needs a
   metro restart with `--clear`, not just a refresh.
-- **`tag-generation.ts` is a second, parallel path.** It resolves its own base url (env var, then
-  the Expo host, then a platform default) and posts to `POST /tag-generation`. The backend has no
-  such route; the real one is `GET /tags/suggest`, which `routes/tags.ts::useSuggestTags` already
-  wraps correctly. Treat `tag-generation.ts` as dead or stale until proven otherwise.
 - `useAPIFetch` uses the bare `path` as its SWR key, so two `useAPIFetch` hooks on the same path
   share a mutation key. `useAPIMutation` keys on `[method, path, accountId]`, so it does not.
+- `useAPIFetch` does not populate the cache, so it repeats a request it has already made. A live
+  search field belongs on `useAPIData` with the search text in the params and `keepPreviousData`,
+  which caches per search. `useAPIFetch` is for a one-shot the user asks for, like `useSuggestTags`
+  spending an OpenAI call.
 - Tags key on `catalogId ?? id`, not the library id, everywhere a song id crosses into the
   backend. Library ids differ per user for the same song; catalog ids do not.
+- The default-tag job spends OpenAI calls. A song for which the model returns no tags is retried
+  on every app launch.
 - `api-actions.ts` reads `account?.jwt` at hook call time. A component rendered before the
   session is restored sends `Bearer undefined`.
+- A comment vote is absolute (`"up"`, `"down"`, or `null`), and the server keeps whichever request
+  it handles last. Two quick taps on one comment send two requests that can land out of order.
 
 ---
 

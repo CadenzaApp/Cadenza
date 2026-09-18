@@ -11,16 +11,16 @@ connectors attached to visual boundaries instead of moving them with condition c
 
 | file                 | role                                                                               |
 | -------------------- | ---------------------------------------------------------------------------------- |
-| `types.ts`           | Condition, group, tag-instance, drag, drop, and query JSON types.                  |
+| `types.ts`           | Condition, group, tag-instance (with `suggested`), drag, and drop types.           |
 | `QueryUtils.ts`      | Pure condition edits, group collapse, derived labels, and JSON compilation.        |
 | `QueryUtils.test.ts` | Reducer invariants and wire-format tests.                                          |
-| `QueryBuilder.tsx`   | Composes the scrollable simple workspace and resizable tag palette.                |
+| `QueryBuilder.tsx`   | Composes the suggested-tag switch, scrollable workspace, and resizable palette.    |
 | `ResultsSummary.tsx` | Shared live count and compact-inset tagged preview used by both builders.          |
 | `ConditionList.tsx`  | Single conditions, groups, connectors, mode slider, and insertion targets.         |
-| `QueryTagPill.tsx`   | Shared solid tag-pill rendering for palette, query, and drag states.               |
-| `TagPalette.tsx`     | Usage-sorted searchable tag palette and query-tag delete target.                   |
+| `QueryTagPill.tsx`   | Shared tag-pill rendering for palette, suggested, query, and drag states.          |
+| `TagPalette.tsx`     | Usage-sorted palette, suggested-tag section, and query-tag delete target.          |
 | `DragContext.tsx`    | Drag payload state, shared-value coordinates, drop-zone registry, and hit testing. |
-| `DraggablePill.tsx`  | Platform-tuned tag pans and handle-only condition pans.                            |
+| `DraggablePill.tsx`  | Tag pans, condition-card taps, and handle-only condition pans.                     |
 | `DropSlot.tsx`       | Registers and highlights a typed drop target.                                      |
 | `DragGhost.tsx`      | Floating tag shown during an active drag.                                          |
 | `QueryResults.tsx`   | Configures the full-screen query-match view, gradient, and save dialog.            |
@@ -28,20 +28,44 @@ connectors attached to visual boundaries instead of moving them with condition c
 ## The model
 
 `QueryCondition[]` preserves the user's top-level order. Each appearance of a tag has a session
-ID. The same tag can appear in separate conditions, but a group rejects duplicate tag IDs. A group
-has `mode: "any"|"all"|"none"` and an ordered `members` array. Only a top-level one-tag
-condition can carry `negated: true`; group members are always positive. Helpers never leave a
-one-member group: removing or extracting a member immediately replaces that group with its
-remaining tag. Collapsing a `none` group creates a negated one-tag condition.
+ID, its own `negated` value, and a `suggested` flag recording whether it was dragged out of the
+suggested-tag section rather than `Your tags`. The flag survives grouping, extraction, and
+reordering, because those rewrite a tag rather than rebuild it. The same tag can appear in separate
+conditions, but a group rejects duplicate tag IDs. A group has `mode: "any"|"all"|"none"` and an
+ordered `members` array. Only a top-level one-tag condition can carry `negated: true`; group members
+are always positive. Helpers never leave a one-member group: removing or extracting a member
+immediately replaces that group with its remaining tag. Collapsing a `none` group creates a negated
+one-tag condition.
 
-`queryToJSON` emits the backend's recursive format. Top-level connectors compose from left to right,
-with adjacent uses of the same operator flattened into one expression. A divider's connector belongs
-to the condition below it. An individual top-level condition retains the existing `{and: [...]}` wrapper,
-an any group becomes `{or: [...]}`, an all group becomes `{and: [...]}`, a none group becomes
-`{not: {or: [...]}}`, and a negated one-tag condition becomes `{not: tagId}`. An empty query
-returns `null` and does not fetch.
+`queryToJSON` emits the shared wire format in `@/lib/query-json`, the same one the advanced
+builder produces. Top-level connectors compose from left to right, with adjacent uses of the same
+operator flattened into one expression. A divider's connector belongs to the condition below it.
+An individual top-level condition retains the existing `{and: [...]}` wrapper, an any group becomes
+`{or: [...]}`, an all group becomes `{and: [...]}`, and a none group becomes `{not: {or: [...]}}`.
+A tag becomes an `is_applied` filter on it and a negated one-tag condition an `is_not_applied`
+filter, which is the only part of the format this builder uses. The whole tree is wrapped in
+`{where: ...}`. An empty query returns `null` and does not fetch.
 
 ## Interaction flow
+
+A glass `Include suggested tags` switch sits above the query heading, at the top of the builder.
+`CadenzaScreen` owns its state, so it survives mode and tab switches. Turning it on reveals a
+`Suggested tags` section in the palette, beneath `Your tags`. The section has its own search field
+and its own heading row, laid out like the one above it, and holds up to five shared default tags
+from `GET /tags/default-tags`, most used first. A blank search still fills it.
+
+The toggle also sets `consider_default_tags` on the results request, so with it on a song's shared
+default tags count as tags on it for both matching and ranking. That flag is what makes a suggested
+tag in the query resolve at all, so the toggle both supplies the tags and licenses them.
+
+Suggested tags are inverted wherever they appear, in the palette, in flight, and in the query, so
+they read as tag-colored content and outline on the screen color rather than a filled pill. They
+drag into the query exactly like the user's own tags.
+
+Turning the toggle off while the query holds a suggested tag clears the whole query.
+`CadenzaScreen` owns that, through `hasSuggestedTag`. Leaving the tag in place would send a query
+naming a default tag id without `consider_default_tags`, which the backend rejects as an unknown
+tag, so the same visible query would start returning nothing.
 
 Palette tags are drag-only and can be dropped on an insertion point. Tag drags begin as soon as
 movement passes the shared drag threshold on both iOS and Android. Tag coordinates travel through
@@ -167,17 +191,20 @@ The Cadenza screen owns the shared result summary. Its result-count control and 
 liquid glass, with the mode button sitting between the count and next arrow. Expanding the count
 opens a liquid-glass preview layered over the editor instead of resizing or shifting it. The mode
 button swaps this editor for the filter-based advanced builder without navigating or discarding
-either query tree. Both modes open `/query-results`, which
-dispatches to the matching endpoint and renders the same full-screen hero. See
+either query tree. Both modes compile to the same wire format and open `/query-results`, which
+renders the same full-screen hero. See
 [../advanced-query-builder/README.md](../advanced-query-builder/README.md).
 
 ## Connects to
 
-- `src/features/cadenza/CadenzaScreen.tsx` for session state and full-library result wiring.
+- `src/features/cadenza/CadenzaScreen.tsx` for session state, the suggested-tag switch value, and
+  full-library result wiring.
 - `@/lib/routes/queries::useQueryResults` for live candidate-based query evaluation.
+- `@/lib/routes/tags::useDefaultTags` for the suggested-tag section.
 - `@/lib/musickit-hooks::useAllTracksFromLibrary` for the complete library candidate set.
 - `@/components/custom/music-list` for preview and full results.
-- Backend `POST /queries/results` for correct NOT behavior on completely untagged songs.
+- Backend `POST /queries/results` for correct NOT behavior on completely untagged songs, and for
+  `consider_default_tags`. The wire types are in `@/lib/query-json`.
 
 ## Gotchas
 
@@ -191,6 +218,13 @@ dispatches to the matching endpoint and renders the same full-screen hero. See
   missing-navigation-context error; use an inline style for a stateful visual instead.
 - The backend accepts at most 50,000 candidate song IDs in one query request.
 - A disconnected Apple Music account can edit a query, but cannot produce library results.
+- Turning `Include suggested tags` off clears the query if it holds a suggested tag. It is the only
+  thing in the builder that discards work without a drag, so it is worth knowing before changing
+  the toggle's wiring.
+- A suggested tag and a user tag can never collide on id, so group deduplication treats them as the
+  distinct tags they are.
+- Both search fields in the palette are independent. The `Your tags` one filters the already
+  loaded list on the client; the `Suggested tags` one is a backend request per keystroke.
 
 ---
 

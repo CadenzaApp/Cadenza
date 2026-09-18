@@ -5,6 +5,12 @@ export type QueryTag = {
     id: string;
     tag: Tag;
     negated: boolean;
+    /**
+     * Came from the palette's suggested-tag section, so it is a shared default
+     * tag rather than one of the user's own. It only matches while the results
+     * request carries `consider_default_tags`.
+     */
+    suggested: boolean;
     connector: QueryConnector;
     rememberedNextConnector?: QueryConnector;
     layoutId?: string;
@@ -25,18 +31,12 @@ export type QueryGroup = {
 
 export type QueryCondition = QueryTag | QueryGroup;
 
-export type QueryJSONNode =
-    | number
-    | { and: QueryJSONNode[] }
-    | { or: QueryJSONNode[] }
-    | { not: QueryJSONNode };
-
 export type QueryTagOrigin = {
     conditionId: string;
 };
 
 export type DragPayload =
-    | { source: "palette"; tag: Tag }
+    | { source: "palette"; tag: Tag; suggested: boolean }
     | { source: "query"; queryTag: QueryTag; origin: QueryTagOrigin }
     | {
           source: "condition";

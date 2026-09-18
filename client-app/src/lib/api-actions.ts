@@ -16,6 +16,13 @@ async function responseData(response: Response) {
     return text ? JSON.parse(text) : {};
 }
 
+/** Revalidates every cached `api-data` read that matches one of the endpoints */
+export function invalidateAPIData(endpoints: APIDataEndpoint[]) {
+    mutate((key: unknown) =>
+        endpoints.some((endpoint) => matchesEndpoint(key, endpoint)),
+    );
+}
+
 /** When triggered, invalidates `useAPIData`s using the given endpoints */
 export function useAPIMutation<RequestBody, Response>(
     method: string,
@@ -43,14 +50,10 @@ export function useAPIMutation<RequestBody, Response>(
                 throw data;
             }
 
-            const endpointsToInvalidate = Array.isArray(invalidatedEndpoints)
-                ? invalidatedEndpoints
-                : invalidatedEndpoints(body);
-
-            mutate((key: unknown) =>
-                endpointsToInvalidate.some((endpoint) =>
-                    matchesEndpoint(key, endpoint),
-                ),
+            invalidateAPIData(
+                Array.isArray(invalidatedEndpoints)
+                    ? invalidatedEndpoints
+                    : invalidatedEndpoints(body),
             );
 
             return data as Response;
@@ -58,7 +61,18 @@ export function useAPIMutation<RequestBody, Response>(
     );
 }
 
-export function useAPIData<Output>(path: string, params?: Record<string, any>) {
+/**
+ * Cached idempotent read.
+ *
+ * `options` is passed through to SWR. `keepPreviousData` is the useful one for
+ * a search-as-you-type key, which otherwise drops to undefined on every
+ * keystroke.
+ */
+export function useAPIData<Output>(
+    path: string,
+    params?: Record<string, any>,
+    options?: { keepPreviousData?: boolean },
+) {
     const { account } = useAccount();
 
     // disable this query if any param value is null/undefined
@@ -87,6 +101,7 @@ export function useAPIData<Output>(path: string, params?: Record<string, any>) {
 
             return json as Output;
         },
+        options,
     );
 }
 

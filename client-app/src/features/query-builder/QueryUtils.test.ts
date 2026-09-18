@@ -12,6 +12,7 @@ import {
     moveQueryTagToCondition,
     moveQueryTagToIndex,
     queryHeading,
+    hasSuggestedTag,
     queryToJSON,
     removeCondition,
     removeQueryTag,
@@ -26,6 +27,15 @@ import type { QueryCondition, QueryConnector, QueryTag } from "./types.ts";
 const rainy: Tag = { id: 1, name: "rainy", color: "#2563eb", type: "basic" };
 const chill: Tag = { id: 2, name: "chill", color: "#7c3aed", type: "basic" };
 const jazz: Tag = { id: 3, name: "jazz", color: "#db2777", type: "basic" };
+
+/** The wire shape of a plain tag in the query, and of a negated one. */
+function applied(tagId: number) {
+    return { filter: { field: "tag", tag_id: tagId, op: "is_applied" } };
+}
+
+function notApplied(tagId: number) {
+    return { filter: { field: "tag", tag_id: tagId, op: "is_not_applied" } };
+}
 
 test("sorts palette tags by application count with stable tie breakers", () => {
     assert.deepEqual(
@@ -43,8 +53,9 @@ function queryTag(
     tag: Tag,
     negated = false,
     connector: QueryConnector = "and",
+    suggested = false,
 ): QueryTag {
-    return { kind: "tag", id, tag, negated, connector };
+    return { kind: "tag", id, tag, negated, suggested, connector };
 }
 
 test("serializes HAVE NONE and a negated single condition", () => {
@@ -60,7 +71,9 @@ test("serializes HAVE NONE and a negated single condition", () => {
     ];
 
     assert.deepEqual(queryToJSON(conditions), {
-        and: [{ not: { or: [1, 2] } }, { not: 3 }],
+        where: {
+            and: [{ not: { or: [applied(1), applied(2)] } }, notApplied(3)],
+        },
     });
     assert.equal(queryToJSON([]), null);
 });
@@ -158,14 +171,16 @@ test("moving a single into another group removes its old condition", () => {
 test("toggles a single condition and promotes it to HAVE NONE", () => {
     const single = queryTag("rainy", rainy);
     const negated = toggleConditionNegation([single], single.id);
-    assert.deepEqual(queryToJSON(negated), { and: [{ not: 1 }] });
+    assert.deepEqual(queryToJSON(negated), {
+        where: { and: [notApplied(1)] },
+    });
 
     const promoted = addTagToCondition(negated, chill, single.id);
     assert.equal(promoted[0].kind, "group");
     if (promoted[0].kind !== "group") return;
     assert.equal(promoted[0].mode, "none");
     assert.deepEqual(queryToJSON(promoted), {
-        and: [{ not: { or: [1, 2] } }],
+        where: { and: [{ not: { or: [applied(1), applied(2)] } }] },
     });
 });
 
@@ -183,7 +198,7 @@ test("toggles all three group modes without changing tag identity", () => {
     const none = setGroupMode(all, "group-1", "none");
 
     assert.deepEqual(queryToJSON(none), {
-        and: [{ not: { or: [1, 2] } }],
+        where: { and: [{ not: { or: [applied(1), applied(2)] } }] },
     });
 });
 
@@ -234,7 +249,7 @@ test("serializes mixed top-level connectors from left to right", () => {
     ];
 
     assert.deepEqual(queryToJSON(conditions), {
-        or: [{ and: [1, 2] }, 3],
+        where: { or: [{ and: [applied(1), applied(2)] }, applied(3)] },
     });
 });
 
@@ -394,7 +409,9 @@ test("remembers a deleted trailing connector when a replacement is appended", ()
     const replaced = appendTag(remaining, jazz);
 
     assert.equal(replaced[1].connector, "or");
-    assert.deepEqual(queryToJSON(replaced), { or: [1, 3] });
+    assert.deepEqual(queryToJSON(replaced), {
+        where: { or: [applied(1), applied(3)] },
+    });
 });
 
 test("remembers a connector when deleting the only tag in a condition", () => {
@@ -424,4 +441,46 @@ test("keeps connector operators in their visual slots while reordering", () => {
         moved.map((condition) => condition.connector),
         ["and", "or", "and"],
     );
+});
+
+test("a suggested tag stays suggested through every move", () => {
+    const suggested = appendTag([], rainy, true);
+    assert.equal(hasSuggestedTag(suggested), true);
+
+    // Dropping another tag on it collapses both into a group; the flag has to
+    // survive that rewrite, and the ordinary tag must not pick it up.
+    const grouped = addTagToCondition(suggested, chill, suggested[0].id);
+    const group = grouped[0];
+    assert.equal(group.kind, "group");
+    if (group.kind !== "group") return;
+    assert.deepEqual(
+        group.members.map((member) => member.suggested),
+        [true, false],
+    );
+    assert.equal(hasSuggestedTag(grouped), true);
+
+    // Pulling it back out of the group keeps it too.
+    const extracted = moveQueryTagToIndex(
+        grouped,
+        group.members[0].id,
+        0,
+    );
+    assert.equal(hasSuggestedTag(extracted), true);
+});
+
+test("a query of only ordinary tags has no suggested tags", () => {
+    const ordinary = appendTag(appendTag([], rainy), chill);
+    assert.equal(hasSuggestedTag(ordinary), false);
+    assert.equal(hasSuggestedTag([]), false);
+
+    // Removing the only suggested tag clears the flag for the whole query.
+    const mixed = appendTag(ordinary, jazz, true);
+    assert.equal(hasSuggestedTag(mixed), true);
+    assert.equal(hasSuggestedTag(removeCondition(mixed, mixed[2].id)), false);
+});
+
+test("a suggested tag compiles to the same filter as any other tag", () => {
+    assert.deepEqual(queryToJSON(appendTag([], rainy, true)), {
+        where: { and: [applied(1)] },
+    });
 });

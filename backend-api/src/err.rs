@@ -101,6 +101,17 @@ impl From<DbErr> for CadenzaError {
                     return Self::SongNotInLibrary;
                 }
 
+                // foreign key violation for a reply -> its parent comment, or a vote -> its
+                // comment, when that comment doesn't exist or was deleted first
+                "23503"
+                    if matches!(
+                        db_err.constraint(),
+                        Some("comment_parent_fkey" | "comment_votes_comment_id_fkey")
+                    ) =>
+                {
+                    return Self::NotFound;
+                }
+
                 // duplicate row
                 "23505" => match db_err.table() {
                     Some("applied_tags") => return Self::TagAlreadyApplied,

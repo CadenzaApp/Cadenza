@@ -123,6 +123,9 @@ export default function ArtistScreen() {
                     onContentSizeChange={(_, height) =>
                         setContentHeight(Math.max(windowHeight, height))
                     }
+                    // Same as the collection screen: the backdrop runs past
+                    // the header, and Android would detach it with the header.
+                    removeClippedSubviews={false}
                     header={
                         <>
                             {/* Inside the header, so it scrolls with the content it

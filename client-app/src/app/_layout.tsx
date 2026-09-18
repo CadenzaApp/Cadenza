@@ -7,7 +7,9 @@ import { ThemeProvider } from "expo-router/react-navigation";
 import { Stack } from "expo-router";
 import AccountProvider from "@/lib/account";
 import { AppleMusicProvider } from "@/lib/apple-music-auth";
+import { SongInitProvider } from "@/lib/song-init";
 import { PlaybackProvider } from "@/lib/playback";
+import { TasksHost, TasksProvider } from "@/components/custom/tasks";
 import { LibraryCategoriesProvider } from "@/features/library/library-categories";
 import { BottomBarVisibilityProvider } from "@/lib/screen-overlay";
 import { ZoomOriginProvider } from "@/lib/zoom-dismiss";
@@ -26,91 +28,96 @@ export default function RootLayout() {
         <GestureHandlerRootView style={{ flex: 1 }}>
             <AccountProvider>
                 <AppleMusicProvider>
-                    <PlaybackProvider>
-                        <ThemeProvider value={theme}>
-                            <BottomBarVisibilityProvider>
-                                <LibraryCategoriesProvider>
-                                    <ZoomOriginProvider>
-                                        <Stack>
-                                            <Stack.Screen
-                                                name="(splashscreen)/index"
-                                                options={{
-                                                    headerShown: false,
-                                                }}
-                                            />
-                                            <Stack.Screen
-                                                name="(tabs)"
-                                                options={{
-                                                    headerShown: false,
-                                                }}
-                                            />
-                                            <Stack.Screen
-                                                name="account"
-                                                options={sheetScreenOptions(
-                                                    theme,
-                                                )}
-                                            />
-                                            <Stack.Screen
-                                                name="appearance"
-                                                options={sheetScreenOptions(
-                                                    theme,
-                                                )}
-                                            />
-                                            <Stack.Screen
-                                                name="player"
-                                                options={sheetScreenOptions(
-                                                    theme,
-                                                )}
-                                            />
-                                            <Stack.Screen
-                                                name="auth/index"
-                                                options={{
-                                                    title: "Welcome",
-                                                }}
-                                            />
-                                            <Stack.Screen
-                                                name="library-categories"
-                                                options={pushedScreenOptions()}
-                                            />
-                                            <Stack.Screen
-                                                name="category/[kind]"
-                                                options={pushedScreenOptions()}
-                                            />
-                                            <Stack.Screen
-                                                name="collection/[kind]/[id]"
-                                                options={pushedScreenOptions()}
-                                            />
-                                            <Stack.Screen
-                                                name="query-results"
-                                                options={{
-                                                    headerShown: false,
-                                                    contentStyle: {
-                                                        backgroundColor:
-                                                            theme.colors
-                                                                .background,
-                                                    },
-                                                }}
-                                            />
-                                            <Stack.Screen
-                                                name="tag/[tagId]"
-                                                options={pushedScreenOptions()}
-                                            />
-                                            <Stack.Screen
-                                                name="artist/[id]"
-                                                options={pushedScreenOptions()}
-                                            />
-                                            <Stack.Screen
-                                                name="add-to-playlist"
-                                                options={pushedScreenOptions()}
-                                            />
-                                        </Stack>
-                                        <MediaPlayerPushedScreenOverlay />
-                                        <PortalHost />
-                                    </ZoomOriginProvider>
-                                </LibraryCategoriesProvider>
-                            </BottomBarVisibilityProvider>
-                        </ThemeProvider>
-                    </PlaybackProvider>
+                    <TasksProvider>
+                        <SongInitProvider>
+                            <PlaybackProvider>
+                                <ThemeProvider value={theme}>
+                                    <BottomBarVisibilityProvider>
+                                        <LibraryCategoriesProvider>
+                                            <ZoomOriginProvider>
+                                                <Stack>
+                                                    <Stack.Screen
+                                                        name="(splashscreen)/index"
+                                                        options={{
+                                                            headerShown: false,
+                                                        }}
+                                                    />
+                                                    <Stack.Screen
+                                                        name="(tabs)"
+                                                        options={{
+                                                            headerShown: false,
+                                                        }}
+                                                    />
+                                                    <Stack.Screen
+                                                        name="account"
+                                                        options={sheetScreenOptions(
+                                                            theme,
+                                                        )}
+                                                    />
+                                                    <Stack.Screen
+                                                        name="appearance"
+                                                        options={sheetScreenOptions(
+                                                            theme,
+                                                        )}
+                                                    />
+                                                    <Stack.Screen
+                                                        name="player"
+                                                        options={sheetScreenOptions(
+                                                            theme,
+                                                        )}
+                                                    />
+                                                    <Stack.Screen
+                                                        name="auth/index"
+                                                        options={{
+                                                            title: "Welcome",
+                                                        }}
+                                                    />
+                                                    <Stack.Screen
+                                                        name="library-categories"
+                                                        options={pushedScreenOptions()}
+                                                    />
+                                                    <Stack.Screen
+                                                        name="category/[kind]"
+                                                        options={pushedScreenOptions()}
+                                                    />
+                                                    <Stack.Screen
+                                                        name="collection/[kind]/[id]"
+                                                        options={pushedScreenOptions()}
+                                                    />
+                                                    <Stack.Screen
+                                                        name="query-results"
+                                                        options={{
+                                                            headerShown: false,
+                                                            contentStyle: {
+                                                                backgroundColor:
+                                                                    theme.colors
+                                                                        .background,
+                                                            },
+                                                        }}
+                                                    />
+                                                    <Stack.Screen
+                                                        name="tag/[tagId]"
+                                                        options={pushedScreenOptions()}
+                                                    />
+                                                    <Stack.Screen
+                                                        name="artist/[id]"
+                                                        options={pushedScreenOptions()}
+                                                    />
+                                                    <Stack.Screen
+                                                        name="add-to-playlist"
+                                                        options={pushedScreenOptions()}
+                                                    />
+                                                </Stack>
+                                                <MediaPlayerPushedScreenOverlay />
+                                                <TasksHost />
+                                                <PortalHost />
+                                            </ZoomOriginProvider>
+                                        </LibraryCategoriesProvider>
+                                    </BottomBarVisibilityProvider>
+                                </ThemeProvider>
+                            </PlaybackProvider>
+                        </SongInitProvider>
+                    </TasksProvider>
                 </AppleMusicProvider>
             </AccountProvider>
         </GestureHandlerRootView>

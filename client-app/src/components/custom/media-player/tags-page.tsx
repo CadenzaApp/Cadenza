@@ -1,20 +1,26 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { useState } from "react";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { CreateTagDialog } from "@/components/custom/create-tag-dialog";
+import { ModalPopup } from "@/components/custom/modal-popup";
+import { MusicListActionButton } from "@/components/custom/music-list/music-list-action-button";
+import type { MusicListAction } from "@/components/custom/music-list/types";
 import { TagPill } from "@/components/custom/tag-pill";
 import { TagValueDialog } from "@/components/custom/tag-value-dialog";
 import { GlassSurface } from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
+import type { Tag } from "@/lib/types";
 
 import { useSongTagEditor, type EditableSongTag } from "../song-tag-editor";
 import type { FocusedSong } from "./player-scope";
 
 /**
  * The now-playing sheet's Tags page: every one of the user's tags for the
- * focused song, applied ones first and solid, the rest dimmed. Replaces the
- * old stacked-modal tag editor (`TagEditorSheet`) now that Tags is a page of
+ * focused song, applied ones first and solid, the rest dimmed, with the song's
+ * shared default tags in between as unfilled pills that a tap adopts. Replaces the old
+ * stacked-modal tag editor (`TagEditorSheet`) now that Tags is a page of
  * its own rather than something opened over the "..." menu.
  *
  * No artwork and no playback controls. The shared sheet shell paints the
@@ -24,7 +30,10 @@ export function TagsPage({ focusedSong }: { focusedSong: FocusedSong }) {
     const insets = useSafeAreaInsets();
     const {
         songTags,
+        defaultTags,
         selectTag,
+        selectDefaultTag,
+        removeDefaultTag,
         valuePrompt,
         onValueSubmit,
         onValueRemove,
@@ -77,6 +86,11 @@ export function TagsPage({ focusedSong }: { focusedSong: FocusedSong }) {
                     tags={appliedTags}
                     emptyLabel="No tags on this song yet."
                     onSelectTag={selectTag}
+                />
+                <DefaultTagSection
+                    tags={defaultTags}
+                    onSelectTag={selectDefaultTag}
+                    onRemoveTag={removeDefaultTag}
                 />
                 <TagSection
                     heading="Your other tags"
@@ -152,5 +166,92 @@ function TagSection({
                 </View>
             )}
         </View>
+    );
+}
+
+/**
+ * The song's shared default tags, unfilled because they belong to everyone
+ * rather than to this user. Tapping one copies it into the user's own tags and
+ * puts it on the song, so it moves up to "On this song". A long press opens
+ * `SuggestedTagMenu` for that pill instead, which is how one gets removed.
+ * Nothing shows when the song has none.
+ */
+function DefaultTagSection({
+    tags,
+    onSelectTag,
+    onRemoveTag,
+}: {
+    tags: Tag[];
+    onSelectTag: (tagId: number) => void;
+    onRemoveTag: (tagId: number) => Promise<void>;
+}) {
+    const [menuTag, setMenuTag] = useState<Tag | null>(null);
+
+    if (tags.length === 0) return null;
+
+    return (
+        <View className="gap-2">
+            <Text className="text-sm font-medium text-muted-foreground">
+                Suggested tags
+            </Text>
+            <View className="flex-row flex-wrap gap-2">
+                {tags.map((tag) => (
+                    <Pressable
+                        key={tag.id}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Add ${tag.name} tag`}
+                        onPress={() => onSelectTag(tag.id)}
+                        onLongPress={() => setMenuTag(tag)}
+                        className="active:opacity-70"
+                    >
+                        <TagPill tag={tag} height={14} inverted />
+                    </Pressable>
+                ))}
+            </View>
+
+            <SuggestedTagMenu
+                tag={menuTag}
+                onRemove={onRemoveTag}
+                onClose={() => setMenuTag(null)}
+            />
+        </View>
+    );
+}
+
+/**
+ * The long-press menu on one suggested tag. Same liquid-glass `ModalPopup` the
+ * "..." menus use, with one action: Remove this takes the suggestion off the
+ * song for this user only, leaving it there for everyone else.
+ *
+ * The menu closes first and the removal runs after, the same as the `...`
+ * menus, so the sheet never sits there waiting on a request. The pill itself
+ * goes when the default tag read comes back without it, and
+ * `MusicListActionButton` logs a removal that did not save.
+ */
+function SuggestedTagMenu({
+    tag,
+    onRemove,
+    onClose,
+}: {
+    tag: Tag | null;
+    onRemove: (tagId: number) => Promise<void>;
+    onClose: () => void;
+}) {
+    if (!tag) return null;
+
+    const removeAction: MusicListAction<Tag> = {
+        id: "remove-suggested-tag",
+        label: "Remove this",
+        icon: "eye-off-outline",
+        onPress: (target) => {
+            onClose();
+            return onRemove(target.id);
+        },
+    };
+
+    return (
+        <ModalPopup visible onClose={onClose}>
+            <MusicListActionButton action={removeAction} target={tag} />
+        </ModalPopup>
     );
 }

@@ -20,7 +20,7 @@ type OneTagResponse = {
         tag: Tag;
         song_ids: string[];
     };
-}
+};
 export function useTag(tagId?: number) {
     const x = useAPIData<OneTagResponse>("/tags", {
         tag_id: tagId,
@@ -41,8 +41,8 @@ type NewTagPayload = {
 };
 export function useCreateTag() {
     const x = useAPIMutation<NewTagPayload, number>("POST", "/tags", [
-        { path: "/songs/tags" },
-        { path: "/songs/tags/batch" },
+        { path: "/songs/local-tags" },
+        { path: "/songs/local-tags/batch" },
         { path: "/tags" },
     ]);
     return {
@@ -55,8 +55,8 @@ export function useCreateTag() {
 
 export function useDeleteTag() {
     const x = useAPIMutation<{ tag_id: number }, void>("DELETE", "/tags", [
-        { path: "/songs/tags" },
-        { path: "/songs/tags/batch" },
+        { path: "/songs/local-tags" },
+        { path: "/songs/local-tags/batch" },
         { path: "/tags" },
     ]);
     return {
@@ -67,14 +67,40 @@ export function useDeleteTag() {
     };
 }
 
+/**
+ * Up to five shared default tags whose names match `search`, most used first. A
+ * blank search still returns five, so the shelf always has something in it.
+ *
+ * Every keystroke is a new cache key, so the previous results stay up while the
+ * next ones load rather than emptying the shelf.
+ */
+export function useDefaultTags(search: string) {
+    const x = useAPIData<Tag[]>(
+        "/tags/default-tags",
+        { search },
+        { keepPreviousData: true },
+    );
+
+    return {
+        defaultTags: x.data,
+        defaultTagsLoading: x.isLoading,
+        defaultTagsErr: x.error,
+    };
+}
+
 type SuggestTagsParams = {
     song_desc: string;
     requested_tag_count: number;
 };
+/** a tag suggested by the backend, with a color reflecting the tag's mood */
+export type SuggestedTag = {
+    name: string;
+    color: string;
+};
 export function useSuggestTags() {
-    const x = useAPIFetch<SuggestTagsParams, string[]>("/tags/suggest");
+    const x = useAPIFetch<SuggestTagsParams, SuggestedTag[]>("/tags/suggest");
     return {
-        suggestedTagNames: x.data,
+        suggestedTags: x.data,
         suggestTagsLoading: x.isMutating,
         suggestTagsErr: x.error,
         resetSuggestTags: x.reset,

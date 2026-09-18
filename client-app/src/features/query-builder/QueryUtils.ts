@@ -1,3 +1,4 @@
+import type { QueryJSON, QueryJSONNode } from "@/lib/query-json";
 import type { Tag, TagMetadata } from "@/lib/types";
 
 import type {
@@ -5,7 +6,6 @@ import type {
     QueryConnector,
     QueryGroup,
     QueryGroupMode,
-    QueryJSONNode,
     QueryTag,
 } from "./types";
 
@@ -33,6 +33,7 @@ export function makeQueryId(prefix: "tag" | "group" | "condition"): string {
 export function makeQueryTag(
     tag: Tag,
     connector: QueryConnector = "and",
+    suggested = false,
 ): QueryTag {
     return {
         kind: "tag",
@@ -40,6 +41,7 @@ export function makeQueryTag(
         layoutId: makeQueryId("condition"),
         tag,
         negated: false,
+        suggested,
         connector,
     };
 }
@@ -47,10 +49,15 @@ export function makeQueryTag(
 export function appendTag(
     conditions: readonly QueryCondition[],
     tag: Tag,
+    suggested = false,
 ): QueryCondition[] {
     return [
         ...conditions,
-        makeQueryTag(tag, connectorForInsertion(conditions, conditions.length)),
+        makeQueryTag(
+            tag,
+            connectorForInsertion(conditions, conditions.length),
+            suggested,
+        ),
     ];
 }
 
@@ -58,13 +65,18 @@ export function insertTag(
     conditions: readonly QueryCondition[],
     tag: Tag,
     index: number,
+    suggested = false,
 ): QueryCondition[] {
     const next = [...conditions];
     const insertionIndex = clampInsertionIndex(index, next.length);
     next.splice(
         insertionIndex,
         0,
-        makeQueryTag(tag, connectorForInsertion(conditions, insertionIndex)),
+        makeQueryTag(
+            tag,
+            connectorForInsertion(conditions, insertionIndex),
+            suggested,
+        ),
     );
     return next;
 }
@@ -73,8 +85,13 @@ export function addTagToCondition(
     conditions: readonly QueryCondition[],
     tag: Tag,
     conditionId: string,
+    suggested = false,
 ): QueryCondition[] {
-    return addQueryTagToCondition(conditions, makeQueryTag(tag), conditionId);
+    return addQueryTagToCondition(
+        conditions,
+        makeQueryTag(tag, "and", suggested),
+        conditionId,
+    );
 }
 
 export function toggleConditionNegation(
@@ -253,7 +270,19 @@ export function moveQueryTagToCondition(
     );
 }
 
+/**
+ * Compiles the tree into the shared wire format, the same one the advanced
+ * builder produces. A tag becomes an "is applied" filter on it, and a negated
+ * tag an "is not applied" filter.
+ */
 export function queryToJSON(
+    conditions: readonly QueryCondition[],
+): QueryJSON | null {
+    const where = conditionsToJSON(conditions);
+    return where ? { where } : null;
+}
+
+function conditionsToJSON(
     conditions: readonly QueryCondition[],
 ): QueryJSONNode | null {
     if (conditions.length === 0) return null;
@@ -272,6 +301,21 @@ export function queryToJSON(
                 ),
             conditionToJSON(conditions[0]),
         );
+}
+
+/**
+ * Whether any tag in the query came from the suggested-tag section. Those only
+ * match while the results request carries `consider_default_tags`, so turning
+ * `Include suggested tags` off has to deal with them.
+ */
+export function hasSuggestedTag(
+    conditions: readonly QueryCondition[],
+): boolean {
+    return conditions.some((condition) =>
+        condition.kind === "tag"
+            ? condition.suggested
+            : condition.members.some((member) => member.suggested),
+    );
 }
 
 export function usedTagIds(
@@ -399,13 +443,19 @@ function conditionContainsTag(
 
 function conditionToJSON(condition: QueryCondition): QueryJSONNode {
     if (condition.kind === "tag") return queryTagToJSON(condition);
-    const children = condition.members.map((member) => member.tag.id);
+    const children = condition.members.map(queryTagToJSON);
     if (condition.mode === "none") return { not: { or: children } };
     return condition.mode === "any" ? { or: children } : { and: children };
 }
 
 function queryTagToJSON(queryTag: QueryTag): QueryJSONNode {
-    return queryTag.negated ? { not: queryTag.tag.id } : queryTag.tag.id;
+    return {
+        filter: {
+            field: "tag",
+            tag_id: queryTag.tag.id,
+            op: queryTag.negated ? "is_not_applied" : "is_applied",
+        },
+    };
 }
 
 function joinJSONNodes(
@@ -413,10 +463,10 @@ function joinJSONNodes(
     right: QueryJSONNode,
     connector: QueryConnector,
 ): QueryJSONNode {
-    if (connector === "and" && typeof left === "object" && "and" in left) {
+    if (connector === "and" && "and" in left) {
         return { and: [...left.and, right] };
     }
-    if (connector === "or" && typeof left === "object" && "or" in left) {
+    if (connector === "or" && "or" in left) {
         return { or: [...left.or, right] };
     }
     return connector === "and" ? { and: [left, right] } : { or: [left, right] };
