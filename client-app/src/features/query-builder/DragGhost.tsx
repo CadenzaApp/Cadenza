@@ -23,7 +23,6 @@ import type { QueryCondition } from "./types";
 const RELEASE_DURATION = 320;
 const RELEASE_EASING = Easing.bezier(0.22, 0.8, 0.3, 1);
 const WindowOverlay = Platform.OS === "ios" ? FullWindowOverlay : Fragment;
-const noop = () => {};
 
 export function DragGhost() {
     const {
@@ -103,7 +102,6 @@ export function DragGhost() {
             {dragState.payload.source === "query" ? (
                 <QueryTagPill
                     queryTag={dragState.payload.queryTag}
-                    onToggle={noop}
                     height={10}
                 />
             ) : (
@@ -143,7 +141,7 @@ function ConditionGhostCard({ condition }: { condition: QueryCondition }) {
             >
                 {group ? (
                     <View className="self-start flex-row rounded-full bg-secondary p-0.5">
-                        {(["any", "all"] as const).map((option) => {
+                        {(["any", "all", "none"] as const).map((option) => {
                             const selected = group.mode === option;
                             return (
                                 <View
@@ -166,9 +164,7 @@ function ConditionGhostCard({ condition }: { condition: QueryCondition }) {
                                                 : theme.mutedForeground,
                                         }}
                                     >
-                                        {option === "any"
-                                            ? "HAVE ANY"
-                                            : "HAVE ALL"}
+                                        {`HAVE ${option.toUpperCase()}`}
                                     </Text>
                                 </View>
                             );
@@ -188,7 +184,12 @@ function ConditionGhostCard({ condition }: { condition: QueryCondition }) {
                                     {group.mode === "any" ? "OR" : "AND"}
                                 </Text>
                             ) : null}
-                            <QueryTagPill queryTag={queryTag} onToggle={noop} />
+                            <QueryTagPill queryTag={queryTag} />
+                            {condition.kind === "tag" && condition.negated ? (
+                                <Text className="text-[10px] font-bold text-muted-foreground">
+                                    NOT APPLIED
+                                </Text>
+                            ) : null}
                         </View>
                     ))}
                 </View>

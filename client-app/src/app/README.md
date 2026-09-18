@@ -84,8 +84,10 @@ background or selection bubble.
 The player is `NativeTabs.BottomAccessory` on iOS 26. `minimizeBehavior="onScrollDown"` lets UIKit
 minimize the tab bar from native scrolling, while `usePlacement()` selects the regular or inline
 player content. UIKit exposes no public command for setting that placement, so the player has no
-direct vertical docking gesture. Older iOS, Android, and web keep a floating `GlassSurface`
-fallback above their native tab bar.
+direct vertical docking gesture. Its React content still accepts a horizontal swipe to pause and
+dismiss the player through UIKit's animated `bottomAccessoryHidden` control, which removes the
+whole native glass accessory. Older iOS, Android, and web keep a floating `GlassSurface` fallback
+above their native tab bar with the same swipe-away behavior.
 
 Native tabs apply scrolling content insets. `useScreenOverlayInsets` now adds only app spacing
 for scroll content and keeps a conservative maximum chrome footprint for absolute controls such

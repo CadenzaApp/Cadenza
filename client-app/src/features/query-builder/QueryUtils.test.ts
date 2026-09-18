@@ -7,6 +7,7 @@ import {
     appendTag,
     conditionConnectorLabel,
     getConditionReorderPosition,
+    groupMemberConnectorLabel,
     moveConditionToIndex,
     moveQueryTagToCondition,
     moveQueryTagToIndex,
@@ -16,8 +17,9 @@ import {
     removeCondition,
     removeQueryTag,
     setGroupMode,
+    sortTagsByApplicationCount,
     toggleConditionConnector,
-    toggleTagNegation,
+    toggleConditionNegation,
     usedTagIds,
 } from "./QueryUtils.ts";
 import type { QueryCondition, QueryConnector, QueryTag } from "./types.ts";
@@ -35,6 +37,17 @@ function notApplied(tagId: number) {
     return { filter: { field: "tag", tag_id: tagId, op: "is_not_applied" } };
 }
 
+test("sorts palette tags by application count with stable tie breakers", () => {
+    assert.deepEqual(
+        sortTagsByApplicationCount([rainy, jazz, chill], {
+            [rainy.id]: { count: 2 },
+            [chill.id]: { count: 7 },
+            [jazz.id]: { count: 2 },
+        }).map((tag) => tag.id),
+        [chill.id, jazz.id, rainy.id],
+    );
+});
+
 function queryTag(
     id: string,
     tag: Tag,
@@ -45,20 +58,22 @@ function queryTag(
     return { kind: "tag", id, tag, negated, suggested, connector };
 }
 
-test("serializes top-level AND, group mode, and per-tag NOT", () => {
+test("serializes HAVE NONE and a negated single condition", () => {
     const conditions: QueryCondition[] = [
         {
             kind: "group",
             id: "group-1",
-            mode: "any",
+            mode: "none",
             connector: "and",
-            members: [queryTag("rainy", rainy), queryTag("chill", chill, true)],
+            members: [queryTag("rainy", rainy), queryTag("chill", chill)],
         },
-        queryTag("jazz", jazz),
+        queryTag("jazz", jazz, true),
     ];
 
     assert.deepEqual(queryToJSON(conditions), {
-        where: { and: [{ or: [applied(1), notApplied(2)] }, applied(3)] },
+        where: {
+            and: [{ not: { or: [applied(1), applied(2)] } }, notApplied(3)],
+        },
     });
     assert.equal(queryToJSON([]), null);
 });
@@ -80,14 +95,14 @@ test("combining a palette tag with a single creates an any group", () => {
     );
 });
 
-test("removing a group member collapses the group and preserves NOT", () => {
+test("removing a member from HAVE NONE creates a negated single condition", () => {
     const conditions: QueryCondition[] = [
         {
             kind: "group",
             id: "group-1",
-            mode: "all",
+            mode: "none",
             connector: "and",
-            members: [queryTag("rainy", rainy), queryTag("chill", chill, true)],
+            members: [queryTag("rainy", rainy), queryTag("chill", chill)],
         },
     ];
 
@@ -150,10 +165,26 @@ test("moving a single into another group removes its old condition", () => {
     assert.equal(moved.length, 1);
     assert.equal(moved[0].kind, "group");
     if (moved[0].kind !== "group") return;
-    assert.equal(moved[0].members[2].negated, true);
+    assert.equal(moved[0].members[2].negated, false);
 });
 
-test("toggles mode and negation without changing tag identity", () => {
+test("toggles a single condition and promotes it to HAVE NONE", () => {
+    const single = queryTag("rainy", rainy);
+    const negated = toggleConditionNegation([single], single.id);
+    assert.deepEqual(queryToJSON(negated), {
+        where: { and: [notApplied(1)] },
+    });
+
+    const promoted = addTagToCondition(negated, chill, single.id);
+    assert.equal(promoted[0].kind, "group");
+    if (promoted[0].kind !== "group") return;
+    assert.equal(promoted[0].mode, "none");
+    assert.deepEqual(queryToJSON(promoted), {
+        where: { and: [{ not: { or: [applied(1), applied(2)] } }] },
+    });
+});
+
+test("toggles all three group modes without changing tag identity", () => {
     const conditions: QueryCondition[] = [
         {
             kind: "group",
@@ -164,10 +195,10 @@ test("toggles mode and negation without changing tag identity", () => {
         },
     ];
     const all = setGroupMode(conditions, "group-1", "all");
-    const negated = toggleTagNegation(all, "rainy");
+    const none = setGroupMode(all, "group-1", "none");
 
-    assert.deepEqual(queryToJSON(negated), {
-        where: { and: [{ and: [notApplied(1), applied(2)] }] },
+    assert.deepEqual(queryToJSON(none), {
+        where: { and: [{ not: { or: [applied(1), applied(2)] } }] },
     });
 });
 
@@ -199,6 +230,9 @@ test("toggles top-level connectors and labels the condition below", () => {
 
     assert.equal(conditionConnectorLabel(single), "AND HAVE");
     assert.equal(conditionConnectorLabel(group), "AND");
+    assert.equal(groupMemberConnectorLabel("any"), "OR");
+    assert.equal(groupMemberConnectorLabel("all"), "AND");
+    assert.equal(groupMemberConnectorLabel("none"), "NOR");
     const toggled = toggleConditionConnector(
         [queryTag("rainy", rainy), single],
         single.id,

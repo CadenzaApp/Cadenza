@@ -22,7 +22,7 @@ native module directly.
 | `song-init-job.ts`           | Import-free, tested scan and generation job for songs without default tags.                                                                                                                                                                                                                       |
 | `account.tsx`                | `AccountProvider` / `useAccount`. Supabase session and the JWT.                                                                                                                                                                                                                                   |
 | `apple-music-auth.tsx`       | `AppleMusicProvider` / `useAppleMusic`. Apple Music tokens, persisted in secure store.                                                                                                                                                                                                            |
-| `playback.tsx`               | `PlaybackProvider`, broad `usePlayback`, lightweight `usePlaybackTrackState`, and stable `usePlaybackCommands`. Queue and the native playback snapshot.                                                                                                                                           |
+| `playback.tsx`               | `PlaybackProvider`, broad `usePlayback`, lightweight `usePlaybackTrackState`, and stable `usePlaybackCommands`. Queue, native playback snapshot, and compact-player dismissal state.                                                                                                                                           |
 | `queue-order.ts`             | Pure index math for the queue mirror. Tested in `queue-order.test.ts`.                                                                                                                                                                                                                            |
 | `supabase.ts`                | The Supabase client, backed by AsyncStorage.                                                                                                                                                                                                                                                      |
 | `theme.ts`                   | `NAV_THEME`, light and dark palettes for react-navigation, `sheetScreenOptions` for sheet routes, and `pushedScreenOptions` for the pushed detail routes.                                                                                                                                         |
@@ -244,6 +244,11 @@ hero-sized one separately as `artworkUrlLarge`, which the collection screen draw
 The primary `NativeTabs` uses `minimizeBehavior="onScrollDown"`. On iOS 26 UIKit minimizes the bar
 and moves its `BottomAccessory` between regular and inline placement. UIKit exposes no public
 imperative placement API, so the compact player does not add a separate vertical docking gesture.
+Its horizontal swipe-away gesture calls `dismissPlayer`, which pauses deterministically and hides
+all compact-player hosts. The iOS tab host maps that state to its animated
+`bottomAccessoryHidden` prop so UIKit removes the complete native accessory. The provider restores
+the player when a new queue starts or when a paused, dismissed track resumes through a system
+transport.
 
 Expo documents limited `FlatList` integration with native tabs. On iOS, every primary scroller is
 therefore placed directly inside `ScreenScrollMarker` from the underlying `react-native-screens`

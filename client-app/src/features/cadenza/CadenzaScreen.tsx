@@ -27,7 +27,8 @@ type BuilderMode = "simple" | "advanced";
  * control; they are a library category now and open from the library screen.
  */
 export function CadenzaScreen() {
-    const { userTags, userTagsLoading, userTagsErr } = useUserTags();
+    const { userTags, userTagsMeta, userTagsLoading, userTagsErr } =
+        useUserTags();
     const router = useRouter();
     const [mode, setMode] = useState<BuilderMode>("simple");
     const [conditions, setConditions] = useState<QueryCondition[]>([]);
@@ -144,6 +145,7 @@ export function CadenzaScreen() {
             {mode === "simple" ? (
                 <QueryBuilder
                     tags={userTags ?? []}
+                    tagMetadata={userTagsMeta}
                     conditions={conditions}
                     setConditions={setConditions}
                     includeSuggestedTags={includeSuggestedTags}

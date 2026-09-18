@@ -107,7 +107,6 @@ export function TagPill({
     const screenColor = useTagScreenColor(tag.color);
     const contentColor = inverted ? tag.color : screenColor;
     const iconSize = 1.15 * height;
-    const dotSize = 0.8 * height;
     const fontSize = 1 * height;
     const countFontSize = 0.9 * height;
     const countPaddingHorizontal = 0.9 * height;
@@ -131,13 +130,12 @@ export function TagPill({
             {showIcon
                 ? (leadingIcon ??
                   (tag.type === "basic" ? (
-                      <View
-                          style={{
-                              backgroundColor: contentColor,
-                              width: dotSize,
-                              height: dotSize,
-                              borderRadius: 999,
-                          }}
+                      <Ionicons
+                          name="pricetag"
+                          size={iconSize}
+                          color={contentColor}
+                          accessibilityElementsHidden
+                          importantForAccessibility="no"
                       />
                   ) : (
                       <Ionicons

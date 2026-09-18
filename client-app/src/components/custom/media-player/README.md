@@ -2,8 +2,9 @@
 
 The global Apple Music player. On iOS 26 its compact form is the native tab controller's bottom
 accessory; UIKit moves it inline when native scrolling minimizes the tab bar. Older iOS, Android,
-and web use a floating fallback. Tapping it opens the `/player` sheet. Comments, Player, and Tags
-are three always-mounted pages in one horizontal pager at the bottom of that sheet.
+and web use a floating fallback. Tapping it opens the `/player` sheet; swiping it horizontally
+pauses playback and dismisses the compact player. Comments, Player, and Tags are three
+always-mounted pages in one horizontal pager at the bottom of that sheet.
 
 ## Files
 
@@ -37,8 +38,14 @@ transition, and Liquid Glass. `MediaPlayerAccessory` reads `usePlacement()` and 
 or inline content. The native host owns its height, so `compact.tsx` fills the measured frame.
 
 UIKit exposes no public command for forcing accessory placement. The app therefore relies on
-`minimizeBehavior="onScrollDown"` and native scrolling, with no direct vertical player gesture or
-private UIKit selector. The floating compatibility player remains fixed above the tab bar.
+`minimizeBehavior="onScrollDown"` and native scrolling, with no direct vertical docking gesture or
+private UIKit selector. A horizontal pan is still owned by the React content in either native
+placement: crossing a quarter of the screen or flicking past the velocity threshold pauses native
+playback and sets `bottomAccessoryHidden`, letting UIKit animate the complete glass accessory away.
+UIKit does not expose an interactive transform for its accessory wrapper, so the native shell does
+not track the finger before release. Starting another song or resuming from a system transport
+restores it. The app-owned floating compatibility player tracks the finger and animates fully
+offscreen before it is hidden.
 
 ### The now playing sheet's three pages
 
@@ -124,6 +131,9 @@ smoothly between the 750ms native snapshot polls, and scrubbing overrides it wit
 - Keep `app/player/` outside `(tabs)`. It is a root sheet over the primary tabs, and its pager is
   deliberately a plain horizontal scroll surface rather than another navigator.
 - State shared by the native regular and inline accessory instances must stay above the accessory.
+- Dismissal state lives in `PlaybackProvider`, not in an accessory instance. UIKit can replace the
+  regular content with inline content during a scroll, and every native/fallback host must agree
+  that the player is hidden.
 - Do not add `GlassSurface` to the native accessory. UIKit owns its material. Only the fallback
   paints its own glass.
 - A sheet belongs in `SHEET_SEGMENTS` so base-route and sheet-local inset calculations keep using

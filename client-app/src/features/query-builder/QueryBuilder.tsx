@@ -13,7 +13,7 @@ import Animated from "react-native-reanimated";
 import { GlassToggle } from "@/components/ui/glass-toggle";
 import { Text } from "@/components/ui/text";
 import { THEME } from "@/lib/theme";
-import type { Tag } from "@/lib/types";
+import type { Tag, TagMetadata } from "@/lib/types";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
 import { useScreenScroll } from "@/lib/screen-scroll";
@@ -33,7 +33,7 @@ import {
     removeQueryTag,
     setGroupMode,
     toggleConditionConnector,
-    toggleTagNegation,
+    toggleConditionNegation,
 } from "./QueryUtils";
 import { TagPalette } from "./TagPalette";
 import type {
@@ -45,6 +45,7 @@ import type {
 
 type Props = {
     tags: Tag[];
+    tagMetadata?: Readonly<Record<number, TagMetadata>>;
     conditions: QueryCondition[];
     setConditions: Dispatch<SetStateAction<QueryCondition[]>>;
     includeSuggestedTags: boolean;
@@ -54,6 +55,7 @@ const DEFAULT_PALETTE_HEIGHT = 208;
 
 export function QueryBuilder({
     tags,
+    tagMetadata,
     conditions,
     setConditions,
     includeSuggestedTags,
@@ -151,7 +153,7 @@ export function QueryBuilder({
     );
     const toggleNegation = useCallback(
         (id: string) =>
-            setConditions((current) => toggleTagNegation(current, id)),
+            setConditions((current) => toggleConditionNegation(current, id)),
         [setConditions],
     );
     const changeMode = useCallback(
@@ -216,7 +218,7 @@ export function QueryBuilder({
                         >
                             <ConditionList
                                 conditions={conditions}
-                                onToggleNegation={toggleNegation}
+                                onToggleConditionNegation={toggleNegation}
                                 onModeChange={changeMode}
                                 onConnectorToggle={toggleConnector}
                             />
@@ -226,6 +228,7 @@ export function QueryBuilder({
 
                 <TagPalette
                     tags={tags}
+                    tagMetadata={tagMetadata}
                     height={paletteHeight}
                     onHeightChange={handlePaletteHeightChange}
                     includeSuggestedTags={includeSuggestedTags}

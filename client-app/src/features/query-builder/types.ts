@@ -16,7 +16,7 @@ export type QueryTag = {
     layoutId?: string;
 };
 
-export type QueryGroupMode = "any" | "all";
+export type QueryGroupMode = "any" | "all" | "none";
 export type QueryConnector = "and" | "or";
 
 export type QueryGroup = {
