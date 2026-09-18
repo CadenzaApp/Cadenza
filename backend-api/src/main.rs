@@ -63,7 +63,7 @@ async fn main() {
     let addr: SocketAddr = env::var("BIND_ADDR")
         .unwrap_or_else(|_| "0.0.0.0:3000".to_string())
         .parse()
-        .expect("BIND_ADDR must look like 127.0.0.1:3000");
+        .expect("BIND_ADDR must look like 0.0.0.0:3000");
     println!("Running on http://{}", addr);
 
     axum_server::bind(addr)

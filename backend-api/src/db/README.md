@@ -30,17 +30,22 @@ Three tables, keyed on song ids that come from Apple Music.
 ## The query compiler
 
 `queries.rs::run_json_query` is the interesting part. Input is a recursive JSON tree where a
-number is a tag id:
+number is a tag id, plus an optional list of candidate song ids:
 
 ```json
 { "and": [ 12, { "or": [ 7, 9 ] }, { "not": 3 } ] }
 ```
 
-`decode_query` wraps it in:
+Without candidates, `decode_query` evaluates the expression over songs that already have user
+tag rows. With candidates, it starts from `unnest($2::text[])`, left joins user tag rows for
+scoring, and evaluates the same correlated `EXISTS` clauses. This lets a library song with no
+tag rows satisfy a negative condition.
+
+The non-candidate form wraps the expression in:
 
 ```sql
-SELECT song_id, tag_id FROM user_tags_applied
-WHERE user_tags_applied.user_id = $1 AND <compiled where clause>
+SELECT song_id, tag_id FROM user_tags_applied AS query_songs
+WHERE query_songs.user_id = $1 AND <compiled where clause>
 ```
 
 `decode_query_json_node` walks the tree and emits one correlated `EXISTS (...)` subquery per tag
@@ -49,8 +54,8 @@ id, joined with `AND` / `OR`. `not` is not emitted as a wrapping `NOT (...)`. In
 inverted `and` joins with `OR`, an inverted `or` joins with `AND`, and an inverted tag id becomes
 `NOT EXISTS`. Double negation cancels, since `not` just flips the flag again.
 
-Tag ids are bound as parameters, never interpolated. `param_counter` starts at 2 because `$1` is
-the user id, and each recursive call returns the next free index.
+Tag ids are bound as parameters, never interpolated. `param_counter` starts at 2 when `$1` is
+the user id, or 3 when `$2` contains candidate ids. Each recursive call returns the next index.
 
 The return value is `song id -> the set of that song's tag ids`, which is what lets
 `routes/queries.rs` rank results by how many of the queried tags each song has. Malformed input
@@ -106,8 +111,8 @@ Operator / type mismatches, missing or extra values, bad numbers, and bad dates 
 - Models convert to wire types through `From<tags::Model> for routes::json::tag::Tag`, and a
   model paired with its applied value through `From<(tags::Model, Option<String>)> for
   routes::json::tag::AppliedTag`.
-- Client side, the JSON tree is produced by
-  `client-app/src/features/query-builder/QueryUtils.ts::queryNodeToJSON`, and the advanced one by
+- Client side, the simple JSON tree is produced by
+  `client-app/src/features/query-builder/QueryUtils.ts::queryToJSON`, and the advanced one by
   `client-app/src/features/advanced-query-builder/AdvancedQueryUtils.ts::buildAdvancedQuery`.
 
 ## Gotchas

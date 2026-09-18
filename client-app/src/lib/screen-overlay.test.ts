@@ -23,3 +23,16 @@ test("pushed screens reserve space only when they host the compact player", () =
     assert.equal(withHost.playerBottomInset, 92);
     assert.ok(withHost.contentBottomInset > withoutHost.contentBottomInset);
 });
+
+test("native tab accessories do not get counted twice for floating actions", () => {
+    const insets = calculateScreenOverlayInsets({
+        safeAreaBottom: 34,
+        nativeTabBarHeight: 49,
+        bottomBarsVisible: true,
+        compactPlayerVisible: true,
+        nativePlayerAccessory: true,
+    });
+
+    assert.equal(insets.playerBottomInset, 155);
+    assert.equal(insets.floatingActionBottom, 46);
+});

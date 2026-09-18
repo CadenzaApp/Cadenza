@@ -5,7 +5,10 @@ use crate::{
     auth::SupabaseClaims,
     db::{
         self,
-        tags::{TagMetadata, get_all_user_tags, get_songs_with_user_tag, get_tag, get_user_tags_metadata},
+        tags::{
+            TagMetadata, get_all_user_tags, get_songs_with_user_tag, get_tag,
+            get_user_tags_metadata,
+        },
     },
     err::CadenzaError,
     routes::json::{
@@ -32,7 +35,7 @@ pub struct TagPlusSongs {
 #[derive(Serialize)]
 pub struct TagsWithMetadata {
     tags: Vec<Tag>,
-    metadata: HashMap<i64, TagMetadata>
+    metadata: HashMap<i64, TagMetadata>,
 }
 
 #[derive(Serialize)]
@@ -60,12 +63,10 @@ async fn get_user_tags_handler(
                 song_ids: get_songs_with_user_tag(&db, claims.user_id, tag_id).await?,
             })))
         }
-        None => {
-            Ok(Json(GetTagsResponse::All(TagsWithMetadata{
-                tags: vec_into(get_all_user_tags(&db, claims.user_id).await?),
-                metadata: get_user_tags_metadata(&db, claims.user_id).await?
-            })))
-        }
+        None => Ok(Json(GetTagsResponse::All(TagsWithMetadata {
+            tags: vec_into(get_all_user_tags(&db, claims.user_id).await?),
+            metadata: get_user_tags_metadata(&db, claims.user_id).await?,
+        }))),
     }
 }
 

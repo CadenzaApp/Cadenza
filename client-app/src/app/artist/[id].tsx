@@ -13,11 +13,14 @@ import {
     View,
 } from "react-native";
 
-import { MusicList } from "@/components/custom/music-list";
+import { TrackCollectionView } from "@/components/custom/track-collection-view";
 import { FloatingCloseButton } from "@/components/ui/floating-close-button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
-import { TintBackdrop } from "@/components/ui/tint-backdrop";
+import {
+    TintBackdrop,
+    TintOverscrollBackdrop,
+} from "@/components/ui/tint-backdrop";
 import { darken, useArtworkTint, withAlpha } from "@/lib/artwork-color";
 import { getErrorMessage } from "@/lib/error-utils";
 import { useZoomSource, ZoomDismissScreen } from "@/lib/zoom-dismiss";
@@ -96,24 +99,27 @@ export default function ArtistScreen() {
 
     return (
         <ZoomDismissScreen>
-            {/* The tint rather than the flat card color, so overscrolling at
-                the top uncovers the wash and not a gray ceiling. */}
-            <View
-                className="flex-1 bg-card"
-                style={tint ? { backgroundColor: tint } : undefined}
-            >
+            <View className="flex-1 bg-card">
                 {artistErr ? (
                     <Text className="my-2 px-6 text-center text-destructive">
                         {getErrorMessage(artistErr)}
                     </Text>
                 ) : null}
 
-                <MusicList
+                <TrackCollectionView
+                    title={artist?.name ?? name ?? "Artist"}
                     tracks={topSongs}
                     isLoading={artistLoading}
+                    error={artistErr}
                     pagination={NO_PAGINATION}
+                    sorting={null}
                     multiSelect={DEFAULT_MULTI_SELECT_CONFIG}
-                    fullBleedRows
+                    overscrollBackground={
+                        <TintOverscrollBackdrop
+                            tint={tint}
+                            depth={TINT_DEPTH}
+                        />
+                    }
                     onContentSizeChange={(_, height) =>
                         setContentHeight(Math.max(windowHeight, height))
                     }
@@ -170,12 +176,8 @@ export default function ArtistScreen() {
                             </View>
                         ) : null
                     }
+                    closeControl={<FloatingCloseButton label="Close artist" />}
                 />
-
-                {/* Floats over the hero rather than scrolling with it. Top right
-                and an X, the same place and the same glyph every sheet in the
-                app closes from, because this is the same gesture. */}
-                <FloatingCloseButton label="Close artist" />
             </View>
         </ZoomDismissScreen>
     );

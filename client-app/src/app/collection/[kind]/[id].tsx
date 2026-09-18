@@ -1,19 +1,17 @@
-import Ionicons from "@expo/vector-icons/Ionicons";
 import { ShuffleMode, type MusicItem } from "@apple-musickit";
-import { Image } from "expo-image";
 import { useLocalSearchParams } from "expo-router";
-import { type ComponentProps, useState } from "react";
-import { Pressable, useWindowDimensions, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useState } from "react";
+import { useWindowDimensions, View } from "react-native";
 
-import { MusicList } from "@/components/custom/music-list";
 import { CollectionOptionsMenu } from "@/components/custom/options-menu/collection-options-menu";
+import { TrackCollectionView } from "@/components/custom/track-collection-view";
 import { FloatingCloseButton } from "@/components/ui/floating-close-button";
-import { GlassIconButton } from "@/components/ui/glass-icon-button";
 import { Text } from "@/components/ui/text";
-import { TintBackdrop } from "@/components/ui/tint-backdrop";
+import {
+    TintBackdrop,
+    TintOverscrollBackdrop,
+} from "@/components/ui/tint-backdrop";
 import { useArtworkTint } from "@/lib/artwork-color";
-import { getErrorMessage } from "@/lib/error-utils";
 import { useCollectionSongs } from "@/lib/musickit-hooks";
 import { isTrackInCollection } from "@/lib/playable-item";
 import { usePlaybackCommands, usePlaybackTrackState } from "@/lib/playback";
@@ -22,16 +20,8 @@ import { ZoomDismissScreen } from "@/lib/zoom-dismiss";
 import type { LibraryCollectionKind } from "@/lib/musickit-hooks";
 
 const DEFAULT_MULTI_SELECT_CONFIG = {} as const;
-/** Cover width, as a fraction of the window. Apple's is about this. */
-const COVER_WIDTH_RATIO = 0.6;
-const COVER_MAX_WIDTH = 280;
-/** Height of the Play button, and so the diameter of the circles beside it. */
+/** Diameter of the floating close button. */
 const HERO_BUTTON_SIZE = 52;
-/**
- * Width of the whole button row, as a fraction of the window. Music's Play is
- * narrower than the content column, so the row is sized rather than stretched.
- */
-const BUTTON_ROW_WIDTH_RATIO = 0.74;
 /** Brightness the page bottoms out at. Shared with the artist screen. */
 const TINT_DEPTH = 0.3;
 /**
@@ -45,10 +35,9 @@ const HERO_FOREGROUND = "#ffffff";
  * The songs inside one library album or playlist. Both kinds render the same
  * way, so the kind is a route param rather than two screens.
  *
- * Laid out like the artist screen, and for the same reason: the whole page is
- * one `MusicList`, which owns a `FlatList`, so the cover and the buttons go in
- * as its header rather than as a sibling above it. Wrapping it in a
- * `ScrollView` would nest two scroll containers and neither would behave.
+ * `TrackCollectionView` owns the `MusicList` scroll surface and its standard
+ * cover, metadata, and action header. This route supplies Apple Music paging,
+ * playback state, artwork tint, zoom dismissal, and the rich options menu.
  */
 export default function CollectionDetailScreen() {
     const {
@@ -68,8 +57,7 @@ export default function CollectionDetailScreen() {
         artworkUrl?: string;
         artworkUrlLarge?: string;
     }>();
-    const insets = useSafeAreaInsets();
-    const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+    const { height: windowHeight } = useWindowDimensions();
     const { activeTrack, isPlaying } = usePlaybackTrackState();
     const { playQueue, setShuffleMode, togglePlayback } = usePlaybackCommands();
     const [optionsOpen, setOptionsOpen] = useState(false);
@@ -97,11 +85,6 @@ export default function CollectionDetailScreen() {
     // Same reason as the artist screen: the wash runs the height of the whole
     // page, so scrolling moves through one gradient instead of repeating it.
     const [contentHeight, setContentHeight] = useState(windowHeight * 1.5);
-    const coverWidth = Math.min(
-        windowWidth * COVER_WIDTH_RATIO,
-        COVER_MAX_WIDTH,
-    );
-    const buttonRowWidth = windowWidth * BUTTON_ROW_WIDTH_RATIO;
     // Only once every page is in. A count off a half-loaded list is a wrong
     // number, which is worse than no number.
     const summary =
@@ -142,68 +125,63 @@ export default function CollectionDetailScreen() {
 
     return (
         <ZoomDismissScreen>
-            {/* The tint, not just the gradient inside the list: pulling the
-                list down past the top would otherwise uncover the flat card
-                color above the artwork. */}
-            <View
-                className="flex-1 bg-card"
-                style={tint ? { backgroundColor: tint } : undefined}
-            >
-                {tracksErr ? (
-                    <Text className="my-2 px-6 text-center text-destructive">
-                        {getErrorMessage(tracksErr)}
-                    </Text>
-                ) : null}
-
-                <MusicList
+            <View className="flex-1">
+                <TrackCollectionView
+                    title={
+                        title ?? (kind === "playlist" ? "Playlist" : "Album")
+                    }
                     tracks={tracks}
                     isLoading={tracksLoading}
+                    error={tracksErr}
                     pagination={{
                         hasNextPage: hasNextCollectionPage,
                         isLoadingNextPage: tracksLoadingNextPage,
                         onLoadNextPage: loadNextCollectionPage,
                     }}
+                    sorting={null}
                     multiSelect={DEFAULT_MULTI_SELECT_CONFIG}
-                    fullBleedRows
+                    subtitle={artistName ?? firstTrack?.artistName}
+                    summary={collectionMeta(firstTrack)}
+                    artworkUrls={[
+                        artworkUrlLarge ??
+                            firstTrack?.artworkUrlLarge ??
+                            artworkUrl ??
+                            firstTrack?.artworkUrl ??
+                            "",
+                    ].filter(Boolean)}
+                    isPlaying={isCollectionPlaying}
+                    respectTopSafeArea
+                    onPlay={play}
+                    onShuffle={shuffle}
+                    options={[
+                        {
+                            id: "collection-options",
+                            label: "More options",
+                            icon: "ellipsis-horizontal",
+                            onPress: () => setOptionsOpen(true),
+                        },
+                    ]}
+                    closeControl={
+                        <FloatingCloseButton
+                            label="Close"
+                            size={HERO_BUTTON_SIZE}
+                        />
+                    }
+                    overscrollBackground={
+                        <TintOverscrollBackdrop
+                            tint={tint}
+                            depth={TINT_DEPTH}
+                        />
+                    }
+                    background={
+                        <TintBackdrop
+                            tint={tint}
+                            height={contentHeight}
+                            depth={TINT_DEPTH}
+                        />
+                    }
                     onContentSizeChange={(_, height) =>
                         setContentHeight(Math.max(windowHeight, height))
-                    }
-                    header={
-                        <>
-                            {/* Inside the header, so it scrolls with the content it
-                            is painted behind. Rows draw no background of their
-                            own, so it shows through all the way down. */}
-                            <TintBackdrop
-                                tint={tint}
-                                height={contentHeight}
-                                depth={TINT_DEPTH}
-                            />
-                            <CollectionHero
-                                title={
-                                    title ??
-                                    (kind === "playlist" ? "Playlist" : "Album")
-                                }
-                                subtitle={artistName ?? firstTrack?.artistName}
-                                meta={collectionMeta(firstTrack)}
-                                artworkUrl={
-                                    artworkUrlLarge ??
-                                    firstTrack?.artworkUrlLarge ??
-                                    artworkUrl ??
-                                    firstTrack?.artworkUrl
-                                }
-                                coverWidth={coverWidth}
-                                buttonRowWidth={buttonRowWidth}
-                                // Clears the floating X, which is not laid out.
-                                paddingTop={insets.top + 56}
-                                canPlay={
-                                    tracks.length > 0 && !playbackCommandPending
-                                }
-                                isPlaying={isCollectionPlaying}
-                                onPlay={play}
-                                onShuffle={shuffle}
-                                onOpenOptions={() => setOptionsOpen(true)}
-                            />
-                        </>
                     }
                     footer={
                         summary ? (
@@ -219,11 +197,6 @@ export default function CollectionDetailScreen() {
                         ) : null
                     }
                 />
-
-                {/* Floats over the cover rather than scrolling with it. Top right
-                and an X, the same place and the same glyph every detail screen
-                in the app closes from. */}
-                <FloatingCloseButton label="Close" size={HERO_BUTTON_SIZE} />
 
                 {optionsOpen ? (
                     <CollectionOptionsMenu
@@ -277,184 +250,4 @@ function collectionSummary(tracks: MusicItem[]) {
     return rest === 0
         ? `${songs}, ${hourText}`
         : `${songs}, ${hourText} ${rest} ${rest === 1 ? "minute" : "minutes"}`;
-}
-
-/**
- * The cover, the name, and the three buttons under it, centered above the
- * track list.
- *
- * `expo-image` rather than the React Native one: it caches to disk and decodes
- * off the JS thread, so a cover already seen in a list is on screen on the
- * first frame instead of a beat later.
- */
-function CollectionHero({
-    title,
-    subtitle,
-    meta,
-    artworkUrl,
-    coverWidth,
-    buttonRowWidth,
-    paddingTop,
-    canPlay,
-    isPlaying,
-    onPlay,
-    onShuffle,
-    onOpenOptions,
-}: {
-    title: string;
-    subtitle?: string;
-    meta?: string;
-    artworkUrl?: string;
-    coverWidth: number;
-    buttonRowWidth: number;
-    paddingTop: number;
-    canPlay: boolean;
-    isPlaying: boolean;
-    onPlay: () => void;
-    onShuffle: () => void;
-    onOpenOptions: () => void;
-}) {
-    return (
-        <View className="items-center px-6 pb-6" style={{ paddingTop }}>
-            {artworkUrl ? (
-                <Image
-                    source={{ uri: artworkUrl }}
-                    contentFit="cover"
-                    cachePolicy="memory-disk"
-                    priority="high"
-                    transition={200}
-                    style={{
-                        width: coverWidth,
-                        height: coverWidth,
-                        borderRadius: 8,
-                    }}
-                />
-            ) : (
-                <View
-                    className="items-center justify-center rounded-lg bg-muted"
-                    style={{ width: coverWidth, height: coverWidth }}
-                >
-                    <Ionicons name="disc" size={48} color={HERO_FOREGROUND} />
-                </View>
-            )}
-
-            <Text
-                className="pt-5 text-center text-2xl font-bold tracking-tight"
-                style={{ color: HERO_FOREGROUND }}
-                numberOfLines={2}
-            >
-                {title}
-            </Text>
-            {subtitle ? (
-                <Text
-                    className="pt-1 text-center text-xl"
-                    style={{ color: HERO_FOREGROUND, opacity: 0.75 }}
-                    numberOfLines={1}
-                >
-                    {subtitle}
-                </Text>
-            ) : null}
-            {meta ? (
-                <Text
-                    className="pt-1 text-center text-xs font-semibold uppercase"
-                    style={{ color: HERO_FOREGROUND, opacity: 0.6 }}
-                    numberOfLines={1}
-                >
-                    {meta}
-                </Text>
-            ) : null}
-
-            {/* Music's arrangement: the one thing you came here to press in
-                the middle, the two circles that qualify it either side. */}
-            <View
-                className="flex-row items-center gap-3 pt-5"
-                style={{ width: buttonRowWidth }}
-            >
-                <HeroCircleButton
-                    label="Shuffle"
-                    icon="shuffle"
-                    disabled={!canPlay}
-                    onPress={onShuffle}
-                />
-                <PlayButton
-                    disabled={!canPlay}
-                    isPlaying={isPlaying}
-                    onPress={onPlay}
-                />
-                <HeroCircleButton
-                    label="More options"
-                    icon="ellipsis-horizontal"
-                    disabled={false}
-                    onPress={onOpenOptions}
-                />
-            </View>
-        </View>
-    );
-}
-
-/**
- * The wide button under the cover. White on whatever the tint is, so it reads
- * the same on a pale cover and a dark one.
- */
-function PlayButton({
-    disabled,
-    isPlaying,
-    onPress,
-}: {
-    disabled: boolean;
-    isPlaying: boolean;
-    onPress: () => void;
-}) {
-    return (
-        <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={isPlaying ? "Pause" : "Play"}
-            accessibilityState={{ disabled }}
-            disabled={disabled}
-            onPress={onPress}
-            className="flex-1 flex-row items-center justify-center gap-2 rounded-full bg-white active:opacity-80"
-            style={{ height: HERO_BUTTON_SIZE, opacity: disabled ? 0.4 : 1 }}
-        >
-            <Ionicons
-                name={isPlaying ? "pause" : "play"}
-                size={20}
-                color="#000000"
-            />
-            <Text
-                className="text-lg font-semibold"
-                style={{ color: "#000000" }}
-            >
-                {isPlaying ? "Pause" : "Play"}
-            </Text>
-        </Pressable>
-    );
-}
-
-/** One of the two circles either side of Play. */
-function HeroCircleButton({
-    label,
-    icon,
-    disabled,
-    onPress,
-}: {
-    label: string;
-    icon: ComponentProps<typeof Ionicons>["name"];
-    disabled: boolean;
-    onPress: () => void;
-}) {
-    // The glass button owns its own pressed style, so the disabled dimming
-    // goes on a wrapper rather than fighting it for the same prop.
-    return (
-        <View style={{ opacity: disabled ? 0.4 : 1 }}>
-            <GlassIconButton
-                size={HERO_BUTTON_SIZE}
-                accessibilityLabel={label}
-                accessibilityState={{ disabled }}
-                disabled={disabled}
-                onPress={onPress}
-            >
-                <Ionicons name={icon} size={22} color={HERO_FOREGROUND} />
-            </GlassIconButton>
-        </View>
-    );
 }

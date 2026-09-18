@@ -5,12 +5,14 @@ import {
     Platform,
     Pressable,
     ScrollView,
+    StyleSheet,
     View,
     useWindowDimensions,
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTheme } from "expo-router/react-navigation";
 
+import { GlassSurface } from "@/components/ui/glass-surface";
 import { Input } from "@/components/ui/input";
 import { Text } from "@/components/ui/text";
 import { cn } from "@/lib/utils";
@@ -114,7 +116,7 @@ export function OptionPicker({
                     <Pressable
                         accessibilityViewIsModal
                         onPress={(event) => event.stopPropagation()}
-                        className="rounded-xl border border-border bg-popover px-4 pb-2 gap-3"
+                        className="overflow-hidden rounded-xl border border-border px-4 pb-2 gap-3"
                         // explicit, so the title always clears the top edge
                         style={{
                             width,
@@ -122,6 +124,15 @@ export function OptionPicker({
                             paddingTop: HEADER_TOP_SPACE,
                         }}
                     >
+                        <View
+                            pointerEvents="none"
+                            style={StyleSheet.absoluteFill}
+                        >
+                            <GlassSurface
+                                variant="regular"
+                                style={StyleSheet.absoluteFill}
+                            />
+                        </View>
                         <View
                             className="flex-row items-center justify-between gap-3"
                             style={{ paddingTop: 8, paddingBottom: 8 }}

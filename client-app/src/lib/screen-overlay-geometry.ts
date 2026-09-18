@@ -23,7 +23,13 @@ export function calculateScreenOverlayInsets({
         : compactPlayerVisible
           ? safeAreaBottom + ACCESSORY_GAP + COMPACT_PLAYER_HEIGHT
           : safeAreaBottom;
-    const floatingActionBottom = playerBottomInset + OVERLAY_GAP;
+    // UIKit already shortens a native-tab screen's usable overlay area above
+    // its bottom accessory. Adding the tab and player heights again puts an
+    // absolute bubble roughly a second player-height too high.
+    const floatingActionBottom =
+        bottomBarsVisible && nativePlayerAccessory
+            ? safeAreaBottom + OVERLAY_GAP
+            : playerBottomInset + OVERLAY_GAP;
     const contentBottomInset = bottomBarsVisible
         ? compactPlayerVisible && !nativePlayerAccessory
             ? COMPACT_PLAYER_HEIGHT + ACCESSORY_GAP + OVERLAY_GAP

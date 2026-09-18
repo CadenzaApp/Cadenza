@@ -90,6 +90,38 @@ export function useAPIData<Output>(path: string, params?: Record<string, any>) {
     );
 }
 
+/** Cached idempotent read that uses POST because its request body may be large. */
+export function useAPIPostData<Body, Output>(path: string, body: Body | null) {
+    const { account } = useAccount();
+
+    return useSWR(
+        account && body !== null
+            ? {
+                  keyType: "api-data",
+                  method: "POST",
+                  path,
+                  body,
+                  accountId: account.id,
+              }
+            : null,
+        async () => {
+            const resp = await fetch(BACKEND_URL + path, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${account?.jwt}`,
+                },
+                body: JSON.stringify(body),
+            });
+            const json = await responseData(resp);
+
+            if (!resp.ok) throw json;
+            return json as Output;
+        },
+        { keepPreviousData: false },
+    );
+}
+
 /**
  * Cached idempotent read whose request payload is a list too long for a query
  * string. The list is split into batches that run in parallel and are merged

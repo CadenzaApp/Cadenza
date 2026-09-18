@@ -82,7 +82,7 @@ export function CollectionOptionsMenu({
     ];
 
     return (
-        <ModalPopup visible onClose={onClose} title={title} variant="glass">
+        <ModalPopup visible onClose={onClose} title={title}>
             {favoriteStatusErr ? (
                 <FavoriteShareRow
                     target={tracks}

@@ -53,8 +53,8 @@ export function TagFadeRail({
                         key={tag.id}
                         tag={tag}
                         value={tag.value}
-                        height={compact ? 8 : 10}
-                        compact={compact}
+                        height={compact ? 8 : 9}
+                        showIcon={false}
                     />
                 ))}
             </ScrollView>

@@ -113,7 +113,10 @@ mod tests {
     #[test]
     fn numbers_accept_ints_floats_and_exponents() {
         assert_eq!(canonical(TagType::Number, "7"), Some("7".to_string()));
-        assert_eq!(canonical(TagType::Number, "-2.50"), Some("-2.5".to_string()));
+        assert_eq!(
+            canonical(TagType::Number, "-2.50"),
+            Some("-2.5".to_string())
+        );
         assert_eq!(canonical(TagType::Number, "1e3"), Some("1000".to_string()));
     }
 

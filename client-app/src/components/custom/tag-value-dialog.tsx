@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
-import { Modal, Platform, Pressable, View } from "react-native";
+import { useState } from "react";
+import { Modal, Platform, Pressable, StyleSheet, View } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
 
 import { Button } from "@/components/ui/button";
+import { GlassSurface } from "@/components/ui/glass-surface";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Text } from "@/components/ui/text";
@@ -65,15 +66,6 @@ function TagValueDialogContent({
     const [pickerStep, setPickerStep] = useState<"date" | "time" | null>(null);
     // The day chosen in the Android date step, waiting for a time.
     const [pendingDate, setPendingDate] = useState<Date | null>(null);
-
-    // the dialog is remounted per tag, so this only resets when reopened for
-    // the same tag and value
-    useEffect(() => {
-        if (!open) {
-            setPickerStep(null);
-            setPendingDate(null);
-        }
-    }, [open]);
 
     if (!tag) return null;
 
@@ -145,21 +137,33 @@ function TagValueDialogContent({
         setPendingDate(null);
     }
 
+    function handleClose() {
+        setPickerStep(null);
+        setPendingDate(null);
+        onClose();
+    }
+
     return (
         <Modal
             visible={open}
             transparent
             animationType="fade"
-            onRequestClose={onClose}
+            onRequestClose={handleClose}
         >
             <Pressable
                 className="flex-1 bg-black/70 items-center justify-center px-4 py-8"
-                onPress={onClose}
+                onPress={handleClose}
             >
                 <Pressable
                     onPress={(event) => event.stopPropagation()}
-                    className="w-full max-w-[420px] bg-popover border border-border rounded-xl p-5 gap-4"
+                    className="w-full max-w-[420px] overflow-hidden border border-border rounded-xl p-5 gap-4"
                 >
+                    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+                        <GlassSurface
+                            variant="regular"
+                            style={StyleSheet.absoluteFill}
+                        />
+                    </View>
                     <Text className="text-lg font-semibold text-foreground">
                         {mode === "apply" ? "Add" : "Edit"} {tag.name}
                     </Text>
@@ -186,9 +190,7 @@ function TagValueDialogContent({
                                     accessibilityLabel="Decrease by one"
                                     onPress={() => stepValue(-1)}
                                 >
-                                    <Text className="text-xl leading-6">
-                                        −
-                                    </Text>
+                                    <Text className="text-xl leading-6">−</Text>
                                 </Button>
                                 <View className="flex-1">
                                     <Input
@@ -208,9 +210,7 @@ function TagValueDialogContent({
                                     accessibilityLabel="Increase by one"
                                     onPress={() => stepValue(1)}
                                 >
-                                    <Text className="text-xl leading-6">
-                                        +
-                                    </Text>
+                                    <Text className="text-xl leading-6">+</Text>
                                 </Button>
                             </View>
                         )}
@@ -275,10 +275,7 @@ function TagValueDialogContent({
                                 >
                                     <Text className="text-lg font-medium text-center">
                                         {rawValue
-                                            ? formatTagValue(
-                                                  tag.type,
-                                                  rawValue,
-                                              )
+                                            ? formatTagValue(tag.type, rawValue)
                                             : isDateOnly
                                               ? "Pick date"
                                               : "Pick date & time"}
@@ -362,7 +359,7 @@ function TagValueDialogContent({
                     <View className="flex-row gap-2.5">
                         <Button
                             variant="secondary"
-                            onPress={onClose}
+                            onPress={handleClose}
                             className="flex-1"
                         >
                             <Text>Cancel</Text>

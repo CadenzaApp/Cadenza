@@ -18,7 +18,7 @@ type ModalPopupProps = {
     title?: string;
     children: ReactNode;
     contentStyle?: StyleProp<ViewStyle>;
-    /** "glass" renders the card on liquid glass instead of the flat popover surface. */
+    /** Liquid glass by default; "solid" is the explicit compatibility escape hatch. */
     variant?: "solid" | "glass";
 };
 
@@ -29,7 +29,7 @@ export function ModalPopup({
     title,
     children,
     contentStyle,
-    variant = "solid",
+    variant = "glass",
 }: ModalPopupProps) {
     return (
         <Modal

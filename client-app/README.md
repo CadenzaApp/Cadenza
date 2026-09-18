@@ -11,7 +11,6 @@ over HTTP.
 | `src/app/`                                            | expo-router routes. See [src/app/README.md](src/app/README.md).                                                                                                                                                                                                   |
 | `src/lib/`                                            | Data layer and providers. See [src/lib/README.md](src/lib/README.md).                                                                                                                                                                                             |
 | `src/features/`                                       | Self-contained features. See [account](src/features/account/README.md), [cadenza](src/features/cadenza/README.md), [library](src/features/library/README.md), [query-builder](src/features/query-builder/README.md), and [search](src/features/search/README.md). |
-| `CODE_QUALITY_PLAN.md`                                | Scoped review findings and an ordered hardening plan for the player, collection, overlay-inset, playback, and tag-fade changes.                                                                                                                                   |
 | `src/components/`                                     | UI. See [src/components/README.md](src/components/README.md).                                                                                                                                                                                                     |
 | `modules/apple-musickit/`                             | Local native Expo module. See [modules/apple-musickit/README.md](modules/apple-musickit/README.md).                                                                                                                                                               |
 | `modules/image-color/`                                | Local native artwork color module. See [modules/image-color/README.md](modules/image-color/README.md).                                                                                                                                                            |
@@ -34,9 +33,11 @@ Use them. Relative `../../` imports across directories are the exception, not th
 
 Nothing in the UI calls `fetch` directly. Components call a hook out of `src/lib/routes/`, which
 is a one to one mirror of the axum routers in `backend-api/src/routes/`. Those hooks are built on
-the three wrappers in `src/lib/api-actions.ts`:
+the wrappers in `src/lib/api-actions.ts`:
 
 - `useAPIData` for cached GETs that run on mount.
+- `useAPIPostData` for cached reads whose request body is part of the key.
+- `useAPIPostDataBatched` for cached reads whose list payload must be split into batches.
 - `useAPIFetch` for GETs that only run when the user asks.
 - `useAPIMutation` for writes, with an explicit list of caches to invalidate.
 
@@ -98,8 +99,6 @@ npx tsc --noEmit   # typecheck
 - Song-row tag rails use `@react-native-masked-view/masked-view` so their trailing edge fades to
   transparency over artwork-tinted detail screens. It is a direct dependency even though Expo's
   navigation tree also brings it in transitively.
-- `nanoid` is imported by `src/features/query-builder/QueryUtils.ts` but is not in
-  `package.json`. It resolves today only as a transitive dependency.
 
 ---
 

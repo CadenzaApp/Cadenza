@@ -19,7 +19,6 @@ use axum_jwt_auth::Claims;
 use sea_orm::DatabaseConnection;
 use serde::Deserialize;
 
-
 #[derive(Deserialize)]
 pub struct GetTagsOnSongQueryParams {
     song_id: String,
@@ -33,7 +32,6 @@ async fn get_tags_on_song_handler(
     let user_tags = get_user_tags_on_song(&db, claims.user_id, &params.song_id).await?;
     Ok(Json(vec_into(user_tags)))
 }
-
 
 /// A list screen asks for a page of songs at a time, so cap it well above the
 /// client's batch size but short of something that would blow up the query.
@@ -64,7 +62,6 @@ async fn get_tags_on_songs_handler(
             .collect(),
     ))
 }
-
 
 #[derive(Deserialize)]
 pub struct ApplyTagPayload {
@@ -127,7 +124,6 @@ async fn unapply_user_tag_handler(
 ) -> Result<(), CadenzaError> {
     db::tags::unapply_user_tag(db, claims.user_id, payload.song_id, payload.tag_id).await
 }
-
 
 pub fn get_songs_router() -> Router<AppState> {
     Router::new()

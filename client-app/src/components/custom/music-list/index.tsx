@@ -6,6 +6,7 @@ import Animated, {
     FadeIn,
     runOnJS,
     useAnimatedStyle,
+    useComposedEventHandler,
     useSharedValue,
     withTiming,
 } from "react-native-reanimated";
@@ -47,17 +48,25 @@ export function MusicList({
     tracks,
     isLoading,
     onTrackPressOverride = null,
+    trackMenuActions = [],
     multiSelect = null,
     fullBleedRows = false,
+    fullBleedRowHorizontalPadding = 24,
+    rowSurfaceColor = "background",
+    embedded = false,
     compact,
     onCompactChange,
+    showTags = true,
     anticipatedTrackCount = 8,
-    header,
+    header: headerProp,
+    listHeader,
     footer,
     onContentSizeChange,
+    onScroll,
     pagination,
     sorting,
 }: MusicListProps) {
+    const header = headerProp ?? listHeader;
     const { togglePlayback } = usePlaybackCommands();
     const [internalCompact, setInternalCompact] = useState(false);
     const isCompact = compact ?? internalCompact;
@@ -83,6 +92,10 @@ export function MusicList({
     const onLoadNextPage = pagination?.onLoadNextPage;
     const isLoadingMoreRef = useRef(false);
     const scroll = useScreenScroll<FlatList<(typeof tracks)[number]>>();
+    const composedOnScroll = useComposedEventHandler([
+        scroll.onScroll,
+        onScroll ?? null,
+    ]);
     const [revealTrackIds, setRevealTrackIds] = useState<ReadonlySet<string>>(
         new Set(),
     );
@@ -90,10 +103,12 @@ export function MusicList({
     const listTransitionStyle = useAnimatedStyle(() => ({
         opacity: listOpacity.get(),
     }));
-    const { listBottomInset, playerBottomInset } = useScreenOverlayInsets();
+    const { floatingActionBottom, listBottomInset, playerBottomInset } =
+        useScreenOverlayInsets();
     const taggableIds = useMemo(
-        () => tracks.map((track) => track.catalogId ?? track.id),
-        [tracks],
+        () =>
+            showTags ? tracks.map((track) => track.catalogId ?? track.id) : [],
+        [showTags, tracks],
     );
     const { tagsBySong } = useTagsOnSongs(taggableIds);
     const displayedTracks = useMemo(
@@ -108,12 +123,14 @@ export function MusicList({
     const isSelectingRef = useRef(isSelecting);
     const animateSelectionTransition =
         displayedTracks.length <= MAX_ANIMATED_SELECTION_TRACKS;
-    const selectionToolbarBottom = playerBottomInset + 12;
-    const contentBottomInset = selection.isSelecting
-        ? selectionToolbarBottom + selectionToolbarHeight + 12
-        : sortingEnabled
-          ? listBottomInset
-          : Math.max(40, playerBottomInset + 12);
+    const selectionToolbarBottom = floatingActionBottom;
+    const contentBottomInset = embedded
+        ? 0
+        : selection.isSelecting
+          ? selectionToolbarBottom + selectionToolbarHeight + 12
+          : sortingEnabled
+            ? listBottomInset
+            : Math.max(40, playerBottomInset + 12);
     const listExtraData = useMemo(
         () => ({
             isCompact,
@@ -283,6 +300,9 @@ export function MusicList({
                                     <View key={index}>
                                         <MusicListItemSkeleton
                                             fullBleed={fullBleedRows}
+                                            fullBleedHorizontalPadding={
+                                                fullBleedRowHorizontalPadding
+                                            }
                                             compact={isCompact}
                                         />
                                     </View>
@@ -293,82 +313,108 @@ export function MusicList({
                     ) : (
                         <ScreenScrollMarker>
                             <Animated.FlatList
-                            {...scroll}
-                            // Overscrolling at the top is how a detail screen
-                            // closes, and an indicator flicking in over the
-                            // shrinking card is noise.
-                            showsVerticalScrollIndicator={false}
-                            data={displayedTracks}
-                            extraData={listExtraData}
-                            initialNumToRender={MUSIC_LIST_RENDER_BATCH_SIZE}
-                            maxToRenderPerBatch={MUSIC_LIST_RENDER_BATCH_SIZE}
-                            windowSize={MUSIC_LIST_WINDOW_SIZE}
-                            keyExtractor={(item) => item.id}
-                            renderItem={({ item, index }) => (
-                                <Animated.View
-                                    key={`${item.id}:${densityTransitionRevision}`}
-                                    entering={
-                                        densityRevealActive &&
-                                        revealTrackIds.has(item.id)
-                                            ? FadeIn.delay(
-                                                  densityFadeDelay(index),
-                                              ).duration(DENSITY_ROW_FADE_IN_MS)
-                                            : undefined
-                                    }
-                                >
-                                    <MusicListItem
-                                        item={item}
-                                        selected={selection.selectedIds.has(
-                                            item.id,
-                                        )}
-                                        selectionMode={selection.isSelecting}
-                                        multiSelectEnabled={selection.enabled}
-                                        animateSelectionTransition={
-                                            animateSelectionTransition
+                                {...scroll}
+                                className="flex-1"
+                                // Overscrolling at the top is how a detail screen
+                                // closes, and an indicator flicking in over the
+                                // shrinking card is noise.
+                                showsVerticalScrollIndicator={false}
+                                data={displayedTracks}
+                                extraData={listExtraData}
+                                initialNumToRender={
+                                    MUSIC_LIST_RENDER_BATCH_SIZE
+                                }
+                                maxToRenderPerBatch={
+                                    MUSIC_LIST_RENDER_BATCH_SIZE
+                                }
+                                windowSize={MUSIC_LIST_WINDOW_SIZE}
+                                keyExtractor={(item) => item.id}
+                                renderItem={({ item, index }) => (
+                                    <Animated.View
+                                        key={`${item.id}:${densityTransitionRevision}`}
+                                        entering={
+                                            densityRevealActive &&
+                                            revealTrackIds.has(item.id)
+                                                ? FadeIn.delay(
+                                                      densityFadeDelay(index),
+                                                  ).duration(
+                                                      DENSITY_ROW_FADE_IN_MS,
+                                                  )
+                                                : undefined
                                         }
-                                        fullBleed={fullBleedRows}
-                                        compact={isCompact}
-                                        tags={
-                                            tagsBySong[
-                                                item.catalogId ?? item.id
-                                            ]
-                                        }
-                                        onPress={handleTrackPress}
-                                        onLongPress={selection.beginSelection}
-                                        onOpenMenu={setMenuTrack}
-                                    />
-                                </Animated.View>
-                            )}
-                            contentContainerClassName={
-                                fullBleedRows ? undefined : "px-6"
-                            }
-                            contentContainerStyle={{
-                                paddingBottom: contentBottomInset,
-                            }}
-                            ListHeaderComponent={header ? <>{header}</> : null}
-                            ListEmptyComponent={
-                                !isLoading ? (
-                                    <Text className="text-muted-foreground text-center mt-10">
-                                        Search for Artists, Songs, Lyrics, and
-                                        More.
-                                    </Text>
-                                ) : null
-                            }
-                            ListFooterComponent={
-                                <>
-                                    {isLoadingNextPage ? (
-                                        <MusicListLoadingSkeletons
+                                    >
+                                        <MusicListItem
+                                            item={item}
+                                            selected={selection.selectedIds.has(
+                                                item.id,
+                                            )}
+                                            selectionMode={
+                                                selection.isSelecting
+                                            }
+                                            multiSelectEnabled={
+                                                selection.enabled
+                                            }
+                                            animateSelectionTransition={
+                                                animateSelectionTransition
+                                            }
                                             fullBleed={fullBleedRows}
+                                            fullBleedHorizontalPadding={
+                                                fullBleedRowHorizontalPadding
+                                            }
+                                            rowSurfaceColor={rowSurfaceColor}
                                             compact={isCompact}
+                                            tags={
+                                                showTags
+                                                    ? tagsBySong[
+                                                          item.catalogId ??
+                                                              item.id
+                                                      ]
+                                                    : undefined
+                                            }
+                                            onPress={handleTrackPress}
+                                            onLongPress={
+                                                selection.beginSelection
+                                            }
+                                            onOpenMenu={setMenuTrack}
                                         />
-                                    ) : null}
-                                    {footer}
-                                </>
-                            }
-                            onContentSizeChange={onContentSizeChange}
-                            onEndReached={handleEndReached}
-                            onEndReachedThreshold={0.1}
-                        />
+                                    </Animated.View>
+                                )}
+                                contentContainerClassName={
+                                    fullBleedRows ? undefined : "px-6"
+                                }
+                                contentContainerStyle={{
+                                    paddingBottom: contentBottomInset,
+                                }}
+                                ListHeaderComponent={
+                                    header ? <>{header}</> : null
+                                }
+                                ListEmptyComponent={
+                                    !isLoading ? (
+                                        <Text className="text-muted-foreground text-center mt-10">
+                                            Search for Artists, Songs, Lyrics,
+                                            and More.
+                                        </Text>
+                                    ) : null
+                                }
+                                ListFooterComponent={
+                                    <>
+                                        {isLoadingNextPage ? (
+                                            <MusicListLoadingSkeletons
+                                                fullBleed={fullBleedRows}
+                                                fullBleedHorizontalPadding={
+                                                    fullBleedRowHorizontalPadding
+                                                }
+                                                compact={isCompact}
+                                            />
+                                        ) : null}
+                                        {footer}
+                                    </>
+                                }
+                                onContentSizeChange={onContentSizeChange}
+                                onScroll={composedOnScroll}
+                                onEndReached={handleEndReached}
+                                onEndReachedThreshold={0.1}
+                            />
                         </ScreenScrollMarker>
                     )}
                 </Animated.View>
@@ -395,6 +441,7 @@ export function MusicList({
             <SongOptionsMenu
                 track={menuTrack}
                 onClose={() => setMenuTrack(null)}
+                extraActions={trackMenuActions}
             />
         </View>
     );
@@ -402,9 +449,11 @@ export function MusicList({
 
 function MusicListLoadingSkeletons({
     fullBleed,
+    fullBleedHorizontalPadding,
     compact,
 }: {
     fullBleed: boolean;
+    fullBleedHorizontalPadding: number;
     compact: boolean;
 }) {
     return (
@@ -413,6 +462,7 @@ function MusicListLoadingSkeletons({
                 <View key={index}>
                     <MusicListItemSkeleton
                         fullBleed={fullBleed}
+                        fullBleedHorizontalPadding={fullBleedHorizontalPadding}
                         compact={compact}
                     />
                 </View>
@@ -432,6 +482,7 @@ export type {
     MusicListSortDirection,
     MusicListSortOption,
     MusicListSorting,
+    MusicListTrackAction,
 } from "./types";
 export {
     DEFAULT_MUSIC_LIST_SORT_OPTIONS,

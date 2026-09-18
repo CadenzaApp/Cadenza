@@ -1,181 +1,213 @@
-import { useCallback, useState } from "react";
-import { StyleSheet, View } from "react-native";
+import {
+    useCallback,
+    useEffect,
+    useRef,
+    useState,
+    type Dispatch,
+    type SetStateAction,
+} from "react";
+import { KeyboardAvoidingView, Platform, Pressable, View } from "react-native";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import Animated from "react-native-reanimated";
+
 import { Text } from "@/components/ui/text";
-import { GestureHandlerRootView } from "react-native-gesture-handler";
-
-import { QueryNode, PaletteItem, SlotAddress } from "./types";
-import { TagPill } from "@/components/custom/tag-pill";
-import { insertAtSlot, removeNode, findNodeById } from "./QueryUtils";
-import { DragProvider } from "./DragContext";
-import { DragGhost } from "./DragGhost";
-import { PaletteSection } from "./PaletteSection";
-import { LogicNodeBox } from "./LogicNode";
-import { DropSlot } from "./DropSlot";
-import { Button } from "@/components/ui/button";
+import { THEME } from "@/lib/theme";
+import type { Tag, TagMetadata } from "@/lib/types";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
-import { useScreenScroll } from "@/lib/screen-scroll";
 import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
-import { Tag } from "@/lib/types";
-import { useRouter } from "expo-router";
-
-const LOGIC_ITEMS: PaletteItem[] = [
-    { kind: "logic", operator: "and" },
-    { kind: "logic", operator: "or" },
-    { kind: "logic", operator: "not" },
-];
+import { useScreenScroll } from "@/lib/screen-scroll";
+import { useColorScheme } from "nativewind";
+import { ConditionList } from "./ConditionList";
+import { DragGhost } from "./DragGhost";
+import { DragProvider } from "./DragContext";
+import {
+    addTagToCondition,
+    appendTag,
+    insertTag,
+    moveConditionToIndex,
+    moveQueryTagToCondition,
+    moveQueryTagToIndex,
+    queryHeading,
+    removeCondition,
+    removeQueryTag,
+    setGroupMode,
+    toggleConditionConnector,
+    toggleConditionNegation,
+} from "./QueryUtils";
+import { TagPalette } from "./TagPalette";
+import type {
+    DragPayload,
+    DropTarget,
+    QueryCondition,
+    QueryGroupMode,
+} from "./types";
 
 type Props = {
     tags: Tag[];
-    root: QueryNode | null;
-    setRoot: (root: QueryNode | null) => any;
-    onSubmit: () => any;
+    tagMetadata?: Readonly<Record<number, TagMetadata>>;
+    conditions: QueryCondition[];
+    setConditions: Dispatch<SetStateAction<QueryCondition[]>>;
 };
-export function QueryBuilder({ tags, root, setRoot, onSubmit }: Props) {
-    const router = useRouter();
-    const { contentBottomInset } = useScreenOverlayInsets();
+const DEFAULT_PALETTE_HEIGHT = 208;
+
+export function QueryBuilder({
+    tags,
+    tagMetadata,
+    conditions,
+    setConditions,
+}: Props) {
+    const { compactPlayerVisible, playerBottomInset } =
+        useScreenOverlayInsets();
+    const defaultPaletteHeight =
+        DEFAULT_PALETTE_HEIGHT + (compactPlayerVisible ? playerBottomInset : 0);
+    const paletteWasResized = useRef(false);
+    const [paletteHeight, setPaletteHeight] = useState(defaultPaletteHeight);
+    const { colorScheme = "light" } = useColorScheme();
+    const theme = THEME[colorScheme];
     const scroll = useScreenScroll();
-
-    const tagPaletteItems: PaletteItem[] = tags.map((t) => ({
-        kind: "tag",
-        tag: t,
-    }));
-
-    function handleDrop(item: PaletteItem, address: SlotAddress) {
-        // don't allow nesting same type of boolean operation
-        if (item.kind === "logic" && address.nodeId !== "root") {
-            const targetNode = findNodeById(root, address.nodeId);
-            if (
-                targetNode?.kind === "logic" &&
-                targetNode.operator === item.operator
-            ) {
-                return;
-            }
+    useEffect(() => {
+        if (!paletteWasResized.current) {
+            setPaletteHeight(defaultPaletteHeight);
         }
-        setRoot(insertAtSlot(root, address, item));
-    }
+    }, [defaultPaletteHeight]);
+    const handlePaletteHeightChange = useCallback((height: number) => {
+        paletteWasResized.current = true;
+        setPaletteHeight(height);
+    }, []);
+    const handleDrop = useCallback(
+        (payload: DragPayload, target: DropTarget) => {
+            setConditions((current) => {
+                if (payload.source === "condition") {
+                    if (target.kind === "delete") {
+                        return removeCondition(current, payload.condition.id);
+                    }
+                    if (target.kind === "insert") {
+                        return moveConditionToIndex(
+                            current,
+                            payload.condition.id,
+                            target.index,
+                        );
+                    }
+                    if (target.kind === "query-end") {
+                        return moveConditionToIndex(
+                            current,
+                            payload.condition.id,
+                            current.length,
+                        );
+                    }
+                    return current;
+                }
+                if (payload.source === "palette") {
+                    if (target.kind === "condition") {
+                        return addTagToCondition(
+                            current,
+                            payload.tag,
+                            target.conditionId,
+                        );
+                    }
+                    if (target.kind === "insert") {
+                        return insertTag(current, payload.tag, target.index);
+                    }
+                    if (target.kind === "query-end") {
+                        return appendTag(current, payload.tag);
+                    }
+                    return current;
+                }
 
-    function handleRemove(id: string) {
-        setRoot(removeNode(root, id));
-    }
+                if (target.kind === "delete") {
+                    return removeQueryTag(current, payload.queryTag.id);
+                }
+                if (target.kind === "condition") {
+                    return moveQueryTagToCondition(
+                        current,
+                        payload.queryTag.id,
+                        target.conditionId,
+                    );
+                }
+                if (target.kind === "insert") {
+                    return moveQueryTagToIndex(
+                        current,
+                        payload.queryTag.id,
+                        target.index,
+                    );
+                }
+                return moveQueryTagToIndex(
+                    current,
+                    payload.queryTag.id,
+                    current.length,
+                );
+            });
+        },
+        [setConditions],
+    );
+    const toggleNegation = useCallback(
+        (id: string) =>
+            setConditions((current) => toggleConditionNegation(current, id)),
+        [setConditions],
+    );
+    const changeMode = useCallback(
+        (id: string, mode: QueryGroupMode) =>
+            setConditions((current) => setGroupMode(current, id, mode)),
+        [setConditions],
+    );
+    const toggleConnector = useCallback(
+        (id: string) =>
+            setConditions((current) => toggleConditionConnector(current, id)),
+        [setConditions],
+    );
 
     return (
-        <GestureHandlerRootView style={styles.root} className="bg-background">
-            <DragProvider>
-                <View
-                    style={[
-                        styles.container,
-                        // The tab bar floats over this screen, and the
-                        // "Create mix" button sits at the very bottom.
-                        { paddingBottom: contentBottomInset },
-                    ]}
-                >
-                    {/* Palette */}
-                    <View style={styles.palette}>
-                        <PaletteSection
-                            title="Tags"
-                            items={tagPaletteItems}
-                            onDrop={handleDrop}
-                        />
-                        <PaletteSection
-                            title="Logic"
-                            items={LOGIC_ITEMS}
-                            onDrop={handleDrop}
-                            defaultOpen
-                        />
+        <DragProvider onDrop={handleDrop}>
+            <KeyboardAvoidingView
+                className="flex-1 bg-background"
+                behavior={Platform.OS === "ios" ? "padding" : undefined}
+                keyboardVerticalOffset={80}
+            >
+                <View className="flex-1 bg-background">
+                    <View className="flex-row items-center px-4 pb-1 pt-2">
+                        <Text className="flex-1 text-lg font-bold">
+                            {queryHeading(conditions)}
+                        </Text>
+                        {conditions.length ? (
+                            <Pressable
+                                onPress={() => setConditions([])}
+                                className="h-8 w-8 items-center justify-center rounded-full active:bg-accent"
+                                accessibilityRole="button"
+                                accessibilityLabel="Clear query"
+                            >
+                                <Ionicons
+                                    name="refresh-outline"
+                                    size={19}
+                                    color={theme.mutedForeground}
+                                />
+                            </Pressable>
+                        ) : null}
                     </View>
-
-                    {/* Workspace */}
                     <ScreenScrollMarker>
                         <Animated.ScrollView
-                        {...scroll}
-                        style={styles.workspace}
-                        contentContainerStyle={styles.workspaceContent}
-                    >
-                        {root === null ? (
-                            <DropSlot slotKey="root" style={styles.rootSlot}>
-                                <Text
-                                    style={styles.workspaceHint}
-                                    className="text-muted-foreground"
-                                >
-                                    Drag a tag or logic operator here
-                                </Text>
-                            </DropSlot>
-                        ) : root.kind === "tag" ? (
-                            <DropSlot
-                                slotKey="root"
-                                style={styles.rootSlotFilled}
-                            >
-                                <TagPill
-                                    tag={root.tag}
-                                    height={15}
-                                    onRemove={() => handleRemove(root.id)}
-                                />
-                            </DropSlot>
-                        ) : (
-                            <DropSlot slotKey={`${root.id}:append`} naked>
-                                <LogicNodeBox
-                                    node={root}
-                                    onDrop={handleDrop}
-                                    onRemove={handleRemove}
-                                />
-                            </DropSlot>
-                        )}
-                    </Animated.ScrollView>
+                            {...scroll}
+                            className="flex-1"
+                            contentContainerClassName="flex-grow px-5 pb-2"
+                            keyboardShouldPersistTaps="handled"
+                        >
+                            <ConditionList
+                                conditions={conditions}
+                                onToggleConditionNegation={toggleNegation}
+                                onModeChange={changeMode}
+                                onConnectorToggle={toggleConnector}
+                            />
+                        </Animated.ScrollView>
                     </ScreenScrollMarker>
-
-                    <Button onPress={onSubmit}>
-                        <Text> Create mix </Text>
-                    </Button>
-                    <Button
-                        variant="outline"
-                        onPress={() => router.push("/advanced-query")}
-                    >
-                        <Text>Advanced</Text>
-                    </Button>
                 </View>
-                <DragGhost />
-            </DragProvider>
-        </GestureHandlerRootView>
+
+                <TagPalette
+                    tags={tags}
+                    tagMetadata={tagMetadata}
+                    height={paletteHeight}
+                    onHeightChange={handlePaletteHeightChange}
+                />
+            </KeyboardAvoidingView>
+            <DragGhost />
+        </DragProvider>
     );
 }
-
-const styles = StyleSheet.create({
-    root: {
-        flex: 1,
-    },
-    container: {
-        flex: 1,
-        padding: 16,
-        gap: 12,
-    },
-    palette: {
-        gap: 0,
-    },
-    workspace: {
-        flex: 1,
-    },
-    workspaceContent: {
-        paddingVertical: 16,
-        flexGrow: 1,
-        alignItems: "flex-start",
-    },
-    rootSlot: {
-        width: "100%",
-        minHeight: 250,
-        alignItems: "center",
-        justifyContent: "center",
-    },
-    rootSlotFilled: {
-        borderWidth: 0,
-        backgroundColor: "transparent",
-        minWidth: 0,
-        minHeight: 0,
-        padding: 10,
-        alignSelf: "flex-start",
-    },
-    workspaceHint: {
-        fontSize: 13,
-        textAlign: "center",
-    },
-});

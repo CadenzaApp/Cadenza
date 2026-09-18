@@ -13,7 +13,7 @@ import {
 import { Platform } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { usePlayback } from "./playback";
+import { usePlaybackTrackState } from "./playback";
 import { calculateScreenOverlayInsets } from "./screen-overlay-geometry";
 export {
     COMPACT_PLAYER_HEIGHT,
@@ -169,14 +169,16 @@ export function useIsPushedDetailScreen() {
     );
 }
 
-/** Root detail routes over which the app-level compact player is visible. */
+/** Root screens over which the app-level compact player is visible. */
 export function useShowsPushedPlayerOverlay() {
     const segments = useSegments();
     const rootSegment: string | undefined = segments[0];
     const insideSheet = useContext(InsideSheetContext);
     return (
         !insideSheet &&
-        (rootSegment === "artist" || rootSegment === "collection")
+        (rootSegment === "artist" ||
+            rootSegment === "collection" ||
+            rootSegment === "query-results")
     );
 }
 
@@ -185,7 +187,7 @@ export function useShowsPushedPlayerOverlay() {
  * their own; absolute controls still need a conservative chrome footprint.
  */
 export function useScreenOverlayInsets() {
-    const { activeTrack } = usePlayback();
+    const { activeTrack, isPlayerDismissed } = usePlaybackTrackState();
     const insets = useSafeAreaInsets();
     const rootSegment = useBaseRouteSegment();
     const insideSheet = useContext(InsideSheetContext);
@@ -196,6 +198,7 @@ export function useScreenOverlayInsets() {
     const compactPlayerVisible =
         !hidden &&
         activeTrack != null &&
+        !isPlayerDismissed &&
         (bottomBarsVisible || showsPushedPlayerOverlay);
     const nativePlayerAccessory = supportsNativeTabBottomAccessory();
 

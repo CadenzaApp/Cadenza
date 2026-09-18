@@ -1,56 +1,59 @@
+import type { Tag } from "@/lib/types";
 
-/////////////////////////
-// Query builder types
-/////////////////////////
-
-import { Tag } from "@/lib/types";
-
-export type QueryNodeTag = {
-  kind: "tag";
-  id: string;
-  tag: Tag;
+export type QueryTag = {
+    kind: "tag";
+    id: string;
+    tag: Tag;
+    negated: boolean;
+    connector: QueryConnector;
+    rememberedNextConnector?: QueryConnector;
+    layoutId?: string;
 };
 
-export type LogicOperator = "and" | "or" | "not";
+export type QueryGroupMode = "any" | "all" | "none";
+export type QueryConnector = "and" | "or";
 
-export type QueryNodeLogic = {
-  kind: "logic";
-  id: string;
-  operator: LogicOperator;
-  // NOT can only have one child max: children[0]
-  // AND, OR have any amount of children
-  children: (QueryNode | null)[];
+export type QueryGroup = {
+    kind: "group";
+    id: string;
+    mode: QueryGroupMode;
+    members: QueryTag[];
+    connector: QueryConnector;
+    rememberedNextConnector?: QueryConnector;
+    layoutId?: string;
 };
 
-export type QueryNode = QueryNodeTag | QueryNodeLogic;
+export type QueryCondition = QueryTag | QueryGroup;
 
-/////////////////////////
-// Dragging types
-/////////////////////////
-
-export type PaletteItemTag = {
-  kind: "tag";
-  tag: Tag;
-};
-
-export type PaletteItemLogic = {
-  kind: "logic";
-  operator: LogicOperator;
-};
-
-export type PaletteItem = PaletteItemTag | PaletteItemLogic;
-
-// Which slot in the tree to fill 
-// index means replace/fill children[index]
-// index "append" means push a new child onto AND/OR at a new index
-export type SlotAddress =
-  | { nodeId: "root" }                  
-  | { nodeId: string; index: number }
-  | { nodeId: string; index: "append" };
-
-
-export type QueryJSONNode = 
+export type QueryJSONNode =
     | number
     | { and: QueryJSONNode[] }
     | { or: QueryJSONNode[] }
-    | { not: QueryJSONNode }
+    | { not: QueryJSONNode };
+
+export type QueryTagOrigin = {
+    conditionId: string;
+};
+
+export type DragPayload =
+    | { source: "palette"; tag: Tag }
+    | { source: "query"; queryTag: QueryTag; origin: QueryTagOrigin }
+    | {
+          source: "condition";
+          condition: QueryCondition;
+          originIndex: number;
+          height: number;
+      };
+
+export type DropTarget =
+    | { kind: "insert"; index: number }
+    | { kind: "condition"; conditionId: string }
+    | { kind: "query-end" }
+    | { kind: "delete" };
+
+export type DragState = {
+    payload: DragPayload;
+    x: number;
+    y: number;
+    releasing?: boolean;
+} | null;

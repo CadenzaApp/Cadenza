@@ -81,6 +81,17 @@ export default function RootLayout() {
                                                 options={pushedScreenOptions()}
                                             />
                                             <Stack.Screen
+                                                name="query-results"
+                                                options={{
+                                                    headerShown: false,
+                                                    contentStyle: {
+                                                        backgroundColor:
+                                                            theme.colors
+                                                                .background,
+                                                    },
+                                                }}
+                                            />
+                                            <Stack.Screen
                                                 name="tag/[tagId]"
                                                 options={pushedScreenOptions()}
                                             />
