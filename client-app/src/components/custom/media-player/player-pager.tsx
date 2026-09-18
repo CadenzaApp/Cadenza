@@ -19,12 +19,18 @@ import { GlassSurface } from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
 
 import { CommentsPage } from "./comments-page";
+import { PlayerChromeProvider } from "./player-chrome";
 import { PlayerPage } from "./player-page";
 import { usePlayerScope } from "./player-scope";
 import { TagsPage } from "./tags-page";
 import { PLAYER_TABS, type PlayerTab, usePlayerTabs } from "./player-tabs";
 
 const TAB_BAR_HEIGHT = 72;
+const TAB_BAR_RADIUS = TAB_BAR_HEIGHT / 2;
+/** Was 76%; the selector reads better with more room for three labels. */
+const TAB_BAR_WIDTH_PERCENT = 91;
+const SELECTION_INSET = 4;
+const SELECTION_RADIUS = TAB_BAR_RADIUS - SELECTION_INSET;
 const TAB_PRESENTATION = {
     comments: {
         label: "Comments",
@@ -52,6 +58,7 @@ export function PlayerPager() {
     const scrollRef = useRef<ScrollView>(null);
     const scrollX = useSharedValue(PLAYER_TABS.indexOf(selectedTab) * width);
     const [tabBarWidth, setTabBarWidth] = useState(0);
+    const [bottomChromeHeight, setBottomChromeHeight] = useState(0);
     const selectedIndex = PLAYER_TABS.indexOf(selectedTab);
 
     useEffect(() => {
@@ -81,72 +88,110 @@ export function PlayerPager() {
     });
 
     return (
-        <View className="flex-1">
-            <Animated.ScrollView
-                ref={scrollRef}
-                horizontal
-                pagingEnabled
-                bounces={false}
-                directionalLockEnabled
-                removeClippedSubviews={false}
-                showsHorizontalScrollIndicator={false}
-                scrollEventThrottle={16}
-                contentOffset={{ x: selectedIndex * width, y: 0 }}
-                onScroll={scrollHandler}
-                onMomentumScrollEnd={(event) => {
-                    const index = Math.max(
-                        0,
-                        Math.min(
-                            PLAYER_TABS.length - 1,
-                            Math.round(
-                                event.nativeEvent.contentOffset.x / width,
+        <PlayerChromeProvider bottomChromeHeight={bottomChromeHeight}>
+            <View className="flex-1">
+                <Animated.ScrollView
+                    ref={scrollRef}
+                    horizontal
+                    pagingEnabled
+                    bounces={false}
+                    directionalLockEnabled
+                    removeClippedSubviews={false}
+                    showsHorizontalScrollIndicator={false}
+                    scrollEventThrottle={16}
+                    contentOffset={{ x: selectedIndex * width, y: 0 }}
+                    onScroll={scrollHandler}
+                    onMomentumScrollEnd={(event) => {
+                        const index = Math.max(
+                            0,
+                            Math.min(
+                                PLAYER_TABS.length - 1,
+                                Math.round(
+                                    event.nativeEvent.contentOffset.x / width,
+                                ),
                             ),
-                        ),
-                    );
-                    selectTab(PLAYER_TABS[index]);
-                }}
-            >
-                <View style={{ width }}>
-                    <CommentsPage focusedSong={focusedSong} />
-                </View>
-                <View style={{ width }}>
-                    <PlayerPage onModifyTags={showTagsFor} />
-                </View>
-                <View style={{ width }}>
-                    <TagsPage focusedSong={focusedSong} />
-                </View>
-            </Animated.ScrollView>
+                        );
+                        selectTab(PLAYER_TABS[index]);
+                    }}
+                >
+                    <View style={{ width }}>
+                        <CommentsPage focusedSong={focusedSong} />
+                    </View>
+                    <View style={{ width }}>
+                        <PlayerPage onModifyTags={showTagsFor} />
+                    </View>
+                    <View style={{ width }}>
+                        <TagsPage focusedSong={focusedSong} />
+                    </View>
+                </Animated.ScrollView>
 
-            <View
-                className="items-center px-6 pt-2"
-                style={{ paddingBottom: Math.max(insets.bottom, 8) }}
-            >
                 <View
-                    className="relative w-[76%] flex-row overflow-hidden rounded-full border border-border"
-                    style={{ height: TAB_BAR_HEIGHT }}
+                    className="items-center px-4 pt-2"
+                    style={{ paddingBottom: Math.max(insets.bottom, 8) }}
                     onLayout={(event) =>
-                        setTabBarWidth(event.nativeEvent.layout.width)
+                        setBottomChromeHeight(event.nativeEvent.layout.height)
                     }
                 >
-                    <GlassSurface style={StyleSheet.absoluteFill} />
-                    {tabBarWidth > 0 ? (
-                        <Animated.View
+                    <View
+                        className="relative flex-row overflow-hidden border border-border"
+                        style={{
+                            width: `${TAB_BAR_WIDTH_PERCENT}%`,
+                            height: TAB_BAR_HEIGHT,
+                            borderRadius: TAB_BAR_RADIUS,
+                            borderCurve: "continuous",
+                        }}
+                        onLayout={(event) =>
+                            setTabBarWidth(event.nativeEvent.layout.width)
+                        }
+                    >
+                        {/* The glass carries its own radius rather than leaning on
+                        the parent's clip. Native glass shapes its lensing and
+                        its specular edge from its own corners, so a clipped
+                        square reads as a flat fill instead of glass. Keep it
+                        off the touch path; the native view ignores
+                        `pointerEvents` and swallows the tab presses. */}
+                        <View
                             pointerEvents="none"
-                            className="absolute bottom-1 top-1 rounded-full bg-foreground/15"
-                            style={selectionStyle}
-                        />
-                    ) : null}
-                    {PLAYER_TABS.map((tab) => (
-                        <PlayerTabButton
-                            key={tab}
-                            tab={tab}
-                            selected={selectedTab === tab}
-                            onPress={() => selectTab(tab)}
-                        />
-                    ))}
+                            style={StyleSheet.absoluteFill}
+                        >
+                            <GlassSurface
+                                style={[
+                                    StyleSheet.absoluteFill,
+                                    {
+                                        borderRadius: TAB_BAR_RADIUS - 1,
+                                        borderCurve: "continuous",
+                                    },
+                                ]}
+                            />
+                        </View>
+                        {tabBarWidth > 0 ? (
+                            <Animated.View
+                                pointerEvents="none"
+                                className="absolute bottom-1 top-1"
+                                style={selectionStyle}
+                            >
+                                <GlassSurface
+                                    style={{
+                                        flex: 1,
+                                        borderRadius: SELECTION_RADIUS,
+                                        borderCurve: "continuous",
+                                        overflow: "hidden",
+                                    }}
+                                />
+                            </Animated.View>
+                        ) : null}
+                        {PLAYER_TABS.map((tab) => (
+                            <PlayerTabButton
+                                key={tab}
+                                tab={tab}
+                                selected={selectedTab === tab}
+                                onPress={() => selectTab(tab)}
+                            />
+                        ))}
+                    </View>
                 </View>
             </View>
-        </View>
+        </PlayerChromeProvider>
     );
 }
 

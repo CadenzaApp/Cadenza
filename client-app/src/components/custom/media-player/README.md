@@ -11,10 +11,11 @@ always-mounted pages in one horizontal pager at the bottom of that sheet.
 | file                     | role                                                                                                                    |
 | ------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
 | `index.ts`               | Public exports for the native accessory and compatibility overlay.                                                      |
-| `media-player-host.tsx`  | Adapts native accessory placement and positions the fallback on old platforms and root detail screens.                  |
+| `media-player-host.tsx`  | Adapts native accessory placement, decides whether an accessory is declared at all, and positions the fallback.         |
 | `media-player.tsx`       | Playback wiring shared by both native placements and the fallback.                                                      |
 | `player-pager.tsx`       | Always-mounted horizontal pager plus its glass Comments / Player / Tags selector.                                       |
 | `player-tabs.tsx`        | Selected-page context shared by the pager and Modify Tags actions.                                                      |
+| `player-chrome.tsx`      | Context carrying how much room the pager's selector takes below the pages, for keyboard avoidance.                      |
 | `player-scope.tsx`       | Resolves and shares the focused song across the sheet's three pages, and selects Tags for Modify Tags.                  |
 | `player-page.tsx`        | The Player route: artwork or the queue, the scrubber, and the transport. The only route that touches playback.          |
 | `comments-page.tsx`      | The Comments route: a stub social feed for `focusedSong`. Local state only, no backend, no seed data.                   |
@@ -37,6 +38,16 @@ already-mounted Tags page in place instead of opening another sheet (see Connect
 transition, and Liquid Glass. `MediaPlayerAccessory` reads `usePlacement()` and renders regular
 or inline content. The native host owns its height, so `compact.tsx` fills the measured frame.
 
+Whether the accessory is declared at all comes from `useMediaPlayerAccessoryDeclared`. UIKit keeps
+the accessory's slot in the minimized tab bar reserved for as long as one is declared, so a
+dismissed player would leave that slot empty between the tab buttons once a scroll minimizes the
+bar. The declaration outlives the dismissal by UIKit's own hide animation, since dropping it on
+the same commit as `bottomAccessoryHidden` tears the accessory out before that animation can play.
+
+The same flag drives `minimizeBehavior`. Minimizing is worth it only when there is a player to
+minimize around; with no accessory the shrunk bar is the selected tab and Search with a hole
+between them, so the bar stays at full size instead (`"never"`).
+
 UIKit exposes no public command for forcing accessory placement. The app therefore relies on
 `minimizeBehavior="onScrollDown"` and native scrolling, with no direct vertical docking gesture or
 private UIKit selector. A horizontal pan is still owned by the React content in either native
@@ -56,6 +67,10 @@ Swipes expose the adjacent live page under the finger, and the glass selector's 
 the scroll position continuously. Each selected tab uses its filled icon variant; inactive tabs
 use outlines. The three page instances stay mounted for the sheet's lifetime.
 
+`PlayerChromeProvider` wraps the three pages with the measured height of the pager's own selector,
+which is what a page needs to lift content clear of the keyboard. The pager is the only thing that
+knows that number, so it reports it rather than letting each page guess.
+
 `PlayerScopeProvider` resolves a `focusedSong` (id, title, artwork) from `usePlayback()`'s
 `activeTrack` or the route's `tagsSongId` / `tagsSongTitle` / `tagsArtworkUrl` /
 `tagsArtworkColor` params and shares it across the three routes. Modify Tags on a song that is not
@@ -69,13 +84,20 @@ it does not navigate during a swipe or wait for a destination route to mount.
 
 The primary native bar and compact player remain mounted underneath a sheet. The sheet itself
 covers them, which lets both appear on the first frame of dismissal instead of waiting for the
-route transition to finish. Focused Search still suppresses them explicitly.
+route transition to finish. Focused Search still suppresses them explicitly, and so does a raised
+keyboard, which `BottomBarVisibilityProvider` watches for every screen at once.
 
-Artist, collection, and query-results screens sit above the native tab controller, so the
-controller's accessory cannot be raised over them. One app-level
-`MediaPlayerPushedScreenOverlay`, mounted above the root stack, renders the same regular compact
-content over those routes whenever playback has an active track. Its route predicate is also the
-source of truth for descendant insets.
+Pushed detail screens sit above the native tab controller, so the controller's accessory cannot be
+raised over them. One app-level `MediaPlayerPushedScreenOverlay`, mounted above the root stack,
+renders the same regular compact content over **every** pushed route whenever playback has an
+active track and the bars are not suppressed. Its route predicate
+(`useShowsPushedPlayerOverlay`) is also the source of truth for descendant insets.
+
+The native tab bar itself does **not** survive a pushed screen, and no overlay restores it.
+`pushedScreenOptions` presents those routes as a root-level `transparentModal` so `zoom-dismiss`
+has the previous screen to grow out of, and the detail card then paints over the whole screen,
+tab bar included. Giving the bar back means either reimplementing it as a JS overlay or moving
+these routes into the per-tab stacks and giving up the zoom transition.
 
 Playback state is unaffected either way, because it lives in `PlaybackProvider`, not here.
 
@@ -154,7 +176,22 @@ smoothly between the 750ms native snapshot polls, and scrubbing overrides it wit
 - `CommentsPage`'s composer tracks the keyboard with `useAnimatedKeyboard` and a `translateY`,
   not `KeyboardAvoidingView`. The page sits inside a native form sheet (`DetailScreen`), and the
   sheet's own offset from the screen top throws off `KeyboardAvoidingView`'s padding math, leaving
-  the composer under the keyboard.
+  the composer under the keyboard. It lands the input's bottom edge one `COMPOSER_GAP` above the
+  keyboard's top, subtracting the space that is already under the page: the keyboard covers the
+  pager's selector before it covers anything on the page, so translating by the raw keyboard
+  height double counts it and throws the composer far above the keyboard.
+- That space comes from `usePlayerChrome`, which the pager fills in from an `onLayout` on its own
+  selector. Do **not** reach for `measureInWindow` or `Dimensions` to rederive it. The origin
+  those report from inside a presented form sheet is not the one `useAnimatedKeyboard` measures
+  its height against, and mixing the two gives a composer that is wildly too high, too low, or
+  never moves at all depending on which way the spaces disagree. `onLayout` keeps the whole
+  calculation in one space, and the sheet reaches the bottom of the screen, so the selector's
+  height is the entire gap.
+- The pager's selector gives its `GlassSurface` an explicit radius instead of leaning on the
+  parent's `overflow: hidden`. Native glass shapes its lensing and specular edge from its own
+  corners, so a clipped square reads as a flat fill. The glass also stays off the touch path
+  behind a `pointerEvents="none"` wrapper; the native view ignores `pointerEvents` itself and
+  swallows the tab presses.
 - The `...` menu, its artist resolution, Go to Artist's library-only disabling, and its own
   gotchas now live with `SongOptionsMenu` - see [../../README.md](../../README.md) rather than
   this file. `TagsPage` lists **all** of the user's tags, not just applied ones (via

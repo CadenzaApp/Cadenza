@@ -9,9 +9,10 @@ use axum::{Router, extract::FromRef};
 
 use axum_jwt_auth::Decoder;
 use dotenvy::dotenv;
-use sea_orm::{Database, DatabaseConnection};
+use sea_orm::{ConnectOptions, Database, DatabaseConnection};
 use std::env;
 use std::net::SocketAddr;
+use std::time::Duration;
 
 use crate::{
     auth::{SupabaseClaims, new_jwt_decoder},
@@ -26,6 +27,33 @@ struct AppState {
     tag_gen_service: TagGenerationService,
 }
 
+/// The pool we are allowed to open against Supabase's pooler.
+///
+/// Sea-ORM defaults to 100 connections, which no Supabase pool can serve.
+/// Point `DATABASE_URL` at the transaction-mode port (6543) so the pooler
+/// multiplexes these across far fewer server connections; the session-mode
+/// port (5432) pins one server connection per client for its whole life and
+/// runs out at `pool_size`, and a backend killed mid-run leaves those pinned
+/// until the pooler reaps them.
+///
+/// `max_lifetime` and `idle_timeout` are what keep a crash from stranding
+/// connections for long: the pool hands them back on its own rather than
+/// waiting to be asked.
+fn db_connect_options(db_url: String) -> ConnectOptions {
+    let mut options = ConnectOptions::new(db_url);
+    options
+        .max_connections(MAX_DB_CONNECTIONS)
+        .min_connections(0)
+        .acquire_timeout(Duration::from_secs(10))
+        .idle_timeout(Duration::from_secs(60))
+        .max_lifetime(Duration::from_secs(30 * 60))
+        .sqlx_logging(false);
+    options
+}
+
+/// Well under any Supabase pool so one run cannot exhaust it on its own.
+const MAX_DB_CONNECTIONS: u32 = 10;
+
 #[tokio::main]
 async fn main() {
     // load environment variables from .env file, needed for db connections
@@ -33,7 +61,7 @@ async fn main() {
 
     // get a db connection
     let db_url = env::var("DATABASE_URL").expect("error getting DATABASE_URL env var");
-    let db = Database::connect(db_url)
+    let db = Database::connect(db_connect_options(db_url))
         .await
         .expect("error connecting to db");
 
