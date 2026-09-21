@@ -1,17 +1,19 @@
 # services
 
 Business logic that is not data access. Right now that means turning a song description into
-tags with an LLM, normalizing tag names, and validating/canonicalizing tag values.
+tags with an LLM, normalizing tag names, validating/canonicalizing tag values, and reading
+catalog song metadata from Apple Music.
 
 ## Files
 
 | file | role |
 | --- | --- |
-| `mod.rs` | Declares `tag_normalizer`, `tag_generation`, and `tag_values`. |
+| `mod.rs` | Declares `tag_normalizer`, `tag_generation`, `tag_values`, and `song_metadata`. |
 | `tag_normalizer.rs` | `normalize_tag_name`: trim, collapse whitespace, truncate to 50 chars, lowercase. Unit tested. |
 | `tag_generation/mod.rs` | The `TagGenerator` trait and the `TagGenerationService` wrapper. |
 | `tag_generation/openai_tag_generator.rs` | The OpenAI implementation, plus ignored integration tests. |
 | `tag_values.rs` | `canonicalize_tag_value`: validates a tag value string against the tag's `TagType` and returns its canonical stored form (or `CadenzaError::InvalidTagValue`). Unit tested. |
+| `song_metadata.rs` | `SongMetadataService`: song ids to Apple Music catalog metadata, developer token only. Unit tested, plus ignored integration tests. |
 
 ## How it works
 
@@ -41,6 +43,22 @@ circuits on an empty input list or a zero tag count, rejects combined descriptio
 characters, truncates any over-long tag list from the model, and runs every tag through
 `normalize_tag_name` before returning.
 
+`SongMetadataService::get_songs_metadata` takes a slice of song ids and returns one
+`Option<SongMetadata>` per id, in input order. It hits
+`GET /v1/catalog/{storefront}/songs?ids=...`, which authenticates with the developer token
+alone: no Apple Music account, no `Music-User-Token`. `SongMetadata` carries title, artist,
+album, duration, artwork url, genres, release date, and ISRC, plus a `description()` helper that
+formats `"<title> by <artist>"`, the shape `TagGenerator::generate_tags` takes.
+
+Nothing is persisted. Cadenza still stores only a song id; this is fetched fresh per call.
+
+Results are matched back to the caller by id, never by position, so an id Apple knows nothing
+about leaves a `None` in its slot instead of shifting every later id onto the wrong song. Ids
+are deduplicated before the request and each slot of a repeated id is filled.
+
+It is one request, so it **panics** on more than 300 ids, which is Apple's cap on the `ids`
+filter. Chunking the input is the caller's job.
+
 `canonicalize_tag_value` validates a tag value against the tag's `TagType` and returns the
 canonical string to store. `None` and blank strings are always accepted (an attribute tag can be
 applied with no value yet) and become `None`. `Basic` tags reject any non-blank value. `Text` is
@@ -59,6 +77,8 @@ accepts `"true"`/`"false"` case-insensitively and stores lowercase. Anything els
   user-created tag names coming through `POST /tags`.
 - `canonicalize_tag_value` is called from `src/db/tags.rs::apply_user_tag` and
   `set_user_tag_value`, which both look up the tag's type through `get_owned_tag` first.
+- `SongMetadataService` has no caller yet and is **not** in `AppState`. Wiring it in means
+  constructing it in `main.rs` and adding a field, the same way `TagGenerationService` is.
 
 ## Gotchas
 
@@ -73,6 +93,19 @@ accepts `"true"`/`"false"` case-insensitively and stores lowercase. Anything els
   and a one-line change in `main.rs`. Nothing else should need to know.
 - `TagType::Text` has no length cap, unlike tag names (`normalize_tag_name` truncates to 50
   chars). A client can store an arbitrarily long string as a text attribute value.
+- `SongMetadataService` is catalog only. A library-only song id has no catalog entry and comes
+  back `None`, indistinguishable from a bad id.
+- The storefront comes from `APPLE_MUSIC_STOREFRONT` and defaults to `us`. The backend has no
+  user token, so it cannot ask Apple for the user's real storefront (`/v1/me/storefront` needs
+  one). A song not released in the configured storefront reads as `None`.
+- `SongMetadataService::new()` `expect`s `APPLE_MUSIC_DEVELOPER_TOKEN`, so once something
+  constructs it at startup a missing token panics there, the same way `OpenAiTagGenerator` does.
+- The developer token is a JWT that Apple caps at 6 months. It is read from the environment
+  already signed; nothing here mints or refreshes it, so an expired token shows up as a 401
+  inside `SongMetadataErr`.
+- More than 300 ids panics rather than returning an error. Nothing catches panics in this
+  process, so a handler that passes a caller-controlled list straight through would drop the
+  connection. Check the length, or batch, before calling.
 
 ---
 Touching files in this directory? Update this README in the same change.

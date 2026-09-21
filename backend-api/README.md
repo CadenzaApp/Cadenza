@@ -4,7 +4,9 @@ Rust HTTP api for Cadenza. Owns tags, tag application, the boolean query engine,
 suggestion, and comments on songs. axum 0.8 for routing, SeaORM 2.0 over Supabase postgres, auth
 by verifying Supabase JWTs against Supabase's JWKS.
 
-It does not store song metadata. A song is just an id string that came from Apple Music.
+It does not store song metadata. A song is just an id string that came from Apple Music. It can
+read a song's catalog metadata from Apple Music on demand (`src/services/song_metadata.rs`), but
+nothing that comes back is persisted.
 
 ## Files
 
@@ -15,7 +17,7 @@ It does not store song metadata. A song is just an id string that came from Appl
 | `src/err.rs` | `CadenzaError` and its status code / JSON body mapping. |
 | `src/routes/` | HTTP handlers. See [src/routes/README.md](src/routes/README.md). |
 | `src/db/` | Query layer and generated entities. See [src/db/README.md](src/db/README.md). |
-| `src/services/` | Tag generation and normalization. See [src/services/README.md](src/services/README.md). |
+| `src/services/` | Tag generation, normalization, and Apple Music song metadata. See [src/services/README.md](src/services/README.md). |
 | `src/test_utils.rs` | Test helpers. Currently just `string_of_length`. |
 | `certs/readme.md` | Leftover self-signed cert steps. No longer needed, the server is plain HTTP. |
 
@@ -58,6 +60,8 @@ that shape.
 | --- | --- | --- |
 | `DATABASE_URL` | yes | `postgresql://postgres:PASSWORD@db.PROJECT.supabase.co:5432/postgres`. Panics at startup if missing. |
 | `OPENAI_API_KEY` | yes | Read by `OpenAiTagGenerator::new()`, which panics at startup if missing, even if you never call tag suggestion. |
+| `APPLE_MUSIC_DEVELOPER_TOKEN` | not yet | A signed MusicKit developer token, used by `SongMetadataService` for catalog lookups. Nothing constructs that service today, so it is unused; once `main.rs` does, a missing value panics at startup. Apple caps the token at 6 months and nothing here refreshes it. |
+| `APPLE_MUSIC_STOREFRONT` | no | Two letter storefront for catalog lookups, e.g. `gb`. Defaults to `us`. A song not released in that storefront reads as missing. |
 | `BIND_ADDR` | no | Defaults to `127.0.0.1:3000`, which is loopback only. Set `0.0.0.0:3000` to accept connections from a phone or another machine on the LAN. Panics if it does not parse as `host:port`. |
 
 The Supabase project ref and publishable key are hardcoded in `src/auth.rs`. They are public

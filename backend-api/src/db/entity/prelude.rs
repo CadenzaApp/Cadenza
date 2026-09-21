@@ -5,5 +5,6 @@ pub use super::comment_votes::Entity as CommentVotes;
 pub use super::default_tag_activity::Entity as DefaultTagActivity;
 pub use super::default_tags_applied::Entity as DefaultTagsApplied;
 pub use super::default_tags_removed::Entity as DefaultTagsRemoved;
+pub use super::song_meta::Entity as SongMeta;
 pub use super::tags::Entity as Tags;
 pub use super::user_tags_applied::Entity as UserTagsApplied;

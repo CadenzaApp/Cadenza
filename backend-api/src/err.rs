@@ -19,6 +19,7 @@ pub enum CadenzaError {
     DatabaseError(String), // generic database error
     QueryFormatError(String),
     TagGenerationErr(String),
+    SongMetadataErr(String),
     InvalidTagValue(String),
 }
 
@@ -32,6 +33,7 @@ impl CadenzaError {
             Self::DatabaseError(_) => 500,
             Self::QueryFormatError(_) => 422,
             Self::TagGenerationErr(_) => 500,
+            Self::SongMetadataErr(_) => 500,
             Self::InvalidTagValue(_) => 422,
         }
     }
@@ -59,6 +61,10 @@ impl CadenzaError {
             }),
             Self::TagGenerationErr(msg) => json!({
                 "error_type": "TagGenerationErr",
+                "message": msg
+            }),
+            Self::SongMetadataErr(msg) => json!({
+                "error_type": "SongMetadataErr",
                 "message": msg
             }),
             Self::InvalidTagValue(msg) => json!({

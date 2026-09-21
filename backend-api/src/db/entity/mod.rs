@@ -8,5 +8,6 @@ pub mod default_tag_activity;
 pub mod default_tags_applied;
 pub mod default_tags_removed;
 pub mod sea_orm_active_enums;
+pub mod song_meta;
 pub mod tags;
 pub mod user_tags_applied;
