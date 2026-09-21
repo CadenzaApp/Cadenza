@@ -115,7 +115,10 @@ export function PlayerPager() {
                     }}
                 >
                     <View style={{ width }}>
-                        <CommentsPage focusedSong={focusedSong} />
+                        <CommentsPage
+                            focusedSong={focusedSong}
+                            active={selectedTab === "comments"}
+                        />
                     </View>
                     <View style={{ width }}>
                         <PlayerPage onModifyTags={showTagsFor} />

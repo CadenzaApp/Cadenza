@@ -1,7 +1,7 @@
 import type { ComponentProps } from "react";
 import type Ionicons from "@expo/vector-icons/Ionicons";
 
-import { TagType } from "@/lib/types";
+import { Tag, TagType } from "@/lib/types";
 
 /** Every tag type, in the order they are offered when creating a tag. */
 export const TAG_TYPES: TagType[] = [
@@ -50,6 +50,24 @@ export const TAG_TYPE_ICONS: Record<
 /** Attribute tags are every type other than basic: they can hold a value. */
 export function isAttributeTag(type: TagType): boolean {
     return type !== "basic";
+}
+
+/**
+ * The default tags worth showing next to a song's own tags: the shared ones
+ * whose name the user does not already have on the song. A user tag applied by
+ * enough people is promoted to a default tag with the same name, so without
+ * this the row shows that name twice, once filled and once not.
+ */
+export function unownedDefaultTags(
+    defaultTags: readonly Tag[],
+    userTags: readonly Tag[],
+): Tag[] {
+    const userTagNames = new Set(
+        userTags.map((tag) => tag.name.trim().toLowerCase()),
+    );
+    return defaultTags.filter(
+        (tag) => !userTagNames.has(tag.name.trim().toLowerCase()),
+    );
 }
 
 const DATE_ONLY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;

@@ -1,7 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { isLiquidGlassAvailable } from "expo-glass-effect";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ScrollView, StyleSheet, View } from "react-native";
+import { ActivityIndicator, ScrollView, StyleSheet, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
     FadeIn,
@@ -13,13 +13,14 @@ import Animated, {
 import { GlassSurface } from "@/components/ui/glass-surface";
 import { Input } from "@/components/ui/input";
 import { Text } from "@/components/ui/text";
+import { useDefaultTags } from "@/lib/routes/tags";
 import { THEME } from "@/lib/theme";
 import type { Tag, TagMetadata } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { useColorScheme } from "nativewind";
 import { DraggablePill } from "./DraggablePill";
 import { DropSlot } from "./DropSlot";
-import { PaletteTagPill } from "./QueryTagPill";
+import { PaletteTagPill, SuggestedTagPill } from "./QueryTagPill";
 import { sortTagsByApplicationCount } from "./QueryUtils";
 import { useDrag } from "./DragContext";
 
@@ -33,11 +34,13 @@ export function TagPalette({
     tagMetadata,
     height,
     onHeightChange,
+    includeSuggestedTags,
 }: {
     tags: readonly Tag[];
     tagMetadata?: Readonly<Record<number, TagMetadata>>;
     height: number;
     onHeightChange: (height: number) => void;
+    includeSuggestedTags: boolean;
 }) {
     const [search, setSearch] = useState("");
     const { dragState, hoveredTargetKey } = useDrag();
@@ -117,36 +120,15 @@ export function TagPalette({
                 showsVerticalScrollIndicator={false}
             >
                 <View className="mb-3 flex-row items-center gap-4">
-                    <View className="h-10 justify-center">
+<View className="h-10 justify-center">
                         <Text className="text-lg font-bold">Your tags</Text>
                     </View>
-                    <View className="relative h-10 flex-1 overflow-hidden rounded-full">
-                        {liquidGlassAvailable ? (
-                            <View
-                                pointerEvents="none"
-                                style={StyleSheet.absoluteFill}
-                            >
-                                <GlassSurface
-                                    variant="regular"
-                                    style={StyleSheet.absoluteFill}
-                                />
-                            </View>
-                        ) : null}
-                        <Input
-                            value={search}
-                            onChangeText={setSearch}
-                            placeholder="Search"
-                            accessibilityLabel="Search tags"
-                            className={cn(
-                                "h-10 rounded-full pl-4",
-                                liquidGlassAvailable
-                                    ? "border-border bg-transparent"
-                                    : "border-input bg-background",
-                            )}
-                            autoCapitalize="none"
-                            autoCorrect={false}
-                        />
-                    </View>
+                    <PaletteSearchField
+                        value={search}
+                        onChangeText={setSearch}
+                        accessibilityLabel="Search tags"
+                        liquidGlassAvailable={liquidGlassAvailable}
+                    />
                 </View>
                 {filtered.length ? (
                     <View className="flex-row flex-wrap gap-x-2 gap-y-0.5">
@@ -159,6 +141,11 @@ export function TagPalette({
                         No tags found.
                     </Text>
                 )}
+                {includeSuggestedTags ? (
+                    <SuggestedTagSection
+                        liquidGlassAvailable={liquidGlassAvailable}
+                    />
+                ) : null}
             </ScrollView>
             {deleteHovered ? (
                 <>
@@ -190,14 +177,145 @@ export function TagPalette({
     );
 }
 
+/**
+ * The shared default tags matching their own search, shown beneath the user's
+ * own tags while `Include suggested tags` is on. They drag into the query like
+ * the user's own tags, and the toggle that reveals them is what tells the
+ * backend to count them.
+ */
+function SuggestedTagSection({
+    liquidGlassAvailable,
+}: {
+    liquidGlassAvailable: boolean;
+}) {
+    const [search, setSearch] = useState("");
+    const { defaultTags, defaultTagsLoading, defaultTagsErr } =
+        useDefaultTags(search);
+
+    return (
+        <View className="mt-5">
+            <View className="mb-3 flex-row items-center gap-4">
+                <View className="h-10 justify-center">
+                    <Text className="text-lg font-bold">Suggested tags</Text>
+                </View>
+                <PaletteSearchField
+                    value={search}
+                    onChangeText={setSearch}
+                    accessibilityLabel="Search suggested tags"
+                    liquidGlassAvailable={liquidGlassAvailable}
+                />
+            </View>
+            <SuggestedTagContent
+                tags={defaultTags}
+                loading={defaultTagsLoading}
+                error={defaultTagsErr}
+            />
+        </View>
+    );
+}
+
+function SuggestedTagContent({
+    tags,
+    loading,
+    error,
+}: {
+    tags?: Tag[];
+    loading: boolean;
+    error: unknown;
+}) {
+    if (error) {
+        return (
+            <Text className="py-6 text-center text-muted-foreground">
+                Suggested tags could not be loaded.
+            </Text>
+        );
+    }
+    // useDefaultTags keeps the previous results, so this only runs before the
+    // very first response.
+    if (!tags) {
+        return loading ? (
+            <View className="py-6 items-center">
+                <ActivityIndicator className="text-primary" />
+            </View>
+        ) : null;
+    }
+    if (!tags.length) {
+        return (
+            <Text className="py-6 text-center text-muted-foreground">
+                No suggested tags found.
+            </Text>
+        );
+    }
+
+    return (
+        <View className="flex-row flex-wrap gap-2">
+            {tags.map((tag) => (
+                <DraggableSuggestedTag key={tag.id} tag={tag} />
+            ))}
+        </View>
+    );
+}
+
+/** The palette's rounded search field, glass where the platform has it. */
+function PaletteSearchField({
+    value,
+    onChangeText,
+    accessibilityLabel,
+    liquidGlassAvailable,
+}: {
+    value: string;
+    onChangeText: (value: string) => void;
+    accessibilityLabel: string;
+    liquidGlassAvailable: boolean;
+}) {
+    return (
+        <View className="relative h-10 flex-1 overflow-hidden rounded-full">
+            {liquidGlassAvailable ? (
+                <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+                    <GlassSurface
+                        variant="regular"
+                        style={StyleSheet.absoluteFill}
+                    />
+                </View>
+            ) : null}
+            <Input
+                value={value}
+                onChangeText={onChangeText}
+                placeholder="Search"
+                accessibilityLabel={accessibilityLabel}
+                className={cn(
+                    "h-10 rounded-full pl-4",
+                    liquidGlassAvailable
+                        ? "border-border bg-transparent"
+                        : "border-input bg-background",
+                )}
+                autoCapitalize="none"
+                autoCorrect={false}
+            />
+        </View>
+    );
+}
+
 function DraggablePaletteTag({ tag }: { tag: Tag }) {
     const dragPayload = useMemo(
-        () => ({ source: "palette" as const, tag }),
+        () => ({ source: "palette" as const, tag, suggested: false }),
         [tag],
     );
     return (
         <DraggablePill payload={dragPayload}>
             <PaletteTagPill tag={tag} />
+        </DraggablePill>
+    );
+}
+
+function DraggableSuggestedTag({ tag }: { tag: Tag }) {
+    const dragPayload = useMemo(
+        () => ({ source: "palette" as const, tag, suggested: true }),
+        [tag],
+    );
+    return (
+        <DraggablePill payload={dragPayload}>
+            <SuggestedTagPill tag={tag} />
         </DraggablePill>
     );
 }

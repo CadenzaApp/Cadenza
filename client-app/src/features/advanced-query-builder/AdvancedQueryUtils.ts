@@ -4,14 +4,12 @@
  * it can be unit tested with `node --test`.
  */
 
+import type { FilterJSON, QueryJSON, QueryJSONNode } from "@/lib/query-json";
 import type { TagType } from "@/lib/types";
 import type {
-    AdvancedFilterJSON,
     AdvancedFilterNode,
     AdvancedGroupNode,
     AdvancedNode,
-    AdvancedQueryJSON,
-    AdvancedQueryJSONNode,
     FieldKind,
     FilterField,
     FilterOp,
@@ -365,13 +363,13 @@ export function parseDateTimeValue(value: string): Date | null {
 /////////////////////////
 
 export type BuildAdvancedQueryResult =
-    | { ok: true; query: AdvancedQueryJSON }
+    | { ok: true; query: QueryJSON }
     | { ok: false; error: string };
 
 class BuildError extends Error {}
 
 /**
- * Compiles the builder tree into `AdvancedQueryJSON`. Groups with no filters
+ * Compiles the builder tree into `QueryJSON`. Groups with no filters
  * in them are dropped, so an empty group never changes the result. Returns an
  * error message instead when a filter is unfinished or invalid, or when there
  * are no filters at all.
@@ -393,8 +391,8 @@ export function buildAdvancedQuery(
 function groupToJSON(
     group: AdvancedGroupNode,
     tagTypes: ReadonlyMap<number, TagType>,
-): AdvancedQueryJSONNode | null {
-    const children: AdvancedQueryJSONNode[] = [];
+): QueryJSONNode | null {
+    const children: QueryJSONNode[] = [];
     for (const child of group.children) {
         const json =
             child.kind === "group"
@@ -418,7 +416,7 @@ function groupToJSON(
 function filterToJSON(
     filter: AdvancedFilterNode,
     tagTypes: ReadonlyMap<number, TagType>,
-): AdvancedFilterJSON {
+): FilterJSON {
     const { field, op } = filter;
     if (!field) throw new BuildError("Pick a tag for every filter.");
 

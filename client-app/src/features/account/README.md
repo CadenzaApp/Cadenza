@@ -9,7 +9,7 @@ actions. Appearance and the other marked settings are local previews only.
 | --- | --- |
 | `account-settings.tsx` | Account cards, authentication actions, content toggle, privacy, and sync stub. |
 | `appearance-settings.tsx` | Session-only color controls and preview. |
-| `settings-ui.tsx` | Shared glass panels, rows, icons, TODO badge, and toggle. |
+| `settings-ui.tsx` | Shared glass panels, rows, icons, and the TODO badge. |
 
 ## How it works
 
@@ -27,7 +27,7 @@ shows local unavailable feedback and does not call MusicKit or the backend.
 
 - `@/lib/account` for the Cadenza session.
 - `@/lib/apple-music-auth` for Apple Music authorization.
-- `@/components/ui/glass-*` for every visible surface and action.
+- `@/components/ui/glass-*` for every visible surface and action, including `GlassToggle`.
 
 ## Gotchas
 

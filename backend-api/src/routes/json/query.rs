@@ -2,11 +2,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::routes::json::tag::TagType;
 
-/// An advanced query, as sent in the `q` param of `GET /queries/advanced/results`.
+/// A tag query, as sent in the `query` field of `POST /queries/results`. Both
+/// builders on the client produce this shape.
 ///
-/// Unlike the simple query, whose leaves are bare tag ids, the leaves here are
-/// filters that can look at a tag's value, and at tag names, values, and types
-/// across every tag on a song.
+/// A leaf is a filter, which can ask whether a tag is applied, look at the
+/// tag's value, or look at tag names, values, and types across every tag on a
+/// song. The drag and drop builder only ever emits `is_applied` and
+/// `is_not_applied` filters.
 ///
 /// ```json
 /// {
@@ -24,9 +26,9 @@ use crate::routes::json::tag::TagType;
 /// ```
 #[derive(Deserialize, Debug)]
 #[serde(deny_unknown_fields)]
-pub struct AdvancedQuery {
+pub struct Query {
     #[serde(rename = "where")]
-    pub root: AdvancedQueryNode,
+    pub root: QueryNode,
 }
 
 /// One node of the query tree. Serialized externally tagged, so each node is an
@@ -39,15 +41,15 @@ pub struct AdvancedQuery {
 /// { "filter": { ... } }
 /// ```
 ///
-/// The builder's "none of the following are true" group is sent as
+/// The advanced builder's "none of the following are true" group is sent as
 /// `{ "not": { "or": [ ... ] } }`.
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "lowercase")]
-pub enum AdvancedQueryNode {
-    And(Vec<AdvancedQueryNode>),
-    Or(Vec<AdvancedQueryNode>),
-    Not(Box<AdvancedQueryNode>),
-    Filter(AdvancedFilter),
+pub enum QueryNode {
+    And(Vec<QueryNode>),
+    Or(Vec<QueryNode>),
+    Not(Box<QueryNode>),
+    Filter(Filter),
 }
 
 /// A single filter line, tagged by `field`.
@@ -63,10 +65,10 @@ pub enum AdvancedQueryNode {
 /// api. Datetime tags take an RFC 3339 timestamp and compare to the minute;
 /// date tags take a `YYYY-MM-DD` day. Operators that take no value (`is_empty`, `is_true`, `is_applied`, ...)
 /// require it to be omitted or `null`. Which operators are allowed depends on
-/// the field, and for `tag` on the tag's type. See `db::advanced_queries`.
+/// the field, and for `tag` on the tag's type. See `db::queries`.
 #[derive(Deserialize, Debug)]
 #[serde(tag = "field", rename_all = "snake_case")]
-pub enum AdvancedFilter {
+pub enum Filter {
     Tag {
         tag_id: i64,
         op: FilterOp,

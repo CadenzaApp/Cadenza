@@ -105,7 +105,13 @@ export function DragGhost() {
                     height={10}
                 />
             ) : (
-                <TagPill tag={tag} height={10} />
+                // A suggested tag looks the same in flight as it does in the
+                // palette it left and the query it is heading for.
+                <TagPill
+                    tag={tag}
+                    height={10}
+                    inverted={dragState.payload.suggested}
+                />
             )}
         </Animated.View>
     );

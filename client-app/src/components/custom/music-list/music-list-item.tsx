@@ -19,7 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
 import { THEME, type ThemeColorToken } from "@/lib/theme";
-import type { AppliedTag } from "@/lib/types";
+import type { AppliedTag, Tag } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 import { TagFadeRail } from "./tag-fade-rail";
@@ -27,6 +27,8 @@ import { TagFadeRail } from "./tag-fade-rail";
 type MusicListItemProps = {
     item: MusicItem;
     tags?: AppliedTag[];
+    /** Shared default tags on the song, rendered unfilled after the user's own. */
+    defaultTags?: Tag[];
     selected: boolean;
     selectionMode: boolean;
     multiSelectEnabled: boolean;
@@ -45,6 +47,7 @@ const ARTWORK_SIZE = 58;
 export const MusicListItem = memo(function MusicListItem({
     item,
     tags,
+    defaultTags,
     selected,
     selectionMode,
     multiSelectEnabled,
@@ -62,6 +65,8 @@ export const MusicListItem = memo(function MusicListItem({
     const [artworkFailed, setArtworkFailed] = useState(false);
     const longPressConsumedRef = useRef(false);
     const itemTags = tags ?? [];
+    const itemDefaultTags = defaultTags ?? [];
+    const hasTags = itemTags.length > 0 || itemDefaultTags.length > 0;
     const artworkUrl = item.artworkUrl?.trim();
     const canRenderArtwork =
         !artworkFailed &&
@@ -221,7 +226,7 @@ export const MusicListItem = memo(function MusicListItem({
                     <View
                         className="flex-1 flex-col justify-center overflow-hidden"
                         style={
-                            itemTags.length === 0
+                            !hasTags
                                 ? {
                                       rowGap: 1,
                                       transform: [{ translateY: 5 }],
@@ -248,8 +253,12 @@ export const MusicListItem = memo(function MusicListItem({
                             </Text>
                         </View>
 
-                        {itemTags.length > 0 ? (
-                            <TagFadeRail tags={itemTags} compact={compact} />
+                        {hasTags ? (
+                            <TagFadeRail
+                                tags={itemTags}
+                                defaultTags={itemDefaultTags}
+                                compact={compact}
+                            />
                         ) : null}
                     </View>
                 </Pressable>

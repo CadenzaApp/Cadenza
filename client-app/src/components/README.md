@@ -15,7 +15,7 @@ importing `@/lib/routes/*` into a file under `ui/`, it belongs in `custom/`.
 ### ui/
 
 `badge`, `button`, `card`, `dialog`, `glass-surface`, `glass-button`, `glass-confirm-dialog`,
-`glass-icon-button`, `input`,
+`glass-icon-button`, `glass-toggle`, `input`,
 `label`, `separator`, `skeleton`, `tabs`, `text`, `native-only-animated-view`, `detail-screen`,
 `tint-backdrop`, `floating-close-button`, plus `sign-in-form` and `sign-up-form`.
 
@@ -42,6 +42,9 @@ behavior in this primitive rather than rebuilding a glass modal at each call sit
 `glass-icon-button.tsx` exports `GlassIconButton`, a round icon button built on it. Header actions,
 detail-screen controls, and every floating circular action use it. Reach for it rather than
 hand-rolling another circle of glass.
+
+`glass-toggle.tsx` exports `GlassToggle`, the on/off switch. The track is glass and tints with the
+nav theme's notification color while on. Account settings and the query builder both use it.
 
 `tint-backdrop.tsx` exports `TintBackdrop`, the artwork-colored wash behind a page. It uses
 `expo-linear-gradient` to run the source color at the top continuously into a darker fraction of
@@ -85,11 +88,11 @@ variables), `tailwind.config.js`, and `global.css`. Class merging goes through
 
 | file                        | role                                                                                                              |
 | --------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `music-list/`               | Scrollable list of `MusicItem`s, with skeletons, paging, sorting, selection, and applied tag values. See below.   |
+| `music-list/`               | Scrollable list of `MusicItem`s, with skeletons, paging, sorting, selection, and tags. See below.                 |
 | `floating-bubble.tsx`       | The liquid-glass round floating action button the list and tag screens sit under.                                 |
 | `options-menu/`             | The song, album, and playlist "..." menus, on liquid glass. See below.                                            |
-| `song-tag-editor.tsx`       | Tag editing for one song: applied state, values, mutations, and create-dialog state.                              |
-| `tag-pill.tsx`              | The solid app tag chip. Basic tags use a filled pricetag icon; attribute tags keep their type icon and can show formatted values. |
+| `song-tag-editor.tsx`       | Tag editing for one song: applied state, values, adopting or removing a default tag, mutations, and dialog state. |
+| `tag-pill.tsx`              | The app tag chip. It is solid by default; `inverted` swaps its text and background, giving tag-colored content and outline on the screen color. A dark tag color lightens that screen color so it still reads, which only moves in a dark theme. Attribute tags keep their type icon through query negation and can show formatted values. Exports `useTagScreenColor` for surfaces built by hand, and `readableTextColor`. |
 | `create-tag-dialog.tsx`     | Creates a tag with its name, color, and optional attribute type on the reliable glass `ModalPopup` path.          |
 | `tag-value-dialog.tsx`      | Liquid-glass per-type editor opened when an attribute tag is applied or edited.                                   |
 | `modal-popup.tsx`           | Small popup used by options, sorting, and selection actions. Liquid glass is the default.                         |
@@ -97,6 +100,7 @@ variables), `tailwind.config.js`, and `global.css`. Class merging goes through
 | `top-rail.tsx`              | Shared tab header with optional glass back button, page title, actions, and account initials.                     |
 | `account-initials.ts`       | Pure email-to-initials helper, tested in `account-initials.test.ts`.                                              |
 | `coming-soon-screen.tsx`    | Data-driven preview surface used by stubbed product areas.                                                        |
+| `tasks.tsx`                 | Root task provider and floating status rows used by default-tag generation.                                      |
 | `collection-list.tsx`       | Paged album or playlist rows. Owns screen scrolling and records artwork zoom origins.                             |
 | `artist-list.tsx`           | Paged artist rows and the sideways artist rail. Both record a zoom origin.                                        |
 | `track-collection-view.tsx` | Shared artwork, actions, metadata, and track-list surface for query results, collections, and artist top songs.   |
@@ -109,7 +113,7 @@ variables), `tailwind.config.js`, and `global.css`. Class merging goes through
 | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | `index.tsx`                        | The `MusicList` itself. Owns sort state, paging, selection, density, and the modals.                                                  |
 | `music-list-item.tsx`              | One row, plus `MusicListItemSkeleton`.                                                                                                |
-| `tag-fade-rail.tsx`                | Overflow-aware horizontal tag rail whose alpha mask preserves the surface behind it. Takes `AppliedTag[]` and shows each tag's value. |
+| `tag-fade-rail.tsx`                | Overflow-aware horizontal tag rail whose alpha mask preserves the surface behind it. User tags with values, then unfilled defaults.   |
 | `music-list-sort-button.tsx`       | The floating sort control.                                                                                                            |
 | `music-list-action-button.tsx`     | One button in the selection toolbar.                                                                                                  |
 | `music-list-selection-toolbar.tsx` | The bar that slides up while rows are selected.                                                                                       |
@@ -132,12 +136,14 @@ a tap toggles one, and clearing everything leaves selection mode. Pinching the l
 compact rows; pass `compact` and `onCompactChange` to control that from outside.
 
 Rows use the query-revamp spacing, artwork alignment, skeletons, and solid-color `TagPill`
-appearance. The density gesture changes row size without switching back to the older translucent
-pill design. Selected rows use a light foreground tint with alpha instead of an opaque replacement
-color, so artwork gradients remain visible. The floating selection toolbar and its overflow popup
-are liquid glass. The toolbar uses the same screen-aware bottom anchor as the sort bubble, so native
-tab and player insets are not counted twice. `trackMenuActions` appends caller actions to the shared `SongOptionsMenu`; do not
-restore the deleted list-specific track menu.
+appearance. A row shows the user's own tags first, then the song's shared default tags as unfilled
+pills; `index.tsx` reads both with one batched request each. The density gesture changes row size
+without switching back to the older translucent pill design. Selected rows use a light foreground
+tint with alpha instead of an opaque replacement color, so artwork gradients remain visible. The
+floating selection toolbar and its overflow popup are liquid glass. The toolbar uses the same
+screen-aware bottom anchor as the sort bubble, so native tab and player insets are not counted
+twice. `trackMenuActions` appends caller actions to the shared `SongOptionsMenu`; do not restore
+the deleted list-specific track menu.
 
 `collection-list.tsx` is deliberately not `MusicList`. Sorting, multi-select, tagging, and the
 song options menu all describe songs; none of them mean anything for an album, so the collection

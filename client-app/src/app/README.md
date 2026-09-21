@@ -28,7 +28,7 @@ logic out.
 | `library-categories.tsx`             | `/library-categories`     | Picks which rows the library shows.                                                                           |
 | `category/[kind].tsx`                | `/category/:kind`         | Compatibility root host for the shared library-category body.                                                 |
 | `collection/[kind]/[id].tsx`         | `/collection/:kind/:id`   | The songs in one album or playlist.                                                                           |
-| `query-results.tsx`                  | `/query-results`          | Opaque full-screen simple or advanced query matches with the compact player overlaid when active.             |
+| `query-results.tsx`                  | `/query-results`          | Opaque full-screen query matches with the compact player overlaid when active.                                |
 | `tag/[tagId].tsx`                    | `/tag/:tagId`             | One tag and the songs carrying it.                                                                            |
 | `artist/[id].tsx`                    | `/artist/:id`             | One catalog artist: the artist image and a play button, top songs, then an albums rail.                       |
 | `add-to-playlist.tsx`                | `/add-to-playlist`        | Picks a library playlist for a song, or makes one.                                                            |
@@ -44,12 +44,15 @@ logic out.
 GestureHandlerRootView
   AccountProvider          supabase session -> the jwt everything else needs
     AppleMusicProvider     apple music auth, restored from secure store
-      PlaybackProvider     reads the native playback snapshot
-        ThemeProvider      light/dark nav theme from nativewind's colorScheme
-          BottomBarVisibilityProvider   temporary native-tab visibility exceptions
-            ZoomOriginProvider          the rect a pushed screen minimizes back into
-              Stack                     the routes
-              PortalHost                where dialogs and modals render
+      TasksProvider        background task state
+        SongInitProvider   generates missing default tags after auth
+          PlaybackProvider     reads the native playback snapshot
+            ThemeProvider      light/dark nav theme from nativewind's colorScheme
+              BottomBarVisibilityProvider   temporary native-tab visibility exceptions
+                ZoomOriginProvider          the rect a pushed screen minimizes back into
+                  Stack                     the routes
+                  TasksHost                 background task status
+                  PortalHost                where dialogs and modals render
 ```
 
 `LibraryCategoriesProvider` (`@/features/library`) sits inside `ThemeProvider` and wraps both

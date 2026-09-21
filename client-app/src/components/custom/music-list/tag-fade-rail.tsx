@@ -1,20 +1,31 @@
 import MaskedView from "@react-native-masked-view/masked-view";
 import { LinearGradient } from "expo-linear-gradient";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
 
 import { TagPill } from "@/components/custom/tag-pill";
-import type { AppliedTag } from "@/lib/types";
+import { unownedDefaultTags } from "@/lib/tag-values";
+import type { AppliedTag, Tag } from "@/lib/types";
 
 import { tagFadeStart } from "./tag-fade-utils";
 
+/**
+ * The song's own tags, then the shared default tags on it. Defaults are
+ * unfilled, so a row reads as "mine first, the crowd's after".
+ */
 export function TagFadeRail({
     tags,
+    defaultTags = [],
     compact,
 }: {
     tags: AppliedTag[];
+    defaultTags?: Tag[];
     compact: boolean;
 }) {
+    const shownDefaultTags = useMemo(
+        () => unownedDefaultTags(defaultTags, tags),
+        [defaultTags, tags],
+    );
     const [viewportWidth, setViewportWidth] = useState(0);
     const [contentWidth, setContentWidth] = useState(0);
     const fadeWidth = compact ? 16 : 24;
@@ -55,6 +66,15 @@ export function TagFadeRail({
                         value={tag.value}
                         height={compact ? 8 : 9}
                         showIcon={false}
+                    />
+                ))}
+                {shownDefaultTags.map((tag) => (
+                    <TagPill
+                        key={`default:${tag.id}`}
+                        tag={tag}
+                        height={compact ? 8 : 9}
+                        showIcon={false}
+                        inverted
                     />
                 ))}
             </ScrollView>

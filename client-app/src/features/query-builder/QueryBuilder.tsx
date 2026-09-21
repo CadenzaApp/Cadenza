@@ -10,6 +10,7 @@ import { KeyboardAvoidingView, Platform, Pressable, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import Animated from "react-native-reanimated";
 
+import { GlassToggle } from "@/components/ui/glass-toggle";
 import { Text } from "@/components/ui/text";
 import { THEME } from "@/lib/theme";
 import type { Tag, TagMetadata } from "@/lib/types";
@@ -47,6 +48,8 @@ type Props = {
     tagMetadata?: Readonly<Record<number, TagMetadata>>;
     conditions: QueryCondition[];
     setConditions: Dispatch<SetStateAction<QueryCondition[]>>;
+    includeSuggestedTags: boolean;
+    onIncludeSuggestedTagsChange: (value: boolean) => void;
 };
 const DEFAULT_PALETTE_HEIGHT = 208;
 
@@ -55,6 +58,8 @@ export function QueryBuilder({
     tagMetadata,
     conditions,
     setConditions,
+    includeSuggestedTags,
+    onIncludeSuggestedTagsChange,
 }: Props) {
     const { compactPlayerVisible, playerBottomInset } =
         useScreenOverlayInsets();
@@ -103,13 +108,19 @@ export function QueryBuilder({
                             current,
                             payload.tag,
                             target.conditionId,
+                            payload.suggested,
                         );
                     }
                     if (target.kind === "insert") {
-                        return insertTag(current, payload.tag, target.index);
+                        return insertTag(
+                            current,
+                            payload.tag,
+                            target.index,
+                            payload.suggested,
+                        );
                     }
                     if (target.kind === "query-end") {
-                        return appendTag(current, payload.tag);
+                        return appendTag(current, payload.tag, payload.suggested);
                     }
                     return current;
                 }
@@ -164,6 +175,21 @@ export function QueryBuilder({
                 keyboardVerticalOffset={80}
             >
                 <View className="flex-1 bg-background">
+                    <View className="flex-row items-center gap-3 px-4 pt-2">
+                        <Ionicons
+                            name="sparkles-outline"
+                            size={17}
+                            color={theme.mutedForeground}
+                        />
+                        <Text className="flex-1 text-sm font-medium text-muted-foreground">
+                            Consider suggested tags too
+                        </Text>
+                        <GlassToggle
+                            value={includeSuggestedTags}
+                            onValueChange={onIncludeSuggestedTagsChange}
+                            accessibilityLabel="Consider suggested tags too"
+                        />
+                    </View>
                     <View className="flex-row items-center px-4 pb-1 pt-2">
                         <Text className="flex-1 text-lg font-bold">
                             {queryHeading(conditions)}
@@ -205,6 +231,7 @@ export function QueryBuilder({
                     tagMetadata={tagMetadata}
                     height={paletteHeight}
                     onHeightChange={handlePaletteHeightChange}
+                    includeSuggestedTags={includeSuggestedTags}
                 />
             </KeyboardAvoidingView>
             <DragGhost />

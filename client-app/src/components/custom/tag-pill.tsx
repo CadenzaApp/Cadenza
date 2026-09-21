@@ -8,12 +8,65 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import type { Tag } from "../../lib/types";
 import { TAG_TYPE_ICONS, formatTagValue } from "../../lib/tag-values";
 
+/** At or below this luminance a color counts as dark. */
+const LIGHT_LUMINANCE = 50;
+/** What a lifted screen color is raised to, so any dark tag color clears it. */
+const LIFTED_SCREEN_LUMINANCE = 220;
+
+function hexChannels(hex: string) {
+    return {
+        red: parseInt(hex.slice(1, 3), 16),
+        green: parseInt(hex.slice(3, 5), 16),
+        blue: parseInt(hex.slice(5, 7), 16),
+    };
+}
+
 // Helper to lighten hex colors
 function hexToRgba(hex: string, alpha: number) {
-    const r = parseInt(hex.slice(1, 3), 16);
-    const g = parseInt(hex.slice(3, 5), 16);
-    const b = parseInt(hex.slice(5, 7), 16);
-    return `rgba(${r},${g},${b},${alpha})`;
+    const { red, green, blue } = hexChannels(hex);
+    return `rgba(${red},${green},${blue},${alpha})`;
+}
+
+/** Perceptual luminance of a hex color, on the same 0 to 255 channel scale. */
+function luminance(hex: string) {
+    const { red, green, blue } = hexChannels(hex);
+    return (red * 299 + green * 587 + blue * 114) / 1000;
+}
+
+/** Mixes a hex color toward white. `amount` is 0 for no change, 1 for white. */
+function lighten(hex: string, amount: number) {
+    const { red, green, blue } = hexChannels(hex);
+    const lift = (channel: number) =>
+        Math.round(channel + (255 - channel) * amount)
+            .toString(16)
+            .padStart(2, "0");
+    return `#${lift(red)}${lift(green)}${lift(blue)}`;
+}
+
+/**
+ * The screen color a pill pairs with its tag color. A dark tag reads against
+ * neither a dark interior nor a dark label, so the screen color is lightened
+ * until it clears the tag. A light theme is already past that and never moves.
+ * Mixing toward white is linear in luminance, so one step lands on the target.
+ */
+function screenColorFor(screenHex: string, tagHex: string) {
+    if (luminance(tagHex) > LIGHT_LUMINANCE) return screenHex;
+    const screenLuminance = luminance(screenHex);
+    if (screenLuminance >= LIFTED_SCREEN_LUMINANCE) return screenHex;
+    return lighten(
+        screenHex,
+        (LIFTED_SCREEN_LUMINANCE - screenLuminance) / (255 - screenLuminance),
+    );
+}
+
+/**
+ * The screen color a pill of this tag color pairs with. Exported for surfaces
+ * that are built by hand rather than through `TagPill` but still have to sit
+ * beside one, like the query builder's negated pill.
+ */
+export function useTagScreenColor(tagColor: string) {
+    const { colorScheme = "light" } = useColorScheme();
+    return screenColorFor(THEME[colorScheme].background, tagColor);
 }
 
 /**
@@ -24,10 +77,11 @@ function hexToRgba(hex: string, alpha: number) {
  * @param value     - If provided, renders the attribute tag's value after the
  *                   name, formatted for the tag's type.
  * @param count     - If provided, renders a count badge on the right side.
- * @param leadingIcon - Replaces the leading icon when provided.
- * @param showIcon  - Whether to render the leading icon.
- * @param outlined  - Uses the tag color for its border and content with no fill.
- * @param strikethrough - Draws a standard thin line through the tag label.
+ * @param leadingIcon - Replaces the leading dot when provided.
+ * @param showIcon  - Whether to render the leading dot or icon.
+ * @param inverted  - Swaps the pill's text and background colors, so the tag
+ *                    color becomes the content over a screen-colored interior
+ *                    with a tag-colored outline.
  * @param onRemove  - If provided, renders an × button inside the pill.
  *                   Called when the user taps it and caller decides what to do.
  */
@@ -38,8 +92,7 @@ export function TagPill({
     count,
     leadingIcon,
     showIcon = true,
-    outlined = false,
-    strikethrough = false,
+    inverted = false,
     onRemove,
 }: {
     tag: Tag;
@@ -48,13 +101,11 @@ export function TagPill({
     count?: number;
     leadingIcon?: ReactNode;
     showIcon?: boolean;
-    outlined?: boolean;
-    strikethrough?: boolean;
+    inverted?: boolean;
     onRemove?: () => void;
 }) {
-    const { colorScheme = "light" } = useColorScheme();
-    const backgroundColor = THEME[colorScheme].background;
-    const contentColor = outlined ? tag.color : backgroundColor;
+    const screenColor = useTagScreenColor(tag.color);
+    const contentColor = inverted ? tag.color : screenColor;
     const iconSize = 1.15 * height;
     const fontSize = 1 * height;
     const countFontSize = 0.9 * height;
@@ -67,8 +118,8 @@ export function TagPill({
             variant="outline"
             pointerEvents={onRemove ? "box-none" : "none"}
             style={{
-                backgroundColor: outlined ? "transparent" : tag.color,
-                borderColor: outlined ? tag.color : "transparent",
+                backgroundColor: inverted ? screenColor : tag.color,
+                borderColor: inverted ? tag.color : "transparent",
                 paddingHorizontal: 0.7 * height,
                 paddingVertical: 0.2 * height,
                 gap: 0.5 * height,
@@ -106,9 +157,6 @@ export function TagPill({
                     textAlign: "center",
                     textAlignVertical: "center",
                     includeFontPadding: false,
-                    textDecorationLine: strikethrough ? "line-through" : "none",
-                    textDecorationStyle: "solid",
-                    textDecorationColor: contentColor,
                 }}
             >
                 {tag.name}
@@ -182,9 +230,5 @@ export function TagPill({
 
 /** Black or white, whichever has better contrast against the supplied color. */
 export function readableTextColor(hex: string) {
-    const red = parseInt(hex.slice(1, 3), 16);
-    const green = parseInt(hex.slice(3, 5), 16);
-    const blue = parseInt(hex.slice(5, 7), 16);
-    const luminance = (red * 299 + green * 587 + blue * 114) / 1000;
-    return luminance > 150 ? "#000000" : "#ffffff";
+    return luminance(hex) > LIGHT_LUMINANCE ? "#000000" : "#ffffff";
 }

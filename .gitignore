@@ -141,3 +141,6 @@ override.tf.json
 *.tgz
 *.zip
 .DS_Store
+
+# git worktrees
+.wt

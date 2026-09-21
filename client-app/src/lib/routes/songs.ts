@@ -4,13 +4,13 @@ import {
     useAPIMutation,
     useAPIPostDataBatched,
 } from "../api-actions";
-import { AppliedTag } from "@/lib/types";
+import { AppliedTag, Tag } from "@/lib/types";
 
 // the backend caps a batch at 200 ids
 const TAGS_ON_SONGS_BATCH_SIZE = 200;
 
 export function useTagsOnSong(songId?: string) {
-    const x = useAPIData<AppliedTag[]>("/songs/tags", {
+    const x = useAPIData<AppliedTag[]>("/songs/local-tags", {
         song_id: songId,
     });
 
@@ -31,7 +31,7 @@ export function useTagsOnSongs(songIds: readonly string[]) {
         string,
         { song_ids: string[] },
         Record<string, AppliedTag[]>
-    >("/songs/tags/batch", normalizedIds, {
+    >("/songs/local-tags/batch", normalizedIds, {
         batchSize: TAGS_ON_SONGS_BATCH_SIZE,
         toBody: (song_ids) => ({ song_ids }),
         merge: (responses) => Object.assign({}, ...responses),
@@ -56,13 +56,14 @@ type ApplyTagPayload = {
 export function useApplyTag() {
     const x = useAPIMutation<ApplyTagPayload, void>(
         "POST",
-        "/songs/tags",
+        "/songs/local-tags",
         ({ song_id }) => [
-            { path: "/songs/tags", params: { song_id } },
-            { path: "/songs/tags/batch" },
+            { path: "/songs/local-tags", params: { song_id } },
+            { path: "/songs/local-tags/batch" },
+            { path: "/songs/default-tags", params: { song_id } },
+            { path: "/songs/default-tags/batch" },
             { path: "/tags" },
             { path: "/queries/results" },
-            { path: "/queries/advanced/results" },
         ],
     );
     return {
@@ -82,13 +83,12 @@ type SetTagValuePayload = {
 export function useSetTagValue() {
     const x = useAPIMutation<SetTagValuePayload, void>(
         "PATCH",
-        "/songs/tags",
+        "/songs/local-tags",
         ({ song_id }) => [
-            { path: "/songs/tags", params: { song_id } },
-            { path: "/songs/tags/batch" },
+            { path: "/songs/local-tags", params: { song_id } },
+            { path: "/songs/local-tags/batch" },
             { path: "/tags" },
             { path: "/queries/results" },
-            { path: "/queries/advanced/results" },
         ],
     );
     return {
@@ -106,13 +106,12 @@ type UnapplyTagPayload = {
 export function useUnapplyTag() {
     const x = useAPIMutation<UnapplyTagPayload, void>(
         "DELETE",
-        "/songs/tags",
+        "/songs/local-tags",
         ({ song_id }) => [
-            { path: "/songs/tags", params: { song_id } },
-            { path: "/songs/tags/batch" },
+            { path: "/songs/local-tags", params: { song_id } },
+            { path: "/songs/local-tags/batch" },
             { path: "/tags" },
             { path: "/queries/results" },
-            { path: "/queries/advanced/results" },
         ],
     );
     return {
@@ -120,5 +119,110 @@ export function useUnapplyTag() {
         unapplyTagLoading: x.isMutating,
         resetUnpplyTag: x.reset,
         unapplyTag: x.trigger,
+    };
+}
+
+type RemoveDefaultTagPayload = {
+    song_id: string;
+    tag_id: number;
+};
+/**
+ * Removes one of the song's suggested tags for this user. The default tag stays
+ * on the song for everyone else, so this only changes what the default tag reads
+ * return here, plus query results that count suggested tags. It also counts
+ * against that name, which makes it harder to become a default tag elsewhere.
+ */
+export function useRemoveDefaultTag() {
+    const x = useAPIMutation<RemoveDefaultTagPayload, void>(
+        "DELETE",
+        "/songs/default-tags",
+        ({ song_id }) => [
+            { path: "/songs/default-tags", params: { song_id } },
+            { path: "/songs/default-tags/batch" },
+            { path: "/queries/results" },
+        ],
+    );
+    return {
+        removeDefaultTagErr: x.error,
+        removeDefaultTagLoading: x.isMutating,
+        resetRemoveDefaultTag: x.reset,
+        removeDefaultTag: x.trigger,
+    };
+}
+
+/** Returns the shared default tags on one song, minus the ones this user removed. */
+export function useDefaultTagsOnSong(songId?: string) {
+    const x = useAPIData<Tag[]>("/songs/default-tags", {
+        song_id: songId,
+    });
+
+    return {
+        defaultTagsOnSong: x.data,
+        defaultTagsOnSongLoading: x.isLoading,
+        defaultTagsOnSongErr: x.error,
+    };
+}
+
+/** Default tags for many songs at once, batched the same way as `useTagsOnSongs`. */
+export function useDefaultTagsOnSongs(songIds: readonly string[]) {
+    const normalizedIds = useMemo(
+        () => [...new Set(songIds.filter(Boolean))],
+        [songIds],
+    );
+    const x = useAPIPostDataBatched<
+        string,
+        { song_ids: string[] },
+        Record<string, Tag[]>
+    >("/songs/default-tags/batch", normalizedIds, {
+        batchSize: TAGS_ON_SONGS_BATCH_SIZE,
+        toBody: (song_ids) => ({ song_ids }),
+        merge: (responses) => Object.assign({}, ...responses),
+    });
+    const defaultTagsBySong = x.data ?? EMPTY_DEFAULT_TAGS_BY_SONG;
+
+    return {
+        defaultTagsBySong,
+        defaultTagsBySongLoading: x.isLoading,
+        defaultTagsBySongErr: x.error,
+    };
+}
+
+const EMPTY_DEFAULT_TAGS_BY_SONG: Record<string, Tag[]> = {};
+
+/** Returns the requested song ids that do not have default tags. */
+export function useSongsWithoutDefaultTags() {
+    const x = useAPIMutation<{ song_ids: string[] }, string[]>(
+        "POST",
+        "/songs/no-default-tags",
+    );
+    return {
+        songsWithoutDefaultTagsErr: x.error,
+        songsWithoutDefaultTagsLoading: x.isMutating,
+        getSongsWithoutDefaultTags: x.trigger,
+    };
+}
+
+export type SongIdAndDesc = {
+    song_id: string;
+    /** used to generate the song's tags, e.g. "Override by Yoshida Yasei" */
+    desc: string;
+};
+/** Generates and stores default tags for the given songs that don't have any yet. */
+export function useSetDefaultTags() {
+    const x = useAPIMutation<SongIdAndDesc[], void>(
+        "POST",
+        "/songs/default-tags",
+        (songs) => [
+            ...songs.map(({ song_id }) => ({
+                path: "/songs/default-tags",
+                params: { song_id },
+            })),
+            { path: "/songs/default-tags/batch" },
+        ],
+    );
+    return {
+        setDefaultTagsErr: x.error,
+        setDefaultTagsLoading: x.isMutating,
+        setDefaultTags: x.trigger,
     };
 }

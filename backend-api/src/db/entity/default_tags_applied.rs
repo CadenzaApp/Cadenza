@@ -13,6 +13,8 @@ pub struct Model {
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
+    #[sea_orm(has_many = "super::default_tags_removed::Entity")]
+    DefaultTagsRemoved,
     #[sea_orm(
         belongs_to = "super::tags::Entity",
         from = "Column::TagId",
@@ -21,6 +23,12 @@ pub enum Relation {
         on_delete = "Cascade"
     )]
     Tags,
+}
+
+impl Related<super::default_tags_removed::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::DefaultTagsRemoved.def()
+    }
 }
 
 impl Related<super::tags::Entity> for Entity {

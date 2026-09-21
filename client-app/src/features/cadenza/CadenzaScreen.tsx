@@ -10,11 +10,14 @@ import {
 } from "@/features/advanced-query-builder/AdvancedQueryUtils";
 import type { AdvancedGroupNode } from "@/features/advanced-query-builder/types";
 import { QueryBuilder } from "@/features/query-builder/QueryBuilder";
-import { queryToJSON } from "@/features/query-builder/QueryUtils";
+import {
+    hasSuggestedTag,
+    queryToJSON,
+} from "@/features/query-builder/QueryUtils";
 import { ResultsSummary } from "@/features/query-builder/ResultsSummary";
 import type { QueryCondition } from "@/features/query-builder/types";
 import { useAllTracksFromLibrary } from "@/lib/musickit-hooks";
-import { useAdvancedQueryResults, useQueryResults } from "@/lib/routes/queries";
+import { useQueryResults } from "@/lib/routes/queries";
 import { useUserTags } from "@/lib/routes/tags";
 
 type BuilderMode = "simple" | "advanced";
@@ -29,6 +32,8 @@ export function CadenzaScreen() {
     const router = useRouter();
     const [mode, setMode] = useState<BuilderMode>("simple");
     const [conditions, setConditions] = useState<QueryCondition[]>([]);
+    // Not wired to the query yet: the switch only holds its own state.
+    const [includeSuggestedTags, setIncludeSuggestedTags] = useState(false);
     const [advancedRoot, setAdvancedRootState] = useState<AdvancedGroupNode>(
         () => createGroup(),
     );
@@ -43,11 +48,6 @@ export function CadenzaScreen() {
         () => allLibraryTracks.map((track) => track.catalogId ?? track.id),
         [allLibraryTracks],
     );
-    const simpleResults = useQueryResults(
-        mode === "simple" ? simpleQuery : null,
-        candidateSongIds,
-        isLibraryConnected && !allLibraryTracksLoading && !allLibraryTracksErr,
-    );
     const tagTypes = useMemo(
         () => new Map((userTags ?? []).map((tag) => [tag.id, tag.type])),
         [userTags],
@@ -57,27 +57,34 @@ export function CadenzaScreen() {
         [advancedRoot, tagTypes],
     );
     const advancedQuery = advancedBuild.ok ? advancedBuild.query : null;
-    const advancedResults = useAdvancedQueryResults(
-        mode === "advanced" ? advancedQuery : null,
-    );
+    // Both builders compile to the same wire format, so the active one just
+    // decides which tree gets sent.
+    const query = mode === "simple" ? simpleQuery : advancedQuery;
+    const { matchedSongIds, queryResultsLoading, queryResultsErr } =
+        useQueryResults(
+            query,
+            candidateSongIds,
+            isLibraryConnected &&
+                !allLibraryTracksLoading &&
+                !allLibraryTracksErr,
+            includeSuggestedTags,
+        );
+    // A suggested tag only matches while the request carries
+    // consider_default_tags, so leaving one in the query after the toggle goes
+    // off would quietly change what the same query returns. Clear it instead.
+    const handleIncludeSuggestedTags = useCallback((next: boolean) => {
+        setIncludeSuggestedTags(next);
+        if (next) return;
+        setConditions((current) =>
+            hasSuggestedTag(current) ? [] : current,
+        );
+    }, []);
     const setAdvancedRoot = useCallback(
         (update: (root: AdvancedGroupNode) => AdvancedGroupNode) => {
             setAdvancedRootState(update);
         },
         [],
     );
-    const matchedSongIds =
-        mode === "simple"
-            ? simpleResults.matchedSongIds
-            : advancedResults.matchedSongIds;
-    const queryResultsLoading =
-        mode === "simple"
-            ? simpleResults.queryResultsLoading
-            : advancedResults.advancedQueryResultsLoading;
-    const queryResultsErr =
-        mode === "simple"
-            ? simpleResults.queryResultsErr
-            : advancedResults.advancedQueryResultsErr;
     const matchedSongs = useMemo(() => {
         const tracksByQueryId = new Map(
             allLibraryTracks.map((track) => [
@@ -125,14 +132,12 @@ export function CadenzaScreen() {
                     )
                 }
                 onNext={() => {
-                    const query =
-                        mode === "simple" ? simpleQuery : advancedQuery;
                     if (!query) return;
                     router.push({
                         pathname: "/query-results",
                         params: {
-                            builder: mode,
                             query: JSON.stringify(query),
+                            suggested: includeSuggestedTags ? "1" : "",
                         },
                     });
                 }}
@@ -143,6 +148,8 @@ export function CadenzaScreen() {
                     tagMetadata={userTagsMeta}
                     conditions={conditions}
                     setConditions={setConditions}
+                    includeSuggestedTags={includeSuggestedTags}
+                    onIncludeSuggestedTagsChange={handleIncludeSuggestedTags}
                 />
             ) : (
                 <AdvancedQueryBuilder

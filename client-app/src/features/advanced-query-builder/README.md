@@ -10,8 +10,8 @@ submitted query, shared preview, and the Simple / Advanced mode toggle.
 
 | file                       | role                                                                                                                                                                                               |
 | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `types.ts`                 | The builder tree (`AdvancedGroupNode`, `AdvancedFilterNode`), `FilterField`, `FilterOp`, and the wire format (`AdvancedQueryJSON`).                                                                |
-| `AdvancedQueryUtils.ts`    | Pure: operator tables and labels, immutable tree ops, date helpers, and `buildAdvancedQuery`, which compiles the tree for the wire. Unit tested in `AdvancedQueryUtils.test.ts`.                   |
+| `types.ts`                 | The builder tree (`AdvancedGroupNode`, `AdvancedFilterNode`), `FilterField`, and `FieldKind`. Re-exports `FilterOp`; the wire format itself lives in `@/lib/query-json`.                           |
+| `AdvancedQueryUtils.ts`    | Pure: operator tables and labels, immutable tree ops, date helpers, and `buildAdvancedQuery`, which compiles the tree to `QueryJSON`. Unit tested in `AdvancedQueryUtils.test.ts`.                 |
 | `AdvancedQueryBuilder.tsx` | Scrollable root group. Binds the tree ops into a `BuilderActions` object; the shared result-summary arrow owns navigation.                                                                         |
 | `FilterGroup.tsx`          | One group: the all / any / none selector, its children, and the "Add filter" / "Add filter group" buttons. Recursive. Exports `BuilderTags` and `BuilderActions`.                                  |
 | `FilterRow.tsx`            | One filter line: connector word, field picker, operator picker, value input, and the remove button. Exports `RemoveButton`.                                                                        |
@@ -61,14 +61,16 @@ then "and" in an all group and "or" in an any or none group.
 `{ ok: false, error }`. It drops groups with no filters in them, and errors on an unfinished
 filter, a deleted tag, a non-numeric number, or a query with no filters at all. Groups become
 `{and: [...]}`, `{or: [...]}`, and none becomes `{not: {or: [...]}}`. Each line becomes
-`{filter: {field, tag_id?, op, value?}}`, and the whole thing is sent as `{where: ...}`.
+`{filter: {field, tag_id?, op, value?}}`, and the whole thing is sent as `{where: ...}`. That is
+the same `QueryJSON` the simple builder produces; this builder just uses the whole of it rather
+than only the applied filters.
 
 The Cadenza screen compiles the tree as it changes and sends every successfully built query through
-`useAdvancedQueryResults(query)` from `@/lib/routes/queries`, as the `q` param of
-`GET /queries/advanced/results`. Song ids come back sorted by id and are mapped to the complete
-cached Apple Music library. The advanced builder has no separate submit button. It uses the same
-`ResultsSummary` count, preview, and next arrow as the simple builder; the arrow opens the shared
-`/query-results` full-screen `QueryResults` route.
+`useQueryResults(query, candidateSongIds, ready)` from `@/lib/routes/queries`, in the body of
+`POST /queries/results`. Song ids come back most relevant first and are mapped to the complete
+cached Apple Music library, which is also what goes out as the candidate set. The advanced builder
+has no separate submit button. It uses the same `ResultsSummary` count, preview, and next arrow as
+the simple builder; the arrow opens the shared `/query-results` full-screen `QueryResults` route.
 
 ## Connects to
 
@@ -76,15 +78,16 @@ cached Apple Music library. The advanced builder has no separate submit button. 
   by way of the screen.
 - `@/components/ui/*`, `@react-native-community/datetimepicker`.
 - `@/features/query-builder/ResultsSummary` and `QueryResults` for shared result presentation.
-- Backend: `GET /queries/advanced/results`, schema in
-  `backend-api/src/routes/json/advanced_query.rs`, compiled to SQL in
-  `backend-api/src/db/advanced_queries.rs`.
+- `@/lib/query-json` for the wire format shared with the simple builder.
+- Backend: `POST /queries/results`, schema in `backend-api/src/routes/json/query.rs`, compiled to
+  SQL in `backend-api/src/db/queries.rs`.
 
 ## Gotchas
 
 - Semantics live on the backend. A song without the tag counts as empty, so `is not`, `not on`,
   `ne`, `is empty`, and `is null` match it. Text matching ignores case.
-- Only songs with at least one tag can ever match, same as the simple query.
+- The query is evaluated over the whole cached library, not just tagged songs, so a song with no
+  Cadenza tags at all can match `is not applied` and the other negative operators.
 - An incomplete filter compiles to no request and shows its build error beneath the editor. Once
   the tree is valid, its result count refreshes automatically.
 - Node ids come from a module-level counter, not `nanoid`, so the pure utils stay import-free.
