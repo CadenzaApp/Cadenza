@@ -255,8 +255,6 @@ async fn edit_user_songs_handler(
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Json(payload): Json<EditUserSongsPayload>,
 ) -> Result<(), CadenzaError> {
-    check_batch_size(payload.add.len() + payload.remove.len())?;
-
     db::user_songs::edit_user_songs(&db, claims.user_id, &payload.add, &payload.remove).await
 }
 
