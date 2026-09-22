@@ -43,9 +43,10 @@ The tables below are keyed on song ids that come from Apple Music.
   cascades, so a default tag coming off a song takes its removals with it. Default tag reads and
   queries hide the rows a user has here, and nothing else changes: the tag stays on the song for
   everyone else.
-- `user_songs` - the songs in a user's library. Composite pk of `(song_id, user_id)`, no other
-  columns, plus `user_songs_user_id_idx` on `user_id` alone so a whole-library read does not scan
-  the table. `user_id` references `auth.users` and cascades. `PATCH /songs` is the only thing that
+- `user_songs` - the songs in a user's library. Composite pk of `(song_id, user_id)`, plus
+  `created_at`, a `timestamptz` that defaults to `now()` and is left `NotSet` on insert so the
+  database stamps it rather than the api's clock. `user_songs_user_id_idx` on `user_id` alone so a
+  whole-library read does not scan the table. `user_id` references `auth.users` and cascades. `PATCH /songs` is the only thing that
   writes it, through `user_songs.rs::edit_user_songs`. The query compiler reads it: it is the set
   of songs a query runs over. Tag reads still work off `user_tags_applied` and do not check it, so a song can
   carry tags without a row here, and then no query will return it. This table was called

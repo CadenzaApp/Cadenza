@@ -9,6 +9,7 @@ pub struct Model {
     pub song_id: String,
     #[sea_orm(primary_key, auto_increment = false)]
     pub user_id: Uuid,
+    pub created_at: DateTimeWithTimeZone,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

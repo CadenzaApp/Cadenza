@@ -1,6 +1,8 @@
 use sea_orm::{
-    ActiveValue::Set, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, TransactionTrait,
-    prelude::Uuid, sea_query::OnConflict,
+    ActiveValue::{NotSet, Set},
+    ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, TransactionTrait,
+    prelude::Uuid,
+    sea_query::OnConflict,
 };
 
 use crate::db::entity::user_songs;
@@ -37,6 +39,9 @@ pub async fn edit_user_songs(
         let rows = add.iter().map(|song_id| user_songs::ActiveModel {
             song_id: Set(song_id.clone()),
             user_id: Set(user_id),
+            // left out of the insert so the column's now() default stamps the
+            // row, rather than the api's clock deciding when a song was added
+            created_at: NotSet,
         });
 
         // a song the user already has is left alone rather than erroring, which is also
