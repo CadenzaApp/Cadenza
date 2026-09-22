@@ -112,6 +112,9 @@ next agent trusts it.
   both; do not spread that.
 - Screens go in `src/app/`. Anything with real logic belongs in `src/features/` or `src/lib/`,
   and the screen just wires it up.
+  
+  
+Prefer async/await + try/catch over .then()/.catch() whenever possible.
 
 ### Visual verification
 
