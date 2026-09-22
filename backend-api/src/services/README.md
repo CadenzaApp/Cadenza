@@ -26,24 +26,26 @@ caller:
 #[async_trait]
 pub trait TagGenerator: Send + Sync {
     async fn generate_tags(&self, song_descs: &[String], requested_tag_count: usize)
-        -> Result<Vec<Vec<String>>, String>;
+        -> Result<Vec<Vec<TagSpecs>>, String>;
 }
 ```
 
 `TagGenerationService` is a newtype over `Arc<Box<dyn TagGenerator>>`, so it is `Clone` and lives
 in `AppState`. It does two things on top of the trait: clamps `requested_tag_count` to
-`DEFAULT_REQUESTED_TAG_COUNT` (10) when `None` and `MAX_REQUESTED_TAG_COUNT` (20) as a ceiling,
+`DEFAULT_REQUESTED_TAG_COUNT` (7) when `None` and `MAX_REQUESTED_TAG_COUNT` (20) as a ceiling,
 and converts the generator's `String` error into `CadenzaError::TagGenerationErr` (500).
 
 Input is a list of song descriptions, output is a list of tag lists in the same order. It is
 batch-shaped even though the only caller today (`GET /tags/suggest`) passes exactly one song and
 takes `result[0]`.
 
-`OpenAiTagGenerator` posts to the OpenAI responses api (`gpt-4o-mini`, 20 second timeout) with a
-schema-constrained system prompt, then parses a `{"tags": [[...], ...]}` payload. It short
-circuits on an empty input list or a zero tag count, rejects combined descriptions over 200
-characters, truncates any over-long tag list from the model, and runs every tag through
-`normalize_tag_name` before returning.
+`OpenAiTagGenerator` posts to the OpenAI responses api (`gpt-4o-mini`, 60 second timeout) with a
+schema-constrained system prompt, then parses a
+`{"tags": [{"song": "...", "tags": [{"name": "...", "color": "#rrggbb"}]}]}` payload. Each entry
+echoes its song's description back, which is how tags are matched to songs rather than by
+position. It short circuits on an empty input list or a zero tag count, rejects combined
+descriptions over `MAX_COMBINED_SONG_DESC_LENGTH` (2000 bytes), truncates any over-long tag list
+from the model, and runs every tag through `normalize_tag_name` before returning.
 
 `SongMetadataService::get_songs_metadata` takes a slice of song ids and returns one
 `Option<SongMetadata>` per id, in input order. It hits

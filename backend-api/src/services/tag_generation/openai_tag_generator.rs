@@ -114,10 +114,10 @@ impl OpenAiApiResponse {
             return Err("openai returned empty response".into());
         }
 
-        let text = self.output.remove(0).content.remove(0).text;
-        let text = text.replace("\\\"", "\""); // response text has \" instead of "
-
-        Ok(text)
+        // serde already unescaped this field while parsing the response, so any
+        // `\"` still in it belongs to the payload's own json, around a title or
+        // a tag carrying a quote. Unescaping again would break that json.
+        Ok(self.output.remove(0).content.remove(0).text)
     }
 }
 #[derive(Deserialize)]
@@ -596,6 +596,27 @@ mod tests {
         assert_eq!(content["requested_tag_count"], 7);
         let sent: Vec<&str> = songs.iter().map(|s| s.as_str().unwrap()).collect();
         assert_eq!(sent, ["a", "b", "c"]);
+    }
+
+    // ----- OpenAiApiResponse::into_text, no api calls -----
+
+    /// A song whose title carries a quote is escaped inside the model's payload,
+    /// and that escaping is what keeps the payload parseable. Undoing it here
+    /// failed the whole batch with a serde error pointing into the middle of it.
+    #[test]
+    fn into_text_keeps_an_escaped_quote_in_the_payload() {
+        // escaped twice on the wire: once for the payload's own json, and once
+        // for the response field carrying that payload as a string
+        let wire = r#"{"output":[{"content":[{"text":"{\"tags\":[{\"song\":\"\\\"Heroes\\\" by David Bowie\",\"tags\":[]}]}"}]}]}"#;
+
+        let text = serde_json::from_str::<OpenAiApiResponse>(wire)
+            .unwrap()
+            .into_text()
+            .unwrap();
+
+        // still parses, and the title keeps the quotes it came with
+        let parsed: OpenAiGeneratedTags = serde_json::from_str(&text).unwrap();
+        assert_eq!(parsed.tags[0].song, "\"Heroes\" by David Bowie");
     }
 
     // ----- these call the api -----
