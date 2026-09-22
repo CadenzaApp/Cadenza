@@ -1,6 +1,5 @@
 pub mod openai_tag_generator;
 
-use std::fmt;
 use std::sync::Arc;
 
 use sea_orm::prelude::async_trait::async_trait;
@@ -68,54 +67,15 @@ impl TagGenerationService {
         }
 
         // logged once every chunk has succeeded, so a failed batch never logs a partial
-        // result. the descriptions are the ones the generator was given, after truncation
-        println!(
-            "{}",
-            GeneratedTagsLog {
-                song_descs: &song_descs,
-                generated: &generated,
-            }
-        );
-
-        Ok(generated)
-    }
-}
-
-/// A finished batch, ready to log.
-struct GeneratedTagsLog<'a> {
-    song_descs: &'a [String],
-    generated: &'a [Vec<TagSpecs>],
-}
-
-/// Formats the batch as the block [`TagGenerationService::generate_tags`] logs, one line per
-/// song, e.g.
-///
-/// ```text
-/// tag generation: 2 songs
-///   "Jolene by Dolly Parton" -> folk, country, storytelling
-///   "Master of Puppets by Metallica" -> no tags
-/// ```
-impl fmt::Display for GeneratedTagsLog<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let song_count = self.song_descs.len();
+        // result
+        let song_count = generated.len();
         let plural = match song_count {
             1 => "",
             _ => "s",
         };
-        write!(f, "tag generation: {song_count} song{plural}")?;
+        println!("tag generation: {song_count} song{plural}");
 
-        // quoted, so a description carrying a comma stays readable as one song
-        for (desc, tags) in self.song_descs.iter().zip(self.generated) {
-            match tags.is_empty() {
-                true => write!(f, "\n  {desc:?} -> no tags")?,
-                false => {
-                    let names: Vec<&str> = tags.iter().map(|tag| tag.name.as_str()).collect();
-                    write!(f, "\n  {desc:?} -> {}", names.join(", "))?;
-                }
-            }
-        }
-
-        Ok(())
+        Ok(generated)
     }
 }
 
@@ -259,53 +219,5 @@ mod tests {
             "\u{e9}".repeat((MAX_COMBINED_SONG_DESC_LENGTH - 1) / 2)
         );
         assert_eq!(res[0][0].name, expected);
-    }
-
-    /// a tag with a color that never reaches the log
-    fn tag(name: &str) -> TagSpecs {
-        TagSpecs {
-            name: name.into(),
-            color: "#808080".into(),
-        }
-    }
-
-    #[test]
-    fn generated_tags_log_pairs_each_desc_with_its_own_tags() {
-        let song_descs = vec![
-            "Jolene by Dolly Parton".to_owned(),
-            "Master of Puppets by Metallica".to_owned(),
-        ];
-        let generated = vec![vec![tag("folk"), tag("country")], Vec::new()];
-
-        let log = GeneratedTagsLog {
-            song_descs: &song_descs,
-            generated: &generated,
-        };
-
-        // a song the model returned nothing for says so, rather than going missing
-        assert_eq!(
-            log.to_string(),
-            concat!(
-                "tag generation: 2 songs\n",
-                "  \"Jolene by Dolly Parton\" -> folk, country\n",
-                "  \"Master of Puppets by Metallica\" -> no tags",
-            )
-        );
-    }
-
-    #[test]
-    fn generated_tags_log_quotes_a_desc_holding_a_comma() {
-        let song_descs = vec!["September by Earth, Wind & Fire".to_owned()];
-        let generated = vec![vec![tag("funk")]];
-
-        let log = GeneratedTagsLog {
-            song_descs: &song_descs,
-            generated: &generated,
-        };
-
-        assert_eq!(
-            log.to_string(),
-            "tag generation: 1 song\n  \"September by Earth, Wind & Fire\" -> funk"
-        );
     }
 }
