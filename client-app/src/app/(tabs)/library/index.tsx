@@ -55,7 +55,6 @@ export default function LibraryScreen() {
     } = useRecentlyAdded(isConnected);
 
     function openCategory(category: LibraryCategory) {
-        console.log("pushing to router");
         router.push({
             pathname: "/library/category/[kind]",
             params: { kind: category },
