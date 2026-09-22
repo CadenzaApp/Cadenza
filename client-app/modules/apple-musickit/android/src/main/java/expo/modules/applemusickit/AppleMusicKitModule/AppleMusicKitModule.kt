@@ -582,9 +582,14 @@ class AppleMusicKitModule : Module() {
             )
         }
 
+        // A playlist with no tracks answers 404, not an empty page, so it is
+        // read as empty rather than reported as a failure.
         AsyncFunction("getPlaylistSongs") { playlistId: String, options: Map<String, Int> ->
             return@AsyncFunction collectionResult(
-                makeApiRequest("/v1/me/library/playlists/${encode(playlistId)}/tracks?${pageQuery(options)}&include=albums")
+                makeApiRequest(
+                    "/v1/me/library/playlists/${encode(playlistId)}/tracks?${pageQuery(options)}&include=albums",
+                    allowNotFound = true
+                )
             )
         }
         AsyncFunction("getLibraryAlbums") { options: Map<String, Int> ->
@@ -1025,7 +1030,8 @@ class AppleMusicKitModule : Module() {
     private fun makeApiRequest(
         path: String,
         method: String = "GET",
-        body: String? = null
+        body: String? = null,
+        allowNotFound: Boolean = false
     ): Map<String, Any> {
         val devToken = developerToken?.takeIf { it.isNotBlank() }
             ?: throw Exception("Missing developerToken. Call authorize first.")
@@ -1052,6 +1058,10 @@ class AppleMusicKitModule : Module() {
                 if (jsonString.isBlank()) return emptyMap()
                 return jsonObjectToMap(JSONObject(jsonString))
             } else {
+                // Apple answers 404 for a collection it holds no members for.
+                // For a caller that opted in, that is an empty collection
+                // rather than a failed read.
+                if (allowNotFound && responseCode == 404) return emptyMap()
                 val errorMsg = connection.errorStream?.bufferedReader()?.use { it.readText() } ?: "Unknown Error"
                 Log.e(TAG, "API Error: $responseCode - $errorMsg")
                 throw Exception("Apple Music API Error ($responseCode): $errorMsg")

@@ -103,7 +103,7 @@ result, stop when `hasNextPage` is false.
 | `getLibraryAlbums(options)` | Library albums. |
 | `getUserPlaylists(options)` | Library playlists. |
 | `getAlbumSongs(albumId, options)` | The songs on one library album. |
-| `getPlaylistSongs(playlistId, options)` | The songs in one library playlist. |
+| `getPlaylistSongs(playlistId, options)` | The songs in one library playlist. Apple answers 404 for a playlist holding no tracks, which comes back as an empty page rather than an error. |
 | `getRecentlyAdded(options)` | Recently added library items, newest first. Mixed albums, playlists, and loose songs. Apple caps `limit` at 25. |
 | `searchLibrarySongs(term, options)` | Library songs matching a text term. Added after the first dev builds shipped, so a stale binary throws "rebuild the app" rather than crashing. |
 | `getLibraryArtists(options)` | Library artists. Same stale-binary guard as `searchLibrarySongs`. |

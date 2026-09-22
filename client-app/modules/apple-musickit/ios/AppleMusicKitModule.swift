@@ -26,7 +26,8 @@ public class AppleMusicKitModule: Module {
     private func makeAPIRequest(
         path: String,
         method: String = "GET",
-        body: Data? = nil
+        body: Data? = nil,
+        allowNotFound: Bool = false
     ) async throws -> [String: Any] {
         guard let developerToken, !developerToken.isEmpty else {
             throw Exception(name: "ERR_MISSING_TOKEN", description: "Missing Apple Music developer token.")
@@ -52,6 +53,10 @@ public class AppleMusicKitModule: Module {
               (200...299).contains(httpResponse.statusCode)
         else {
             let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+            // Apple answers 404 for a collection it holds no members for. For a
+            // caller that opted in, that is an empty collection rather than a
+            // failed read.
+            if allowNotFound, statusCode == 404 { return [:] }
             let body = String(data: data, encoding: .utf8) ?? "Unknown error"
             throw Exception(
                 name: "ERR_APPLE_MUSIC_API",
@@ -1065,12 +1070,15 @@ public class AppleMusicKitModule: Module {
             return self.collectionResult(songs)
         }
 
+        // A playlist with no tracks answers 404, not an empty page, so it is
+        // read as empty rather than reported as a failure.
         AsyncFunction("getPlaylistSongs") {
             (playlistId: String, options: [String: Int]) async throws -> [String: Any] in
             let encodedID = playlistId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)
                 ?? playlistId
             let response = try await self.makeAPIRequest(
-                path: "/v1/me/library/playlists/\(encodedID)/tracks?\(self.pageQuery(options))&include=albums")
+                path: "/v1/me/library/playlists/\(encodedID)/tracks?\(self.pageQuery(options))&include=albums",
+                allowNotFound: true)
             return self.collectionResult(response)
         }
 
