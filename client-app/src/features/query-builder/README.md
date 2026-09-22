@@ -201,7 +201,7 @@ renders the same full-screen hero. See
   full-library result wiring.
 - `@/lib/routes/queries::useQueryResults` for live query evaluation.
 - `@/lib/routes/tags::useDefaultTags` for the suggested-tag section.
-- `@/lib/musickit-hooks::useAllTracksFromLibrary` for turning matched ids back into tracks.
+- `@/lib/musickit-hooks::useTracksForSongIds` for turning matched ids back into tracks.
 - `@/components/custom/music-list` for preview and full results.
 - Backend `POST /queries/results` for correct NOT behavior on completely untagged songs, and for
   `consider_default_tags`. The wire types are in `@/lib/query-json`.
@@ -218,6 +218,11 @@ renders the same full-screen hero. See
   missing-navigation-context error; use an inline style for a stateful visual instead.
 - A query request carries no song ids. The backend runs it over the user's `user_songs` rows,
   so results are only as current as the last library sync.
+- The ids that come back are not guaranteed to be ids the library read knows. `user_songs` also
+  holds songs that only live in a playlist, and a song can be stored under its catalog id or its
+  library id depending on which Apple Music read put it there. Resolve them with
+  `useTracksForSongIds`, never by matching `catalogId ?? id` against the cached library, which
+  silently drops every id it does not recognize.
 - A disconnected Apple Music account can edit a query, but cannot produce library results.
 - Turning `Include suggested tags` off clears the query if it holds a suggested tag. It is the only
   thing in the builder that discards work without a drag, so it is worth knowing before changing

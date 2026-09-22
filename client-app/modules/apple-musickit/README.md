@@ -108,6 +108,7 @@ result, stop when `hasNextPage` is false.
 | `searchLibrarySongs(term, options)` | Library songs matching a text term. Added after the first dev builds shipped, so a stale binary throws "rebuild the app" rather than crashing. |
 | `getLibraryArtists(options)` | Library artists. Same stale-binary guard as `searchLibrarySongs`. |
 | `searchLibraryArtists(term, options)` | Library artists matching a text term. Same guard. |
+| `getSongInfo(ids)` | Full metadata for song ids, in the order given. Not paged: it takes the ids it is given. |
 
 Albums and playlists come back as `MusicItem`s with `resourceKind` set to
 `"album"` or `"playlist"`, so the same item type describes all three. Pass the
@@ -118,6 +119,21 @@ hand to `setPlaybackQueue`.
 `getAlbumSongs` takes either kind of album id. Apple prefixes library ids with a
 dot-segment, so a bare numeric id is treated as a catalog album and read from the
 catalog path instead. That is what a song's `albumID` is.
+
+`getSongInfo` is the id-to-song resolver. It splits the ids by shape, reads the
+library ones from the library and the catalog ones from the catalog, and puts the
+answers back in the requested order. An id nothing came back for is left out
+rather than erroring. It indexes each song under its `id`, `catalogId`, and
+`libraryId`, so a caller holding either kind of id finds the song. The ids are
+deduplicated and sent 25 at a time, 6 requests at once, because Apple's
+`?ids=` endpoints take a bounded list and a caller may hand over a whole query
+result.
+
+A library song carries a `catalogId` only when Apple resolves one for it. On iOS
+that resolution is a best-effort REST call layered over the native library read,
+so the same song can be seen with a catalog id on one read and only its library
+id on another. Anything that stores a song id, or matches one against a track,
+has to tolerate both. `getSongInfo` is what makes that tolerable.
 
 ## Playlist writes
 

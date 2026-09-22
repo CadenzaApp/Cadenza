@@ -2,7 +2,7 @@ import { useLocalSearchParams } from "expo-router";
 import { useMemo } from "react";
 
 import QueryResults from "@/features/query-builder/QueryResults";
-import { useAllTracksFromLibrary } from "@/lib/musickit-hooks";
+import { useTracksForSongIds } from "@/lib/musickit-hooks";
 import type { QueryJSON } from "@/lib/query-json";
 import { useQueryResults } from "@/lib/routes/queries";
 
@@ -14,28 +14,16 @@ export default function QueryResultsScreen() {
         suggested?: string;
     }>();
     const query = useMemo(() => parseQuery(encodedQuery), [encodedQuery]);
-    const { allLibraryTracks, allLibraryTracksLoading, allLibraryTracksErr } =
-        useAllTracksFromLibrary();
     const { matchedSongIds, queryResultsLoading, queryResultsErr } =
         useQueryResults(query, suggested === "1");
-    const matchedSongs = useMemo(() => {
-        const tracksByQueryId = new Map(
-            allLibraryTracks.map((track) => [
-                track.catalogId ?? track.id,
-                track,
-            ]),
-        );
-        return matchedSongIds.flatMap((id) => {
-            const track = tracksByQueryId.get(id);
-            return track ? [track] : [];
-        });
-    }, [allLibraryTracks, matchedSongIds]);
+    const { tracks, tracksLoading, tracksErr } =
+        useTracksForSongIds(matchedSongIds);
 
     return (
         <QueryResults
-            songs={matchedSongs}
-            isLoading={queryResultsLoading || allLibraryTracksLoading}
-            error={queryResultsErr ?? allLibraryTracksErr}
+            songs={tracks}
+            isLoading={queryResultsLoading || tracksLoading}
+            error={queryResultsErr ?? tracksErr}
             anticipatedTrackCount={matchedSongIds.length}
         />
     );

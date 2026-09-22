@@ -42,7 +42,7 @@ the existing query and active mode.
 - `@/features/query-builder` for the simple query and shared result presentation.
 - `@/features/advanced-query-builder` for advanced filter construction and compilation.
 - `@/lib/routes/tags` and `@/lib/routes/queries` for backend data.
-- `@/lib/musickit-hooks::useAllTracksFromLibrary` for result metadata.
+- `@/lib/musickit-hooks::useTracksForSongIds` for result metadata.
 - `@/features/library` owns tags now, including tag creation.
 
 ## Gotchas

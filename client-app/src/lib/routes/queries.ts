@@ -3,6 +3,9 @@ import { useMemo } from "react";
 import type { QueryJSON } from "@/lib/query-json";
 import { useAPIPostData } from "../api-actions";
 
+/** Stable reference so a query with no results does not rerender its readers. */
+const NO_MATCHES: string[] = [];
+
 type QueryResultsBody = {
     query: QueryJSON;
     consider_default_tags: boolean;
@@ -38,7 +41,7 @@ export function useQueryResults(
     );
 
     return {
-        matchedSongIds: body ? (x.data ?? []) : [],
+        matchedSongIds: body ? (x.data ?? NO_MATCHES) : NO_MATCHES,
         queryResultsLoading: body !== null && x.isLoading,
         queryResultsErr: x.error,
     };

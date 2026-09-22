@@ -163,7 +163,8 @@ keys like `["MusicKit.getSongInfo", ids]`. `useSongFavoriteStatus` and `useColle
 are the optimistic updates in the codebase, both with `rollbackOnError`. `useCollectionInfo`
 fetches an album/playlist's own metadata (title, artwork, `shareUrl`). `useCollectionSongs`
 pages a detail screen, while `useAllTracksFromLibrary` walks every song page into one cached
-copy of the library, which the query screens use to turn matched ids back into tracks. `usePlaylistMutations` is the exception to the wrapper
+copy of the library. `useTracksForSongIds` is what turns backend song ids into tracks: it
+resolves what that cached library holds and sends the rest to `getSongInfo`. `usePlaylistMutations` is the exception to the wrapper
 rule: playlist writes are not backend calls, so they are plain async functions that invalidate
 every cached playlist key by predicate afterwards.
 
@@ -405,6 +406,11 @@ tag read touches a song it has never generated for.
   spending an OpenAI call.
 - Tags key on `catalogId ?? id`, not the library id, everywhere a song id crosses into the
   backend. Library ids differ per user for the same song; catalog ids do not.
+- That key is not stable, though. Apple attaches a `catalogId` to a library song only when it
+  resolves one, so the same song can reach the backend under its catalog id from one read and
+  under its library id from another, and `user_songs` ends up holding a mix. Never match a
+  backend song id against a track by one id alone. `useTracksForSongIds` indexes a track under
+  `id`, `catalogId`, and `libraryId`, and falls back to `getSongInfo`, which does the same.
 - The delete half of the library sync only runs when the Apple Music walk read every source. A
   source that throws is logged and skipped, and skipping it makes the walk incomplete, because
   "not stamped this run" would otherwise read the unread songs as deleted and strip them from

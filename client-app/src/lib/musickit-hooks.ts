@@ -38,6 +38,12 @@ type PagedResult<Item> = {
 /** Stable reference so an empty result does not re-render the rail every time. */
 const EMPTY_ARTISTS: ArtistItem[] = [];
 
+/** The same, for the song reads that other hooks index and re-derive from. */
+const EMPTY_SONGS: MusicItem[] = [];
+
+/** The same again, for an id list that resolved without a request. */
+const EMPTY_SONG_IDS: string[] = [];
+
 type LibraryArtistPageKey = readonly [
     "MusicKit.getLibraryArtists",
     number,
@@ -106,7 +112,7 @@ export function useSongInfo(songIds?: readonly string[] | null) {
             : null;
     const x = useSWR(key, ([, , ids]) => MusicKit.getSongInfo([...ids]));
     return {
-        songInfo: x.data ?? [],
+        songInfo: x.data ?? EMPTY_SONGS,
         songInfoLoading: x.isLoading || isInitializing,
         songInfoErr: x.error,
     };
@@ -360,11 +366,82 @@ export function useAllTracksFromLibrary(enabled = true) {
     );
 
     return {
-        allLibraryTracks: x.data ?? [],
+        allLibraryTracks: x.data ?? EMPTY_SONGS,
         allLibraryTracksLoading: x.isLoading || isInitializing,
         allLibraryTracksErr: x.error,
         isLibraryConnected: isConnected,
     };
+}
+
+/**
+ * Turns song ids from the backend into Apple Music tracks, in the order they
+ * were given.
+ *
+ * The cached library read resolves most ids without a request, and anything it
+ * does not hold falls back to `getSongInfo`. Both steps index a track under
+ * every id it carries, because a song id that crossed into the backend may be
+ * the catalog id or the library id: Apple only attaches a catalog id to a
+ * library row when it can resolve one, so the same song can reach `user_songs`
+ * under either. Matching on one of them alone silently drops the song.
+ *
+ * The fallback also covers a song that is in a playlist but not in the library,
+ * which the library read never sees at all.
+ */
+export function useTracksForSongIds(songIds: readonly string[]) {
+    const {
+        allLibraryTracks,
+        allLibraryTracksLoading,
+        allLibraryTracksErr,
+        isLibraryConnected,
+    } = useAllTracksFromLibrary();
+    const libraryTracksById = useMemo(
+        () => indexTracksById(allLibraryTracks),
+        [allLibraryTracks],
+    );
+    // waiting for the library keeps a cold start from asking Apple for every id
+    // it is about to be handed for free a moment later
+    const unresolvedIds = useMemo(
+        () =>
+            allLibraryTracksLoading
+                ? EMPTY_SONG_IDS
+                : songIds.filter((id) => !libraryTracksById.has(id)),
+        [allLibraryTracksLoading, libraryTracksById, songIds],
+    );
+    const { songInfo, songInfoLoading, songInfoErr } =
+        useSongInfo(unresolvedIds);
+    const fetchedTracksById = useMemo(
+        () => indexTracksById(songInfo),
+        [songInfo],
+    );
+    const tracks = useMemo(
+        () =>
+            songIds.flatMap((id) => {
+                const track =
+                    libraryTracksById.get(id) ?? fetchedTracksById.get(id);
+                return track ? [track] : [];
+            }),
+        [fetchedTracksById, libraryTracksById, songIds],
+    );
+
+    return {
+        tracks,
+        tracksLoading:
+            allLibraryTracksLoading ||
+            (unresolvedIds.length > 0 && songInfoLoading),
+        tracksErr: allLibraryTracksErr ?? songInfoErr,
+        isLibraryConnected,
+    };
+}
+
+/** Indexes tracks under every id they carry, so either keyspace finds them. */
+function indexTracksById(tracks: readonly MusicItem[]) {
+    const tracksById = new Map<string, MusicItem>();
+    for (const track of tracks) {
+        for (const id of [track.id, track.catalogId, track.libraryId]) {
+            if (id) tracksById.set(id, track);
+        }
+    }
+    return tracksById;
 }
 
 /** Returns the user's paginated library albums. */
