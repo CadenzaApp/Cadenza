@@ -15,7 +15,7 @@ default tags the first time anything asks for them.
 | `tag_generation/openai_tag_generator.rs` | The OpenAI implementation, plus ignored integration tests. |
 | `tag_values.rs` | `canonicalize_tag_value`: validates a tag value string against the tag's `TagType` and returns its canonical stored form (or `CadenzaError::InvalidTagValue`). Unit tested. |
 | `song_metadata.rs` | `SongMetadataService`: song ids to Apple Music catalog metadata, developer token only. Unit tested, plus ignored integration tests. |
-| `default_tags.rs` | `ensure_default_tags_generated`: generates a song's default tags the first time they are read, and marks it so it happens once. Also `backfill_default_tags` and the background job that runs it, which does the same for songs nothing has read yet. |
+| `default_tags.rs` | `ensure_default_tags_generated`: generates a song's default tags the first time they are read, claiming the song in `default_tags_generation` first so it happens once. Also `backfill_default_tags` and the background job that runs it, which does the same for songs nothing has read yet. |
 
 ## How it works
 
@@ -64,16 +64,27 @@ It is one request, so it **panics** on more than 300 ids, which is Apple's cap o
 filter. Chunking the input is the caller's job.
 
 `ensure_default_tags_generated` is the one place that composes the two services with the db. It
-takes a slice of song ids and does nothing for the ones already marked in
-`default_tags_generated`, which is the common case and costs one indexed read. For the rest it
-reads titles through `SongMetadataService`, formats them with `SongMetadata::description()`,
-generates through `TagGenerationService`, stores through `db::tags::set_default_tags_on_songs`,
-and finally marks every song it tried.
+takes a slice of song ids and does nothing for the ones that already have a
+`default_tags_generation` row, which is the common case and costs one indexed read. For the rest
+it reads titles through `SongMetadataService` and formats them with `SongMetadata::description()`.
 
-The marking is last on purpose: a generation that errors out marks nothing, so the next read
-retries it rather than leaving the song permanently tagless. A song Apple Music has no catalog
-entry for is marked with no tags, because it has no title to generate from and leaving it
-unmarked would call Apple again on every later read.
+Then it claims every one of those songs with `db::tags::start_default_tag_generation`, which
+writes an `in_flight` row, and only then calls the generator. Anything else reading the same song
+while the call runs sees the row and skips it, so a second reader does not pay OpenAI for
+generation that is already happening.
+
+The claim is settled after the attempt, in `generate_and_store_default_tags`, which is split out
+so the generator call and `db::tags::set_default_tags_on_songs` settle the same way. Both
+succeeded means `finish_default_tag_generation` moves the rows to `done`. Either failed means
+`clear_default_tag_generation` deletes them, so the next read retries rather than leaving the
+song permanently tagless behind an `in_flight` row. A failure to clear is logged, not returned,
+so the caller still sees what actually broke.
+
+The Apple Music read happens before the claim, so a metadata failure writes no rows at all and
+is simply retried. A song Apple Music has no catalog entry for is claimed and marked `done` with
+no tags, because it has no title to generate from and leaving it unclaimed would call Apple again
+on every later read. When no song in the batch is describable there is no generator call, and the
+rows go straight to `done`.
 
 It is called by the default tag read handlers in `src/routes/songs.rs` and by the backfill job
 below, not by any write. Nothing generates default tags when a song is added to a library.
@@ -81,14 +92,15 @@ below, not by any write. Nothing generates default tags when a song is added to 
 `spawn_default_tag_backfill` runs one pass on a `tokio` task every
 `DEFAULT_TAG_BACKFILL_INTERVAL_SECS`, for as long as the server lives, so a song can have its
 default tags before anyone reads it rather than paying for generation inside that first read. A
-pass takes the newest songs with no `default_tags_generated` row, through
+pass takes the newest songs with no `default_tags_generation` row, through
 `db::user_songs::get_recent_songs_without_generated_default_tags`, and hands them straight to
 `ensure_default_tags_generated`.
 
-It asks `default_tags_generated` rather than `default_tags_applied` for the same reason the read
+It asks `default_tags_generation` rather than `default_tags_applied` for the same reason the read
 path does. A song Apple Music has no catalog entry for ends up with no applied tags but is still
-marked generated, so selecting on applied rows would hand the same unsatisfiable songs back every
-pass and never reach the ones that need generating.
+marked `done`, so selecting on applied rows would hand the same unsatisfiable songs back every
+pass and never reach the ones that need generating. Any row counts, `in_flight` included, so a
+pass skips songs a live read is generating for right now.
 
 `BackfillConfig::from_env` reads the three `DEFAULT_TAG_BACKFILL_*` vars and returns `None` when
 the job is off, which is what it is unless `DEFAULT_TAG_BACKFILL_ENABLED` is `true`. `main.rs`
@@ -117,7 +129,9 @@ accepts `"true"`/`"false"` case-insensitively and stores lowercase. Anything els
 - `SongMetadataService` is built in `src/main.rs` and lives in `AppState`. Its only caller is
   `default_tags::ensure_default_tags_generated`.
 - `ensure_default_tags_generated` is called by `src/routes/songs.rs::get_default_tags_on_song_handler`,
-  `get_default_tags_on_songs_handler`, and `backfill_default_tags`.
+  `get_default_tags_on_songs_handler`, and `backfill_default_tags`. It owns the whole
+  `default_tags_generation` lifecycle through `db::tags`: `start_`, `finish_`, and
+  `clear_default_tag_generation`. Nothing else writes that table.
 - The backfill job is spawned from `src/main.rs`, which is also where `BackfillConfig::from_env`
   decides whether it runs at all.
 
@@ -152,9 +166,13 @@ accepts `"true"`/`"false"` case-insensitively and stores lowercase. Anything els
   the same.
 - A default tag read is now a write path. The first read of a song makes an Apple Music call and
   an LLM call before it answers, so it is slow, and it fails the whole read if either fails.
-- Nothing serializes generation, so two reads racing on the same new song both generate. The
-  backfill job widens that window: it and a live read can both generate for the same song. The
-  marker upserts so nothing breaks, but the song costs two LLM calls.
+- The `in_flight` claim narrows the race but does not close it. It is written after the Apple
+  Music read, so two reads that both pass `get_songs_without_generated_default_tags` before
+  either claims still both generate. The insert upserts so nothing breaks, but the song costs two
+  LLM calls. The backfill job is one more racer here.
+- Nothing recovers a stuck `in_flight` row. A crash between the claim and the settle leaves the
+  row behind, and because any row is skipped, that song never gets default tags again. There is
+  no sweeper and no timeout; clearing the row by hand is the only way out.
 
 ---
 Touching files in this directory? Update this README in the same change.

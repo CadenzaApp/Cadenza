@@ -8,7 +8,7 @@ The data access layer. Everything that touches postgres lives here, so handlers 
 | file | role |
 | --- | --- |
 | `mod.rs` | Declares `comment_votes`, `comments`, `entity`, `queries`, `tag_activity`, `tags`, `user_songs`. |
-| `tags.rs` | User tag CRUD and applied values, plus searching, reading, and applying default tags, and tracking which songs have had defaults generated. User tag reads never copy or return defaults. |
+| `tags.rs` | User tag CRUD and applied values, plus searching, reading, and applying default tags, and claiming, finishing, and dropping a song's default tag generation. User tag reads never copy or return defaults. |
 | `tag_activity.rs` | Counts applies and removes of a tag name on a song in `default_tag_activity`, and promotes popular names to default tags. |
 | `queries.rs` | Compiles a tag query to SQL, runs it, and ranks the matches. Unit tested. |
 | `comments.rs` | Comment reads and writes: every comment on a song paired into threads, leaving a comment or a reply, and deleting the user's own comment. |
@@ -29,11 +29,15 @@ The tables below are keyed on song ids that come from Apple Music.
   Cascades on delete from `tags`. Local tag reads and queries use this table.
 - `default_tags_applied` - default tags on a song, composite pk of `(song_id, tag_id)`, no user.
   `get_default_tags_on_songs` reads it, and `set_default_tags_on_songs` replaces a song's rows.
-- `default_tags_generated` - one row per song that has had default tags generated, `song_id`
-  alone as the pk and no other columns. Not user scoped: generation happens once per song for
-  everyone. Written by `mark_default_tags_generated`, read by
-  `get_songs_without_generated_default_tags`, and never deleted. A row means the attempt
-  finished, not that it produced any tags.
+- `default_tags_generation` - one row per song whose default tags have been generated or are
+  being generated right now. `song_id` alone as the pk, plus `status`, a `tag_gen_status` enum
+  of `in_flight` and `done` with no column default, so every insert sets it. Not user scoped:
+  generation happens once per song for everyone. `start_default_tag_generation` writes the
+  `in_flight` row, `finish_default_tag_generation` moves it to `done`,
+  `clear_default_tag_generation` deletes it when the attempt failed, and
+  `get_songs_without_generated_default_tags` reads it. A `done` row means the attempt finished,
+  not that it produced any tags. This table was called `default_tags_generated` before, and had
+  no `status` column.
 - `default_tag_activity` - what users did with a tag name on a song, composite pk of
   `(song_id, tag_name)`. `apply_count` is how many users have a tag of that name on the song, and
   `remove_count` how many removed it as a suggested tag. The row is written once and never
@@ -80,14 +84,24 @@ keeps the rows that found none, so a default tag they removed does not come back
 no default tags drop out of the map.
 
 `get_songs_without_generated_default_tags` returns requested song ids with no row in
-`default_tags_generated`. The default tag read endpoints use it to pick which songs to generate
-for, through `services::default_tags::ensure_default_tags_generated`.
+`default_tags_generation` at all. The default tag read endpoints use it to pick which songs to
+generate for, through `services::default_tags::ensure_default_tags_generated`.
 
-It deliberately asks `default_tags_generated` rather than `default_tags_applied`. Those two answer
+The status does not change that answer: an `in_flight` row is skipped the same as a `done` one,
+so a song something is already generating for is left to that attempt rather than generated
+twice.
+
+It deliberately asks `default_tags_generation` rather than `default_tags_applied`. Those two answer
 different questions: a song the generator legitimately produced no tags for has no
 `default_tags_applied` rows but must not be generated again, and neither must a song whose only
-default tag was taken off later. `mark_default_tags_generated` writes the marker, upserting so a
-song marked twice is harmless.
+default tag was taken off later.
+
+The three writes settle a generation attempt. `start_default_tag_generation` inserts the
+`in_flight` rows before the generator call, upserting with `DO NOTHING` so a song claimed twice is
+harmless and a row another attempt already moved to `done` is not dragged back.
+`finish_default_tag_generation` sets `status` to `done` by song id.
+`clear_default_tag_generation` deletes by song id, which is how a failed attempt gets retried on
+the next read instead of sitting behind an `in_flight` row forever.
 
 Applying a user tag counts an apply for its name on the song, and taking the tag off counts that
 apply back off. Removing one of the song's suggested tags counts a remove. Every count comes from a
@@ -252,16 +266,24 @@ every song scores zero and the whole list is ordered by song id.
   twice.
 - A removal hides the default tag from that user's reads and queries, but never takes it off
   `default_tags_applied`. Other users still see it, and it never causes the song to be generated
-  again, because generation is gated on `default_tags_generated` instead.
+  again, because generation is gated on `default_tags_generation` instead.
 - `edit_user_songs` removes before it adds, so a song id sent in both lists ends up in the
   library. Neither half reports what it changed, so a caller cannot tell a real add from a song
   that was already there.
 - A removal deletes only the library row. The user's tags on the song stay in
   `user_tags_applied`, so re-adding the song brings its tags back.
-- `default_tags_generated` rows are never deleted, and there is no way to ask for a song to be
-  generated again. Clearing the row by hand is the only retry.
-- Nothing serializes generation. Two reads racing on the same new song both generate, and the
+- A `done` row is never deleted, and there is no way to ask for a song to be generated again.
+  Clearing the row by hand is the only retry.
+- Nothing recovers a stuck `in_flight` row. The process that claimed it deletes it on failure,
+  but a crash or a kill between the claim and the settle leaves the row behind, and every later
+  read then skips that song. Nothing sweeps them, so clearing by hand is the only way out.
+- The claim narrows the race but does not close it. Two reads can both pass
+  `get_songs_without_generated_default_tags` before either inserts, and then both generate; the
   second `set_default_tags_on_songs` replaces the first one's tags. Wasted tokens, not corruption.
+- `finish_default_tag_generation` writes its status through `col_expr`, which does not apply the
+  column's `save_as`, so the value goes through `ActiveEnum::as_enum` to get the
+  `CAST(... AS tag_gen_status)` postgres needs. `sea_query::ExprTrait::as_enum` shadows it in
+  `tags.rs`, which is why the call is written out as `ActiveEnum::as_enum(&...)`.
 - Nothing deletes a user's `user_songs` rows when their tags go, or vice versa. The two tables
   are independent, so a tagged song missing from `user_songs` still comes back from the tag
   reads while no query returns it. A user with no `user_songs` rows matches nothing at all.

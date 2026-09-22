@@ -66,14 +66,7 @@ impl TagGenerationService {
             generated.extend(chunk_tags);
         }
 
-        // logged once every chunk has succeeded, so a failed batch never logs a partial
-        // result
-        let song_count = generated.len();
-        let plural = match song_count {
-            1 => "",
-            _ => "s",
-        };
-        println!("tag generation: {song_count} song{plural}");
+        println!("tag generation: {} songs", generated.len());
 
         Ok(generated)
     }

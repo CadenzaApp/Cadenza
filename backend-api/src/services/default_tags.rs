@@ -6,8 +6,9 @@ use sea_orm::DatabaseConnection;
 use tokio::time::{MissedTickBehavior, interval};
 
 use crate::db::tags::{
-    get_songs_without_generated_default_tags, mark_default_tags_generated,
-    set_default_tags_on_songs,
+    clear_default_tag_generation, finish_default_tag_generation,
+    get_songs_without_generated_default_tags, set_default_tags_on_songs,
+    start_default_tag_generation,
 };
 use crate::db::user_songs::get_recent_songs_without_generated_default_tags;
 use crate::err::CadenzaError;
@@ -35,8 +36,14 @@ const MAX_BACKFILL_BATCH_SIZE: usize = 200;
 /// know is marked with no tags: there is nothing to describe it to the generator with, and
 /// leaving it unmarked would call out to Apple again on every later read.
 ///
-/// Songs that are already marked cost one indexed read and nothing else, which is what makes
-/// this cheap enough to sit in front of a plain default tag read.
+/// Songs that already carry a `default_tags_generation` row cost one indexed read and
+/// nothing else, which is what makes this cheap enough to sit in front of a plain default
+/// tag read. That holds for an `in_flight` row too, so a second reader of the same new song
+/// skips it rather than paying the generator for it again.
+///
+/// The claim is written before the generator call and settled after it: `done` when the
+/// call and the tag writes both went through, deleted when either failed, so a failure is
+/// retried on the next read rather than leaving the song permanently tagless.
 ///
 /// `song_ids` must hold at most 300 entries, the cap `SongMetadataService` panics past.
 /// Both callers go through `routes::songs::check_batch_size` first, which caps at 200.
@@ -64,17 +71,50 @@ pub async fn ensure_default_tags_generated(
         }
     }
 
-    if !describable_song_ids.is_empty() {
-        let generated = tag_gen_service.generate_tags(&descriptions, None).await?;
-        let generated_tags: HashMap<String, Vec<TagSpecs>> =
-            describable_song_ids.into_iter().zip(generated).collect();
+    // claimed before the generator call, not after, so anything else reading these songs
+    // while it runs sees the row and leaves them alone
+    start_default_tag_generation(db, &ungenerated).await?;
 
-        set_default_tags_on_songs(db, generated_tags).await?;
+    let attempt =
+        generate_and_store_default_tags(db, tag_gen_service, describable_song_ids, descriptions)
+            .await;
+
+    match attempt {
+        Ok(()) => finish_default_tag_generation(db, &ungenerated).await?,
+        Err(err) => {
+            // the claim goes away so the next read retries. reported rather than
+            // returned, so the caller still sees what actually failed
+            if let Err(clear_err) = clear_default_tag_generation(db, &ungenerated).await {
+                eprintln!("could not clear a failed default tag generation: {clear_err}");
+            }
+            return Err(err);
+        }
     }
 
-    // marked only once the writes above succeeded, so a failed generation is retried
-    // on the next read rather than leaving the song permanently tagless
-    mark_default_tags_generated(db, &ungenerated).await?;
+    Ok(())
+}
+
+/// The part of [`ensure_default_tags_generated`] that can fail after the songs have been
+/// claimed: the generator call and the write of what it returned. Split out so both
+/// failures settle the claim the same way.
+///
+/// The two arguments are index aligned. Empty means every song was one Apple Music has no
+/// catalog entry for, so there is nothing to generate from and no call to make.
+async fn generate_and_store_default_tags(
+    db: &DatabaseConnection,
+    tag_gen_service: &TagGenerationService,
+    song_ids: Vec<String>,
+    descriptions: Vec<String>,
+) -> Result<(), CadenzaError> {
+    if song_ids.is_empty() {
+        return Ok(());
+    }
+
+    let generated = tag_gen_service.generate_tags(&descriptions, None).await?;
+    let generated_tags: HashMap<String, Vec<TagSpecs>> =
+        song_ids.into_iter().zip(generated).collect();
+
+    set_default_tags_on_songs(db, generated_tags).await?;
     Ok(())
 }
 

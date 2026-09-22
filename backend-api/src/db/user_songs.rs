@@ -72,10 +72,13 @@ struct UngeneratedSong {
 /// Song ids in someone's library that have never had default tags generated,
 /// most recently added first, at most `limit` of them.
 ///
-/// Asks `default_tags_generated` rather than `default_tags_applied` on purpose.
+/// Asks `default_tags_generation` rather than `default_tags_applied` on purpose.
 /// A song Apple Music has no catalog entry for ends up with no applied tags but
-/// is still marked generated, and selecting on applied rows would hand those
+/// is still marked done, and selecting on applied rows would hand those
 /// back on every call while never reaching the songs that need generating.
+///
+/// Any row counts, `in_flight` included, so a pass does not pick up a song a live
+/// read is already generating for.
 ///
 /// Ordered by `created_at` alone rather than grouped by song id, so the ordering
 /// can walk `user_songs_created_at_idx` instead of aggregating the whole table
@@ -94,7 +97,7 @@ pub async fn get_recent_songs_without_generated_default_tags(
         r#"
         SELECT us.song_id
         FROM user_songs AS us
-        LEFT JOIN default_tags_generated AS dtg ON dtg.song_id = us.song_id
+        LEFT JOIN default_tags_generation AS dtg ON dtg.song_id = us.song_id
         WHERE dtg.song_id IS NULL
         ORDER BY us.created_at DESC
         LIMIT $1

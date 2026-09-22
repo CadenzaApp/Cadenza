@@ -136,12 +136,16 @@ the song alone.
 Default tags are generated lazily, by the endpoints that read them. Both `GET /songs/default-tags`
 and `POST /songs/default-tags/batch` call `services::default_tags::ensure_default_tags_generated`
 before the read: it asks `db::tags::get_songs_without_generated_default_tags` which of the
-requested songs have no row in `default_tags_generated`, reads their titles from Apple Music
-through `SongMetadataService`, generates with `TagGenerationService`, stores through
-`db::tags::set_default_tags_on_songs`, and marks every song it tried.
+requested songs have no row in `default_tags_generation`, reads their titles from Apple Music
+through `SongMetadataService`, claims them with an `in_flight` row, generates with
+`TagGenerationService`, stores through `db::tags::set_default_tags_on_songs`, and moves the rows
+to `done`. A generator or write failure deletes the rows instead, so the next read tries again.
+
+A song with a row already, `in_flight` or `done`, is skipped, so two readers of the same new song
+do not both pay for generation.
 
 The client never sends song descriptions. The backend resolves each id to a title itself, so a
-song Apple Music has no catalog entry for is marked as generated with no tags rather than being
+song Apple Music has no catalog entry for is marked `done` with no tags rather than being
 retried on every read. This replaced `POST /songs/no-default-tags` and `POST /songs/default-tags`,
 which took `[{song_id, desc}]` and are both gone.
 
