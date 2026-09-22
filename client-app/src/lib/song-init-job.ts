@@ -10,6 +10,12 @@ export const SONG_INIT_PAGE_SIZE = 100;
  */
 export const SONG_SYNC_BATCH_SIZE = 200;
 
+/**
+ * Playlists read at once. Apple Music is the bottleneck rather than the
+ * device, and an unbounded fan out over a large library invites rate limiting.
+ */
+export const PLAYLIST_CONCURRENCY = 6;
+
 /** The parts of a MusicKit `MusicItem` the job reads. */
 export type SongInitItem = {
     id: string;
@@ -125,18 +131,36 @@ export async function syncLibrary(deps: SongSyncDeps): Promise<SongSyncResult> {
 }
 
 /**
- * Walks the library and then every library playlist, stamping songs the store
- * already holds and collecting the rest. A source that fails to read is logged
- * and skipped, and makes the walk incomplete.
+ * Walks the library and every library playlist at once, stamping songs the
+ * store already holds and collecting the rest. A source that fails to read is
+ * logged and skipped, and makes the walk incomplete.
  */
 async function findSongsToAdd(deps: SongSyncDeps, startedAt: number) {
     const songIdsToAdd: string[] = [];
     const seen = new Set<string>();
     let complete = true;
 
+    // markSeen reads and then writes inside one transaction on a single shared
+    // connection, so concurrent walks have to queue behind each other
+    let storeWrites: Promise<unknown> = Promise.resolve();
+    const serialized = <T>(work: () => Promise<T>): Promise<T> => {
+        const previous = storeWrites;
+        const queued = (async () => {
+            try {
+                await previous;
+            } catch {
+                // that write's own caller reports it; this one still runs
+            }
+            return work();
+        })();
+        storeWrites = queued;
+        return queued;
+    };
+
     const onPage = async (songs: SongInitItem[]) => {
         // tags key on the catalog id when there is one, same as everywhere
-        // else. a song an earlier page already had is skipped
+        // else. a song an earlier page already had is skipped. the loop holds
+        // no await, so two concurrent pages cannot both claim the same song
         const unseen: string[] = [];
         for (const song of songs) {
             const songId = song.catalogId ?? song.id;
@@ -146,7 +170,9 @@ async function findSongsToAdd(deps: SongSyncDeps, startedAt: number) {
         }
         if (unseen.length === 0 || deps.isCancelled()) return 0;
 
-        const newSongIds = await deps.store.markSeen(unseen, startedAt);
+        const newSongIds = await serialized(() =>
+            deps.store.markSeen(unseen, startedAt),
+        );
         songIdsToAdd.push(...newSongIds);
         return newSongIds.length;
     };
@@ -163,39 +189,46 @@ async function findSongsToAdd(deps: SongSyncDeps, startedAt: number) {
         }
     };
 
-    // the library first
-    await trySource("library songs", () =>
-        forEachPage(
-            "library songs",
-            deps.getLibrarySongs,
-            onPage,
-            deps.isCancelled,
-        ),
-    );
+    const walkLibrary = () =>
+        trySource("library songs", () =>
+            forEachPage(
+                "library songs",
+                deps.getLibrarySongs,
+                onPage,
+                deps.isCancelled,
+            ),
+        );
 
-    // then each playlist, which can hold songs that are not in the library
-    await trySource("playlists", () =>
-        forEachPage(
-            "playlists",
-            deps.getUserPlaylists,
-            async (playlists) => {
-                for (const playlist of playlists) {
-                    // playlists are addressed by their library id
-                    const playlistId = playlist.libraryId ?? playlist.id;
-                    await trySource(`playlist ${playlistId}`, () =>
-                        forEachPage(
-                            `playlist ${playlistId}`,
-                            (options) =>
-                                deps.getPlaylistSongs(playlistId, options),
-                            onPage,
-                            deps.isCancelled,
-                        ),
-                    );
-                }
-            },
-            deps.isCancelled,
-        ),
-    );
+    // playlists can hold songs that are not in the library. the index is read
+    // in full before any of it is walked, so the fan out below knows its width
+    const walkPlaylists = () =>
+        trySource("playlists", async () => {
+            const playlistIds: string[] = [];
+            await forEachPage(
+                "playlists",
+                deps.getUserPlaylists,
+                async (playlists) => {
+                    for (const playlist of playlists) {
+                        // playlists are addressed by their library id
+                        playlistIds.push(playlist.libraryId ?? playlist.id);
+                    }
+                },
+                deps.isCancelled,
+            );
+
+            await inPool(playlistIds, PLAYLIST_CONCURRENCY, (playlistId) =>
+                trySource(`playlist ${playlistId}`, () =>
+                    forEachPage(
+                        `playlist ${playlistId}`,
+                        (options) => deps.getPlaylistSongs(playlistId, options),
+                        onPage,
+                        deps.isCancelled,
+                    ),
+                ),
+            );
+        });
+
+    await Promise.all([walkLibrary(), walkPlaylists()]);
 
     // a cancelled walk stopped early, so it says nothing about what is gone
     if (deps.isCancelled()) complete = false;
@@ -270,6 +303,27 @@ function* batched(songIds: readonly string[]) {
     for (let start = 0; start < songIds.length; start += SONG_SYNC_BATCH_SIZE) {
         yield songIds.slice(start, start + SONG_SYNC_BATCH_SIZE);
     }
+}
+
+/**
+ * Runs `work` over `items`, at most `limit` of them at a time. Each runner
+ * takes the next index synchronously, so no item is handed out twice.
+ */
+async function inPool<T>(
+    items: readonly T[],
+    limit: number,
+    work: (item: T) => Promise<void>,
+) {
+    let next = 0;
+    const runners = Array.from(
+        { length: Math.min(limit, items.length) },
+        async () => {
+            while (next < items.length) {
+                await work(items[next++]);
+            }
+        },
+    );
+    await Promise.all(runners);
 }
 
 /**

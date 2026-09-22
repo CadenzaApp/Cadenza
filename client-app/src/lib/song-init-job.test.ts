@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+    PLAYLIST_CONCURRENCY,
     SONG_INIT_PAGE_SIZE,
     SONG_SYNC_BATCH_SIZE,
     syncLibrary,
@@ -281,4 +282,135 @@ test("a cancelled run reports itself incomplete and stops sending", async () => 
     assert.deepEqual(calls.patches, []);
     assert.deepEqual(result, { added: 0, removed: 0, complete: false });
     assert.ok(rows.has("gone"), "nothing is swept on a cancelled run");
+});
+
+/** One playlist per id, each holding a song only it has. */
+function manyPlaylists(count: number) {
+    const playlists: Record<string, SongInitItem[]> = {};
+    for (let index = 0; index < count; index += 1) {
+        playlists[`p.${index}`] = [song(`playlist-song-${index}`)];
+    }
+    return playlists;
+}
+
+const tick = (ms: number) =>
+    new Promise((resolve) => {
+        setTimeout(resolve, ms);
+    });
+
+test("the library walk and the playlist walk overlap", async () => {
+    const { deps } = fakeDeps({
+        library: [song("a")],
+        playlists: { "p.1": [song("b")] },
+    });
+
+    let libraryDone = false;
+    let startedBeforeLibraryDone = false;
+    const overlapping: SongSyncDeps = {
+        ...deps,
+        getLibrarySongs: async (options) => {
+            try {
+                await tick(10);
+                return await deps.getLibrarySongs(options);
+            } finally {
+                libraryDone = true;
+            }
+        },
+        getUserPlaylists: async (options) => {
+            if (!libraryDone) startedBeforeLibraryDone = true;
+            return deps.getUserPlaylists(options);
+        },
+    };
+
+    await syncLibrary(overlapping);
+
+    assert.ok(
+        startedBeforeLibraryDone,
+        "the playlist index should not wait on the library walk",
+    );
+});
+
+test("playlists are read in parallel, up to the pool's width", async () => {
+    const { deps } = fakeDeps({ playlists: manyPlaylists(PLAYLIST_CONCURRENCY * 2) });
+
+    let inFlight = 0;
+    let peak = 0;
+    const tracked: SongSyncDeps = {
+        ...deps,
+        getPlaylistSongs: async (playlistId, options) => {
+            inFlight += 1;
+            peak = Math.max(peak, inFlight);
+            try {
+                await tick(5);
+                return await deps.getPlaylistSongs(playlistId, options);
+            } finally {
+                inFlight -= 1;
+            }
+        },
+    };
+
+    await syncLibrary(tracked);
+
+    assert.ok(peak > 1, "playlists should overlap rather than run one by one");
+    assert.ok(
+        peak <= PLAYLIST_CONCURRENCY,
+        `${peak} playlists were in flight, over the pool's ${PLAYLIST_CONCURRENCY}`,
+    );
+});
+
+/**
+ * `markSeen` reads then writes inside one transaction on a single shared
+ * connection, so the parallel walks above have to queue behind each other.
+ */
+test("store writes stay serialized while the walks run in parallel", async () => {
+    const { store } = fakeStore();
+    let inFlight = 0;
+    let overlapped = false;
+
+    const watched: InitializedSongsStore = {
+        ...store,
+        async markSeen(songIds, timestamp) {
+            inFlight += 1;
+            if (inFlight > 1) overlapped = true;
+            try {
+                await tick(1);
+                return await store.markSeen(songIds, timestamp);
+            } finally {
+                inFlight -= 1;
+            }
+        },
+    };
+
+    const { deps } = fakeDeps({
+        library: [song("a")],
+        playlists: manyPlaylists(PLAYLIST_CONCURRENCY * 2),
+        store: watched,
+    });
+
+    await syncLibrary(deps);
+
+    assert.equal(overlapped, false, "markSeen ran concurrently");
+});
+
+test("every playlist is walked exactly once under the pool", async () => {
+    const { deps, calls } = fakeDeps({
+        playlists: manyPlaylists(PLAYLIST_CONCURRENCY * 2),
+    });
+
+    const visited: string[] = [];
+    const tracked: SongSyncDeps = {
+        ...deps,
+        getPlaylistSongs: async (playlistId, options) => {
+            if (options.offset === 0) visited.push(playlistId);
+            return deps.getPlaylistSongs(playlistId, options);
+        },
+    };
+
+    await syncLibrary(tracked);
+
+    assert.deepEqual(
+        [...visited].sort(),
+        Object.keys(manyPlaylists(PLAYLIST_CONCURRENCY * 2)).sort(),
+    );
+    assert.equal(calls.patches[0].add.length, PLAYLIST_CONCURRENCY * 2);
 });
