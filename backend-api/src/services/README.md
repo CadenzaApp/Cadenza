@@ -15,7 +15,7 @@ default tags the first time anything asks for them.
 | `tag_generation/openai_tag_generator.rs` | The OpenAI implementation, plus ignored integration tests. |
 | `tag_values.rs` | `canonicalize_tag_value`: validates a tag value string against the tag's `TagType` and returns its canonical stored form (or `CadenzaError::InvalidTagValue`). Unit tested. |
 | `song_metadata.rs` | `SongMetadataService`: song ids to Apple Music catalog metadata, developer token only. Unit tested, plus ignored integration tests. |
-| `default_tags.rs` | `ensure_default_tags_generated`: generates a song's default tags the first time they are read, and marks it so it happens once. |
+| `default_tags.rs` | `ensure_default_tags_generated`: generates a song's default tags the first time they are read, and marks it so it happens once. Also `backfill_default_tags` and the background job that runs it, which does the same for songs nothing has read yet. |
 
 ## How it works
 
@@ -75,8 +75,26 @@ retries it rather than leaving the song permanently tagless. A song Apple Music 
 entry for is marked with no tags, because it has no title to generate from and leaving it
 unmarked would call Apple again on every later read.
 
-It is called by the default tag read handlers in `src/routes/songs.rs`, not by any write. Nothing
-generates default tags when a song is added to a library.
+It is called by the default tag read handlers in `src/routes/songs.rs` and by the backfill job
+below, not by any write. Nothing generates default tags when a song is added to a library.
+
+`spawn_default_tag_backfill` runs one pass on a `tokio` task every
+`DEFAULT_TAG_BACKFILL_INTERVAL_SECS`, for as long as the server lives, so a song can have its
+default tags before anyone reads it rather than paying for generation inside that first read. A
+pass takes the newest songs with no `default_tags_generated` row, through
+`db::user_songs::get_recent_songs_without_generated_default_tags`, and hands them straight to
+`ensure_default_tags_generated`.
+
+It asks `default_tags_generated` rather than `default_tags_applied` for the same reason the read
+path does. A song Apple Music has no catalog entry for ends up with no applied tags but is still
+marked generated, so selecting on applied rows would hand the same unsatisfiable songs back every
+pass and never reach the ones that need generating.
+
+`BackfillConfig::from_env` reads the three `DEFAULT_TAG_BACKFILL_*` vars and returns `None` when
+the job is off, which is what it is unless `DEFAULT_TAG_BACKFILL_ENABLED` is `true`. `main.rs`
+logs which way it went and only spawns the task when it got a config. Ticks are delayed rather
+than burst, so a pass that outruns its interval is followed by a full interval of quiet instead
+of another pass immediately.
 
 `canonicalize_tag_value` validates a tag value against the tag's `TagType` and returns the
 canonical string to store. `None` and blank strings are always accepted (an attribute tag can be
@@ -98,8 +116,10 @@ accepts `"true"`/`"false"` case-insensitively and stores lowercase. Anything els
   `set_user_tag_value`, which both look up the tag's type through `get_owned_tag` first.
 - `SongMetadataService` is built in `src/main.rs` and lives in `AppState`. Its only caller is
   `default_tags::ensure_default_tags_generated`.
-- `ensure_default_tags_generated` is called by `src/routes/songs.rs::get_default_tags_on_song_handler`
-  and `get_default_tags_on_songs_handler`.
+- `ensure_default_tags_generated` is called by `src/routes/songs.rs::get_default_tags_on_song_handler`,
+  `get_default_tags_on_songs_handler`, and `backfill_default_tags`.
+- The backfill job is spawned from `src/main.rs`, which is also where `BackfillConfig::from_env`
+  decides whether it runs at all.
 
 ## Gotchas
 
@@ -132,7 +152,9 @@ accepts `"true"`/`"false"` case-insensitively and stores lowercase. Anything els
   the same.
 - A default tag read is now a write path. The first read of a song makes an Apple Music call and
   an LLM call before it answers, so it is slow, and it fails the whole read if either fails.
-- Nothing serializes generation, so two reads racing on the same new song both generate.
+- Nothing serializes generation, so two reads racing on the same new song both generate. The
+  backfill job widens that window: it and a live read can both generate for the same song. The
+  marker upserts so nothing breaks, but the song costs two LLM calls.
 
 ---
 Touching files in this directory? Update this README in the same change.

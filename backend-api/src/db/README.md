@@ -13,7 +13,7 @@ The data access layer. Everything that touches postgres lives here, so handlers 
 | `queries.rs` | Compiles a tag query to SQL, runs it, and ranks the matches. Unit tested. |
 | `comments.rs` | Comment reads and writes: every comment on a song paired into threads, leaving a comment or a reply, and deleting the user's own comment. |
 | `comment_votes.rs` | `CommentVote` and `VoteTally`. `set_comment_vote`, which casts, switches, or takes back the user's vote on a comment, and `get_song_vote_tallies`, the votes on each comment of a song as the reading user sees them. |
-| `user_songs.rs` | `edit_user_songs`: adds and removes the user's songs in one transaction. |
+| `user_songs.rs` | `edit_user_songs`: adds and removes the user's songs in one transaction. `get_recent_songs_without_generated_default_tags`: the newest songs nothing has generated default tags for, which the backfill job walks. |
 | `entity/` | sea-orm-codegen output. Includes tag, default-tag, and comment tables, plus `prelude` and `mod`. Do not hand edit. |
 
 ## Schema
@@ -46,7 +46,8 @@ The tables below are keyed on song ids that come from Apple Music.
 - `user_songs` - the songs in a user's library. Composite pk of `(song_id, user_id)`, plus
   `created_at`, a `timestamptz` that defaults to `now()` and is left `NotSet` on insert so the
   database stamps it rather than the api's clock. `user_songs_user_id_idx` on `user_id` alone so a
-  whole-library read does not scan the table. `user_id` references `auth.users` and cascades. `PATCH /songs` is the only thing that
+  whole-library read does not scan the table, and `user_songs_created_at_idx` on `created_at DESC`
+  for the backfill job's walk of the newest songs. `user_id` references `auth.users` and cascades. `PATCH /songs` is the only thing that
   writes it, through `user_songs.rs::edit_user_songs`. The query compiler reads it: it is the set
   of songs a query runs over. Tag reads still work off `user_tags_applied` and do not check it, so a song can
   carry tags without a row here, and then no query will return it. This table was called

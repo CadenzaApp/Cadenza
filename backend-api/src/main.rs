@@ -20,6 +20,7 @@ use crate::{
         tags::get_tags_router,
     },
     services::{
+        default_tags::{BackfillConfig, spawn_default_tag_backfill},
         song_metadata::SongMetadataService,
         tag_generation::{TagGenerationService, openai_tag_generator::OpenAiTagGenerator},
     },
@@ -51,6 +52,26 @@ async fn main() {
     let tag_gen_service = TagGenerationService::new(OpenAiTagGenerator::new());
 
     let song_meta_service = SongMetadataService::new();
+
+    // fills in default tags for songs nothing has read yet. off unless the
+    // environment turns it on, since every pass can spend Apple Music and
+    // OpenAI calls that no request asked for
+    match BackfillConfig::from_env() {
+        Some(config) => {
+            println!(
+                "default tag backfill: on, up to {} songs every {}s",
+                config.batch_size,
+                config.interval.as_secs()
+            );
+            spawn_default_tag_backfill(
+                db.clone(),
+                song_meta_service.clone(),
+                tag_gen_service.clone(),
+                config,
+            );
+        }
+        None => println!("default tag backfill: off"),
+    }
 
     let app_state = AppState {
         db,
