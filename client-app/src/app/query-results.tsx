@@ -14,25 +14,10 @@ export default function QueryResultsScreen() {
         suggested?: string;
     }>();
     const query = useMemo(() => parseQuery(encodedQuery), [encodedQuery]);
-    const {
-        allLibraryTracks,
-        allLibraryTracksLoading,
-        allLibraryTracksErr,
-        isLibraryConnected,
-    } = useAllTracksFromLibrary();
-    const candidateSongIds = useMemo(
-        () => allLibraryTracks.map((track) => track.catalogId ?? track.id),
-        [allLibraryTracks],
-    );
+    const { allLibraryTracks, allLibraryTracksLoading, allLibraryTracksErr } =
+        useAllTracksFromLibrary();
     const { matchedSongIds, queryResultsLoading, queryResultsErr } =
-        useQueryResults(
-            query,
-            candidateSongIds,
-            isLibraryConnected &&
-                !allLibraryTracksLoading &&
-                !allLibraryTracksErr,
-            suggested === "1",
-        );
+        useQueryResults(query, suggested === "1");
     const matchedSongs = useMemo(() => {
         const tracksByQueryId = new Map(
             allLibraryTracks.map((track) => [

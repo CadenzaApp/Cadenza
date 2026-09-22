@@ -194,9 +194,13 @@ pub async fn get_user_tags_on_songs(
     Ok(tags_by_song)
 }
 
-/// Returns the requested songs that do not have default tags, preserving input
-/// order.
-pub async fn get_songs_without_default_tags(
+/// Returns the requested songs that have never had default tags generated, preserving
+/// input order.
+///
+/// This asks `default_tags_generated` rather than `default_tags_applied`, so a song the
+/// generator legitimately produced no tags for still counts as generated, and a song
+/// whose only default tag was later taken off is not generated a second time.
+pub async fn get_songs_without_generated_default_tags(
     db: &DatabaseConnection,
     song_ids: &[String],
 ) -> Result<Vec<String>, CadenzaError> {
@@ -204,11 +208,10 @@ pub async fn get_songs_without_default_tags(
         return Ok(Vec::new());
     }
 
-    let with_default_tags: HashSet<String> = default_tags_applied::Entity::find()
-        .filter(default_tags_applied::Column::SongId.is_in(song_ids.iter().map(String::as_str)))
+    let already_generated: HashSet<String> = default_tags_generated::Entity::find()
+        .filter(default_tags_generated::Column::SongId.is_in(song_ids.iter().map(String::as_str)))
         .select_only()
-        .column(default_tags_applied::Column::SongId)
-        .distinct()
+        .column(default_tags_generated::Column::SongId)
         .into_tuple::<String>()
         .all(db)
         .await?
@@ -217,9 +220,37 @@ pub async fn get_songs_without_default_tags(
 
     Ok(song_ids
         .iter()
-        .filter(|song_id| !with_default_tags.contains(*song_id))
+        .filter(|song_id| !already_generated.contains(*song_id))
         .cloned()
         .collect())
+}
+
+/// Marks songs as having had default tags generated, so it never runs for them again.
+/// A song already marked is left alone.
+pub async fn mark_default_tags_generated(
+    db: &DatabaseConnection,
+    song_ids: &[String],
+) -> Result<(), CadenzaError> {
+    if song_ids.is_empty() {
+        return Ok(());
+    }
+
+    let rows = song_ids
+        .iter()
+        .map(|song_id| default_tags_generated::ActiveModel {
+            song_id: Set(song_id.clone()),
+        });
+
+    default_tags_generated::Entity::insert_many(rows)
+        .on_conflict(
+            OnConflict::column(default_tags_generated::Column::SongId)
+                .do_nothing()
+                .to_owned(),
+        )
+        .exec_without_returning(db)
+        .await?;
+
+    Ok(())
 }
 
 pub async fn get_songs_with_user_tag(
@@ -514,9 +545,9 @@ fn default_tags_on_songs_query(
 /// song id. Default tags the user removed are left out, and so are songs with
 /// none left.
 ///
-/// Removals are per user, so this is not what the song has for everyone.
-/// `get_songs_without_default_tags` is the read that answers that, and the
-/// generation path uses it rather than this.
+/// Removals are per user, so this is not what the song has for everyone, and it is not
+/// what decides whether a song still needs generating.
+/// `get_songs_without_generated_default_tags` answers that.
 pub async fn get_default_tags_on_songs(
     db: &impl ConnectionTrait,
     user_id: Uuid,

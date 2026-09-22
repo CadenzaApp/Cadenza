@@ -134,11 +134,11 @@ impl SongMetadataService {
         }
     }
 
-    /// Looks up every id and returns one entry per input id, in input order.
+    /// Looks up every id, keyed by the id it was found under.
     ///
-    /// An entry is `None` when Apple knows no catalog song for that id in this storefront,
-    /// which covers a library-only id, a bad id, and a song not released in the storefront.
-    /// An empty input makes no request.
+    /// An id Apple knows no catalog song for in this storefront is simply absent from the
+    /// map, which covers a library-only id, a bad id, and a song not released there. An
+    /// empty input makes no request.
     ///
     /// # Panics
     ///
@@ -378,5 +378,4 @@ mod tests {
         }
         println!("get_songs_metadata_reads_real_songs -- {:?}", res);
     }
-
 }

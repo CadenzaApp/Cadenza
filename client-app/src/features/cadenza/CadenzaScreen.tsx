@@ -44,10 +44,6 @@ export function CadenzaScreen() {
         isLibraryConnected,
     } = useAllTracksFromLibrary();
     const simpleQuery = useMemo(() => queryToJSON(conditions), [conditions]);
-    const candidateSongIds = useMemo(
-        () => allLibraryTracks.map((track) => track.catalogId ?? track.id),
-        [allLibraryTracks],
-    );
     const tagTypes = useMemo(
         () => new Map((userTags ?? []).map((tag) => [tag.id, tag.type])),
         [userTags],
@@ -61,14 +57,7 @@ export function CadenzaScreen() {
     // decides which tree gets sent.
     const query = mode === "simple" ? simpleQuery : advancedQuery;
     const { matchedSongIds, queryResultsLoading, queryResultsErr } =
-        useQueryResults(
-            query,
-            candidateSongIds,
-            isLibraryConnected &&
-                !allLibraryTracksLoading &&
-                !allLibraryTracksErr,
-            includeSuggestedTags,
-        );
+        useQueryResults(query, includeSuggestedTags);
     // A suggested tag only matches while the request carries
     // consider_default_tags, so leaving one in the query after the toggle goes
     // off would quietly change what the same query returns. Clear it instead.

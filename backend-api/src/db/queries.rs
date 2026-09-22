@@ -26,10 +26,10 @@ struct SongTagPair {
 
 /// Returns the ids of every song matching the given query, most relevant first.
 ///
-/// With `candidate_song_ids` the query runs over exactly those songs, so a song
-/// carrying no tags at all can still satisfy a negative filter. Without them it
-/// runs over the songs that already carry a tag, and a song with no tag rows can
-/// never come back.
+/// The query runs over the user's whole library, meaning their rows in
+/// `user_songs`, so a song carrying no tags at all can still satisfy a negative
+/// filter. A song the user does not have can never come back, however it is
+/// tagged.
 ///
 /// With `consider_default_tags` a song's shared default tags count as tags on it
 /// too, both for matching and for ranking, and the query may name a default tag
@@ -39,26 +39,15 @@ pub async fn run_query(
     db: &DatabaseConnection,
     query: &Query,
     user_id: Uuid,
-    candidate_song_ids: Option<&[String]>,
     consider_default_tags: bool,
 ) -> Result<Vec<String>, CadenzaError> {
-    if candidate_song_ids.is_some_and(|song_ids| song_ids.is_empty()) {
-        return Ok(Vec::new());
-    }
-
     check_size(&query.root)?;
 
     let mut tag_ids = HashSet::new();
     collect_tag_ids(&query.root, &mut tag_ids);
     let tag_types = get_queryable_tag_types(db, user_id, &tag_ids, consider_default_tags).await?;
 
-    let (sql, values) = compile_query(
-        query,
-        &tag_types,
-        user_id,
-        candidate_song_ids,
-        consider_default_tags,
-    )?;
+    let (sql, values) = compile_query(query, &tag_types, user_id, consider_default_tags)?;
 
     let song_tag_pairs = SongTagPair::find_by_statement(Statement::from_sql_and_values(
         DbBackend::Postgres,
@@ -218,6 +207,11 @@ fn applied_tags_source(consider_default_tags: bool) -> &'static str {
     }
 }
 
+/// The songs a query runs over: the user's whole library. Untagged songs are in
+/// here too, which is what lets a negative filter match a song with no tag rows
+/// at all.
+const LIBRARY_SONGS_SOURCE: &str = "(SELECT song_id FROM user_songs WHERE user_id=$1)";
+
 /// Converts the query to a full SQL statement and its values. `tag_types` must
 /// hold the type of every tag id the query mentions.
 ///
@@ -228,55 +222,38 @@ fn applied_tags_source(consider_default_tags: bool) -> &'static str {
 ///
 /// The statement selects `(song id, tag id)` pairs rather than bare song ids, so
 /// `rank_songs` can score each song by the tags it carries. Filters correlate
-/// against `query_songs`, which is a candidate song id when the caller supplied
-/// candidates and an existing tag application otherwise.
+/// against `query_songs`, which is a song in the user's library. Its tags come
+/// from a left join, so a song with none of them still reaches the where clause.
 fn compile_query(
     query: &Query,
     tag_types: &HashMap<i64, TagType>,
     user_id: Uuid,
-    candidate_song_ids: Option<&[String]>,
     consider_default_tags: bool,
 ) -> Result<(String, Vec<sea_query::Value>), CadenzaError> {
-    let mut values = vec![sea_query::Value::Uuid(Some(user_id))];
-    if let Some(song_ids) = candidate_song_ids {
-        values.push(song_ids.to_vec().into());
-    }
-
     let applied_tags = applied_tags_source(consider_default_tags);
     let mut compiler = Compiler {
         tag_types,
-        values,
+        values: vec![sea_query::Value::Uuid(Some(user_id))],
         applied_tags,
     };
     let where_clause = compiler.node(&query.root)?;
 
-    let sql = if candidate_song_ids.is_some() {
-        format!(
-            r#"
-                SELECT query_songs.song_id, applied_tags.tag_id
-                FROM unnest($2::text[]) AS query_songs(song_id)
-                LEFT JOIN {applied_tags} AS applied_tags
-                    ON applied_tags.song_id=query_songs.song_id
-                WHERE {where_clause}
-            "#
-        )
-    } else {
-        format!(
-            r#"
-                SELECT query_songs.song_id, query_songs.tag_id
-                FROM {applied_tags} AS query_songs
-                WHERE {where_clause}
-            "#
-        )
-    };
+    let sql = format!(
+        r#"
+            SELECT query_songs.song_id, applied_tags.tag_id
+            FROM {LIBRARY_SONGS_SOURCE} AS query_songs
+            LEFT JOIN {applied_tags} AS applied_tags
+                ON applied_tags.song_id=query_songs.song_id
+            WHERE {where_clause}
+        "#
+    );
 
     Ok((sql, compiler.values))
 }
 
 struct Compiler<'a> {
     tag_types: &'a HashMap<i64, TagType>,
-    /// `$1` is always the user id, and `$2` the candidate song ids when the
-    /// caller supplied any.
+    /// `$1` is always the user id, so the first filter binds at `$2`.
     values: Vec<sea_query::Value>,
     /// The `FROM` item every filter reads its tags through.
     applied_tags: &'static str,
@@ -684,24 +661,11 @@ mod tests {
     }
 
     fn compile(json: &str) -> Result<(String, Vec<sea_query::Value>), CadenzaError> {
-        compile_query(&parse(json), &tag_types(), Uuid::nil(), None, false)
-    }
-
-    fn compile_over(
-        json: &str,
-        candidates: &[String],
-    ) -> Result<(String, Vec<sea_query::Value>), CadenzaError> {
-        compile_query(
-            &parse(json),
-            &tag_types(),
-            Uuid::nil(),
-            Some(candidates),
-            false,
-        )
+        compile_query(&parse(json), &tag_types(), Uuid::nil(), false)
     }
 
     fn compile_with_defaults(json: &str) -> Result<(String, Vec<sea_query::Value>), CadenzaError> {
-        compile_query(&parse(json), &tag_types(), Uuid::nil(), None, true)
+        compile_query(&parse(json), &tag_types(), Uuid::nil(), true)
     }
 
     fn pair(song_id: &str, tag_id: Option<i64>) -> SongTagPair {
@@ -959,29 +923,33 @@ mod tests {
         assert!(check_size(&parse(&deep).root).is_err());
     }
 
+    /// The library, not the tagged songs, is the row source. An untagged song
+    /// has to reach the where clause or `is_not_applied` could never match it.
     #[test]
-    fn candidate_query_starts_from_every_supplied_song() {
-        let candidates = vec!["untagged-song".to_string(), "tagged-song".to_string()];
-        let (sql, values) = compile_over(
-            &filter(r#"{ "field": "tag", "tag_id": 1, "op": "is_not_applied" }"#),
-            &candidates,
-        )
+    fn the_query_starts_from_the_users_library() {
+        let (sql, values) = compile(&filter(
+            r#"{ "field": "tag", "tag_id": 1, "op": "is_not_applied" }"#,
+        ))
         .unwrap();
 
-        assert!(sql.contains("FROM unnest($2::text[]) AS query_songs(song_id)"));
+        assert!(
+            sql.contains("FROM (SELECT song_id FROM user_songs WHERE user_id=$1) AS query_songs"),
+            "{sql}"
+        );
+        assert!(sql.contains("LEFT JOIN"), "{sql}");
         assert!(sql.contains("AS applied_tags"), "{sql}");
         assert!(
             sql.contains("FROM user_tags_applied WHERE user_id=$1"),
             "{sql}"
         );
         assert!(sql.contains("NOT EXISTS"));
-        // $1 is the user id and $2 the candidates, so the first tag lands on $3.
-        assert!(sql.contains("filter_check.tag_id=$3"));
-        assert_eq!(values.len(), 3);
+        // the user id is the only value bound before the filters
+        assert!(sql.contains("filter_check.tag_id=$2"));
+        assert_eq!(values.len(), 2);
     }
 
     #[test]
-    fn tagged_song_query_keeps_the_original_parameter_order() {
+    fn filters_bind_in_order_after_the_user_id() {
         let (sql, values) = compile(
             r#"{ "where": { "and": [
                 { "filter": { "field": "tag", "tag_id": 1, "op": "is_applied" } },
@@ -996,9 +964,9 @@ mod tests {
         assert_eq!(values.len(), 3);
     }
 
-    /// The flag decides what a tag on a song is, so it has to reach the outer
-    /// row source, the candidate join, and every filter subquery alike. Missing
-    /// one would silently match on user tags while ranking on both, or worse.
+    /// The flag decides what a tag on a song is, so it has to reach the ranking
+    /// join and every filter subquery alike. Missing one would silently match on
+    /// user tags while ranking on both, or worse.
     #[test]
     fn default_tags_join_the_row_source_everywhere_or_nowhere() {
         let query = r#"{ "where": { "and": [
@@ -1010,7 +978,7 @@ mod tests {
         assert!(!without.contains("default_tags_applied"), "{without}");
 
         let (with, _) = compile_with_defaults(query).unwrap();
-        // The outer row source, plus one per filter subquery.
+        // The ranking join, plus one per filter subquery.
         assert_eq!(
             with.matches("FROM default_tags_applied").count(),
             3,
@@ -1065,11 +1033,8 @@ mod tests {
     }
 
     #[test]
-    fn both_forms_select_song_and_tag_pairs() {
+    fn the_statement_selects_song_and_tag_pairs() {
         let (sql, _) = compile(r#"{ "where": { "and": [] } }"#).unwrap();
-        assert!(sql.contains("SELECT query_songs.song_id, query_songs.tag_id"));
-
-        let (sql, _) = compile_over(r#"{ "where": { "and": [] } }"#, &["a".to_string()]).unwrap();
         assert!(sql.contains("SELECT query_songs.song_id, applied_tags.tag_id"));
     }
 

@@ -19,7 +19,10 @@ use crate::{
         comments::get_comments_router, queries::get_queries_router, songs::get_songs_router,
         tags::get_tags_router,
     },
-    services::{song_metadata::SongMetadataService, tag_generation::{TagGenerationService, openai_tag_generator::OpenAiTagGenerator}},
+    services::{
+        song_metadata::SongMetadataService,
+        tag_generation::{TagGenerationService, openai_tag_generator::OpenAiTagGenerator},
+    },
 };
 
 #[derive(Clone, FromRef)]
@@ -27,7 +30,7 @@ struct AppState {
     db: DatabaseConnection,
     jwt_decoder: Decoder<SupabaseClaims>,
     tag_gen_service: TagGenerationService,
-    song_meta_service: SongMetadataService
+    song_meta_service: SongMetadataService,
 }
 
 #[tokio::main]
@@ -53,7 +56,7 @@ async fn main() {
         db,
         jwt_decoder,
         tag_gen_service,
-        song_meta_service
+        song_meta_service,
     };
 
     // route paths

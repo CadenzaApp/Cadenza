@@ -199,9 +199,9 @@ renders the same full-screen hero. See
 
 - `src/features/cadenza/CadenzaScreen.tsx` for session state, the suggested-tag switch value, and
   full-library result wiring.
-- `@/lib/routes/queries::useQueryResults` for live candidate-based query evaluation.
+- `@/lib/routes/queries::useQueryResults` for live query evaluation.
 - `@/lib/routes/tags::useDefaultTags` for the suggested-tag section.
-- `@/lib/musickit-hooks::useAllTracksFromLibrary` for the complete library candidate set.
+- `@/lib/musickit-hooks::useAllTracksFromLibrary` for turning matched ids back into tracks.
 - `@/components/custom/music-list` for preview and full results.
 - Backend `POST /queries/results` for correct NOT behavior on completely untagged songs, and for
   `consider_default_tags`. The wire types are in `@/lib/query-json`.
@@ -216,7 +216,8 @@ renders the same full-screen hero. See
 - Do not dynamically toggle NativeWind shadow or alpha (`/…`) utilities on query-builder
   controls. In the current Expo Router/NativeWind combination that can surface as a misleading
   missing-navigation-context error; use an inline style for a stateful visual instead.
-- The backend accepts at most 50,000 candidate song IDs in one query request.
+- A query request carries no song ids. The backend runs it over the user's `user_songs` rows,
+  so results are only as current as the last library sync.
 - A disconnected Apple Music account can edit a query, but cannot produce library results.
 - Turning `Include suggested tags` off clears the query if it holds a suggested tag. It is the only
   thing in the builder that discards work without a drag, so it is worth knowing before changing

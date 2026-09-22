@@ -5,7 +5,6 @@ import { useAPIPostData } from "../api-actions";
 
 type QueryResultsBody = {
     query: QueryJSON;
-    song_ids: string[];
     consider_default_tags: boolean;
 };
 
@@ -13,10 +12,10 @@ type QueryResultsBody = {
  * Song ids matching `query`, most relevant first. Both builders compile to the
  * same wire format, so this is the only query hook.
  *
- * `candidateSongIds` is the current Apple Music library, which the backend
- * evaluates the query over. It is what lets a "not applied" filter match a song
- * with no tags on it at all, so the hook waits for `candidatesReady` rather than
- * querying against a partial library.
+ * The backend runs the query over the user's library as it knows it, from the
+ * `user_songs` table that `PATCH /songs` keeps in step with Apple Music. The
+ * client no longer sends candidate song ids, so a query here is only as current
+ * as the last library sync.
  *
  * `considerDefaultTags` widens what the backend counts as a tag on a song to
  * include the shared default tags. It is part of the cache key, so turning it on
@@ -24,18 +23,15 @@ type QueryResultsBody = {
  */
 export function useQueryResults(
     query: QueryJSON | null,
-    candidateSongIds: readonly string[],
-    candidatesReady: boolean,
     considerDefaultTags: boolean,
 ) {
     const body = useMemo<QueryResultsBody | null>(() => {
-        if (!query || !candidatesReady) return null;
+        if (!query) return null;
         return {
             query,
-            song_ids: [...new Set(candidateSongIds.filter(Boolean))],
             consider_default_tags: considerDefaultTags,
         };
-    }, [candidateSongIds, candidatesReady, considerDefaultTags, query]);
+    }, [considerDefaultTags, query]);
     const x = useAPIPostData<QueryResultsBody, string[]>(
         "/queries/results",
         body,

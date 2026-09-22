@@ -66,10 +66,9 @@ the same `QueryJSON` the simple builder produces; this builder just uses the who
 than only the applied filters.
 
 The Cadenza screen compiles the tree as it changes and sends every successfully built query through
-`useQueryResults(query, candidateSongIds, ready)` from `@/lib/routes/queries`, in the body of
+`useQueryResults(query, considerDefaultTags)` from `@/lib/routes/queries`, in the body of
 `POST /queries/results`. Song ids come back most relevant first and are mapped to the complete
-cached Apple Music library, which is also what goes out as the candidate set. The advanced builder
-has no separate submit button. It uses the same `ResultsSummary` count, preview, and next arrow as
+cached Apple Music library. The advanced builder has no separate submit button. It uses the same `ResultsSummary` count, preview, and next arrow as
 the simple builder; the arrow opens the shared `/query-results` full-screen `QueryResults` route.
 
 ## Connects to
