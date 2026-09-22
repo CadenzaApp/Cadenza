@@ -13,13 +13,14 @@ native module directly.
 | `api-endpoints.ts`           | `matchesEndpoint`, the cache-key matcher behind invalidation. Import-free so it can be unit tested.                                                                                                                                                                                               |
 | `swr-utils.ts`               | `clearCache` and `useSimpleMutation`, for things that are not plain backend calls.                                                                                                                                                                                                                |
 | `routes/tags.ts`             | Hooks for `/tags`: `useUserTags`, `useTag`, `useCreateTag`, `useDeleteTag`, `useDefaultTags`, `useSuggestTags`.                                                                                                                                                                                   |
-| `routes/songs.ts`            | Hooks for local and default tag reads (one song and batched), local tag writes, removing a suggested tag, missing-default checks, and generation.                                                                                                                                                                           |
+| `routes/songs.ts`            | Hooks for local and default tag reads (one song and batched), local tag writes, removing a suggested tag, and editing the user's library.                                                                                                                                                                                   |
 | `routes/queries.ts`          | `useQueryResults`, the one cached hook for `/queries/results`. Both builders go through it, and it carries the suggested-tag flag. It sends no song ids: the backend queries the library it already has.                                                                          |
 | `routes/comments.ts`         | Hooks for `/comments`: `useSongComments`, `useCreateComment`, `useDeleteComment`, `useVoteOnComment`.                                                                                                                                                                                             |
 | `comment-votes.ts`           | `applyCommentVote`, the optimistic update `useVoteOnComment` makes to cached comment threads. `sortThreadsByVotes` and `orderThreadsLike`, which `CommentsPage` uses to sort threads by score and then hold that order while it is in view. Only type imports, tested in `comment-votes.test.ts`. |
 | `musickit-hooks.ts`          | SWR over the native module: song info, catalog search, paged and complete-library songs, albums, artists, playlists, collection metadata, favorites, artist search, and playlist writes.                                                                                                          |
-| `song-init.tsx`              | `SongInitProvider`, which runs the default-tag population job after account and Apple Music authorization.                                                                                                                                                                                        |
-| `song-init-job.ts`           | Import-free, tested scan and generation job for songs without default tags.                                                                                                                                                                                                                       |
+| `song-init.tsx`              | `SongInitProvider`, which runs the library sync job after account and Apple Music authorization.                                                                                                                                                                                                  |
+| `song-init-job.ts`           | Import-free, tested library sync job: walks Apple Music, diffs it against the local record, and sends the difference to `PATCH /songs`.                                                                                                                                                           |
+| `initialized-songs-db.ts`    | The expo-sqlite `initialized_songs` table, the device's record of what `user_songs` holds. Opens the database and hands the job an `InitializedSongsStore`.                                                                                                                                       |
 | `account.tsx`                | `AccountProvider` / `useAccount`. Supabase session and the JWT.                                                                                                                                                                                                                                   |
 | `apple-music-auth.tsx`       | `AppleMusicProvider` / `useAppleMusic`. Apple Music tokens, persisted in secure store.                                                                                                                                                                                                            |
 | `playback.tsx`               | `PlaybackProvider`, broad `usePlayback`, lightweight `usePlaybackTrackState`, and stable `usePlaybackCommands`. Queue, native playback snapshot, and compact-player dismissal state.                                                                                                                                           |
@@ -116,14 +117,13 @@ One file per backend router, and every backend endpoint has at least one hook.
 |                      | `GET /tags/suggest`              | `tags.ts` -> `useSuggestTags()`                |
 | `routes/songs.rs`    | `GET /songs/local-tags`          | `songs.ts` -> `useTagsOnSong(songId)`          |
 |                      | `POST /songs/local-tags/batch`   | `songs.ts` -> `useTagsOnSongs(songIds)`        |
-|                      | `POST /songs/no-default-tags`    | `songs.ts` -> `useSongsWithoutDefaultTags()`   |
 |                      | `GET /songs/default-tags`        | `songs.ts` -> `useDefaultTagsOnSong(songId)`   |
 |                      | `POST /songs/default-tags/batch` | `songs.ts` -> `useDefaultTagsOnSongs(songIds)` |
-|                      | `POST /songs/default-tags`       | `songs.ts` -> `useSetDefaultTags()`            |
 |                      | `DELETE /songs/default-tags`     | `songs.ts` -> `useRemoveDefaultTag()`          |
 |                      | `POST /songs/local-tags`         | `songs.ts` -> `useApplyTag()`                  |
 |                      | `PATCH /songs/local-tags`        | `songs.ts` -> `useSetTagValue()`               |
 |                      | `DELETE /songs/local-tags`       | `songs.ts` -> `useUnapplyTag()`                |
+|                      | `PATCH /songs`                   | `songs.ts` -> `useEditUserSongs()`             |
 | `routes/queries.rs`  | `POST /queries/results`          | `queries.ts` -> `useQueryResults()`            |
 | `routes/comments.rs` | `GET /comments`                  | `comments.ts` -> `useSongComments(songId)`     |
 |                      | `POST /comments`                 | `comments.ts` -> `useCreateComment()`          |
@@ -316,8 +316,10 @@ remaining distance. A short pull still springs back to full size.
 - `AppleMusicProvider` owns the Apple Music developer and user tokens, restores them from
   `expo-secure-store` on mount, and pushes them into the native module. `isConnected` means
   authorized **and** holding a user token. `ensureConnected()` before any playback call.
-- `SongInitProvider` runs after account and Apple Music authorization. It scans the library and
-  library playlists for songs without default tags, then asks the backend to generate them.
+- `SongInitProvider` runs after account and Apple Music authorization. It walks the library and
+  library playlists and syncs what it finds into the backend's `user_songs`, which is what
+  queries run over. It no longer generates default tags: the backend does that lazily, the first
+  time something reads a song's default tags.
 - `PlaybackProvider` hands the queue to the native player (`playSongQueue`, `appendSongQueue`)
   and mirrors it, since the snapshot reports the current track but not its position in the
   queue. It finds the index by matching the snapshot track against the mirrored list, searching
@@ -339,18 +341,40 @@ remaining distance. A short pull still springs back to full size.
   changes, so a list row can hold a play handler without re-rendering on every tick. Reach for
   `usePlaybackCommands` unless you actually need to read playback state.
 
-## The song default-tag job
+## The library sync job
 
-`song-init-job.ts::initializeSongs` pages through library songs and every library playlist. It
-sends each unique catalog song id to `POST /songs/no-default-tags` and keeps the returned ids
-with their `"title by artist"` descriptions. It then sends those songs to
-`POST /songs/default-tags` in batches of 100. Defaults remain separate from user tags, so the job
-does not invalidate user tag reads or make a second request after generation.
+The backend runs queries over `user_songs`, its own copy of the user's library, so that copy has
+to follow Apple Music. `song-init-job.ts::syncLibrary` is what moves it, and
+`initialized-songs-db.ts` is the device's record of what it has already told the backend.
 
-`song-init.tsx::SongInitProvider` wires the job to MusicKit, the backend hooks, cancellation, and
-the task overlay. The job is imperative rather than SWR because its reads only decide what to
-write. Failed sources are logged and skipped. Failed generation batches and songs for which the
-model returned no tags are retried on the next run.
+One run:
+
+1. Take the current timestamp. Everything below is stamped with it.
+2. Page through library songs and then every library playlist, keyed by `catalogId ?? id`, the
+   same id tags and queries use. A song already in `initialized_songs` has its `initialized_at`
+   moved up to the run's timestamp. A song that is not in there has never been sent, so it is an
+   add.
+3. Anything still stamped older than the run is a song Apple Music no longer has, so it is a
+   remove.
+4. Send both through `PATCH /songs`, at most 200 songs a request, removes first. After each
+   request the adds are written into `initialized_songs` and the removes are deleted from it.
+5. Invalidate `/queries/results` once, at the end, if anything actually changed.
+
+`initialized_songs` is `(user_id, song_id, initialized_at)`, keyed on `(user_id, song_id)`, with
+an index on `song_id` and one on `(user_id, initialized_at)` for the stale scan.
+
+`song-init.tsx::SongInitProvider` wires the job to MusicKit, `useEditUserSongs`, the SQLite
+store, cancellation, and the "Syncing with Apple Music" task. The job is imperative rather than
+SWR because its reads only decide what to write.
+
+Every Apple Music page it reads and every `PATCH /songs` it sends logs a line tagged
+`[library-sync]`, which is also on its failures, so one run greps out of the console whole. A
+page line carries its source, offset, item count, and how many of those songs the backend had
+never been told about; a send line carries the direction, the batch size, and the batch's place
+in the pass. Sends are logged before the request, so a batch that hangs still shows up.
+
+Default tags are not part of this. The backend generates them lazily, the first time a default
+tag read touches a song it has never generated for.
 
 ## Connects to
 
@@ -374,8 +398,21 @@ model returned no tags are retried on the next run.
   spending an OpenAI call.
 - Tags key on `catalogId ?? id`, not the library id, everywhere a song id crosses into the
   backend. Library ids differ per user for the same song; catalog ids do not.
-- The default-tag job spends OpenAI calls. A song for which the model returns no tags is retried
-  on every app launch.
+- The delete half of the library sync only runs when the Apple Music walk read every source. A
+  source that throws is logged and skipped, and skipping it makes the walk incomplete, because
+  "not stamped this run" would otherwise read the unread songs as deleted and strip them from
+  `user_songs`.
+- `initialized_songs` rows carry a `user_id`. The database file is per device and the library is
+  per account, so without it a second account on the same device would read the first account's
+  library as its own and sync the difference.
+- `initialized_songs` tracks what the backend has been told, not what Apple Music holds. That is
+  why it is written after each `PATCH /songs` succeeds and not before: a run that dies halfway
+  leaves the rest for the next run rather than marking it done.
+- `expo-sqlite` is a native module. Adding or upgrading it needs a dev client rebuild, not just
+  a metro restart.
+- The first sync on an existing install sends the whole library, one `PATCH /songs` per 200
+  songs. It is cheap per request, since the backend no longer generates tags there, but a large
+  library still makes a long first run.
 - `api-actions.ts` reads `account?.jwt` at hook call time. A component rendered before the
   session is restored sends `Bearer undefined`.
 - A comment vote is absolute (`"up"`, `"down"`, or `null`), and the server keeps whichever request

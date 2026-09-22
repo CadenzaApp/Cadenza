@@ -1,16 +1,20 @@
+/** Prefix on every line the job logs, so one run is greppable out of the console. */
+export const LOG_TAG = "[library-sync]";
+
 /** MusicKit returns at most 100 library items a page. */
 export const SONG_INIT_PAGE_SIZE = 100;
 
-/** Songs per `POST /songs/default-tags`, under the backend's 200 song cap. */
-export const SONG_INIT_BATCH_SIZE = 100;
+/**
+ * Songs per `PATCH /songs`. The backend counts `add` and `remove` together
+ * against one 200 song cap, so a batch holds at most this many of both.
+ */
+export const SONG_SYNC_BATCH_SIZE = 200;
 
 /** The parts of a MusicKit `MusicItem` the job reads. */
 export type SongInitItem = {
     id: string;
     catalogId?: string;
     libraryId?: string;
-    title: string;
-    artistName?: string;
 };
 
 /** One page of a paged MusicKit read. `LibraryResult` fits it. */
@@ -22,94 +26,168 @@ export type SongInitPage = {
 
 type PageOptions = { limit: number; offset: number };
 
+/** The `PATCH /songs` body. Both lists are optional to the backend. */
+export type EditUserSongsPayload = {
+    add: string[];
+    remove: string[];
+};
+
+/**
+ * The device's record of what the backend's `user_songs` holds, for one
+ * account. `initialized-songs-db.ts` backs it with SQLite; the tests use a
+ * plain map.
+ */
+export type InitializedSongsStore = {
+    /**
+     * Moves the stamp on every one of `songIds` the store already holds up to
+     * `timestamp`, and returns the ids it does not hold. Those are the songs
+     * the backend has never been told about.
+     */
+    markSeen: (songIds: string[], timestamp: number) => Promise<string[]>;
+    /**
+     * Ids still stamped older than `before`, meaning this run did not find them
+     * in Apple Music. Only meaningful after a walk that covered every source.
+     */
+    getStaleSongIds: (before: number) => Promise<string[]>;
+    /**
+     * Applies what a `PATCH /songs` just did: `added` is stamped with
+     * `timestamp`, `removed` is dropped.
+     */
+    recordSynced: (
+        added: string[],
+        removed: string[],
+        timestamp: number,
+    ) => Promise<void>;
+};
+
 /** What the job reads from and writes to. `song-init.tsx` wires in MusicKit and the backend. */
-export type SongInitDeps = {
+export type SongSyncDeps = {
     getLibrarySongs: (options: PageOptions) => Promise<SongInitPage>;
     getUserPlaylists: (options: PageOptions) => Promise<SongInitPage>;
     getPlaylistSongs: (
         playlistId: string,
         options: PageOptions,
     ) => Promise<SongInitPage>;
-    /** `POST /songs/no-default-tags`. Returns ids with no default tags. */
-    getSongsWithoutDefaultTags: (body: {
-        song_ids: string[];
-    }) => Promise<string[]>;
-    /** `POST /songs/default-tags`. */
-    setDefaultTags: (
-        songs: { song_id: string; desc: string }[],
-    ) => Promise<unknown>;
-    /**
-     * Called once the search has covered every source, with how many songs it
-     * found that still need tags. It marks the end of the first pass and the
-     * start of the second, which is how a caller reports the two separately.
-     */
-    onSearchComplete: (songsWithoutDefaultsCount: number) => void;
+    store: InitializedSongsStore;
+    /** `PATCH /songs`. */
+    editUserSongs: (payload: EditUserSongsPayload) => Promise<unknown>;
+    /** Epoch milliseconds. Injected so a test can pin the run's stamp. */
+    now: () => number;
     isCancelled: () => boolean;
 };
 
+/** What one run did, for the caller to log or report. */
+export type SongSyncResult = {
+    added: number;
+    removed: number;
+    /**
+     * False when a source failed to read, so the walk did not see the whole
+     * library. The delete sweep is skipped in that case.
+     */
+    complete: boolean;
+};
+
 /**
- * Finds songs in the user's library and library playlists that have no default
- * tags, then generates them. The search covers every source before generation,
- * so the count is known before the slow part.
+ * Brings the backend's copy of the user's library in step with Apple Music.
+ *
+ * The run stamps itself with one timestamp. Walking Apple Music moves that
+ * stamp onto every song the store already holds and collects the ones it does
+ * not, which are the adds. Anything left stamped older than the run is a song
+ * Apple Music no longer has, which are the removes. Both go out through
+ * `PATCH /songs` in batches, and the store is updated after each one, so a run
+ * that dies halfway leaves the rest for the next run rather than redoing it.
+ *
+ * A song is keyed by its catalog id when it has one, the same id tags and
+ * queries use.
  */
-export async function initializeSongs(deps: SongInitDeps) {
-    const songsWithoutDefaults = await findSongsWithoutDefaultTags(deps);
-    if (deps.isCancelled()) return;
+export async function syncLibrary(deps: SongSyncDeps): Promise<SongSyncResult> {
+    const startedAt = deps.now();
 
-    deps.onSearchComplete(songsWithoutDefaults.size);
+    const { songIdsToAdd, complete } = await findSongsToAdd(deps, startedAt);
+    if (deps.isCancelled()) {
+        return { added: 0, removed: 0, complete: false };
+    }
 
-    await setDefaultTagsInBatches(deps, songsWithoutDefaults);
+    // a walk that missed a source cannot tell a deleted song from an unread
+    // one, and acting on that would strip the library down to what it did read
+    const songIdsToRemove = complete
+        ? await deps.store.getStaleSongIds(startedAt)
+        : [];
+
+    const synced = await sendInBatches(
+        deps,
+        songIdsToAdd,
+        songIdsToRemove,
+        startedAt,
+    );
+
+    return { ...synced, complete };
 }
 
 /**
- * Asks the backend about every song in the library, then in each playlist,
- * once per song. Returns the ones without default tags as song id ->
- * description. A source that fails to read is logged and skipped.
+ * Walks the library and then every library playlist, stamping songs the store
+ * already holds and collecting the rest. A source that fails to read is logged
+ * and skipped, and makes the walk incomplete.
  */
-async function findSongsWithoutDefaultTags(deps: SongInitDeps) {
-    const songsWithoutDefaults = new Map<string, string>();
-    const checked = new Set<string>();
+async function findSongsToAdd(deps: SongSyncDeps, startedAt: number) {
+    const songIdsToAdd: string[] = [];
+    const seen = new Set<string>();
+    let complete = true;
 
-    const checkPage = async (songs: SongInitItem[]) => {
+    const onPage = async (songs: SongInitItem[]) => {
         // tags key on the catalog id when there is one, same as everywhere
         // else. a song an earlier page already had is skipped
-        const unchecked = new Map<string, SongInitItem>();
+        const unseen: string[] = [];
         for (const song of songs) {
             const songId = song.catalogId ?? song.id;
-            if (!checked.has(songId)) unchecked.set(songId, song);
+            if (seen.has(songId)) continue;
+            seen.add(songId);
+            unseen.push(songId);
         }
-        if (unchecked.size === 0 || deps.isCancelled()) return;
+        if (unseen.length === 0 || deps.isCancelled()) return 0;
 
-        const idsWithoutDefaults = await deps.getSongsWithoutDefaultTags({
-            song_ids: [...unchecked.keys()],
-        });
-        for (const songId of unchecked.keys()) checked.add(songId);
+        const newSongIds = await deps.store.markSeen(unseen, startedAt);
+        songIdsToAdd.push(...newSongIds);
+        return newSongIds.length;
+    };
 
-        // keep a description of each, to generate its tags from later
-        for (const songId of idsWithoutDefaults) {
-            const song = unchecked.get(songId);
-            if (song) songsWithoutDefaults.set(songId, describeSong(song));
+    const trySource = async (source: string, walk: () => Promise<void>) => {
+        try {
+            await walk();
+        } catch (error) {
+            complete = false;
+            console.error(
+                `${LOG_TAG} reading ${source} from Apple Music failed:`,
+                error,
+            );
         }
     };
 
     // the library first
-    await trySearch("library songs", () =>
-        forEachPage(deps.getLibrarySongs, checkPage, deps.isCancelled),
+    await trySource("library songs", () =>
+        forEachPage(
+            "library songs",
+            deps.getLibrarySongs,
+            onPage,
+            deps.isCancelled,
+        ),
     );
 
     // then each playlist, which can hold songs that are not in the library
-    await trySearch("playlists", () =>
+    await trySource("playlists", () =>
         forEachPage(
+            "playlists",
             deps.getUserPlaylists,
             async (playlists) => {
                 for (const playlist of playlists) {
                     // playlists are addressed by their library id
                     const playlistId = playlist.libraryId ?? playlist.id;
-                    await trySearch(`playlist ${playlistId}`, () =>
+                    await trySource(`playlist ${playlistId}`, () =>
                         forEachPage(
+                            `playlist ${playlistId}`,
                             (options) =>
                                 deps.getPlaylistSongs(playlistId, options),
-                            checkPage,
+                            onPage,
                             deps.isCancelled,
                         ),
                     );
@@ -119,55 +197,110 @@ async function findSongsWithoutDefaultTags(deps: SongInitDeps) {
         ),
     );
 
-    return songsWithoutDefaults;
+    // a cancelled walk stopped early, so it says nothing about what is gone
+    if (deps.isCancelled()) complete = false;
+
+    return { songIdsToAdd, complete };
 }
 
 /**
- * Generates default tags for songs that lack them, one batch at a time. A
- * failed batch and songs the model gave no tags are retried on the next run.
+ * Sends the adds and the removes, at most `SONG_SYNC_BATCH_SIZE` songs a
+ * request, and records each batch locally once the backend has taken it.
+ *
+ * Removes go first, so a library that shrank stops matching queries before the
+ * slower add pass runs. A batch that fails stops the pass: the store still
+ * describes what the backend holds, so the next run picks the rest up.
  */
-async function setDefaultTagsInBatches(
-    deps: SongInitDeps,
-    songsWithoutDefaults: Map<string, string>,
+async function sendInBatches(
+    deps: SongSyncDeps,
+    songIdsToAdd: string[],
+    songIdsToRemove: string[],
+    timestamp: number,
 ) {
-    const songs = [...songsWithoutDefaults].map(([song_id, desc]) => ({
-        song_id,
-        desc,
-    }));
+    let added = 0;
+    let removed = 0;
 
-    for (
-        let start = 0;
-        start < songs.length && !deps.isCancelled();
-        start += SONG_INIT_BATCH_SIZE
-    ) {
-        const batch = songs.slice(start, start + SONG_INIT_BATCH_SIZE);
+    // materialized so a line can say which batch of how many is going out
+    const removeBatches = [...batched(songIdsToRemove)];
+    const addBatches = [...batched(songIdsToAdd)];
 
-        try {
-            // generate and store default tags for the batch
-            await deps.setDefaultTags(batch);
-        } catch (error) {
-            console.error(
-                "Generating default tags for a song batch failed:",
-                error,
-            );
+    const send = async (
+        batch: string[],
+        kind: "add" | "remove",
+        index: number,
+        total: number,
+    ) => {
+        const payload: EditUserSongsPayload = {
+            add: kind === "add" ? batch : [],
+            remove: kind === "remove" ? batch : [],
+        };
+        // logged before the request, so a batch that hangs or throws still
+        // shows up as one that was attempted
+        console.log(
+            `${LOG_TAG} PATCH /songs: ${kind} ${batch.length} songs ` +
+                `(batch ${index + 1} of ${total})`,
+        );
+        await deps.editUserSongs(payload);
+        await deps.store.recordSynced(payload.add, payload.remove, timestamp);
+    };
+
+    try {
+        for (const [index, batch] of removeBatches.entries()) {
+            if (deps.isCancelled()) break;
+            await send(batch, "remove", index, removeBatches.length);
+            removed += batch.length;
         }
+        for (const [index, batch] of addBatches.entries()) {
+            if (deps.isCancelled()) break;
+            await send(batch, "add", index, addBatches.length);
+            added += batch.length;
+        }
+    } catch (error) {
+        console.error(
+            `${LOG_TAG} sending a batch to the backend failed:`,
+            error,
+        );
+        throw error;
+    }
+
+    return { added, removed };
+}
+
+function* batched(songIds: readonly string[]) {
+    for (let start = 0; start < songIds.length; start += SONG_SYNC_BATCH_SIZE) {
+        yield songIds.slice(start, start + SONG_SYNC_BATCH_SIZE);
     }
 }
 
-/** Reads a paged MusicKit source until it runs out or the job is cancelled. */
+/**
+ * Reads a paged MusicKit source until it runs out or the job is cancelled, and
+ * logs a line per page under `source`.
+ *
+ * `onPage` may return how many of the page's songs were new, which the line
+ * reports. The playlist index has no such count, so its lines leave it out.
+ */
 async function forEachPage(
+    source: string,
     readPage: (options: PageOptions) => Promise<SongInitPage>,
-    onPage: (items: SongInitItem[]) => Promise<void>,
+    onPage: (items: SongInitItem[]) => Promise<number | void>,
     isCancelled: () => boolean,
 ) {
     let offset: number | undefined = 0;
 
     while (offset !== undefined && !isCancelled()) {
+        const pageOffset = offset;
         const page: SongInitPage = await readPage({
             limit: SONG_INIT_PAGE_SIZE,
-            offset,
+            offset: pageOffset,
         });
-        await onPage(page.items);
+        const newCount = await onPage(page.items);
+
+        console.log(
+            `${LOG_TAG} ${source} page at offset ${pageOffset}: ` +
+                `${page.items.length} items` +
+                (typeof newCount === "number" ? `, ${newCount} new` : "") +
+                (page.hasNextPage ? "" : ", last page"),
+        );
 
         // move on to the next page, if there is one
         offset =
@@ -175,21 +308,4 @@ async function forEachPage(
                 ? page.nextOffset
                 : undefined;
     }
-}
-
-/** Runs one part of the search, logging a failure rather than stopping the job. */
-async function trySearch(source: string, search: () => Promise<void>) {
-    try {
-        await search();
-    } catch (error) {
-        console.error(
-            `Searching ${source} for songs without default tags failed:`,
-            error,
-        );
-    }
-}
-
-/** What a song's tags are generated from, e.g. "Override by Yoshida Yasei". */
-function describeSong(song: SongInitItem) {
-    return song.artistName ? `${song.title} by ${song.artistName}` : song.title;
 }

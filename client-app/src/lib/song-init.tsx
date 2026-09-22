@@ -5,26 +5,29 @@ import type { ReactNode } from "react";
 import { useTasks } from "@/components/custom/tasks";
 
 import { useAccount } from "./account";
+import { invalidateAPIData } from "./api-actions";
 import { useAppleMusic } from "./apple-music-auth";
-import { useSetDefaultTags, useSongsWithoutDefaultTags } from "./routes/songs";
-import { initializeSongs } from "./song-init-job";
+import {
+    createInitializedSongsStore,
+    openInitializedSongsDb,
+} from "./initialized-songs-db";
+import { useEditUserSongs } from "./routes/songs";
+import { LOG_TAG, syncLibrary } from "./song-init-job";
 
-/** The search: every Apple Music page, asked about and collected. */
 const SYNC_LABEL = "Syncing with Apple Music";
 const SYNC_FAILURE = "Could not sync with Apple Music";
 
-/** Everything after it: generating the default tags. */
-const SUGGEST_LABEL = "Building tag suggestions";
-const SUGGEST_FAILURE = "Could not build tag suggestions";
-
 /**
- * Generates missing default tags for songs in the user's library and library
- * playlists. Starts once there is an account and a connected Apple Music
- * session, and starts over if either changes.
+ * Keeps the backend's copy of the user's library in step with Apple Music.
+ * Starts once there is an account and a connected Apple Music session, and
+ * starts over if either changes.
  *
- * It shows the job's two passes as a task each: one while it searches Apple
- * Music, then one while it builds tags for what that turned up. A run that
- * finds nothing to tag never shows the second.
+ * It shows one task while it runs. The work behind it is a walk of Apple Music
+ * plus a `PATCH /songs` per batch of changes; `song-init-job.ts` has the shape
+ * of the run and `initialized-songs-db.ts` the local record it diffs against.
+ *
+ * Default tags are not its job any more. The backend generates them the first
+ * time something reads them.
  *
  * It is mounted at the root, under the account and Apple Music providers the
  * job needs and under `TasksProvider`.
@@ -32,8 +35,7 @@ const SUGGEST_FAILURE = "Could not build tag suggestions";
 export function SongInitProvider({ children }: { children: ReactNode }) {
     const { account } = useAccount();
     const { isConnected, sessionRevision } = useAppleMusic();
-    const { getSongsWithoutDefaultTags } = useSongsWithoutDefaultTags();
-    const { setDefaultTags } = useSetDefaultTags();
+    const { editUserSongs } = useEditUserSongs();
     const { addTask, endTaskSuccess, endTaskFail } = useTasks();
     const accountId = account?.id;
 
@@ -43,69 +45,62 @@ export function SongInitProvider({ children }: { children: ReactNode }) {
         // needs a signed-in account and an Apple Music library to read
         if (!accountId || !isConnected || !MusicKit.isAvailable()) return;
 
-        // run the job in the background. failures inside it are logged and
-        // skipped, so anything caught here stopped the whole job
         let cancelled = false;
-        let failed = false;
+        let taskId: number | null = addTask(SYNC_LABEL);
 
-        // the task for the pass the job is in, and what it says if that pass
-        // is the one that stops the job
-        let task: { id: number; failure: string } | null = {
-            id: addTask(SYNC_LABEL),
-            failure: SYNC_FAILURE,
+        const endTask = (failure?: string) => {
+            if (taskId === null) return;
+            if (failure === undefined) endTaskSuccess(taskId);
+            else endTaskFail(taskId, failure);
+            taskId = null;
         };
 
-        const endPass = () => {
-            if (task === null) return;
-            if (failed) endTaskFail(task.id, task.failure);
-            else endTaskSuccess(task.id);
-            task = null;
+        const run = async () => {
+            const db = await openInitializedSongsDb();
+            // the file is per device and the library is per account, so the
+            // store is bound to the account this run is for
+            const store = createInitializedSongsStore(db, accountId);
+
+            return syncLibrary({
+                getLibrarySongs: (options) => MusicKit.getLibrarySongs(options),
+                getUserPlaylists: (options) =>
+                    MusicKit.getUserPlaylists(options),
+                getPlaylistSongs: (playlistId, options) =>
+                    MusicKit.getPlaylistSongs(playlistId, options),
+                store,
+                editUserSongs: (payload) => editUserSongs(payload),
+                now: () => Date.now(),
+                isCancelled: () => cancelled,
+            });
         };
 
-        initializeSongs({
-            getLibrarySongs: (options) => MusicKit.getLibrarySongs(options),
-            getUserPlaylists: (options) => MusicKit.getUserPlaylists(options),
-            getPlaylistSongs: (playlistId, options) =>
-                MusicKit.getPlaylistSongs(playlistId, options),
-            getSongsWithoutDefaultTags: (body) =>
-                getSongsWithoutDefaultTags(body),
-            setDefaultTags: (songs) => setDefaultTags(songs),
-            // the search is over, so its task is too. what it found is what
-            // the next pass works through, and none of it means no task
-            onSearchComplete: (count) => {
+        run()
+            .then((result) => {
                 if (cancelled) return;
-                endPass();
-                if (count === 0) return;
-                task = {
-                    id: addTask(SUGGEST_LABEL),
-                    failure: SUGGEST_FAILURE,
-                };
-            },
-            isCancelled: () => cancelled,
-        })
-            .catch((error) => {
-                failed = true;
-                console.error("Initializing songs failed:", error);
+                // what a query matches follows the library, so anything open
+                // is stale. once per run, not once per batch
+                if (result.added > 0 || result.removed > 0) {
+                    invalidateAPIData([{ path: "/queries/results" }]);
+                }
+                endTask();
             })
-            .finally(() => {
-                // the job is over, so the pass it stopped in shows how it went
+            .catch((error) => {
+                console.error(`${LOG_TAG} the run failed:`, error);
                 if (cancelled) return;
-                endPass();
+                endTask(SYNC_FAILURE);
             });
 
         // a new account or session stops this run before its next request.
-        // whichever pass was open did not finish
+        // what it already sent stays sent, and the store already records it
         return () => {
             cancelled = true;
-            if (task !== null) endTaskFail(task.id, "Tagging stopped");
-            task = null;
+            endTask("Library sync stopped");
         };
     }, [
         accountId,
         isConnected,
         sessionRevision,
-        getSongsWithoutDefaultTags,
-        setDefaultTags,
+        editUserSongs,
         addTask,
         endTaskSuccess,
         endTaskFail,

@@ -64,6 +64,7 @@ module.exports = {
         },
       ],
       "expo-font",
+      "expo-sqlite",
       "expo-image",
       "expo-web-browser",
       "expo-secure-store",

@@ -45,7 +45,7 @@ GestureHandlerRootView
   AccountProvider          supabase session -> the jwt everything else needs
     AppleMusicProvider     apple music auth, restored from secure store
       TasksProvider        background task state
-        SongInitProvider   generates missing default tags after auth
+        SongInitProvider   syncs the apple music library into user_songs after auth
           PlaybackProvider     reads the native playback snapshot
             ThemeProvider      light/dark nav theme from nativewind's colorScheme
               BottomBarVisibilityProvider   temporary native-tab visibility exceptions
