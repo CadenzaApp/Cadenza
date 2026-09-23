@@ -213,8 +213,8 @@ struct TopTagScoresParams {
 }
 
 /// Returns the signed in user's `k` highest tag scores, keyed by tag name. A map
-/// has no order, so the client sorts it. Negative scores are left out, and a
-/// user with fewer than `k` names at 0 or above gets all of those. `k` is at most
+/// has no order, so the client sorts it. Scores of 0 and below are left out, and
+/// a user with fewer than `k` positive names gets all of those. `k` is at most
 /// 200.
 ///
 /// JSON return value format, for `?k=3`:

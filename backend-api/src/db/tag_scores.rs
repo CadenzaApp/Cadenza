@@ -76,8 +76,8 @@ fn normalize_deltas(deltas: HashMap<String, i64>) -> Result<BTreeMap<String, i64
     Ok(normalized)
 }
 
-/// The user's `k` highest tag scores, keyed by tag name. Negative scores are
-/// left out, so a user with fewer than `k` names at 0 or above gets all of those.
+/// The user's `k` highest tag scores, keyed by tag name. Scores of 0 and below
+/// are left out, so a user with fewer than `k` positive names gets all of those.
 ///
 /// Where the `k`th place is a tie, the names that sort first make the cut, so
 /// the same scores always pick the same names.
@@ -305,14 +305,14 @@ mod tests {
     }
 
     #[test]
-    fn top_tag_scores_select_reads_one_users_highest_scores_and_skips_negatives() {
+    fn top_tag_scores_select_reads_one_users_highest_positive_scores() {
         let sql = top_tag_scores_select(Uuid::nil(), 10)
             .build(DbBackend::Postgres)
             .to_string();
 
         assert_eq!(
             sql,
-            r#"SELECT "tag_scores"."tag_name", "tag_scores"."score", "tag_scores"."user_id" FROM "tag_scores" WHERE "tag_scores"."user_id" = '00000000-0000-0000-0000-000000000000' AND "tag_scores"."score" >= 0 ORDER BY "tag_scores"."score" DESC, "tag_scores"."tag_name" ASC LIMIT 10"#
+            r#"SELECT "tag_scores"."tag_name", "tag_scores"."score", "tag_scores"."user_id" FROM "tag_scores" WHERE "tag_scores"."user_id" = '00000000-0000-0000-0000-000000000000' AND "tag_scores"."score" > 0 ORDER BY "tag_scores"."score" DESC, "tag_scores"."tag_name" ASC LIMIT 10"#
         );
     }
 

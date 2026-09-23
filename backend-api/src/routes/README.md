@@ -28,7 +28,7 @@ Every route below requires `Authorization: Bearer <supabase jwt>`.
 | GET | `/tags?tag_id=N` | query param | `{"One": {tag, song_ids}}`, 404 if the tag does not exist |
 | POST | `/tags` | `{name, color, type?}` | the new tag id, as a bare number in the body |
 | DELETE | `/tags` | `{tag_id}` | empty. Silently no-ops if the tag is not yours |
-| GET | `/tags/scores` | `?k=N` | `{tag_name: score}`, the user's `k` highest scores, negatives left out. `k` is at most 200 |
+| GET | `/tags/scores` | `?k=N` | `{tag_name: score}`, the user's `k` highest scores, 0 and below left out. `k` is at most 200 |
 | PATCH | `/tags/scores` | `{"pop": 5, "rock": 10, "jazz": -2}` | `{tag_name: score}`, the score every named tag is left at |
 | GET | `/tags/default-tags` | `?search=...` | `[Tag]`, at most 5 default tags matching the search, most used first |
 | GET | `/tags/suggest` | `?song_desc=...&requested_tag_count=N` | `[{name, color}, ...]` |
@@ -134,8 +134,8 @@ two names in one body that collapse into one have their deltas added together. S
 [../db/README.md](../db/README.md) for the upsert.
 
 `GET /tags/scores?k=N` reads them back: the signed in user's `k` highest scores, as the same
-`{tag_name: score}` map `PATCH` returns. A map has no order, so the client sorts it. Negative scores
-are left out, so a user with fewer than `k` names at 0 or above gets all of those. Where the `k`th
+`{tag_name: score}` map `PATCH` returns. A map has no order, so the client sorts it. Scores of 0 and
+below are left out, so a user with fewer than `k` positive names gets all of those. Where the `k`th
 place is a tie, the names that sort first make the cut, so the same scores always pick the same
 names.
 
