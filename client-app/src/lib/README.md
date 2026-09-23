@@ -143,8 +143,9 @@ as the optimistic data and `rollbackOnError`, then revalidates the read whether 
 not. So its `useAPIMutation` lists nothing to invalidate. `useDeleteComment` invalidates every
 song's comments, because its payload carries no song id.
 
-`useEditTagScores` invalidates nothing either, for the opposite reason: nothing reads tag scores
-yet, so there is no cached read to revalidate. Add the score read's endpoint to it once one exists.
+`useEditTagScores` invalidates nothing either, for the opposite reason: nothing in the client reads
+tag scores yet, so there is no cached read to revalidate. The backend has `GET /tags/scores?k=N`;
+when a hook for it lands, add its key to this mutation.
 Its callers are both in `tag-scores.tsx`, below.
 
 Adding an endpoint: add the route in `backend-api/src/routes/*.rs`, then add a hook in the

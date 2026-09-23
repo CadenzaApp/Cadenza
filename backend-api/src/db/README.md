@@ -10,7 +10,7 @@ The data access layer. Everything that touches postgres lives here, so handlers 
 | `mod.rs` | Declares `comment_votes`, `comments`, `entity`, `queries`, `tag_activity`, `tag_scores`, `tag_scores_metadata`, `tags`, `user_songs`. |
 | `tags.rs` | User tag CRUD and applied values, plus searching, reading, and applying default tags, and claiming, finishing, and dropping a song's default tag generation. User tag reads never copy or return defaults. |
 | `tag_activity.rs` | Counts applies and removes of a tag name on a song in `default_tag_activity`, and promotes popular names to default tags. |
-| `tag_scores.rs` | `add_to_tag_scores`: moves the user's score for each named tag by a delta, in one upsert. `get_users_due_for_decay`, `get_max_score`, and `halve_user_tag_scores`: what the weekly halving reads and writes. Unit tested. |
+| `tag_scores.rs` | `add_to_tag_scores`: moves the user's score for each named tag by a delta, in one upsert. `get_top_tag_scores`: the user's `k` highest scores, negatives left out. `get_users_due_for_decay`, `get_max_score`, and `halve_user_tag_scores`: what the weekly halving reads and writes. Unit tested. |
 | `tag_scores_metadata.rs` | Each user's last decay week: `insert_decay_week_if_missing`, `lock_decay_week` (`FOR UPDATE SKIP LOCKED`), and `set_decay_week`. Unit tested. |
 | `queries.rs` | Compiles a tag query to SQL, runs it, and ranks the matches. Unit tested. |
 | `comments.rs` | Comment reads and writes: every comment on a song paired into threads, leaving a comment or a reply, and deleting the user's own comment. |
@@ -51,7 +51,8 @@ keyed by tag name and user, and `tag_scores_metadata` by user alone.
   `auth.users` and cascades, and carries a `gen_random_uuid()` column default that the api never
   leans on because it always sets the column. Two things write it: `PATCH /tags/scores`, through
   `tag_scores.rs::add_to_tag_scores`, and the weekly halving job, through
-  `tag_scores.rs::halve_user_tag_scores`. Nothing reads it yet.
+  `tag_scores.rs::halve_user_tag_scores`. `GET /tags/scores` reads it, through
+  `tag_scores.rs::get_top_tag_scores`.
 - `default_tags_removed` - one row per user who removed a default tag from a song, composite pk of
   `(user_id, tag_id, song_id)`, so a removal counts once. Its fk to `default_tags_applied`
   cascades, so a default tag coming off a song takes its removals with it. Default tag reads and
@@ -148,6 +149,11 @@ of deadlocking each other.
 
 The scores every named tag is left at come straight off the upsert's `RETURNING`, so the caller
 does not read the rows back.
+
+`get_top_tag_scores` is the read. One select of the user's rows with `score >= 0`,
+`ORDER BY score DESC, tag_name ASC LIMIT k`, with `k` capped at `MAX_TOP_TAG_SCORES` (200), handed
+back as a `BTreeMap` keyed by name. The order only decides which rows make the cut. The name
+tiebreak keeps that cut stable when scores tie at the `k`th place, which halving makes common.
 
 The weekly halving is the other side of that. `get_users_due_for_decay` returns every user with
 a score except those whose `tag_scores_metadata` week is already this week or later, as one
@@ -347,7 +353,9 @@ every song scores zero and the whole list is ordered by song id.
 - A delta of 0 still writes the row, which creates it at 0 for a name that had no score.
 - Nothing clamps a delta. Deltas that collapse into one name are summed saturating, but a delta
   big enough to overflow the bigint `score` comes back from postgres as a generic `DatabaseError`.
-- Nothing reads `tag_scores` yet, so there is no endpoint or query that reflects a score.
+- `tag_scores` has no index that leads with `user_id`. Its pk is `(tag_name, user_id)`, so
+  `get_top_tag_scores` scans the table and sorts. An index on `(user_id, score DESC, tag_name)`
+  would make it a range read.
 - Halving truncates toward zero, so a score of 1 becomes 0 and stays there until something adds
   to it again. Scores near zero decay faster in relative terms than large ones.
 - `get_users_due_for_decay` is not user scoped. It reads every user's scores in one query, and

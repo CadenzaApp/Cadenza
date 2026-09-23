@@ -207,12 +207,37 @@ async fn edit_tag_scores_handler(
     ))
 }
 
+#[derive(Deserialize)]
+struct TopTagScoresParams {
+    k: u64,
+}
+
+/// Returns the signed in user's `k` highest tag scores, keyed by tag name. A map
+/// has no order, so the client sorts it. Negative scores are left out, and a
+/// user with fewer than `k` names at 0 or above gets all of those. `k` is at most
+/// 200.
+///
+/// JSON return value format, for `?k=3`:
+/// ```json
+/// { "chill": 4, "pop": 5, "rock": 10 }
+/// ```
+async fn get_top_tag_scores_handler(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Query(params): Query<TopTagScoresParams>,
+) -> Result<Json<HashMap<String, i64>>, CadenzaError> {
+    Ok(Json(
+        db::tag_scores::get_top_tag_scores(&db, claims.user_id, params.k).await?,
+    ))
+}
+
 pub fn get_tags_router() -> Router<AppState> {
     Router::new()
         .route("/", get(get_user_tags_handler))
         .route("/", post(new_user_tag_handler))
         .route("/", delete(delete_user_tag_handler))
-        .route("/scores", patch(edit_tag_scores_handler))
+        .route("/scores", get(get_top_tag_scores_handler)
+                            .patch(edit_tag_scores_handler))
         .route("/default-tags", get(search_default_tags_handler))
         .route("/suggest", get(suggest_tags_handler))
 }

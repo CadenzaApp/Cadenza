@@ -15,6 +15,9 @@ use crate::services::tag_normalizer::normalize_tag_name;
 /// The most tag names one score edit can name, same cap as the song batches.
 const MAX_SCORED_TAG_NAMES: usize = 200;
 
+/// The most scores one top k read can ask for, same cap as a score edit.
+const MAX_TOP_TAG_SCORES: u64 = 200;
+
 /// Adds each delta to the user's score for that tag name, in one upsert. A name
 /// the user has no row for starts at its delta, and a negative delta takes a
 /// score down, below zero included.
@@ -71,6 +74,42 @@ fn normalize_deltas(deltas: HashMap<String, i64>) -> Result<BTreeMap<String, i64
     }
 
     Ok(normalized)
+}
+
+/// The user's `k` highest tag scores, keyed by tag name. Negative scores are
+/// left out, so a user with fewer than `k` names at 0 or above gets all of those.
+///
+/// Where the `k`th place is a tie, the names that sort first make the cut, so
+/// the same scores always pick the same names.
+///
+/// `QueryFormatError` if `k` is more than [`MAX_TOP_TAG_SCORES`].
+pub async fn get_top_tag_scores(
+    db: &impl ConnectionTrait,
+    user_id: Uuid,
+    k: u64,
+) -> Result<HashMap<String, i64>, CadenzaError> {
+    if k > MAX_TOP_TAG_SCORES {
+        return Err(CadenzaError::QueryFormatError(format!(
+            "requests are limited to {MAX_TOP_TAG_SCORES} scores"
+        )));
+    }
+
+    let scores = top_tag_scores_select(user_id, k).all(db).await?;
+
+    Ok(scores
+        .into_iter()
+        .map(|row| (row.tag_name, row.score))
+        .collect())
+}
+
+/// Returns the select behind [`get_top_tag_scores`].
+fn top_tag_scores_select(user_id: Uuid, k: u64) -> Select<tag_scores::Entity> {
+    tag_scores::Entity::find()
+        .filter(tag_scores::Column::UserId.eq(user_id))
+        .filter(tag_scores::Column::Score.gt(0))
+        .order_by_desc(tag_scores::Column::Score)
+        .order_by_asc(tag_scores::Column::TagName)
+        .limit(k)
 }
 
 /// Every user with at least one score whose last decay week is before `week`,
@@ -262,6 +301,18 @@ mod tests {
                 r#"VALUES ('jazz', -2, '00000000-0000-0000-0000-000000000000'), ('pop', 5, '00000000-0000-0000-0000-000000000000'), ('rock', 10, '00000000-0000-0000-0000-000000000000')"#
             ),
             "{sql}"
+        );
+    }
+
+    #[test]
+    fn top_tag_scores_select_reads_one_users_highest_scores_and_skips_negatives() {
+        let sql = top_tag_scores_select(Uuid::nil(), 10)
+            .build(DbBackend::Postgres)
+            .to_string();
+
+        assert_eq!(
+            sql,
+            r#"SELECT "tag_scores"."tag_name", "tag_scores"."score", "tag_scores"."user_id" FROM "tag_scores" WHERE "tag_scores"."user_id" = '00000000-0000-0000-0000-000000000000' AND "tag_scores"."score" >= 0 ORDER BY "tag_scores"."score" DESC, "tag_scores"."tag_name" ASC LIMIT 10"#
         );
     }
 

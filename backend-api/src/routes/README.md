@@ -28,6 +28,7 @@ Every route below requires `Authorization: Bearer <supabase jwt>`.
 | GET | `/tags?tag_id=N` | query param | `{"One": {tag, song_ids}}`, 404 if the tag does not exist |
 | POST | `/tags` | `{name, color, type?}` | the new tag id, as a bare number in the body |
 | DELETE | `/tags` | `{tag_id}` | empty. Silently no-ops if the tag is not yours |
+| GET | `/tags/scores` | `?k=N` | `{tag_name: score}`, the user's `k` highest scores, negatives left out. `k` is at most 200 |
 | PATCH | `/tags/scores` | `{"pop": 5, "rock": 10, "jazz": -2}` | `{tag_name: score}`, the score every named tag is left at |
 | GET | `/tags/default-tags` | `?search=...` | `[Tag]`, at most 5 default tags matching the search, most used first |
 | GET | `/tags/suggest` | `?song_desc=...&requested_tag_count=N` | `[{name, color}, ...]` |
@@ -129,8 +130,14 @@ score, and the response is the score every named tag is left at.
 Scores go by tag name, not tag id, so they cover the user's own tags, default tags, and names they
 have no tag of at all. Names are lowercased, whitespace collapsed, and cut to 50 bytes by
 `services::tag_normalizer::normalize_tag_name` first, so `"Pop"` and `" pop "` are one score, and
-two names in one body that collapse into one have their deltas added together. Nothing reads the
-scores yet. See [../db/README.md](../db/README.md) for the upsert.
+two names in one body that collapse into one have their deltas added together. See
+[../db/README.md](../db/README.md) for the upsert.
+
+`GET /tags/scores?k=N` reads them back: the signed in user's `k` highest scores, as the same
+`{tag_name: score}` map `PATCH` returns. A map has no order, so the client sorts it. Negative scores
+are left out, so a user with fewer than `k` names at 0 or above gets all of those. Where the `k`th
+place is a tie, the names that sort first make the cut, so the same scores always pick the same
+names.
 
 `GET /tags/default-tags` searches the shared default tag pool by name and is not song scoped.
 It is the odd one out next to `/songs/default-tags`, which reads the defaults applied to one song.
@@ -194,7 +201,7 @@ api as JSON should have a type here rather than serializing an entity model dire
 
 ## Connects to
 
-- `crate::db::tags`, `crate::db::queries`, `crate::db::comments`, `crate::db::comment_votes`, and
+- `crate::db::tags`, `crate::db::tag_scores`, `crate::db::queries`, `crate::db::comments`, `crate::db::comment_votes`, and
   `crate::db::user_songs` for all data access.
 - `crate::services::tag_generation::TagGenerationService` for `/tags/suggest`, and through
   `crate::services::default_tags` for the default tag reads.
@@ -226,8 +233,10 @@ api as JSON should have a type here rather than serializing an entity model dire
 - `PATCH /tags/scores` caps a request at 200 tag names, and a name that normalizes to nothing (blank
   or whitespace only) is a `QueryFormatError` (422) rather than being skipped.
 - A score delta of 0 still writes the row, which creates it at 0 for a name that had no score.
-- Nothing reads tag scores yet, so nothing in the app reflects one. The client mutation therefore
-  invalidates no cached reads.
+- `GET /tags/scores` requires `k`. A missing or negative `k` is axum's own 400 with a plain text
+  body, not a `CadenzaError`. More than 200 is a `QueryFormatError` (422).
+- The client has no hook for `GET /tags/scores` yet, so its score mutation invalidates no cached
+  reads.
 - `DELETE /tags`, `DELETE /songs/local-tags`, and `DELETE /comments` take a JSON body. Some HTTP
   clients will not send one on a DELETE.
 - `GET /songs/local-tags` returns only the user's own tags. Default tags (`user_id IS NULL`) are
