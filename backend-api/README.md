@@ -12,19 +12,20 @@ nothing that comes back is persisted.
 
 | file | role |
 | --- | --- |
-| `src/main.rs` | Builds `AppState`, nests the routers, binds the listener. |
+| `src/main.rs` | Builds `AppState`, spawns the background jobs, nests the routers, binds the listener. |
 | `src/auth.rs` | `SupabaseClaims` and `new_jwt_decoder()`, which fetches Supabase's JWKS once at startup. |
 | `src/err.rs` | `CadenzaError` and its status code / JSON body mapping. |
 | `src/routes/` | HTTP handlers. See [src/routes/README.md](src/routes/README.md). |
 | `src/db/` | Query layer and generated entities. See [src/db/README.md](src/db/README.md). |
-| `src/services/` | Tag generation, normalization, Apple Music song metadata, and default tag generation. See [src/services/README.md](src/services/README.md). |
+| `src/services/` | Tag generation, normalization, Apple Music song metadata, default tag generation, and the weekly tag score decay. See [src/services/README.md](src/services/README.md). |
 | `src/test_utils.rs` | Test helpers. Currently just `string_of_length`. |
 | `certs/readme.md` | Leftover self-signed cert steps. No longer needed, the server is plain HTTP. |
 
 ## How it works
 
 `main.rs` loads `.env`, opens the db connection, builds the JWKS decoder, constructs the tag
-generation service, and packs all three into `AppState`.
+generation service, and packs all three into `AppState`. It also spawns the two background jobs,
+neither of which is in `AppState` because nothing serving a request talks to them.
 `AppState` derives `FromRef`, so a handler can extract just the piece it needs:
 
 ```rust
@@ -46,6 +47,18 @@ Auth is per handler, not middleware. A handler that needs a user adds
 `Claims { claims, .. }: Claims<SupabaseClaims>` to its arguments, and `axum-jwt-auth` rejects
 the request with a 401 before the body runs. The user id is `claims.user_id`, taken from the
 JWT `sub`. Never read a user id off the request.
+
+Two `tokio` tasks run for the life of the process, both spawned from `main.rs` before the
+listener binds:
+
+- **default tag backfill**, off unless `DEFAULT_TAG_BACKFILL_ENABLED` is `true`, because every
+  pass can spend Apple Music and OpenAI calls.
+- **tag score decay**, always on. Once a week it halves each user's `tag_scores` in a transaction
+  of its own, skipping users whose highest score is below 5, and records each user's last decay
+  week in `tag_scores_metadata`. It checks once a day, and a day with nobody due costs one query,
+  so there is no env var to turn it off.
+
+Both are in `src/services/`. See [src/services/README.md](src/services/README.md).
 
 Errors: every handler returns `Result<_, CadenzaError>`. `CadenzaError` implements
 `IntoResponse` and maps each variant to a status plus a JSON body of

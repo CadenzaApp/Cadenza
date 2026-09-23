@@ -2,20 +2,22 @@
 
 Business logic that is not data access. Right now that means turning a song description into
 tags with an LLM, normalizing tag names, validating/canonicalizing tag values, reading catalog
-song metadata from Apple Music, and the one step that puts those together: generating a song's
-default tags the first time anything asks for them.
+song metadata from Apple Music, the one step that puts those together (generating a song's
+default tags the first time anything asks for them), and the weekly decay that halves each user's
+tag scores.
 
 ## Files
 
 | file | role |
 | --- | --- |
-| `mod.rs` | Declares `default_tags`, `song_metadata`, `tag_generation`, `tag_normalizer`, and `tag_values`. |
+| `mod.rs` | Declares `default_tags`, `song_metadata`, `tag_generation`, `tag_normalizer`, `tag_score_decay`, and `tag_values`. |
 | `tag_normalizer.rs` | `normalize_tag_name`: trim, collapse whitespace, truncate to 50 bytes on a character boundary, lowercase. Unit tested. |
 | `tag_generation/mod.rs` | The `TagGenerator` trait, its `TagGenerationError`, and the `TagGenerationService` wrapper. |
 | `tag_generation/openai_tag_generator.rs` | The OpenAI implementation, including rate limit detection off the response headers. Unit tested, plus ignored integration tests. |
 | `tag_values.rs` | `canonicalize_tag_value`: validates a tag value string against the tag's `TagType` and returns its canonical stored form (or `CadenzaError::InvalidTagValue`). Unit tested. |
 | `song_metadata.rs` | `SongMetadataService`: song ids to Apple Music catalog metadata, developer token only. Unit tested, plus ignored integration tests. |
 | `default_tags.rs` | `ensure_default_tags_generated`: generates a song's default tags the first time they are read, claiming the song in `default_tags_generation` first so it happens once. Also `backfill_default_tags` and the background job that runs it, which does the same for songs nothing has read yet. |
+| `tag_score_decay.rs` | `decay_due_users` and the background job that runs it: halves each user's tag scores once a week in one transaction per user, skipping users whose highest score is below 5, tracked by a week number per user in `tag_scores_metadata`. Unit tested. |
 
 ## How it works
 
@@ -135,6 +137,43 @@ logs which way it went and only spawns the task when it got a config. Ticks are 
 than burst, so a pass that outruns its interval is followed by a full interval of quiet instead
 of another pass immediately.
 
+### The weekly tag score halving
+
+`spawn_tag_score_decay` runs `decay_due_users` on a `tokio` task at startup and then every
+`CHECK_INTERVAL` (24 hours), for as long as the server lives. Scores only ever go up, through
+`PATCH /tags/scores`, so without this a name the user cared about a year ago outranks one they
+use now forever.
+
+The interval is not what makes it weekly. What does is each user's `last_decay_week` in
+`tag_scores_metadata`, counted from the unix epoch, so `0` is the week of 1 Jan 1970 and a week
+is a flat 7 days from that point rather than a calendar week.
+
+A pass lists the due users through `db::tag_scores::get_users_due_for_decay`: everyone with a
+score whose week is before this one, or who has no row. Then each user gets `decay_user`, one
+transaction of its own:
+
+- **no row**: insert this week and leave their scores alone. The job has no idea when their scores
+  last decayed, so they halve for the first time next week. This is also what happens to every
+  existing user on the first pass after deploy.
+- **row locked by another server, or already this week**: nothing. The lock is taken with
+  `SKIP LOCKED`, so two servers split the users instead of queueing on each other.
+- **due, highest score 5 or more** (`MIN_MAX_SCORE_TO_HALVE`): halve their scores, then write this
+  week.
+- **due, highest score below 5**: write this week and leave their scores alone. This is what
+  keeps a quiet user's scores from all truncating to 0: once their top score is under 5 they stop
+  moving, so their order survives until they score something again.
+
+The halving and the week commit together, so a crash leaves each user either fully done or
+untouched. A user whose transaction fails is logged and left for the next pass, and the loop
+moves on. Each user's row is locked for one short transaction, so a `PATCH /tags/scores` from a
+user only waits on their own halving, never on the whole pass.
+
+Checking daily rather than weekly means a server restarted at any point in the week still
+catches up within a day. A pass with nobody due is one query.
+
+`is_due`, `should_halve`, and `week_since_epoch` are the pure parts, and where the tests live. A
+clock reading before the epoch counts as week 0, which can only leave the job idle.
+
 `canonicalize_tag_value` validates a tag value against the tag's `TagType` and returns the
 canonical string to store. `None` and blank strings are always accepted (an attribute tag can be
 applied with no value yet) and become `None`. `Basic` tags reject any non-blank value. `Text` is
@@ -169,6 +208,9 @@ accepts `"true"`/`"false"` case-insensitively and stores lowercase. Anything els
   `clear_default_tag_generation`. Nothing else writes that table.
 - The backfill job is spawned from `src/main.rs`, which is also where `BackfillConfig::from_env`
   decides whether it runs at all.
+- `tag_score_decay` reads and writes `tag_scores_metadata` through `db::tag_scores_metadata`, and
+  lists and halves users through `db::tag_scores::get_users_due_for_decay`, `get_max_score`, and
+  `halve_user_tag_scores`. It is the only caller of all of them. It is spawned from `src/main.rs` unconditionally.
 
 ## Gotchas
 
@@ -212,6 +254,22 @@ accepts `"true"`/`"false"` case-insensitively and stores lowercase. Anything els
 - Nothing recovers a stuck `in_flight` row. A crash between the claim and the settle leaves the
   row behind, and because any row is skipped, that song never gets default tags again. There is
   no sweeper and no timeout; clearing the row by hand is the only way out.
+- The decay job has no env var. Unlike the backfill it is always on, because it costs one short
+  transaction per user a week and nothing outside the database. Changing `CHECK_INTERVAL` means editing the constant.
+- A gap of several weeks still halves once. Each user's row records the week they were decayed
+  in, not the weeks they owe, so a server down for a month comes back and halves once rather than
+  four times.
+- A stored week ahead of the clock is treated as done, not rewound. A machine whose clock is
+  behind therefore skips a user instead of halving a week another server already covered.
+- A pass is a loop, one transaction per user, so it gets slower as users grow. Every user
+  decays on the same schedule.
+- A user who removes their scores keeps their `tag_scores_metadata` row. It only goes when the
+  auth user does, through the cascade.
+- The threshold looks at a user's highest score only. A user with one score of 5 and the rest at
+  1 or 2 is still halved, and those small scores truncate into ties or 0.
+- The max score is read without locking the user's `tag_scores` rows. A score edit that lands
+  between that read and the `UPDATE` can halve a user who just dropped below 5, or skip one who
+  just rose to it. It sorts itself out the next week.
 
 ---
 Touching files in this directory? Update this README in the same change.

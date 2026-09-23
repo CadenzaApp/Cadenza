@@ -2,12 +2,13 @@ use std::collections::{BTreeMap, HashMap};
 
 use sea_orm::{
     ActiveValue::Set,
-    ConnectionTrait, EntityTrait, InsertMany,
+    ColumnTrait, ConnectionTrait, EntityTrait, InsertMany, QueryFilter, QueryOrder, QuerySelect,
+    Select, UpdateMany,
     prelude::Uuid,
-    sea_query::{Alias, Expr, ExprTrait, OnConflict},
+    sea_query::{Alias, Expr, ExprTrait, OnConflict, Query},
 };
 
-use crate::db::entity::tag_scores;
+use crate::db::entity::{tag_scores, tag_scores_metadata};
 use crate::err::CadenzaError;
 use crate::services::tag_normalizer::normalize_tag_name;
 
@@ -70,6 +71,77 @@ fn normalize_deltas(deltas: HashMap<String, i64>) -> Result<BTreeMap<String, i64
     }
 
     Ok(normalized)
+}
+
+/// Every user with at least one score whose last decay week is before `week`,
+/// or who has no decay week at all, in user id order.
+///
+/// Not user scoped: the weekly decay in `services::tag_score_decay` is the only
+/// caller, and it walks every user this returns.
+pub async fn get_users_due_for_decay(
+    db: &impl ConnectionTrait,
+    week: i32,
+) -> Result<Vec<Uuid>, CadenzaError> {
+    Ok(users_due_for_decay_select(week)
+        .into_tuple::<Uuid>()
+        .all(db)
+        .await?)
+}
+
+/// Returns the select behind [`get_users_due_for_decay`].
+fn users_due_for_decay_select(week: i32) -> Select<tag_scores::Entity> {
+    let decayed_this_week = Query::select()
+        .column(tag_scores_metadata::Column::UserId)
+        .from(tag_scores_metadata::Entity)
+        .and_where(tag_scores_metadata::Column::LastDecayWeek.gte(week))
+        .to_owned();
+
+    tag_scores::Entity::find()
+        .select_only()
+        .column(tag_scores::Column::UserId)
+        .distinct()
+        .filter(tag_scores::Column::UserId.not_in_subquery(decayed_this_week))
+        .order_by_asc(tag_scores::Column::UserId)
+}
+
+/// The user's highest score, or `None` when they have none.
+pub async fn get_max_score(
+    db: &impl ConnectionTrait,
+    user_id: Uuid,
+) -> Result<Option<i64>, CadenzaError> {
+    let max = tag_scores::Entity::find()
+        .select_only()
+        .column_as(tag_scores::Column::Score.max(), "max_score")
+        .filter(tag_scores::Column::UserId.eq(user_id))
+        .into_tuple::<Option<i64>>()
+        .one(db)
+        .await?;
+
+    Ok(max.flatten())
+}
+
+/// Halves every one of the user's tag scores and returns how many rows it
+/// moved.
+pub async fn halve_user_tag_scores(
+    db: &impl ConnectionTrait,
+    user_id: Uuid,
+) -> Result<u64, CadenzaError> {
+    let halved = halve_user_scores_update(user_id).exec(db).await?;
+    Ok(halved.rows_affected)
+}
+
+/// Returns the update that halves the user's scores in place.
+///
+/// Postgres truncates integer division toward zero, so a score of 1 lands on 0
+/// and so does -1. Rows are never deleted, so a name that decayed to 0 keeps its
+/// row and can climb back out of it.
+fn halve_user_scores_update(user_id: Uuid) -> UpdateMany<tag_scores::Entity> {
+    tag_scores::Entity::update_many()
+        .col_expr(
+            tag_scores::Column::Score,
+            Expr::col(tag_scores::Column::Score).div(2),
+        )
+        .filter(tag_scores::Column::UserId.eq(user_id))
 }
 
 /// Returns the upsert that adds each delta to that tag name's score for the
@@ -190,6 +262,30 @@ mod tests {
                 r#"VALUES ('jazz', -2, '00000000-0000-0000-0000-000000000000'), ('pop', 5, '00000000-0000-0000-0000-000000000000'), ('rock', 10, '00000000-0000-0000-0000-000000000000')"#
             ),
             "{sql}"
+        );
+    }
+
+    #[test]
+    fn users_due_for_decay_select_leaves_out_users_already_decayed_this_week() {
+        let sql = users_due_for_decay_select(10)
+            .build(DbBackend::Postgres)
+            .to_string();
+
+        assert_eq!(
+            sql,
+            r#"SELECT DISTINCT "tag_scores"."user_id" FROM "tag_scores" WHERE "tag_scores"."user_id" NOT IN (SELECT "user_id" FROM "tag_scores_metadata" WHERE "tag_scores_metadata"."last_decay_week" >= 10) ORDER BY "tag_scores"."user_id" ASC"#
+        );
+    }
+
+    #[test]
+    fn halve_user_scores_update_divides_only_that_users_scores() {
+        let sql = halve_user_scores_update(Uuid::nil())
+            .build(DbBackend::Postgres)
+            .to_string();
+
+        assert_eq!(
+            sql,
+            r#"UPDATE "tag_scores" SET "score" = "score" / 2 WHERE "tag_scores"."user_id" = '00000000-0000-0000-0000-000000000000'"#
         );
     }
 }
