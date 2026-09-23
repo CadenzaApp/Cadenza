@@ -12,7 +12,7 @@ native module directly.
 | `api-actions.ts`             | The generic SWR wrappers: `useAPIData`, `useAPIPostData`, `useAPIPostDataBatched`, `useAPIFetch`, `useAPIMutation`.                                                                                                                                                                               |
 | `api-endpoints.ts`           | `matchesEndpoint`, the cache-key matcher behind invalidation. Import-free so it can be unit tested.                                                                                                                                                                                               |
 | `swr-utils.ts`               | `clearCache` and `useSimpleMutation`, for things that are not plain backend calls.                                                                                                                                                                                                                |
-| `routes/tags.ts`             | Hooks for `/tags`: `useUserTags`, `useTag`, `useCreateTag`, `useDeleteTag`, `useDefaultTags`, `useSuggestTags`.                                                                                                                                                                                   |
+| `routes/tags.ts`             | Hooks for `/tags`: `useUserTags`, `useTag`, `useCreateTag`, `useDeleteTag`, `useDefaultTags`, `useSuggestTags`, `useEditTagScores`.                                                                                                                                                               |
 | `routes/songs.ts`            | Hooks for local and default tag reads (one song and batched), local tag writes, removing a suggested tag, and editing the user's library.                                                                                                                                                                                   |
 | `routes/queries.ts`          | `useQueryResults`, the one cached hook for `/queries/results`. Both builders go through it, and it carries the suggested-tag flag. It sends no song ids: the backend queries the library it already has.                                                                          |
 | `routes/comments.ts`         | Hooks for `/comments`: `useSongComments`, `useCreateComment`, `useDeleteComment`, `useVoteOnComment`.                                                                                                                                                                                             |
@@ -115,6 +115,7 @@ One file per backend router, and every backend endpoint has at least one hook.
 |                      | `DELETE /tags`                   | `tags.ts` -> `useDeleteTag()`                  |
 |                      | `GET /tags/default-tags`         | `tags.ts` -> `useDefaultTags(search)`          |
 |                      | `GET /tags/suggest`              | `tags.ts` -> `useSuggestTags()`                |
+|                      | `PATCH /tags/scores`             | `tags.ts` -> `useEditTagScores()`              |
 | `routes/songs.rs`    | `GET /songs/local-tags`          | `songs.ts` -> `useTagsOnSong(songId)`          |
 |                      | `POST /songs/local-tags/batch`   | `songs.ts` -> `useTagsOnSongs(songIds)`        |
 |                      | `GET /songs/default-tags`        | `songs.ts` -> `useDefaultTagsOnSong(songId)`   |
@@ -139,6 +140,9 @@ inside the bound `mutate` of that song's `/comments` read, with `comment-votes.t
 as the optimistic data and `rollbackOnError`, then revalidates the read whether the vote saved or
 not. So its `useAPIMutation` lists nothing to invalidate. `useDeleteComment` invalidates every
 song's comments, because its payload carries no song id.
+
+`useEditTagScores` invalidates nothing either, for the opposite reason: nothing reads tag scores
+yet, so there is no cached read to revalidate. Add the score read's endpoint to it once one exists.
 
 Adding an endpoint: add the route in `backend-api/src/routes/*.rs`, then add a hook in the
 matching `routes/*.ts` built on the shared wrappers. For writes, list the endpoints the

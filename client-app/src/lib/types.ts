@@ -27,6 +27,16 @@ export type TagMetadata = {
     count: number;
 }
 
+/**
+ * How far to move each tag name's score, keyed by tag name. Positive values
+ * raise the score, negative ones lower it. Names are matched case-insensitively
+ * and by tag name rather than tag id, so a default tag can be scored too.
+ */
+export type TagScoreDeltas = Record<string, number>;
+
+/** What each named tag's score is now, keyed by the lowercased tag name. */
+export type TagScores = Record<string, number>;
+
 export type CommentVote = "up" | "down";
 
 /** a comment on a song, as the signed in user sees it */

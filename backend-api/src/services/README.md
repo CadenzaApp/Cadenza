@@ -10,7 +10,7 @@ default tags the first time anything asks for them.
 | file | role |
 | --- | --- |
 | `mod.rs` | Declares `default_tags`, `song_metadata`, `tag_generation`, `tag_normalizer`, and `tag_values`. |
-| `tag_normalizer.rs` | `normalize_tag_name`: trim, collapse whitespace, truncate to 50 chars, lowercase. Unit tested. |
+| `tag_normalizer.rs` | `normalize_tag_name`: trim, collapse whitespace, truncate to 50 bytes on a character boundary, lowercase. Unit tested. |
 | `tag_generation/mod.rs` | The `TagGenerator` trait, its `TagGenerationError`, and the `TagGenerationService` wrapper. |
 | `tag_generation/openai_tag_generator.rs` | The OpenAI implementation, including rate limit detection off the response headers. Unit tested, plus ignored integration tests. |
 | `tag_values.rs` | `canonicalize_tag_value`: validates a tag value string against the tag's `TagType` and returns its canonical stored form (or `CadenzaError::InvalidTagValue`). Unit tested. |
@@ -149,8 +149,16 @@ accepts `"true"`/`"false"` case-insensitively and stores lowercase. Anything els
 - Constructed in `src/main.rs` as `TagGenerationService::new(OpenAiTagGenerator::new())` and
   stored in `AppState`.
 - Consumed by `src/routes/tags.rs::suggest_tags_handler`.
-- `normalize_tag_name` is called from the OpenAI generator. Note that it is **not** applied to
-  user-created tag names coming through `POST /tags`.
+- `normalize_tag_name` is called from the OpenAI generator and from
+  `src/db/tag_scores.rs::add_to_tag_scores`, which is the one path that hands it raw client input.
+  Note that it is **not** applied to user-created tag names coming through `POST /tags`.
+- `MAX_TAG_LENGTH` is 50 **bytes**, not characters, and the cut lands on a character boundary at or
+  below it, so a name of multi-byte characters comes back shorter than 50 bytes rather than cut in
+  the middle of one. It used to slice by byte index, which panicked on a name whose character
+  straddled byte 50.
+- Lowercasing happens after the cut, and a few characters get longer when lowercased, so a
+  normalized name can come back a byte or two over `MAX_TAG_LENGTH`. Nothing stores tag names in a
+  bounded column, so this is harmless.
 - `canonicalize_tag_value` is called from `src/db/tags.rs::apply_user_tag` and
   `set_user_tag_value`, which both look up the tag's type through `get_owned_tag` first.
 - `SongMetadataService` is built in `src/main.rs` and lives in `AppState`. Its only caller is
@@ -179,7 +187,7 @@ accepts `"true"`/`"false"` case-insensitively and stores lowercase. Anything els
 - Adding a provider means one new file next to `openai_tag_generator.rs`, an `impl TagGenerator`,
   and a one-line change in `main.rs`. Nothing else should need to know.
 - `TagType::Text` has no length cap, unlike tag names (`normalize_tag_name` truncates to 50
-  chars). A client can store an arbitrarily long string as a text attribute value.
+  bytes). A client can store an arbitrarily long string as a text attribute value.
 - `SongMetadataService` is catalog only. A library-only song id has no catalog entry and is
   absent from the map, indistinguishable from a bad id.
 - The storefront comes from `APPLE_MUSIC_STOREFRONT` and defaults to `us`. The backend has no

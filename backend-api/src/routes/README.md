@@ -9,7 +9,7 @@ call into `src/db/` or `src/services/`, and shape the response.
 | file | role |
 | --- | --- |
 | `mod.rs` | Declares `json`, `comments`, `queries`, `tags`, `songs`. |
-| `tags.rs` | Tag CRUD for the signed-in user, default tag search, plus LLM tag suggestion. Mounted at `/tags`. |
+| `tags.rs` | Tag CRUD for the signed-in user, tag score edits, default tag search, plus LLM tag suggestion. Mounted at `/tags`. |
 | `songs.rs` | Adding and removing the user's songs, reading and changing user tags, and reading default tags. Mounted at `/songs`. |
 | `queries.rs` | Runs a tag query and returns song ids by relevance. Mounted at `/queries`. |
 | `comments.rs` | Reading, leaving, deleting, and voting on comments on songs. Mounted at `/comments`. |
@@ -28,6 +28,7 @@ Every route below requires `Authorization: Bearer <supabase jwt>`.
 | GET | `/tags?tag_id=N` | query param | `{"One": {tag, song_ids}}`, 404 if the tag does not exist |
 | POST | `/tags` | `{name, color, type?}` | the new tag id, as a bare number in the body |
 | DELETE | `/tags` | `{tag_id}` | empty. Silently no-ops if the tag is not yours |
+| PATCH | `/tags/scores` | `{"pop": 5, "rock": 10, "jazz": -2}` | `{tag_name: score}`, the score every named tag is left at |
 | GET | `/tags/default-tags` | `?search=...` | `[Tag]`, at most 5 default tags matching the search, most used first |
 | GET | `/tags/suggest` | `?song_desc=...&requested_tag_count=N` | `[{name, color}, ...]` |
 | PATCH | `/songs` | `{add: [...], remove: [...]}` | empty. Adds and removes the user's songs |
@@ -120,6 +121,17 @@ Handlers take what they need out of `AppState` by `FromRef`, so most take
 take `State(tag_gen_service)`. Routes that operate only on shared defaults still require credentials
 with a bare `_: Claims<SupabaseClaims>`.
 
+`PATCH /tags/scores` tracks which tag names the signed in user is interested in. The body is a map
+of tag name to how far to move that name's score, so one interaction sends one request however many
+tags it touched. A name the user has no score for starts at its delta, a negative delta lowers the
+score, and the response is the score every named tag is left at.
+
+Scores go by tag name, not tag id, so they cover the user's own tags, default tags, and names they
+have no tag of at all. Names are lowercased, whitespace collapsed, and cut to 50 bytes by
+`services::tag_normalizer::normalize_tag_name` first, so `"Pop"` and `" pop "` are one score, and
+two names in one body that collapse into one have their deltas added together. Nothing reads the
+scores yet. See [../db/README.md](../db/README.md) for the upsert.
+
 `GET /tags/default-tags` searches the shared default tag pool by name and is not song scoped.
 It is the odd one out next to `/songs/default-tags`, which reads the defaults applied to one song.
 Its results are ordered by how many songs carry the tag, most first.
@@ -211,6 +223,11 @@ api as JSON should have a type here rather than serializing an entity model dire
   returns 5 tags rather than none. The cap of 5 is `DEFAULT_TAG_SEARCH_LIMIT` and is not a
   client-settable param.
 - `POST /tags` returns the id as a bare string body, not JSON.
+- `PATCH /tags/scores` caps a request at 200 tag names, and a name that normalizes to nothing (blank
+  or whitespace only) is a `QueryFormatError` (422) rather than being skipped.
+- A score delta of 0 still writes the row, which creates it at 0 for a name that had no score.
+- Nothing reads tag scores yet, so nothing in the app reflects one. The client mutation therefore
+  invalidates no cached reads.
 - `DELETE /tags`, `DELETE /songs/local-tags`, and `DELETE /comments` take a JSON body. Some HTTP
   clients will not send one on a DELETE.
 - `GET /songs/local-tags` returns only the user's own tags. Default tags (`user_id IS NULL`) are

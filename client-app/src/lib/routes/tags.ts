@@ -1,5 +1,11 @@
 import { useAPIData, useAPIFetch, useAPIMutation } from "../api-actions";
-import { Tag, TagMetadata, TagType } from "@/lib/types";
+import {
+    Tag,
+    TagMetadata,
+    TagScoreDeltas,
+    TagScores,
+    TagType,
+} from "@/lib/types";
 
 type UserTagsResponse = {
     All: { tags: Tag[]; metadata: Record<number, TagMetadata> };
@@ -105,5 +111,38 @@ export function useSuggestTags() {
         suggestTagsErr: x.error,
         resetSuggestTags: x.reset,
         suggestTags: x.trigger,
+    };
+}
+
+/**
+ * Moves the signed in user's score for each named tag by the given amount, which
+ * is how the app tracks the tags they are interested in. A tag name they have no
+ * score for starts at its delta, and a negative delta lowers the score.
+ *
+ * Trigger it with the names and deltas together, so one interaction is one
+ * request:
+ *
+ * ```ts
+ * await editTagScores({ pop: 5, rock: 10, jazz: -2 });
+ * ```
+ *
+ * Bumping a single tag is the one-key case, `editTagScores({ pop: 1 })`. Scores
+ * go by tag name, not tag id, so default tags can be scored as well. Names are
+ * lowercased and whitespace-collapsed by the backend, and it returns the score
+ * each one is left at.
+ *
+ * Nothing reads the scores yet, so this invalidates no cached reads. Give it the
+ * score read's endpoint once one exists.
+ */
+export function useEditTagScores() {
+    const x = useAPIMutation<TagScoreDeltas, TagScores>(
+        "PATCH",
+        "/tags/scores",
+    );
+    return {
+        editTagScoresErr: x.error,
+        editTagScoresLoading: x.isMutating,
+        resetEditTagScores: x.reset,
+        editTagScores: x.trigger,
     };
 }

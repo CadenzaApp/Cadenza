@@ -7,14 +7,15 @@ The data access layer. Everything that touches postgres lives here, so handlers 
 
 | file | role |
 | --- | --- |
-| `mod.rs` | Declares `comment_votes`, `comments`, `entity`, `queries`, `tag_activity`, `tags`, `user_songs`. |
+| `mod.rs` | Declares `comment_votes`, `comments`, `entity`, `queries`, `tag_activity`, `tag_scores`, `tags`, `user_songs`. |
 | `tags.rs` | User tag CRUD and applied values, plus searching, reading, and applying default tags, and claiming, finishing, and dropping a song's default tag generation. User tag reads never copy or return defaults. |
 | `tag_activity.rs` | Counts applies and removes of a tag name on a song in `default_tag_activity`, and promotes popular names to default tags. |
+| `tag_scores.rs` | `add_to_tag_scores`: moves the user's score for each named tag by a delta, in one upsert. Unit tested. |
 | `queries.rs` | Compiles a tag query to SQL, runs it, and ranks the matches. Unit tested. |
 | `comments.rs` | Comment reads and writes: every comment on a song paired into threads, leaving a comment or a reply, and deleting the user's own comment. |
 | `comment_votes.rs` | `CommentVote` and `VoteTally`. `set_comment_vote`, which casts, switches, or takes back the user's vote on a comment, and `get_song_vote_tallies`, the votes on each comment of a song as the reading user sees them. |
 | `user_songs.rs` | `edit_user_songs`: adds and removes the user's songs in one transaction. `get_recent_songs_without_generated_default_tags`: the newest songs nothing has generated default tags for, which the backfill job walks. |
-| `entity/` | sea-orm-codegen output. Includes tag, default-tag, and comment tables, plus `prelude` and `mod`. Do not hand edit. |
+| `entity/` | sea-orm-codegen output. Includes tag, tag score, default-tag, and comment tables, plus `prelude` and `mod`. Do not hand edit. |
 
 ## Schema
 
@@ -42,6 +43,12 @@ The tables below are keyed on song ids that come from Apple Music.
   `(song_id, tag_name)`. `apply_count` is how many users have a tag of that name on the song, and
   `remove_count` how many removed it as a suggested tag. The row is written once and never
   deleted, so the counts outlive the promotion to `default_tags_applied`.
+- `tag_scores` - how interested a user is in a tag name. Composite pk of `(tag_name, user_id)`,
+  plus `score`, a bigint defaulting to 0. Keyed by name rather than tag id, so one score covers
+  the user's own tags, default tags, and names they have no tag of at all. `user_id` references
+  `auth.users` and cascades, and carries a `gen_random_uuid()` column default that the api never
+  leans on because it always sets the column. `PATCH /tags/scores` is the only thing that writes
+  it, through `tag_scores.rs::add_to_tag_scores`. Nothing reads it yet.
 - `default_tags_removed` - one row per user who removed a default tag from a song, composite pk of
   `(user_id, tag_id, song_id)`, so a removal counts once. Its fk to `default_tags_applied`
   cascades, so a default tag coming off a song takes its removals with it. Default tag reads and
@@ -115,6 +122,25 @@ for `remove_count`, and `count_tag_unapplied` takes 1 off `apply_count` with an 
 never deleted, so `apply_promotes_tag` promotes only on the apply that first makes the counts
 qualify. Only applies promote: an unapply lowers `apply_count`, and a remove is only possible on a
 name that is already a default tag there.
+
+## Tag scores
+
+`tag_scores.rs::add_to_tag_scores` takes a map of tag name to delta and adds each delta to that
+name's score for the user, in one multi-row upsert:
+`ON CONFLICT (tag_name, user_id) DO UPDATE SET score = tag_scores.score + excluded.score`. A name
+with no row yet starts at its delta, and a negative delta takes a score down, below zero included.
+
+Names go through `services::tag_normalizer::normalize_tag_name` first, so a score belongs to a
+lowercased name and `"Pop"` and `" pop "` are one row. `normalize_deltas` does that, rejects a name
+that normalizes to nothing, caps a request at `MAX_SCORED_TAG_NAMES` (200) names, and adds up the
+deltas of names that collapsed into one rather than letting one of them win.
+
+It hands back a `BTreeMap`, so the statement writes rows in name order however the request listed
+them. Two concurrent requests naming the same tags then lock those rows in the same order instead
+of deadlocking each other.
+
+The scores every named tag is left at come straight off the upsert's `RETURNING`, so the caller
+does not read the rows back.
 
 ## Comments
 
@@ -296,6 +322,12 @@ every song scores zero and the whole list is ordered by song id.
 - The removal join sits in two places, `default_tags_on_songs_query` and the default branch of
   `queries.rs::applied_tags_source`. A new read of `default_tags_applied` has to exclude removals
   itself.
+- Tag scores are per tag name, not per tag id. Nothing ties a score to a `tags` row, so a score
+  can name a tag the user deleted, a default tag, or a name they never had a tag of.
+- A delta of 0 still writes the row, which creates it at 0 for a name that had no score.
+- Nothing clamps a delta. Deltas that collapse into one name are summed saturating, but a delta
+  big enough to overflow the bigint `score` comes back from postgres as a generic `DatabaseError`.
+- Nothing reads `tag_scores` yet, so there is no endpoint or query that reflects a score.
 - `comment` has no index on `song_id` or `parent`, so `get_song_comments` scans the table, and so
   does `get_song_vote_tallies`, whose join to `comment` filters on `song_id`. The `comment_votes` pk
   leads with `user_id`, so that join's `comment_id` side cannot use it either.

@@ -3,5 +3,6 @@ pub mod comments;
 pub mod entity;
 pub mod queries;
 pub mod tag_activity;
+pub mod tag_scores;
 pub mod tags;
 pub mod user_songs;
