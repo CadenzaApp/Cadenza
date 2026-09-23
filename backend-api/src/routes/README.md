@@ -13,8 +13,9 @@ call into `src/db/` or `src/services/`, and shape the response.
 | `songs.rs` | Adding and removing the user's songs, reading and changing user tags, and reading default tags. Mounted at `/songs`. |
 | `queries.rs` | Runs a tag query and returns song ids by relevance. Mounted at `/queries`. |
 | `comments.rs` | Reading, leaving, deleting, and voting on comments on songs. Mounted at `/comments`. |
-| `json/mod.rs` | `vec_into`, a small `Vec<A> -> Vec<B>` helper. Declares `comment`, `query`, and `tag`. |
+| `json/mod.rs` | `vec_into`, a small `Vec<A> -> Vec<B>` helper. Declares `comment`, `query`, `tag`, and `tag_score`. |
 | `json/tag.rs` | `TagType`, `Tag`, and `AppliedTag`, the wire shapes of a tag. `From<tags::Model>` drops `user_id`. |
+| `json/tag_score.rs` | `ScoredTag`, one top tag as a `[score, color, source]` array, and `TagSource`, `"local"` or `"global"`. |
 | `json/comment.rs` | `Comment` and `CommentThread`, the wire shapes of a comment and of a top level comment with its replies. Both take the reading user's id, to turn `user_id` into `mine`, and each comment's vote tally. |
 | `json/query.rs` | `Query`, `QueryNode`, `Filter`, `FilterOp`: the input schema of a tag query. Both client builders produce it. |
 
@@ -28,7 +29,7 @@ Every route below requires `Authorization: Bearer <supabase jwt>`.
 | GET | `/tags?tag_id=N` | query param | `{"One": {tag, song_ids}}`, 404 if the tag does not exist |
 | POST | `/tags` | `{name, color, type?}` | the new tag id, as a bare number in the body |
 | DELETE | `/tags` | `{tag_id}` | empty. Silently no-ops if the tag is not yours |
-| GET | `/tags/scores` | `?k=N` | `{tag_name: score}`, the user's `k` highest scores, 0 and below left out. `k` is at most 200 |
+| GET | `/tags/scores` | `?k=N` | `{tag_name: [score, color, "local" \| "global"]}`, the user's `k` highest scores, 0 and below and names with no tag left out. `k` is at most 200 |
 | PATCH | `/tags/scores` | `{"pop": 5, "rock": 10, "jazz": -2}` | `{tag_name: score}`, the score every named tag is left at |
 | GET | `/tags/default-tags` | `?search=...` | `[Tag]`, at most 5 default tags matching the search, most used first |
 | GET | `/tags/suggest` | `?song_desc=...&requested_tag_count=N` | `[{name, color}, ...]` |
@@ -133,11 +134,15 @@ have no tag of at all. Names are lowercased, whitespace collapsed, and cut to 50
 two names in one body that collapse into one have their deltas added together. See
 [../db/README.md](../db/README.md) for the upsert.
 
-`GET /tags/scores?k=N` reads them back: the signed in user's `k` highest scores, as the same
-`{tag_name: score}` map `PATCH` returns. A map has no order, so the client sorts it. Scores of 0 and
-below are left out, so a user with fewer than `k` positive names gets all of those. Where the `k`th
-place is a tie, the names that sort first make the cut, so the same scores always pick the same
-names.
+`GET /tags/scores?k=N` reads them back: the signed in user's `k` highest scores, keyed by the same
+normalized tag name `PATCH` uses. Each value is a three element array, `[score, color, source]`,
+so the client can draw the name as a tag. `color` is the user's own tag's when they have a tag of
+that name, and `source` is then `"local"`. Otherwise it is the default tag's, and `source` is
+`"global"`. A map has no order, so the client sorts it.
+
+Scores of 0 and below are left out, and so are names with no tag at all, like one the user deleted.
+A user with fewer than `k` names left gets all of those. Where the `k`th place is a tie, the names
+that sort first make the cut, so the same scores always pick the same names.
 
 `GET /tags/default-tags` searches the shared default tag pool by name and is not song scoped.
 It is the odd one out next to `/songs/default-tags`, which reads the defaults applied to one song.
@@ -235,8 +240,8 @@ api as JSON should have a type here rather than serializing an entity model dire
 - A score delta of 0 still writes the row, which creates it at 0 for a name that had no score.
 - `GET /tags/scores` requires `k`. A missing or negative `k` is axum's own 400 with a plain text
   body, not a `CadenzaError`. More than 200 is a `QueryFormatError` (422).
-- The client has no hook for `GET /tags/scores` yet, so its score mutation invalidates no cached
-  reads.
+- `GET /tags/scores` keys by the normalized name, so a user tag named `Road Trip` comes back as
+  `road trip`.
 - `DELETE /tags`, `DELETE /songs/local-tags`, and `DELETE /comments` take a JSON body. Some HTTP
   clients will not send one on a DELETE.
 - `GET /songs/local-tags` returns only the user's own tags. Default tags (`user_id IS NULL`) are

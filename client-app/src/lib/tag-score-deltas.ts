@@ -23,27 +23,44 @@ export const TAG_SCORE_NAME_LIMIT = 200;
  * `LOCAL_TAG_PLAY_SCORE_DELTA` for every one of the user's own tags on it, and
  * `DEFAULT_TAG_PLAY_SCORE_DELTA` for every default tag on it.
  *
- * Scores go by name rather than by tag id, so two tags sharing a name on one
- * song add up instead of overwriting each other, a local and a default tag
- * included. Names the backend would reject are dropped rather than failing the
- * whole request: a blank one, and anything past `TAG_SCORE_NAME_LIMIT` names,
- * with local tags ahead of default ones. The backend lowercases and collapses
- * whitespace itself, so names go out as the user wrote them.
+ * Scores go by name rather than by tag id, so two local tags sharing a name on
+ * one song add up instead of overwriting each other. A default tag whose name
+ * is also a local tag's counts as local only, so it adds nothing of its own.
+ * Names are compared the way the backend keys a score: trimmed, whitespace
+ * collapsed, lowercased.
+ *
+ * Names the backend would reject are dropped rather than failing the whole
+ * request: a blank one, and anything past `TAG_SCORE_NAME_LIMIT` names, with
+ * local tags ahead of default ones. The backend normalizes names itself, so
+ * they go out as the user wrote them.
  */
 export function playTagScoreDeltas(
     localTags: readonly { name: string }[],
     defaultTags: readonly { name: string }[],
 ): TagScoreDeltas {
+    const localNames = new Set(localTags.map(({ name }) => scoreName(name)));
+
     return tagScoreDeltas([
         ...localTags.map(({ name }) => ({
             name,
             delta: LOCAL_TAG_PLAY_SCORE_DELTA,
         })),
-        ...defaultTags.map(({ name }) => ({
-            name,
-            delta: DEFAULT_TAG_PLAY_SCORE_DELTA,
-        })),
+        ...defaultTags
+            .filter(({ name }) => !localNames.has(scoreName(name)))
+            .map(({ name }) => ({
+                name,
+                delta: DEFAULT_TAG_PLAY_SCORE_DELTA,
+            })),
     ]);
+}
+
+/**
+ * `name` as the backend keys its score, minus its 50 byte cut. A local name
+ * past 50 bytes can therefore miss a default name the backend treats as the
+ * same, and both score.
+ */
+function scoreName(name: string): string {
+    return name.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
 /**

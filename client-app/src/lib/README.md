@@ -12,7 +12,7 @@ native module directly.
 | `api-actions.ts`             | The generic SWR wrappers: `useAPIData`, `useAPIPostData`, `useAPIPostDataBatched`, `useAPIFetch`, `useAPIMutation`.                                                                                                                                                                               |
 | `api-endpoints.ts`           | `matchesEndpoint`, the cache-key matcher behind invalidation. Import-free so it can be unit tested.                                                                                                                                                                                               |
 | `swr-utils.ts`               | `clearCache` and `useSimpleMutation`, for things that are not plain backend calls.                                                                                                                                                                                                                |
-| `routes/tags.ts`             | Hooks for `/tags`: `useUserTags`, `useTag`, `useCreateTag`, `useDeleteTag`, `useDefaultTags`, `useSuggestTags`, `useEditTagScores`.                                                                                                                                                               |
+| `routes/tags.ts`             | Hooks for `/tags`: `useUserTags`, `useTag`, `useCreateTag`, `useDeleteTag`, `useDefaultTags`, `useSuggestTags`, `useEditTagScores`, `useTopTagScores`.                                                                                                                                                               |
 | `routes/songs.ts`            | Hooks for local and default tag reads (one song and batched), local tag writes, removing a suggested tag, and editing the user's library.                                                                                                                                                                                   |
 | `routes/queries.ts`          | `useQueryResults`, the one cached hook for `/queries/results`. Both builders go through it, and it carries the suggested-tag flag. It sends no song ids: the backend queries the library it already has.                                                                          |
 | `routes/comments.ts`         | Hooks for `/comments`: `useSongComments`, `useCreateComment`, `useDeleteComment`, `useVoteOnComment`.                                                                                                                                                                                             |
@@ -21,7 +21,7 @@ native module directly.
 | `song-init.tsx`              | `SongInitProvider`, which runs the library sync job after account and Apple Music authorization.                                                                                                                                                                                                  |
 | `song-init-job.ts`           | Import-free, tested library sync job: walks Apple Music, diffs it against the local record, and sends the difference to `PATCH /songs`.                                                                                                                                                           |
 | `initialized-songs-db.ts`    | The expo-sqlite `initialized_songs` table, the device's record of what `user_songs` holds. Opens the database and hands the job an `InitializedSongsStore`.                                                                                                                                       |
-| `tag-scores.tsx`             | `TagScoreTracker`, which gives each of the user's own tags on a song 2 points and each default tag 1 point when that song starts playing, and `useScoreQueryTags`, which gives every tag a query uses positively 10 points.                                                                      |
+| `tag-scores.tsx`             | `TagScoreTracker`, which gives each of the user's own tags on a song 2 points and each default tag 1 point once that song has played for 5 seconds, and `useScoreQueryTags`, which gives every tag a query uses positively 10 points.                                                                      |
 | `tag-score-deltas.ts`        | The `PATCH /tags/scores` body one play of a song, or one run of a query, is worth. Only type imports, tested in `tag-score-deltas.test.ts`.                                                                                                                                                       |
 | `account.tsx`                | `AccountProvider` / `useAccount`. Supabase session and the JWT.                                                                                                                                                                                                                                   |
 | `apple-music-auth.tsx`       | `AppleMusicProvider` / `useAppleMusic`. Apple Music tokens, persisted in secure store.                                                                                                                                                                                                            |
@@ -117,6 +117,7 @@ One file per backend router, and every backend endpoint has at least one hook.
 |                      | `DELETE /tags`                   | `tags.ts` -> `useDeleteTag()`                  |
 |                      | `GET /tags/default-tags`         | `tags.ts` -> `useDefaultTags(search)`          |
 |                      | `GET /tags/suggest`              | `tags.ts` -> `useSuggestTags()`                |
+|                      | `GET /tags/scores`               | `tags.ts` -> `useTopTagScores(k)`              |
 |                      | `PATCH /tags/scores`             | `tags.ts` -> `useEditTagScores()`              |
 | `routes/songs.rs`    | `GET /songs/local-tags`          | `songs.ts` -> `useTagsOnSong(songId)`          |
 |                      | `POST /songs/local-tags/batch`   | `songs.ts` -> `useTagsOnSongs(songIds)`        |
@@ -143,10 +144,12 @@ as the optimistic data and `rollbackOnError`, then revalidates the read whether 
 not. So its `useAPIMutation` lists nothing to invalidate. `useDeleteComment` invalidates every
 song's comments, because its payload carries no song id.
 
-`useEditTagScores` invalidates nothing either, for the opposite reason: nothing in the client reads
-tag scores yet, so there is no cached read to revalidate. The backend has `GET /tags/scores?k=N`;
-when a hook for it lands, add its key to this mutation.
-Its callers are both in `tag-scores.tsx`, below.
+`useTopTagScores(k)` reads the user's top tags as `{name: [score, color, source]}`, where `source`
+is `local` when the color is the user's own tag's and `global` when it is a default tag's. The map
+has no order, so callers sort it. `useEditTagScores` invalidates it, since any score edit can move
+the top tags. Its callers are both in `tag-scores.tsx`, below, so a play or a query refreshes an
+open top tags read. `useCreateTag` and `useDeleteTag` invalidate it too, because a tag of a scored
+name decides whether that name is local, what color it has, and whether it shows up at all.
 
 Adding an endpoint: add the route in `backend-api/src/routes/*.rs`, then add a hook in the
 matching `routes/*.ts` built on the shared wrappers. For writes, list the endpoints the
@@ -394,18 +397,25 @@ tag read touches a song it has never generated for.
 
 ## Scoring tags on playback
 
-The tags on a song score the moment that song starts playing, which is how the backend learns
-which tags the user listens to rather than which ones they type.
+The tags on a song score once that song has played for 5 seconds, which is how the backend learns
+which tags the user listens to rather than which ones they type or skip past.
 `tag-scores.tsx::TagScoreTracker` is mounted at the root, watches `usePlaybackTrackState()`, and
 sends one `PATCH /tags/scores` per play. The body is
 `tag-score-deltas.ts::playTagScoreDeltas`: 2 points for each of the user's own tags
 (`LOCAL_TAG_PLAY_SCORE_DELTA`) and 1 for each default tag (`DEFAULT_TAG_PLAY_SCORE_DELTA`), added
-up by tag name, since scores go by name rather than by tag id. A name that is both a local and a
-default tag on the song gets 3.
+up by tag name, since scores go by name rather than by tag id. A default tag whose name is also
+one of the user's tags on the song counts as local only, so it gets 2, not 3. Names are compared
+trimmed, whitespace collapsed, and lowercased, the way the backend keys a score.
 
-There is no native playback-start event. A start is the polled snapshot reporting a track that is
-playing and is not the track the last point went to, so resuming after a pause is not a new play,
-and neither is the same song repeating.
+There is no native playback event, so plays are read off the polled snapshot. A play starts when
+the active track becomes a different song, and scores at most once. Resuming after a pause is not
+a new play, and neither is the same song repeating. A snapshot with no track in it is ignored, so
+losing the track for a poll and finding the same one again does not start a second play.
+
+A play scores after `PLAY_SCORE_DELAY_MS` (5 seconds) of uninterrupted playing. A timer runs while
+the track is playing and is cleared by a pause or a track change, so pausing starts the count over
+and skipping before it runs out drops the play. The play lives in state and is replaced during
+render when the track changes, so the scoring effect never pairs an old play with a new track.
 
 It reads the user's own tags through `useTagsOnSong` and the default tags through
 `useDefaultTagsOnSong`, both under the song's `catalogId ?? id`. Those are the same cache keys the

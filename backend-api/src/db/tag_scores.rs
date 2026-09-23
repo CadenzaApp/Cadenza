@@ -8,7 +8,8 @@ use sea_orm::{
     sea_query::{Alias, Expr, ExprTrait, OnConflict, Query},
 };
 
-use crate::db::entity::{tag_scores, tag_scores_metadata};
+use crate::db::entity::{tag_scores, tag_scores_metadata, tags};
+use crate::db::tags::get_tags_named;
 use crate::err::CadenzaError;
 use crate::services::tag_normalizer::normalize_tag_name;
 
@@ -76,40 +77,93 @@ fn normalize_deltas(deltas: HashMap<String, i64>) -> Result<BTreeMap<String, i64
     Ok(normalized)
 }
 
-/// The user's `k` highest tag scores, keyed by tag name. Scores of 0 and below
-/// are left out, so a user with fewer than `k` positive names gets all of those.
+/// One of the user's top tag scores, with the tag it is drawn as.
+#[derive(Debug, PartialEq, Eq)]
+pub struct TopTagScore {
+    pub score: i64,
+    pub color: String,
+    /// Whether `color` is the user's own tag's. False means the name has only a
+    /// default tag.
+    pub local: bool,
+}
+
+/// The user's `k` highest tag scores, keyed by tag name, each with its tag's
+/// color: the user's own tag of that name if they have one, otherwise the
+/// default tag of that name.
 ///
-/// Where the `k`th place is a tie, the names that sort first make the cut, so
-/// the same scores always pick the same names.
+/// Scores of 0 and below are left out, and so are names with no tag at all,
+/// like one the user deleted, since there is nothing to draw them as. A user
+/// with fewer than `k` names left gets all of those. Where the `k`th place is a
+/// tie, the names that sort first make the cut, so the same scores always pick
+/// the same names.
 ///
 /// `QueryFormatError` if `k` is more than [`MAX_TOP_TAG_SCORES`].
 pub async fn get_top_tag_scores(
     db: &impl ConnectionTrait,
     user_id: Uuid,
     k: u64,
-) -> Result<HashMap<String, i64>, CadenzaError> {
+) -> Result<HashMap<String, TopTagScore>, CadenzaError> {
     if k > MAX_TOP_TAG_SCORES {
         return Err(CadenzaError::QueryFormatError(format!(
             "requests are limited to {MAX_TOP_TAG_SCORES} scores"
         )));
     }
 
-    let scores = top_tag_scores_select(user_id, k).all(db).await?;
+    // every positive score, since names with no tag drop out after the read and
+    // a LIMIT k here could leave fewer than k behind
+    let scores = positive_tag_scores_select(user_id).all(db).await?;
+    let names: Vec<String> = scores.iter().map(|row| row.tag_name.clone()).collect();
+    let colors = tag_colors_by_name(user_id, get_tags_named(db, user_id, &names).await?);
 
     Ok(scores
         .into_iter()
-        .map(|row| (row.tag_name, row.score))
+        .filter_map(|row| {
+            let &(ref color, local) = colors.get(&row.tag_name)?;
+            let top = TopTagScore {
+                score: row.score,
+                color: color.clone(),
+                local,
+            };
+            Some((row.tag_name, top))
+        })
+        .take(k as usize)
         .collect())
 }
 
-/// Returns the select behind [`get_top_tag_scores`].
-fn top_tag_scores_select(user_id: Uuid, k: u64) -> Select<tag_scores::Entity> {
+/// Returns the select behind [`get_top_tag_scores`]: every positive score the
+/// user has, highest first, then by name.
+fn positive_tag_scores_select(user_id: Uuid) -> Select<tag_scores::Entity> {
     tag_scores::Entity::find()
         .filter(tag_scores::Column::UserId.eq(user_id))
         .filter(tag_scores::Column::Score.gt(0))
         .order_by_desc(tag_scores::Column::Score)
         .order_by_asc(tag_scores::Column::TagName)
-        .limit(k)
+}
+
+/// Each normalized tag name in `tags` to the color it is drawn in, and whether
+/// that color is the user's own tag's.
+///
+/// The user's tag wins over a default tag of the same name. Between two tags on
+/// the same side, the one that comes first wins, which is the oldest when
+/// `tags` is in tag id order.
+fn tag_colors_by_name(user_id: Uuid, tags: Vec<tags::Model>) -> HashMap<String, (String, bool)> {
+    let mut colors: HashMap<String, (String, bool)> = HashMap::new();
+
+    for tag in tags {
+        let local = tag.user_id == Some(user_id);
+        let name = normalize_tag_name(&tag.name);
+
+        match colors.get(&name) {
+            // a local tag is already there, or this is no better than what is
+            Some(&(_, true)) => {}
+            Some(&(_, false)) if !local => {}
+            _ => {
+                colors.insert(name, (tag.color, local));
+            }
+        }
+    }
+
+    colors
 }
 
 /// Every user with at least one score whose last decay week is before `week`,
@@ -305,15 +359,64 @@ mod tests {
     }
 
     #[test]
-    fn top_tag_scores_select_reads_one_users_highest_positive_scores() {
-        let sql = top_tag_scores_select(Uuid::nil(), 10)
+    fn positive_tag_scores_select_reads_one_users_positive_scores_highest_first() {
+        let sql = positive_tag_scores_select(Uuid::nil())
             .build(DbBackend::Postgres)
             .to_string();
 
         assert_eq!(
             sql,
-            r#"SELECT "tag_scores"."tag_name", "tag_scores"."score", "tag_scores"."user_id" FROM "tag_scores" WHERE "tag_scores"."user_id" = '00000000-0000-0000-0000-000000000000' AND "tag_scores"."score" > 0 ORDER BY "tag_scores"."score" DESC, "tag_scores"."tag_name" ASC LIMIT 10"#
+            r#"SELECT "tag_scores"."tag_name", "tag_scores"."score", "tag_scores"."user_id" FROM "tag_scores" WHERE "tag_scores"."user_id" = '00000000-0000-0000-0000-000000000000' AND "tag_scores"."score" > 0 ORDER BY "tag_scores"."score" DESC, "tag_scores"."tag_name" ASC"#
         );
+    }
+
+    /// A tag row for `tag_colors_by_name`, the user's own when `user_id` is set.
+    fn tag(tag_id: i64, user_id: Option<Uuid>, name: &str, color: &str) -> tags::Model {
+        tags::Model {
+            tag_id,
+            user_id,
+            name: name.to_owned(),
+            color: color.to_owned(),
+            r#type: crate::db::entity::sea_orm_active_enums::TagType::Basic,
+        }
+    }
+
+    #[test]
+    fn tag_colors_by_name_prefers_the_users_tag_over_a_default_tag() {
+        let user_id = Uuid::from_u128(1);
+        let colors = tag_colors_by_name(
+            user_id,
+            vec![
+                tag(1, None, "pop", "#default"),
+                tag(2, Some(user_id), "Pop", "#mine"),
+                tag(3, None, "rock", "#rock"),
+            ],
+        );
+
+        assert_eq!(
+            colors,
+            HashMap::from([
+                ("pop".to_owned(), ("#mine".to_owned(), true)),
+                ("rock".to_owned(), ("#rock".to_owned(), false)),
+            ])
+        );
+    }
+
+    #[test]
+    fn tag_colors_by_name_keeps_the_first_tag_on_each_side() {
+        let user_id = Uuid::from_u128(1);
+        let colors = tag_colors_by_name(
+            user_id,
+            vec![
+                tag(1, None, "jazz", "#old default"),
+                tag(2, None, "jazz", "#new default"),
+                tag(3, Some(user_id), "road  trip", "#old mine"),
+                tag(4, Some(user_id), "Road Trip", "#new mine"),
+            ],
+        );
+
+        assert_eq!(colors["jazz"], ("#old default".to_owned(), false));
+        assert_eq!(colors["road trip"], ("#old mine".to_owned(), true));
     }
 
     #[test]

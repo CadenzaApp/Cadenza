@@ -13,6 +13,7 @@ use crate::{
     err::CadenzaError,
     routes::json::{
         tag::{Tag, TagType},
+        tag_score::ScoredTag,
         vec_into,
     },
     services::tag_generation::{TagGenerationService, TagSpecs},
@@ -213,21 +214,34 @@ struct TopTagScoresParams {
 }
 
 /// Returns the signed in user's `k` highest tag scores, keyed by tag name. A map
-/// has no order, so the client sorts it. Scores of 0 and below are left out, and
-/// a user with fewer than `k` positive names gets all of those. `k` is at most
-/// 200.
+/// has no order, so the client sorts it. `k` is at most 200.
+///
+/// Each value is `[score, color, source]`. `color` is the user's own tag's when
+/// they have a tag of that name, and `source` is then `"local"`. Otherwise it is
+/// the default tag's, and `source` is `"global"`. Scores of 0 and below are left
+/// out, and so are names with no tag at all. A user with fewer than `k` names
+/// left gets all of those.
 ///
 /// JSON return value format, for `?k=3`:
 /// ```json
-/// { "chill": 4, "pop": 5, "rock": 10 }
+/// {
+///     "chill": [4, "#7c3aed", "global"],
+///     "pop": [5, "#ec4899", "local"],
+///     "rock": [10, "#ef4444", "local"]
+/// }
 /// ```
 async fn get_top_tag_scores_handler(
     State(db): State<DatabaseConnection>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Query(params): Query<TopTagScoresParams>,
-) -> Result<Json<HashMap<String, i64>>, CadenzaError> {
+) -> Result<Json<HashMap<String, ScoredTag>>, CadenzaError> {
+    let scores = db::tag_scores::get_top_tag_scores(&db, claims.user_id, params.k).await?;
+
     Ok(Json(
-        db::tag_scores::get_top_tag_scores(&db, claims.user_id, params.k).await?,
+        scores
+            .into_iter()
+            .map(|(name, score)| (name, score.into()))
+            .collect(),
     ))
 }
 

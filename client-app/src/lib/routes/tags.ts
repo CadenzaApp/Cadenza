@@ -5,6 +5,7 @@ import {
     TagScoreDeltas,
     TagScores,
     TagType,
+    TopTagScores,
 } from "@/lib/types";
 
 type UserTagsResponse = {
@@ -50,6 +51,8 @@ export function useCreateTag() {
         { path: "/songs/local-tags" },
         { path: "/songs/local-tags/batch" },
         { path: "/tags" },
+        // a new tag can turn a top tag local and change its color
+        { path: "/tags/scores" },
     ]);
     return {
         createTagErr: x.error,
@@ -64,6 +67,8 @@ export function useDeleteTag() {
         { path: "/songs/local-tags" },
         { path: "/songs/local-tags/batch" },
         { path: "/tags" },
+        // a deleted tag can drop out of the top tags or fall back to global
+        { path: "/tags/scores" },
     ]);
     return {
         deleteTagErr: x.error,
@@ -131,18 +136,36 @@ export function useSuggestTags() {
  * lowercased and whitespace-collapsed by the backend, and it returns the score
  * each one is left at.
  *
- * Nothing reads the scores yet, so this invalidates no cached reads. Give it the
- * score read's endpoint once one exists.
+ * Invalidates every `useTopTagScores` read, since any edit can move the top
+ * tags.
  */
 export function useEditTagScores() {
     const x = useAPIMutation<TagScoreDeltas, TagScores>(
         "PATCH",
         "/tags/scores",
+        [{ path: "/tags/scores" }],
     );
     return {
         editTagScoresErr: x.error,
         editTagScoresLoading: x.isMutating,
         resetEditTagScores: x.reset,
         editTagScores: x.trigger,
+    };
+}
+
+/**
+ * The signed in user's `k` highest tag scores, keyed by the lowercased tag
+ * name. Each is `[score, color, source]`: the color is the user's own tag's
+ * when they have one of that name (`local`), otherwise the default tag's
+ * (`global`). Names with no tag at all are left out, and so are scores of 0 and
+ * below. The map has no order, so sort it by score to rank it.
+ */
+export function useTopTagScores(k: number) {
+    const x = useAPIData<TopTagScores>("/tags/scores", { k });
+
+    return {
+        topTagScores: x.data,
+        topTagScoresLoading: x.isLoading,
+        topTagScoresErr: x.error,
     };
 }

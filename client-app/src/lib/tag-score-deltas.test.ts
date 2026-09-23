@@ -36,10 +36,17 @@ test("two tags of one name add up", () => {
     );
 });
 
-test("a local and a default tag of one name add up", () => {
-    assert.deepEqual(playTagScoreDeltas([{ name: "pop" }], [{ name: "pop" }]), {
-        pop: LOCAL_TAG_PLAY_SCORE_DELTA + DEFAULT_TAG_PLAY_SCORE_DELTA,
-    });
+test("a default tag that is also a local tag counts as local only", () => {
+    assert.deepEqual(
+        playTagScoreDeltas(
+            [{ name: "Road  Trip" }],
+            [{ name: "road trip" }, { name: "upbeat" }],
+        ),
+        {
+            "Road  Trip": LOCAL_TAG_PLAY_SCORE_DELTA,
+            upbeat: DEFAULT_TAG_PLAY_SCORE_DELTA,
+        },
+    );
 });
 
 test("a blank name is left out, since the backend rejects it", () => {
