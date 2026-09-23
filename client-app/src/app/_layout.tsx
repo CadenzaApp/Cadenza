@@ -17,6 +17,7 @@ import { PortalHost } from "@rn-primitives/portal";
 import { useColorScheme } from "nativewind";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { MediaPlayerPushedScreenOverlay } from "@/components/custom/media-player";
+import { TagScoreTracker } from "@/lib/tag-scores";
 
 import "../../global.css";
 
@@ -109,6 +110,7 @@ export default function RootLayout() {
                                                     />
                                                 </Stack>
                                                 <MediaPlayerPushedScreenOverlay />
+                                                <TagScoreTracker />
                                                 <TasksHost />
                                                 <PortalHost />
                                             </ZoomOriginProvider>

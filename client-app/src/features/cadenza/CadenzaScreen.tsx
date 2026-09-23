@@ -19,6 +19,8 @@ import type { QueryCondition } from "@/features/query-builder/types";
 import { useTracksForSongIds } from "@/lib/musickit-hooks";
 import { useQueryResults } from "@/lib/routes/queries";
 import { useUserTags } from "@/lib/routes/tags";
+import { useScoreQueryTags } from "@/lib/tag-scores";
+import type { Tag } from "@/lib/types";
 
 type BuilderMode = "simple" | "advanced";
 
@@ -30,6 +32,7 @@ export function CadenzaScreen() {
     const { userTags, userTagsMeta, userTagsLoading, userTagsErr } =
         useUserTags();
     const router = useRouter();
+    const scoreQueryTags = useScoreQueryTags();
     const [mode, setMode] = useState<BuilderMode>("simple");
     const [conditions, setConditions] = useState<QueryCondition[]>([]);
     // Not wired to the query yet: the switch only holds its own state.
@@ -110,6 +113,13 @@ export function CadenzaScreen() {
                 }
                 onNext={() => {
                     if (!query) return;
+                    // opening the full results is the user committing to the
+                    // query, so that is when its tags score. suggested tags are
+                    // not in userTags, so the simple builder's own tags come too
+                    void scoreQueryTags(query, [
+                        ...(userTags ?? []),
+                        ...(mode === "simple" ? conditionTags(conditions) : []),
+                    ]);
                     router.push({
                         pathname: "/query-results",
                         params: {
@@ -137,5 +147,14 @@ export function CadenzaScreen() {
                 />
             )}
         </View>
+    );
+}
+
+/** Every tag in the simple builder's conditions, suggested ones included. */
+function conditionTags(conditions: readonly QueryCondition[]): Tag[] {
+    return conditions.flatMap((condition) =>
+        condition.kind === "tag"
+            ? [condition.tag]
+            : condition.members.map((member) => member.tag),
     );
 }

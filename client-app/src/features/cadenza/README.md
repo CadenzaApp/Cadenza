@@ -37,6 +37,11 @@ pushes `/query-results` with the serialized query and a `suggested` flag, and th
 the same normal full-screen `QueryResults` view. The builder remains mounted underneath, so going back returns to
 the existing query and active mode.
 
+That same arrow press is when the query's tags score. `useScoreQueryTags` from
+`@/lib/tag-scores` gives every tag the query uses positively 5 points. Live edits do not score,
+since the preview reruns the query on every change. Tag ids resolve to names through `userTags`
+plus the simple builder's own condition tags, so suggested tags in a simple query score too.
+
 ## Connects to
 
 - `@/features/query-builder` for the simple query and shared result presentation.

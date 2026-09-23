@@ -51,6 +51,7 @@ GestureHandlerRootView
               BottomBarVisibilityProvider   temporary native-tab visibility exceptions
                 ZoomOriginProvider          the rect a pushed screen minimizes back into
                   Stack                     the routes
+                  TagScoreTracker           scores the tags on each song that starts playing
                   TasksHost                 background task status
                   PortalHost                where dialogs and modals render
 ```
@@ -58,6 +59,10 @@ GestureHandlerRootView
 `LibraryCategoriesProvider` (`@/features/library`) sits inside `ThemeProvider` and wraps both
 `Stack` and the hosts, because the library screen reads the category selection and the
 `/library-categories` screen writes it, and those are separate routes.
+
+`TagScoreTracker` (`@/lib/tag-scores`) renders nothing. It sits beside the root `Stack` because
+it only needs to be inside `PlaybackProvider` and `AccountProvider`, and it sends one
+`PATCH /tags/scores` per song that starts playing. See [../lib/README.md](../lib/README.md).
 
 `PortalHost` remains beside the root `Stack`. The tab bar and player are inside the `(tabs)`
 navigator. `NativeTabs` owns the platform tab bar and its iOS 26 bottom accessory. Playback state
@@ -202,7 +207,8 @@ makes their lists reserve exactly that overlay's height.
 
 ## Connects to
 
-- `@/lib/account`, `@/lib/apple-music-auth`, `@/lib/playback` for the providers.
+- `@/lib/account`, `@/lib/apple-music-auth`, `@/lib/playback` for the providers, and
+  `@/lib/tag-scores` for the tag scoring the root layout mounts.
 - `@/lib/routes/*` and `@/lib/musickit-hooks` for data.
 - `@/features/account` from the Account and Appearance sheets.
 - `@/features/cadenza` from the Cadenza tab, which toggles between `@/features/query-builder`
