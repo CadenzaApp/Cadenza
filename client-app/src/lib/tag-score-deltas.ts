@@ -6,29 +6,44 @@
 import type { QueryJSON, QueryJSONNode } from "@/lib/query-json";
 import type { TagScoreDeltas } from "@/lib/types";
 
-/** What one play adds to the score of every tag on the song. */
-export const PLAY_TAG_SCORE_DELTA = 1;
+/** What one play adds to the score of every one of the user's own tags on the song. */
+export const LOCAL_TAG_PLAY_SCORE_DELTA = 2;
+
+/** What one play adds to the score of every default tag on the song. */
+export const DEFAULT_TAG_PLAY_SCORE_DELTA = 1;
 
 /** What one query run adds to the score of every tag it asks for. */
-export const QUERY_TAG_SCORE_DELTA = 5;
+export const QUERY_TAG_SCORE_DELTA = 10;
 
 /** The backend rejects a `PATCH /tags/scores` naming more tags than this. */
 export const TAG_SCORE_NAME_LIMIT = 200;
 
 /**
- * The `PATCH /tags/scores` body for one play of a song: `PLAY_TAG_SCORE_DELTA`
- * for every tag on it, keyed by tag name.
+ * The `PATCH /tags/scores` body for one play of a song, keyed by tag name:
+ * `LOCAL_TAG_PLAY_SCORE_DELTA` for every one of the user's own tags on it, and
+ * `DEFAULT_TAG_PLAY_SCORE_DELTA` for every default tag on it.
  *
  * Scores go by name rather than by tag id, so two tags sharing a name on one
- * song add up instead of overwriting each other. Names the backend would reject
- * are dropped rather than failing the whole request: a blank one, and anything
- * past `TAG_SCORE_NAME_LIMIT` names. The backend lowercases and collapses
+ * song add up instead of overwriting each other, a local and a default tag
+ * included. Names the backend would reject are dropped rather than failing the
+ * whole request: a blank one, and anything past `TAG_SCORE_NAME_LIMIT` names,
+ * with local tags ahead of default ones. The backend lowercases and collapses
  * whitespace itself, so names go out as the user wrote them.
  */
 export function playTagScoreDeltas(
-    tags: readonly { name: string }[],
+    localTags: readonly { name: string }[],
+    defaultTags: readonly { name: string }[],
 ): TagScoreDeltas {
-    return tagScoreDeltas(tags, PLAY_TAG_SCORE_DELTA);
+    return tagScoreDeltas([
+        ...localTags.map(({ name }) => ({
+            name,
+            delta: LOCAL_TAG_PLAY_SCORE_DELTA,
+        })),
+        ...defaultTags.map(({ name }) => ({
+            name,
+            delta: DEFAULT_TAG_PLAY_SCORE_DELTA,
+        })),
+    ]);
 }
 
 /**
@@ -53,13 +68,14 @@ export function queryTagScoreDeltas(
     collectPositiveTagIds(query.where, false, tagIds);
 
     const names = new Map(tags.map((tag) => [tag.id, tag.name]));
-    const usedTags: { name: string }[] = [];
+    const usedTags: { name: string; delta: number }[] = [];
     for (const tagId of tagIds) {
         const name = names.get(tagId);
-        if (name !== undefined) usedTags.push({ name });
+        if (name !== undefined)
+            usedTags.push({ name, delta: QUERY_TAG_SCORE_DELTA });
     }
 
-    return tagScoreDeltas(usedTags, QUERY_TAG_SCORE_DELTA);
+    return tagScoreDeltas(usedTags);
 }
 
 /** Adds the id of every tag `node` asks for to `out`. */
@@ -81,14 +97,13 @@ function collectPositiveTagIds(
     }
 }
 
-/** `delta` for every tag, added up by name, minus what the backend rejects. */
+/** Each tag's delta, added up by name, minus what the backend rejects. */
 function tagScoreDeltas(
-    tags: readonly { name: string }[],
-    delta: number,
+    tags: readonly { name: string; delta: number }[],
 ): TagScoreDeltas {
     const deltas = new Map<string, number>();
 
-    for (const { name } of tags) {
+    for (const { name, delta } of tags) {
         if (!name.trim()) continue;
         if (!deltas.has(name) && deltas.size === TAG_SCORE_NAME_LIMIT) continue;
         deltas.set(name, (deltas.get(name) ?? 0) + delta);

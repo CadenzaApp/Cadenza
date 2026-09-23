@@ -21,7 +21,7 @@ native module directly.
 | `song-init.tsx`              | `SongInitProvider`, which runs the library sync job after account and Apple Music authorization.                                                                                                                                                                                                  |
 | `song-init-job.ts`           | Import-free, tested library sync job: walks Apple Music, diffs it against the local record, and sends the difference to `PATCH /songs`.                                                                                                                                                           |
 | `initialized-songs-db.ts`    | The expo-sqlite `initialized_songs` table, the device's record of what `user_songs` holds. Opens the database and hands the job an `InitializedSongsStore`.                                                                                                                                       |
-| `tag-scores.tsx`             | `TagScoreTracker`, which gives every tag on a song a point when that song starts playing, and `useScoreQueryTags`, which gives every tag a query uses positively 5 points.                                                                                                                       |
+| `tag-scores.tsx`             | `TagScoreTracker`, which gives each of the user's own tags on a song 2 points and each default tag 1 point when that song starts playing, and `useScoreQueryTags`, which gives every tag a query uses positively 10 points.                                                                      |
 | `tag-score-deltas.ts`        | The `PATCH /tags/scores` body one play of a song, or one run of a query, is worth. Only type imports, tested in `tag-score-deltas.test.ts`.                                                                                                                                                       |
 | `account.tsx`                | `AccountProvider` / `useAccount`. Supabase session and the JWT.                                                                                                                                                                                                                                   |
 | `apple-music-auth.tsx`       | `AppleMusicProvider` / `useAppleMusic`. Apple Music tokens, persisted in secure store.                                                                                                                                                                                                            |
@@ -394,26 +394,33 @@ tag read touches a song it has never generated for.
 
 ## Scoring tags on playback
 
-Every tag on a song gets a point the moment that song starts playing, which is how the backend
-learns which tags the user listens to rather than which ones they type.
+The tags on a song score the moment that song starts playing, which is how the backend learns
+which tags the user listens to rather than which ones they type.
 `tag-scores.tsx::TagScoreTracker` is mounted at the root, watches `usePlaybackTrackState()`, and
 sends one `PATCH /tags/scores` per play. The body is
-`tag-score-deltas.ts::playTagScoreDeltas`: one point per tag, added up by tag name, since scores
-go by name rather than by tag id.
+`tag-score-deltas.ts::playTagScoreDeltas`: 2 points for each of the user's own tags
+(`LOCAL_TAG_PLAY_SCORE_DELTA`) and 1 for each default tag (`DEFAULT_TAG_PLAY_SCORE_DELTA`), added
+up by tag name, since scores go by name rather than by tag id. A name that is both a local and a
+default tag on the song gets 3.
 
 There is no native playback-start event. A start is the polled snapshot reporting a track that is
 playing and is not the track the last point went to, so resuming after a pause is not a new play,
 and neither is the same song repeating.
 
-It scores the user's own tags, read through `useTagsOnSong` under the song's `catalogId ?? id`.
-That is the same cache key the player sheet's Tags page and the list rows read, so the read is
-usually already warm when a song starts. Suggested tags are deliberately not scored: reading
-them generates them, and starting a song should never spend an LLM call.
+It reads the user's own tags through `useTagsOnSong` and the default tags through
+`useDefaultTagsOnSong`, both under the song's `catalogId ?? id`. Those are the same cache keys the
+player sheet's Tags page reads, and the list rows read the same data in batches, so the reads are
+usually already warm when a song starts. The play waits for both. If the default read fails, it
+scores the user's own tags alone.
+
+Reading a song's default tags generates them when nothing has yet, so playing a song that no list
+or player sheet has shown can spend an LLM call and holds the play's score until generation
+finishes.
 
 ## Scoring tags in queries
 
 `tag-scores.tsx::useScoreQueryTags` returns a callback that gives every tag a query uses
-positively 5 points, in one `PATCH /tags/scores`. `CadenzaScreen` calls it when the user opens
+positively 10 points (`QUERY_TAG_SCORE_DELTA`), in one `PATCH /tags/scores`. `CadenzaScreen` calls it when the user opens
 the full results, not on each live edit. The body is `tag-score-deltas.ts::queryTagScoreDeltas`,
 which walks the `QueryJSON` tree. A tag filter under an odd number of `not`s is negative, and
 `is_not_applied` counts as one more `not`. A tag counts once per query however often it appears,

@@ -3,43 +3,61 @@ import test from "node:test";
 
 import type { FilterOp, QueryJSON, QueryJSONNode } from "./query-json.ts";
 import {
-    PLAY_TAG_SCORE_DELTA,
+    DEFAULT_TAG_PLAY_SCORE_DELTA,
+    LOCAL_TAG_PLAY_SCORE_DELTA,
     QUERY_TAG_SCORE_DELTA,
     TAG_SCORE_NAME_LIMIT,
     playTagScoreDeltas,
     queryTagScoreDeltas,
 } from "./tag-score-deltas.ts";
 
-test("every tag on the song gets a point", () => {
+test("a local tag gets the local delta and a default tag the default delta", () => {
     assert.deepEqual(
-        playTagScoreDeltas([{ name: "pop" }, { name: "Road Trip" }]),
-        { pop: PLAY_TAG_SCORE_DELTA, "Road Trip": PLAY_TAG_SCORE_DELTA },
+        playTagScoreDeltas(
+            [{ name: "pop" }, { name: "Road Trip" }],
+            [{ name: "upbeat" }],
+        ),
+        {
+            pop: LOCAL_TAG_PLAY_SCORE_DELTA,
+            "Road Trip": LOCAL_TAG_PLAY_SCORE_DELTA,
+            upbeat: DEFAULT_TAG_PLAY_SCORE_DELTA,
+        },
     );
 });
 
 test("a song with no tags scores nothing", () => {
-    assert.deepEqual(playTagScoreDeltas([]), {});
+    assert.deepEqual(playTagScoreDeltas([], []), {});
 });
 
 test("two tags of one name add up", () => {
-    assert.deepEqual(playTagScoreDeltas([{ name: "pop" }, { name: "pop" }]), {
-        pop: PLAY_TAG_SCORE_DELTA * 2,
+    assert.deepEqual(
+        playTagScoreDeltas([{ name: "pop" }, { name: "pop" }], []),
+        { pop: LOCAL_TAG_PLAY_SCORE_DELTA * 2 },
+    );
+});
+
+test("a local and a default tag of one name add up", () => {
+    assert.deepEqual(playTagScoreDeltas([{ name: "pop" }], [{ name: "pop" }]), {
+        pop: LOCAL_TAG_PLAY_SCORE_DELTA + DEFAULT_TAG_PLAY_SCORE_DELTA,
     });
 });
 
 test("a blank name is left out, since the backend rejects it", () => {
     assert.deepEqual(
-        playTagScoreDeltas([{ name: "  " }, { name: "" }, { name: "pop" }]),
-        { pop: PLAY_TAG_SCORE_DELTA },
+        playTagScoreDeltas(
+            [{ name: "  " }, { name: "" }, { name: "pop" }],
+            [{ name: " " }],
+        ),
+        { pop: LOCAL_TAG_PLAY_SCORE_DELTA },
     );
 });
 
 test("names an object already answers for are still counted", () => {
     assert.deepEqual(
-        playTagScoreDeltas([{ name: "constructor" }, { name: "toString" }]),
+        playTagScoreDeltas([{ name: "constructor" }], [{ name: "toString" }]),
         {
-            constructor: PLAY_TAG_SCORE_DELTA,
-            toString: PLAY_TAG_SCORE_DELTA,
+            constructor: LOCAL_TAG_PLAY_SCORE_DELTA,
+            toString: DEFAULT_TAG_PLAY_SCORE_DELTA,
         },
     );
 });
@@ -49,12 +67,22 @@ test("names past the request limit are dropped, not sent", () => {
         { length: TAG_SCORE_NAME_LIMIT + 10 },
         (_, index) => ({ name: `tag ${index}` }),
     );
-    const deltas = playTagScoreDeltas([...tags, { name: "tag 0" }]);
+    const deltas = playTagScoreDeltas([...tags, { name: "tag 0" }], []);
 
     assert.equal(Object.keys(deltas).length, TAG_SCORE_NAME_LIMIT);
     // a name already in the body keeps counting after the limit is reached
-    assert.equal(deltas["tag 0"], PLAY_TAG_SCORE_DELTA * 2);
+    assert.equal(deltas["tag 0"], LOCAL_TAG_PLAY_SCORE_DELTA * 2);
     assert.equal(deltas[`tag ${TAG_SCORE_NAME_LIMIT}`], undefined);
+});
+
+test("local tags take the request limit ahead of default tags", () => {
+    const local = Array.from({ length: TAG_SCORE_NAME_LIMIT }, (_, index) => ({
+        name: `local ${index}`,
+    }));
+    const deltas = playTagScoreDeltas(local, [{ name: "default" }]);
+
+    assert.equal(Object.keys(deltas).length, TAG_SCORE_NAME_LIMIT);
+    assert.equal(deltas.default, undefined);
 });
 
 const QUERY_TAGS = [

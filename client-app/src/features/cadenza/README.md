@@ -38,7 +38,7 @@ the same normal full-screen `QueryResults` view. The builder remains mounted und
 the existing query and active mode.
 
 That same arrow press is when the query's tags score. `useScoreQueryTags` from
-`@/lib/tag-scores` gives every tag the query uses positively 5 points. Live edits do not score,
+`@/lib/tag-scores` gives every tag the query uses positively 10 points. Live edits do not score,
 since the preview reruns the query on every change. Tag ids resolve to names through `userTags`
 plus the simple builder's own condition tags, so suggested tags in a simple query score too.
 

@@ -2,23 +2,26 @@ import { useCallback, useEffect, useRef } from "react";
 
 import { usePlaybackTrackState } from "./playback";
 import type { QueryJSON } from "./query-json";
-import { useTagsOnSong } from "./routes/songs";
+import { useDefaultTagsOnSong, useTagsOnSong } from "./routes/songs";
 import { useEditTagScores } from "./routes/tags";
 import { playTagScoreDeltas, queryTagScoreDeltas } from "./tag-score-deltas";
 import type { Tag } from "./types";
 
 /**
- * Gives every tag on a song a point as soon as that song starts playing, so the
- * backend learns which tags the user actually listens to. It renders nothing.
+ * Scores the tags on a song as soon as that song starts playing, so the backend
+ * learns which tags the user actually listens to: `LOCAL_TAG_PLAY_SCORE_DELTA`
+ * for each of the user's own tags, and `DEFAULT_TAG_PLAY_SCORE_DELTA` for each
+ * default tag. It renders nothing.
  *
  * There is no native playback-start event, so a start is read off the snapshot
  * `PlaybackProvider` polls: the active track is playing and is not the track the
  * last point went to. Resuming after a pause is therefore not a new play, and
  * neither is the same song repeating.
  *
- * Only the user's own tags on the song are scored. Suggested tags are left
- * alone on purpose, because reading them generates them, and starting a song
- * should never spend an LLM call.
+ * Reading a song's default tags generates them if nothing has yet, so playing
+ * a song no list has shown can spend an LLM call. A song played from a list
+ * usually has them already, since the list rows read them. If the default read
+ * fails, the play still scores the user's own tags.
  *
  * Mounted at the root under `PlaybackProvider`, which is itself under
  * `AccountProvider`. The tag read is dormant without an account, so a signed out
@@ -32,6 +35,8 @@ export function TagScoreTracker() {
         ? (activeTrack.catalogId ?? activeTrack.id)
         : undefined;
     const { tagsOnSong } = useTagsOnSong(songId);
+    const { defaultTagsOnSong, defaultTagsOnSongErr } =
+        useDefaultTagsOnSong(songId);
     const { editTagScores } = useEditTagScores();
     const scoredTrackIdRef = useRef<string | null>(null);
 
@@ -41,23 +46,23 @@ export function TagScoreTracker() {
         // the song's tags are still on their way, or there is no account to read
         // them with. either way the point waits for them rather than being lost
         if (!tagsOnSong) return;
+        if (!defaultTagsOnSong && !defaultTagsOnSongErr) return;
 
         scoredTrackIdRef.current = activeTrackId;
-        const deltas = playTagScoreDeltas(tagsOnSong);
+        const deltas = playTagScoreDeltas(tagsOnSong, defaultTagsOnSong ?? []);
         if (Object.keys(deltas).length === 0) return;
 
-        const scorePlay = async () => {
-            try {
-                await editTagScores(deltas);
-            } catch (e) {
-                // nothing in the app shows a score, so a lost point is not
-                // worth interrupting playback over
-                console.warn("Failed to score the tags on a played song:", e);
-            }
-        };
-
-        void scorePlay();
-    }, [activeTrackId, editTagScores, isPlaying, tagsOnSong]);
+        editTagScores(deltas).catch((e) =>
+            console.warn("Failed to score the tags on a played song:", e),
+        );
+    }, [
+        activeTrackId,
+        defaultTagsOnSong,
+        defaultTagsOnSongErr,
+        editTagScores,
+        isPlaying,
+        tagsOnSong,
+    ]);
 
     return null;
 }
