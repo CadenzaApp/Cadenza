@@ -1,6 +1,8 @@
 pub mod openai_tag_generator;
 
+use std::fmt;
 use std::sync::Arc;
+use std::time::Duration;
 
 use sea_orm::prelude::async_trait::async_trait;
 
@@ -54,11 +56,7 @@ impl TagGenerationService {
         // generate one chunk at a time, collecting the results in input order
         let mut generated = Vec::with_capacity(song_descs.len());
         for chunk in chunk_song_descs(&song_descs) {
-            let mut chunk_tags = self
-                .0
-                .generate_tags(chunk, requested_tag_count)
-                .await
-                .map_err(CadenzaError::TagGenerationErr)?;
+            let mut chunk_tags = self.0.generate_tags(chunk, requested_tag_count).await?;
 
             // the model can return the wrong number of tag lists. pad or trim to the
             // chunk's length so later chunks don't shift onto the wrong songs
@@ -97,17 +95,72 @@ fn chunk_song_descs(song_descs: &[String]) -> Vec<&[String]> {
     chunks
 }
 
+/// Why a [`TagGenerator`] call failed.
+///
+/// Rate limiting is its own variant rather than more free text, because callers act on
+/// it: the default tag backfill job stands down for a while instead of spending its next
+/// pass on another refusal.
+#[derive(Debug)]
+pub enum TagGenerationError {
+    /// The provider turned the request away for rate limiting. `retry_after` is what its
+    /// response headers said about when the limit refills, when they said anything.
+    RateLimited { retry_after: Option<Duration> },
+    /// Anything else, as free text.
+    Other(String),
+}
+
+impl fmt::Display for TagGenerationError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::RateLimited {
+                retry_after: Some(wait),
+            } => write!(
+                f,
+                "the tag generator is rate limited, retry in {}s",
+                wait.as_secs()
+            ),
+            Self::RateLimited { retry_after: None } => {
+                f.write_str("the tag generator is rate limited")
+            }
+            Self::Other(message) => f.write_str(message),
+        }
+    }
+}
+
+// both so a generator can keep writing `Err("...".into())` and `?` a Result<_, String>
+impl From<String> for TagGenerationError {
+    fn from(message: String) -> Self {
+        Self::Other(message)
+    }
+}
+impl From<&str> for TagGenerationError {
+    fn from(message: &str) -> Self {
+        Self::Other(message.to_owned())
+    }
+}
+
+impl From<TagGenerationError> for CadenzaError {
+    fn from(err: TagGenerationError) -> Self {
+        match err {
+            TagGenerationError::RateLimited { retry_after } => {
+                Self::TagGenerationRateLimited { retry_after }
+            }
+            TagGenerationError::Other(message) => Self::TagGenerationErr(message),
+        }
+    }
+}
+
 /// Tag Generators convert strings describing a song into tags.
 ///
 /// e.g. "Override by Yoshida Yasei" -> "vocaloid", "japanese", "teto"
 #[async_trait]
 pub trait TagGenerator: Send + Sync {
-    /// returns a list of generated tags for each song, or an err msg
+    /// returns a list of generated tags for each song, or why it could not
     async fn generate_tags(
         &self,
         song_descs: &[String],
         requested_tag_count: usize,
-    ) -> Result<Vec<Vec<TagSpecs>>, String>;
+    ) -> Result<Vec<Vec<TagSpecs>>, TagGenerationError>;
 }
 
 #[cfg(test)]
@@ -127,7 +180,7 @@ mod tests {
             &self,
             song_descs: &[String],
             _: usize,
-        ) -> Result<Vec<Vec<TagSpecs>>, String> {
+        ) -> Result<Vec<Vec<TagSpecs>>, TagGenerationError> {
             // same length check as the real generator
             if song_descs.iter().map(String::len).sum::<usize>() > MAX_COMBINED_SONG_DESC_LENGTH {
                 return Err("song descriptions are too long!".into());

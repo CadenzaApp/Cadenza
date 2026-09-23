@@ -29,6 +29,10 @@ const DEFAULT_BACKFILL_INTERVAL_SECS: u64 = 300;
 /// and the http path caps itself at 200, so the job holds to the same ceiling.
 const MAX_BACKFILL_BATCH_SIZE: usize = 200;
 
+/// How long the job stands down after the generator says it is rate limited, in
+/// place of its usual interval.
+const RATE_LIMIT_BACKOFF: Duration = Duration::from_secs(300);
+
 /// Generates and stores default tags for each of `song_ids` that has never had them
 /// generated, and marks every one of them so this never runs for them twice.
 ///
@@ -198,6 +202,10 @@ pub async fn backfill_default_tags(
 /// A pass that fails is logged and the job carries on. Nothing it failed to mark
 /// is marked, so the next pass picks the same songs up again.
 ///
+/// A pass the generator turned away for rate limiting stops there and waits
+/// [`RATE_LIMIT_BACKOFF`] instead of the configured interval, however short that
+/// interval is, so the job does not spend its next pass on another refusal.
+///
 /// Ticks are delayed rather than burst, so a pass that outruns the interval is
 /// followed by a full interval of quiet instead of another pass immediately.
 pub fn spawn_default_tag_backfill(
@@ -220,6 +228,19 @@ pub fn spawn_default_tag_backfill(
             match pass {
                 Ok(0) => {}
                 Ok(count) => println!("{LOG_TAG} generated default tags for {count} songs"),
+
+                // the songs this pass claimed were already released by
+                // `ensure_default_tags_generated`, so the next pass picks them up again.
+                // resetting the ticker rather than sleeping keeps the wait exact no
+                // matter what the interval is
+                Err(err @ CadenzaError::TagGenerationRateLimited { .. }) => {
+                    eprintln!(
+                        "{LOG_TAG} pass failed: {err}. standing down for {}s",
+                        RATE_LIMIT_BACKOFF.as_secs()
+                    );
+                    ticker.reset_after(RATE_LIMIT_BACKOFF);
+                }
+
                 Err(err) => eprintln!("{LOG_TAG} pass failed: {err}"),
             }
         }

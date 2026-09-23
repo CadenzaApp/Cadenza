@@ -11,8 +11,8 @@ default tags the first time anything asks for them.
 | --- | --- |
 | `mod.rs` | Declares `default_tags`, `song_metadata`, `tag_generation`, `tag_normalizer`, and `tag_values`. |
 | `tag_normalizer.rs` | `normalize_tag_name`: trim, collapse whitespace, truncate to 50 chars, lowercase. Unit tested. |
-| `tag_generation/mod.rs` | The `TagGenerator` trait and the `TagGenerationService` wrapper. |
-| `tag_generation/openai_tag_generator.rs` | The OpenAI implementation, plus ignored integration tests. |
+| `tag_generation/mod.rs` | The `TagGenerator` trait, its `TagGenerationError`, and the `TagGenerationService` wrapper. |
+| `tag_generation/openai_tag_generator.rs` | The OpenAI implementation, including rate limit detection off the response headers. Unit tested, plus ignored integration tests. |
 | `tag_values.rs` | `canonicalize_tag_value`: validates a tag value string against the tag's `TagType` and returns its canonical stored form (or `CadenzaError::InvalidTagValue`). Unit tested. |
 | `song_metadata.rs` | `SongMetadataService`: song ids to Apple Music catalog metadata, developer token only. Unit tested, plus ignored integration tests. |
 | `default_tags.rs` | `ensure_default_tags_generated`: generates a song's default tags the first time they are read, claiming the song in `default_tags_generation` first so it happens once. Also `backfill_default_tags` and the background job that runs it, which does the same for songs nothing has read yet. |
@@ -26,14 +26,25 @@ caller:
 #[async_trait]
 pub trait TagGenerator: Send + Sync {
     async fn generate_tags(&self, song_descs: &[String], requested_tag_count: usize)
-        -> Result<Vec<Vec<TagSpecs>>, String>;
+        -> Result<Vec<Vec<TagSpecs>>, TagGenerationError>;
 }
 ```
+
+`TagGenerationError` has two variants. `RateLimited { retry_after: Option<Duration> }` is the
+provider turning the request away, with whatever its headers said about the wait.
+`Other(String)` is everything else, as free text. It converts `From<String>` and `From<&str>`,
+so a generator can still write `Err("...".into())`, and `From<TagGenerationError>` turns it into
+a `CadenzaError`: `RateLimited` becomes `CadenzaError::TagGenerationRateLimited` (429) carrying
+the same `retry_after`, `Other` becomes `CadenzaError::TagGenerationErr` (500).
+
+Rate limiting is its own variant rather than more free text because a caller acts on it. The
+default tag backfill job stands down for five minutes when it sees one, which it cannot do off a
+string.
 
 `TagGenerationService` is a newtype over `Arc<Box<dyn TagGenerator>>`, so it is `Clone` and lives
 in `AppState`. It does two things on top of the trait: clamps `requested_tag_count` to
 `DEFAULT_REQUESTED_TAG_COUNT` (7) when `None` and `MAX_REQUESTED_TAG_COUNT` (20) as a ceiling,
-and converts the generator's `String` error into `CadenzaError::TagGenerationErr` (500).
+and converts the generator's error into a `CadenzaError`.
 
 Input is a list of song descriptions, output is a list of tag lists in the same order. It is
 batch-shaped even though the only caller today (`GET /tags/suggest`) passes exactly one song and
@@ -46,6 +57,15 @@ echoes its song's description back, which is how tags are matched to songs rathe
 position. It short circuits on an empty input list or a zero tag count, rejects combined
 descriptions over `MAX_COMBINED_SONG_DESC_LENGTH` (2000 bytes), truncates any over-long tag list
 from the model, and runs every tag through `normalize_tag_name` before returning.
+
+It checks the response status before the body, because a 429 body has no `output` and would
+otherwise come back as a parse failure rather than as the rate limit it is. A 429 returns
+`TagGenerationError::RateLimited`, with the wait read off the headers by `rate_limit_wait`:
+`retry-after` in plain seconds when it is there, otherwise the longer of
+`x-ratelimit-reset-requests` and `x-ratelimit-reset-tokens`, since both buckets have to refill
+before the next call works. Those two are written in OpenAI's own `1s` / `88ms` / `1h2m3s`
+format, which `parse_reset_duration` reads. Headers that say nothing readable still give a
+`RateLimited` with no wait; the caller decides how long to stand down.
 
 `SongMetadataService::get_songs_metadata` takes a slice of song ids and returns one
 `Option<SongMetadata>` per id, in input order. It hits
@@ -102,6 +122,13 @@ marked `done`, so selecting on applied rows would hand the same unsatisfiable so
 pass and never reach the ones that need generating. Any row counts, `in_flight` included, so a
 pass skips songs a live read is generating for right now.
 
+A pass that comes back `CadenzaError::TagGenerationRateLimited` stops there and the job waits
+`RATE_LIMIT_BACKOFF` (300 seconds) before the next one, through `Interval::reset_after`, so the
+wait is exactly five minutes however short `DEFAULT_TAG_BACKFILL_INTERVAL_SECS` is. Nothing is
+lost by stopping: `ensure_default_tags_generated` already dropped the claim on every song the
+pass took, so the next pass picks the same songs up. Any other error is logged and the job
+carries on at its usual interval.
+
 `BackfillConfig::from_env` reads the three `DEFAULT_TAG_BACKFILL_*` vars and returns `None` when
 the job is off, which is what it is unless `DEFAULT_TAG_BACKFILL_ENABLED` is `true`. `main.rs`
 logs which way it went and only spawns the task when it got a config. Ticks are delayed rather
@@ -144,7 +171,11 @@ accepts `"true"`/`"false"` case-insensitively and stores lowercase. Anything els
   takes to stay under it, and truncates any single description longer than that on its own.
 - The integration tests in `openai_tag_generator.rs` are `#[ignore]`d because they spend real
   tokens. Comment header says last run Jul 26.
-- The trait returns `Result<_, String>`, so error detail is free text with no structure.
+- Only rate limiting is structured. Everything else is `TagGenerationError::Other`, so that
+  error detail is still free text with no shape to match on.
+- Rate limiting is read off the status code and headers, not the error body, so a provider that
+  reports a limit some other way would need its own check. Nothing retries inside the generator;
+  the 429 goes straight back to the caller.
 - Adding a provider means one new file next to `openai_tag_generator.rs`, an `impl TagGenerator`,
   and a one-line change in `main.rs`. Nothing else should need to know.
 - `TagType::Text` has no length cap, unlike tag names (`normalize_tag_name` truncates to 50

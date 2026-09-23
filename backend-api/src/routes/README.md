@@ -204,6 +204,9 @@ api as JSON should have a type here rather than serializing an entity model dire
   same data comes back from `GET /tags?tag_id=N`.
 - `GET /tags/suggest` uses `requested_tag_count` as a **required** query param, not optional, so
   a request without it is a 422. The service clamps it to at most 20.
+- Anything that reaches the tag generator can come back 429 `TagGenerationRateLimited` when
+  OpenAI turns the request away: `GET /tags/suggest`, and the two default tag reads that generate
+  on a miss. Nothing retries for the caller, so the client has to.
 - `GET /tags/default-tags` treats a missing `search` the same as a blank one, and a blank search
   returns 5 tags rather than none. The cap of 5 is `DEFAULT_TAG_SEARCH_LIMIT` and is not a
   client-settable param.
