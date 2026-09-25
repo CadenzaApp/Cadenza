@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use crate::{
     AppState,
@@ -13,6 +13,7 @@ use crate::{
     err::CadenzaError,
     routes::json::{
         tag::{Tag, TagType},
+        tag_score::ScoredTag,
         vec_into,
     },
     services::tag_generation::{TagGenerationService, TagSpecs},
@@ -20,7 +21,7 @@ use crate::{
 use axum::{
     Json, Router,
     extract::{Query, State},
-    routing::{delete, get, post},
+    routing::{delete, get, patch, post},
 };
 use axum_jwt_auth::Claims;
 use sea_orm::DatabaseConnection;
@@ -176,11 +177,81 @@ async fn suggest_tags_handler(
     }
 }
 
+/// Adds each of the body's deltas to the signed in user's score for that tag
+/// name, so the app can track which tags they keep reaching for. A name the user
+/// has no score for starts at its delta, and a negative delta takes a score
+/// down, below zero included.
+///
+/// Scores are per tag name, not per tag id, so they cover default tags and names
+/// the user has no tag of at all.
+///
+/// Request body, a tag name to how far to move its score:
+/// ```json
+/// { "pop": 5, "rock": 10, "jazz": -2 }
+/// ```
+///
+/// Names are lowercased, whitespace collapsed, and cut to 50 bytes first, so
+/// `"Pop"` and `" pop "` are one score, and two names that collapse into one have
+/// their deltas added together. At most 200 names per request.
+///
+/// JSON return value format, the score every named tag is left at:
+/// ```json
+/// { "jazz": -2, "pop": 5, "rock": 10 }
+/// ```
+async fn edit_tag_scores_handler(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Json(deltas): Json<HashMap<String, i64>>,
+) -> Result<Json<BTreeMap<String, i64>>, CadenzaError> {
+    Ok(Json(
+        db::tag_scores::add_to_tag_scores(&db, claims.user_id, deltas).await?,
+    ))
+}
+
+#[derive(Deserialize)]
+struct TopTagScoresParams {
+    k: u64,
+}
+
+/// Returns the signed in user's `k` highest tag scores, keyed by tag name. A map
+/// has no order, so the client sorts it. `k` is at most 200.
+///
+/// Each value is `[score, color, source]`. `color` is the user's own tag's when
+/// they have a tag of that name, and `source` is then `"local"`. Otherwise it is
+/// the default tag's, and `source` is `"global"`. Scores of 0 and below are left
+/// out, and so are names with no tag at all. A user with fewer than `k` names
+/// left gets all of those.
+///
+/// JSON return value format, for `?k=3`:
+/// ```json
+/// {
+///     "chill": [4, "#7c3aed", "global"],
+///     "pop": [5, "#ec4899", "local"],
+///     "rock": [10, "#ef4444", "local"]
+/// }
+/// ```
+async fn get_top_tag_scores_handler(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Query(params): Query<TopTagScoresParams>,
+) -> Result<Json<HashMap<String, ScoredTag>>, CadenzaError> {
+    let scores = db::tag_scores::get_top_tag_scores(&db, claims.user_id, params.k).await?;
+
+    Ok(Json(
+        scores
+            .into_iter()
+            .map(|(name, score)| (name, score.into()))
+            .collect(),
+    ))
+}
+
 pub fn get_tags_router() -> Router<AppState> {
     Router::new()
         .route("/", get(get_user_tags_handler))
         .route("/", post(new_user_tag_handler))
         .route("/", delete(delete_user_tag_handler))
+        .route("/scores", get(get_top_tag_scores_handler)
+                            .patch(edit_tag_scores_handler))
         .route("/default-tags", get(search_default_tags_handler))
         .route("/suggest", get(suggest_tags_handler))
 }

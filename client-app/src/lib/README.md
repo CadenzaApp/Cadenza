@@ -12,7 +12,7 @@ native module directly.
 | `api-actions.ts`             | The generic SWR wrappers: `useAPIData`, `useAPIPostData`, `useAPIPostDataBatched`, `useAPIFetch`, `useAPIMutation`.                                                                                                                                                                               |
 | `api-endpoints.ts`           | `matchesEndpoint`, the cache-key matcher behind invalidation. Import-free so it can be unit tested.                                                                                                                                                                                               |
 | `swr-utils.ts`               | `clearCache` and `useSimpleMutation`, for things that are not plain backend calls.                                                                                                                                                                                                                |
-| `routes/tags.ts`             | Hooks for `/tags`: `useUserTags`, `useTag`, `useCreateTag`, `useDeleteTag`, `useDefaultTags`, `useSuggestTags`.                                                                                                                                                                                   |
+| `routes/tags.ts`             | Hooks for `/tags`: `useUserTags`, `useTag`, `useCreateTag`, `useDeleteTag`, `useDefaultTags`, `useSuggestTags`, `useEditTagScores`, `useTopTagScores`.                                                                                                                                                               |
 | `routes/songs.ts`            | Hooks for local and default tag reads (one song and batched), local tag writes, removing a suggested tag, missing-default checks, generation, and editing the user's library.                                                                                     |
 | `routes/queries.ts`          | `useQueryResults`, the one cached hook for `/queries/results`. Both builders go through it, and it carries the suggested-tag flag. It sends no song ids: the backend queries the library it already has.                                                                          |
 | `routes/comments.ts`         | Hooks for `/comments`: `useSongComments`, `useCreateComment`, `useDeleteComment`, `useVoteOnComment`.                                                                                                                                                                                             |
@@ -21,11 +21,13 @@ native module directly.
 | `song-init.tsx`              | `SongInitProvider`, which runs the library sync job after account and Apple Music authorization.                                                                                                                                                                                                  |
 | `song-init-job.ts`           | Import-free, tested library sync job: walks Apple Music, diffs it against the local record, and sends the difference to `PATCH /songs`.                                                                                                                                                           |
 | `initialized-songs-db.ts`    | The expo-sqlite `initialized_songs` table, the device's record of what `user_songs` holds. Opens the database and hands the job an `InitializedSongsStore`.                                                                                                                                       |
-| `account.tsx`                | `AccountProvider` / `useAccount`. Supabase session and the JWT.                                                                                                                                                                                                                                   |
+| `tag-scores.tsx`             | `TagScoreTracker`, which gives each of the user's own tags on a song 2 points and each default tag 1 point once that song has played for 5 seconds, and `useScoreQueryTags`, which gives every tag a query uses positively 10 points.                                                                      |
+| `tag-score-deltas.ts`        | The `PATCH /tags/scores` body one play of a song, or one run of a query, is worth. Only type imports, tested in `tag-score-deltas.test.ts`.                                                                                                                                                       |
+| `account.tsx`                | `AccountProvider` / `useAccount`. Who is signed in (id and email), and sign in / sign up / sign out.                                                                                                                                                                                                                                   |
 | `apple-music-auth.tsx`       | `AppleMusicProvider` / `useAppleMusic`. Apple Music tokens, persisted in secure store.                                                                                                                                                                                                            |
 | `playback.tsx`               | `PlaybackProvider`, broad `usePlayback`, lightweight `usePlaybackTrackState`, and stable `usePlaybackCommands`. Queue, native playback snapshot, and compact-player dismissal state.                                                                                                              |
 | `queue-order.ts`             | Pure index math for the queue mirror. Tested in `queue-order.test.ts`.                                                                                                                                                                                                                            |
-| `supabase.ts`                | The Supabase client, backed by AsyncStorage.                                                                                                                                                                                                                                                      |
+| `supabase.ts`                | The Supabase client, backed by AsyncStorage, plus `getAccessToken()`, the fresh access token every backend request uses.                                                                                                                                                                                                                                                      |
 | `theme.ts`                   | `NAV_THEME`, light and dark palettes for react-navigation, `sheetScreenOptions` for sheet routes, and `pushedScreenOptions` for the pushed detail routes.                                                                                                                                         |
 | `error-utils.ts`             | `getErrorDetails` / `getErrorMessage`, for unwrapping native and backend errors.                                                                                                                                                                                                                  |
 | `artwork-color.ts`           | `useArtworkTint`, the color a surface paints itself with, plus alpha, darkening, and multi-artwork averaging helpers.                                                                                                                                                                             |
@@ -42,6 +44,7 @@ native module directly.
 | `types.ts`                   | Shared wire types: `TagType`, `Tag`, `AppliedTag` and `TagMetadata`.                                                                                                                                                                                                                              |
 | `query-json.ts`              | The tag query wire format: `QueryJSON`, `QueryJSONNode`, `FilterJSON`, `FilterOp`. Types only, so the pure builder utils stay testable under `node --test`.                                                                                                                                       |
 | `tag-values.ts`              | Per-type tag helpers: `TAG_TYPES`, labels, descriptions, `TAG_TYPE_ICONS`, value validation, canonicalization, formatting, the date-only helpers, and `unownedDefaultTags`.                                                                                                                       |
+| `app-error.ts`               | `classifyError`, turning any thrown value into an `AppError` with a title, a sentence, and an optional way out. Tested in `app-error.test.ts`.                                                                                                                                                      |
 | `utils.ts`                   | `cn()`, the clsx + tailwind-merge helper.                                                                                                                                                                                                                                                         |
 
 ## The SWR wrappers
@@ -56,9 +59,12 @@ Five, in `api-actions.ts`, and picking the right one is most of the work:
 | `useAPIFetch<In, Out>(path)`                                | a one-shot GET fired by a user action, never on render                 | `path` string                                            |
 | `useAPIMutation<Body, Res>(method, path, invalidates?)`     | user-triggered writes                                                  | `[method, path, accountId]`                              |
 
-All five pull the JWT from `useAccount()` and send `Authorization: Bearer <jwt>`. All five
-tolerate an empty response body, and all five throw the parsed error body on a non-2xx, so a
-caught error is the backend's `{ error_type, message }` object, not an `Error`.
+All five go through one `apiRequest` helper. It calls `getAccessToken()` per request, so the
+token is always fresh, and sends `Authorization: Bearer <token>`. It tolerates an empty response
+body, and throws the parsed error body on a non-2xx, so a caught error is the backend's
+`{ error_type, message }` object, not an `Error`. A body that is not JSON at all (a 401 from the
+auth layer is plain text, so is anything a proxy injects) is thrown as
+`APIRequestError`: `{ error_type: "Unauthorized" | "HttpError" | "MalformedResponse", status, message }`.
 
 The `accountId` in every key means a cached read can never be served to a different user, on
 top of the `clearCache()` that already runs on every account change.
@@ -115,6 +121,8 @@ One file per backend router, and every backend endpoint has at least one hook.
 |                      | `DELETE /tags`                   | `tags.ts` -> `useDeleteTag()`                  |
 |                      | `GET /tags/default-tags`         | `tags.ts` -> `useDefaultTags(search)`          |
 |                      | `GET /tags/suggest`              | `tags.ts` -> `useSuggestTags()`                |
+|                      | `GET /tags/scores`               | `tags.ts` -> `useTopTagScores(k)`              |
+|                      | `PATCH /tags/scores`             | `tags.ts` -> `useEditTagScores()`              |
 | `routes/songs.rs`    | `GET /songs/local-tags`          | `songs.ts` -> `useTagsOnSong(songId)`          |
 |                      | `POST /songs/local-tags/batch`   | `songs.ts` -> `useTagsOnSongs(songIds)`        |
 |                      | `GET /songs/default-tags`        | `songs.ts` -> `useDefaultTagsOnSong(songId)`   |
@@ -139,6 +147,13 @@ inside the bound `mutate` of that song's `/comments` read, with `comment-votes.t
 as the optimistic data and `rollbackOnError`, then revalidates the read whether the vote saved or
 not. So its `useAPIMutation` lists nothing to invalidate. `useDeleteComment` invalidates every
 song's comments, because its payload carries no song id.
+
+`useTopTagScores(k)` reads the user's top tags as `{name: [score, color, source]}`, where `source`
+is `local` when the color is the user's own tag's and `global` when it is a default tag's. The map
+has no order, so callers sort it. `useEditTagScores` invalidates it, since any score edit can move
+the top tags. Its callers are both in `tag-scores.tsx`, below, so a play or a query refreshes an
+open top tags read. `useCreateTag` and `useDeleteTag` invalidate it too, because a tag of a scored
+name decides whether that name is local, what color it has, and whether it shows up at all.
 
 Adding an endpoint: add the route in `backend-api/src/routes/*.rs`, then add a hook in the
 matching `routes/*.ts` built on the shared wrappers. For writes, list the endpoints the
@@ -317,10 +332,20 @@ remaining distance. A short pull still springs back to full size.
 
 ## The providers
 
-- `AccountProvider` owns the Supabase session. `signIn`, `signUp`, `signOut`, and
+- `AppleMusicProvider` exposes `sessionExpired`, set when Apple rejects the stored
+  music-user token. Every Apple Music read in `musickit-hooks.ts` goes through a local
+  `read()` wrapper that retries once on `ERR_APPLE_MUSIC_AUTH` and, if that fails too, calls
+  `reportAppleMusicAuthFailure()`. That drops the dead token and flips `sessionExpired`, which
+  `AppleMusicSessionGuard` turns into the Account sheet. A new musickit read that skips `read()`
+  will hang on a dead token instead of prompting a reconnect.
+- `AccountProvider` owns who is signed in, id and email only. `signIn`, `signUp`, `signOut`, and
   `tryRestoreSession`. Every account change calls `clearCache()`, so switching users cannot leak
   cached data. It does not log session tokens or account details. It has no loading state on
-  purpose: the splash screen calls `tryRestoreSession` before anything else renders.
+  purpose: the splash screen calls `tryRestoreSession` before anything else renders. It also
+  subscribes to `supabase.auth.onAuthStateChange`, so a session supabase ends on its own (a
+  failed refresh, a revoked token) drops the account instead of leaving a signed in user whose
+  every request 401s. Tokens are not held here, `getAccessToken()` in `supabase.ts` hands out a
+  fresh one per request.
 - `AppleMusicProvider` owns the Apple Music developer and user tokens, restores them from
   `expo-secure-store` on mount, and pushes them into the native module. `isConnected` means
   authorized **and** holding a user token. `ensureConnected()` before any playback call.
@@ -391,6 +416,48 @@ in the pass. Sends are logged before the request, so a batch that hangs still sh
 Default tags are not part of this. The backend generates them lazily, the first time a default
 tag read touches a song it has never generated for.
 
+## Scoring tags on playback
+
+The tags on a song score once that song has played for 5 seconds, which is how the backend learns
+which tags the user listens to rather than which ones they type or skip past.
+`tag-scores.tsx::TagScoreTracker` is mounted at the root, watches `usePlaybackTrackState()`, and
+sends one `PATCH /tags/scores` per play. The body is
+`tag-score-deltas.ts::playTagScoreDeltas`: 2 points for each of the user's own tags
+(`LOCAL_TAG_PLAY_SCORE_DELTA`) and 1 for each default tag (`DEFAULT_TAG_PLAY_SCORE_DELTA`), added
+up by tag name, since scores go by name rather than by tag id. A default tag whose name is also
+one of the user's tags on the song counts as local only, so it gets 2, not 3. Names are compared
+trimmed, whitespace collapsed, and lowercased, the way the backend keys a score.
+
+There is no native playback event, so plays are read off the polled snapshot. A play starts when
+the active track becomes a different song, and scores at most once. Resuming after a pause is not
+a new play, and neither is the same song repeating. A snapshot with no track in it is ignored, so
+losing the track for a poll and finding the same one again does not start a second play.
+
+A play scores after `PLAY_SCORE_DELAY_MS` (5 seconds) of uninterrupted playing. A timer runs while
+the track is playing and is cleared by a pause or a track change, so pausing starts the count over
+and skipping before it runs out drops the play. The play lives in state and is replaced during
+render when the track changes, so the scoring effect never pairs an old play with a new track.
+
+It reads the user's own tags through `useTagsOnSong` and the default tags through
+`useDefaultTagsOnSong`, both under the song's `catalogId ?? id`. Those are the same cache keys the
+player sheet's Tags page reads, and the list rows read the same data in batches, so the reads are
+usually already warm when a song starts. The play waits for both. If the default read fails, it
+scores the user's own tags alone.
+
+Reading a song's default tags generates them when nothing has yet, so playing a song that no list
+or player sheet has shown can spend an LLM call and holds the play's score until generation
+finishes.
+
+## Scoring tags in queries
+
+`tag-scores.tsx::useScoreQueryTags` returns a callback that gives every tag a query uses
+positively 10 points (`QUERY_TAG_SCORE_DELTA`), in one `PATCH /tags/scores`. `CadenzaScreen` calls it when the user opens
+the full results, not on each live edit. The body is `tag-score-deltas.ts::queryTagScoreDeltas`,
+which walks the `QueryJSON` tree. A tag filter under an odd number of `not`s is negative, and
+`is_not_applied` counts as one more `not`. A tag counts once per query however often it appears,
+and counts if it is used positively anywhere. `tag_name`, `tag_value`, and `tag_type` filters name
+no one tag and score nothing. Tag ids resolve to names through the tag list the caller passes.
+
 ## Connects to
 
 - `backend-api`, through `BACKEND_URL`.
@@ -433,10 +500,22 @@ tag read touches a song it has never generated for.
 - The first sync on an existing install sends the whole library, one `PATCH /songs` per 200
   songs. It is cheap per request, since the backend no longer generates tags there, but a large
   library still makes a long first run.
-- `api-actions.ts` reads `account?.jwt` at hook call time. A component rendered before the
-  session is restored sends `Bearer undefined`.
+- An access token lives about an hour. `api-actions.ts` fetches one per request through
+  `getAccessToken()`, which refreshes an expired one, so nothing holds a token. A component
+  rendered before the session is restored sends no `Authorization` header at all.
 - A comment vote is absolute (`"up"`, `"down"`, or `null`), and the server keeps whichever request
   it handles last. Two quick taps on one comment send two requests that can land out of order.
+- Opening the app while Apple Music is already playing scores that song. The first snapshot looks
+  exactly like a song that just started, and nothing in it says when playback began. A reload in
+  development does the same.
+- Nothing is scored while the app is backgrounded, because the snapshot poll only runs while it is
+  foregrounded. A queue that advances in the background scores one song, whatever is playing when
+  the app comes back.
+- Skipping a song before its tags arrive drops that song's point. The tag read is keyed by song, so
+  the answer for the song that already left is never looked at.
+- Opening a query's full results twice scores its tags twice. Each open is one use.
+- A song scores the tags it had when it started. Tagging it while it plays counts from the next
+  play on.
 
 ---
 

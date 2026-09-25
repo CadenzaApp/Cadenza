@@ -1,5 +1,12 @@
 import { useAPIData, useAPIFetch, useAPIMutation } from "../api-actions";
-import { Tag, TagMetadata, TagType } from "@/lib/types";
+import {
+    Tag,
+    TagMetadata,
+    TagScoreDeltas,
+    TagScores,
+    TagType,
+    TopTagScores,
+} from "@/lib/types";
 
 type UserTagsResponse = {
     All: { tags: Tag[]; metadata: Record<number, TagMetadata> };
@@ -44,6 +51,8 @@ export function useCreateTag() {
         { path: "/songs/local-tags" },
         { path: "/songs/local-tags/batch" },
         { path: "/tags" },
+        // a new tag can turn a top tag local and change its color
+        { path: "/tags/scores" },
     ]);
     return {
         createTagErr: x.error,
@@ -58,6 +67,8 @@ export function useDeleteTag() {
         { path: "/songs/local-tags" },
         { path: "/songs/local-tags/batch" },
         { path: "/tags" },
+        // a deleted tag can drop out of the top tags or fall back to global
+        { path: "/tags/scores" },
     ]);
     return {
         deleteTagErr: x.error,
@@ -105,5 +116,56 @@ export function useSuggestTags() {
         suggestTagsErr: x.error,
         resetSuggestTags: x.reset,
         suggestTags: x.trigger,
+    };
+}
+
+/**
+ * Moves the signed in user's score for each named tag by the given amount, which
+ * is how the app tracks the tags they are interested in. A tag name they have no
+ * score for starts at its delta, and a negative delta lowers the score.
+ *
+ * Trigger it with the names and deltas together, so one interaction is one
+ * request:
+ *
+ * ```ts
+ * await editTagScores({ pop: 5, rock: 10, jazz: -2 });
+ * ```
+ *
+ * Bumping a single tag is the one-key case, `editTagScores({ pop: 1 })`. Scores
+ * go by tag name, not tag id, so default tags can be scored as well. Names are
+ * lowercased and whitespace-collapsed by the backend, and it returns the score
+ * each one is left at.
+ *
+ * Invalidates every `useTopTagScores` read, since any edit can move the top
+ * tags.
+ */
+export function useEditTagScores() {
+    const x = useAPIMutation<TagScoreDeltas, TagScores>(
+        "PATCH",
+        "/tags/scores",
+        [{ path: "/tags/scores" }],
+    );
+    return {
+        editTagScoresErr: x.error,
+        editTagScoresLoading: x.isMutating,
+        resetEditTagScores: x.reset,
+        editTagScores: x.trigger,
+    };
+}
+
+/**
+ * The signed in user's `k` highest tag scores, keyed by the lowercased tag
+ * name. Each is `[score, color, source]`: the color is the user's own tag's
+ * when they have one of that name (`local`), otherwise the default tag's
+ * (`global`). Names with no tag at all are left out, and so are scores of 0 and
+ * below. The map has no order, so sort it by score to rank it.
+ */
+export function useTopTagScores(k: number) {
+    const x = useAPIData<TopTagScores>("/tags/scores", { k });
+
+    return {
+        topTagScores: x.data,
+        topTagScoresLoading: x.isLoading,
+        topTagScoresErr: x.error,
     };
 }

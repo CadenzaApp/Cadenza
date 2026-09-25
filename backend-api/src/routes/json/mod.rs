@@ -2,6 +2,7 @@
 pub mod comment;
 pub mod query;
 pub mod tag;
+pub mod tag_score;
 
 /// convert a `Vec<A>` into a `Vec<B>``
 pub fn vec_into<A, B>(v: Vec<A>) -> Vec<B>

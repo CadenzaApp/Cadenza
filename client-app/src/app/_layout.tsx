@@ -10,6 +10,7 @@ import { AppleMusicProvider } from "@/lib/apple-music-auth";
 import { SongInitProvider } from "@/lib/song-init";
 import { PlaybackProvider } from "@/lib/playback";
 import { TasksHost, TasksProvider } from "@/components/custom/tasks";
+import { AppleMusicSessionGuard } from "@/features/account/apple-music-session-guard";
 import { LibraryCategoriesProvider } from "@/features/library/library-categories";
 import { BottomBarVisibilityProvider } from "@/lib/screen-overlay";
 import { ZoomOriginProvider } from "@/lib/zoom-dismiss";
@@ -17,6 +18,7 @@ import { PortalHost } from "@rn-primitives/portal";
 import { useColorScheme } from "nativewind";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { MediaPlayerPushedScreenOverlay } from "@/components/custom/media-player";
+import { TagScoreTracker } from "@/lib/tag-scores";
 
 import "../../global.css";
 
@@ -108,7 +110,9 @@ export default function RootLayout() {
                                                         options={pushedScreenOptions()}
                                                     />
                                                 </Stack>
+                                                <AppleMusicSessionGuard />
                                                 <MediaPlayerPushedScreenOverlay />
+                                                <TagScoreTracker />
                                                 <TasksHost />
                                                 <PortalHost />
                                             </ZoomOriginProvider>

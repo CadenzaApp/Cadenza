@@ -3,6 +3,7 @@ import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 import { useLayoutEffect, useState } from "react";
 import { Platform, View } from "react-native";
 
+import { ErrorNotice } from "@/components/custom/error-notice";
 import { ArtistList } from "@/components/custom/artist-list";
 import { CollectionList } from "@/components/custom/collection-list";
 import {
@@ -13,7 +14,6 @@ import {
 import { DetailScreen } from "@/components/ui/detail-screen";
 import { Text } from "@/components/ui/text";
 import { useAppleMusic } from "@/lib/apple-music-auth";
-import { getErrorMessage } from "@/lib/error-utils";
 import { collectionRoute } from "@/lib/music-routes";
 import {
     useLibraryAlbums,
@@ -82,11 +82,7 @@ export function LibraryCategoryScreen({
         </Text>
     ) : (
         <>
-            {error ? (
-                <Text className="my-2 px-6 text-center text-destructive">
-                    {getErrorMessage(error)}
-                </Text>
-            ) : null}
+            {error ? <ErrorNotice error={error} /> : null}
 
             <View className="flex-1">
                 {category === "tag" ? (

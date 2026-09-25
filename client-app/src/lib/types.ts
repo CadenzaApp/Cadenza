@@ -25,7 +25,29 @@ export type AppliedTag = Tag & {
 
 export type TagMetadata = {
     count: number;
-}
+};
+
+/**
+ * How far to move each tag name's score, keyed by tag name. Positive values
+ * raise the score, negative ones lower it. Names are matched case-insensitively
+ * and by tag name rather than tag id, so a default tag can be scored too.
+ */
+export type TagScoreDeltas = Record<string, number>;
+
+/** What each named tag's score is now, keyed by the lowercased tag name. */
+export type TagScores = Record<string, number>;
+
+/**
+ * Where a top tag's color came from: `local` if the user has a tag of that
+ * name, `global` if only a default tag does.
+ */
+export type TagSource = "local" | "global";
+
+/** One of the user's top tags as `GET /tags/scores` sends it. */
+export type ScoredTag = [score: number, color: string, source: TagSource];
+
+/** The user's top tags, keyed by the lowercased tag name, in no order. */
+export type TopTagScores = Record<string, ScoredTag>;
 
 export type CommentVote = "up" | "down";
 

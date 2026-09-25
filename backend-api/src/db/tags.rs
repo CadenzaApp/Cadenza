@@ -28,6 +28,39 @@ pub async fn get_all_user_tags(
         .await?)
 }
 
+/// A tag name the way `services::tag_normalizer::normalize_tag_name` makes it:
+/// whitespace collapsed and trimmed, cut to 50 characters, lowercased. Close
+/// enough to narrow a read down, but callers normalize what comes back in Rust
+/// before trusting a match, since postgres and Rust differ on non-ASCII text.
+const NORMALIZED_TAG_NAME_SQL: &str =
+    "lower(left(btrim(regexp_replace(tags.name, '\\s+', ' ', 'g')), 50))";
+
+/// The user's own tags and the shared default tags whose names normalize to one
+/// of `names`, oldest first. Other users' tags are never included.
+pub async fn get_tags_named(
+    db: &impl ConnectionTrait,
+    user_id: Uuid,
+    names: &[String],
+) -> Result<Vec<tags::Model>, CadenzaError> {
+    if names.is_empty() {
+        return Ok(vec![]);
+    }
+
+    Ok(tags_named_select(user_id, names).all(db).await?)
+}
+
+/// Returns the select behind [`get_tags_named`].
+fn tags_named_select(user_id: Uuid, names: &[String]) -> Select<tags::Entity> {
+    tags::Entity::find()
+        .filter(
+            tags::Column::UserId
+                .eq(user_id)
+                .or(tags::Column::UserId.is_null()),
+        )
+        .filter(Expr::cust(NORMALIZED_TAG_NAME_SQL).is_in(names.iter().cloned()))
+        .order_by_asc(tags::Column::TagId)
+}
+
 /// Returns up to `limit` default tags whose names contain `search`, ignoring
 /// case. A blank search matches every default tag.
 ///
@@ -707,6 +740,20 @@ pub async fn set_default_tags_on_songs(
 mod tests {
     use super::*;
     use sea_orm::QueryTrait;
+
+    #[test]
+    fn tags_named_select_reads_the_users_and_default_tags_by_normalized_name() {
+        let sql = tags_named_select(Uuid::nil(), &["pop".to_owned(), "road trip".to_owned()])
+            .build(sea_orm::DbBackend::Postgres)
+            .to_string();
+
+        assert!(
+            sql.ends_with(
+                r#"WHERE ("tags"."user_id" = '00000000-0000-0000-0000-000000000000' OR "tags"."user_id" IS NULL) AND (lower(left(btrim(regexp_replace(tags.name, '\s+', ' ', 'g')), 50))) IN ('pop', 'road trip') ORDER BY "tags"."tag_id" ASC"#
+            ),
+            "{sql}"
+        );
+    }
 
     /// The removal join has to carry the user id, and the `IS NULL` is what drops
     /// the rows it matched. Without the user id on the join a removal would hide

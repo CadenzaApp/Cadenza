@@ -1,12 +1,14 @@
 import { supabase } from "./supabase";
-import { useState, createContext, useContext } from "react";
+import { useState, useEffect, useRef, createContext, useContext } from "react";
 import { clearCache } from "./swr-utils";
 
-
+/**
+ * No access token here on purpose. A token expires after about an hour, so
+ * anything that needs one asks `getAccessToken()` at request time instead.
+ */
 type Account = {
     id: string;
     email: string;
-    jwt: string;
 };
 
 /** if `account == null`, then user isn't logged in */
@@ -53,7 +55,6 @@ export default function AccountProvider({ children }: Props) {
             setAccount({
                 id: data.session.user.id,
                 email: data.session.user.email!,
-                jwt: data.session.access_token,
             });
             return true;
         }
@@ -70,7 +71,6 @@ export default function AccountProvider({ children }: Props) {
         setAccount({
             id: data.user!.id,
             email: data.user!.email!,
-            jwt: data.session!.access_token,
         });
     }
 
@@ -84,7 +84,6 @@ export default function AccountProvider({ children }: Props) {
         setAccount({
             id: data.user!.id,
             email: data.user!.email!,
-            jwt: data.session!.access_token,
         });
     }
 
@@ -103,6 +102,30 @@ export default function AccountProvider({ children }: Props) {
         signUp,
         signOut,
     });
+
+    // the listener below is registered once, so it cannot read the account off
+    // a later render directly
+    const accountIdRef = useRef<string | null>(null);
+    useEffect(() => {
+        accountIdRef.current = accountInfo.account?.id ?? null;
+    }, [accountInfo.account?.id]);
+
+    // supabase can end a session on its own, when a refresh fails or the token
+    // is revoked. Without this the app keeps rendering a signed in user whose
+    // every request comes back 401.
+    useEffect(() => {
+        const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+            const nextId = session?.user.id ?? null;
+            if (nextId === accountIdRef.current) return;
+
+            setAccount(
+                session
+                    ? { id: session.user.id, email: session.user.email! }
+                    : null,
+            );
+        });
+        return () => data.subscription.unsubscribe();
+    }, []);
 
     return (
         <AccountContext.Provider value={accountInfo}>

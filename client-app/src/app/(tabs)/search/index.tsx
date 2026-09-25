@@ -7,9 +7,9 @@ import { useLayoutEffect, useState } from "react";
 import { Alert, Keyboard, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { ErrorNotice } from "@/components/custom/error-notice";
 import { MusicList } from "@/components/custom/music-list";
 import { GlassIconButton } from "@/components/ui/glass-icon-button";
-import { Text } from "@/components/ui/text";
 import type { RecentSearch } from "@/features/search/recent-searches";
 import { useRecentSearches } from "@/features/search/recent-searches";
 import { SearchArtists } from "@/features/search/search-artists";
@@ -19,7 +19,6 @@ import { SearchRecents } from "@/features/search/search-recents";
 import type { SearchScope } from "@/features/search/search-scope";
 import { SearchScopeToggle } from "@/features/search/search-scope";
 import { useAppleMusic } from "@/lib/apple-music-auth";
-import { getErrorMessage } from "@/lib/error-utils";
 import {
     useCatalogArtistSearch,
     useCatalogSongSearch,
@@ -208,11 +207,7 @@ export default function SearchScreen() {
                 <SearchScopeToggle scope={scope} onChange={changeScope} />
             </View>
 
-            {resultsErr ? (
-                <Text className="my-2 px-5 text-center text-destructive">
-                    {getErrorMessage(resultsErr)}
-                </Text>
-            ) : null}
+            {resultsErr ? <ErrorNotice error={resultsErr} /> : null}
 
             {hasSearched ? (
                 <MusicList

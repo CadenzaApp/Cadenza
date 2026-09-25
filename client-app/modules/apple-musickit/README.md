@@ -71,6 +71,21 @@ The application should obtain renewable developer tokens from its backend. Do
 not commit a long-lived developer token or its signing key. Persist music-user
 tokens with platform-backed secure storage.
 
+## Errors
+
+A 401 or 403 from Apple throws `ERR_APPLE_MUSIC_AUTH`, apart from the generic
+`ERR_APPLE_MUSIC_API`. 401 means the developer token is dead and 403 means the
+music-user token is; neither is fixed by retrying, so the app can tell a dead
+credential from a bad day at Apple and re-authorize instead of replaying it.
+
+iOS throws `MusicKitException(name:reason:)`, never `Exception(name:description:)`.
+ExpoModulesCore renders a thrown exception to JavaScript as `"<name>: <reason>"`,
+and the base initializer sets only `description`, leaving `reason` at its
+`"undefined reason"` default. Using it swallows the message: every Apple Music
+failure arrived in JS as `ERR_APPLE_MUSIC_API: undefined reason` with the status
+code and Apple's response body dropped. Android throws plain `Exception(message)`,
+whose message does reach JS already.
+
 ## Validation
 
 From `client-app`:
@@ -94,7 +109,7 @@ Compile native targets with the `AppleMusicKitModule` Xcode scheme and Gradle's
 | `src/library.ts` | Catalog search, library pages, album and playlist tracks, favorites, playlist writes, artists. |
 | `src/playback.ts` | Native playback commands and the playback snapshot hooks. |
 | `src/mock-native-module.ts` | The `EXPO_PUBLIC_MOCK_MUSICKIT=1` implementation. Fixtures, paginated collections, simulated progress. |
-| `ios/AppleMusicKitModule.swift` | iOS native module. |
+| `ios/AppleMusicKitModule.swift` | iOS native module, and `MusicKitException`, the error type every iOS throw uses. |
 | `ios/PageOptions.swift` | The `Record` types for paged options, and the limit/offset clamp they share. |
 | `android/src/main/java/.../AppleMusicKitModule.kt` | Android native module. |
 | `expo-module.config.json` | Autolinking config. Picked up via the `expo.autolinking.nativeModulesDir` entry in `client-app/package.json`. |

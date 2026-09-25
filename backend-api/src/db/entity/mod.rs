@@ -9,6 +9,8 @@ pub mod default_tags_applied;
 pub mod default_tags_generation;
 pub mod default_tags_removed;
 pub mod sea_orm_active_enums;
+pub mod tag_scores;
+pub mod tag_scores_metadata;
 pub mod tags;
 pub mod user_songs;
 pub mod user_tags_applied;

@@ -2,6 +2,7 @@ import useSWR, { mutate } from "swr";
 import useSWRMutation from "swr/mutation";
 import { useAccount } from "./account";
 import { BACKEND_URL } from "./backend";
+import { getAccessToken } from "./supabase";
 import { matchesEndpoint, type APIDataEndpoint } from "./api-endpoints";
 
 function queryParamsToStr(params?: Record<string, any>) {
@@ -10,10 +11,66 @@ function queryParamsToStr(params?: Record<string, any>) {
         : "?" + new URLSearchParams(params).toString();
 }
 
-/** handles the case when response has no body (doing .json() will fail) */
-async function responseData(response: Response) {
-    const text = await response.text();
-    return text ? JSON.parse(text) : {};
+/** What every wrapper throws when the response body is not the backend's JSON. */
+export type APIRequestError = {
+    error_type: "Unauthorized" | "HttpError" | "MalformedResponse";
+    status: number;
+    message: string;
+};
+
+/**
+ * One backend request. Attaches a fresh access token, tolerates an empty or
+ * non-JSON body, and throws the error body on a non-2xx.
+ *
+ * The token comes from `getAccessToken()` per call rather than from the account
+ * context, because the context holds whatever token sign in returned and that
+ * one expires after about an hour.
+ */
+async function apiRequest<Output>(
+    url: string,
+    { method, body }: { method?: string; body?: unknown } = {},
+): Promise<Output> {
+    const token = await getAccessToken();
+    const headers: Record<string, string> = {};
+    if (token) headers.Authorization = `Bearer ${token}`;
+    if (body !== undefined) headers["Content-Type"] = "application/json";
+
+    const resp = await fetch(url, {
+        method,
+        headers,
+        body: body === undefined ? undefined : JSON.stringify(body),
+    });
+
+    const text = await resp.text();
+    let data: unknown = {};
+    let isJSON = true;
+    if (text) {
+        try {
+            data = JSON.parse(text);
+        } catch {
+            isJSON = false;
+        }
+    }
+
+    // a 401 from the auth layer is plain text ("Expired signature"), and so is
+    // anything a proxy puts in front of us, so neither can be parsed as the
+    // backend's { error_type, message }
+    if (!isJSON) {
+        const error: APIRequestError = {
+            error_type: resp.ok
+                ? "MalformedResponse"
+                : resp.status === 401
+                  ? "Unauthorized"
+                  : "HttpError",
+            status: resp.status,
+            message: text,
+        };
+        throw error;
+    }
+
+    if (!resp.ok) throw data;
+
+    return data as Output;
 }
 
 /** Revalidates every cached `api-data` read that matches one of the endpoints */
@@ -36,19 +93,10 @@ export function useAPIMutation<RequestBody, Response>(
     return useSWRMutation(
         [method, path, account?.id],
         async (_: any, { arg: body }: { arg: RequestBody }) => {
-            const resp = await fetch(BACKEND_URL + path, {
+            const data = await apiRequest<Response>(BACKEND_URL + path, {
                 method,
-                headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${account?.jwt}`,
-                },
-                body: JSON.stringify(body),
+                body,
             });
-            const data = await responseData(resp);
-
-            if (!resp.ok) {
-                throw data;
-            }
 
             invalidateAPIData(
                 Array.isArray(invalidatedEndpoints)
@@ -56,7 +104,7 @@ export function useAPIMutation<RequestBody, Response>(
                     : invalidatedEndpoints(body),
             );
 
-            return data as Response;
+            return data;
         },
     );
 }
@@ -84,23 +132,8 @@ export function useAPIData<Output>(
         enabled
             ? { keyType: "api-data", path, params, accountId: account?.id }
             : null,
-        async () => {
-            const resp = await fetch(
-                BACKEND_URL + path + queryParamsToStr(params),
-                {
-                    headers: {
-                        Authorization: `Bearer ${account?.jwt}`,
-                    },
-                },
-            );
-            const json = await responseData(resp);
-
-            if (!resp.ok) {
-                throw json;
-            }
-
-            return json as Output;
-        },
+        () =>
+            apiRequest<Output>(BACKEND_URL + path + queryParamsToStr(params)),
         options,
     );
 }
@@ -119,20 +152,11 @@ export function useAPIPostData<Body, Output>(path: string, body: Body | null) {
                   accountId: account.id,
               }
             : null,
-        async () => {
-            const resp = await fetch(BACKEND_URL + path, {
+        () =>
+            apiRequest<Output>(BACKEND_URL + path, {
                 method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${account?.jwt}`,
-                },
-                body: JSON.stringify(body),
-            });
-            const json = await responseData(resp);
-
-            if (!resp.ok) throw json;
-            return json as Output;
-        },
+                body,
+            }),
         { keepPreviousData: false },
     );
 }
@@ -164,23 +188,12 @@ export function useAPIPostDataBatched<Item, Body, Output>(
             : null,
         async () => {
             const responses = await Promise.all(
-                chunk(items, batchSize).map(async (batch) => {
-                    const resp = await fetch(BACKEND_URL + path, {
+                chunk(items, batchSize).map((batch) =>
+                    apiRequest<Output>(BACKEND_URL + path, {
                         method: "POST",
-                        headers: {
-                            "Content-Type": "application/json",
-                            Authorization: `Bearer ${account?.jwt}`,
-                        },
-                        body: JSON.stringify(toBody(batch)),
-                    });
-                    const json = await responseData(resp);
-
-                    if (!resp.ok) {
-                        throw json;
-                    }
-
-                    return json as Output;
-                }),
+                        body: toBody(batch),
+                    }),
+                ),
             );
 
             return merge(responses);
@@ -203,28 +216,8 @@ function chunk<T>(values: readonly T[], size: number): T[][] {
 export function useAPIFetch<Input extends Record<string, any>, Output>(
     path: string,
 ) {
-    const { account } = useAccount();
-
-    return useSWRMutation(
-        path,
-        async (_: any, { arg: params }: { arg: Input }) => {
-            // initialize args to fetch() depending on what method is used
-            const requestPath = BACKEND_URL + path + queryParamsToStr(params);
-            const fetchArgs: RequestInit = {
-                headers: {
-                    Authorization: `Bearer ${account?.jwt}`,
-                },
-            };
-
-            const resp = await fetch(requestPath, fetchArgs);
-            const json = await responseData(resp);
-
-            if (!resp.ok) {
-                throw json;
-            }
-
-            return json as Output;
-        },
+    return useSWRMutation(path, (_: any, { arg: params }: { arg: Input }) =>
+        apiRequest<Output>(BACKEND_URL + path + queryParamsToStr(params)),
     );
 }
 

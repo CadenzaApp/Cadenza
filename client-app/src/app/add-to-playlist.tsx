@@ -4,11 +4,12 @@ import { useTheme } from "expo-router/react-navigation";
 import { useState } from "react";
 import { ActivityIndicator, Alert, Pressable, View } from "react-native";
 
+import { ErrorNotice } from "@/components/custom/error-notice";
+import { classifyError } from "@/lib/app-error";
 import { CollectionList } from "@/components/custom/collection-list";
 import { Input } from "@/components/ui/input";
 import { DetailScreen } from "@/components/ui/detail-screen";
 import { Text } from "@/components/ui/text";
-import { getErrorMessage } from "@/lib/error-utils";
 import { usePlaylistMutations, useUserPlaylists } from "@/lib/musickit-hooks";
 import type { MusicItem } from "@apple-musickit";
 
@@ -50,11 +51,8 @@ export default function AddToPlaylistScreen() {
             router.back();
         } catch (error) {
             console.error("Failed to add the song to a playlist:", error);
-            Alert.alert(
-                "Couldn't Add to Playlist",
-                getErrorMessage(error) ??
-                    "Please check your Apple Music connection and try again.",
-            );
+            const { title, detail } = classifyError(error);
+            Alert.alert(title, detail);
         } finally {
             setPendingPlaylistId(null);
         }
@@ -70,11 +68,8 @@ export default function AddToPlaylistScreen() {
             router.back();
         } catch (error) {
             console.error("Failed to create the playlist:", error);
-            Alert.alert(
-                "Couldn't Create Playlist",
-                getErrorMessage(error) ??
-                    "Please check your Apple Music connection and try again.",
-            );
+            const { title, detail } = classifyError(error);
+            Alert.alert(title, detail);
         } finally {
             setIsCreating(false);
         }
@@ -91,11 +86,7 @@ export default function AddToPlaylistScreen() {
                 </Text>
             ) : null}
 
-            {playlistsErr ? (
-                <Text className="my-2 px-6 text-center text-destructive">
-                    {getErrorMessage(playlistsErr)}
-                </Text>
-            ) : null}
+            {playlistsErr ? <ErrorNotice error={playlistsErr} /> : null}
 
             <View className="flex-row items-center gap-2 px-6 pb-3">
                 <Input
