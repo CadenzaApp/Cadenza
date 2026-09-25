@@ -414,3 +414,24 @@ test("every playlist is walked exactly once under the pool", async () => {
     );
     assert.equal(calls.patches[0].add.length, PLAYLIST_CONCURRENCY * 2);
 });
+
+test("a source whose offset does not advance stops instead of looping", async () => {
+    const { store, rows } = fakeStore({ gone: 1 });
+    const { deps, calls } = fakeDeps({ store });
+    let reads = 0;
+
+    // what a stuck native pager looks like: a full page every time, always
+    // pointing back at the same next offset
+    deps.getLibrarySongs = async () => {
+        reads += 1;
+        return { items: [song("a")], hasNextPage: true, nextOffset: 0 };
+    };
+
+    const result = await syncLibrary(deps);
+
+    assert.equal(reads, 1);
+    // the walk never saw the whole library, so nothing is treated as deleted
+    assert.equal(result.complete, false);
+    assert.deepEqual(calls.patches, [{ add: ["a"], remove: [] }]);
+    assert.ok(rows.has("gone"));
+});

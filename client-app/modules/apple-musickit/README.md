@@ -22,9 +22,16 @@ Returned `MusicItem` values identify their `resourceKind`, `source`, canonical
 requests accept `limit` and `offset`; results expose Apple's `next` path when a
 later page exists.
 
-Catalog pagination is flattened to scalar `limit` and `offset` arguments at the
-native bridge. The public TypeScript API still accepts an options object. This
-avoids platform-specific object-to-dictionary conversion failures in ExpoModulesCore.
+Paged reads pass `{ limit, offset }` across the bridge as an options object. On
+iOS it arrives as a `Record` (`ios/PageOptions.swift`) so ExpoModulesCore does
+the conversion; on Android it is read through `as? Number`. Neither side digs
+values out of an untyped dictionary by hand. A JS number reaches native as a
+`Double`, so a hand-written `as? Int` misses and the read silently falls back to
+its default, which is what made `getLibrarySongs` page forever at offset 0.
+
+`catalogSearch` is the exception: it still takes scalar `limit` and `offset`
+arguments at the bridge, flattened before records were adopted here. The public
+TypeScript API takes an options object either way.
 
 Use `Auth.isAvailable()`, `MusicKit.isAvailable()`, or `Playback.isAvailable()`
 when rendering a surface that may run on web or in Expo Go.
@@ -88,6 +95,7 @@ Compile native targets with the `AppleMusicKitModule` Xcode scheme and Gradle's
 | `src/playback.ts` | Native playback commands and the playback snapshot hooks. |
 | `src/mock-native-module.ts` | The `EXPO_PUBLIC_MOCK_MUSICKIT=1` implementation. Fixtures, paginated collections, simulated progress. |
 | `ios/AppleMusicKitModule.swift` | iOS native module. |
+| `ios/PageOptions.swift` | The `Record` types for paged options, and the limit/offset clamp they share. |
 | `android/src/main/java/.../AppleMusicKitModule.kt` | Android native module. |
 | `expo-module.config.json` | Autolinking config. Picked up via the `expo.autolinking.nativeModulesDir` entry in `client-app/package.json`. |
 

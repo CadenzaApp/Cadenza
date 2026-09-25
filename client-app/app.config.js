@@ -60,6 +60,7 @@ module.exports = {
         {
           ios: {
             deploymentTarget: "16.4",
+            usePrecompiledModules: false,
           },
         },
       ],
@@ -68,6 +69,7 @@ module.exports = {
       "expo-image",
       "expo-web-browser",
       "expo-secure-store",
+      "@react-native-community/datetimepicker",
       "./plugins/with-ios-build-fixes",
     ],
     experiments: {

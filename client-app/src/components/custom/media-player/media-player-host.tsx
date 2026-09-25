@@ -1,11 +1,12 @@
 import { NativeTabs } from "expo-router/unstable-native-tabs";
 import { Platform, StyleSheet, View } from "react-native";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { usePlaybackTrackState } from "@/lib/playback";
 import {
     supportsNativeTabBottomAccessory,
+    useBottomBarsHidden,
     useShowsPushedPlayerOverlay,
 } from "@/lib/screen-overlay";
 
@@ -18,11 +19,53 @@ const FALLBACK_TAB_BAR_HEIGHT = Platform.select({
 });
 const FALLBACK_GAP = 8;
 const FALLBACK_SIDE_INSET = 12;
+/** Roughly what UIKit takes to animate `bottomAccessoryHidden` out. */
+const ACCESSORY_HIDE_ANIMATION_MS = 400;
 
 type PlayerArtworkStateProps = {
     failedArtworkUrl: string | null;
     onArtworkError: (url: string | null) => void;
 };
+
+/**
+ * Whether the tab controller should still declare a bottom accessory.
+ *
+ * UIKit keeps the accessory's slot in the minimized tab bar reserved for as
+ * long as one is declared, so a dismissed player leaves that slot sitting
+ * empty between the two tab buttons. Undeclaring it gives the space back.
+ *
+ * The declaration outlives the dismissal by the length of UIKit's own hide
+ * animation. Dropping it on the same commit that sets `bottomAccessoryHidden`
+ * tears the accessory out before that animation can play, so it pops instead
+ * of sliding away.
+ */
+export function useMediaPlayerAccessoryDeclared() {
+    const { activeTrack, isPlayerDismissed } = usePlaybackTrackState();
+    const wanted = activeTrack != null && !isPlayerDismissed;
+    const [declared, setDeclared] = useState(wanted);
+    const [previousWanted, setPreviousWanted] = useState(wanted);
+
+    // Re-declaring has to land on the same render that wants it, or a song
+    // starting after a dismissal shows an empty slot for a frame. Adjusting
+    // state during render is React's own answer to that; only the delayed
+    // undeclare below needs to wait for a timer.
+    if (previousWanted !== wanted) {
+        setPreviousWanted(wanted);
+        if (wanted) setDeclared(true);
+    }
+
+    useEffect(() => {
+        if (wanted || !declared) return;
+
+        const timer = setTimeout(
+            () => setDeclared(false),
+            ACCESSORY_HIDE_ANIMATION_MS,
+        );
+        return () => clearTimeout(timer);
+    }, [declared, wanted]);
+
+    return declared;
+}
 
 /** The player content hosted by UITabBarController on iOS 26 and later. */
 export function MediaPlayerAccessory({
@@ -89,12 +132,13 @@ export function MediaPlayerFallbackOverlay({
 export function MediaPlayerPushedScreenOverlay() {
     const { activeTrack, isPlayerDismissed } = usePlaybackTrackState();
     const visible = useShowsPushedPlayerOverlay();
+    const hidden = useBottomBarsHidden();
     const insets = useSafeAreaInsets();
     const [failedArtworkUrl, setFailedArtworkUrl] = useState<string | null>(
         null,
     );
 
-    if (!visible || !activeTrack || isPlayerDismissed) return null;
+    if (hidden || !visible || !activeTrack || isPlayerDismissed) return null;
 
     return (
         <View

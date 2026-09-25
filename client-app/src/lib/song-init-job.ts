@@ -356,10 +356,20 @@ async function forEachPage(
                 (page.hasNextPage ? "" : ", last page"),
         );
 
-        // move on to the next page, if there is one
-        offset =
+        // move on to the next page, if there is one. an offset that does not
+        // advance would read the same page forever, so it fails the source
+        // instead: the walk stops, and the run counts as incomplete rather than
+        // treating the pages it never reached as songs that are gone
+        const next =
             page.hasNextPage && page.items.length > 0
                 ? page.nextOffset
                 : undefined;
+        if (next !== undefined && next <= pageOffset) {
+            throw new Error(
+                `${source} asked for offset ${next} again after offset ` +
+                    `${pageOffset}, so its pages do not advance`,
+            );
+        }
+        offset = next;
     }
 }

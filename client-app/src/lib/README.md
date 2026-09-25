@@ -13,7 +13,7 @@ native module directly.
 | `api-endpoints.ts`           | `matchesEndpoint`, the cache-key matcher behind invalidation. Import-free so it can be unit tested.                                                                                                                                                                                               |
 | `swr-utils.ts`               | `clearCache` and `useSimpleMutation`, for things that are not plain backend calls.                                                                                                                                                                                                                |
 | `routes/tags.ts`             | Hooks for `/tags`: `useUserTags`, `useTag`, `useCreateTag`, `useDeleteTag`, `useDefaultTags`, `useSuggestTags`, `useEditTagScores`, `useTopTagScores`.                                                                                                                                                               |
-| `routes/songs.ts`            | Hooks for local and default tag reads (one song and batched), local tag writes, removing a suggested tag, and editing the user's library.                                                                                                                                                                                   |
+| `routes/songs.ts`            | Hooks for local and default tag reads (one song and batched), local tag writes, removing a suggested tag, missing-default checks, generation, and editing the user's library.                                                                                     |
 | `routes/queries.ts`          | `useQueryResults`, the one cached hook for `/queries/results`. Both builders go through it, and it carries the suggested-tag flag. It sends no song ids: the backend queries the library it already has.                                                                          |
 | `routes/comments.ts`         | Hooks for `/comments`: `useSongComments`, `useCreateComment`, `useDeleteComment`, `useVoteOnComment`.                                                                                                                                                                                             |
 | `comment-votes.ts`           | `applyCommentVote`, the optimistic update `useVoteOnComment` makes to cached comment threads. `sortThreadsByVotes` and `orderThreadsLike`, which `CommentsPage` uses to sort threads by score and then hold that order while it is in view. Only type imports, tested in `comment-votes.test.ts`. |
@@ -25,7 +25,7 @@ native module directly.
 | `tag-score-deltas.ts`        | The `PATCH /tags/scores` body one play of a song, or one run of a query, is worth. Only type imports, tested in `tag-score-deltas.test.ts`.                                                                                                                                                       |
 | `account.tsx`                | `AccountProvider` / `useAccount`. Supabase session and the JWT.                                                                                                                                                                                                                                   |
 | `apple-music-auth.tsx`       | `AppleMusicProvider` / `useAppleMusic`. Apple Music tokens, persisted in secure store.                                                                                                                                                                                                            |
-| `playback.tsx`               | `PlaybackProvider`, broad `usePlayback`, lightweight `usePlaybackTrackState`, and stable `usePlaybackCommands`. Queue, native playback snapshot, and compact-player dismissal state.                                                                                                                                           |
+| `playback.tsx`               | `PlaybackProvider`, broad `usePlayback`, lightweight `usePlaybackTrackState`, and stable `usePlaybackCommands`. Queue, native playback snapshot, and compact-player dismissal state.                                                                                                              |
 | `queue-order.ts`             | Pure index math for the queue mirror. Tested in `queue-order.test.ts`.                                                                                                                                                                                                                            |
 | `supabase.ts`                | The Supabase client, backed by AsyncStorage.                                                                                                                                                                                                                                                      |
 | `theme.ts`                   | `NAV_THEME`, light and dark palettes for react-navigation, `sheetScreenOptions` for sheet routes, and `pushedScreenOptions` for the pushed detail routes.                                                                                                                                         |
@@ -34,7 +34,7 @@ native module directly.
 | `artwork-color-utils.ts`     | Native-free channel averaging for multi-artwork tints.                                                                                                                                                                                                                                            |
 | `music-routes.ts`            | `collectionRoute` / `albumRouteForTrack`. Hrefs into the resource screens, params and all.                                                                                                                                                                                                        |
 | `share-track.ts`             | `shareTrack` / `shareCollection`. Builds and fires the native share sheet for a song, album, or playlist's canonical Apple Music link.                                                                                                                                                            |
-| `screen-overlay.ts`          | `useScreenOverlayInsets`, native tab/accessory visibility, extra overlay clearance, focused-screen suppression, and pushed-screen detection.                                                                                                                                                      |
+| `screen-overlay.ts`          | `useScreenOverlayInsets`, native tab/accessory visibility, extra overlay clearance, focused-screen and keyboard suppression, and pushed-screen detection.                                                                                                                                         |
 | `screen-overlay-geometry.ts` | Pure, tested bottom-inset arithmetic shared by tab-hosted and pushed-screen compact players.                                                                                                                                                                                                      |
 | `playable-item.ts`           | Pure identity and collection-membership helpers for library/catalog forms of a playable item.                                                                                                                                                                                                     |
 | `screen-scroll.ts`           | `useScreenScroll`, the props a screen's top-level scroller spreads to get tab-press-scrolls-to-top and pull-down-to-close.                                                                                                                                                                        |
@@ -216,8 +216,9 @@ height and the player's maximum regular height. It stays conservative while UIKi
 the accessory to its inline placement.
 
 Root detail screens are above the native tab controller rather than inside it. One app-level
-compact-player overlay is mounted above the root stack and shown for artist, collection, and
-query-results routes.
+compact-player overlay is mounted above the root stack and shown for every pushed route, which is
+`PLAYER_OVERLAY_SEGMENTS`: the pushed detail segments plus `query-results`, which is pushed with
+its own options rather than `pushedScreenOptions`.
 The same `useShowsPushedPlayerOverlay` predicate tells `useScreenOverlayInsets` to reserve its
 height. Other root screens reserve nothing. Sheets reserve nothing because they cover every
 player surface.
@@ -225,8 +226,14 @@ player surface.
 `DetailScreen` puts `InsideSheetContext` around sheet bodies, where only the device safe area is
 relevant. Native sheets cover the primary bar and player without unmounting or hiding them, so
 they are ready on the first dismissal frame. `useBottomBarsHidden` handles temporary suppression;
-focused Search is the current caller. Suppression uses a token set, so overlapping callers cannot
-reveal the native bar or accessory until all of them release their token.
+focused Search is the current token caller. Suppression uses a token set, so overlapping callers
+cannot reveal the native bar or accessory until all of them release their token.
+
+A raised keyboard suppresses the bars too, but it is not a token. `BottomBarVisibilityProvider`
+watches it directly, because it applies to every screen at once rather than to one caller's
+condition, and bars left over a keyboard either cover it or shove the focused field around. iOS
+subscribes to the `Will` events so the bars start leaving on the frame the keyboard starts
+arriving; Android only fires the `Did` pair.
 
 ## Artwork color
 
