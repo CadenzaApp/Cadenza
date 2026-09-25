@@ -26,8 +26,14 @@ export function AccountSettingsScreen() {
     const insets = useSafeAreaInsets();
     const { colors } = useTheme();
     const { account, signOut } = useAccount();
-    const { authResult, isInitializing, isConnected, connect, disconnect } =
-        useAppleMusic();
+    const {
+        authResult,
+        isInitializing,
+        isConnected,
+        sessionExpired,
+        connect,
+        disconnect,
+    } = useAppleMusic();
     const [hideExplicitContent, setHideExplicitContent] = useState(false);
     const [isConnecting, setIsConnecting] = useState(false);
     const [confirmationTarget, setConfirmationTarget] =
@@ -180,6 +186,12 @@ export function AccountSettingsScreen() {
                                         isInitializing,
                                     )}
                                 </Text>
+                                {sessionExpired && !connectionMessage ? (
+                                    <Text className="text-sm leading-5 text-destructive">
+                                        Your Apple Music token expired.
+                                        Reconnect to keep using your library.
+                                    </Text>
+                                ) : null}
                                 {connectionMessage ? (
                                     <Text className="text-sm leading-5 text-muted-foreground">
                                         {connectionMessage}

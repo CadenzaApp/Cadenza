@@ -3,6 +3,32 @@ import Foundation
 @preconcurrency import MusicKit
 import StoreKit
 
+/// An error this module throws across the bridge.
+///
+/// ExpoModulesCore renders a thrown `Exception` to JavaScript as
+/// `"<name>: <reason>"`, but the base `Exception(name:description:)`
+/// initializer only sets `description` and leaves `reason` at its
+/// `"undefined reason"` default. That turned every error here into
+/// `"ERR_APPLE_MUSIC_API: undefined reason"` and threw away the status code and
+/// body Apple sent back. Overriding `reason` is what actually reaches JS.
+internal final class MusicKitException: Exception, @unchecked Sendable {
+    private let message: String
+
+    override var reason: String { message }
+
+    init(
+        name: String,
+        reason: String,
+        file: String = #fileID,
+        line: UInt = #line,
+        function: String = #function
+    ) {
+        self.message = reason
+        super.init(file: file, line: line, function: function)
+        self.name = name
+    }
+}
+
 private final class StaticDeveloperTokenProvider: MusicUserTokenProvider,
     MusicDeveloperTokenProvider, @unchecked Sendable
 {
@@ -30,13 +56,13 @@ public class AppleMusicKitModule: Module {
         allowNotFound: Bool = false
     ) async throws -> [String: Any] {
         guard let developerToken, !developerToken.isEmpty else {
-            throw Exception(name: "ERR_MISSING_TOKEN", description: "Missing Apple Music developer token.")
+            throw MusicKitException(name: "ERR_MISSING_TOKEN", reason: "Missing Apple Music developer token.")
         }
         guard let userToken, !userToken.isEmpty else {
-            throw Exception(name: "ERR_MISSING_USER_TOKEN", description: "Missing Apple Music user token.")
+            throw MusicKitException(name: "ERR_MISSING_USER_TOKEN", reason: "Missing Apple Music user token.")
         }
         guard let url = URL(string: "https://api.music.apple.com\(path)") else {
-            throw Exception(name: "ERR_INVALID_URL", description: "Invalid Apple Music API path: \(path)")
+            throw MusicKitException(name: "ERR_INVALID_URL", reason: "Invalid Apple Music API path: \(path)")
         }
 
         var request = URLRequest(url: url)
@@ -58,13 +84,22 @@ public class AppleMusicKitModule: Module {
             // failed read.
             if allowNotFound, statusCode == 404 { return [:] }
             let body = String(data: data, encoding: .utf8) ?? "Unknown error"
-            throw Exception(
+            // 401 means the developer token is bad, 403 means the music-user
+            // token is. Either way the credentials are dead and no retry fixes
+            // it, so name it apart from a transient API failure and let the app
+            // decide how to re-authorize.
+            if statusCode == 401 || statusCode == 403 {
+                throw MusicKitException(
+                    name: "ERR_APPLE_MUSIC_AUTH",
+                    reason: "Apple Music rejected the credentials (\(statusCode)): \(body)")
+            }
+            throw MusicKitException(
                 name: "ERR_APPLE_MUSIC_API",
-                description: "Apple Music API error (\(statusCode)): \(body)")
+                reason: "Apple Music API error (\(statusCode)): \(body)")
         }
         guard !data.isEmpty else { return [:] }
         guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw Exception(name: "ERR_INVALID_RESPONSE", description: "Invalid Apple Music API response.")
+            throw MusicKitException(name: "ERR_INVALID_RESPONSE", reason: "Invalid Apple Music API response.")
         }
         return object
     }
@@ -78,9 +113,9 @@ public class AppleMusicKitModule: Module {
         let attributes = song?["attributes"] as? [String: Any]
         let playParams = attributes?["playParams"] as? [String: Any]
         guard let catalogID = playParams?["catalogId"] as? String else {
-            throw Exception(
+            throw MusicKitException(
                 name: "ERR_CATALOG_ID_UNAVAILABLE",
-                description: "No catalog ID is available for library song \(id).")
+                reason: "No catalog ID is available for library song \(id).")
         }
         return catalogID
     }
@@ -98,9 +133,9 @@ public class AppleMusicKitModule: Module {
         let attributes = resource?["attributes"] as? [String: Any]
         let playParams = attributes?["playParams"] as? [String: Any]
         guard let catalogID = playParams?["catalogId"] as? String else {
-            throw Exception(
+            throw MusicKitException(
                 name: "ERR_CATALOG_ID_UNAVAILABLE",
-                description: "No catalog ID is available for library \(resourceKind) \(id).")
+                reason: "No catalog ID is available for library \(resourceKind) \(id).")
         }
         return catalogID
     }
@@ -501,9 +536,9 @@ public class AppleMusicKitModule: Module {
         guard let id = (response["data"] as? [[String: Any]])?.first?["id"] as? String,
               !id.isEmpty
         else {
-            throw Exception(
+            throw MusicKitException(
                 name: "ERR_STOREFRONT_UNAVAILABLE",
-                description: "Apple Music did not return a storefront for the current user.")
+                reason: "Apple Music did not return a storefront for the current user.")
         }
         storefrontID = id
         return id
@@ -622,7 +657,7 @@ public class AppleMusicKitModule: Module {
     ) async throws {
         let songs = try await songsForQueue(ids, types: types)
         guard !songs.isEmpty else {
-            throw Exception(name: "ERR_NOT_FOUND", description: "No queue songs were found.")
+            throw MusicKitException(name: "ERR_NOT_FOUND", reason: "No queue songs were found.")
         }
         // `songsForQueue` drops ids it could not resolve, so `startIndex`, which
         // addresses the caller's list, cannot be used as a position here. Look
@@ -648,8 +683,8 @@ public class AppleMusicKitModule: Module {
 
         AsyncFunction("authorize") { (developerToken: String) async throws -> [String: String] in
             guard #available(iOS 15.1, *) else {
-                throw Exception(
-                    name: "ERR_UNSUPPORTED", description: "Apple MusicKit requires iOS 15.1+.")
+                throw MusicKitException(
+                    name: "ERR_UNSUPPORTED", reason: "Apple MusicKit requires iOS 15.1+.")
             }
 
             self.developerToken = developerToken
@@ -755,7 +790,7 @@ public class AppleMusicKitModule: Module {
         AsyncFunction("catalogSearch") {
             (query: String, types: [String], requestedLimit: Int, requestedOffset: Int) async throws -> [String: Any] in
             guard #available(iOS 15.0, *) else {
-                throw Exception(name: "ERR_UNSUPPORTED", description: "Requires iOS 15.0+")
+                throw MusicKitException(name: "ERR_UNSUPPORTED", reason: "Requires iOS 15.0+")
             }
 
             let requestedTypes = Set(types.map { $0.lowercased() })
@@ -806,7 +841,7 @@ public class AppleMusicKitModule: Module {
 
         AsyncFunction("getSongInfo") { (ids: [String]) async throws -> [[String: Any]] in
             guard #available(iOS 15.0, *) else {
-                throw Exception(name: "ERR_UNSUPPORTED", description: "Requires iOS 15.0+")
+                throw MusicKitException(name: "ERR_UNSUPPORTED", reason: "Requires iOS 15.0+")
             }
 
             if ids.isEmpty { return [] }
@@ -822,7 +857,7 @@ public class AppleMusicKitModule: Module {
                     fetchedResults.append(
                         contentsOf: try await self.formattedLibrarySongs(libraryIds))
                 } else {
-                    throw Exception(name: "ERR_UNSUPPORTED", description: "iOS 16.0+ required for library songs.")
+                    throw MusicKitException(name: "ERR_UNSUPPORTED", reason: "iOS 16.0+ required for library songs.")
                 }
             }
 
@@ -1026,7 +1061,7 @@ public class AppleMusicKitModule: Module {
 
         AsyncFunction("getLibrarySongs") { (options: LibrarySongOptions) async throws -> [String: Any] in
             guard #available(iOS 16.0, *) else {
-                throw Exception(name: "ERR_UNSUPPORTED", description: "Library songs require iOS 16.0+")
+                throw MusicKitException(name: "ERR_UNSUPPORTED", reason: "Library songs require iOS 16.0+")
             }
 
             let (limit, offset) = options.clamped()
@@ -1088,7 +1123,7 @@ public class AppleMusicKitModule: Module {
                     matching: \.id, equalTo: MusicItemID(id))
                 let response = try await request.response()
                 guard let album = response.items.first else {
-                    throw Exception(name: "ERR_NOT_FOUND", description: "Album not found: \(id)")
+                    throw MusicKitException(name: "ERR_NOT_FOUND", reason: "Album not found: \(id)")
                 }
                 ApplicationMusicPlayer.shared.queue = [album]
             } else if type == "song" {
@@ -1096,7 +1131,7 @@ public class AppleMusicKitModule: Module {
                     matching: \.id, equalTo: MusicItemID(id))
                 let response = try await request.response()
                 guard let song = response.items.first else {
-                    throw Exception(name: "ERR_NOT_FOUND", description: "Song not found: \(id)")
+                    throw MusicKitException(name: "ERR_NOT_FOUND", reason: "Song not found: \(id)")
                 }
                 ApplicationMusicPlayer.shared.queue = [song]
             } else if type == "librarySong" {
@@ -1106,13 +1141,13 @@ public class AppleMusicKitModule: Module {
                     request.limit = 1
                     let response = try await request.response()
                     guard let song = response.items.first else {
-                        throw Exception(name: "ERR_NOT_FOUND", description: "Library song not found: \(id)")
+                        throw MusicKitException(name: "ERR_NOT_FOUND", reason: "Library song not found: \(id)")
                     }
                     ApplicationMusicPlayer.shared.queue = [song]
                 } else {
-                    throw Exception(
+                    throw MusicKitException(
                         name: "ERR_UNSUPPORTED",
-                        description: "iOS 16.0+ required to play library songs.")
+                        reason: "iOS 16.0+ required to play library songs.")
                 }
             } else if type == "playlist" {
                 if id.hasPrefix("p."), #available(iOS 16.0, *) {
@@ -1121,7 +1156,7 @@ public class AppleMusicKitModule: Module {
                     request.limit = 1
                     let response = try await request.response()
                     guard let playlist = response.items.first else {
-                        throw Exception(name: "ERR_NOT_FOUND", description: "Library playlist not found: \(id)")
+                        throw MusicKitException(name: "ERR_NOT_FOUND", reason: "Library playlist not found: \(id)")
                     }
                     ApplicationMusicPlayer.shared.queue = [playlist]
                 } else {
@@ -1129,21 +1164,21 @@ public class AppleMusicKitModule: Module {
                         matching: \.id, equalTo: MusicItemID(id))
                     let response = try await request.response()
                     guard let playlist = response.items.first else {
-                        throw Exception(name: "ERR_NOT_FOUND", description: "Playlist not found: \(id)")
+                        throw MusicKitException(name: "ERR_NOT_FOUND", reason: "Playlist not found: \(id)")
                     }
                     ApplicationMusicPlayer.shared.queue = [playlist]
                 }
             } else {
-                throw Exception(name: "ERR_INVALID_TYPE", description: "Unsupported queue type: \(type)")
+                throw MusicKitException(name: "ERR_INVALID_TYPE", reason: "Unsupported queue type: \(type)")
             }
         }
 
         AsyncFunction("setSongPlaybackQueue") {
             (ids: [String], types: [String], startIndex: Int) async throws -> Void in
             guard #available(iOS 16.0, *) else {
-                throw Exception(
+                throw MusicKitException(
                     name: "ERR_UNSUPPORTED",
-                    description: "Song queues require iOS 16.0+.")
+                    reason: "Song queues require iOS 16.0+.")
             }
             try await self.replaceSongPlaybackQueue(
                 ids: ids, types: types, startIndex: startIndex)
@@ -1152,9 +1187,9 @@ public class AppleMusicKitModule: Module {
         AsyncFunction("appendSongPlaybackQueue") {
             (ids: [String], types: [String]) async throws -> Void in
             guard #available(iOS 16.0, *) else {
-                throw Exception(
+                throw MusicKitException(
                     name: "ERR_UNSUPPORTED",
-                    description: "Song queues require iOS 16.0+.")
+                    reason: "Song queues require iOS 16.0+.")
             }
             try await self.appendSongPlaybackQueue(ids: ids, types: types)
         }
@@ -1162,9 +1197,9 @@ public class AppleMusicKitModule: Module {
         AsyncFunction("insertSongsNextInQueue") {
             (ids: [String], types: [String]) async throws -> Void in
             guard #available(iOS 16.0, *) else {
-                throw Exception(
+                throw MusicKitException(
                     name: "ERR_UNSUPPORTED",
-                    description: "Song queues require iOS 16.0+.")
+                    reason: "Song queues require iOS 16.0+.")
             }
             let songs = try await self.songsForQueue(ids, types: types)
             guard !songs.isEmpty else { return }
@@ -1174,9 +1209,9 @@ public class AppleMusicKitModule: Module {
 
         AsyncFunction("moveQueueItem") { (fromIndex: Int, toIndex: Int) throws -> Void in
             guard #available(iOS 16.0, *) else {
-                throw Exception(
+                throw MusicKitException(
                     name: "ERR_UNSUPPORTED",
-                    description: "Queue editing requires iOS 16.0+.")
+                    reason: "Queue editing requires iOS 16.0+.")
             }
             let player = ApplicationMusicPlayer.shared
             let count = player.queue.entries.count
@@ -1191,9 +1226,9 @@ public class AppleMusicKitModule: Module {
 
         AsyncFunction("removeQueueItem") { (index: Int) throws -> Void in
             guard #available(iOS 16.0, *) else {
-                throw Exception(
+                throw MusicKitException(
                     name: "ERR_UNSUPPORTED",
-                    description: "Queue editing requires iOS 16.0+.")
+                    reason: "Queue editing requires iOS 16.0+.")
             }
             let player = ApplicationMusicPlayer.shared
             guard index >= 0, index < player.queue.entries.count else { return }
@@ -1202,9 +1237,9 @@ public class AppleMusicKitModule: Module {
 
         AsyncFunction("playQueueItem") { (index: Int) async throws -> Void in
             guard #available(iOS 16.0, *) else {
-                throw Exception(
+                throw MusicKitException(
                     name: "ERR_UNSUPPORTED",
-                    description: "Queue editing requires iOS 16.0+.")
+                    reason: "Queue editing requires iOS 16.0+.")
             }
             let player = ApplicationMusicPlayer.shared
             guard index >= 0, index < player.queue.entries.count,
@@ -1229,9 +1264,9 @@ public class AppleMusicKitModule: Module {
 
         AsyncFunction("setShuffleMode") { (mode: String) throws -> Void in
             guard #available(iOS 16.0, *) else {
-                throw Exception(
+                throw MusicKitException(
                     name: "ERR_UNSUPPORTED",
-                    description: "Shuffle requires iOS 16.0+.")
+                    reason: "Shuffle requires iOS 16.0+.")
             }
             ApplicationMusicPlayer.shared.state.shuffleMode =
                 mode == "songs" ? .songs : .off
@@ -1239,9 +1274,9 @@ public class AppleMusicKitModule: Module {
 
         AsyncFunction("setRepeatMode") { (mode: String) throws -> Void in
             guard #available(iOS 16.0, *) else {
-                throw Exception(
+                throw MusicKitException(
                     name: "ERR_UNSUPPORTED",
-                    description: "Repeat requires iOS 16.0+.")
+                    reason: "Repeat requires iOS 16.0+.")
             }
             switch mode {
             case "one": ApplicationMusicPlayer.shared.state.repeatMode = .one
@@ -1280,9 +1315,9 @@ public class AppleMusicKitModule: Module {
             let response = try await self.makeAPIRequest(
                 path: "/v1/me/library/playlists", method: "POST", body: body)
             guard let playlist = (response["data"] as? [[String: Any]])?.first else {
-                throw Exception(
+                throw MusicKitException(
                     name: "ERR_APPLE_MUSIC_API",
-                    description: "Apple Music did not return the new playlist.")
+                    reason: "Apple Music did not return the new playlist.")
             }
             return self.formatAPIResource(playlist)
         }
@@ -1311,9 +1346,9 @@ public class AppleMusicKitModule: Module {
                 path:
                     "/v1/catalog/\(storefront)/artists/\(encodedID)?views=top-songs,full-albums")
             guard let artist = (response["data"] as? [[String: Any]])?.first else {
-                throw Exception(
+                throw MusicKitException(
                     name: "ERR_NOT_FOUND",
-                    description: "No Apple Music artist with ID \(artistId).")
+                    reason: "No Apple Music artist with ID \(artistId).")
             }
 
             let attributes = artist["attributes"] as? [String: Any] ?? [:]

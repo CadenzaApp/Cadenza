@@ -10,6 +10,7 @@ import { AppleMusicProvider } from "@/lib/apple-music-auth";
 import { SongInitProvider } from "@/lib/song-init";
 import { PlaybackProvider } from "@/lib/playback";
 import { TasksHost, TasksProvider } from "@/components/custom/tasks";
+import { AppleMusicSessionGuard } from "@/features/account/apple-music-session-guard";
 import { LibraryCategoriesProvider } from "@/features/library/library-categories";
 import { BottomBarVisibilityProvider } from "@/lib/screen-overlay";
 import { ZoomOriginProvider } from "@/lib/zoom-dismiss";
@@ -109,6 +110,7 @@ export default function RootLayout() {
                                                         options={pushedScreenOptions()}
                                                     />
                                                 </Stack>
+                                                <AppleMusicSessionGuard />
                                                 <MediaPlayerPushedScreenOverlay />
                                                 <TagScoreTracker />
                                                 <TasksHost />

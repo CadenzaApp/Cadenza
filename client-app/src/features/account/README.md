@@ -12,12 +12,17 @@ previews only.
 | `top-tags.tsx` | `TopTagsPanel`: the user's 10 highest scored tags as tag pills with their scores. |
 | `appearance-settings.tsx` | Session-only color controls and preview. |
 | `settings-ui.tsx` | Shared glass panels, rows, icons, and the TODO badge. |
+| `apple-music-session-guard.tsx` | `AppleMusicSessionGuard`: renders nothing, opens this sheet once when Apple rejects the stored music-user token. Mounted in `src/app/_layout.tsx`. |
 
 ## How it works
 
 Both routes stay standard `DetailScreen` sheets. Signing out of Cadenza uses the existing
 Supabase provider. Signing out of Apple Music clears only the local MusicKit authorization.
 Both destructive actions go through the same glass confirmation dialog.
+
+When `useAppleMusic().sessionExpired` is set, the Apple Music card says the token expired and
+to reconnect. That flag is set by `reportAppleMusicAuthFailure()` after an Apple Music read has
+taken a 403 twice, and `AppleMusicSessionGuard` is what brings the person here to act on it.
 
 The account avatar and action surfaces use neutral glass. Destructive button labels and icons
 carry the red treatment without tinting the entire surface.

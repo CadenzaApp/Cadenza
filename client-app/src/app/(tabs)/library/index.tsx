@@ -5,14 +5,13 @@ import { useTheme } from "expo-router/react-navigation";
 import { useLayoutEffect } from "react";
 import { View } from "react-native";
 
+import { ErrorNotice } from "@/components/custom/error-notice";
 import { GlassIconButton } from "@/components/ui/glass-icon-button";
-import { Text } from "@/components/ui/text";
 import type { LibraryCategory } from "@/features/library/categories";
 import { CategoryRow } from "@/features/library/category-row";
 import { useLibraryCategories } from "@/features/library/library-categories";
 import { RecentlyAddedGrid } from "@/features/library/recently-added";
 import { useAppleMusic } from "@/lib/apple-music-auth";
-import { getErrorMessage } from "@/lib/error-utils";
 import { collectionRoute } from "@/lib/music-routes";
 import { useRecentlyAdded } from "@/lib/musickit-hooks";
 
@@ -76,9 +75,7 @@ export default function LibraryScreen() {
             header={
                 <View>
                     {recentlyAddedErr ? (
-                        <Text className="my-2 px-6 text-center text-destructive">
-                            {getErrorMessage(recentlyAddedErr)}
-                        </Text>
+                        <ErrorNotice error={recentlyAddedErr} />
                     ) : null}
 
                     <View className="px-6 pt-2">

@@ -13,7 +13,11 @@ import {
 import { useMemo, useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import useSWRInfinite from "swr/infinite";
-import { useAppleMusic } from "./apple-music-auth";
+import { isAppleMusicAuthError } from "./app-error";
+import {
+    reportAppleMusicAuthFailure,
+    useAppleMusic,
+} from "./apple-music-auth";
 
 const MUSIC_LIST_PAGE_SIZE = 25;
 const ALL_LIBRARY_PAGE_SIZE = 100;
@@ -21,6 +25,44 @@ const ALL_LIBRARY_PAGE_SIZE = 100;
 const ARTIST_SEARCH_LIMIT = 12;
 /** Even number so the recently added grid never ends on a half row. */
 const RECENTLY_ADDED_PAGE_SIZE = 24;
+
+/** How long to wait before the one retry a rejected credential gets. */
+const AUTH_RETRY_DELAY_MS = 400;
+
+/**
+ * Runs one Apple Music read, with a single retry if Apple rejects the
+ * credentials.
+ *
+ * The retry is there for the races a plain failure cannot tell apart from a
+ * dead token: a read that fired before `restoreNativeTokens` finished pushing
+ * the stored token into the native module, or a token Apple was briefly
+ * unhappy about. A genuinely expired token fails the same way twice, and that
+ * second failure is what retires it, so nothing keeps replaying a credential
+ * that cannot work.
+ *
+ * Every SWR fetcher in this file goes through here. A new read that skips it
+ * will hang on a dead token instead of prompting a reconnect.
+ */
+async function read<T>(fetchOnce: () => Promise<T>): Promise<T> {
+    try {
+        return await fetchOnce();
+    } catch (error) {
+        if (!isAppleMusicAuthError(error)) throw error;
+
+        await new Promise((resolve) =>
+            setTimeout(resolve, AUTH_RETRY_DELAY_MS),
+        );
+
+        try {
+            return await fetchOnce();
+        } catch (retryError) {
+            if (isAppleMusicAuthError(retryError)) {
+                reportAppleMusicAuthFailure();
+            }
+            throw retryError;
+        }
+    }
+}
 
 /** A library collection that contains songs. */
 export type LibraryCollectionKind = "album" | "playlist";
@@ -110,7 +152,9 @@ export function useSongInfo(songIds?: readonly string[] | null) {
                   normalizedIds,
               ] as const)
             : null;
-    const x = useSWR(key, ([, , ids]) => MusicKit.getSongInfo([...ids]));
+    const x = useSWR(key, ([, , ids]) =>
+        read(() => MusicKit.getSongInfo([...ids])),
+    );
     return {
         songInfo: x.data ?? EMPTY_SONGS,
         songInfoLoading: x.isLoading || isInitializing,
@@ -144,10 +188,12 @@ export function useCatalogSongSearch(enabled = true) {
         },
         (key: SearchPageKey) => {
             const [, , searchQuery, limit, offset] = key;
-            return MusicKit.catalogSearch(searchQuery, ["songs"], {
-                limit,
-                offset,
-            });
+            return read(() =>
+                MusicKit.catalogSearch(searchQuery, ["songs"], {
+                    limit,
+                    offset,
+                }),
+            );
         },
     );
     const searchResults = useMemo(
@@ -257,7 +303,7 @@ function usePagedLibraryResult<
             if (offset === undefined) return null;
             return getKey(offset);
         },
-        (key) => fetchPage(key as unknown as Key),
+        (key) => read(() => fetchPage(key as unknown as Key)),
     );
 
     const items = useMemo(
@@ -344,10 +390,12 @@ export function useAllTracksFromLibrary(enabled = true) {
             let offset = 0;
 
             while (true) {
-                const page = await MusicKit.getLibrarySongs({
-                    limit: ALL_LIBRARY_PAGE_SIZE,
-                    offset,
-                });
+                const page = await read(() =>
+                    MusicKit.getLibrarySongs({
+                        limit: ALL_LIBRARY_PAGE_SIZE,
+                        offset,
+                    }),
+                );
                 pages.push(...page.items);
                 if (!hasNextLibraryPage(page)) break;
 
@@ -520,9 +568,11 @@ export function useCatalogArtistSearch(term?: string, enabled = true) {
               ] as const)
             : null;
     const x = useSWR<SearchResult>(key, () =>
-        MusicKit.catalogSearch(normalizedTerm!, ["artists"], {
-            limit: ARTIST_SEARCH_LIMIT,
-        }),
+        read(() =>
+            MusicKit.catalogSearch(normalizedTerm!, ["artists"], {
+                limit: ARTIST_SEARCH_LIMIT,
+            }),
+        ),
     );
 
     return {
@@ -546,9 +596,11 @@ export function useLibraryArtistSearch(term?: string, enabled = true) {
               ] as const)
             : null;
     const x = useSWR<ArtistResult>(key, () =>
-        MusicKit.searchLibraryArtists(normalizedTerm!, {
-            limit: ARTIST_SEARCH_LIMIT,
-        }),
+        read(() =>
+            MusicKit.searchLibraryArtists(normalizedTerm!, {
+                limit: ARTIST_SEARCH_LIMIT,
+            }),
+        ),
     );
 
     return {
@@ -665,7 +717,7 @@ export function useSongFavoriteStatus(songId?: string) {
               ] as const)
             : null;
     const x = useSWR<SongFavoriteStatus>(key, () =>
-        MusicKit.getSongFavoriteStatus(songId!),
+        read(() => MusicKit.getSongFavoriteStatus(songId!)),
     );
 
     async function setSongFavoriteStatus(
@@ -717,7 +769,7 @@ export function useCollectionFavoriteStatus(
               ] as const)
             : null;
     const x = useSWR<FavoriteStatus>(key, () =>
-        MusicKit.getCollectionFavoriteStatus(apiKind, collectionId!),
+        read(() => MusicKit.getCollectionFavoriteStatus(apiKind, collectionId!)),
     );
 
     async function setCollectionFavoriteStatus(
@@ -767,7 +819,7 @@ export function useCollectionInfo(
               ] as const)
             : null;
     const x = useSWR<MusicItem[]>(key, () =>
-        MusicKit.getCollectionInfo(apiKind, [collectionId!]),
+        read(() => MusicKit.getCollectionInfo(apiKind, [collectionId!])),
     );
 
     return {
@@ -788,7 +840,9 @@ export function useSongArtists(songId?: string) {
         isConnected && songId
             ? (["MusicKit.getSongArtists", sessionRevision, songId] as const)
             : null;
-    const x = useSWR<string[]>(key, () => MusicKit.getSongArtists(songId!));
+    const x = useSWR<string[]>(key, () =>
+        read(() => MusicKit.getSongArtists(songId!)),
+    );
 
     return {
         artistIds: x.data,
@@ -804,7 +858,9 @@ export function useArtist(artistId?: string) {
         isConnected && artistId
             ? (["MusicKit.getArtist", sessionRevision, artistId] as const)
             : null;
-    const x = useSWR<ArtistDetail>(key, () => MusicKit.getArtist(artistId!));
+    const x = useSWR<ArtistDetail>(key, () =>
+        read(() => MusicKit.getArtist(artistId!)),
+    );
 
     return {
         artist: x.data,

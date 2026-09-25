@@ -13,6 +13,7 @@ import {
     View,
 } from "react-native";
 
+import { ErrorNotice } from "@/components/custom/error-notice";
 import { TrackCollectionView } from "@/components/custom/track-collection-view";
 import { FloatingCloseButton } from "@/components/ui/floating-close-button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -22,7 +23,6 @@ import {
     TintOverscrollBackdrop,
 } from "@/components/ui/tint-backdrop";
 import { darken, useArtworkTint, withAlpha } from "@/lib/artwork-color";
-import { getErrorMessage } from "@/lib/error-utils";
 import { useZoomSource, ZoomDismissScreen } from "@/lib/zoom-dismiss";
 import { collectionRoute } from "@/lib/music-routes";
 import { useArtist } from "@/lib/musickit-hooks";
@@ -100,11 +100,7 @@ export default function ArtistScreen() {
     return (
         <ZoomDismissScreen>
             <View className="flex-1 bg-card">
-                {artistErr ? (
-                    <Text className="my-2 px-6 text-center text-destructive">
-                        {getErrorMessage(artistErr)}
-                    </Text>
-                ) : null}
+                {artistErr ? <ErrorNotice error={artistErr} /> : null}
 
                 <TrackCollectionView
                     title={artist?.name ?? name ?? "Artist"}

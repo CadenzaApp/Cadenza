@@ -16,12 +16,34 @@ type AppleMusicContextType = {
     hasUserToken: boolean;
     /** Non-secret cache namespace that changes whenever MusicKit auth changes. */
     sessionRevision: number;
+    /**
+     * Apple rejected the stored music-user token, so reads keep failing until
+     * the user reconnects. Distinct from `!isConnected`, which also covers
+     * never having connected at all.
+     */
+    sessionExpired: boolean;
     ensureConnected: () => Promise<AuthResult | null>;
     connect: () => Promise<AuthResult | null>;
     disconnect: () => Promise<void>;
 };
 
 const AppleMusicContext = createContext<AppleMusicContextType | null>(null);
+
+/**
+ * Set by the provider on mount. A module-level hook rather than context because
+ * the caller is an SWR fetcher, which runs outside React and cannot read one.
+ * The provider is a singleton, so there is only ever one of these.
+ */
+let authFailureHandler: (() => void) | null = null;
+
+/**
+ * Called when Apple has rejected the stored music-user token and a retry did
+ * not help. Drops the dead token and flips the provider to `sessionExpired`, so
+ * the UI can offer a reconnect instead of replaying a token that cannot work.
+ */
+export function reportAppleMusicAuthFailure() {
+    authFailureHandler?.();
+}
 
 export function useAppleMusic() {
     const context = useContext(AppleMusicContext);
@@ -37,6 +59,7 @@ export function AppleMusicProvider({ children }: { children: ReactNode }) {
     const [authResult, setAuthResult] = useState<AuthResult | null>(null);
     const [isInitializing, setIsInitializing] = useState(true);
     const [sessionRevision, setSessionRevision] = useState(0);
+    const [sessionExpired, setSessionExpired] = useState(false);
 
     const hasUserToken = Boolean(authResult?.userToken);
     const isConnected =
@@ -106,6 +129,9 @@ export function AppleMusicProvider({ children }: { children: ReactNode }) {
             }
             setAuthResult(result);
             setSessionRevision((revision) => revision + 1);
+            setSessionExpired(
+                !(result.status === AuthStatus.Authorized && result.userToken),
+            );
             return result;
         } catch (error) {
             console.error("Apple Music authorization error:", error);
@@ -131,11 +157,32 @@ export function AppleMusicProvider({ children }: { children: ReactNode }) {
     async function disconnect() {
         setAuthResult(null);
         setSessionRevision((revision) => revision + 1);
+        setSessionExpired(false);
         await clearStoredAuth();
 
         // Explicitly pass null to overwrite the userToken in the native module
         await restoreNativeTokens(null);
     }
+
+    // Drop a token Apple has rejected. Keeping it would mean every later read
+    // replays a credential already known to be dead, which is what left the
+    // library showing a raw 403 until the app was reinstalled.
+    useEffect(() => {
+        authFailureHandler = () => {
+            setSessionExpired(true);
+            setAuthResult(null);
+            setSessionRevision((revision) => revision + 1);
+            clearStoredAuth().catch((error) =>
+                console.error("Failed to clear Apple Music auth:", error),
+            );
+            restoreNativeTokens(null).catch((error) =>
+                console.error("Failed to clear native Apple Music token:", error),
+            );
+        };
+        return () => {
+            authFailureHandler = null;
+        };
+    }, [restoreNativeTokens]);
 
     return (
         <AppleMusicContext.Provider
@@ -145,6 +192,7 @@ export function AppleMusicProvider({ children }: { children: ReactNode }) {
                 isConnected,
                 hasUserToken,
                 sessionRevision,
+                sessionExpired,
                 ensureConnected,
                 connect,
                 disconnect,

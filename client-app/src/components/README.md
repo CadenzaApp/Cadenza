@@ -12,6 +12,14 @@ importing `@/lib/routes/*` into a file under `ui/`, it belongs in `custom/`.
 
 ## Files
 
+### custom/
+
+`error-notice.tsx` exports `ErrorNotice`, the component a screen renders instead of an error's
+own message. It runs the thrown value through `@/lib/app-error::classifyError` and shows a
+heading, one sentence, and whatever way out exists (reconnect Apple Music, sign in again). Raw
+error text never goes on screen: a native MusicKit rejection stringifies to a Swift stack trace
+and a backend rejection is a bare `{ error_type }`. The cause still reaches the console.
+
 ### ui/
 
 `badge`, `button`, `card`, `dialog`, `glass-surface`, `glass-button`, `glass-confirm-dialog`,

@@ -23,11 +23,11 @@ native module directly.
 | `initialized-songs-db.ts`    | The expo-sqlite `initialized_songs` table, the device's record of what `user_songs` holds. Opens the database and hands the job an `InitializedSongsStore`.                                                                                                                                       |
 | `tag-scores.tsx`             | `TagScoreTracker`, which gives each of the user's own tags on a song 2 points and each default tag 1 point once that song has played for 5 seconds, and `useScoreQueryTags`, which gives every tag a query uses positively 10 points.                                                                      |
 | `tag-score-deltas.ts`        | The `PATCH /tags/scores` body one play of a song, or one run of a query, is worth. Only type imports, tested in `tag-score-deltas.test.ts`.                                                                                                                                                       |
-| `account.tsx`                | `AccountProvider` / `useAccount`. Supabase session and the JWT.                                                                                                                                                                                                                                   |
+| `account.tsx`                | `AccountProvider` / `useAccount`. Who is signed in (id and email), and sign in / sign up / sign out.                                                                                                                                                                                                                                   |
 | `apple-music-auth.tsx`       | `AppleMusicProvider` / `useAppleMusic`. Apple Music tokens, persisted in secure store.                                                                                                                                                                                                            |
 | `playback.tsx`               | `PlaybackProvider`, broad `usePlayback`, lightweight `usePlaybackTrackState`, and stable `usePlaybackCommands`. Queue, native playback snapshot, and compact-player dismissal state.                                                                                                              |
 | `queue-order.ts`             | Pure index math for the queue mirror. Tested in `queue-order.test.ts`.                                                                                                                                                                                                                            |
-| `supabase.ts`                | The Supabase client, backed by AsyncStorage.                                                                                                                                                                                                                                                      |
+| `supabase.ts`                | The Supabase client, backed by AsyncStorage, plus `getAccessToken()`, the fresh access token every backend request uses.                                                                                                                                                                                                                                                      |
 | `theme.ts`                   | `NAV_THEME`, light and dark palettes for react-navigation, `sheetScreenOptions` for sheet routes, and `pushedScreenOptions` for the pushed detail routes.                                                                                                                                         |
 | `error-utils.ts`             | `getErrorDetails` / `getErrorMessage`, for unwrapping native and backend errors.                                                                                                                                                                                                                  |
 | `artwork-color.ts`           | `useArtworkTint`, the color a surface paints itself with, plus alpha, darkening, and multi-artwork averaging helpers.                                                                                                                                                                             |
@@ -44,6 +44,7 @@ native module directly.
 | `types.ts`                   | Shared wire types: `TagType`, `Tag`, `AppliedTag` and `TagMetadata`.                                                                                                                                                                                                                              |
 | `query-json.ts`              | The tag query wire format: `QueryJSON`, `QueryJSONNode`, `FilterJSON`, `FilterOp`. Types only, so the pure builder utils stay testable under `node --test`.                                                                                                                                       |
 | `tag-values.ts`              | Per-type tag helpers: `TAG_TYPES`, labels, descriptions, `TAG_TYPE_ICONS`, value validation, canonicalization, formatting, the date-only helpers, and `unownedDefaultTags`.                                                                                                                       |
+| `app-error.ts`               | `classifyError`, turning any thrown value into an `AppError` with a title, a sentence, and an optional way out. Tested in `app-error.test.ts`.                                                                                                                                                      |
 | `utils.ts`                   | `cn()`, the clsx + tailwind-merge helper.                                                                                                                                                                                                                                                         |
 
 ## The SWR wrappers
@@ -58,9 +59,12 @@ Five, in `api-actions.ts`, and picking the right one is most of the work:
 | `useAPIFetch<In, Out>(path)`                                | a one-shot GET fired by a user action, never on render                 | `path` string                                            |
 | `useAPIMutation<Body, Res>(method, path, invalidates?)`     | user-triggered writes                                                  | `[method, path, accountId]`                              |
 
-All five pull the JWT from `useAccount()` and send `Authorization: Bearer <jwt>`. All five
-tolerate an empty response body, and all five throw the parsed error body on a non-2xx, so a
-caught error is the backend's `{ error_type, message }` object, not an `Error`.
+All five go through one `apiRequest` helper. It calls `getAccessToken()` per request, so the
+token is always fresh, and sends `Authorization: Bearer <token>`. It tolerates an empty response
+body, and throws the parsed error body on a non-2xx, so a caught error is the backend's
+`{ error_type, message }` object, not an `Error`. A body that is not JSON at all (a 401 from the
+auth layer is plain text, so is anything a proxy injects) is thrown as
+`APIRequestError`: `{ error_type: "Unauthorized" | "HttpError" | "MalformedResponse", status, message }`.
 
 The `accountId` in every key means a cached read can never be served to a different user, on
 top of the `clearCache()` that already runs on every account change.
@@ -328,10 +332,20 @@ remaining distance. A short pull still springs back to full size.
 
 ## The providers
 
-- `AccountProvider` owns the Supabase session. `signIn`, `signUp`, `signOut`, and
+- `AppleMusicProvider` exposes `sessionExpired`, set when Apple rejects the stored
+  music-user token. Every Apple Music read in `musickit-hooks.ts` goes through a local
+  `read()` wrapper that retries once on `ERR_APPLE_MUSIC_AUTH` and, if that fails too, calls
+  `reportAppleMusicAuthFailure()`. That drops the dead token and flips `sessionExpired`, which
+  `AppleMusicSessionGuard` turns into the Account sheet. A new musickit read that skips `read()`
+  will hang on a dead token instead of prompting a reconnect.
+- `AccountProvider` owns who is signed in, id and email only. `signIn`, `signUp`, `signOut`, and
   `tryRestoreSession`. Every account change calls `clearCache()`, so switching users cannot leak
   cached data. It does not log session tokens or account details. It has no loading state on
-  purpose: the splash screen calls `tryRestoreSession` before anything else renders.
+  purpose: the splash screen calls `tryRestoreSession` before anything else renders. It also
+  subscribes to `supabase.auth.onAuthStateChange`, so a session supabase ends on its own (a
+  failed refresh, a revoked token) drops the account instead of leaving a signed in user whose
+  every request 401s. Tokens are not held here, `getAccessToken()` in `supabase.ts` hands out a
+  fresh one per request.
 - `AppleMusicProvider` owns the Apple Music developer and user tokens, restores them from
   `expo-secure-store` on mount, and pushes them into the native module. `isConnected` means
   authorized **and** holding a user token. `ensureConnected()` before any playback call.
@@ -486,8 +500,9 @@ no one tag and score nothing. Tag ids resolve to names through the tag list the 
 - The first sync on an existing install sends the whole library, one `PATCH /songs` per 200
   songs. It is cheap per request, since the backend no longer generates tags there, but a large
   library still makes a long first run.
-- `api-actions.ts` reads `account?.jwt` at hook call time. A component rendered before the
-  session is restored sends `Bearer undefined`.
+- An access token lives about an hour. `api-actions.ts` fetches one per request through
+  `getAccessToken()`, which refreshes an expired one, so nothing holds a token. A component
+  rendered before the session is restored sends no `Authorization` header at all.
 - A comment vote is absolute (`"up"`, `"down"`, or `null`), and the server keeps whichever request
   it handles last. Two quick taps on one comment send two requests that can land out of order.
 - Opening the app while Apple Music is already playing scores that song. The first snapshot looks
