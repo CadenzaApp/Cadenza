@@ -7,12 +7,13 @@ The data access layer. Everything that touches postgres lives here, so handlers 
 
 | file | role |
 | --- | --- |
-| `mod.rs` | Declares `comment_votes`, `comments`, `entity`, `queries`, `tag_activity`, `tags`. |
-| `tags.rs` | User tag CRUD and applied values, plus searching, reading, generating, and applying default tags. User tag reads never copy or return defaults. |
+| `mod.rs` | Declares `comment_votes`, `comments`, `entity`, `queries`, `tag_activity`, `tags`, `user_songs`. |
+| `tags.rs` | User tag CRUD and applied values, plus searching, reading, and applying default tags, and claiming, finishing, and dropping a song's default tag generation. User tag reads never copy or return defaults. |
 | `tag_activity.rs` | Counts applies and removes of a tag name on a song in `default_tag_activity`, and promotes popular names to default tags. |
 | `queries.rs` | Compiles a tag query to SQL, runs it, and ranks the matches. Unit tested. |
 | `comments.rs` | Comment reads and writes: every comment on a song paired into threads, leaving a comment or a reply, and deleting the user's own comment. |
 | `comment_votes.rs` | `CommentVote` and `VoteTally`. `set_comment_vote`, which casts, switches, or takes back the user's vote on a comment, and `get_song_vote_tallies`, the votes on each comment of a song as the reading user sees them. |
+| `user_songs.rs` | `edit_user_songs`: adds and removes the user's songs in one transaction. `get_recent_songs_without_generated_default_tags`: the newest songs nothing has generated default tags for, which the backfill job walks. |
 | `entity/` | sea-orm-codegen output. Includes tag, default-tag, and comment tables, plus `prelude` and `mod`. Do not hand edit. |
 
 ## Schema
@@ -28,6 +29,15 @@ The tables below are keyed on song ids that come from Apple Music.
   Cascades on delete from `tags`. Local tag reads and queries use this table.
 - `default_tags_applied` - default tags on a song, composite pk of `(song_id, tag_id)`, no user.
   `get_default_tags_on_songs` reads it, and `set_default_tags_on_songs` replaces a song's rows.
+- `default_tags_generation` - one row per song whose default tags have been generated or are
+  being generated right now. `song_id` alone as the pk, plus `status`, a `tag_gen_status` enum
+  of `in_flight` and `done` with no column default, so every insert sets it. Not user scoped:
+  generation happens once per song for everyone. `start_default_tag_generation` writes the
+  `in_flight` row, `finish_default_tag_generation` moves it to `done`,
+  `clear_default_tag_generation` deletes it when the attempt failed, and
+  `get_songs_without_generated_default_tags` reads it. A `done` row means the attempt finished,
+  not that it produced any tags. This table was called `default_tags_generated` before, and had
+  no `status` column.
 - `default_tag_activity` - what users did with a tag name on a song, composite pk of
   `(song_id, tag_name)`. `apply_count` is how many users have a tag of that name on the song, and
   `remove_count` how many removed it as a suggested tag. The row is written once and never
@@ -37,7 +47,15 @@ The tables below are keyed on song ids that come from Apple Music.
   cascades, so a default tag coming off a song takes its removals with it. Default tag reads and
   queries hide the rows a user has here, and nothing else changes: the tag stays on the song for
   everyone else.
-- `song_meta` - retained in the database but unused by the api. It has no generated entity now.
+- `user_songs` - the songs in a user's library. Composite pk of `(song_id, user_id)`, plus
+  `created_at`, a `timestamptz` that defaults to `now()` and is left `NotSet` on insert so the
+  database stamps it rather than the api's clock. `user_songs_user_id_idx` on `user_id` alone so a
+  whole-library read does not scan the table, and `user_songs_created_at_idx` on `created_at DESC`
+  for the backfill job's walk of the newest songs. `user_id` references `auth.users` and cascades. `PATCH /songs` is the only thing that
+  writes it, through `user_songs.rs::edit_user_songs`. The query compiler reads it: it is the set
+  of songs a query runs over. Tag reads still work off `user_tags_applied` and do not check it, so a song can
+  carry tags without a row here, and then no query will return it. This table was called
+  `song_meta` before.
 - `comment` - a comment a user left on a song. `id` (identity pk), `content`, `song_id`, `user_id`,
   and `created_at`, a `timestamp` with no time zone that defaults to `now()`. A reply sets `parent`
   to the comment it answers, a self fk that cascades, so deleting a comment deletes its replies.
@@ -65,11 +83,25 @@ search box stay literal, same as the query compiler.
 keeps the rows that found none, so a default tag they removed does not come back. Songs left with
 no default tags drop out of the map.
 
-`get_songs_without_default_tags` returns requested song ids with no row in
-`default_tags_applied`, whoever removed what. `/songs/no-default-tags` uses it to tell the client
-which songs need generated defaults, and `POST /songs/default-tags` uses it to pick the songs to
-generate for. That is the point of the split: a song whose only default tag one user removed still
-has default tags, so it must not be generated again.
+`get_songs_without_generated_default_tags` returns requested song ids with no row in
+`default_tags_generation` at all. The default tag read endpoints use it to pick which songs to
+generate for, through `services::default_tags::ensure_default_tags_generated`.
+
+The status does not change that answer: an `in_flight` row is skipped the same as a `done` one,
+so a song something is already generating for is left to that attempt rather than generated
+twice.
+
+It deliberately asks `default_tags_generation` rather than `default_tags_applied`. Those two answer
+different questions: a song the generator legitimately produced no tags for has no
+`default_tags_applied` rows but must not be generated again, and neither must a song whose only
+default tag was taken off later.
+
+The three writes settle a generation attempt. `start_default_tag_generation` inserts the
+`in_flight` rows before the generator call, upserting with `DO NOTHING` so a song claimed twice is
+harmless and a row another attempt already moved to `done` is not dragged back.
+`finish_default_tag_generation` sets `status` to `done` by song id.
+`clear_default_tag_generation` deletes by song id, which is how a failed attempt gets retried on
+the next read instead of sitting behind an `in_flight` row forever.
 
 Applying a user tag counts an apply for its name on the song, and taking the tag off counts that
 apply back off. Removing one of the song's suggested tags counts a remove. Every count comes from a
@@ -113,10 +145,13 @@ out, and `routes::json::comment` gives them 0 votes and no vote of the reader's.
 ## The query compiler
 
 `queries.rs::run_query` is the interesting part. It takes the typed `Query` from
-`routes/json/query.rs` (see [../routes/README.md](../routes/README.md) for the JSON), an optional
-list of candidate song ids, and a `consider_default_tags` flag, and returns matching song ids most
-relevant first. There is one compiler; the drag and drop builder just sends a query built only
-from `is_applied` and `is_not_applied` tag filters.
+`routes/json/query.rs` (see [../routes/README.md](../routes/README.md) for the JSON) and a
+`consider_default_tags` flag, and returns matching song ids most relevant first. There is one
+compiler; the drag and drop builder just sends a query built only from `is_applied` and
+`is_not_applied` tag filters.
+
+The songs a query runs over are the user's `user_songs` rows, always. The caller does not supply
+them: it used to send its Apple Music library as `song_ids` on the request, and that is gone.
 
 Before compiling it checks the tree size (`MAX_NODES` 200, `MAX_DEPTH` 20), then looks up the type
 of every tag id the query mentions. `get_queryable_tag_types` is user scoped, so another user's tag
@@ -125,36 +160,26 @@ queryable as well, removed or not. A query naming a default tag the user removed
 simply matches nothing of theirs.
 
 `applied_tags_source` is the single definition of what counts as a tag on a song, and every part
-of the statement reads through it: the outer row source, the candidate left join, and each filter
-subquery. Without the flag it is the user's own applied tags. With it, those `UNION ALL` the rows
+of the statement reads through it: the ranking left join and each filter subquery. Without the flag it is the user's own applied tags. With it, those `UNION ALL` the rows
 in `default_tags_applied` that the user has no `default_tags_removed` row for, whose `value` comes
 through as `NULL::text` because that table has no value column. So a default tag behaves exactly like an attribute tag applied without a value, and
 `is_empty` matches a song that carries only the default. It is a subquery rather than a CTE so
 postgres can push the correlated song id down into both branches and keep using the song id
 indexes.
 
-`compile_query` is pure and emits `(song id, tag id)` pairs in one of two shapes. Without
-candidates it evaluates over songs that already have user tag rows:
-
-```sql
-SELECT query_songs.song_id, query_songs.tag_id
-FROM <applied tags source> AS query_songs
-WHERE <compiled where clause>
-```
-
-With candidates it starts from `unnest($2::text[])` and left joins the user's tag rows for
-scoring, which is what lets a library song with no tag rows satisfy a negative filter:
+`compile_query` is pure and emits `(song id, tag id)` pairs in one shape. It starts from
+`LIBRARY_SONGS_SOURCE`, the user's `user_songs` rows, and left joins their tag rows for scoring,
+which is what lets a library song with no tag rows satisfy a negative filter:
 
 ```sql
 SELECT query_songs.song_id, applied_tags.tag_id
-FROM unnest($2::text[]) AS query_songs(song_id)
+FROM (SELECT song_id FROM user_songs WHERE user_id=$1) AS query_songs
 LEFT JOIN <applied tags source> AS applied_tags
     ON applied_tags.song_id=query_songs.song_id
 WHERE <compiled where clause>
 ```
 
-Either way `query_songs` is the row every filter correlates against, so the compiled clause is
-the same in both.
+`query_songs` is the row every filter correlates against.
 
 - `and` / `or` join children, and an empty one is `TRUE` / `FALSE`. `not` wraps `NOT (...)`
   directly; there is no De Morgan pass here.
@@ -177,8 +202,7 @@ the same in both.
 - Text comparisons are case-insensitive, using `lower()`, `starts_with`, `right`, and `strpos`
   rather than `LIKE`, so `%` and `_` in user input are literal.
 - Every value is bound, never interpolated. `Compiler::bind` pushes a value and returns its
-  placeholder. `$1` is always the user id, and `$2` the candidate song ids when there are any, so
-  the first filter binds at `$2` or `$3`.
+  placeholder. `$1` is always the user id, so the first filter binds at `$2`.
 
 Operator / type mismatches, missing or extra values, bad numbers, and bad dates are all
 `CadenzaError::QueryFormatError` (422) with a message saying which.
@@ -241,8 +265,34 @@ every song scores zero and the whole list is ordered by song id.
 - Counts are per tag name, not per user. A user with two tags of the same name on one song counts
   twice.
 - A removal hides the default tag from that user's reads and queries, but never takes it off
-  `default_tags_applied`. Other users still see it, and `get_songs_without_default_tags` still
-  counts the song as having defaults.
+  `default_tags_applied`. Other users still see it, and it never causes the song to be generated
+  again, because generation is gated on `default_tags_generation` instead.
+- `edit_user_songs` removes before it adds, so a song id sent in both lists ends up in the
+  library. Neither half reports what it changed, so a caller cannot tell a real add from a song
+  that was already there.
+- A removal deletes only the library row. The user's tags on the song stay in
+  `user_tags_applied`, so re-adding the song brings its tags back.
+- A `done` row is never deleted, and there is no way to ask for a song to be generated again.
+  Clearing the row by hand is the only retry.
+- Nothing recovers a stuck `in_flight` row. The process that claimed it deletes it on failure,
+  but a crash or a kill between the claim and the settle leaves the row behind, and every later
+  read then skips that song. Nothing sweeps them, so clearing by hand is the only way out.
+- The claim narrows the race but does not close it. Two reads can both pass
+  `get_songs_without_generated_default_tags` before either inserts, and then both generate; the
+  second `set_default_tags_on_songs` replaces the first one's tags. Wasted tokens, not corruption.
+- `finish_default_tag_generation` writes its status through `col_expr`, which does not apply the
+  column's `save_as`, so the value goes through `ActiveEnum::as_enum` to get the
+  `CAST(... AS tag_gen_status)` postgres needs. `sea_query::ExprTrait::as_enum` shadows it in
+  `tags.rs`, which is why the call is written out as `ActiveEnum::as_enum(&...)`.
+- Nothing deletes a user's `user_songs` rows when their tags go, or vice versa. The two tables
+  are independent, so a tagged song missing from `user_songs` still comes back from the tag
+  reads while no query returns it. A user with no `user_songs` rows matches nothing at all.
+- The `user_songs` pk leads with `song_id`, so the query compiler's `WHERE user_id=$1` cannot use
+  it. `user_songs_user_id_idx` exists for that read. A lookup of one `(song_id, user_id)` pair
+  still goes through the pk.
+- `user_songs` was renamed from `song_meta`, and its pk and fk kept the old names,
+  `song_meta_pkey` and `song_meta_user_id_fkey`. Anything matching on a constraint name, such as
+  the mapping in `../err.rs`, has to use those.
 - The removal join sits in two places, `default_tags_on_songs_query` and the default branch of
   `queries.rs::applied_tags_source`. A new read of `default_tags_applied` has to exclude removals
   itself.

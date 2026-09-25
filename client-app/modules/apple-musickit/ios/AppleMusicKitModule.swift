@@ -26,7 +26,8 @@ public class AppleMusicKitModule: Module {
     private func makeAPIRequest(
         path: String,
         method: String = "GET",
-        body: Data? = nil
+        body: Data? = nil,
+        allowNotFound: Bool = false
     ) async throws -> [String: Any] {
         guard let developerToken, !developerToken.isEmpty else {
             throw Exception(name: "ERR_MISSING_TOKEN", description: "Missing Apple Music developer token.")
@@ -52,6 +53,10 @@ public class AppleMusicKitModule: Module {
               (200...299).contains(httpResponse.statusCode)
         else {
             let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+            // Apple answers 404 for a collection it holds no members for. For a
+            // caller that opted in, that is an empty collection rather than a
+            // failed read.
+            if allowNotFound, statusCode == 404 { return [:] }
             let body = String(data: data, encoding: .utf8) ?? "Unknown error"
             throw Exception(
                 name: "ERR_APPLE_MUSIC_API",
@@ -484,10 +489,10 @@ public class AppleMusicKitModule: Module {
         return result
     }
 
-    private func pageQuery(_ options: [String: Int]) -> String {
-        let limit = min(100, max(1, options["limit"] ?? 50))
-        let offset = max(0, options["offset"] ?? 0)
-        return "limit=\(limit)&offset=\(offset)"
+    /// The `limit` and `offset` query pair for a paged Apple Music REST read.
+    private func pageQuery(_ options: some PagedOptions) -> String {
+        let page = options.clamped()
+        return "limit=\(page.limit)&offset=\(page.offset)"
     }
 
     private func currentStorefrontID() async throws -> String {
@@ -949,21 +954,21 @@ public class AppleMusicKitModule: Module {
         }
 
         AsyncFunction("getUserPlaylists") {
-            (options: [String: Int]) async throws -> [String: Any] in
+            (options: PageOptions) async throws -> [String: Any] in
             let response = try await self.makeAPIRequest(
                 path: "/v1/me/library/playlists?\(self.pageQuery(options))")
             return self.collectionResult(response)
         }
 
         AsyncFunction("getLibraryAlbums") {
-            (options: [String: Int]) async throws -> [String: Any] in
+            (options: PageOptions) async throws -> [String: Any] in
             let response = try await self.makeAPIRequest(
                 path: "/v1/me/library/albums?\(self.pageQuery(options))")
             return self.collectionResult(response)
         }
 
         AsyncFunction("getLibraryArtists") {
-            (options: [String: Int]) async throws -> [String: Any] in
+            (options: PageOptions) async throws -> [String: Any] in
             // include=catalog so a library artist arrives already carrying the
             // catalog ID the artist screen needs. Without it every row would
             // cost a second request before it could be opened.
@@ -973,7 +978,7 @@ public class AppleMusicKitModule: Module {
         }
 
         AsyncFunction("searchLibraryArtists") {
-            (term: String, options: [String: Int]) async throws -> [String: Any] in
+            (term: String, options: PageOptions) async throws -> [String: Any] in
             let encodedTerm = term.addingPercentEncoding(
                 withAllowedCharacters: .urlQueryAllowed) ?? term
             // include[library-artists]=catalog for the same reason
@@ -992,7 +997,7 @@ public class AppleMusicKitModule: Module {
         }
 
         AsyncFunction("getRecentlyAdded") {
-            (options: [String: Int]) async throws -> [String: Any] in
+            (options: PageOptions) async throws -> [String: Any] in
             // Apple's own recently added feed: albums, playlists, and loose
             // songs in one list, already grouped the way Music groups them.
             let response = try await self.makeAPIRequest(
@@ -1001,7 +1006,7 @@ public class AppleMusicKitModule: Module {
         }
 
         AsyncFunction("getAlbumSongs") {
-            (albumId: String, options: [String: Int]) async throws -> [String: Any] in
+            (albumId: String, options: PageOptions) async throws -> [String: Any] in
             let encodedID = albumId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)
                 ?? albumId
             // Library album IDs are prefixed ("l."); a bare one came from the
@@ -1019,20 +1024,18 @@ public class AppleMusicKitModule: Module {
             return self.collectionResult(response)
         }
 
-        AsyncFunction("getLibrarySongs") { (options: [String: Any]) async throws -> [String: Any] in
+        AsyncFunction("getLibrarySongs") { (options: LibrarySongOptions) async throws -> [String: Any] in
             guard #available(iOS 16.0, *) else {
                 throw Exception(name: "ERR_UNSUPPORTED", description: "Library songs require iOS 16.0+")
             }
 
-            let limit = min(100, max(1, options["limit"] as? Int ?? 50))
-            let offset = max(0, options["offset"] as? Int ?? 0)
-            let sort = options["sort"] as? [String: Any]
+            let (limit, offset) = options.clamped()
             var request = MusicLibraryRequest<Song>()
             request.limit = limit
             request.offset = offset
 
-            if let sortOption = sort?["option"] as? String {
-                let ascending = (sort?["direction"] as? String) != "descending"
+            if let sortOption = options.sort?.option {
+                let ascending = options.sort?.direction != "descending"
                 switch sortOption {
                 case "title":
                     request.sort(by: \.title, ascending: ascending)
@@ -1055,7 +1058,7 @@ public class AppleMusicKitModule: Module {
         // which takes a limit but no offset and so cannot page. This is the same
         // call Android makes, so both platforms return the same shape.
         AsyncFunction("searchLibrarySongs") {
-            (term: String, options: [String: Int]) async throws -> [String: Any] in
+            (term: String, options: PageOptions) async throws -> [String: Any] in
             let encodedTerm = term.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)
                 ?? term
             let response = try await self.makeAPIRequest(
@@ -1065,12 +1068,15 @@ public class AppleMusicKitModule: Module {
             return self.collectionResult(songs)
         }
 
+        // A playlist with no tracks answers 404, not an empty page, so it is
+        // read as empty rather than reported as a failure.
         AsyncFunction("getPlaylistSongs") {
-            (playlistId: String, options: [String: Int]) async throws -> [String: Any] in
+            (playlistId: String, options: PageOptions) async throws -> [String: Any] in
             let encodedID = playlistId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)
                 ?? playlistId
             let response = try await self.makeAPIRequest(
-                path: "/v1/me/library/playlists/\(encodedID)/tracks?\(self.pageQuery(options))&include=albums")
+                path: "/v1/me/library/playlists/\(encodedID)/tracks?\(self.pageQuery(options))&include=albums",
+                allowNotFound: true)
             return self.collectionResult(response)
         }
 

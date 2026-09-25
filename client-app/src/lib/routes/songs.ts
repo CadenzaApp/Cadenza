@@ -189,40 +189,25 @@ export function useDefaultTagsOnSongs(songIds: readonly string[]) {
 
 const EMPTY_DEFAULT_TAGS_BY_SONG: Record<string, Tag[]> = {};
 
-/** Returns the requested song ids that do not have default tags. */
-export function useSongsWithoutDefaultTags() {
-    const x = useAPIMutation<{ song_ids: string[] }, string[]>(
-        "POST",
-        "/songs/no-default-tags",
-    );
-    return {
-        songsWithoutDefaultTagsErr: x.error,
-        songsWithoutDefaultTagsLoading: x.isMutating,
-        getSongsWithoutDefaultTags: x.trigger,
-    };
-}
-
-export type SongIdAndDesc = {
-    song_id: string;
-    /** used to generate the song's tags, e.g. "Override by Yoshida Yasei" */
-    desc: string;
+export type EditUserSongsPayload = {
+    /** Song ids to put in the user's library. Ones already there are ignored. */
+    add: string[];
+    /** Song ids to take out of it. Ones not there are ignored. Tags are kept. */
+    remove: string[];
 };
-/** Generates and stores default tags for the given songs that don't have any yet. */
-export function useSetDefaultTags() {
-    const x = useAPIMutation<SongIdAndDesc[], void>(
-        "POST",
-        "/songs/default-tags",
-        (songs) => [
-            ...songs.map(({ song_id }) => ({
-                path: "/songs/default-tags",
-                params: { song_id },
-            })),
-            { path: "/songs/default-tags/batch" },
-        ],
-    );
+/**
+ * Adds songs to and removes songs from the signed in user's library, which is
+ * what queries run over.
+ *
+ * The library sync job calls this many times in a row, so it invalidates
+ * nothing on its own. `song-init.tsx` invalidates `/queries/results` once, after
+ * the run, rather than revalidating every open query per batch.
+ */
+export function useEditUserSongs() {
+    const x = useAPIMutation<EditUserSongsPayload, void>("PATCH", "/songs");
     return {
-        setDefaultTagsErr: x.error,
-        setDefaultTagsLoading: x.isMutating,
-        setDefaultTags: x.trigger,
+        editUserSongsErr: x.error,
+        editUserSongsLoading: x.isMutating,
+        editUserSongs: x.trigger,
     };
 }

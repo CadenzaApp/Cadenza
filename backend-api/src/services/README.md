@@ -1,17 +1,21 @@
 # services
 
 Business logic that is not data access. Right now that means turning a song description into
-tags with an LLM, normalizing tag names, and validating/canonicalizing tag values.
+tags with an LLM, normalizing tag names, validating/canonicalizing tag values, reading catalog
+song metadata from Apple Music, and the one step that puts those together: generating a song's
+default tags the first time anything asks for them.
 
 ## Files
 
 | file | role |
 | --- | --- |
-| `mod.rs` | Declares `tag_normalizer`, `tag_generation`, and `tag_values`. |
+| `mod.rs` | Declares `default_tags`, `song_metadata`, `tag_generation`, `tag_normalizer`, and `tag_values`. |
 | `tag_normalizer.rs` | `normalize_tag_name`: trim, collapse whitespace, truncate to 50 chars, lowercase. Unit tested. |
-| `tag_generation/mod.rs` | The `TagGenerator` trait and the `TagGenerationService` wrapper. |
-| `tag_generation/openai_tag_generator.rs` | The OpenAI implementation, plus ignored integration tests. |
+| `tag_generation/mod.rs` | The `TagGenerator` trait, its `TagGenerationError`, and the `TagGenerationService` wrapper. |
+| `tag_generation/openai_tag_generator.rs` | The OpenAI implementation, including rate limit detection off the response headers. Unit tested, plus ignored integration tests. |
 | `tag_values.rs` | `canonicalize_tag_value`: validates a tag value string against the tag's `TagType` and returns its canonical stored form (or `CadenzaError::InvalidTagValue`). Unit tested. |
+| `song_metadata.rs` | `SongMetadataService`: song ids to Apple Music catalog metadata, developer token only. Unit tested, plus ignored integration tests. |
+| `default_tags.rs` | `ensure_default_tags_generated`: generates a song's default tags the first time they are read, claiming the song in `default_tags_generation` first so it happens once. Also `backfill_default_tags` and the background job that runs it, which does the same for songs nothing has read yet. |
 
 ## How it works
 
@@ -22,24 +26,114 @@ caller:
 #[async_trait]
 pub trait TagGenerator: Send + Sync {
     async fn generate_tags(&self, song_descs: &[String], requested_tag_count: usize)
-        -> Result<Vec<Vec<String>>, String>;
+        -> Result<Vec<Vec<TagSpecs>>, TagGenerationError>;
 }
 ```
 
+`TagGenerationError` has two variants. `RateLimited { retry_after: Option<Duration> }` is the
+provider turning the request away, with whatever its headers said about the wait.
+`Other(String)` is everything else, as free text. It converts `From<String>` and `From<&str>`,
+so a generator can still write `Err("...".into())`, and `From<TagGenerationError>` turns it into
+a `CadenzaError`: `RateLimited` becomes `CadenzaError::TagGenerationRateLimited` (429) carrying
+the same `retry_after`, `Other` becomes `CadenzaError::TagGenerationErr` (500).
+
+Rate limiting is its own variant rather than more free text because a caller acts on it. The
+default tag backfill job stands down for five minutes when it sees one, which it cannot do off a
+string.
+
 `TagGenerationService` is a newtype over `Arc<Box<dyn TagGenerator>>`, so it is `Clone` and lives
 in `AppState`. It does two things on top of the trait: clamps `requested_tag_count` to
-`DEFAULT_REQUESTED_TAG_COUNT` (10) when `None` and `MAX_REQUESTED_TAG_COUNT` (20) as a ceiling,
-and converts the generator's `String` error into `CadenzaError::TagGenerationErr` (500).
+`DEFAULT_REQUESTED_TAG_COUNT` (7) when `None` and `MAX_REQUESTED_TAG_COUNT` (20) as a ceiling,
+and converts the generator's error into a `CadenzaError`.
 
 Input is a list of song descriptions, output is a list of tag lists in the same order. It is
 batch-shaped even though the only caller today (`GET /tags/suggest`) passes exactly one song and
 takes `result[0]`.
 
-`OpenAiTagGenerator` posts to the OpenAI responses api (`gpt-4o-mini`, 20 second timeout) with a
-schema-constrained system prompt, then parses a `{"tags": [[...], ...]}` payload. It short
-circuits on an empty input list or a zero tag count, rejects combined descriptions over 200
-characters, truncates any over-long tag list from the model, and runs every tag through
-`normalize_tag_name` before returning.
+`OpenAiTagGenerator` posts to the OpenAI responses api (`gpt-4o-mini`, 60 second timeout) with a
+schema-constrained system prompt, then parses a
+`{"tags": [{"song": "...", "tags": [{"name": "...", "color": "#rrggbb"}]}]}` payload. Each entry
+echoes its song's description back, which is how tags are matched to songs rather than by
+position. It short circuits on an empty input list or a zero tag count, rejects combined
+descriptions over `MAX_COMBINED_SONG_DESC_LENGTH` (2000 bytes), truncates any over-long tag list
+from the model, and runs every tag through `normalize_tag_name` before returning.
+
+It checks the response status before the body, because a 429 body has no `output` and would
+otherwise come back as a parse failure rather than as the rate limit it is. A 429 returns
+`TagGenerationError::RateLimited`, with the wait read off the headers by `rate_limit_wait`:
+`retry-after` in plain seconds when it is there, otherwise the longer of
+`x-ratelimit-reset-requests` and `x-ratelimit-reset-tokens`, since both buckets have to refill
+before the next call works. Those two are written in OpenAI's own `1s` / `88ms` / `1h2m3s`
+format, which `parse_reset_duration` reads. Headers that say nothing readable still give a
+`RateLimited` with no wait; the caller decides how long to stand down.
+
+`SongMetadataService::get_songs_metadata` takes a slice of song ids and returns one
+`Option<SongMetadata>` per id, in input order. It hits
+`GET /v1/catalog/{storefront}/songs?ids=...`, which authenticates with the developer token
+alone: no Apple Music account, no `Music-User-Token`. `SongMetadata` carries title, artist,
+album, duration, artwork url, genres, release date, and ISRC, plus a `description()` helper that
+formats `"<title> by <artist>"`, the shape `TagGenerator::generate_tags` takes.
+
+Nothing is persisted. Cadenza still stores only a song id; this is fetched fresh per call.
+
+It returns a `HashMap<String, SongMetadata>` keyed by the id each song was found under, never
+a positional list, so an id Apple knows nothing about is simply absent rather than shifting
+every later id onto the wrong song. The caller looks each id up and decides what a miss means.
+
+It is one request, so it **panics** on more than 300 ids, which is Apple's cap on the `ids`
+filter. Chunking the input is the caller's job.
+
+`ensure_default_tags_generated` is the one place that composes the two services with the db. It
+takes a slice of song ids and does nothing for the ones that already have a
+`default_tags_generation` row, which is the common case and costs one indexed read. For the rest
+it reads titles through `SongMetadataService` and formats them with `SongMetadata::description()`.
+
+Then it claims every one of those songs with `db::tags::start_default_tag_generation`, which
+writes an `in_flight` row, and only then calls the generator. Anything else reading the same song
+while the call runs sees the row and skips it, so a second reader does not pay OpenAI for
+generation that is already happening.
+
+The claim is settled after the attempt, in `generate_and_store_default_tags`, which is split out
+so the generator call and `db::tags::set_default_tags_on_songs` settle the same way. Both
+succeeded means `finish_default_tag_generation` moves the rows to `done`. Either failed means
+`clear_default_tag_generation` deletes them, so the next read retries rather than leaving the
+song permanently tagless behind an `in_flight` row. A failure to clear is logged, not returned,
+so the caller still sees what actually broke.
+
+The Apple Music read happens before the claim, so a metadata failure writes no rows at all and
+is simply retried. A song Apple Music has no catalog entry for is claimed and marked `done` with
+no tags, because it has no title to generate from and leaving it unclaimed would call Apple again
+on every later read. When no song in the batch is describable there is no generator call, and the
+rows go straight to `done`.
+
+It is called by the default tag read handlers in `src/routes/songs.rs` and by the backfill job
+below, not by any write. Nothing generates default tags when a song is added to a library.
+
+`spawn_default_tag_backfill` runs one pass on a `tokio` task every
+`DEFAULT_TAG_BACKFILL_INTERVAL_SECS`, for as long as the server lives, so a song can have its
+default tags before anyone reads it rather than paying for generation inside that first read. A
+pass takes the newest songs with no `default_tags_generation` row, through
+`db::user_songs::get_recent_songs_without_generated_default_tags`, and hands them straight to
+`ensure_default_tags_generated`.
+
+It asks `default_tags_generation` rather than `default_tags_applied` for the same reason the read
+path does. A song Apple Music has no catalog entry for ends up with no applied tags but is still
+marked `done`, so selecting on applied rows would hand the same unsatisfiable songs back every
+pass and never reach the ones that need generating. Any row counts, `in_flight` included, so a
+pass skips songs a live read is generating for right now.
+
+A pass that comes back `CadenzaError::TagGenerationRateLimited` stops there and the job waits
+`RATE_LIMIT_BACKOFF` (300 seconds) before the next one, through `Interval::reset_after`, so the
+wait is exactly five minutes however short `DEFAULT_TAG_BACKFILL_INTERVAL_SECS` is. Nothing is
+lost by stopping: `ensure_default_tags_generated` already dropped the claim on every song the
+pass took, so the next pass picks the same songs up. Any other error is logged and the job
+carries on at its usual interval.
+
+`BackfillConfig::from_env` reads the three `DEFAULT_TAG_BACKFILL_*` vars and returns `None` when
+the job is off, which is what it is unless `DEFAULT_TAG_BACKFILL_ENABLED` is `true`. `main.rs`
+logs which way it went and only spawns the task when it got a config. Ticks are delayed rather
+than burst, so a pass that outruns its interval is followed by a full interval of quiet instead
+of another pass immediately.
 
 `canonicalize_tag_value` validates a tag value against the tag's `TagType` and returns the
 canonical string to store. `None` and blank strings are always accepted (an attribute tag can be
@@ -59,20 +153,57 @@ accepts `"true"`/`"false"` case-insensitively and stores lowercase. Anything els
   user-created tag names coming through `POST /tags`.
 - `canonicalize_tag_value` is called from `src/db/tags.rs::apply_user_tag` and
   `set_user_tag_value`, which both look up the tag's type through `get_owned_tag` first.
+- `SongMetadataService` is built in `src/main.rs` and lives in `AppState`. Its only caller is
+  `default_tags::ensure_default_tags_generated`.
+- `ensure_default_tags_generated` is called by `src/routes/songs.rs::get_default_tags_on_song_handler`,
+  `get_default_tags_on_songs_handler`, and `backfill_default_tags`. It owns the whole
+  `default_tags_generation` lifecycle through `db::tags`: `start_`, `finish_`, and
+  `clear_default_tag_generation`. Nothing else writes that table.
+- The backfill job is spawned from `src/main.rs`, which is also where `BackfillConfig::from_env`
+  decides whether it runs at all.
 
 ## Gotchas
 
 - `OpenAiTagGenerator::new()` calls `dotenv().unwrap()` and then `expect`s `OPENAI_API_KEY`, so a
   missing `.env` or key panics during server startup, not at first use.
-- `MAX_COMBINED_SONG_DESC_LENGTH` is 200 characters across the whole batch, not per song. Batch a
-  handful of songs and it fails on length.
+- `MAX_COMBINED_SONG_DESC_LENGTH` is 2000 bytes across the whole batch, not per song.
+  `TagGenerationService::generate_tags` splits the batch into as many generator calls as it
+  takes to stay under it, and truncates any single description longer than that on its own.
 - The integration tests in `openai_tag_generator.rs` are `#[ignore]`d because they spend real
   tokens. Comment header says last run Jul 26.
-- The trait returns `Result<_, String>`, so error detail is free text with no structure.
+- Only rate limiting is structured. Everything else is `TagGenerationError::Other`, so that
+  error detail is still free text with no shape to match on.
+- Rate limiting is read off the status code and headers, not the error body, so a provider that
+  reports a limit some other way would need its own check. Nothing retries inside the generator;
+  the 429 goes straight back to the caller.
 - Adding a provider means one new file next to `openai_tag_generator.rs`, an `impl TagGenerator`,
   and a one-line change in `main.rs`. Nothing else should need to know.
 - `TagType::Text` has no length cap, unlike tag names (`normalize_tag_name` truncates to 50
   chars). A client can store an arbitrarily long string as a text attribute value.
+- `SongMetadataService` is catalog only. A library-only song id has no catalog entry and is
+  absent from the map, indistinguishable from a bad id.
+- The storefront comes from `APPLE_MUSIC_STOREFRONT` and defaults to `us`. The backend has no
+  user token, so it cannot ask Apple for the user's real storefront (`/v1/me/storefront` needs
+  one). A song not released in the configured storefront is absent from the map.
+- `SongMetadataService::new()` `expect`s `APPLE_MUSIC_DEVELOPER_TOKEN`, and `main.rs` constructs
+  it at startup, so a missing token panics the server on boot the same way `OPENAI_API_KEY` does.
+- The developer token is a JWT that Apple caps at 6 months. It is read from the environment
+  already signed; nothing here mints or refreshes it, so an expired token shows up as a 401
+  inside `SongMetadataErr`.
+- More than 300 ids panics rather than returning an error. Nothing catches panics in this
+  process, so a handler that passes a caller-controlled list straight through would drop the
+  connection. `ensure_default_tags_generated` passes its input straight down, and is safe only
+  because both callers run `check_batch_size` first, which caps at 200. A new caller has to do
+  the same.
+- A default tag read is now a write path. The first read of a song makes an Apple Music call and
+  an LLM call before it answers, so it is slow, and it fails the whole read if either fails.
+- The `in_flight` claim narrows the race but does not close it. It is written after the Apple
+  Music read, so two reads that both pass `get_songs_without_generated_default_tags` before
+  either claims still both generate. The insert upserts so nothing breaks, but the song costs two
+  LLM calls. The backfill job is one more racer here.
+- Nothing recovers a stuck `in_flight` row. A crash between the claim and the settle leaves the
+  row behind, and because any row is skipped, that song never gets default tags again. There is
+  no sweeper and no timeout; clearing the row by hand is the only way out.
 
 ---
 Touching files in this directory? Update this README in the same change.

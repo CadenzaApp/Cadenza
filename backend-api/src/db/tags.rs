@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use sea_orm::{
-    ActiveModelTrait,
+    ActiveEnum, ActiveModelTrait,
     ActiveValue::{NotSet, Set},
     ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, FromQueryResult, JoinType,
     ModelTrait, QueryFilter, QueryOrder, QuerySelect, RelationTrait, Select, SelectTwo,
@@ -11,7 +11,7 @@ use sea_orm::{
 };
 use serde::Serialize;
 
-use crate::db::entity::sea_orm_active_enums::TagType;
+use crate::db::entity::sea_orm_active_enums::{TagGenStatus, TagType};
 use crate::db::entity::*;
 use crate::db::tag_activity::{count_tag_applied, count_tag_removed, count_tag_unapplied};
 use crate::err::CadenzaError;
@@ -194,9 +194,17 @@ pub async fn get_user_tags_on_songs(
     Ok(tags_by_song)
 }
 
-/// Returns the requested songs that do not have default tags, preserving input
-/// order.
-pub async fn get_songs_without_default_tags(
+/// Returns the requested songs that have no `default_tags_generation` row at all,
+/// preserving input order.
+///
+/// A song someone else is generating for right now has an `in_flight` row, and is left
+/// out here just like a finished one, so two readers of the same new song do not both
+/// pay the generator for it.
+///
+/// This asks `default_tags_generation` rather than `default_tags_applied`, so a song the
+/// generator legitimately produced no tags for still counts as generated, and a song
+/// whose only default tag was later taken off is not generated a second time.
+pub async fn get_songs_without_generated_default_tags(
     db: &DatabaseConnection,
     song_ids: &[String],
 ) -> Result<Vec<String>, CadenzaError> {
@@ -204,11 +212,10 @@ pub async fn get_songs_without_default_tags(
         return Ok(Vec::new());
     }
 
-    let with_default_tags: HashSet<String> = default_tags_applied::Entity::find()
-        .filter(default_tags_applied::Column::SongId.is_in(song_ids.iter().map(String::as_str)))
+    let already_claimed: HashSet<String> = default_tags_generation::Entity::find()
+        .filter(default_tags_generation::Column::SongId.is_in(song_ids.iter().map(String::as_str)))
         .select_only()
-        .column(default_tags_applied::Column::SongId)
-        .distinct()
+        .column(default_tags_generation::Column::SongId)
         .into_tuple::<String>()
         .all(db)
         .await?
@@ -217,9 +224,86 @@ pub async fn get_songs_without_default_tags(
 
     Ok(song_ids
         .iter()
-        .filter(|song_id| !with_default_tags.contains(*song_id))
+        .filter(|song_id| !already_claimed.contains(*song_id))
         .cloned()
         .collect())
+}
+
+/// Claims songs for default tag generation by writing an `in_flight` row for each,
+/// so nothing else starts generating for them while this attempt runs.
+///
+/// A song that already has a row keeps the status it has, which means a concurrent
+/// attempt that already finished is not dragged back to `in_flight`.
+pub async fn start_default_tag_generation(
+    db: &DatabaseConnection,
+    song_ids: &[String],
+) -> Result<(), CadenzaError> {
+    if song_ids.is_empty() {
+        return Ok(());
+    }
+
+    let rows = song_ids
+        .iter()
+        .map(|song_id| default_tags_generation::ActiveModel {
+            song_id: Set(song_id.clone()),
+            status: Set(TagGenStatus::InFlight),
+        });
+
+    default_tags_generation::Entity::insert_many(rows)
+        .on_conflict(
+            OnConflict::column(default_tags_generation::Column::SongId)
+                .do_nothing()
+                .to_owned(),
+        )
+        .exec_without_returning(db)
+        .await?;
+
+    Ok(())
+}
+
+/// Marks a claimed song's generation `done`, so it never runs for that song again.
+/// A row means the attempt finished, not that it produced any tags.
+pub async fn finish_default_tag_generation(
+    db: &DatabaseConnection,
+    song_ids: &[String],
+) -> Result<(), CadenzaError> {
+    if song_ids.is_empty() {
+        return Ok(());
+    }
+
+    default_tags_generation::Entity::update_many()
+        // as_enum so the bind is cast to tag_gen_status. col_expr does not apply the
+        // column's save_as, and postgres will not take a bare text value for an enum
+        .col_expr(
+            default_tags_generation::Column::Status,
+            ActiveEnum::as_enum(&TagGenStatus::Done),
+        )
+        .filter(default_tags_generation::Column::SongId.is_in(song_ids.iter().map(String::as_str)))
+        .exec(db)
+        .await?;
+
+    Ok(())
+}
+
+/// Drops the claim on songs whose generation failed, so a later read tries them
+/// again rather than leaving them behind an `in_flight` row forever.
+///
+/// Deletes by song id alone, so a finished row written by a concurrent attempt goes
+/// with it. That costs one regeneration rather than risking a song with no tags.
+pub async fn clear_default_tag_generation(
+    db: &DatabaseConnection,
+    song_ids: &[String],
+) -> Result<(), CadenzaError> {
+    if song_ids.is_empty() {
+        return Ok(());
+    }
+
+    default_tags_generation::Entity::delete_many()
+        .filter(default_tags_generation::Column::SongId.is_in(song_ids.iter().map(String::as_str)))
+        .exec(db)
+        .await?;
+
+    Ok(())
 }
 
 pub async fn get_songs_with_user_tag(
@@ -514,9 +598,9 @@ fn default_tags_on_songs_query(
 /// song id. Default tags the user removed are left out, and so are songs with
 /// none left.
 ///
-/// Removals are per user, so this is not what the song has for everyone.
-/// `get_songs_without_default_tags` is the read that answers that, and the
-/// generation path uses it rather than this.
+/// Removals are per user, so this is not what the song has for everyone, and it is not
+/// what decides whether a song still needs generating.
+/// `get_songs_without_generated_default_tags` answers that.
 pub async fn get_default_tags_on_songs(
     db: &impl ConnectionTrait,
     user_id: Uuid,

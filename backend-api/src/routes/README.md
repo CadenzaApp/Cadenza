@@ -10,7 +10,7 @@ call into `src/db/` or `src/services/`, and shape the response.
 | --- | --- |
 | `mod.rs` | Declares `json`, `comments`, `queries`, `tags`, `songs`. |
 | `tags.rs` | Tag CRUD for the signed-in user, default tag search, plus LLM tag suggestion. Mounted at `/tags`. |
-| `songs.rs` | Reading and changing user tags, reading default tags, checking for missing defaults, and generating default tags. Mounted at `/songs`. |
+| `songs.rs` | Adding and removing the user's songs, reading and changing user tags, and reading default tags. Mounted at `/songs`. |
 | `queries.rs` | Runs a tag query and returns song ids by relevance. Mounted at `/queries`. |
 | `comments.rs` | Reading, leaving, deleting, and voting on comments on songs. Mounted at `/comments`. |
 | `json/mod.rs` | `vec_into`, a small `Vec<A> -> Vec<B>` helper. Declares `comment`, `query`, and `tag`. |
@@ -30,17 +30,16 @@ Every route below requires `Authorization: Bearer <supabase jwt>`.
 | DELETE | `/tags` | `{tag_id}` | empty. Silently no-ops if the tag is not yours |
 | GET | `/tags/default-tags` | `?search=...` | `[Tag]`, at most 5 default tags matching the search, most used first |
 | GET | `/tags/suggest` | `?song_desc=...&requested_tag_count=N` | `[{name, color}, ...]` |
+| PATCH | `/songs` | `{add: [...], remove: [...]}` | empty. Adds and removes the user's songs |
 | GET | `/songs/local-tags` | `?song_id=...` | `[AppliedTag]`, the user's tags on that song |
 | POST | `/songs/local-tags/batch` | `{song_ids: [...]}` | `{song_id: [AppliedTag]}`, an entry per requested song |
-| POST | `/songs/no-default-tags` | `{song_ids: [...]}` | requested song ids with no default tags, in input order |
-| GET | `/songs/default-tags` | `?song_id=...` | `[Tag]`, the shared default tags on that song, minus the ones this user removed |
-| POST | `/songs/default-tags/batch` | `{song_ids: [...]}` | `{song_id: [Tag]}`, the same read for a list of songs, an entry per requested song |
-| POST | `/songs/default-tags` | `[{song_id, desc}]` | empty. Generates defaults for songs that have none |
+| GET | `/songs/default-tags` | `?song_id=...` | `[Tag]`, the shared default tags on that song, minus the ones this user removed. Generates them first if the song has never had them |
+| POST | `/songs/default-tags/batch` | `{song_ids: [...]}` | `{song_id: [Tag]}`, the same read for a list of songs, an entry per requested song. Generates for any that have never had defaults |
 | DELETE | `/songs/default-tags` | `{song_id, tag_id}` | empty. Records that this user removed the suggested tag and counts it. 404 if the tag is not a default tag on the song |
 | POST | `/songs/local-tags` | `{song_id, tag_id, value?}` | empty. Also votes for the tag name |
 | PATCH | `/songs/local-tags` | `{song_id, tag_id, value}` | empty. A null value clears it |
 | DELETE | `/songs/local-tags` | `{song_id, tag_id}` | empty. Takes that vote back when it removes the tag |
-| POST | `/queries/results` | `{query, song_ids?, consider_default_tags?}` | `["songid", ...]`, most relevant first |
+| POST | `/queries/results` | `{query, consider_default_tags?}` | `["songid", ...]`, most relevant first |
 | GET | `/comments` | `?song_id=...` | `[CommentThread]`, every user's comments on the song, newest first, each with its `replies` oldest first |
 | POST | `/comments` | `{song_id, content, parent_id?}` | the new `Comment`. `parent_id` makes it a reply to a top level comment on that song. `content` is trimmed and must then be 1 to 2000 characters |
 | DELETE | `/comments` | `{comment_id}` | empty. Also deletes every reply to it. 404 if the user has no comment with that id |
@@ -129,9 +128,26 @@ Its results are ordered by how many songs carry the tag, most first.
 null, leaving out the ones the signed in user removed. `POST /songs/default-tags/batch` is the
 same read for a list of songs, and fills in an empty list for the songs
 `db::tags::get_default_tags_on_songs` leaves out.
-`POST /songs/no-default-tags` checks the same application table without creating user
-state. `POST /songs/default-tags` skips songs that already have defaults, generates tags for the
-rest, and stores them through `db::tags::set_default_tags_on_songs`.
+`PATCH /songs` is the only writer of `user_songs`. It removes before it adds, so a song id sent
+in both lists ends up in the library, and adding a song already there or removing one already
+gone does nothing. It does not touch default tags, and a removal leaves the user's own tags on
+the song alone.
+
+Default tags are generated lazily, by the endpoints that read them. Both `GET /songs/default-tags`
+and `POST /songs/default-tags/batch` call `services::default_tags::ensure_default_tags_generated`
+before the read: it asks `db::tags::get_songs_without_generated_default_tags` which of the
+requested songs have no row in `default_tags_generation`, reads their titles from Apple Music
+through `SongMetadataService`, claims them with an `in_flight` row, generates with
+`TagGenerationService`, stores through `db::tags::set_default_tags_on_songs`, and moves the rows
+to `done`. A generator or write failure deletes the rows instead, so the next read tries again.
+
+A song with a row already, `in_flight` or `done`, is skipped, so two readers of the same new song
+do not both pay for generation.
+
+The client never sends song descriptions. The backend resolves each id to a title itself, so a
+song Apple Music has no catalog entry for is marked `done` with no tags rather than being
+retried on every read. This replaced `POST /songs/no-default-tags` and `POST /songs/default-tags`,
+which took `[{song_id, desc}]` and are both gone.
 
 `DELETE /songs/default-tags` remembers in `default_tags_removed` that this user removed the song's
 suggested tag and counts a remove against that tag name, which makes the name harder to promote
@@ -142,13 +158,13 @@ them.
 
 `queries.rs` is one handler. The query arrives already typed, because serde parses the body
 straight into `Query`, so a bad shape is a `QueryFormatError` carrying serde's message. The
-handler checks the `song_ids` cap and hands everything to `db::queries::run_query`, which does
-the compiling, running, and ranking.
+handler hands it straight to `db::queries::run_query`, which does the compiling, running, and
+ranking.
 
-`song_ids` is the client's current Apple Music library, capped at 50,000. Sending it evaluates
-the query over exactly those songs, which is what lets `is_not_applied` and other negative
-filters match songs with no Cadenza tag rows. Omitting it evaluates over the previously
-tagged-song universe instead.
+The query runs over the caller's `user_songs` rows, which is what lets `is_not_applied` and other
+negative filters match songs with no Cadenza tag rows. The client used to send its Apple Music
+library as `song_ids`, capped at 50,000; that field is gone, and `PATCH /songs` is now how the
+backend learns what is in the library.
 
 `consider_default_tags` defaults to false. True widens what counts as a tag on a song to include
 the shared default tags, for matching and for ranking, and lets the query name a default tag id.
@@ -166,10 +182,12 @@ api as JSON should have a type here rather than serializing an entity model dire
 
 ## Connects to
 
-- `crate::db::tags`, `crate::db::queries`, `crate::db::comments`, and `crate::db::comment_votes` for
-  all data access.
-- `crate::services::tag_generation::TagGenerationService` for `/tags/suggest` and
-  `POST /songs/default-tags`.
+- `crate::db::tags`, `crate::db::queries`, `crate::db::comments`, `crate::db::comment_votes`, and
+  `crate::db::user_songs` for all data access.
+- `crate::services::tag_generation::TagGenerationService` for `/tags/suggest`, and through
+  `crate::services::default_tags` for the default tag reads.
+- `crate::services::song_metadata::SongMetadataService` for the titles those reads generate
+  default tags from.
 - `crate::err::CadenzaError` for every error path.
 - Client side: `client-app/src/lib/routes/*.ts` wraps every one of these in an SWR hook,
   including `client-app/src/lib/routes/comments.ts` for the `/comments` routes behind the
@@ -179,10 +197,16 @@ api as JSON should have a type here rather than serializing an entity model dire
 
 - Saved queries are gone from the route. It used to take a `query_id` param whose branch was a
   `todo!()` that panicked the handler.
+- `POST /queries/results` ignores an unknown field, so a client still sending `song_ids` gets no
+  error, just results over whatever `PATCH /songs` last put in `user_songs`. A user who has never
+  synced their library matches nothing.
 - `tags.rs::get_songs_with_user_tag_handler` exists but is not routed anywhere. Dead code. The
   same data comes back from `GET /tags?tag_id=N`.
 - `GET /tags/suggest` uses `requested_tag_count` as a **required** query param, not optional, so
   a request without it is a 422. The service clamps it to at most 20.
+- Anything that reaches the tag generator can come back 429 `TagGenerationRateLimited` when
+  OpenAI turns the request away: `GET /tags/suggest`, and the two default tag reads that generate
+  on a miss. Nothing retries for the caller, so the client has to.
 - `GET /tags/default-tags` treats a missing `search` the same as a blank one, and a blank search
   returns 5 tags rather than none. The cap of 5 is `DEFAULT_TAG_SEARCH_LIMIT` and is not a
   client-settable param.
@@ -191,10 +215,10 @@ api as JSON should have a type here rather than serializing an entity model dire
   clients will not send one on a DELETE.
 - `GET /songs/local-tags` returns only the user's own tags. Default tags (`user_id IS NULL`) are
   available separately from `GET /songs/default-tags`.
-- `POST /songs/local-tags/batch`, `POST /songs/default-tags/batch`, and `POST /songs/no-default-tags`
-  are reads. They are POSTs because their id lists do not belong in a query string. All three cap
-  out at 200 ids. Songs with no tags come back as an empty list from the two tag batches, never
-  missing.
+- `POST /songs/local-tags/batch` and `POST /songs/default-tags/batch` are reads. They are POSTs
+  because their id lists do not belong in a query string. Both cap out at 200 ids, as does
+  `PATCH /songs` across its two lists. Songs with no tags come back as an empty list from the two
+  tag batches, never missing.
 - A user tag name becomes a default tag on a song once it has 10 counts in `default_tag_activity`,
   applies and removes together, with more than 1.5 times as many applies as removes. Applying a
   tag counts an apply, unapplying takes that apply back off, and `DELETE /songs/default-tags`

@@ -16,7 +16,7 @@ import {
 } from "@/features/query-builder/QueryUtils";
 import { ResultsSummary } from "@/features/query-builder/ResultsSummary";
 import type { QueryCondition } from "@/features/query-builder/types";
-import { useAllTracksFromLibrary } from "@/lib/musickit-hooks";
+import { useTracksForSongIds } from "@/lib/musickit-hooks";
 import { useQueryResults } from "@/lib/routes/queries";
 import { useUserTags } from "@/lib/routes/tags";
 
@@ -37,17 +37,7 @@ export function CadenzaScreen() {
     const [advancedRoot, setAdvancedRootState] = useState<AdvancedGroupNode>(
         () => createGroup(),
     );
-    const {
-        allLibraryTracks,
-        allLibraryTracksLoading,
-        allLibraryTracksErr,
-        isLibraryConnected,
-    } = useAllTracksFromLibrary();
     const simpleQuery = useMemo(() => queryToJSON(conditions), [conditions]);
-    const candidateSongIds = useMemo(
-        () => allLibraryTracks.map((track) => track.catalogId ?? track.id),
-        [allLibraryTracks],
-    );
     const tagTypes = useMemo(
         () => new Map((userTags ?? []).map((tag) => [tag.id, tag.type])),
         [userTags],
@@ -61,14 +51,7 @@ export function CadenzaScreen() {
     // decides which tree gets sent.
     const query = mode === "simple" ? simpleQuery : advancedQuery;
     const { matchedSongIds, queryResultsLoading, queryResultsErr } =
-        useQueryResults(
-            query,
-            candidateSongIds,
-            isLibraryConnected &&
-                !allLibraryTracksLoading &&
-                !allLibraryTracksErr,
-            includeSuggestedTags,
-        );
+        useQueryResults(query, includeSuggestedTags);
     // A suggested tag only matches while the request carries
     // consider_default_tags, so leaving one in the query after the toggle goes
     // off would quietly change what the same query returns. Clear it instead.
@@ -85,18 +68,12 @@ export function CadenzaScreen() {
         },
         [],
     );
-    const matchedSongs = useMemo(() => {
-        const tracksByQueryId = new Map(
-            allLibraryTracks.map((track) => [
-                track.catalogId ?? track.id,
-                track,
-            ]),
-        );
-        return matchedSongIds.flatMap((id) => {
-            const track = tracksByQueryId.get(id);
-            return track ? [track] : [];
-        });
-    }, [allLibraryTracks, matchedSongIds]);
+    const {
+        tracks: matchedSongs,
+        tracksLoading,
+        tracksErr,
+        isLibraryConnected,
+    } = useTracksForSongIds(matchedSongIds);
 
     if (userTagsLoading) {
         return (
@@ -122,8 +99,8 @@ export function CadenzaScreen() {
                 songs={matchedSongs}
                 count={matchedSongIds.length}
                 loading={queryResultsLoading}
-                error={queryResultsErr ?? allLibraryTracksErr}
-                libraryLoading={allLibraryTracksLoading}
+                error={queryResultsErr ?? tracksErr}
+                libraryLoading={tracksLoading}
                 isLibraryConnected={isLibraryConnected}
                 builderToggleLabel={mode === "simple" ? "Advanced" : "Simple"}
                 onBuilderToggle={() =>

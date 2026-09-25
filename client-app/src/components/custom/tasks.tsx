@@ -2,7 +2,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useColorScheme } from "nativewind";
 import { createContext, useContext, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { ActivityIndicator, Platform, StyleSheet, View } from "react-native";
+import { Platform, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { FullWindowOverlay } from "react-native-screens";
 
@@ -26,7 +26,7 @@ const TOP_RAIL_HEIGHT = 56;
 /** Big enough to keep the pill round at any row height. */
 const ROW_RADIUS = 9999;
 
-/** Both the spinner's box and the icon's, so the row does not jump on either. */
+/** A fixed box for the icon, so the row does not jump when one replaces another. */
 const ICON_BOX = 20;
 const ICON_SIZE = 16;
 
@@ -42,7 +42,7 @@ type TasksValue = {
     /** Puts a task on the overlay and hands back its id. */
     addTask: (label: string) => number;
     /**
-     * Swaps the task's spinner for a check, then takes the row off a second
+     * Swaps the task's hourglass for a check, then takes the row off a second
      * later. Ending the same task again does nothing.
      */
     endTaskSuccess: (id: number) => void;
@@ -168,7 +168,7 @@ export function TasksHost() {
     );
 }
 
-/** One task: its label, behind a spinner while it runs and its result after. */
+/** One task: its label, behind an hourglass while it runs and its result after. */
 function TaskRow({ task }: { task: Task }) {
     const { colorScheme } = useColorScheme();
     const scheme = colorScheme === "dark" ? "dark" : "light";
@@ -198,8 +198,12 @@ function TaskRow({ task }: { task: Task }) {
                 style={{ width: ICON_BOX, height: ICON_BOX }}
             >
                 {status === undefined ? (
-                    <ActivityIndicator
-                        size="small"
+                    // static rather than a spinner. the stack is a readout
+                    // nothing can tap, so an animation on it only pulled the
+                    // eye away from what the user was doing
+                    <Ionicons
+                        name="hourglass"
+                        size={ICON_SIZE}
                         color={NAV_THEME[scheme].colors.text}
                     />
                 ) : (

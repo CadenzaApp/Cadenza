@@ -15,17 +15,50 @@ import type {
 /** Apple caps `/v1/me/library/recently-added` at 25 items per page. */
 const RECENTLY_ADDED_MAX_LIMIT = 25;
 
+/**
+ * Song ids per `getSongInfo` request. Apple's "get multiple" endpoints take a
+ * bounded `ids` list, and a caller can hand over a whole query result, so the
+ * read is split instead of sent as one oversized request.
+ */
+const SONG_INFO_CHUNK_SIZE = 25;
+
+/** `getSongInfo` chunks in flight at once, so a large list does not fan out unbounded. */
+const SONG_INFO_CONCURRENCY = 6;
+
 /** Apple Music catalog, library, and favorites operations. */
 export const MusicKit = {
     /** Returns whether the native Apple Music bridge is installed. */
     isAvailable: (): boolean => native !== null,
 
-    /** Retrieves full metadata for catalog or library song IDs in the requested order. */
+    /**
+     * Retrieves full metadata for catalog or library song IDs in the requested
+     * order. Either kind of id resolves, and an id the account cannot see is
+     * left out rather than erroring.
+     *
+     * The ids are deduplicated and read in chunks, so a caller may pass a list
+     * as long as a whole query result.
+     */
     getSongInfo: async (ids: string[]): Promise<MusicItem[]> => {
         const nativeModule = requireNative();
         if (ids.length === 0) return [];
-        const normalizedIds = ids.map((id) => requireIdentifier(id, "song ID"));
-        return nativeModule.getSongInfo(normalizedIds);
+        const normalizedIds = [...new Set(normalizeSongIds(ids))];
+        const chunks = chunkIds(normalizedIds, SONG_INFO_CHUNK_SIZE);
+        const songs: MusicItem[] = [];
+
+        for (
+            let start = 0;
+            start < chunks.length;
+            start += SONG_INFO_CONCURRENCY
+        ) {
+            const wave = await Promise.all(
+                chunks
+                    .slice(start, start + SONG_INFO_CONCURRENCY)
+                    .map((chunk) => nativeModule.getSongInfo(chunk)),
+            );
+            for (const chunk of wave) songs.push(...chunk);
+        }
+
+        return orderSongsByIds(songs, ids);
     },
 
     /** Searches the Apple Music catalog for the requested resource types. */
@@ -425,6 +458,39 @@ function normalizeLibrarySongOptions(
 
 function normalizeSongIds(ids: readonly string[]): string[] {
     return ids.map((id) => requireIdentifier(id, "song ID"));
+}
+
+/** Splits ids into lists short enough for one Apple Music request. */
+function chunkIds(ids: readonly string[], size: number): string[][] {
+    const chunks: string[][] = [];
+    for (let start = 0; start < ids.length; start += size) {
+        chunks.push([...ids.slice(start, start + size)]);
+    }
+    return chunks;
+}
+
+/**
+ * Puts songs back in the order their ids were asked for, dropping ids nothing
+ * came back for.
+ *
+ * A song is indexed under every id it carries, because the caller's id may be
+ * the catalog one or the library one and only Apple knows which of the two a
+ * given row came back under.
+ */
+function orderSongsByIds(
+    songs: readonly MusicItem[],
+    ids: readonly string[],
+): MusicItem[] {
+    const songsById = new Map<string, MusicItem>();
+    for (const song of songs) {
+        for (const id of [song.id, song.catalogId, song.libraryId]) {
+            if (id) songsById.set(id, song);
+        }
+    }
+    return ids.flatMap((id) => {
+        const song = songsById.get(id);
+        return song ? [song] : [];
+    });
 }
 
 function requireIdentifier(value: string, label: string): string {

@@ -22,9 +22,16 @@ Returned `MusicItem` values identify their `resourceKind`, `source`, canonical
 requests accept `limit` and `offset`; results expose Apple's `next` path when a
 later page exists.
 
-Catalog pagination is flattened to scalar `limit` and `offset` arguments at the
-native bridge. The public TypeScript API still accepts an options object. This
-avoids platform-specific object-to-dictionary conversion failures in ExpoModulesCore.
+Paged reads pass `{ limit, offset }` across the bridge as an options object. On
+iOS it arrives as a `Record` (`ios/PageOptions.swift`) so ExpoModulesCore does
+the conversion; on Android it is read through `as? Number`. Neither side digs
+values out of an untyped dictionary by hand. A JS number reaches native as a
+`Double`, so a hand-written `as? Int` misses and the read silently falls back to
+its default, which is what made `getLibrarySongs` page forever at offset 0.
+
+`catalogSearch` is the exception: it still takes scalar `limit` and `offset`
+arguments at the bridge, flattened before records were adopted here. The public
+TypeScript API takes an options object either way.
 
 Use `Auth.isAvailable()`, `MusicKit.isAvailable()`, or `Playback.isAvailable()`
 when rendering a surface that may run on web or in Expo Go.
@@ -88,6 +95,7 @@ Compile native targets with the `AppleMusicKitModule` Xcode scheme and Gradle's
 | `src/playback.ts` | Native playback commands and the playback snapshot hooks. |
 | `src/mock-native-module.ts` | The `EXPO_PUBLIC_MOCK_MUSICKIT=1` implementation. Fixtures, paginated collections, simulated progress. |
 | `ios/AppleMusicKitModule.swift` | iOS native module. |
+| `ios/PageOptions.swift` | The `Record` types for paged options, and the limit/offset clamp they share. |
 | `android/src/main/java/.../AppleMusicKitModule.kt` | Android native module. |
 | `expo-module.config.json` | Autolinking config. Picked up via the `expo.autolinking.nativeModulesDir` entry in `client-app/package.json`. |
 
@@ -103,11 +111,12 @@ result, stop when `hasNextPage` is false.
 | `getLibraryAlbums(options)` | Library albums. |
 | `getUserPlaylists(options)` | Library playlists. |
 | `getAlbumSongs(albumId, options)` | The songs on one library album. |
-| `getPlaylistSongs(playlistId, options)` | The songs in one library playlist. |
+| `getPlaylistSongs(playlistId, options)` | The songs in one library playlist. Apple answers 404 for a playlist holding no tracks, which comes back as an empty page rather than an error. |
 | `getRecentlyAdded(options)` | Recently added library items, newest first. Mixed albums, playlists, and loose songs. Apple caps `limit` at 25. |
 | `searchLibrarySongs(term, options)` | Library songs matching a text term. Added after the first dev builds shipped, so a stale binary throws "rebuild the app" rather than crashing. |
 | `getLibraryArtists(options)` | Library artists. Same stale-binary guard as `searchLibrarySongs`. |
 | `searchLibraryArtists(term, options)` | Library artists matching a text term. Same guard. |
+| `getSongInfo(ids)` | Full metadata for song ids, in the order given. Not paged: it takes the ids it is given. |
 
 Albums and playlists come back as `MusicItem`s with `resourceKind` set to
 `"album"` or `"playlist"`, so the same item type describes all three. Pass the
@@ -118,6 +127,21 @@ hand to `setPlaybackQueue`.
 `getAlbumSongs` takes either kind of album id. Apple prefixes library ids with a
 dot-segment, so a bare numeric id is treated as a catalog album and read from the
 catalog path instead. That is what a song's `albumID` is.
+
+`getSongInfo` is the id-to-song resolver. It splits the ids by shape, reads the
+library ones from the library and the catalog ones from the catalog, and puts the
+answers back in the requested order. An id nothing came back for is left out
+rather than erroring. It indexes each song under its `id`, `catalogId`, and
+`libraryId`, so a caller holding either kind of id finds the song. The ids are
+deduplicated and sent 25 at a time, 6 requests at once, because Apple's
+`?ids=` endpoints take a bounded list and a caller may hand over a whole query
+result.
+
+A library song carries a `catalogId` only when Apple resolves one for it. On iOS
+that resolution is a best-effort REST call layered over the native library read,
+so the same song can be seen with a catalog id on one read and only its library
+id on another. Anything that stores a song id, or matches one against a track,
+has to tolerate both. `getSongInfo` is what makes that tolerable.
 
 ## Playlist writes
 

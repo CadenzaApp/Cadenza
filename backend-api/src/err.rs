@@ -1,4 +1,4 @@
-use std::{error::Error, fmt};
+use std::{error::Error, fmt, time::Duration};
 
 use axum::{body::Body, http::Response, response::IntoResponse};
 use sea_orm::{DbErr, RuntimeErr};
@@ -19,6 +19,13 @@ pub enum CadenzaError {
     DatabaseError(String), // generic database error
     QueryFormatError(String),
     TagGenerationErr(String),
+    /// The tag generation provider turned the request away for rate limiting.
+    /// `retry_after` is what its response headers said about when the limit
+    /// refills, when they said anything at all.
+    TagGenerationRateLimited {
+        retry_after: Option<Duration>,
+    },
+    SongMetadataErr(String),
     InvalidTagValue(String),
 }
 
@@ -32,6 +39,8 @@ impl CadenzaError {
             Self::DatabaseError(_) => 500,
             Self::QueryFormatError(_) => 422,
             Self::TagGenerationErr(_) => 500,
+            Self::TagGenerationRateLimited { .. } => 429,
+            Self::SongMetadataErr(_) => 500,
             Self::InvalidTagValue(_) => 422,
         }
     }
@@ -59,6 +68,20 @@ impl CadenzaError {
             }),
             Self::TagGenerationErr(msg) => json!({
                 "error_type": "TagGenerationErr",
+                "message": msg
+            }),
+            Self::TagGenerationRateLimited { retry_after } => json!({
+                "error_type": "TagGenerationRateLimited",
+                "message": match retry_after {
+                    Some(wait) => format!(
+                        "the tag generator is rate limited, retry in {}s",
+                        wait.as_secs()
+                    ),
+                    None => "the tag generator is rate limited".to_owned(),
+                }
+            }),
+            Self::SongMetadataErr(msg) => json!({
+                "error_type": "SongMetadataErr",
                 "message": msg
             }),
             Self::InvalidTagValue(msg) => json!({

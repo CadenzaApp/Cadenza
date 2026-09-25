@@ -2,6 +2,7 @@ pub mod openai_tag_generator;
 
 use std::fmt;
 use std::sync::Arc;
+use std::time::Duration;
 
 use sea_orm::prelude::async_trait::async_trait;
 
@@ -55,11 +56,7 @@ impl TagGenerationService {
         // generate one chunk at a time, collecting the results in input order
         let mut generated = Vec::with_capacity(song_descs.len());
         for chunk in chunk_song_descs(&song_descs) {
-            let mut chunk_tags = self
-                .0
-                .generate_tags(chunk, requested_tag_count)
-                .await
-                .map_err(CadenzaError::TagGenerationErr)?;
+            let mut chunk_tags = self.0.generate_tags(chunk, requested_tag_count).await?;
 
             // the model can return the wrong number of tag lists. pad or trim to the
             // chunk's length so later chunks don't shift onto the wrong songs
@@ -67,55 +64,9 @@ impl TagGenerationService {
             generated.extend(chunk_tags);
         }
 
-        // logged once every chunk has succeeded, so a failed batch never logs a partial
-        // result. the descriptions are the ones the generator was given, after truncation
-        println!(
-            "{}",
-            GeneratedTagsLog {
-                song_descs: &song_descs,
-                generated: &generated,
-            }
-        );
+        println!("tag generation: {} songs", generated.len());
 
         Ok(generated)
-    }
-}
-
-/// A finished batch, ready to log.
-struct GeneratedTagsLog<'a> {
-    song_descs: &'a [String],
-    generated: &'a [Vec<TagSpecs>],
-}
-
-/// Formats the batch as the block [`TagGenerationService::generate_tags`] logs, one line per
-/// song, e.g.
-///
-/// ```text
-/// tag generation: 2 songs
-///   "Jolene by Dolly Parton" -> folk, country, storytelling
-///   "Master of Puppets by Metallica" -> no tags
-/// ```
-impl fmt::Display for GeneratedTagsLog<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let song_count = self.song_descs.len();
-        let plural = match song_count {
-            1 => "",
-            _ => "s",
-        };
-        write!(f, "tag generation: {song_count} song{plural}")?;
-
-        // quoted, so a description carrying a comma stays readable as one song
-        for (desc, tags) in self.song_descs.iter().zip(self.generated) {
-            match tags.is_empty() {
-                true => write!(f, "\n  {desc:?} -> no tags")?,
-                false => {
-                    let names: Vec<&str> = tags.iter().map(|tag| tag.name.as_str()).collect();
-                    write!(f, "\n  {desc:?} -> {}", names.join(", "))?;
-                }
-            }
-        }
-
-        Ok(())
     }
 }
 
@@ -144,17 +95,72 @@ fn chunk_song_descs(song_descs: &[String]) -> Vec<&[String]> {
     chunks
 }
 
+/// Why a [`TagGenerator`] call failed.
+///
+/// Rate limiting is its own variant rather than more free text, because callers act on
+/// it: the default tag backfill job stands down for a while instead of spending its next
+/// pass on another refusal.
+#[derive(Debug)]
+pub enum TagGenerationError {
+    /// The provider turned the request away for rate limiting. `retry_after` is what its
+    /// response headers said about when the limit refills, when they said anything.
+    RateLimited { retry_after: Option<Duration> },
+    /// Anything else, as free text.
+    Other(String),
+}
+
+impl fmt::Display for TagGenerationError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::RateLimited {
+                retry_after: Some(wait),
+            } => write!(
+                f,
+                "the tag generator is rate limited, retry in {}s",
+                wait.as_secs()
+            ),
+            Self::RateLimited { retry_after: None } => {
+                f.write_str("the tag generator is rate limited")
+            }
+            Self::Other(message) => f.write_str(message),
+        }
+    }
+}
+
+// both so a generator can keep writing `Err("...".into())` and `?` a Result<_, String>
+impl From<String> for TagGenerationError {
+    fn from(message: String) -> Self {
+        Self::Other(message)
+    }
+}
+impl From<&str> for TagGenerationError {
+    fn from(message: &str) -> Self {
+        Self::Other(message.to_owned())
+    }
+}
+
+impl From<TagGenerationError> for CadenzaError {
+    fn from(err: TagGenerationError) -> Self {
+        match err {
+            TagGenerationError::RateLimited { retry_after } => {
+                Self::TagGenerationRateLimited { retry_after }
+            }
+            TagGenerationError::Other(message) => Self::TagGenerationErr(message),
+        }
+    }
+}
+
 /// Tag Generators convert strings describing a song into tags.
 ///
 /// e.g. "Override by Yoshida Yasei" -> "vocaloid", "japanese", "teto"
 #[async_trait]
 pub trait TagGenerator: Send + Sync {
-    /// returns a list of generated tags for each song, or an err msg
+    /// returns a list of generated tags for each song, or why it could not
     async fn generate_tags(
         &self,
         song_descs: &[String],
         requested_tag_count: usize,
-    ) -> Result<Vec<Vec<TagSpecs>>, String>;
+    ) -> Result<Vec<Vec<TagSpecs>>, TagGenerationError>;
 }
 
 #[cfg(test)]
@@ -174,7 +180,7 @@ mod tests {
             &self,
             song_descs: &[String],
             _: usize,
-        ) -> Result<Vec<Vec<TagSpecs>>, String> {
+        ) -> Result<Vec<Vec<TagSpecs>>, TagGenerationError> {
             // same length check as the real generator
             if song_descs.iter().map(String::len).sum::<usize>() > MAX_COMBINED_SONG_DESC_LENGTH {
                 return Err("song descriptions are too long!".into());
@@ -259,53 +265,5 @@ mod tests {
             "\u{e9}".repeat((MAX_COMBINED_SONG_DESC_LENGTH - 1) / 2)
         );
         assert_eq!(res[0][0].name, expected);
-    }
-
-    /// a tag with a color that never reaches the log
-    fn tag(name: &str) -> TagSpecs {
-        TagSpecs {
-            name: name.into(),
-            color: "#808080".into(),
-        }
-    }
-
-    #[test]
-    fn generated_tags_log_pairs_each_desc_with_its_own_tags() {
-        let song_descs = vec![
-            "Jolene by Dolly Parton".to_owned(),
-            "Master of Puppets by Metallica".to_owned(),
-        ];
-        let generated = vec![vec![tag("folk"), tag("country")], Vec::new()];
-
-        let log = GeneratedTagsLog {
-            song_descs: &song_descs,
-            generated: &generated,
-        };
-
-        // a song the model returned nothing for says so, rather than going missing
-        assert_eq!(
-            log.to_string(),
-            concat!(
-                "tag generation: 2 songs\n",
-                "  \"Jolene by Dolly Parton\" -> folk, country\n",
-                "  \"Master of Puppets by Metallica\" -> no tags",
-            )
-        );
-    }
-
-    #[test]
-    fn generated_tags_log_quotes_a_desc_holding_a_comma() {
-        let song_descs = vec!["September by Earth, Wind & Fire".to_owned()];
-        let generated = vec![vec![tag("funk")]];
-
-        let log = GeneratedTagsLog {
-            song_descs: &song_descs,
-            generated: &generated,
-        };
-
-        assert_eq!(
-            log.to_string(),
-            "tag generation: 1 song\n  \"September by Earth, Wind & Fire\" -> funk"
-        );
     }
 }

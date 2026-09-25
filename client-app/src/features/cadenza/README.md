@@ -27,8 +27,10 @@ the same wire format, so the active mode only decides which tree is sent. One
 `useQueryResults` call handles both. Returned ids map back to the same cached library tracks and
 render the same `ResultsSummary`; its arrow opens the current mode's results.
 
-Every catalog id goes along as the backend candidate set, whichever mode is active. That is what
-lets a negated query include songs with no Cadenza tags at all.
+The request carries no song ids. The backend evaluates the query over the library it already
+holds in `user_songs`, which is what lets a negated query include songs with no Cadenza tags at
+all. The cached library tracks are still read here, but only to turn matched ids back into
+songs to render.
 
 The conditions live on the tab screen, so they survive tab switches. Opening the full result set
 pushes `/query-results` with the serialized query and a `suggested` flag, and the route renders
@@ -40,7 +42,7 @@ the existing query and active mode.
 - `@/features/query-builder` for the simple query and shared result presentation.
 - `@/features/advanced-query-builder` for advanced filter construction and compilation.
 - `@/lib/routes/tags` and `@/lib/routes/queries` for backend data.
-- `@/lib/musickit-hooks::useAllTracksFromLibrary` for the candidate set and result metadata.
+- `@/lib/musickit-hooks::useTracksForSongIds` for result metadata.
 - `@/features/library` owns tags now, including tag creation.
 
 ## Gotchas

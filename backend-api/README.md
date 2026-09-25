@@ -4,7 +4,9 @@ Rust HTTP api for Cadenza. Owns tags, tag application, the boolean query engine,
 suggestion, and comments on songs. axum 0.8 for routing, SeaORM 2.0 over Supabase postgres, auth
 by verifying Supabase JWTs against Supabase's JWKS.
 
-It does not store song metadata. A song is just an id string that came from Apple Music.
+It does not store song metadata. A song is just an id string that came from Apple Music. It can
+read a song's catalog metadata from Apple Music on demand (`src/services/song_metadata.rs`), but
+nothing that comes back is persisted.
 
 ## Files
 
@@ -15,7 +17,7 @@ It does not store song metadata. A song is just an id string that came from Appl
 | `src/err.rs` | `CadenzaError` and its status code / JSON body mapping. |
 | `src/routes/` | HTTP handlers. See [src/routes/README.md](src/routes/README.md). |
 | `src/db/` | Query layer and generated entities. See [src/db/README.md](src/db/README.md). |
-| `src/services/` | Tag generation and normalization. See [src/services/README.md](src/services/README.md). |
+| `src/services/` | Tag generation, normalization, Apple Music song metadata, and default tag generation. See [src/services/README.md](src/services/README.md). |
 | `src/test_utils.rs` | Test helpers. Currently just `string_of_length`. |
 | `certs/readme.md` | Leftover self-signed cert steps. No longer needed, the server is plain HTTP. |
 
@@ -58,7 +60,12 @@ that shape.
 | --- | --- | --- |
 | `DATABASE_URL` | yes | The Supabase **session-mode** pooler: `postgresql://postgres.PROJECT:PASSWORD@REGION.pooler.supabase.com:5432/postgres`. Panics at startup if missing. Use port 5432, not 6543; see Database connections below. |
 | `OPENAI_API_KEY` | yes | Read by `OpenAiTagGenerator::new()`, which panics at startup if missing, even if you never call tag suggestion. |
+| `APPLE_MUSIC_DEVELOPER_TOKEN` | yes | A signed MusicKit developer token, used by `SongMetadataService` to read the song titles default tag generation runs on. Read by `SongMetadataService::new()`, which panics at startup if missing. Apple caps the token at 6 months and nothing here refreshes it. |
+| `APPLE_MUSIC_STOREFRONT` | no | Two letter storefront for catalog lookups, e.g. `gb`. Defaults to `us`. A song not released in that storefront reads as missing. |
 | `BIND_ADDR` | no | Defaults to `127.0.0.1:3000`, which is loopback only. Set `0.0.0.0:3000` to accept connections from a phone or another machine on the LAN. Panics if it does not parse as `host:port`. |
+| `DEFAULT_TAG_BACKFILL_ENABLED` | no | `true` turns on the background job that generates default tags for songs nothing has read yet. Off for any other value, and off when unset, because every pass can spend Apple Music and OpenAI calls. |
+| `DEFAULT_TAG_BACKFILL_BATCH_SIZE` | no | Songs one pass covers. Defaults to 50, clamped to 1..=200 so a pass can never reach the 300 id cap `SongMetadataService` panics past. An unparseable value falls back to the default. |
+| `DEFAULT_TAG_BACKFILL_INTERVAL_SECS` | no | Seconds between passes. Defaults to 300. Zero and unparseable values fall back to the default, since a zero interval would spin the loop. A pass OpenAI rate limited waits a fixed 300 seconds instead, however short this is. |
 
 ### Database connections
 

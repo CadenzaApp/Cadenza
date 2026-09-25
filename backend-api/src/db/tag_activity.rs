@@ -125,9 +125,7 @@ pub async fn count_tag_applied(
         promoted: false,
     };
 
-    // enough users agree on the name, so it becomes one of the song's default
-    // tags. the row stays and keeps counting, so only the apply that crosses the
-    // line does this.
+    // enough users added this tag, so it becomes one of the song's default tags.
     if apply_promotes_tag(counts.apply_count, counts.remove_count) {
         add_default_tag_to_song(db, song_id, &tag.name, &tag.color).await?;
         recorded.promoted = true;

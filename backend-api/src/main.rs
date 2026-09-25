@@ -20,7 +20,11 @@ use crate::{
         comments::get_comments_router, queries::get_queries_router, songs::get_songs_router,
         tags::get_tags_router,
     },
-    services::tag_generation::{TagGenerationService, openai_tag_generator::OpenAiTagGenerator},
+    services::{
+        default_tags::{BackfillConfig, spawn_default_tag_backfill},
+        song_metadata::SongMetadataService,
+        tag_generation::{TagGenerationService, openai_tag_generator::OpenAiTagGenerator},
+    },
 };
 
 #[derive(Clone, FromRef)]
@@ -28,6 +32,7 @@ struct AppState {
     db: DatabaseConnection,
     jwt_decoder: Decoder<SupabaseClaims>,
     tag_gen_service: TagGenerationService,
+    song_meta_service: SongMetadataService,
 }
 
 /// The pool we are allowed to open against Supabase's pooler.
@@ -74,10 +79,33 @@ async fn main() {
     // init tag generation service
     let tag_gen_service = TagGenerationService::new(OpenAiTagGenerator::new());
 
+    let song_meta_service = SongMetadataService::new();
+
+    // fills in default tags for songs nothing has read yet. off unless the
+    // environment turns it on, since every pass can spend Apple Music and
+    // OpenAI calls that no request asked for
+    match BackfillConfig::from_env() {
+        Some(config) => {
+            println!(
+                "default tag backfill: on, up to {} songs every {}s",
+                config.batch_size,
+                config.interval.as_secs()
+            );
+            spawn_default_tag_backfill(
+                db.clone(),
+                song_meta_service.clone(),
+                tag_gen_service.clone(),
+                config,
+            );
+        }
+        None => println!("default tag backfill: off"),
+    }
+
     let app_state = AppState {
         db,
         jwt_decoder,
         tag_gen_service,
+        song_meta_service,
     };
 
     // route paths

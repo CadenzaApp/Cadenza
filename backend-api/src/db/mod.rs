@@ -4,3 +4,4 @@ pub mod entity;
 pub mod queries;
 pub mod tag_activity;
 pub mod tags;
+pub mod user_songs;

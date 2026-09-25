@@ -89,7 +89,10 @@ npx tsc --noEmit   # typecheck
   [src/lib/README.md](src/lib/README.md).
 - The backend defaults to binding loopback. To reach it from a phone, set `BIND_ADDR=0.0.0.0:3000`
   in `backend-api/.env`.
-- `ios/` is prebuild output. Native changes go in `app.config.js` plugins or `modules/`, then rebuild.
+- `ios/` is prebuild output. Native changes go in `app.config.js` plugins or `modules/`, then
+  rebuild. `expo-sqlite`, which backs the library sync's local record, is one of those
+  plugins, so a checkout that predates it needs a dev client rebuild rather than a metro
+  restart.
 - `plugins/with-ios-build-fixes.js` is a local config plugin. It patches the generated iOS project
   during prebuild, including the scene lifecycle support iOS 27 requires at launch.
 - The primary navigation uses Expo Router native tabs. SDK 57 exposes them from
