@@ -7,6 +7,7 @@ import { DynamicColorIOS, Platform, View } from "react-native";
 import {
     MediaPlayerAccessory,
     MediaPlayerFallbackOverlay,
+    useMediaPlayerAccessoryDeclared,
 } from "@/components/custom/media-player";
 import { useAccount } from "@/lib/account";
 import { usePlaybackTrackState } from "@/lib/playback";
@@ -35,9 +36,10 @@ const IOS_UNSELECTED_TAB_COLOR =
  */
 export default function TabLayout() {
     const { account } = useAccount();
-    const { activeTrack, isPlayerDismissed } = usePlaybackTrackState();
+    const { isPlayerDismissed } = usePlaybackTrackState();
     const { colors } = useTheme();
     const hidden = useBottomBarsHidden();
+    const accessoryDeclared = useMediaPlayerAccessoryDeclared();
     const [failedArtworkUrl, setFailedArtworkUrl] = useState<string | null>(
         null,
     );
@@ -52,7 +54,11 @@ export default function TabLayout() {
     return (
         <View className="flex-1">
             <NativeTabs
-                minimizeBehavior="onScrollDown"
+                // Minimizing only buys something when there is a player to
+                // minimize around. With no accessory the shrunk bar is just
+                // the selected tab and Search with a hole between them, so
+                // the full bar stays put instead.
+                minimizeBehavior={accessoryDeclared ? "onScrollDown" : "never"}
                 hidden={hidden}
                 tintColor={selectedColor}
                 iconColor={{
@@ -74,7 +80,7 @@ export default function TabLayout() {
                     },
                 }}
             >
-                {activeTrack ? (
+                {accessoryDeclared ? (
                     <NativeTabs.BottomAccessory>
                         <MediaPlayerAccessory
                             failedArtworkUrl={failedArtworkUrl}
@@ -91,9 +97,7 @@ export default function TabLayout() {
                         }}
                         md={{ default: "people", selected: "people" }}
                     />
-                    <NativeTabs.Trigger.Label>
-                        Social
-                    </NativeTabs.Trigger.Label>
+                    <NativeTabs.Trigger.Label>Social</NativeTabs.Trigger.Label>
                 </NativeTabs.Trigger>
 
                 <NativeTabs.Trigger name="analytics">
@@ -117,9 +121,7 @@ export default function TabLayout() {
                             selected: "music_note",
                         }}
                     />
-                    <NativeTabs.Trigger.Label>
-                        Cadenza
-                    </NativeTabs.Trigger.Label>
+                    <NativeTabs.Trigger.Label>Cadenza</NativeTabs.Trigger.Label>
                 </NativeTabs.Trigger>
 
                 <NativeTabs.Trigger name="library">
@@ -133,19 +135,12 @@ export default function TabLayout() {
                             selected: "library_music",
                         }}
                     />
-                    <NativeTabs.Trigger.Label>
-                        Library
-                    </NativeTabs.Trigger.Label>
+                    <NativeTabs.Trigger.Label>Library</NativeTabs.Trigger.Label>
                 </NativeTabs.Trigger>
 
                 <NativeTabs.Trigger name="search" role="search">
-                    <NativeTabs.Trigger.Icon
-                        sf="magnifyingglass"
-                        md="search"
-                    />
-                    <NativeTabs.Trigger.Label>
-                        Search
-                    </NativeTabs.Trigger.Label>
+                    <NativeTabs.Trigger.Icon sf="magnifyingglass" md="search" />
+                    <NativeTabs.Trigger.Label>Search</NativeTabs.Trigger.Label>
                 </NativeTabs.Trigger>
             </NativeTabs>
 

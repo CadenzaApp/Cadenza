@@ -58,7 +58,7 @@ that shape.
 
 | var | required | notes |
 | --- | --- | --- |
-| `DATABASE_URL` | yes | `postgresql://postgres:PASSWORD@db.PROJECT.supabase.co:5432/postgres`. Panics at startup if missing. |
+| `DATABASE_URL` | yes | The Supabase **session-mode** pooler: `postgresql://postgres.PROJECT:PASSWORD@REGION.pooler.supabase.com:5432/postgres`. Panics at startup if missing. Use port 5432, not 6543; see Database connections below. |
 | `OPENAI_API_KEY` | yes | Read by `OpenAiTagGenerator::new()`, which panics at startup if missing, even if you never call tag suggestion. |
 | `APPLE_MUSIC_DEVELOPER_TOKEN` | yes | A signed MusicKit developer token, used by `SongMetadataService` to read the song titles default tag generation runs on. Read by `SongMetadataService::new()`, which panics at startup if missing. Apple caps the token at 6 months and nothing here refreshes it. |
 | `APPLE_MUSIC_STOREFRONT` | no | Two letter storefront for catalog lookups, e.g. `gb`. Defaults to `us`. A song not released in that storefront reads as missing. |
@@ -66,6 +66,34 @@ that shape.
 | `DEFAULT_TAG_BACKFILL_ENABLED` | no | `true` turns on the background job that generates default tags for songs nothing has read yet. Off for any other value, and off when unset, because every pass can spend Apple Music and OpenAI calls. |
 | `DEFAULT_TAG_BACKFILL_BATCH_SIZE` | no | Songs one pass covers. Defaults to 50, clamped to 1..=200 so a pass can never reach the 300 id cap `SongMetadataService` panics past. An unparseable value falls back to the default. |
 | `DEFAULT_TAG_BACKFILL_INTERVAL_SECS` | no | Seconds between passes. Defaults to 300. Zero and unparseable values fall back to the default, since a zero interval would spin the loop. A pass OpenAI rate limited waits a fixed 300 seconds instead, however short this is. |
+
+### Database connections
+
+`main.rs::db_connect_options` caps the pool at `MAX_DB_CONNECTIONS`. That cap is the point of the
+function: Sea-ORM defaults to 100 connections, and the pooler serves far fewer, so the default
+exhausts it and every later connect fails with `(EMAXCONNSESSION) max clients reached`.
+
+Use the **session-mode** port (5432). Transaction mode (6543) multiplexes clients across fewer
+server connections and would survive a crash better, but it breaks sqlx's named prepared
+statements: two client connections land on one server connection and the second gets
+`prepared statement "sqlx_s_1" already exists`. Setting `statement-cache-capacity=0` does not
+save it, because the name collides across clients rather than within one. The queries in
+`src/db/` are prepared statements, so the app needs session mode.
+
+The cost of session mode is that each client pins a server connection for its whole life. A
+backend killed with SIGKILL leaves its connections pinned until the pooler reaps them, which
+takes minutes, and until then a restart cannot get a slot. `idle_timeout` and `max_lifetime`
+keep a **running** backend from hoarding them; neither helps a process that never got to clean
+up. If a restart fails with `EMAXCONNSESSION`, either wait for the reap or look at what is
+holding them:
+
+```sh
+psql "$(grep ^DATABASE_URL .env | cut -d= -f2- | sed 's/:5432\//:6543\//')" \
+  -c "select state, count(*) from pg_stat_activity where usename = current_user group by state;"
+```
+
+That inspection query goes through 6543 on purpose. It is a single simple query with no prepared
+statement, so transaction mode is fine for it, and it still connects when 5432 is full.
 
 The Supabase project ref and publishable key are hardcoded in `src/auth.rs`. They are public
 values, not secrets.

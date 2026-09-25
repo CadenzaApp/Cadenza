@@ -4,13 +4,14 @@ import {
     createElement,
     useCallback,
     useContext,
+    useEffect,
     useId,
     useLayoutEffect,
     useMemo,
     useState,
     type ReactNode,
 } from "react";
-import { Platform } from "react-native";
+import { Keyboard, Platform } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { usePlaybackTrackState } from "./playback";
@@ -54,6 +55,19 @@ const PUSHED_DETAIL_SEGMENTS = new Set([
     "add-to-playlist",
 ]);
 
+/**
+ * Root segments the app-level compact player renders over.
+ *
+ * Every pushed screen, not a chosen few. The player belongs everywhere except
+ * a sheet that covers it, a raised keyboard, and the expanded player itself.
+ * `query-results` is pushed with its own options rather than
+ * `pushedScreenOptions`, so it is not in the set above.
+ */
+const PLAYER_OVERLAY_SEGMENTS = new Set([
+    ...PUSHED_DETAIL_SEGMENTS,
+    "query-results",
+]);
+
 type BottomBarVisibility = {
     suppressed: boolean;
     setSuppressed: (token: string, suppressed: boolean) => void;
@@ -63,12 +77,48 @@ const BottomBarVisibilityContext = createContext<BottomBarVisibility | null>(
     null,
 );
 
-/** Shares temporary visibility exceptions, such as focused search. */
+/**
+ * Whether the software keyboard is up.
+ *
+ * iOS gets the `Will` events so the bars start leaving on the same frame the
+ * keyboard starts arriving. Android only fires the `Did` pair.
+ */
+function useKeyboardVisible() {
+    const [visible, setVisible] = useState(false);
+
+    useEffect(() => {
+        const ios = Platform.OS === "ios";
+        const shown = Keyboard.addListener(
+            ios ? "keyboardWillShow" : "keyboardDidShow",
+            () => setVisible(true),
+        );
+        const hidden = Keyboard.addListener(
+            ios ? "keyboardWillHide" : "keyboardDidHide",
+            () => setVisible(false),
+        );
+        return () => {
+            shown.remove();
+            hidden.remove();
+        };
+    }, []);
+
+    return visible;
+}
+
+/**
+ * Shares visibility exceptions for the two bottom bars.
+ *
+ * A raised keyboard is one for every screen at once, so it is handled here
+ * rather than by a token: the bars would otherwise sit on top of the keyboard
+ * or shove the focused field around. Everything else, such as focused search,
+ * registers its own token.
+ */
 export function BottomBarVisibilityProvider({
     children,
 }: {
     children: ReactNode;
 }) {
+    const keyboardVisible = useKeyboardVisible();
     const [tokens, setTokens] = useState<ReadonlySet<string>>(() => new Set());
     const setSuppressed = useCallback((token: string, suppressed: boolean) => {
         setTokens((current) => {
@@ -81,8 +131,11 @@ export function BottomBarVisibilityProvider({
         });
     }, []);
     const value = useMemo(
-        () => ({ suppressed: tokens.size > 0, setSuppressed }),
-        [setSuppressed, tokens],
+        () => ({
+            suppressed: keyboardVisible || tokens.size > 0,
+            setSuppressed,
+        }),
+        [keyboardVisible, setSuppressed, tokens],
     );
 
     return createElement(
@@ -176,9 +229,8 @@ export function useShowsPushedPlayerOverlay() {
     const insideSheet = useContext(InsideSheetContext);
     return (
         !insideSheet &&
-        (rootSegment === "artist" ||
-            rootSegment === "collection" ||
-            rootSegment === "query-results")
+        rootSegment !== undefined &&
+        PLAYER_OVERLAY_SEGMENTS.has(rootSegment)
     );
 }
 

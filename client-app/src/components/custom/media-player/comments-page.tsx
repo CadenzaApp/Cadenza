@@ -28,7 +28,11 @@ import {
 } from "@/lib/routes/comments";
 import type { Comment, CommentThread, CommentVote } from "@/lib/types";
 
+import { usePlayerChrome } from "./player-chrome";
 import type { FocusedSong } from "./player-scope";
+
+/** Room left between the composer's input and whatever is under it. */
+const COMPOSER_GAP = 12;
 
 /** What other users' comments are signed with, until users have names. */
 const PLACEHOLDER_AUTHOR = "Anonymous";
@@ -83,6 +87,7 @@ export function CommentsPage({
     const [draft, setDraft] = useState("");
     const [replyTarget, setReplyTarget] = useState<number | null>(null);
     const [replyDraft, setReplyDraft] = useState("");
+    const composerPaddingBottom = insets.bottom + COMPOSER_GAP;
     // the last write that failed, shown over the composer until the next write
     const [writeErr, setWriteErr] = useState<string | null>(null);
     // Drives the composer above the keyboard directly off its native frame,
@@ -91,9 +96,21 @@ export function CommentsPage({
     // offset from the screen top throws off `KeyboardAvoidingView`'s padding
     // math, leaving the composer under the keyboard.
     const keyboard = useAnimatedKeyboard();
-    const composerStyle = useAnimatedStyle(() => ({
-        transform: [{ translateY: -keyboard.height.value }],
-    }));
+    // The pager's selector sits between this page and the bottom of the
+    // screen, and the keyboard covers it before it covers anything here. The
+    // pager measures and reports it. This page must not guess at it, and must
+    // not reach for screen coordinates to find it: the origin
+    // `measureInWindow` reports from inside a presented form sheet is not the
+    // one `useAnimatedKeyboard` measures its height against.
+    const { bottomChromeHeight } = usePlayerChrome();
+    const composerStyle = useAnimatedStyle(() => {
+        // Land the input's bottom edge one gap above the keyboard's top. At
+        // rest that edge is `bottomChromeHeight + composerPaddingBottom` up
+        // from the bottom of the screen, and the keyboard's top is its own
+        // height up from it, so the gap itself cancels out of both sides.
+        const lift = keyboard.height.value - bottomChromeHeight - insets.bottom;
+        return { transform: [{ translateY: -Math.max(0, lift) }] };
+    });
 
     function authorOf(comment: Comment) {
         return comment.mine && account ? account.email : PLACEHOLDER_AUTHOR;
@@ -226,7 +243,10 @@ export function CommentsPage({
 
             <Animated.View
                 className="gap-2 px-4 pt-3"
-                style={[composerStyle, { paddingBottom: insets.bottom + 12 }]}
+                style={[
+                    composerStyle,
+                    { paddingBottom: composerPaddingBottom },
+                ]}
             >
                 {writeErr ? (
                     <Text className="text-sm text-destructive">{writeErr}</Text>
