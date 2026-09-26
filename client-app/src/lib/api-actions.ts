@@ -75,7 +75,7 @@ async function apiRequest<Output>(
 
 /** Revalidates every cached `api-data` read that matches one of the endpoints */
 export function invalidateAPIData(endpoints: APIDataEndpoint[]) {
-    mutate((key: unknown) =>
+    return mutate((key: unknown) =>
         endpoints.some((endpoint) => matchesEndpoint(key, endpoint)),
     );
 }
@@ -87,6 +87,7 @@ export function useAPIMutation<RequestBody, Response>(
     invalidatedEndpoints:
         | ((body: RequestBody) => APIDataEndpoint[])
         | APIDataEndpoint[] = [],
+    options?: { awaitInvalidation?: boolean },
 ) {
     const { account } = useAccount();
 
@@ -98,11 +99,12 @@ export function useAPIMutation<RequestBody, Response>(
                 body,
             });
 
-            invalidateAPIData(
+            const invalidation = invalidateAPIData(
                 Array.isArray(invalidatedEndpoints)
                     ? invalidatedEndpoints
                     : invalidatedEndpoints(body),
             );
+            if (options?.awaitInvalidation) await invalidation;
 
             return data;
         },

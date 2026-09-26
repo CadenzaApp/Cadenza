@@ -21,7 +21,7 @@ import {
     TAG_TYPE_ICONS,
     TAG_TYPE_LABELS,
 } from "@/lib/tag-values";
-import { TagType } from "@/lib/types";
+import { Tag, TagType } from "@/lib/types";
 
 // Light red used for the "Advanced" disclosure label + chevron.
 const ADVANCED_COLOR = "#f07a72";
@@ -103,8 +103,8 @@ export function CreateTagDialog({
 }: {
     open: boolean;
     onOpenChange: (open: boolean) => void;
-    /** Given the new tag's id, so a caller can apply it straight away. */
-    onCreated?: (tagId: number) => void;
+    /** Given the new tag, so a caller can show and apply it straight away. */
+    onCreated?: (tag: Tag) => void;
 }) {
     const { createTag, createTagErr, createTagLoading, resetCreateTag } =
         useCreateTag();
@@ -151,7 +151,14 @@ export function CreateTagDialog({
             type: selectedType,
         });
         setOpen(false);
-        if (typeof createdTagId === "number") onCreated?.(createdTagId);
+        if (typeof createdTagId === "number") {
+            onCreated?.({
+                id: createdTagId,
+                name: name.trim(),
+                color: selectedColor,
+                type: selectedType,
+            });
+        }
     }
 
     return (

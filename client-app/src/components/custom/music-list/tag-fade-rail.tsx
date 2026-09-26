@@ -87,14 +87,18 @@ export function TagFadeRail({
                 }}
             >
                 {orderedTags.map(({ source, tag }) => (
-                    <TagPill
+                    <View
                         key={`${source}:${tag.id}`}
-                        tag={tag}
-                        value={source === "local" ? tag.value : undefined}
-                        height={compact ? 8 : 9}
-                        showIcon={false}
-                        inverted={source === "default"}
-                    />
+                        style={source === "default" ? { opacity: 0.58 } : null}
+                    >
+                        <TagPill
+                            tag={tag}
+                            value={source === "local" ? tag.value : undefined}
+                            height={compact ? 8 : 9}
+                            showIcon={false}
+                            suggested={source === "default"}
+                        />
+                    </View>
                 ))}
             </ScrollView>
         </MaskedView>

@@ -4,15 +4,15 @@ import {
     useApplyTag,
     useDefaultTagsOnSong,
     useRemoveDefaultTag,
-    useSetTagValue,
     useTagsOnSong,
     useUnapplyTag,
 } from "@/lib/routes/songs";
 import { useCreateTag, useUserTags } from "@/lib/routes/tags";
-import { isAttributeTag, unownedDefaultTags } from "@/lib/tag-values";
+import { sortTagSelectorItems } from "@/components/custom/tag-selector/sort-tags";
+import { isAttributeTag } from "@/lib/tag-values";
 import type { AppliedTag, Tag } from "@/lib/types";
 
-export type EditableSongTag = AppliedTag & { applied: boolean };
+export type EditableSongTag = AppliedTag & { chosen: boolean };
 
 /**
  * Tag editing for one song, independent of whether it is playing: the data
@@ -24,32 +24,107 @@ export type EditableSongTag = AppliedTag & { applied: boolean };
  * caller; it owns the page itself.
  */
 export function useSongTagEditor(songId: string) {
-    const { userTags = [] } = useUserTags();
-    const { tagsOnSong = [] } = useTagsOnSong(songId);
-    const { defaultTagsOnSong = [] } = useDefaultTagsOnSong(songId);
+    const { userTags = [], userTagsMeta, userTagsLoading } = useUserTags();
+    const { tagsOnSong = [], tagsOnSongLoading } = useTagsOnSong(songId);
+    const { defaultTagsOnSong = [], defaultTagsOnSongLoading } =
+        useDefaultTagsOnSong(songId);
     const { applyTag } = useApplyTag();
     const { createTag } = useCreateTag();
     const { unapplyTag } = useUnapplyTag();
-    const { setTagValue } = useSetTagValue();
     const { removeDefaultTag } = useRemoveDefaultTag();
-    const [createTagOpen, setCreateTagOpen] = useState(false);
+    const [recentTags, setRecentTags] = useState<{
+        songId: string;
+        tags: Tag[];
+    }>({ songId, tags: [] });
+    const [optimisticSelections, setOptimisticSelections] = useState<{
+        songId: string;
+        choices: Record<number, { chosen: boolean; baseline: boolean }>;
+    }>({ songId, choices: {} });
     // the attribute tag whose value is being asked for, if any
     const [valuePrompt, setValuePrompt] = useState<{
         tag: Tag;
-        mode: "apply" | "edit";
+        mode: "apply";
         initialValue: string | null;
     } | null>(null);
 
+    const currentRecentTags =
+        recentTags.songId === songId ? recentTags.tags : [];
+    const knownTagIds = new Set(userTags.map((tag) => tag.id));
+    const allUserTags = [
+        ...userTags,
+        ...currentRecentTags.filter((tag) => !knownTagIds.has(tag.id)),
+    ];
     const appliedTagValues = new Map(
         tagsOnSong.map((tag) => [tag.id, tag.value]),
     );
-    const songTags: EditableSongTag[] = userTags.map((tag) => ({
-        ...tag,
-        applied: appliedTagValues.has(tag.id),
-        value: appliedTagValues.get(tag.id) ?? null,
-    }));
-    // shared, not the user's, so they are shown but never toggled here
-    const defaultTags = unownedDefaultTags(defaultTagsOnSong, tagsOnSong);
+    const optimisticChoices =
+        optimisticSelections.songId === songId
+            ? optimisticSelections.choices
+            : {};
+    const editableTags: EditableSongTag[] = allUserTags.map((tag) => {
+        const applied = appliedTagValues.has(tag.id);
+        const optimistic = optimisticChoices[tag.id];
+        return {
+            ...tag,
+            chosen:
+                optimistic && optimistic.baseline === applied
+                    ? optimistic.chosen
+                    : applied,
+            value: appliedTagValues.get(tag.id) ?? null,
+        };
+    });
+    const suggestedNames = new Set(
+        defaultTagsOnSong.map((tag) => tag.name.trim().toLowerCase()),
+    );
+    const ownedNames = new Set(
+        allUserTags.map((tag) => tag.name.trim().toLowerCase()),
+    );
+    const defaultTags = defaultTagsOnSong.filter(
+        (tag) => !ownedNames.has(tag.name.trim().toLowerCase()),
+    );
+
+    const editorLoaded =
+        !userTagsLoading && !tagsOnSongLoading && !defaultTagsOnSongLoading;
+    const songTags = sortTagSelectorItems(
+        editableTags,
+        {
+            kind: "single",
+            initiallyChosenIds: new Set(tagsOnSong.map((tag) => tag.id)),
+            suggestedNames,
+        },
+        userTagsMeta,
+    );
+    const recentTagIds = currentRecentTags.map((tag) => tag.id);
+
+    function rememberRecentTag(tag: Tag) {
+        setRecentTags((recent) => ({
+            songId,
+            tags: recent.songId === songId ? [...recent.tags, tag] : [tag],
+        }));
+    }
+
+    function setOptimisticChoice(
+        tagId: number,
+        chosen: boolean,
+        baseline: boolean,
+    ) {
+        setOptimisticSelections((current) => ({
+            songId,
+            choices: {
+                ...(current.songId === songId ? current.choices : {}),
+                [tagId]: { chosen, baseline },
+            },
+        }));
+    }
+
+    function clearOptimisticChoice(tagId: number) {
+        setOptimisticSelections((current) => {
+            if (current.songId !== songId) return current;
+            const choices = { ...current.choices };
+            delete choices[tagId];
+            return { songId, choices };
+        });
+    }
 
     async function applyTagById(tagId: number) {
         await applyTag({ song_id: songId, tag_id: tagId });
@@ -57,31 +132,42 @@ export function useSongTagEditor(songId: string) {
 
     /** Basic tags toggle on and off, attribute tags open their value editor. */
     async function selectTag(tagId: number) {
-        const tag = userTags.find((candidate) => candidate.id === tagId);
+        const tag = editableTags.find((candidate) => candidate.id === tagId);
         if (!tag) return;
 
-        const appliedTag = tagsOnSong.find(
-            (candidate) => candidate.id === tagId,
-        );
+        const applied = appliedTagValues.has(tag.id);
+        if (tag.chosen) {
+            setOptimisticChoice(tag.id, false, applied);
+            try {
+                await unapplyTag({ song_id: songId, tag_id: tag.id });
+            } finally {
+                clearOptimisticChoice(tag.id);
+            }
+            return;
+        }
 
         if (isAttributeTag(tag.type)) {
             setValuePrompt({
                 tag,
-                mode: appliedTag ? "edit" : "apply",
-                initialValue: appliedTag?.value ?? null,
+                mode: "apply",
+                initialValue: null,
             });
             return;
         }
 
-        if (appliedTag) await unapplyTag({ song_id: songId, tag_id: tag.id });
-        else await applyTag({ song_id: songId, tag_id: tag.id });
+        setOptimisticChoice(tag.id, true, applied);
+        try {
+            await applyTag({ song_id: songId, tag_id: tag.id });
+        } finally {
+            clearOptimisticChoice(tag.id);
+        }
     }
 
     /**
      * A tapped default tag ends up on the song as one of the user's own: their
      * tag of that name if they already have one, otherwise a copy of the
-     * default. The pill then moves from Default tags to On this song, because
-     * `unownedDefaultTags` drops a default the user now has on the song.
+     * default. The pill then moves from Suggested to Your Tags because the
+     * suggested list excludes names the user owns.
      */
     async function adoptDefaultTag(tagId: number) {
         const defaultTag = defaultTags.find(
@@ -90,7 +176,7 @@ export function useSongTagEditor(songId: string) {
         if (!defaultTag) return;
 
         const ownedName = defaultTag.name.trim().toLowerCase();
-        const owned = userTags.find(
+        const owned = allUserTags.find(
             (candidate) => candidate.name.trim().toLowerCase() === ownedName,
         );
 
@@ -105,7 +191,12 @@ export function useSongTagEditor(songId: string) {
                 });
                 return;
             }
-            await applyTag({ song_id: songId, tag_id: owned.id });
+            setOptimisticChoice(owned.id, true, false);
+            try {
+                await applyTag({ song_id: songId, tag_id: owned.id });
+            } finally {
+                clearOptimisticChoice(owned.id);
+            }
             return;
         }
 
@@ -114,7 +205,16 @@ export function useSongTagEditor(songId: string) {
             color: defaultTag.color,
             type: defaultTag.type,
         });
-        if (typeof createdTagId === "number") await applyTagById(createdTagId);
+        if (typeof createdTagId === "number") {
+            const createdTag = { ...defaultTag, id: createdTagId };
+            rememberRecentTag(createdTag);
+            setOptimisticChoice(createdTagId, true, false);
+            try {
+                await applyTagById(createdTagId);
+            } finally {
+                clearOptimisticChoice(createdTagId);
+            }
+        }
     }
 
     /**
@@ -132,8 +232,13 @@ export function useSongTagEditor(songId: string) {
         const payload = { song_id: songId, tag_id: valuePrompt.tag.id, value };
 
         setValuePrompt(null);
-        if (valuePrompt.mode === "apply") await applyTag(payload);
-        else await setTagValue(payload);
+        const applied = appliedTagValues.has(valuePrompt.tag.id);
+        setOptimisticChoice(valuePrompt.tag.id, true, applied);
+        try {
+            await applyTag(payload);
+        } finally {
+            clearOptimisticChoice(valuePrompt.tag.id);
+        }
     }
 
     async function handleValueRemove() {
@@ -146,6 +251,8 @@ export function useSongTagEditor(songId: string) {
     return {
         songTags,
         defaultTags,
+        editorLoaded,
+        recentTagIds,
         selectTag: (tagId: number) => void selectTag(tagId),
         selectDefaultTag: (tagId: number) => void adoptDefaultTag(tagId),
         // the one callback that hands its promise back, so the menu pressing it
@@ -155,11 +262,14 @@ export function useSongTagEditor(songId: string) {
         onValueSubmit: (value: string | null) => void handleValueSubmit(value),
         onValueRemove: () => void handleValueRemove(),
         onValueDialogClose: () => setValuePrompt(null),
-        createTagOpen,
-        openCreateTag: () => setCreateTagOpen(true),
-        onCreateTagOpenChange: setCreateTagOpen,
         // A tag made from here is meant for this song, so apply it rather
         // than making the user find it in the list afterwards.
-        onTagCreated: (tagId: number) => void applyTagById(tagId),
+        onTagCreated: (tag: Tag) => {
+            rememberRecentTag(tag);
+            setOptimisticChoice(tag.id, true, false);
+            void applyTagById(tag.id).finally(() =>
+                clearOptimisticChoice(tag.id),
+            );
+        },
     };
 }

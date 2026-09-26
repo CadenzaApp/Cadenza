@@ -58,9 +58,9 @@ The toggle also sets `consider_default_tags` on the results request, so with it 
 default tags count as tags on it for both matching and ranking. That flag is what makes a suggested
 tag in the query resolve at all, so the toggle both supplies the tags and licenses them.
 
-Suggested tags are inverted wherever they appear, in the palette, in flight, and in the query, so
-they read as tag-colored content and outline on the screen color rather than a filled pill. They
-drag into the query exactly like the user's own tags.
+Suggested tags stay solid wherever they appear, in the palette, in flight, and in the query. Italic
+text and a sparkles icon distinguish them from the user's own tags. They drag into the query exactly
+like the user's own tags.
 
 Turning the toggle off while the query holds a suggested tag clears the whole query.
 `CadenzaScreen` owns that, through `hasSuggestedTag`. Leaving the tag in place would send a query

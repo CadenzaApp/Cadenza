@@ -110,7 +110,10 @@ export function DragGhost() {
                 <TagPill
                     tag={tag}
                     height={10}
-                    inverted={dragState.payload.suggested}
+                    suggested={dragState.payload.suggested}
+                    leadingIconName={
+                        dragState.payload.suggested ? "sparkles" : undefined
+                    }
                 />
             )}
         </Animated.View>

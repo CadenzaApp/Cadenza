@@ -65,6 +65,7 @@ export function useApplyTag() {
             { path: "/tags" },
             { path: "/queries/results" },
         ],
+        { awaitInvalidation: true },
     );
     return {
         applyTagErr: x.error,
@@ -90,6 +91,7 @@ export function useSetTagValue() {
             { path: "/tags" },
             { path: "/queries/results" },
         ],
+        { awaitInvalidation: true },
     );
     return {
         setTagValueErr: x.error,
@@ -113,6 +115,7 @@ export function useUnapplyTag() {
             { path: "/tags" },
             { path: "/queries/results" },
         ],
+        { awaitInvalidation: true },
     );
     return {
         unapplyTagErr: x.error,

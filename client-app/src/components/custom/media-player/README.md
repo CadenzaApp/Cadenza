@@ -209,12 +209,11 @@ smoothly between the 750ms native snapshot polls, and scrubbing overrides it wit
   away rather than while it slides in.
 - The `...` menu, its artist resolution, Go to Artist's library-only disabling, and its own
   gotchas now live with `SongOptionsMenu` - see [../../README.md](../../README.md) rather than
-  this file. `TagsPage` lists **all** of the user's tags, not just applied ones (via
-  `useSongTagEditor`, `@/components/custom/song-tag-editor`), so it grows unbounded with the tag
-  count, and a tag created from its New button is applied to `focusedSong` straight away. The
-  Default tags section works the same way in reverse: tapping one of the song's shared defaults
-  copies it into the user's tags (or reuses their tag of that name) and applies it, so the pill
-  moves up to On this song.
+  this file. `TagsPage` uses the reusable `TagSelector`: Your Tags and Suggested are separate glass
+  cards. Chosen tags are solid, available tags are outlined, and Show more reveals user tags 20 at
+  a time without changing their initial order as choices change. New sits below the selector cards.
+  A tag created from New or adopted from Suggested becomes one of the user's tags and is applied to
+  `focusedSong` straight away. Basic tag toggles update optimistically while the backend saves.
 - Long pressing a Suggested tags pill opens `SuggestedTagMenu`, the same glass `ModalPopup` the
   `...` menus use, holding one Remove this action. It calls `useSongTagEditor`'s
   `removeDefaultTag`, which hides that suggestion on this song for this user alone and counts a
