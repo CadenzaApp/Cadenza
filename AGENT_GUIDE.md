@@ -49,7 +49,7 @@ mentions them, they are aspirational.
 ## System READMEs
 
 Medium and large systems have short READMEs. Read one when it is relevant to the work; small
-directories with only one or two straightforward files do not need documentation.
+directories with only a few straightforward files do not need documentation.
 
 | README                                                                                                             | Covers                                                           |
 | ------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------- |
