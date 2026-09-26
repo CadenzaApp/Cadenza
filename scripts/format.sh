@@ -11,6 +11,7 @@ PROJECT_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 
 RUST_DIR="$PROJECT_ROOT/backend-api"
 REACT_NATIVE_DIR="$PROJECT_ROOT/client-app"
+PRETTIER_BIN="$REACT_NATIVE_DIR/node_modules/.bin/prettier"
 
 RUST_FMT_ARGS=( )
 PRETTIER_ARGS=( "--write" )
@@ -53,7 +54,12 @@ fi
 echo ""
 echo "----- 2. Prettier format pass for files in $REACT_NATIVE_DIR -----"
 
-if npx --prefix "$REACT_NATIVE_DIR" prettier "$REACT_NATIVE_DIR" "${PRETTIER_ARGS[@]}"; then
+if [ ! -x "$PRETTIER_BIN" ]; then
+  echo "Prettier is not installed. Run: npm ci --prefix client-app" >&2
+  exit 1
+fi
+
+if "$PRETTIER_BIN" "$REACT_NATIVE_DIR" "${PRETTIER_ARGS[@]}"; then
   echo "Prettier succeeded."
 else
   format_failure "Prettier"

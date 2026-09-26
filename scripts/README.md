@@ -25,6 +25,7 @@ scripts\format.bat
 ```
 
 To check formatting without changing any code, run with the `--check` flag.
+Run `npm ci --prefix client-app` after cloning to install the locked Prettier version.
 
 ## Git hooks
 

@@ -11,6 +11,7 @@ set "PROJECT_ROOT=%~dp0.."
 
 set "RUST_DIR=%PROJECT_ROOT%\backend-api"
 set "REACT_NATIVE_DIR=%PROJECT_ROOT%\client-app"
+set "PRETTIER_BIN=%REACT_NATIVE_DIR%\node_modules\.bin\prettier.cmd"
 
 set "RUST_FMT_ARGS="
 set "PRETTIER_ARGS=--write"
@@ -32,7 +33,12 @@ echo cargo fmt succeeded.
 echo.
 echo ----- 2. Prettier format pass for files in %REACT_NATIVE_DIR% -----
 
-call npx --prefix "%REACT_NATIVE_DIR%" prettier "%REACT_NATIVE_DIR%" %PRETTIER_ARGS%
+if not exist "%PRETTIER_BIN%" (
+  echo Prettier is not installed. Run: npm ci --prefix client-app
+  exit /b 1
+)
+
+call "%PRETTIER_BIN%" "%REACT_NATIVE_DIR%" %PRETTIER_ARGS%
 if errorlevel 1 (
   call :format_failure "Prettier"
   exit /b 1
