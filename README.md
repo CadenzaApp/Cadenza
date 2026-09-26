@@ -69,7 +69,7 @@ commit the generated formatting changes.
 
 ## Docs
 
-Selected stable areas have short READMEs when setup, contracts, or gotchas need explanation.
-Start from [AGENT_GUIDE.md](AGENT_GUIDE.md), which lists the relevant ones and the project's
-documentation policy. That file is also the shared brief for coding agents, which `CLAUDE.md`
-and `AGENTS.md` both point at.
+Medium and large systems have short READMEs covering setup, contracts, or essential gotchas.
+Start from [AGENT_GUIDE.md](AGENT_GUIDE.md), which lists them and the project's documentation
+policy. That file is also the shared brief for coding agents, which `CLAUDE.md` and `AGENTS.md`
+both point at.

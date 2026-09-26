@@ -1,7 +1,7 @@
 # AGENTS.md
 
 Read `./AGENT_GUIDE.md` before doing anything else in this repo. It is the shared guide: what
-Cadenza is, the repo map, selected area READMEs, and the documentation policy.
+Cadenza is, the repo map, system READMEs, and the documentation policy.
 
 ## Codex only
 

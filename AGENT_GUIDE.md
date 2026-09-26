@@ -46,10 +46,10 @@ client-app/             expo app
 `db-schema/`, `ml-service/`, `shared-spec/`, `infra/` do not exist yet. If a doc or a ticket
 mentions them, they are aspirational.
 
-## Selected READMEs
+## System READMEs
 
-Some stable or non-obvious areas have short READMEs. Read one when it is relevant to the work;
-do not assume every directory needs documentation.
+Medium and large systems have short READMEs. Read one when it is relevant to the work; small
+directories with only one or two straightforward files do not need documentation.
 
 | README                                                                                                             | Covers                                                           |
 | ------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------- |
@@ -73,22 +73,23 @@ do not assume every directory needs documentation.
 
 ## Documentation policy
 
-README files are optional. Prefer a small, accurate README for a stable area with important
-setup, contracts, or gotchas over documentation that repeats the code.
+Medium and large systems need small, accurate READMEs that cover their important setup,
+contracts, or gotchas. Do not create documentation that merely repeats the code.
 
-- Do not add a README for every directory. Add one only when it will help contributors navigate
-  a stable, non-obvious area or use an important public interface.
+- Do not add a README for every directory. Add one for a cohesive medium-to-large system or an
+  important public interface. Small directories with one or two straightforward files do not
+  need one.
 - Keep READMEs short and practical. State the purpose, the few important entry points or
   commands, and any essential gotchas. Do not restate implementation details or pad them with
   generic sections.
-- Update an existing README only when the change leaves it materially inaccurate, such as a
-  changed setup command, public contract, or important workflow. Do not update docs for routine
-  refactors, temporary states, or every iteration of a multi-step task.
+- Keep an existing README up to date when the final change affects its setup, public contract,
+  important workflow, or other material information. Do not update docs for routine refactors,
+  temporary states, or every iteration of a multi-step task.
 - When a task has several expected steps, defer README updates until the implementation is
-  stable and ready to commit or push. If it is unclear whether the work is stable enough to
-  document, ask the user before changing documentation.
-- When a README conflicts with code, the code wins. Update the README only when the final change
-  makes that correction worthwhile.
+  stable and ready to commit or push. Update the relevant README at that final point. If it is
+  unclear whether the work is stable enough to document, ask the user before changing
+  documentation.
+- When a README conflicts with code, the code wins. Correct the README with the final change.
 
 ## Backend conventions
 
