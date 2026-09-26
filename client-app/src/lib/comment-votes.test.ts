@@ -38,7 +38,11 @@ test("a new vote moves the score by one", () => {
 });
 
 test("switching a vote moves the score by two, and taking it back undoes it", () => {
-    const [switched] = applyCommentVote([thread(comment(1, 4, "up"))], 1, "down");
+    const [switched] = applyCommentVote(
+        [thread(comment(1, 4, "up"))],
+        1,
+        "down",
+    );
     assert.equal(switched.votes, 2);
     assert.equal(switched.my_vote, "down");
 

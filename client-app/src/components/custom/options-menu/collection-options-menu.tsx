@@ -89,7 +89,9 @@ export function CollectionOptionsMenu({
                     isFavorite={false}
                     onToggleFavorite={() => undefined}
                     favoriteDisabled
-                    onShare={() => collection && void shareCollection(collection)}
+                    onShare={() =>
+                        collection && void shareCollection(collection)
+                    }
                     shareDisabled={!collection}
                 />
             ) : (
@@ -98,7 +100,9 @@ export function CollectionOptionsMenu({
                     isFavorite={isFavorite}
                     onToggleFavorite={() => void handleFavoriteToggle()}
                     favoriteBusy={favoriteStatusLoading || isUpdatingFavorite}
-                    onShare={() => collection && void shareCollection(collection)}
+                    onShare={() =>
+                        collection && void shareCollection(collection)
+                    }
                     shareDisabled={collectionLoading || !collection?.shareUrl}
                 />
             )}

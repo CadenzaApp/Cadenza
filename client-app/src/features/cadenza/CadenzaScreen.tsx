@@ -61,9 +61,7 @@ export function CadenzaScreen() {
     const handleIncludeSuggestedTags = useCallback((next: boolean) => {
         setIncludeSuggestedTags(next);
         if (next) return;
-        setConditions((current) =>
-            hasSuggestedTag(current) ? [] : current,
-        );
+        setConditions((current) => (hasSuggestedTag(current) ? [] : current));
     }, []);
     const setAdvancedRoot = useCallback(
         (update: (root: AdvancedGroupNode) => AdvancedGroupNode) => {

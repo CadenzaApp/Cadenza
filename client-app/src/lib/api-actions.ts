@@ -132,8 +132,7 @@ export function useAPIData<Output>(
         enabled
             ? { keyType: "api-data", path, params, accountId: account?.id }
             : null,
-        () =>
-            apiRequest<Output>(BACKEND_URL + path + queryParamsToStr(params)),
+        () => apiRequest<Output>(BACKEND_URL + path + queryParamsToStr(params)),
         options,
     );
 }

@@ -74,7 +74,9 @@ export function ErrorNotice({ error, onRetry, className }: Props) {
                     {appError.action ? (
                         <Button
                             size="sm"
-                            onPress={() => router.push(appError.action!.href as never)}
+                            onPress={() =>
+                                router.push(appError.action!.href as never)
+                            }
                         >
                             <Text>{appError.action.label}</Text>
                         </Button>

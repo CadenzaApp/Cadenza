@@ -45,6 +45,7 @@ function normalizeAuthResult(result: AuthResult): AuthResult {
     if (Object.values(AuthStatus).includes(result.status)) return result;
     return {
         status: AuthStatus.Failed,
-        error: result.error ?? `Unexpected authorization status: ${result.status}`,
+        error:
+            result.error ?? `Unexpected authorization status: ${result.status}`,
     };
 }

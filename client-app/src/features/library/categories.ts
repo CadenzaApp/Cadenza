@@ -1,12 +1,7 @@
 import type Ionicons from "@expo/vector-icons/Ionicons";
 
 /** A section of the library that the user can browse into. */
-export type LibraryCategory =
-    | "playlist"
-    | "artist"
-    | "album"
-    | "song"
-    | "tag";
+export type LibraryCategory = "playlist" | "artist" | "album" | "song" | "tag";
 
 /** Display order on the library screen. Not the enabled/disabled state. */
 export const LIBRARY_CATEGORY_ORDER = [

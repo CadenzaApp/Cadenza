@@ -14,10 +14,7 @@ import { useMemo, useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import useSWRInfinite from "swr/infinite";
 import { isAppleMusicAuthError } from "./app-error";
-import {
-    reportAppleMusicAuthFailure,
-    useAppleMusic,
-} from "./apple-music-auth";
+import { reportAppleMusicAuthFailure, useAppleMusic } from "./apple-music-auth";
 
 const MUSIC_LIST_PAGE_SIZE = 25;
 const ALL_LIBRARY_PAGE_SIZE = 100;
@@ -307,7 +304,10 @@ function usePagedLibraryResult<
     );
 
     const items = useMemo(
-        () => appendWithoutDuplicates(x.data?.flatMap((page) => page.items) ?? []),
+        () =>
+            appendWithoutDuplicates(
+                x.data?.flatMap((page) => page.items) ?? [],
+            ),
         [x.data],
     );
     const hasNextPage = hasNextLibraryPage(x.data?.[x.data.length - 1]);
@@ -769,7 +769,9 @@ export function useCollectionFavoriteStatus(
               ] as const)
             : null;
     const x = useSWR<FavoriteStatus>(key, () =>
-        read(() => MusicKit.getCollectionFavoriteStatus(apiKind, collectionId!)),
+        read(() =>
+            MusicKit.getCollectionFavoriteStatus(apiKind, collectionId!),
+        ),
     );
 
     async function setCollectionFavoriteStatus(

@@ -67,28 +67,30 @@ export function ArtistList({
     return (
         <ScreenScrollMarker>
             <Animated.FlatList
-            {...scroll}
-            className="flex-1"
-            data={artists}
-            keyExtractor={(artist) => artist.id}
-            renderItem={({ item }) => (
-                <ArtistRow artist={item} onPress={onSelect} />
-            )}
-            contentContainerStyle={{ paddingBottom: listBottomInset }}
-            ListEmptyComponent={
-                <Text className="px-6 py-10 text-center text-muted-foreground">
-                    {emptyLabel}
-                </Text>
-            }
-            ListFooterComponent={
-                isLoadingNextPage ? <MusicListItemSkeleton fullBleed /> : null
-            }
-            onEndReached={() => {
-                if (hasNextPage && !isLoadingNextPage) onLoadNextPage();
-            }}
-            onEndReachedThreshold={0.1}
-            showsVerticalScrollIndicator={false}
-        />
+                {...scroll}
+                className="flex-1"
+                data={artists}
+                keyExtractor={(artist) => artist.id}
+                renderItem={({ item }) => (
+                    <ArtistRow artist={item} onPress={onSelect} />
+                )}
+                contentContainerStyle={{ paddingBottom: listBottomInset }}
+                ListEmptyComponent={
+                    <Text className="px-6 py-10 text-center text-muted-foreground">
+                        {emptyLabel}
+                    </Text>
+                }
+                ListFooterComponent={
+                    isLoadingNextPage ? (
+                        <MusicListItemSkeleton fullBleed />
+                    ) : null
+                }
+                onEndReached={() => {
+                    if (hasNextPage && !isLoadingNextPage) onLoadNextPage();
+                }}
+                onEndReachedThreshold={0.1}
+                showsVerticalScrollIndicator={false}
+            />
         </ScreenScrollMarker>
     );
 }

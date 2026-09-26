@@ -19,9 +19,7 @@ export type QueueState<T> = {
 
 /** True for a position that addresses a real entry. */
 export function isQueuePosition<T>(state: QueueState<T>, index: number) {
-    return (
-        Number.isInteger(index) && index >= 0 && index < state.items.length
-    );
+    return Number.isInteger(index) && index >= 0 && index < state.items.length;
 }
 
 /**

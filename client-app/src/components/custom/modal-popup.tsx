@@ -53,7 +53,10 @@ export function ModalPopup({
                     onPress={(event) => event.stopPropagation()}
                 >
                     {variant === "glass" ? (
-                        <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+                        <View
+                            pointerEvents="none"
+                            style={StyleSheet.absoluteFill}
+                        >
                             <GlassSurface
                                 variant="regular"
                                 style={StyleSheet.absoluteFill}

@@ -64,7 +64,7 @@ Read `src/components/README.md` for more detail.
 **Tabs.** Old tabs: `home`, `tags`, `query`, `explore`, `account` (native `Tabs` navigator,
 per-screen icons). New tabs: `social`, `analytics`, `cadenza`, `library`, `search`.
 
-- `tags.tsx` + `query.tsx` -> merged into `cadenza.tsx` / `features/cadenza`. Tag *browsing* is
+- `tags.tsx` + `query.tsx` -> merged into `cadenza.tsx` / `features/cadenza`. Tag _browsing_ is
   no longer part of this tab; it moved to the library (see section 4). Cadenza is now
   query-builder only.
 - `explore.tsx` -> split into `library.tsx` (category index + Recently Added) and `search.tsx`.
@@ -83,7 +83,7 @@ from the bubble.
 **Player docking.** `src/lib/player-dock.tsx` (`PlayerDockProvider`/`usePlayerDock()`) tracks a
 0-to-1 `progress` between "floating above the tab bar" and "docked inside it". When docked, the
 tab bar moves the selected tab to the leftmost slot and fades the middle tabs out to make room.
-This is unrelated to `media-player/mini-tab-bar.tsx`, which is the *player sheet's own*
+This is unrelated to `media-player/mini-tab-bar.tsx`, which is the _player sheet's own_
 Comments/Player/Tags segmented control, same glass-bubble technique, different state.
 
 **Zoom-dismiss / screen overlays.** New system behind screens that grow out of the artwork that
@@ -118,7 +118,7 @@ The old near-monolithic player is now split by what mounts where:
   `focusedSong` state and the swipe between three hardcoded pages, keyed by `PlayerPageKey`
   (`"comments" | "player" | "tags"`, from `mini-tab-bar.tsx`). Per the directory's own
   convention, `app/player.tsx` is the only caller allowed to import this file directly.
-- `player-page.tsx` - the middle page. The *only* page that touches `usePlayback()`. Renders
+- `player-page.tsx` - the middle page. The _only_ page that touches `usePlayback()`. Renders
   artwork-or-queue, scrubber, transport, and its own `SongOptionsMenu`.
 - `queue-view.tsx`, `tags-page.tsx`, `comments-page.tsx` - the other two pages plus the queue
   view. Each takes just `focusedSong` (or nothing), renders `TintBackdrop` from
@@ -168,6 +168,7 @@ library, see above), and owns query-tree/result state on the screen so it surviv
 switches.
 
 **New lib utilities:**
+
 - `music-routes.ts` - `collectionRoute`/`albumRouteForTrack`, builds `/collection/[kind]/[id]`
   hrefs carrying title/artist/artwork params so the destination can paint before its own fetch
   lands.

@@ -43,7 +43,7 @@ export function LibraryCategoryScreen({
     const category = parseLibraryCategory(kind);
     const router = useRouter();
     const navigation = useNavigation();
-    
+
     const { isConnected } = useAppleMusic();
     const [librarySort, setLibrarySort] =
         useState<MusicListSort>(DEFAULT_LIBRARY_SORT);

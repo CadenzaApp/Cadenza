@@ -5,7 +5,12 @@
 // with no scene support, so this plugin adds a SceneDelegate.swift, wires it
 // up in Info.plist, and moves window creation out of AppDelegate into the
 // scene delegate. Runs on every `expo prebuild` since ios/ is regenerated.
-const { withAppDelegate, withInfoPlist, withXcodeProject, IOSConfig } = require("@expo/config-plugins");
+const {
+    withAppDelegate,
+    withInfoPlist,
+    withXcodeProject,
+    IOSConfig,
+} = require("@expo/config-plugins");
 
 const SCENE_DELEGATE_CLASS_NAME = "SceneDelegate";
 
@@ -42,45 +47,45 @@ class ${SCENE_DELEGATE_CLASS_NAME}: UIResponder, UIWindowSceneDelegate {
 // not Xcode 16's file-system-synchronized groups). withBuildSourceFile does
 // both: writes the file and links it into the project.
 function withSceneDelegateFile(config) {
-  return IOSConfig.XcodeProjectFile.withBuildSourceFile(config, {
-    filePath: `${SCENE_DELEGATE_CLASS_NAME}.swift`,
-    contents: sceneDelegateSource,
-    overwrite: true,
-  });
+    return IOSConfig.XcodeProjectFile.withBuildSourceFile(config, {
+        filePath: `${SCENE_DELEGATE_CLASS_NAME}.swift`,
+        contents: sceneDelegateSource,
+        overwrite: true,
+    });
 }
 
 function withSceneManifest(config) {
-  return withInfoPlist(config, (config) => {
-    config.modResults.UIApplicationSceneManifest = {
-      UIApplicationSupportsMultipleScenes: false,
-      UISceneConfigurations: {
-        UIWindowSceneSessionRoleApplication: [
-          {
-            UISceneConfigurationName: "Default Configuration",
-            UISceneDelegateClassName: `$(PRODUCT_MODULE_NAME).${SCENE_DELEGATE_CLASS_NAME}`,
-          },
-        ],
-      },
-    };
-    return config;
-  });
+    return withInfoPlist(config, (config) => {
+        config.modResults.UIApplicationSceneManifest = {
+            UIApplicationSupportsMultipleScenes: false,
+            UISceneConfigurations: {
+                UIWindowSceneSessionRoleApplication: [
+                    {
+                        UISceneConfigurationName: "Default Configuration",
+                        UISceneDelegateClassName: `$(PRODUCT_MODULE_NAME).${SCENE_DELEGATE_CLASS_NAME}`,
+                    },
+                ],
+            },
+        };
+        return config;
+    });
 }
 
 function withSceneAwareAppDelegate(config) {
-  return withAppDelegate(config, (config) => {
-    let contents = config.modResults.contents;
+    return withAppDelegate(config, (config) => {
+        let contents = config.modResults.contents;
 
-    // Window creation moves to the scene delegate; AppDelegate only builds
-    // the React Native factory now.
-    contents = contents.replace(
-      /#if os\(iOS\) \|\| os\(tvOS\)\n\s*window = UIWindow\(frame: UIScreen\.main\.bounds\)\n\s*factory\.startReactNative\(\n\s*withModuleName: "main",\n\s*in: window,\n\s*launchOptions: launchOptions\)\n#endif\n\n?/,
-      ""
-    );
+        // Window creation moves to the scene delegate; AppDelegate only builds
+        // the React Native factory now.
+        contents = contents.replace(
+            /#if os\(iOS\) \|\| os\(tvOS\)\n\s*window = UIWindow\(frame: UIScreen\.main\.bounds\)\n\s*factory\.startReactNative\(\n\s*withModuleName: "main",\n\s*in: window,\n\s*launchOptions: launchOptions\)\n#endif\n\n?/,
+            "",
+        );
 
-    if (!contents.includes("configurationForConnecting")) {
-      contents = contents.replace(
-        /return super\.application\(application, didFinishLaunchingWithOptions: launchOptions\)\n  \}/,
-        `return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+        if (!contents.includes("configurationForConnecting")) {
+            contents = contents.replace(
+                /return super\.application\(application, didFinishLaunchingWithOptions: launchOptions\)\n  \}/,
+                `return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
   public func application(
@@ -89,13 +94,13 @@ function withSceneAwareAppDelegate(config) {
     options: UIScene.ConnectionOptions
   ) -> UISceneConfiguration {
     return UISceneConfiguration(name: "Default Configuration", sessionRole: connectingSceneSession.role)
-  }`
-      );
-    }
+  }`,
+            );
+        }
 
-    config.modResults.contents = contents;
-    return config;
-  });
+        config.modResults.contents = contents;
+        return config;
+    });
 }
 
 // A raw `expo run:ios`/xcodebuild-only build (no interactive Xcode session)
@@ -107,25 +112,25 @@ function withSceneAwareAppDelegate(config) {
 // off the newer script-phase sandboxing that blocks Expo dev-launcher's
 // "Create Manifest IP" build step (Sandbox: bash deny file-write-data .../ip.txt).
 function withAutomaticSigningAndSandboxFix(config) {
-  return withXcodeProject(config, (config) => {
-    const project = config.modResults;
-    const configurations = project.pbxXCBuildConfigurationSection();
-    for (const key in configurations) {
-      const entry = configurations[key];
-      if (typeof entry.buildSettings !== "object") continue;
-      entry.buildSettings.ENABLE_USER_SCRIPT_SANDBOXING = "NO";
-      if (entry.buildSettings.PRODUCT_BUNDLE_IDENTIFIER) {
-        entry.buildSettings.CODE_SIGN_STYLE = "Automatic";
-      }
-    }
-    return config;
-  });
+    return withXcodeProject(config, (config) => {
+        const project = config.modResults;
+        const configurations = project.pbxXCBuildConfigurationSection();
+        for (const key in configurations) {
+            const entry = configurations[key];
+            if (typeof entry.buildSettings !== "object") continue;
+            entry.buildSettings.ENABLE_USER_SCRIPT_SANDBOXING = "NO";
+            if (entry.buildSettings.PRODUCT_BUNDLE_IDENTIFIER) {
+                entry.buildSettings.CODE_SIGN_STYLE = "Automatic";
+            }
+        }
+        return config;
+    });
 }
 
 module.exports = function withIosBuildFixes(config) {
-  config = withSceneManifest(config);
-  config = withSceneDelegateFile(config);
-  config = withSceneAwareAppDelegate(config);
-  config = withAutomaticSigningAndSandboxFix(config);
-  return config;
+    config = withSceneManifest(config);
+    config = withSceneDelegateFile(config);
+    config = withSceneAwareAppDelegate(config);
+    config = withAutomaticSigningAndSandboxFix(config);
+    return config;
 };

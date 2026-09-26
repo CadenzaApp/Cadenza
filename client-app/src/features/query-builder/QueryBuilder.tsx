@@ -120,7 +120,11 @@ export function QueryBuilder({
                         );
                     }
                     if (target.kind === "query-end") {
-                        return appendTag(current, payload.tag, payload.suggested);
+                        return appendTag(
+                            current,
+                            payload.tag,
+                            payload.suggested,
+                        );
                     }
                     return current;
                 }

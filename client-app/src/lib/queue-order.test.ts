@@ -89,5 +89,8 @@ test("a duplicated track resolves to the copy nearest the known index", () => {
 });
 
 test("a track that is not queued resolves to nothing", () => {
-    assert.equal(nearestQueuePosition(["a", "b"], 0, (i) => i === "z"), -1);
+    assert.equal(
+        nearestQueuePosition(["a", "b"], 0, (i) => i === "z"),
+        -1,
+    );
 });

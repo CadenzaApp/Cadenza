@@ -84,8 +84,7 @@ export const Playback: PlaybackApi = {
     playSongQueue: (tracks, startIndex = 0) =>
         playbackImplementation.playSongQueue(tracks, startIndex),
     appendSongQueue: (tracks) => playbackImplementation.appendSongQueue(tracks),
-    insertSongsNext: (tracks) =>
-        playbackImplementation.insertSongsNext(tracks),
+    insertSongsNext: (tracks) => playbackImplementation.insertSongsNext(tracks),
     moveQueueItem: (fromIndex, toIndex) =>
         playbackImplementation.moveQueueItem(fromIndex, toIndex),
     removeQueueItem: (index) => playbackImplementation.removeQueueItem(index),

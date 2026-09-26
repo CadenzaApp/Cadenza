@@ -73,7 +73,9 @@ function isNetworkFailure(error: unknown): boolean {
     if (typeof error !== "object" || error === null) return false;
     const message = (error as { message?: unknown }).message;
     // what react native's fetch throws when the request never left the device
-    return typeof message === "string" && /network request failed/i.test(message);
+    return (
+        typeof message === "string" && /network request failed/i.test(message)
+    );
 }
 
 export function classifyError(error: unknown): AppError {

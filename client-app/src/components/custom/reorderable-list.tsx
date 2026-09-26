@@ -113,7 +113,9 @@ export function ReorderableList<T>({
         scrollY.set(next);
         autoScrolled.set(autoScrolled.get() + applied);
         dragOffset.set(fingerOffset.get() + autoScrolled.get());
-        targetIndex.set(landingIndex(activeIndex, dragOffset, itemHeight, rowCount));
+        targetIndex.set(
+            landingIndex(activeIndex, dragOffset, itemHeight, rowCount),
+        );
         scrollTo(scrollRef, 0, next, false);
     }, false);
 
