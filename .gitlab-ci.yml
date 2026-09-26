@@ -1,0 +1,15 @@
+image: rust:latest
+
+stages:
+  - test
+
+format:
+  stage: test
+  before_script:
+    - apt-get update -qq
+    - apt-get install -y --no-install-recommends nodejs npm
+    - npm ci --prefix client-app --ignore-scripts --no-audit --no-fund
+  script:
+    - ./scripts/format.sh --check
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
