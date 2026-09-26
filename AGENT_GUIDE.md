@@ -77,7 +77,7 @@ Medium and large systems need small, accurate READMEs that cover their important
 contracts, or gotchas. Do not create documentation that merely repeats the code.
 
 - Do not add a README for every directory. Add one for a cohesive medium-to-large system or an
-  important public interface. Small directories with one or two straightforward files do not
+  important public interface. Small directories with only a few straightforward files do not
   need one.
 - Keep READMEs short and practical. State the purpose, the few important entry points or
   commands, and any essential gotchas. Do not restate implementation details or pad them with
