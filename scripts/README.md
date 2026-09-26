@@ -1,7 +1,7 @@
 # Utility Scripts
 
-Each script in this directory has two versions:
-- a `.sh` file for running from MacOS
+Each formatting script in this directory has two versions:
+- a `.sh` file for running from macOS or Linux
 - a `.bat` file for running from Windows
 
 Both should behave essentially identically.
@@ -19,9 +19,28 @@ MacOS
 ```sh
 scripts/format.sh
 ```
-Window
+Windows
 ```bat
 scripts\format.bat
 ```
 
-To just check if everything meets formatting standards without changing any code, run with the `--check` flag. Useful for CI.
+To check formatting without changing any code, run with the `--check` flag.
+
+## Git hooks
+
+Install the versioned pre-push hook once per clone. It blocks a push when Rust or client code is
+not formatted. The error explains the failed formatter, why formatting is required, and how to
+fix the files automatically.
+
+macOS or Linux:
+```sh
+./scripts/install-git-hooks.sh
+```
+
+Windows:
+```bat
+scripts\install-git-hooks.bat
+```
+
+The hook runs `scripts/format.sh --check`. It checks files only and does not modify them. Run
+`scripts/format.sh` or `scripts\format.bat` to apply formatting before trying again.

@@ -40,6 +40,7 @@ client-app/             expo app
   src/components/       ui/ primitives and custom/ app components
   modules/apple-musickit/  local native Expo module (swift + kotlin + ts)
   modules/image-color/     local native Expo module, average color of an image
+.githooks/              versioned Git hooks, including the pre-push format check
 ```
 
 `db-schema/`, `ml-service/`, `shared-spec/`, `infra/` do not exist yet. If a doc or a ticket
@@ -69,6 +70,7 @@ gives you the file map, the flow, and the gotchas.
 | [client-app/src/features/search/README.md](client-app/src/features/search/README.md)                               | Search tab recents and the tag shelf                            |
 | [client-app/modules/apple-musickit/README.md](client-app/modules/apple-musickit/README.md)                         | Native Apple Music auth, catalog, library, playback, mock mode  |
 | [client-app/modules/image-color/README.md](client-app/modules/image-color/README.md)                               | Native average color of a remote image                          |
+| [.githooks/README.md](.githooks/README.md)                                                                         | Versioned pre-push formatting hook                              |
 
 ## Keeping the READMEs current
 

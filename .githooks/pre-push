@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+
+set -eu
+
+PROJECT_ROOT="$(git rev-parse --show-toplevel)"
+
+if ! "$PROJECT_ROOT/scripts/format.sh" --check; then
+  echo "Push blocked until formatting passes." >&2
+  exit 1
+fi
