@@ -4,7 +4,19 @@ set -eu
 
 PROJECT_ROOT="$(git rev-parse --show-toplevel)"
 
-if ! "$PROJECT_ROOT/scripts/format.sh" --check; then
+run_format_check() {
+  case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*)
+      WINDOWS_FORMAT_SCRIPT="$(cygpath -w "$PROJECT_ROOT/scripts/format.bat")"
+      cmd.exe /d /s /c "\"$WINDOWS_FORMAT_SCRIPT\" --check"
+      ;;
+    *)
+      "$PROJECT_ROOT/scripts/format.sh" --check
+      ;;
+  esac
+}
+
+if ! run_format_check; then
   echo "Push blocked until formatting passes." >&2
   exit 1
 fi

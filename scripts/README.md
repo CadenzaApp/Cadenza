@@ -42,5 +42,6 @@ Windows:
 scripts\install-git-hooks.bat
 ```
 
-The hook runs `scripts/format.sh --check`. It checks files only and does not modify them. Run
-`scripts/format.sh` or `scripts\format.bat` to apply formatting before trying again.
+The hook runs `scripts/format.sh --check` on macOS and Linux, and `scripts\format.bat --check`
+on Windows. It checks files only and does not modify them. Run the matching format command to
+apply formatting before trying again.
