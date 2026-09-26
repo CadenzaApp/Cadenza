@@ -2,8 +2,8 @@
 
 @AGENT_GUIDE.md
 
-The shared guide above covers what Cadenza is, the repo map, the feature READMEs, and the rule
-that you keep those READMEs current. Read it first.
+The shared guide above covers what Cadenza is, the repo map, selected area READMEs, and the
+documentation policy. Read it first.
 
 ## Claude Code only
 

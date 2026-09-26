@@ -1,8 +1,7 @@
 # AGENTS.md
 
 Read `./AGENT_GUIDE.md` before doing anything else in this repo. It is the shared guide: what
-Cadenza is, the repo map, the per-feature READMEs, and the rule that you update the README of
-any area you touch, in the same change.
+Cadenza is, the repo map, selected area READMEs, and the documentation policy.
 
 ## Codex only
 

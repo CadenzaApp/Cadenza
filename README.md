@@ -69,6 +69,7 @@ commit the generated formatting changes.
 
 ## Docs
 
-Every significant directory has a `README.md` describing its files, flow, and gotchas. Start
-from [AGENT_GUIDE.md](AGENT_GUIDE.md), which indexes all of them. That file is also the shared
-brief for coding agents, which `CLAUDE.md` and `AGENTS.md` both point at.
+Selected stable areas have short READMEs when setup, contracts, or gotchas need explanation.
+Start from [AGENT_GUIDE.md](AGENT_GUIDE.md), which lists the relevant ones and the project's
+documentation policy. That file is also the shared brief for coding agents, which `CLAUDE.md`
+and `AGENTS.md` both point at.
