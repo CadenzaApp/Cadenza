@@ -11,8 +11,8 @@ import {
 type UserTagsResponse = {
     All: { tags: Tag[]; metadata: Record<number, TagMetadata> };
 };
-export function useUserTags() {
-    const x = useAPIData<UserTagsResponse>("/tags");
+export function useUserTags(enabled = true) {
+    const x = useAPIData<UserTagsResponse>("/tags", undefined, { enabled });
 
     return {
         userTags: x.data?.All.tags,

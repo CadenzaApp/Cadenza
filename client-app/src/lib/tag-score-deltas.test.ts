@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { FilterOp, QueryJSON, QueryJSONNode } from "./query-json.ts";
+import {
+    positiveQueryTagNames,
+    type FilterOp,
+    type QueryJSON,
+    type QueryJSONNode,
+} from "./query-json.ts";
 import {
     DEFAULT_TAG_PLAY_SCORE_DELTA,
     LOCAL_TAG_PLAY_SCORE_DELTA,
@@ -154,6 +159,21 @@ test("a tag used twice, or both ways, counts once", () => {
     assert.deepEqual(queryTagScoreDeltas(query, QUERY_TAGS), {
         pop: QUERY_TAG_SCORE_DELTA,
     });
+});
+
+test("positive query tag names preserve order and ignore exclusions", () => {
+    const query: QueryJSON = {
+        where: {
+            and: [
+                applied(3, "is_not_applied"),
+                applied(2),
+                { not: applied(1, "is_not_applied") },
+                applied(2),
+            ],
+        },
+    };
+
+    assert.deepEqual(positiveQueryTagNames(query, QUERY_TAGS), ["rock", "pop"]);
 });
 
 test("unknown tag ids and name filters score nothing", () => {

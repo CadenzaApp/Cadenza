@@ -43,6 +43,7 @@ export default function TagDetailScreen() {
                     isLoading={tracksLoading}
                     pagination={null}
                     anticipatedTrackCount={songIds?.length ?? 0}
+                    mostRelevantTags={tag ? [tag.name] : []}
                 />
             </View>
         </DetailScreen>

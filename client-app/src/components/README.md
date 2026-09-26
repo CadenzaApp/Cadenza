@@ -144,8 +144,11 @@ a tap toggles one, and clearing everything leaves selection mode. Pinching the l
 compact rows; pass `compact` and `onCompactChange` to control that from outside.
 
 Rows use the query-revamp spacing, artwork alignment, skeletons, and solid-color `TagPill`
-appearance. A row shows the user's own tags first, then the song's shared default tags as unfilled
-pills; `index.tsx` reads both with one batched request each. The density gesture changes row size
+appearance. `mostRelevantTags` places matching names first in every row, in the supplied order.
+Other tags are ordered by how many songs in the user's library carry them, then by stable name and
+ID tie breakers. Filled user tags and unfilled shared default tags share that order; `index.tsx`
+reads both with one batched request each. The horizontal rail can be dragged to inspect tags beyond
+the trailing fade without playing the song. The density gesture changes row size
 without switching back to the older translucent pill design. Selected rows use a light foreground
 tint with alpha instead of an opaque replacement color, so artwork gradients remain visible. The
 floating selection toolbar and its overflow popup are liquid glass. The toolbar uses the same

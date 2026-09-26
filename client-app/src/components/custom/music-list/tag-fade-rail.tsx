@@ -5,26 +5,44 @@ import { ScrollView, StyleSheet, View } from "react-native";
 
 import { TagPill } from "@/components/custom/tag-pill";
 import { unownedDefaultTags } from "@/lib/tag-values";
-import type { AppliedTag, Tag } from "@/lib/types";
+import type { AppliedTag, Tag, TagMetadata } from "@/lib/types";
 
 import { tagFadeStart } from "./tag-fade-utils";
+import { sortMusicListTags } from "./sort-tags";
+
+const TAG_RAIL_TOUCH_INSET = 10;
+const EMPTY_TAG_NAMES: readonly string[] = [];
 
 /**
- * The song's own tags, then the shared default tags on it. Defaults are
- * unfilled, so a row reads as "mine first, the crowd's after".
+ * The song's own and shared default tags in list-wide relevance order.
+ * Defaults stay unfilled so their source remains visible after sorting.
  */
 export function TagFadeRail({
     tags,
     defaultTags = [],
+    mostRelevantTags,
+    tagMetadata,
     compact,
 }: {
     tags: AppliedTag[];
     defaultTags?: Tag[];
+    mostRelevantTags?: readonly string[];
+    tagMetadata?: Readonly<Record<number, TagMetadata>>;
     compact: boolean;
 }) {
     const shownDefaultTags = useMemo(
         () => unownedDefaultTags(defaultTags, tags),
         [defaultTags, tags],
+    );
+    const orderedTags = useMemo(
+        () =>
+            sortMusicListTags(
+                tags,
+                shownDefaultTags,
+                mostRelevantTags ?? EMPTY_TAG_NAMES,
+                tagMetadata,
+            ),
+        [mostRelevantTags, shownDefaultTags, tagMetadata, tags],
     );
     const [viewportWidth, setViewportWidth] = useState(0);
     const [contentWidth, setContentWidth] = useState(0);
@@ -44,7 +62,13 @@ export function TagFadeRail({
 
     return (
         <MaskedView
-            style={{ alignSelf: "stretch" }}
+            // The negative margin preserves the row's exact layout while the
+            // vertical content padding gives the ScrollView a real, larger
+            // native touch surface above and below the visible pills.
+            style={{
+                alignSelf: "stretch",
+                marginVertical: -TAG_RAIL_TOUCH_INSET,
+            }}
             onLayout={(event) =>
                 setViewportWidth(event.nativeEvent.layout.width)
             }
@@ -52,29 +76,24 @@ export function TagFadeRail({
         >
             <ScrollView
                 horizontal
+                directionalLockEnabled
+                nestedScrollEnabled
                 showsHorizontalScrollIndicator={false}
                 onContentSizeChange={(width) => setContentWidth(width)}
                 contentContainerStyle={{
                     gap: compact ? 4 : 6,
                     paddingRight: fadeWidth,
+                    paddingVertical: TAG_RAIL_TOUCH_INSET,
                 }}
             >
-                {tags.map((tag) => (
+                {orderedTags.map(({ source, tag }) => (
                     <TagPill
-                        key={tag.id}
+                        key={`${source}:${tag.id}`}
                         tag={tag}
-                        value={tag.value}
+                        value={source === "local" ? tag.value : undefined}
                         height={compact ? 8 : 9}
                         showIcon={false}
-                    />
-                ))}
-                {shownDefaultTags.map((tag) => (
-                    <TagPill
-                        key={`default:${tag.id}`}
-                        tag={tag}
-                        height={compact ? 8 : 9}
-                        showIcon={false}
-                        inverted
+                        inverted={source === "default"}
                     />
                 ))}
             </ScrollView>

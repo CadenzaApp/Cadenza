@@ -21,6 +21,7 @@ export function ResultsSummary({
     builderToggleLabel,
     onBuilderToggle,
     onNext,
+    mostRelevantTags,
 }: {
     songs: MusicItem[];
     count: number;
@@ -31,6 +32,7 @@ export function ResultsSummary({
     builderToggleLabel: string;
     onBuilderToggle: () => void;
     onNext: () => void;
+    mostRelevantTags?: readonly string[];
 }) {
     const [expanded, setExpanded] = useState(false);
     const { colorScheme = "light" } = useColorScheme();
@@ -152,6 +154,7 @@ export function ResultsSummary({
                             fullBleedRows
                             fullBleedRowHorizontalPadding={12}
                             rowSurfaceColor="card"
+                            mostRelevantTags={mostRelevantTags}
                         />
                     )}
                 </View>

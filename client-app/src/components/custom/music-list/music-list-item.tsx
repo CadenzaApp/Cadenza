@@ -1,5 +1,5 @@
 import { memo, useRef, useState } from "react";
-import { Image, Pressable, View } from "react-native";
+import { Image, Pressable, StyleSheet, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTheme } from "expo-router/react-navigation";
 import { useColorScheme } from "nativewind";
@@ -19,7 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
 import { THEME, type ThemeColorToken } from "@/lib/theme";
-import type { AppliedTag, Tag } from "@/lib/types";
+import type { AppliedTag, Tag, TagMetadata } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 import { TagFadeRail } from "./tag-fade-rail";
@@ -29,6 +29,8 @@ type MusicListItemProps = {
     tags?: AppliedTag[];
     /** Shared default tags on the song, rendered unfilled after the user's own. */
     defaultTags?: Tag[];
+    mostRelevantTags?: readonly string[];
+    tagMetadata?: Readonly<Record<number, TagMetadata>>;
     selected: boolean;
     selectionMode: boolean;
     multiSelectEnabled: boolean;
@@ -48,6 +50,8 @@ export const MusicListItem = memo(function MusicListItem({
     item,
     tags,
     defaultTags,
+    mostRelevantTags,
+    tagMetadata,
     selected,
     selectionMode,
     multiSelectEnabled,
@@ -63,6 +67,7 @@ export const MusicListItem = memo(function MusicListItem({
     const { colorScheme = "light" } = useColorScheme();
     const theme = THEME[colorScheme];
     const [artworkFailed, setArtworkFailed] = useState(false);
+    const [rowPressed, setRowPressed] = useState(false);
     const longPressConsumedRef = useRef(false);
     const itemTags = tags ?? [];
     const itemDefaultTags = defaultTags ?? [];
@@ -168,48 +173,59 @@ export const MusicListItem = memo(function MusicListItem({
             ) : null}
 
             <Animated.View className="flex-1" style={animatedContentStyle}>
-                <Pressable
+                <View
+                    pointerEvents="box-none"
                     className="mr-3 flex-1 flex-row items-center"
-                    onPressIn={() => {
-                        longPressConsumedRef.current = false;
-                    }}
-                    onPress={() => {
-                        if (longPressConsumedRef.current) {
-                            longPressConsumedRef.current = false;
-                            return;
-                        }
-                        onPress(item);
-                    }}
-                    onLongPress={
-                        !selectionMode && multiSelectEnabled && onLongPress
-                            ? () => {
-                                  longPressConsumedRef.current = true;
-                                  onLongPress(item);
-                              }
-                            : undefined
-                    }
-                    delayLongPress={300}
-                    style={({ pressed }) =>
-                        pressed ? { opacity: 0.85 } : undefined
-                    }
-                    accessibilityRole="button"
-                    accessibilityState={{ selected }}
+                    style={rowPressed ? { opacity: 0.85 } : undefined}
                 >
+                    <Pressable
+                        style={StyleSheet.absoluteFill}
+                        onPressIn={() => {
+                            setRowPressed(true);
+                            longPressConsumedRef.current = false;
+                        }}
+                        onPressOut={() => setRowPressed(false)}
+                        onPress={() => {
+                            if (longPressConsumedRef.current) {
+                                longPressConsumedRef.current = false;
+                                return;
+                            }
+                            onPress(item);
+                        }}
+                        onLongPress={
+                            !selectionMode && multiSelectEnabled && onLongPress
+                                ? () => {
+                                      longPressConsumedRef.current = true;
+                                      onLongPress(item);
+                                  }
+                                : undefined
+                        }
+                        delayLongPress={300}
+                        accessibilityRole="button"
+                        accessibilityLabel={`${item.title} by ${item.artistName}`}
+                        accessibilityState={{ selected }}
+                    />
                     {canRenderArtwork ? (
-                        <Image
-                            source={{ uri: artworkUrl }}
-                            className="mr-2 shrink-0 rounded bg-muted"
-                            resizeMode="cover"
+                        <View
+                            pointerEvents="none"
+                            className="mr-2 shrink-0"
                             style={{
                                 width: artworkSize,
                                 aspectRatio: 1,
-                                borderRadius: 4,
                                 transform: [{ translateY: compact ? 2 : 4 }],
                             }}
-                            onError={() => setArtworkFailed(true)}
-                        />
+                        >
+                            <Image
+                                source={{ uri: artworkUrl }}
+                                className="h-full w-full rounded bg-muted"
+                                resizeMode="cover"
+                                style={{ borderRadius: 4 }}
+                                onError={() => setArtworkFailed(true)}
+                            />
+                        </View>
                     ) : (
                         <View
+                            pointerEvents="none"
                             className="mr-2 shrink-0 items-center justify-center rounded bg-muted"
                             style={{
                                 width: artworkSize,
@@ -224,6 +240,7 @@ export const MusicListItem = memo(function MusicListItem({
                     )}
 
                     <View
+                        pointerEvents="box-none"
                         className="flex-1 flex-col justify-center overflow-hidden"
                         style={
                             !hasTags
@@ -237,7 +254,7 @@ export const MusicListItem = memo(function MusicListItem({
                                   }
                         }
                     >
-                        <View>
+                        <View pointerEvents="none">
                             <Text
                                 className="text-base font-bold leading-tight text-foreground"
                                 numberOfLines={1}
@@ -257,11 +274,13 @@ export const MusicListItem = memo(function MusicListItem({
                             <TagFadeRail
                                 tags={itemTags}
                                 defaultTags={itemDefaultTags}
+                                mostRelevantTags={mostRelevantTags}
+                                tagMetadata={tagMetadata}
                                 compact={compact}
                             />
                         ) : null}
                     </View>
-                </Pressable>
+                </View>
             </Animated.View>
 
             {!selectionMode ? (

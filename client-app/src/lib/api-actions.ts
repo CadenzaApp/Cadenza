@@ -112,19 +112,19 @@ export function useAPIMutation<RequestBody, Response>(
 /**
  * Cached idempotent read.
  *
- * `options` is passed through to SWR. `keepPreviousData` is the useful one for
- * a search-as-you-type key, which otherwise drops to undefined on every
- * keystroke.
+ * `keepPreviousData` keeps old results visible for a search-as-you-type key.
+ * `enabled: false` leaves the SWR key dormant without changing hook order.
  */
 export function useAPIData<Output>(
     path: string,
     params?: Record<string, any>,
-    options?: { keepPreviousData?: boolean },
+    options?: { keepPreviousData?: boolean; enabled?: boolean },
 ) {
     const { account } = useAccount();
 
     // disable this query if any param value is null/undefined
     const enabled =
+        (options?.enabled ?? true) &&
         Boolean(account) &&
         (!params || !Object.values(params).some((val) => val == null));
 
@@ -133,7 +133,7 @@ export function useAPIData<Output>(
             ? { keyType: "api-data", path, params, accountId: account?.id }
             : null,
         () => apiRequest<Output>(BACKEND_URL + path + queryParamsToStr(params)),
-        options,
+        { keepPreviousData: options?.keepPreviousData },
     );
 }
 

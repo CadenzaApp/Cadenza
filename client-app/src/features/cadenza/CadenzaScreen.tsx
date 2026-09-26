@@ -17,6 +17,7 @@ import {
 import { ResultsSummary } from "@/features/query-builder/ResultsSummary";
 import type { QueryCondition } from "@/features/query-builder/types";
 import { useTracksForSongIds } from "@/lib/musickit-hooks";
+import { positiveQueryTagNames } from "@/lib/query-json";
 import { useQueryResults } from "@/lib/routes/queries";
 import { useUserTags } from "@/lib/routes/tags";
 import { useScoreQueryTags } from "@/lib/tag-scores";
@@ -53,6 +54,14 @@ export function CadenzaScreen() {
     // Both builders compile to the same wire format, so the active one just
     // decides which tree gets sent.
     const query = mode === "simple" ? simpleQuery : advancedQuery;
+    const relevantTagNames = useMemo(() => {
+        if (!query) return [];
+        const tags =
+            mode === "simple"
+                ? [...(userTags ?? []), ...conditionTags(conditions)]
+                : (userTags ?? []);
+        return positiveQueryTagNames(query, tags);
+    }, [conditions, mode, query, userTags]);
     const { matchedSongIds, queryResultsLoading, queryResultsErr } =
         useQueryResults(query, includeSuggestedTags);
     // A suggested tag only matches while the request carries
@@ -123,9 +132,11 @@ export function CadenzaScreen() {
                         params: {
                             query: JSON.stringify(query),
                             suggested: includeSuggestedTags ? "1" : "",
+                            relevantTags: JSON.stringify(relevantTagNames),
                         },
                     });
                 }}
+                mostRelevantTags={relevantTagNames}
             />
             {mode === "simple" ? (
                 <QueryBuilder
