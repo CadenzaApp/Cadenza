@@ -120,7 +120,7 @@ export function TagPalette({
                 showsVerticalScrollIndicator={false}
             >
                 <View className="mb-3 flex-row items-center gap-4">
-<View className="h-10 justify-center">
+                    <View className="h-10 justify-center">
                         <Text className="text-lg font-bold">Your tags</Text>
                     </View>
                     <PaletteSearchField

@@ -58,3 +58,44 @@ export type FilterJSON =
     | { field: "tag_name"; op: FilterOp; value?: string }
     | { field: "tag_value"; op: FilterOp; value?: string }
     | { field: "tag_type"; op: FilterOp; value: TagType };
+
+/** Names of tags a query requires to be present, in query traversal order. */
+export function positiveQueryTagNames(
+    query: QueryJSON,
+    tags: readonly { id: number; name: string }[],
+): string[] {
+    const tagIds = new Set<number>();
+    collectPositiveTagIds(query.where, false, tagIds);
+
+    const namesById = new Map(tags.map((tag) => [tag.id, tag.name]));
+    const names: string[] = [];
+    const seenNames = new Set<string>();
+    for (const tagId of tagIds) {
+        const name = namesById.get(tagId);
+        if (name === undefined) continue;
+        const normalized = name.trim().replace(/\s+/g, " ").toLowerCase();
+        if (!normalized || seenNames.has(normalized)) continue;
+        seenNames.add(normalized);
+        names.push(name);
+    }
+    return names;
+}
+
+/** Adds the id of every tag `node` asks for to `out`. */
+function collectPositiveTagIds(
+    node: QueryJSONNode,
+    negated: boolean,
+    out: Set<number>,
+) {
+    if ("and" in node) {
+        for (const child of node.and)
+            collectPositiveTagIds(child, negated, out);
+    } else if ("or" in node) {
+        for (const child of node.or) collectPositiveTagIds(child, negated, out);
+    } else if ("not" in node) {
+        collectPositiveTagIds(node.not, !negated, out);
+    } else if (node.filter.field === "tag") {
+        const excludes = node.filter.op === "is_not_applied";
+        if (negated === excludes) out.add(node.filter.tag_id);
+    }
+}

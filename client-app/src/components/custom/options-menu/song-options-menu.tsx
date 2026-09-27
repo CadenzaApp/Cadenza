@@ -213,14 +213,14 @@ export function SongOptionsMenu({
                     target={selectedTrack}
                     onPress={() => {
                         if (action.dismissMenu !== false) onClose();
-                        void Promise.resolve(action.onPress(selectedTrack)).catch(
-                            (error) => {
-                                console.error(
-                                    `Song option ${action.id} failed:`,
-                                    error,
-                                );
-                            },
-                        );
+                        void Promise.resolve(
+                            action.onPress(selectedTrack),
+                        ).catch((error) => {
+                            console.error(
+                                `Song option ${action.id} failed:`,
+                                error,
+                            );
+                        });
                     }}
                 />
             ))}

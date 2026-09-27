@@ -176,7 +176,10 @@ export function AppleMusicProvider({ children }: { children: ReactNode }) {
                 console.error("Failed to clear Apple Music auth:", error),
             );
             restoreNativeTokens(null).catch((error) =>
-                console.error("Failed to clear native Apple Music token:", error),
+                console.error(
+                    "Failed to clear native Apple Music token:",
+                    error,
+                ),
             );
         };
         return () => {

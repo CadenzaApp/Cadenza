@@ -9,72 +9,73 @@
 // (./.personal/dev.sh rebuild, xcodebuild) don't need a GUI session to
 // resolve signing.
 module.exports = {
-  expo: {
-    name: "client-app",
-    slug: "client-app",
-    version: "1.0.0",
-    orientation: "portrait",
-    icon: "./assets/images/icon.png",
-    scheme: "client-app",
-    userInterfaceStyle: "automatic",
-    ios: {
-      supportsTablet: true,
-      bundleIdentifier: process.env.APPLE_BUNDLE_ID || "com.cadenza.cs4000",
-      appleTeamId: process.env.APPLE_TEAM_ID,
-      infoPlist: {
-        NSAppleMusicUsageDescription:
-          "Cadenza needs access to Apple Music to sync and play your library.",
-      },
-    },
-    android: {
-      adaptiveIcon: {
-        backgroundColor: "#E6F4FE",
-        foregroundImage: "./assets/images/android-icon-foreground.png",
-        backgroundImage: "./assets/images/android-icon-background.png",
-        monochromeImage: "./assets/images/android-icon-monochrome.png",
-      },
-      predictiveBackGestureEnabled: false,
-      package: "com.cadenza.cs4000",
-    },
-    web: {
-      bundler: "metro",
-      output: "static",
-      favicon: "./assets/images/favicon.png",
-    },
-    plugins: [
-      "expo-router",
-      [
-        "expo-splash-screen",
-        {
-          image: "./assets/images/splash-icon.png",
-          imageWidth: 200,
-          resizeMode: "contain",
-          backgroundColor: "#ffffff",
-          dark: {
-            backgroundColor: "#000000",
-          },
+    expo: {
+        name: "client-app",
+        slug: "client-app",
+        version: "1.0.0",
+        orientation: "portrait",
+        icon: "./assets/images/icon.png",
+        scheme: "client-app",
+        userInterfaceStyle: "automatic",
+        ios: {
+            supportsTablet: true,
+            bundleIdentifier:
+                process.env.APPLE_BUNDLE_ID || "com.cadenza.cs4000",
+            appleTeamId: process.env.APPLE_TEAM_ID,
+            infoPlist: {
+                NSAppleMusicUsageDescription:
+                    "Cadenza needs access to Apple Music to sync and play your library.",
+            },
         },
-      ],
-      [
-        "expo-build-properties",
-        {
-          ios: {
-            deploymentTarget: "16.4",
-            usePrecompiledModules: false,
-          },
+        android: {
+            adaptiveIcon: {
+                backgroundColor: "#E6F4FE",
+                foregroundImage: "./assets/images/android-icon-foreground.png",
+                backgroundImage: "./assets/images/android-icon-background.png",
+                monochromeImage: "./assets/images/android-icon-monochrome.png",
+            },
+            predictiveBackGestureEnabled: false,
+            package: "com.cadenza.cs4000",
         },
-      ],
-      "expo-font",
-      "expo-sqlite",
-      "expo-image",
-      "expo-web-browser",
-      "expo-secure-store",
-      "@react-native-community/datetimepicker",
-      "./plugins/with-ios-build-fixes",
-    ],
-    experiments: {
-      typedRoutes: true,
-      reactCompiler: true,
+        web: {
+            bundler: "metro",
+            output: "static",
+            favicon: "./assets/images/favicon.png",
+        },
+        plugins: [
+            "expo-router",
+            [
+                "expo-splash-screen",
+                {
+                    image: "./assets/images/splash-icon.png",
+                    imageWidth: 200,
+                    resizeMode: "contain",
+                    backgroundColor: "#ffffff",
+                    dark: {
+                        backgroundColor: "#000000",
+                    },
+                },
+            ],
+            [
+                "expo-build-properties",
+                {
+                    ios: {
+                        deploymentTarget: "16.4",
+                        usePrecompiledModules: false,
+                    },
+                },
+            ],
+            "expo-font",
+            "expo-sqlite",
+            "expo-image",
+            "expo-web-browser",
+            "expo-secure-store",
+            "@react-native-community/datetimepicker",
+            "./plugins/with-ios-build-fixes",
+        ],
+        experiments: {
+            typedRoutes: true,
+            reactCompiler: true,
+        },
     },
-  },
 };

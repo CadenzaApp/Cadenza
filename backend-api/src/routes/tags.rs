@@ -250,8 +250,10 @@ pub fn get_tags_router() -> Router<AppState> {
         .route("/", get(get_user_tags_handler))
         .route("/", post(new_user_tag_handler))
         .route("/", delete(delete_user_tag_handler))
-        .route("/scores", get(get_top_tag_scores_handler)
-                            .patch(edit_tag_scores_handler))
+        .route(
+            "/scores",
+            get(get_top_tag_scores_handler).patch(edit_tag_scores_handler),
+        )
         .route("/default-tags", get(search_default_tags_handler))
         .route("/suggest", get(suggest_tags_handler))
 }

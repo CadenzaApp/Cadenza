@@ -460,11 +460,7 @@ test("a suggested tag stays suggested through every move", () => {
     assert.equal(hasSuggestedTag(grouped), true);
 
     // Pulling it back out of the group keeps it too.
-    const extracted = moveQueryTagToIndex(
-        grouped,
-        group.members[0].id,
-        0,
-    );
+    const extracted = moveQueryTagToIndex(grouped, group.members[0].id, 0);
     assert.equal(hasSuggestedTag(extracted), true);
 });
 

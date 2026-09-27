@@ -314,7 +314,9 @@ export const MusicKit = {
         ids: string[],
     ): Promise<MusicItem[]> => {
         if (ids.length === 0) return [];
-        const normalizedIds = ids.map((id) => requireIdentifier(id, `${kind} ID`));
+        const normalizedIds = ids.map((id) =>
+            requireIdentifier(id, `${kind} ID`),
+        );
         return requireNative().getCollectionInfo(kind, normalizedIds);
     },
 };

@@ -19,9 +19,11 @@ and compile the module for every supported Android ABI.
 5. Copy the authentication and media-playback `.aar` files into this directory.
 
 The module also includes local AARs from this directory through:
+
 ```groovy
 implementation fileTree(dir: 'libs', include: ['*.aar'])
 ```
+
 Keep unrelated AARs out of this directory.
 
 ## Developer Token requirement
@@ -35,11 +37,11 @@ To generate one:
    **Media Services (MusicKit)** capability enabled.
 2. Download the `.p8` private key file.
 3. Sign a JWT on your **backend server** using:
-   - `alg: ES256`
-   - `kid`: your 10-character Key ID
-   - `iss`: your 10-character Team ID
-   - `iat`: current Unix timestamp
-   - `exp`: expiry (max 6 months from `iat`)
+    - `alg: ES256`
+    - `kid`: your 10-character Key ID
+    - `iss`: your 10-character Team ID
+    - `iat`: current Unix timestamp
+    - `exp`: expiry (max 6 months from `iat`)
 4. Return that signed JWT to your app at runtime — **never hardcode it in client code**.
 
 See [Apple's documentation](https://developer.apple.com/documentation/applemusicapi/generating_developer_tokens)

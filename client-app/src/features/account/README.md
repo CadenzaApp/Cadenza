@@ -6,12 +6,12 @@ previews only.
 
 ## Files
 
-| file | role |
-| --- | --- |
-| `account-settings.tsx` | Account cards, authentication actions, top tags, content toggle, privacy, and sync stub. |
-| `top-tags.tsx` | `TopTagsPanel`: the user's 10 highest scored tags as tag pills with their scores. |
-| `appearance-settings.tsx` | Session-only color controls and preview. |
-| `settings-ui.tsx` | Shared glass panels, rows, icons, and the TODO badge. |
+| file                            | role                                                                                                                                               |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `account-settings.tsx`          | Account cards, authentication actions, top tags, content toggle, privacy, and sync stub.                                                           |
+| `top-tags.tsx`                  | `TopTagsPanel`: the user's 10 highest scored tags as tag pills with their scores.                                                                  |
+| `appearance-settings.tsx`       | Session-only color controls and preview.                                                                                                           |
+| `settings-ui.tsx`               | Shared glass panels, rows, icons, and the TODO badge.                                                                                              |
 | `apple-music-session-guard.tsx` | `AppleMusicSessionGuard`: renders nothing, opens this sheet once when Apple rejects the stored music-user token. Mounted in `src/app/_layout.tsx`. |
 
 ## How it works
@@ -51,5 +51,6 @@ shows local unavailable feedback and does not call MusicKit or the backend.
 - `/appearance` is a sheet stacked from `/account`, not a pushed detail screen.
 
 ---
+
 Touching files in this directory? Update this README in the same change.
 See [../../../../AGENT_GUIDE.md](../../../../AGENT_GUIDE.md).

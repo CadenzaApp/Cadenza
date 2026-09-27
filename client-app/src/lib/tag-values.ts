@@ -133,10 +133,7 @@ export function validateTagValue(type: TagType, raw: string): string | null {
  * Converts what the user typed into the canonical form the backend stores, or
  * null when there is no value. Assumes `validateTagValue` already passed.
  */
-export function toCanonicalTagValue(
-    type: TagType,
-    raw: string,
-): string | null {
+export function toCanonicalTagValue(type: TagType, raw: string): string | null {
     const value = raw.trim();
     if (!value || type === "basic") return null;
 

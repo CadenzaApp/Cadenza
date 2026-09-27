@@ -541,7 +541,11 @@ const MOCK_FAVORITE_IDS = new Set<string>([
 const ALL_MOCK_COLLECTIONS = [...MOCK_LIBRARY_ALBUMS, ...MOCK_PLAYLISTS];
 const MOCK_COLLECTIONS_BY_ID = new Map<string, MusicItem>();
 for (const collection of ALL_MOCK_COLLECTIONS) {
-    for (const id of [collection.id, collection.catalogId, collection.libraryId]) {
+    for (const id of [
+        collection.id,
+        collection.catalogId,
+        collection.libraryId,
+    ]) {
         if (id) MOCK_COLLECTIONS_BY_ID.set(id, collection);
     }
 }

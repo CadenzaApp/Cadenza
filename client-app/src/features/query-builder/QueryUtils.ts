@@ -124,9 +124,9 @@ export function toggleConditionConnector(
     return conditions.map((condition, index) =>
         index > 0 && condition.id === conditionId
             ? {
-                ...condition,
-                connector: condition.connector === "and" ? "or" : "and",
-            }
+                  ...condition,
+                  connector: condition.connector === "and" ? "or" : "and",
+              }
             : condition,
     );
 }

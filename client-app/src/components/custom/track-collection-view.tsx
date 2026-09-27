@@ -59,6 +59,7 @@ type Props = {
     options?: readonly TrackCollectionOption[];
     multiSelect?: MusicListMultiSelectConfig | null;
     showTags?: boolean;
+    mostRelevantTags?: readonly string[];
     artworkUrls?: readonly string[];
     subtitle?: string;
     summary?: string;
@@ -89,6 +90,7 @@ export function TrackCollectionView({
     options = [],
     multiSelect = null,
     showTags = true,
+    mostRelevantTags,
     artworkUrls: artworkUrlsOverride,
     subtitle,
     summary: summaryOverride,
@@ -283,6 +285,7 @@ export function TrackCollectionView({
                 onScroll={header ? undefined : onScroll}
                 multiSelect={multiSelect}
                 showTags={showTags}
+                mostRelevantTags={mostRelevantTags}
                 fullBleedRows
             />
 

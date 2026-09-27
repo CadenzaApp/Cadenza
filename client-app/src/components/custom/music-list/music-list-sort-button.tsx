@@ -38,11 +38,7 @@ export function MusicListSortButton({
                 accessibilityLabel={`Sort tracks by ${sortLabel}, ${sort.direction}`}
                 accessibilityState={{ expanded: isOpen }}
             >
-                <Ionicons
-                    name="funnel-outline"
-                    size={28}
-                    color={colors.text}
-                />
+                <Ionicons name="funnel-outline" size={28} color={colors.text} />
             </ScreenFloatingBubble>
 
             <ModalPopup

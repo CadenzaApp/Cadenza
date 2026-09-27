@@ -8,12 +8,21 @@ import { useQueryResults } from "@/lib/routes/queries";
 
 /** Full-screen query matches, presented like the album and playlist heroes. */
 export default function QueryResultsScreen() {
-    const { query: encodedQuery, suggested } = useLocalSearchParams<{
+    const {
+        query: encodedQuery,
+        suggested,
+        relevantTags,
+    } = useLocalSearchParams<{
         query?: string;
         /** "1" when the builder had Include suggested tags on. */
         suggested?: string;
+        relevantTags?: string;
     }>();
     const query = useMemo(() => parseQuery(encodedQuery), [encodedQuery]);
+    const mostRelevantTags = useMemo(
+        () => parseRelevantTags(relevantTags),
+        [relevantTags],
+    );
     const { matchedSongIds, queryResultsLoading, queryResultsErr } =
         useQueryResults(query, suggested === "1");
     const { tracks, tracksLoading, tracksErr } =
@@ -25,8 +34,21 @@ export default function QueryResultsScreen() {
             isLoading={queryResultsLoading || tracksLoading}
             error={queryResultsErr ?? tracksErr}
             anticipatedTrackCount={matchedSongIds.length}
+            mostRelevantTags={mostRelevantTags}
         />
     );
+}
+
+function parseRelevantTags(encoded?: string): string[] {
+    if (!encoded) return [];
+    try {
+        const value: unknown = JSON.parse(encoded);
+        return Array.isArray(value)
+            ? value.filter((name): name is string => typeof name === "string")
+            : [];
+    } catch {
+        return [];
+    }
 }
 
 function parseQuery(encodedQuery?: string): QueryJSON | null {

@@ -1,9 +1,9 @@
 /**
  * What one play of a song, and one run of a query, is worth to the tags in it.
- * Only type imports, so it can be unit tested without pulling in React Native.
+ * Its runtime imports are pure, so it can be unit tested without React Native.
  */
 
-import type { QueryJSON, QueryJSONNode } from "@/lib/query-json";
+import { positiveQueryTagNames, type QueryJSON } from "./query-json.ts";
 import type { TagScoreDeltas } from "@/lib/types";
 
 /** What one play adds to the score of every one of the user's own tags on the song. */
@@ -81,37 +81,12 @@ export function queryTagScoreDeltas(
     query: QueryJSON,
     tags: readonly { id: number; name: string }[],
 ): TagScoreDeltas {
-    const tagIds = new Set<number>();
-    collectPositiveTagIds(query.where, false, tagIds);
-
-    const names = new Map(tags.map((tag) => [tag.id, tag.name]));
-    const usedTags: { name: string; delta: number }[] = [];
-    for (const tagId of tagIds) {
-        const name = names.get(tagId);
-        if (name !== undefined)
-            usedTags.push({ name, delta: QUERY_TAG_SCORE_DELTA });
-    }
-
-    return tagScoreDeltas(usedTags);
-}
-
-/** Adds the id of every tag `node` asks for to `out`. */
-function collectPositiveTagIds(
-    node: QueryJSONNode,
-    negated: boolean,
-    out: Set<number>,
-) {
-    if ("and" in node) {
-        for (const child of node.and)
-            collectPositiveTagIds(child, negated, out);
-    } else if ("or" in node) {
-        for (const child of node.or) collectPositiveTagIds(child, negated, out);
-    } else if ("not" in node) {
-        collectPositiveTagIds(node.not, !negated, out);
-    } else if (node.filter.field === "tag") {
-        const excludes = node.filter.op === "is_not_applied";
-        if (negated === excludes) out.add(node.filter.tag_id);
-    }
+    return tagScoreDeltas(
+        positiveQueryTagNames(query, tags).map((name) => ({
+            name,
+            delta: QUERY_TAG_SCORE_DELTA,
+        })),
+    );
 }
 
 /** Each tag's delta, added up by name, minus what the backend rejects. */

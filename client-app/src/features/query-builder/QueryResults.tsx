@@ -24,6 +24,7 @@ type Props = {
     isLoading: boolean;
     error?: unknown;
     anticipatedTrackCount?: number;
+    mostRelevantTags?: readonly string[];
 };
 
 export default function QueryResults({
@@ -31,6 +32,7 @@ export default function QueryResults({
     isLoading,
     error,
     anticipatedTrackCount,
+    mostRelevantTags,
 }: Props) {
     const { width: screenWidth, height: screenHeight } = useWindowDimensions();
     const [saveOpen, setSaveOpen] = useState(false);
@@ -86,6 +88,7 @@ export default function QueryResults({
                 }
                 multiSelect={{ includeAddToQueue: true }}
                 showTags
+                mostRelevantTags={mostRelevantTags}
                 overscrollBackground={
                     <TintOverscrollBackdrop tint={tint} depth={TINT_DEPTH} />
                 }

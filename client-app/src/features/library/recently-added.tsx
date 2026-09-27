@@ -54,54 +54,58 @@ export function RecentlyAddedGrid({
     return (
         <ScreenScrollMarker>
             <Animated.FlatList
-            {...scroll}
-            className="flex-1 bg-background"
-            data={items}
-            numColumns={COLUMN_COUNT}
-            keyExtractor={(item) => `${item.resourceKind}:${item.id}`}
-            renderItem={({ item }) => (
-                <RecentlyAddedTile
-                    item={item}
-                    onPress={() => {
-                        if (item.resourceKind === "song") {
-                            void togglePlayback(item);
-                            return;
-                        }
-                        onOpenCollection(item);
-                    }}
-                />
-            )}
-            columnWrapperStyle={{
-                paddingHorizontal: 24,
-                justifyContent: "space-between",
-            }}
-            contentContainerStyle={{ paddingBottom: listBottomInset }}
-            ListHeaderComponent={
-                <View>
-                    {header}
-                    <Text className="mb-4 mt-6 px-6 text-2xl font-bold tracking-tight">
-                        Recently Added
-                    </Text>
-                </View>
-            }
-            ListEmptyComponent={
-                showSkeletons ? (
-                    <TileSkeletons />
-                ) : (
-                    <Text className="px-6 py-10 text-center text-muted-foreground">
-                        Nothing added to your library yet.
-                    </Text>
-                )
-            }
-            ListFooterComponent={
-                isLoadingNextPage ? <TileSkeletons /> : <View className="h-5" />
-            }
-            onEndReached={() => {
-                if (hasNextPage && !isLoadingNextPage) onLoadNextPage();
-            }}
-            onEndReachedThreshold={0.3}
-            showsVerticalScrollIndicator={false}
-        />
+                {...scroll}
+                className="flex-1 bg-background"
+                data={items}
+                numColumns={COLUMN_COUNT}
+                keyExtractor={(item) => `${item.resourceKind}:${item.id}`}
+                renderItem={({ item }) => (
+                    <RecentlyAddedTile
+                        item={item}
+                        onPress={() => {
+                            if (item.resourceKind === "song") {
+                                void togglePlayback(item);
+                                return;
+                            }
+                            onOpenCollection(item);
+                        }}
+                    />
+                )}
+                columnWrapperStyle={{
+                    paddingHorizontal: 24,
+                    justifyContent: "space-between",
+                }}
+                contentContainerStyle={{ paddingBottom: listBottomInset }}
+                ListHeaderComponent={
+                    <View>
+                        {header}
+                        <Text className="mb-4 mt-6 px-6 text-2xl font-bold tracking-tight">
+                            Recently Added
+                        </Text>
+                    </View>
+                }
+                ListEmptyComponent={
+                    showSkeletons ? (
+                        <TileSkeletons />
+                    ) : (
+                        <Text className="px-6 py-10 text-center text-muted-foreground">
+                            Nothing added to your library yet.
+                        </Text>
+                    )
+                }
+                ListFooterComponent={
+                    isLoadingNextPage ? (
+                        <TileSkeletons />
+                    ) : (
+                        <View className="h-5" />
+                    )
+                }
+                onEndReached={() => {
+                    if (hasNextPage && !isLoadingNextPage) onLoadNextPage();
+                }}
+                onEndReachedThreshold={0.3}
+                showsVerticalScrollIndicator={false}
+            />
         </ScreenScrollMarker>
     );
 }

@@ -33,13 +33,13 @@ export function SearchLanding() {
     return (
         <ScreenScrollMarker>
             <Animated.ScrollView
-            {...scroll}
-            className="flex-1"
-            contentContainerStyle={{ paddingBottom: listBottomInset }}
-            showsVerticalScrollIndicator={false}
-        >
-            <TagShelf />
-        </Animated.ScrollView>
+                {...scroll}
+                className="flex-1"
+                contentContainerStyle={{ paddingBottom: listBottomInset }}
+                showsVerticalScrollIndicator={false}
+            >
+                <TagShelf />
+            </Animated.ScrollView>
         </ScreenScrollMarker>
     );
 }

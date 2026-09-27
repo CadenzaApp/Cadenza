@@ -331,7 +331,9 @@ test("the library walk and the playlist walk overlap", async () => {
 });
 
 test("playlists are read in parallel, up to the pool's width", async () => {
-    const { deps } = fakeDeps({ playlists: manyPlaylists(PLAYLIST_CONCURRENCY * 2) });
+    const { deps } = fakeDeps({
+        playlists: manyPlaylists(PLAYLIST_CONCURRENCY * 2),
+    });
 
     let inFlight = 0;
     let peak = 0;

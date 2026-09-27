@@ -1,0 +1,5 @@
+# Keep tracked text files stable across operating systems.
+* text=auto eol=lf
+
+# Windows command scripts need CRLF in the working tree. Git still stores them as LF.
+*.bat text eol=crlf

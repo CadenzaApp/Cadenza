@@ -25,56 +25,56 @@ export default function LibraryCategoriesScreen() {
         <DetailScreen title="Library">
             <ScreenScrollMarker>
                 <Animated.ScrollView
-                {...scroll}
-                className="flex-1"
-                contentContainerClassName="px-5 pt-2"
-                contentContainerStyle={{
-                    paddingBottom: Math.max(insets.bottom, 16) + 16,
-                }}
-                showsVerticalScrollIndicator={false}
-            >
-                <Text className="mb-4 text-muted-foreground">
-                    Choose what shows on your library screen.
-                </Text>
+                    {...scroll}
+                    className="flex-1"
+                    contentContainerClassName="px-5 pt-2"
+                    contentContainerStyle={{
+                        paddingBottom: Math.max(insets.bottom, 16) + 16,
+                    }}
+                    showsVerticalScrollIndicator={false}
+                >
+                    <Text className="mb-4 text-muted-foreground">
+                        Choose what shows on your library screen.
+                    </Text>
 
-                {LIBRARY_CATEGORY_ORDER.map((category) => {
-                    const { label, icon } = LIBRARY_CATEGORY_META[category];
-                    const enabled = isEnabled(category);
+                    {LIBRARY_CATEGORY_ORDER.map((category) => {
+                        const { label, icon } = LIBRARY_CATEGORY_META[category];
+                        const enabled = isEnabled(category);
 
-                    return (
-                        <Pressable
-                            key={category}
-                            accessibilityRole="checkbox"
-                            accessibilityLabel={label}
-                            accessibilityState={{ checked: enabled }}
-                            onPress={() => toggle(category)}
-                            className="flex-row items-center gap-4 border-b border-border py-4 active:opacity-60"
-                        >
-                            <Ionicons
-                                name={
-                                    enabled
-                                        ? "checkmark-circle"
-                                        : "ellipse-outline"
-                                }
-                                size={26}
-                                color={
-                                    enabled
-                                        ? colors.notification
-                                        : colors.border
-                                }
-                            />
-                            <Ionicons
-                                name={icon}
-                                size={22}
-                                color={colors.notification}
-                            />
-                            <View className="flex-1">
-                                <Text className="text-lg">{label}</Text>
-                            </View>
-                        </Pressable>
-                    );
-                })}
-            </Animated.ScrollView>
+                        return (
+                            <Pressable
+                                key={category}
+                                accessibilityRole="checkbox"
+                                accessibilityLabel={label}
+                                accessibilityState={{ checked: enabled }}
+                                onPress={() => toggle(category)}
+                                className="flex-row items-center gap-4 border-b border-border py-4 active:opacity-60"
+                            >
+                                <Ionicons
+                                    name={
+                                        enabled
+                                            ? "checkmark-circle"
+                                            : "ellipse-outline"
+                                    }
+                                    size={26}
+                                    color={
+                                        enabled
+                                            ? colors.notification
+                                            : colors.border
+                                    }
+                                />
+                                <Ionicons
+                                    name={icon}
+                                    size={22}
+                                    color={colors.notification}
+                                />
+                                <View className="flex-1">
+                                    <Text className="text-lg">{label}</Text>
+                                </View>
+                            </Pressable>
+                        );
+                    })}
+                </Animated.ScrollView>
             </ScreenScrollMarker>
         </DetailScreen>
     );

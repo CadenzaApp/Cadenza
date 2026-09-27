@@ -46,70 +46,70 @@ export function ComingSoonScreen({
     return (
         <ScreenScrollMarker>
             <Animated.ScrollView
-            {...scroll}
-            className="flex-1 bg-background"
-            contentContainerClassName="gap-4 px-5 pt-5"
-            contentContainerStyle={{ paddingBottom: contentBottomInset }}
-            showsVerticalScrollIndicator={false}
-        >
-            <Card className="gap-0 overflow-hidden border-0 bg-foreground py-0">
-                <CardContent className="gap-5 px-6 py-7">
-                    <View className="flex-row items-center justify-between">
-                        <View className="h-12 w-12 items-center justify-center rounded-full bg-background/10">
-                            <Ionicons
-                                name={icon}
-                                size={26}
-                                color={colors.background}
-                            />
-                        </View>
-                        <Badge variant="secondary" className="px-3 py-1">
-                            <Text>Coming soon</Text>
-                        </Badge>
-                    </View>
-
-                    <View className="gap-2">
-                        <Text className="text-3xl font-bold tracking-tight text-background">
-                            {headline}
-                        </Text>
-                        <Text className="text-base leading-6 text-background/70">
-                            {description}
-                        </Text>
-                    </View>
-
-                    <Button
-                        disabled
-                        variant="secondary"
-                        className="self-start opacity-60"
-                    >
-                        <Text>{actionLabel}</Text>
-                    </Button>
-                </CardContent>
-            </Card>
-
-            <View className="gap-3">
-                {features.map((feature) => (
-                    <Card key={feature.title} className="gap-0 py-0">
-                        <CardContent className="flex-row items-center gap-4 px-5 py-5">
-                            <View className="h-11 w-11 items-center justify-center rounded-full bg-muted">
+                {...scroll}
+                className="flex-1 bg-background"
+                contentContainerClassName="gap-4 px-5 pt-5"
+                contentContainerStyle={{ paddingBottom: contentBottomInset }}
+                showsVerticalScrollIndicator={false}
+            >
+                <Card className="gap-0 overflow-hidden border-0 bg-foreground py-0">
+                    <CardContent className="gap-5 px-6 py-7">
+                        <View className="flex-row items-center justify-between">
+                            <View className="h-12 w-12 items-center justify-center rounded-full bg-background/10">
                                 <Ionicons
-                                    name={feature.icon}
-                                    size={22}
-                                    color={colors.primary}
+                                    name={icon}
+                                    size={26}
+                                    color={colors.background}
                                 />
                             </View>
-                            <View className="flex-1 gap-1">
-                                <CardTitle className="text-base">
-                                    {feature.title}
-                                </CardTitle>
-                                <CardDescription className="leading-5">
-                                    {feature.description}
-                                </CardDescription>
-                            </View>
-                        </CardContent>
-                    </Card>
-                ))}
-            </View>
-        </Animated.ScrollView>
+                            <Badge variant="secondary" className="px-3 py-1">
+                                <Text>Coming soon</Text>
+                            </Badge>
+                        </View>
+
+                        <View className="gap-2">
+                            <Text className="text-3xl font-bold tracking-tight text-background">
+                                {headline}
+                            </Text>
+                            <Text className="text-base leading-6 text-background/70">
+                                {description}
+                            </Text>
+                        </View>
+
+                        <Button
+                            disabled
+                            variant="secondary"
+                            className="self-start opacity-60"
+                        >
+                            <Text>{actionLabel}</Text>
+                        </Button>
+                    </CardContent>
+                </Card>
+
+                <View className="gap-3">
+                    {features.map((feature) => (
+                        <Card key={feature.title} className="gap-0 py-0">
+                            <CardContent className="flex-row items-center gap-4 px-5 py-5">
+                                <View className="h-11 w-11 items-center justify-center rounded-full bg-muted">
+                                    <Ionicons
+                                        name={feature.icon}
+                                        size={22}
+                                        color={colors.primary}
+                                    />
+                                </View>
+                                <View className="flex-1 gap-1">
+                                    <CardTitle className="text-base">
+                                        {feature.title}
+                                    </CardTitle>
+                                    <CardDescription className="leading-5">
+                                        {feature.description}
+                                    </CardDescription>
+                                </View>
+                            </CardContent>
+                        </Card>
+                    ))}
+                </View>
+            </Animated.ScrollView>
         </ScreenScrollMarker>
     );
 }

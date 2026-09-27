@@ -100,19 +100,19 @@ Compile native targets with the `AppleMusicKitModule` Xcode scheme and Gradle's
 
 ## Files
 
-| file | role |
-| --- | --- |
-| `index.ts` | Public surface. This is what `@apple-musickit` resolves to. |
-| `src/index.ts` | Re-exports `Auth`, `MusicKit`, `Playback`. |
-| `src/AppleMusicKit.types.ts` | `MusicItem`, `AuthResult`, `AuthStatus`, `ShuffleMode`, `RepeatMode`, `ArtistItem`, `ArtistResult`, `ArtistDetail`, and the rest of the shared types. |
-| `src/auth.ts` | Authorization and native token management. |
-| `src/library.ts` | Catalog search, library pages, album and playlist tracks, favorites, playlist writes, artists. |
-| `src/playback.ts` | Native playback commands and the playback snapshot hooks. |
-| `src/mock-native-module.ts` | The `EXPO_PUBLIC_MOCK_MUSICKIT=1` implementation. Fixtures, paginated collections, simulated progress. |
-| `ios/AppleMusicKitModule.swift` | iOS native module, and `MusicKitException`, the error type every iOS throw uses. |
-| `ios/PageOptions.swift` | The `Record` types for paged options, and the limit/offset clamp they share. |
-| `android/src/main/java/.../AppleMusicKitModule.kt` | Android native module. |
-| `expo-module.config.json` | Autolinking config. Picked up via the `expo.autolinking.nativeModulesDir` entry in `client-app/package.json`. |
+| file                                               | role                                                                                                                                                  |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `index.ts`                                         | Public surface. This is what `@apple-musickit` resolves to.                                                                                           |
+| `src/index.ts`                                     | Re-exports `Auth`, `MusicKit`, `Playback`.                                                                                                            |
+| `src/AppleMusicKit.types.ts`                       | `MusicItem`, `AuthResult`, `AuthStatus`, `ShuffleMode`, `RepeatMode`, `ArtistItem`, `ArtistResult`, `ArtistDetail`, and the rest of the shared types. |
+| `src/auth.ts`                                      | Authorization and native token management.                                                                                                            |
+| `src/library.ts`                                   | Catalog search, library pages, album and playlist tracks, favorites, playlist writes, artists.                                                        |
+| `src/playback.ts`                                  | Native playback commands and the playback snapshot hooks.                                                                                             |
+| `src/mock-native-module.ts`                        | The `EXPO_PUBLIC_MOCK_MUSICKIT=1` implementation. Fixtures, paginated collections, simulated progress.                                                |
+| `ios/AppleMusicKitModule.swift`                    | iOS native module, and `MusicKitException`, the error type every iOS throw uses.                                                                      |
+| `ios/PageOptions.swift`                            | The `Record` types for paged options, and the limit/offset clamp they share.                                                                          |
+| `android/src/main/java/.../AppleMusicKitModule.kt` | Android native module.                                                                                                                                |
+| `expo-module.config.json`                          | Autolinking config. Picked up via the `expo.autolinking.nativeModulesDir` entry in `client-app/package.json`.                                         |
 
 ## Library reads
 
@@ -120,18 +120,18 @@ Compile native targets with the `AppleMusicKitModule` Xcode scheme and Gradle's
 of them pages the same way: pass `{ limit, offset }`, read `nextOffset` off the
 result, stop when `hasNextPage` is false.
 
-| call | returns |
-| --- | --- |
-| `getLibrarySongs(options)` | Library songs. The only one that accepts `sort`, which is iOS only. |
-| `getLibraryAlbums(options)` | Library albums. |
-| `getUserPlaylists(options)` | Library playlists. |
-| `getAlbumSongs(albumId, options)` | The songs on one library album. |
+| call                                    | returns                                                                                                                                        |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `getLibrarySongs(options)`              | Library songs. The only one that accepts `sort`, which is iOS only.                                                                            |
+| `getLibraryAlbums(options)`             | Library albums.                                                                                                                                |
+| `getUserPlaylists(options)`             | Library playlists.                                                                                                                             |
+| `getAlbumSongs(albumId, options)`       | The songs on one library album.                                                                                                                |
 | `getPlaylistSongs(playlistId, options)` | The songs in one library playlist. Apple answers 404 for a playlist holding no tracks, which comes back as an empty page rather than an error. |
-| `getRecentlyAdded(options)` | Recently added library items, newest first. Mixed albums, playlists, and loose songs. Apple caps `limit` at 25. |
-| `searchLibrarySongs(term, options)` | Library songs matching a text term. Added after the first dev builds shipped, so a stale binary throws "rebuild the app" rather than crashing. |
-| `getLibraryArtists(options)` | Library artists. Same stale-binary guard as `searchLibrarySongs`. |
-| `searchLibraryArtists(term, options)` | Library artists matching a text term. Same guard. |
-| `getSongInfo(ids)` | Full metadata for song ids, in the order given. Not paged: it takes the ids it is given. |
+| `getRecentlyAdded(options)`             | Recently added library items, newest first. Mixed albums, playlists, and loose songs. Apple caps `limit` at 25.                                |
+| `searchLibrarySongs(term, options)`     | Library songs matching a text term. Added after the first dev builds shipped, so a stale binary throws "rebuild the app" rather than crashing. |
+| `getLibraryArtists(options)`            | Library artists. Same stale-binary guard as `searchLibrarySongs`.                                                                              |
+| `searchLibraryArtists(term, options)`   | Library artists matching a text term. Same guard.                                                                                              |
+| `getSongInfo(ids)`                      | Full metadata for song ids, in the order given. Not paged: it takes the ids it is given.                                                       |
 
 Albums and playlists come back as `MusicItem`s with `resourceKind` set to
 `"album"` or `"playlist"`, so the same item type describes all three. Pass the
@@ -160,10 +160,10 @@ has to tolerate both. `getSongInfo` is what makes that tolerable.
 
 ## Playlist writes
 
-| call | does |
-| --- | --- |
-| `addSongsToPlaylist(playlistId, ids)` | Appends catalog songs to a library playlist. |
-| `createPlaylist(name, ids)` | Creates a library playlist and returns it as a `MusicItem`. |
+| call                                  | does                                                        |
+| ------------------------------------- | ----------------------------------------------------------- |
+| `addSongsToPlaylist(playlistId, ids)` | Appends catalog songs to a library playlist.                |
+| `createPlaylist(name, ids)`           | Creates a library playlist and returns it as a `MusicItem`. |
 
 Both go through the Apple Music HTTP API on both platforms rather than through
 either native SDK, because neither SDK edits playlists. Library-only song ids
@@ -172,11 +172,11 @@ otherwise.
 
 ## Favorites and collection info
 
-| call | does |
-| --- | --- |
-| `getSongFavoriteStatus(id)` / `setSongFavoriteStatus(id, isFavorite)` | Reads or writes a song's favorite state. |
+| call                                                                                          | does                                                                                                                                                                                  |
+| --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `getSongFavoriteStatus(id)` / `setSongFavoriteStatus(id, isFavorite)`                         | Reads or writes a song's favorite state.                                                                                                                                              |
 | `getCollectionFavoriteStatus(kind, id)` / `setCollectionFavoriteStatus(kind, id, isFavorite)` | The same, for an album or playlist. `kind` is `"albums"` or `"playlists"`, matching the Apple Music API path segment directly rather than the app's singular `LibraryCollectionKind`. |
-| `getCollectionInfo(kind, ids)` | Metadata (title, artwork, `shareUrl`) for the album or playlist itself, mirroring `getSongInfo`. |
+| `getCollectionInfo(kind, ids)`                                                                | Metadata (title, artwork, `shareUrl`) for the album or playlist itself, mirroring `getSongInfo`.                                                                                      |
 
 All three favorite calls resolve a library-only id to its catalog equivalent
 first (`resolveCatalogSongID` for songs, the generalized `resolveCatalogID` for
@@ -197,13 +197,13 @@ album/playlist equivalent needed elsewhere in this module.
 
 ## Artists
 
-| call | returns |
-| --- | --- |
-| `getSongArtists(songId)` | Catalog artist ids credited on a song, most prominent first. |
-| `getArtist(artistId)` | An `ArtistDetail`: name, artwork, genres, top songs, albums. |
-| `getLibraryArtists(options)` | A page of `ArtistItem`s from the user's library. |
-| `searchLibraryArtists(term, options)` | Library artists matching a term. |
-| `catalogSearch(term, ["artists"], options)` | Catalog artists, on `SearchResult.artists`. |
+| call                                        | returns                                                      |
+| ------------------------------------------- | ------------------------------------------------------------ |
+| `getSongArtists(songId)`                    | Catalog artist ids credited on a song, most prominent first. |
+| `getArtist(artistId)`                       | An `ArtistDetail`: name, artwork, genres, top songs, albums. |
+| `getLibraryArtists(options)`                | A page of `ArtistItem`s from the user's library.             |
+| `searchLibraryArtists(term, options)`       | Library artists matching a term.                             |
+| `catalogSearch(term, ["artists"], options)` | Catalog artists, on `SearchResult.artists`.                  |
 
 An artist in a list is an `ArtistItem`, not a `MusicItem`. `MusicResourceKind`
 still has no `"artist"` and `PlaybackQueueType` still has no artist case,
@@ -253,14 +253,14 @@ The native player owns the queue. These commands address it by position in the
 whole queue, counting the entry that is playing, which is the same index space
 `client-app/src/lib/playback.tsx` mirrors.
 
-| call | does |
-| --- | --- |
-| `playSongQueue(tracks, startIndex)` | Replaces the queue and plays. |
-| `appendSongQueue(tracks)` | Adds to the end. |
-| `insertSongsNext(tracks)` | Adds directly after the playing entry. |
-| `moveQueueItem(from, to)` | Reorders. The playing entry keeps playing. |
-| `removeQueueItem(index)` | Drops one entry. |
-| `playQueueItem(index)` | Jumps to an entry. |
+| call                                           | does                                                                          |
+| ---------------------------------------------- | ----------------------------------------------------------------------------- |
+| `playSongQueue(tracks, startIndex)`            | Replaces the queue and plays.                                                 |
+| `appendSongQueue(tracks)`                      | Adds to the end.                                                              |
+| `insertSongsNext(tracks)`                      | Adds directly after the playing entry.                                        |
+| `moveQueueItem(from, to)`                      | Reorders. The playing entry keeps playing.                                    |
+| `removeQueueItem(index)`                       | Drops one entry.                                                              |
+| `playQueueItem(index)`                         | Jumps to an entry.                                                            |
 | `setShuffleMode(mode)` / `setRepeatMode(mode)` | `ShuffleMode` and `RepeatMode`. Both also come back on the playback snapshot. |
 
 `playQueueItem` forward **discards** everything it skipped over. Neither player
@@ -287,5 +287,6 @@ guessing, and `src/playback.ts` keeps the last value it set.
 Nothing outside `client-app/src/lib` should import `@apple-musickit` for data. Use the hooks.
 
 ---
+
 Touching files in this directory? Update this README in the same change.
 See [../../../AGENT_GUIDE.md](../../../AGENT_GUIDE.md).

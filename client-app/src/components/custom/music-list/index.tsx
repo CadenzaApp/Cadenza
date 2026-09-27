@@ -15,6 +15,7 @@ import { Text } from "@/components/ui/text";
 import { SongOptionsMenu } from "@/components/custom/options-menu/song-options-menu";
 import { usePlaybackCommands } from "@/lib/playback";
 import { useDefaultTagsOnSongs, useTagsOnSongs } from "@/lib/routes/songs";
+import { useUserTags } from "@/lib/routes/tags";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { useScreenScroll } from "@/lib/screen-scroll";
 import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
@@ -34,6 +35,7 @@ const DEFAULT_SORT: MusicListSort = {
     option: "title",
     direction: "ascending",
 };
+const EMPTY_TAG_NAMES: readonly string[] = [];
 const MUSIC_LIST_WINDOW_SIZE = 3;
 const MUSIC_LIST_RENDER_BATCH_SIZE = 8;
 // for multiselects, if you have a really long music list
@@ -57,6 +59,7 @@ export function MusicList({
     compact,
     onCompactChange,
     showTags = true,
+    mostRelevantTags = EMPTY_TAG_NAMES,
     anticipatedTrackCount = 8,
     header: headerProp,
     listHeader,
@@ -113,6 +116,7 @@ export function MusicList({
     );
     const { tagsBySong } = useTagsOnSongs(taggableIds);
     const { defaultTagsBySong } = useDefaultTagsOnSongs(taggableIds);
+    const { userTagsMeta } = useUserTags(showTags);
     const displayedTracks = useMemo(
         () =>
             sortingEnabled && sortStrategy === "local"
@@ -381,6 +385,8 @@ export function MusicList({
                                                       ]
                                                     : undefined
                                             }
+                                            mostRelevantTags={mostRelevantTags}
+                                            tagMetadata={userTagsMeta}
                                             onPress={handleTrackPress}
                                             onLongPress={
                                                 selection.beginSelection

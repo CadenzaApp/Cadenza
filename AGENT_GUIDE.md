@@ -40,15 +40,16 @@ client-app/             expo app
   src/components/       ui/ primitives and custom/ app components
   modules/apple-musickit/  local native Expo module (swift + kotlin + ts)
   modules/image-color/     local native Expo module, average color of an image
+.githooks/              versioned Git hooks, including the pre-push format check
 ```
 
 `db-schema/`, `ml-service/`, `shared-spec/`, `infra/` do not exist yet. If a doc or a ticket
 mentions them, they are aspirational.
 
-## Feature READMEs
+## System READMEs
 
-Read the README for the area you are about to touch **before** you start grepping. Each one
-gives you the file map, the flow, and the gotchas.
+Medium and large systems have short READMEs. Read one when it is relevant to the work; small
+directories with only a few straightforward files do not need documentation.
 
 | README                                                                                                             | Covers                                                           |
 | ------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------- |
@@ -70,25 +71,25 @@ gives you the file map, the flow, and the gotchas.
 | [client-app/modules/apple-musickit/README.md](client-app/modules/apple-musickit/README.md)                         | Native Apple Music auth, catalog, library, playback, mock mode  |
 | [client-app/modules/image-color/README.md](client-app/modules/image-color/README.md)                               | Native average color of a remote image                          |
 
-## Keeping the READMEs current
+## Documentation policy
 
-This is the point of the whole system. A stale README is worse than no README, because the
-next agent trusts it.
+Medium and large systems need small, accurate READMEs that cover their important setup,
+contracts, or gotchas. Do not create documentation that merely repeats the code.
 
-- Read the directory's `README.md` before working in it. Do not grep first.
-- If you change files in a directory that has a `README.md`, update that README **in the same
-  change**. Not in a follow-up.
-- Update it when you add, remove, or rename a file; change a route path, request shape, or
-  response shape; change how data flows between the files; add or remove an env var; or change
-  a public export.
-- Do not update it for an internal refactor that leaves the file list, the contracts, and the
-  flow unchanged.
-- Keep them map-level. They exist so the next agent does not have to grep. They are not API
-  reference and they do not restate code.
-- If a README disagrees with the code, the code wins. Fix the README as part of your change and
-  say so in your summary.
-- New directory that is its own area of concern? Add a `README.md` using the same five sections
-  the others use, and add a row to the table above.
+- Do not add a README for every directory. Add one for a cohesive medium-to-large system or an
+  important public interface. Small directories with only a few straightforward files do not
+  need one.
+- Keep READMEs short and practical. State the purpose, the few important entry points or
+  commands, and any essential gotchas. Do not restate implementation details or pad them with
+  generic sections.
+- Keep an existing README up to date when the final change affects its setup, public contract,
+  important workflow, or other material information. Do not update docs for routine refactors,
+  temporary states, or every iteration of a multi-step task.
+- When a task has several expected steps, defer README updates until the implementation is
+  stable and ready to commit or push. Update the relevant README at that final point. If it is
+  unclear whether the work is stable enough to document, ask the user before changing
+  documentation.
+- When a README conflicts with code, the code wins. Correct the README with the final change.
 
 ## Backend conventions
 

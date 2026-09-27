@@ -25,19 +25,19 @@ change, so the second call for the same artwork costs nothing.
 
 ## Files
 
-| file | role |
-| --- | --- |
-| `index.ts` | Public surface. This is what `@image-color` resolves to. |
-| `src/index.ts` | `ImageColor`, the optional-native wrapper and the hex validation. |
-| `ios/ImageColorModule.swift` | Downloads, draws the image into one pixel, reads it back. |
-| `android/.../ImageColorModule.kt` | Downloads, subsamples with `inSampleSize`, averages the pixels. |
+| file                              | role                                                              |
+| --------------------------------- | ----------------------------------------------------------------- |
+| `index.ts`                        | Public surface. This is what `@image-color` resolves to.          |
+| `src/index.ts`                    | `ImageColor`, the optional-native wrapper and the hex validation. |
+| `ios/ImageColorModule.swift`      | Downloads, draws the image into one pixel, reads it back.         |
+| `android/.../ImageColorModule.kt` | Downloads, subsamples with `inSampleSize`, averages the pixels.   |
 
 ## How it works
 
 Both platforms do the same two things: fetch the bytes, then reduce them to one
 color without ever holding the full image.
 
-iOS draws the whole `CGImage` into a 1x1 `CGContext`. The downsample *is* the
+iOS draws the whole `CGImage` into a 1x1 `CGContext`. The downsample _is_ the
 average, so there is no pixel loop. The context is premultiplied, so a partly
 transparent result is divided back out before it is returned, or it would come
 back darker than the image looks.
@@ -65,5 +65,6 @@ each pixel by its alpha for the same reason.
   will not pick them up.
 
 ---
+
 Touching files in this directory? Update this README in the same change.
 See [../../../AGENT_GUIDE.md](../../../AGENT_GUIDE.md).

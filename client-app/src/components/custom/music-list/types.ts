@@ -104,6 +104,8 @@ export type MusicListProps = {
     onCompactChange?: (compact: boolean) => void;
     /** Whether to load and display Cadenza tags beneath each track. Defaults to true. */
     showTags?: boolean;
+    /** Tag names placed first, in this order, in every row's tag rail. */
+    mostRelevantTags?: readonly string[];
     anticipatedTrackCount?: number;
     /** Content rendered above the first row inside the list's scroll surface. */
     header?: ReactNode;
