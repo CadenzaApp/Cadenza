@@ -409,6 +409,8 @@ const playbackImplementation: PlaybackImplementationApi = {
 
     /** @internal Serializes a native playback command after earlier commands. */
     enqueuePlaybackCommand(command: () => Promise<void>): Promise<void> {
+        // x86 emulators can't load Apple's ARM-only player; skip it, keep the UI.
+        if (process.env.EXPO_PUBLIC_MUSICKIT_TARGET === "android_studio") return Promise.resolve();
         const result = playbackCommandQueue.then(command, command);
         playbackCommandQueue = result.catch(() => undefined);
         return result;

@@ -61,6 +61,12 @@ Unset `EXPO_PUBLIC_MOCK_MUSICKIT` for native MusicKit builds. The mock switch is
 evaluated when the JavaScript bundle is created, so restart Expo after changing
 it.
 
+## Silent playback (x86 Android emulators)
+
+Apple's Android player is ARM-only, so it fails on x86 emulators. Set
+`EXPO_PUBLIC_MUSICKIT_TARGET=android_studio` in `client-app/.env` to skip native
+player commands; everything else works, but no audio plays.
+
 ## Platform requirements
 
 - iOS 16.4 or newer, matching the application deployment target.
