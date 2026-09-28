@@ -7,9 +7,10 @@ The data access layer. Everything that touches postgres lives here, so handlers 
 
 | file | role |
 | --- | --- |
-| `mod.rs` | Declares `comment_votes`, `comments`, `entity`, `queries`, `tag_activity`, `tag_scores`, `tag_scores_metadata`, `tags`, `user_songs`. |
-| `tags.rs` | User tag CRUD and applied values, plus searching, reading, and applying default tags, and claiming, finishing, and dropping a song's default tag generation. `get_tags_named` reads the user's and the default tags by normalized name. User tag reads never copy or return defaults. |
-| `tag_activity.rs` | Counts applies and removes of a tag name on a song in `default_tag_activity`, and promotes popular names to default tags. |
+| `mod.rs` | Declares `activity_tags`, `comment_votes`, `comments`, `entity`, `queries`, `tag_activity`, `tag_scores`, `tag_scores_metadata`, `tags`, `user_songs`. |
+| `activity_tags.rs` | `ActivityTag` (My Plays, First Played, Last Played), finding their rows by `is_activity` and name and creating missing ones, `record_play`, and reading their values per song with defaults filled in. Unit tested. |
+| `tags.rs` | User tag CRUD and applied values, plus searching, reading, and applying default tags, and claiming, finishing, and dropping a song's default tag generation. `get_tags_named` reads the user's and the default tags by normalized name, never activity tags. User tag reads never copy or return defaults. |
+| `tag_activity.rs` | Not activity tags. Counts applies and removes of a tag name on a song in `default_tag_activity`, and promotes popular names to default tags. |
 | `tag_scores.rs` | `add_to_tag_scores`: moves the user's score for each named tag by a delta, in one upsert. `get_top_tag_scores`: the user's `k` highest scores, each with the color of the tag it is drawn as. `get_users_due_for_decay`, `get_max_score`, and `halve_user_tag_scores`: what the weekly halving reads and writes. Unit tested. |
 | `tag_scores_metadata.rs` | Each user's last decay week: `insert_decay_week_if_missing`, `lock_decay_week` (`FOR UPDATE SKIP LOCKED`), and `set_decay_week`. Unit tested. |
 | `queries.rs` | Compiles a tag query to SQL, runs it, and ranks the matches. Unit tested. |
@@ -24,8 +25,10 @@ Most of the tables below are keyed on song ids that come from Apple Music. `tag_
 keyed by tag name and user, and `tag_scores_metadata` by user alone.
 
 - `tags` - `tag_id` (bigserial pk), `name`, `color`, nullable `user_id`, `type` (`tag_type` enum:
-  `basic`, `text`, `datetime`, `number`, `checkbox`, `date`; defaults to `basic`). A null `user_id` means
-  the tag is a default, not owned by any user.
+  `basic`, `text`, `datetime`, `number`, `checkbox`, `date`; defaults to `basic`), and `is_activity`
+  (bool, defaults to false). A null `user_id` means the tag is not owned by any user: a default tag,
+  or an activity tag when `is_activity` is set. A check constraint keeps activity tags ownerless, a
+  partial unique index keeps one activity tag per name, and a trigger refuses to delete one.
 - `user_tags_applied` - tags a user put on a song, plus a nullable `value` (text column, always
   the tag's canonical string form regardless of `type`; see
   [../services/README.md](../services/README.md)). Composite pk of `(song_id, user_id, tag_id)`.
@@ -131,6 +134,32 @@ never deleted, so `apply_promotes_tag` promotes only on the apply that first mak
 qualify. Only applies promote: an unapply lowers `apply_count`, and a remove is only possible on a
 name that is already a default tag there.
 
+## Activity tags
+
+An activity tag is one shared row in `tags` whose values the api writes per user as they listen.
+There are three, the variants of `activity_tags.rs::ActivityTag`: My Plays (number), First Played
+and Last Played (datetime). Their values are ordinary `user_tags_applied` rows keyed on the
+listening user, so every reader of that table, the query compiler included, sees them the same way
+as any other tag value.
+
+Nothing hardcodes their ids. `get_activity_tags` selects by `is_activity` and name, and inserts any
+that are missing with `ON CONFLICT (name) WHERE is_activity DO NOTHING`, so two requests racing to
+create one both end up with the same row, and a wiped table heals on the next request.
+
+`record_play` upserts all three in one transaction: My Plays adds 1 to what is there, First
+Played keeps the earlier of the stored and new time, and Last Played keeps the later. Values use
+the same canonical forms `services::tag_values` writes: a plain integer, and RFC 3339 in UTC.
+
+`get_activity_tags_on_songs` returns every activity tag for every requested song, filling a
+missing row with `ActivityTag::default_value`: `"0"` for My Plays, `None` for the dates. That
+default is also what the query compiler uses for a missing My Plays row, below.
+
+Activity tags have a null `user_id`, the same as default tags, so every default tag read and write
+in `tags.rs` also filters `is_activity = false`. User tag reads filter `tags.user_id` to the user,
+which leaves them out on its own, so they never show on the Tags pages. `unapply_user_tag` refuses
+them with `ActivityTagReadOnly`, and `apply_user_tag` / `set_user_tag_value` already refuse them
+through `get_owned_tag`.
+
 ## Tag scores
 
 `tag_scores.rs::add_to_tag_scores` takes a map of tag name to delta and adds each delta to that
@@ -219,9 +248,9 @@ The songs a query runs over are the user's `user_songs` rows, always. The caller
 them: it used to send its Apple Music library as `song_ids` on the request, and that is gone.
 
 Before compiling it checks the tree size (`MAX_NODES` 200, `MAX_DEPTH` 20), then looks up the type
-of every tag id the query mentions. `get_queryable_tag_types` is user scoped, so another user's tag
-or a deleted one is a `QueryFormatError`; with `consider_default_tags` a shared default tag is
-queryable as well, removed or not. A query naming a default tag the user removed is valid and
+of every tag id the query mentions. `get_queryable_tags` is user scoped, so another user's tag
+or a deleted one is a `QueryFormatError`. Activity tags are always queryable. With
+`consider_default_tags` a shared default tag is queryable as well, removed or not. A query naming a default tag the user removed is valid and
 simply matches nothing of theirs.
 
 `applied_tags_source` is the single definition of what counts as a tag on a song, and every part
@@ -252,7 +281,12 @@ WHERE <compiled where clause>
   filter looks at that tag's application on the song; `tag_name`, `tag_value` and `tag_type` look
   at every applied tag, joined to `tags`. The user id lives inside the source, not in each
   subquery's `WHERE`.
-- A missing tag counts as empty. So positive operators (`is`, `contains`, `before`, `gt`,
+- A missing tag counts as empty, except for a number tag in `number_defaults` (My Plays), where a
+  missing row counts as its default, 0. The compiler works out whether the default passes the
+  comparison and, when that differs from how a missing row would fare, adds `OR NOT EXISTS <tag on
+  the song>` or `AND EXISTS <tag on the song>`. So "My Plays < 2" and "My Plays = 0" match songs
+  never played, and "My Plays != 0" does not. `is_empty` / `is_not_empty` still look at the row.
+- Otherwise a missing tag counts as empty. So positive operators (`is`, `contains`, `before`, `gt`,
   `is_true`, `is_not_empty`, ...) are `EXISTS` a matching value, and negative ones (`is_not`,
   `not_on`, `ne`, `is_empty`, `is_null`, `is_not_applied`) are `NOT EXISTS` of the positive
   condition.
@@ -382,6 +416,11 @@ every song scores zero and the whole list is ordered by song id.
 - `lock_decay_week` returns `None` both when the user has no row and when another transaction
   holds it. Callers that need to tell those apart have to insert first, which is what
   `insert_decay_week_if_missing` is for.
+- Activity tag rows live in `user_tags_applied`, so they count as tags on a song everywhere that
+  table is read: `tag_name`, `tag_value` and `tag_type` filters see activity tags too, and a song's
+  My Plays row counts toward ranking when the query names My Plays.
+- The trigger stops `DELETE` on an activity tag, not `TRUNCATE`. After a truncate the next request
+  recreates the rows with new ids, and the old values are gone with the cascade.
 - `comment` has no index on `song_id` or `parent`, so `get_song_comments` scans the table, and so
   does `get_song_vote_tallies`, whose join to `comment` filters on `song_id`. The `comment_votes` pk
   leads with `user_id`, so that join's `comment_id` side cannot use it either.
