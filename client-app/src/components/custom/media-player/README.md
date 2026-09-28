@@ -215,6 +215,9 @@ smoothly between the 750ms native snapshot polls, and scrubbing overrides it wit
   Default tags section works the same way in reverse: tapping one of the song's shared defaults
   copies it into the user's tags (or reuses their tag of that name) and applies it, so the pill
   moves up to On this song.
+- The Activity Tags section is always last and read only: My Plays, First Played and Last Played
+  from `useActivityTagsOnSong`, with a never-set date reading "Never". They change as the user
+  listens (`@/lib/play-recorder`), never from a tap here.
 - Long pressing a Suggested tags pill opens `SuggestedTagMenu`, the same glass `ModalPopup` the
   `...` menus use, holding one Remove this action. It calls `useSongTagEditor`'s
   `removeDefaultTag`, which hides that suggestion on this song for this user alone and counts a

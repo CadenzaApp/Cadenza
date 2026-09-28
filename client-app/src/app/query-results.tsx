@@ -5,6 +5,7 @@ import QueryResults from "@/features/query-builder/QueryResults";
 import { useTracksForSongIds } from "@/lib/musickit-hooks";
 import type { QueryJSON } from "@/lib/query-json";
 import { useQueryResults } from "@/lib/routes/queries";
+import { useActivityTagIdsInQuery } from "@/lib/routes/tags";
 
 /** Full-screen query matches, presented like the album and playlist heroes. */
 export default function QueryResultsScreen() {
@@ -23,6 +24,7 @@ export default function QueryResultsScreen() {
         () => parseRelevantTags(relevantTags),
         [relevantTags],
     );
+    const activityTagIds = useActivityTagIdsInQuery(query);
     const { matchedSongIds, queryResultsLoading, queryResultsErr } =
         useQueryResults(query, suggested === "1");
     const { tracks, tracksLoading, tracksErr } =
@@ -35,6 +37,7 @@ export default function QueryResultsScreen() {
             error={queryResultsErr ?? tracksErr}
             anticipatedTrackCount={matchedSongIds.length}
             mostRelevantTags={mostRelevantTags}
+            activityTagIds={activityTagIds}
         />
     );
 }

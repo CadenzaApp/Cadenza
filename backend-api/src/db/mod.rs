@@ -1,3 +1,4 @@
+pub mod activity_tags;
 pub mod comment_votes;
 pub mod comments;
 pub mod entity;

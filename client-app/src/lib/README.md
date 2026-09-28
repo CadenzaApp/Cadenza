@@ -12,8 +12,8 @@ native module directly.
 | `api-actions.ts`             | The generic SWR wrappers: `useAPIData`, `useAPIPostData`, `useAPIPostDataBatched`, `useAPIFetch`, `useAPIMutation`.                                                                                                                                                                               |
 | `api-endpoints.ts`           | `matchesEndpoint`, the cache-key matcher behind invalidation. Import-free so it can be unit tested.                                                                                                                                                                                               |
 | `swr-utils.ts`               | `clearCache` and `useSimpleMutation`, for things that are not plain backend calls.                                                                                                                                                                                                                |
-| `routes/tags.ts`             | Hooks for `/tags`: `useUserTags`, `useTag`, `useCreateTag`, `useDeleteTag`, `useDefaultTags`, `useSuggestTags`, `useEditTagScores`, `useTopTagScores`.                                                                                                                                            |
-| `routes/songs.ts`            | Hooks for local and default tag reads (one song and batched), local tag writes, removing a suggested tag, missing-default checks, generation, and editing the user's library.                                                                                                                     |
+| `routes/tags.ts`             | Hooks for `/tags`: `useUserTags`, `useTag`, `useCreateTag`, `useDeleteTag`, `useDefaultTags`, `useActivityTags`, `useActivityTagIdsInQuery`, `useSuggestTags`, `useEditTagScores`, `useTopTagScores`.                                                                                             |
+| `routes/songs.ts`            | Hooks for local, default, and activity tag reads (one song and batched), local tag writes, removing a suggested tag, recording a play, missing-default checks, generation, and editing the user's library.                                                                                        |
 | `routes/queries.ts`          | `useQueryResults`, the one cached hook for `/queries/results`. Both builders go through it, and it carries the suggested-tag flag. It sends no song ids: the backend queries the library it already has.                                                                                          |
 | `routes/comments.ts`         | Hooks for `/comments`: `useSongComments`, `useCreateComment`, `useDeleteComment`, `useVoteOnComment`.                                                                                                                                                                                             |
 | `comment-votes.ts`           | `applyCommentVote`, the optimistic update `useVoteOnComment` makes to cached comment threads. `sortThreadsByVotes` and `orderThreadsLike`, which `CommentsPage` uses to sort threads by score and then hold that order while it is in view. Only type imports, tested in `comment-votes.test.ts`. |
@@ -26,6 +26,8 @@ native module directly.
 | `account.tsx`                | `AccountProvider` / `useAccount`. Who is signed in (id and email), and sign in / sign up / sign out.                                                                                                                                                                                              |
 | `apple-music-auth.tsx`       | `AppleMusicProvider` / `useAppleMusic`. Apple Music tokens, persisted in secure store.                                                                                                                                                                                                            |
 | `playback.tsx`               | `PlaybackProvider`, broad `usePlayback`, lightweight `usePlaybackTrackState`, and stable `usePlaybackCommands`. Queue, native playback snapshot, and compact-player dismissal state.                                                                                                              |
+| `play-tracker.ts`            | Pure: what counts as a play (15 seconds, or the whole of a shorter song, once per listen). Tested in `play-tracker.test.ts`.                                                                                                                                                                      |
+| `play-recorder.ts`           | `usePlayRecorder`, called by `PlaybackProvider`. Feeds each snapshot to `play-tracker.ts` and posts each play to `/songs/plays`.                                                                                                                                                                  |
 | `queue-order.ts`             | Pure index math for the queue mirror. Tested in `queue-order.test.ts`.                                                                                                                                                                                                                            |
 | `supabase.ts`                | The Supabase client, backed by AsyncStorage, plus `getAccessToken()`, the fresh access token every backend request uses.                                                                                                                                                                          |
 | `theme.ts`                   | `NAV_THEME`, light and dark palettes for react-navigation, `sheetScreenOptions` for sheet routes, and `pushedScreenOptions` for the pushed detail routes.                                                                                                                                         |
@@ -42,8 +44,8 @@ native module directly.
 | `zoom-dismiss.tsx`           | `ZoomOriginProvider`, `useZoomSource`, `ZoomDismissScreen`, `useCloseScreen`. Closing a pushed screen by shrinking it back into the artwork that opened it.                                                                                                                                       |
 | `zoom-dismiss-geometry.ts`   | Pure pull, transform, timing, and corner math for `zoom-dismiss`, tested without React Native.                                                                                                                                                                                                    |
 | `types.ts`                   | Shared wire types: `TagType`, `Tag`, `AppliedTag` and `TagMetadata`.                                                                                                                                                                                                                              |
-| `query-json.ts`              | The tag query wire format: `QueryJSON`, `QueryJSONNode`, `FilterJSON`, `FilterOp`. Types only, so the pure builder utils stay testable under `node --test`.                                                                                                                                       |
-| `tag-values.ts`              | Per-type tag helpers: `TAG_TYPES`, labels, descriptions, `TAG_TYPE_ICONS`, value validation, canonicalization, formatting, the date-only helpers, and `unownedDefaultTags`.                                                                                                                       |
+| `query-json.ts`              | The tag query wire format: `QueryJSON`, `QueryJSONNode`, `FilterJSON`, `FilterOp`, plus the pure `positiveQueryTagNames` and `queryTagIds`. Import-free apart from types, so it stays testable under `node --test`.                                                                               |
+| `tag-values.ts`              | Per-type tag helpers: `TAG_TYPES`, labels, descriptions, `TAG_TYPE_ICONS`, value validation, canonicalization, formatting, the date-only helpers, `unownedDefaultTags`, and the activity tag helper `activityTagDisplayValue`.                                                                    |
 | `app-error.ts`               | `classifyError`, turning any thrown value into an `AppError` with a title, a sentence, and an optional way out. Tested in `app-error.test.ts`.                                                                                                                                                    |
 | `utils.ts`                   | `cn()`, the clsx + tailwind-merge helper.                                                                                                                                                                                                                                                         |
 
@@ -114,29 +116,33 @@ useAPIMutation<ApplyTagPayload, void>(
 
 One file per backend router, and every backend endpoint has at least one hook.
 
-| backend              | endpoint                         | hook                                           |
-| -------------------- | -------------------------------- | ---------------------------------------------- |
-| `routes/tags.rs`     | `GET /tags`                      | `tags.ts` -> `useUserTags()`, `useTag(tagId)`  |
-|                      | `POST /tags`                     | `tags.ts` -> `useCreateTag()`                  |
-|                      | `DELETE /tags`                   | `tags.ts` -> `useDeleteTag()`                  |
-|                      | `GET /tags/default-tags`         | `tags.ts` -> `useDefaultTags(search)`          |
-|                      | `GET /tags/suggest`              | `tags.ts` -> `useSuggestTags()`                |
-|                      | `GET /tags/scores`               | `tags.ts` -> `useTopTagScores(k)`              |
-|                      | `PATCH /tags/scores`             | `tags.ts` -> `useEditTagScores()`              |
-| `routes/songs.rs`    | `GET /songs/local-tags`          | `songs.ts` -> `useTagsOnSong(songId)`          |
-|                      | `POST /songs/local-tags/batch`   | `songs.ts` -> `useTagsOnSongs(songIds)`        |
-|                      | `GET /songs/default-tags`        | `songs.ts` -> `useDefaultTagsOnSong(songId)`   |
-|                      | `POST /songs/default-tags/batch` | `songs.ts` -> `useDefaultTagsOnSongs(songIds)` |
-|                      | `DELETE /songs/default-tags`     | `songs.ts` -> `useRemoveDefaultTag()`          |
-|                      | `POST /songs/local-tags`         | `songs.ts` -> `useApplyTag()`                  |
-|                      | `PATCH /songs/local-tags`        | `songs.ts` -> `useSetTagValue()`               |
-|                      | `DELETE /songs/local-tags`       | `songs.ts` -> `useUnapplyTag()`                |
-|                      | `PATCH /songs`                   | `songs.ts` -> `useEditUserSongs()`             |
-| `routes/queries.rs`  | `POST /queries/results`          | `queries.ts` -> `useQueryResults()`            |
-| `routes/comments.rs` | `GET /comments`                  | `comments.ts` -> `useSongComments(songId)`     |
-|                      | `POST /comments`                 | `comments.ts` -> `useCreateComment()`          |
-|                      | `DELETE /comments`               | `comments.ts` -> `useDeleteComment()`          |
-|                      | `POST /comments/votes`           | `comments.ts` -> `useVoteOnComment(songId)`    |
+| backend              | endpoint                          | hook                                            |
+| -------------------- | --------------------------------- | ----------------------------------------------- |
+| `routes/tags.rs`     | `GET /tags`                       | `tags.ts` -> `useUserTags()`, `useTag(tagId)`   |
+|                      | `POST /tags`                      | `tags.ts` -> `useCreateTag()`                   |
+|                      | `DELETE /tags`                    | `tags.ts` -> `useDeleteTag()`                   |
+|                      | `GET /tags/default-tags`          | `tags.ts` -> `useDefaultTags(search)`           |
+|                      | `GET /tags/activity`              | `tags.ts` -> `useActivityTags()`                |
+|                      | `GET /tags/suggest`               | `tags.ts` -> `useSuggestTags()`                 |
+|                      | `GET /tags/scores`                | `tags.ts` -> `useTopTagScores(k)`               |
+|                      | `PATCH /tags/scores`              | `tags.ts` -> `useEditTagScores()`               |
+| `routes/songs.rs`    | `GET /songs/local-tags`           | `songs.ts` -> `useTagsOnSong(songId)`           |
+|                      | `POST /songs/local-tags/batch`    | `songs.ts` -> `useTagsOnSongs(songIds)`         |
+|                      | `GET /songs/default-tags`         | `songs.ts` -> `useDefaultTagsOnSong(songId)`    |
+|                      | `POST /songs/default-tags/batch`  | `songs.ts` -> `useDefaultTagsOnSongs(songIds)`  |
+|                      | `DELETE /songs/default-tags`      | `songs.ts` -> `useRemoveDefaultTag()`           |
+|                      | `POST /songs/local-tags`          | `songs.ts` -> `useApplyTag()`                   |
+|                      | `PATCH /songs/local-tags`         | `songs.ts` -> `useSetTagValue()`                |
+|                      | `DELETE /songs/local-tags`        | `songs.ts` -> `useUnapplyTag()`                 |
+|                      | `PATCH /songs`                    | `songs.ts` -> `useEditUserSongs()`              |
+|                      | `GET /songs/activity-tags`        | `songs.ts` -> `useActivityTagsOnSong(songId)`   |
+|                      | `POST /songs/activity-tags/batch` | `songs.ts` -> `useActivityTagsOnSongs(songIds)` |
+|                      | `POST /songs/plays`               | `songs.ts` -> `useRecordPlay()`                 |
+| `routes/queries.rs`  | `POST /queries/results`           | `queries.ts` -> `useQueryResults()`             |
+| `routes/comments.rs` | `GET /comments`                   | `comments.ts` -> `useSongComments(songId)`      |
+|                      | `POST /comments`                  | `comments.ts` -> `useCreateComment()`           |
+|                      | `DELETE /comments`                | `comments.ts` -> `useDeleteComment()`           |
+|                      | `POST /comments/votes`            | `comments.ts` -> `useVoteOnComment(songId)`     |
 
 `GET /tags` has two hooks because the handler returns a tagged union: without `tag_id` it
 responds with `All { tags, metadata }`, with one it responds with `One { tag, song_ids }`.
@@ -172,6 +178,14 @@ invalidates both default-tag reads.
 only, so it invalidates both default-tag reads plus `/queries/results`, which counts suggested
 tags when the caller asks it to. It leaves `/tags` and the local tag reads alone, since the
 user's own tags do not change.
+
+Activity tags (My Plays, First Played, Last Played) are shared tags whose values the backend
+sets from listening. `useUserTags` never returns them, so they stay off the Tags pages;
+`useActivityTags` lists them for the advanced query builder, and `useActivityTagsOnSong` /
+`useActivityTagsOnSongs` read their values, with every tag present for every song.
+`useActivityTagIdsInQuery` picks the activity tags a query filters on, which the query result
+rows show. The only write is `useRecordPlay`, which `play-recorder.ts` calls, and it invalidates
+both activity reads and `/queries/results`.
 
 `musickit-hooks.ts` does the same job for the native module, using plain `useSWR` with tuple
 keys like `["MusicKit.getSongInfo", ids]`. `useSongFavoriteStatus` and `useCollectionFavoriteStatus`
@@ -503,6 +517,8 @@ no one tag and score nothing. Tag ids resolve to names through the tag list the 
 - An access token lives about an hour. `api-actions.ts` fetches one per request through
   `getAccessToken()`, which refreshes an expired one, so nothing holds a token. A component
   rendered before the session is restored sends no `Authorization` header at all.
+- Plays are only counted while `PlaybackProvider` is polling, which is only in the foreground. A
+  song that plays start to finish with the app in the background is never counted.
 - A comment vote is absolute (`"up"`, `"down"`, or `null`), and the server keeps whichever request
   it handles last. Two quick taps on one comment send two requests that can land out of order.
 - Opening the app while Apple Music is already playing scores that song. The first snapshot looks

@@ -1,4 +1,7 @@
+import { useMemo } from "react";
+
 import { useAPIData, useAPIFetch, useAPIMutation } from "../api-actions";
+import { queryTagIds, type QueryJSON } from "../query-json";
 import {
     Tag,
     TagMetadata,
@@ -39,6 +42,41 @@ export function useTag(tagId?: number) {
         tagsLoading: x.isLoading,
         tagsErr: x.error,
     };
+}
+
+/**
+ * Every activity tag (My Plays, First Played, Last Played), in display order.
+ * The same for every user. Kept out of `useUserTags`, so they never show on
+ * the Tags pages, and offered separately by the query builders.
+ */
+export function useActivityTags() {
+    const x = useAPIData<Tag[]>("/tags/activity");
+
+    return {
+        activityTags: x.data,
+        activityTagsLoading: x.isLoading,
+        activityTagsErr: x.error,
+    };
+}
+
+const NO_TAG_IDS: readonly number[] = [];
+
+/**
+ * The ids of the activity tags `query` filters on, in query order, so the
+ * result rows can show exactly those. Empty for no query, or while the
+ * activity tag list is still loading.
+ */
+export function useActivityTagIdsInQuery(
+    query: QueryJSON | null,
+): readonly number[] {
+    const { activityTags } = useActivityTags();
+
+    return useMemo(() => {
+        if (!query || !activityTags?.length) return NO_TAG_IDS;
+        const activityIds = new Set(activityTags.map((tag) => tag.id));
+        const ids = queryTagIds(query).filter((id) => activityIds.has(id));
+        return ids.length > 0 ? ids : NO_TAG_IDS;
+    }, [activityTags, query]);
 }
 
 type NewTagPayload = {

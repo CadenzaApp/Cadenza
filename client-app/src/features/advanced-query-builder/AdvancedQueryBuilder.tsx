@@ -20,6 +20,8 @@ import { AdvancedGroupNode } from "./types";
 
 type Props = {
     tags: Tag[];
+    /** My Plays and the rest, offered after the user's own tags. */
+    activityTags: Tag[];
     root: AdvancedGroupNode;
     setRoot: (update: (root: AdvancedGroupNode) => AdvancedGroupNode) => void;
     /** Shown beneath the editor when the current tree cannot be compiled. */
@@ -30,16 +32,23 @@ type Props = {
  * Obsidian-style filter builder: nested groups of "where <tag> <op> <value>"
  * lines. The screen owns the tree and the fetch; this only edits the tree.
  */
-export function AdvancedQueryBuilder({ tags, root, setRoot, message }: Props) {
+export function AdvancedQueryBuilder({
+    tags,
+    activityTags,
+    root,
+    setRoot,
+    message,
+}: Props) {
     const { contentBottomInset } = useScreenOverlayInsets();
-    const builderTags = useMemo<BuilderTags>(
-        () => ({
+    const builderTags = useMemo<BuilderTags>(() => {
+        const every = [...tags, ...activityTags];
+        return {
             list: tags,
-            byId: new Map(tags.map((tag) => [tag.id, tag])),
-            types: new Map(tags.map((tag) => [tag.id, tag.type])),
-        }),
-        [tags],
-    );
+            activity: activityTags,
+            byId: new Map(every.map((tag) => [tag.id, tag])),
+            types: new Map(every.map((tag) => [tag.id, tag.type])),
+        };
+    }, [tags, activityTags]);
 
     const actions = useMemo<BuilderActions>(
         () => ({

@@ -70,6 +70,15 @@ export function unownedDefaultTags(
     );
 }
 
+/**
+ * The value a `TagPill` shows for an activity tag. A date that was never set
+ * reads "Never" rather than nothing; `formatTagValue` passes text it cannot
+ * parse as a date straight through.
+ */
+export function activityTagDisplayValue(tag: { value: string | null }): string {
+    return tag.value ?? "Never";
+}
+
 const DATE_ONLY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 /**

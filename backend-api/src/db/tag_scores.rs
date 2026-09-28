@@ -378,6 +378,7 @@ mod tests {
             name: name.to_owned(),
             color: color.to_owned(),
             r#type: crate::db::entity::sea_orm_active_enums::TagType::Basic,
+            is_activity: false,
         }
     }
 

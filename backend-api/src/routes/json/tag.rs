@@ -52,6 +52,9 @@ pub struct Tag {
     name: String,
     color: String,
     r#type: TagType,
+    /// An activity tag, like "My Plays". Shared by everyone, and its value on a
+    /// song is written by the api as the user listens, never by hand.
+    is_activity: bool,
 }
 
 impl From<tags::Model> for Tag {
@@ -61,6 +64,7 @@ impl From<tags::Model> for Tag {
             color: value.color,
             name: value.name,
             r#type: value.r#type.into(),
+            is_activity: value.is_activity,
         }
     }
 }
