@@ -14,6 +14,7 @@ pub struct Model {
     #[sea_orm(column_type = "Text")]
     pub color: String,
     pub r#type: TagType,
+    pub is_activity: bool,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
