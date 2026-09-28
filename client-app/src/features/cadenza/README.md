@@ -16,7 +16,9 @@ category now, opened from the library screen, so this tab is only the query buil
 
 ## How it works
 
-`CadenzaScreen` fetches the user's tags and complete Apple Music song library. It also holds the
+`CadenzaScreen` fetches the user's tags, the activity tags, and the complete Apple Music song
+library. Activity tags go to the advanced builder only, in their own picker section; the simple
+builder's palette stays the user's own tags. It also holds the
 simple builder's `Include suggested tags` switch, which reveals the palette's suggested-tag
 section, makes default tags count in the query, and clears the query when it is turned off with a
 suggested tag still in it. The mode button in

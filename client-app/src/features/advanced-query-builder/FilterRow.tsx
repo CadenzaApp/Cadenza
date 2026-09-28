@@ -95,8 +95,22 @@ export function FilterRow({ filter, connector, tags, actions }: Props) {
                     iconColor: tag.color,
                 })),
             },
+            // set by listening, so kept apart from the user's own tags
+            ...(tags.activity.length > 0
+                ? [
+                      {
+                          title: "Activity tags",
+                          options: tags.activity.map((tag) => ({
+                              key: `tag:${tag.id}`,
+                              label: tag.name,
+                              icon: TYPE_ICONS[tag.type],
+                              iconColor: tag.color,
+                          })),
+                      },
+                  ]
+                : []),
         ],
-        [tags.list],
+        [tags.list, tags.activity],
     );
 
     return (
