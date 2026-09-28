@@ -41,6 +41,21 @@ export function useTag(tagId?: number) {
     };
 }
 
+/**
+ * Every activity tag (My Plays, First Played, Last Played), in display order.
+ * The same for every user. Kept out of `useUserTags`, so they never show on
+ * the Tags pages, and offered separately by the query builders.
+ */
+export function useActivityTags() {
+    const x = useAPIData<Tag[]>("/tags/activity");
+
+    return {
+        activityTags: x.data,
+        activityTagsLoading: x.isLoading,
+        activityTagsErr: x.error,
+    };
+}
+
 type NewTagPayload = {
     name: string;
     color: string;

@@ -70,6 +70,31 @@ export function unownedDefaultTags(
     );
 }
 
+/**
+ * The activity tags worth showing on a song row: none for a song the user
+ * never played, so unplayed rows stay clean, and otherwise the ones with a
+ * value. The backend fills My Plays with "0" and leaves the dates null for a
+ * song never played.
+ */
+export function playedActivityTags<T extends Tag & { value: string | null }>(
+    activityTags: readonly T[] | undefined,
+): T[] {
+    if (!activityTags) return [];
+    const played = activityTags.some(
+        (tag) => tag.value != null && tag.value !== "0",
+    );
+    return played ? activityTags.filter((tag) => tag.value != null) : [];
+}
+
+/**
+ * The value a `TagPill` shows for an activity tag. A date that was never set
+ * reads "Never" rather than nothing; `formatTagValue` passes text it cannot
+ * parse as a date straight through.
+ */
+export function activityTagDisplayValue(tag: { value: string | null }): string {
+    return tag.value ?? "Never";
+}
+
 const DATE_ONLY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 /**

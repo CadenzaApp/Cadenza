@@ -189,6 +189,68 @@ export function useDefaultTagsOnSongs(songIds: readonly string[]) {
 
 const EMPTY_DEFAULT_TAGS_BY_SONG: Record<string, Tag[]> = {};
 
+/**
+ * This user's activity tags on one song, with values, in display order. A song
+ * never played still gets every tag: My Plays is "0" and the dates are null.
+ */
+export function useActivityTagsOnSong(songId?: string) {
+    const x = useAPIData<AppliedTag[]>("/songs/activity-tags", {
+        song_id: songId,
+    });
+
+    return {
+        activityTagsOnSong: x.data,
+        activityTagsOnSongLoading: x.isLoading,
+        activityTagsOnSongErr: x.error,
+    };
+}
+
+/** Activity tags for many songs at once, batched the same way as `useTagsOnSongs`. */
+export function useActivityTagsOnSongs(songIds: readonly string[]) {
+    const normalizedIds = useMemo(
+        () => [...new Set(songIds.filter(Boolean))],
+        [songIds],
+    );
+    const x = useAPIPostDataBatched<
+        string,
+        { song_ids: string[] },
+        Record<string, AppliedTag[]>
+    >("/songs/activity-tags/batch", normalizedIds, {
+        batchSize: TAGS_ON_SONGS_BATCH_SIZE,
+        toBody: (song_ids) => ({ song_ids }),
+        merge: (responses) => Object.assign({}, ...responses),
+    });
+    const activityTagsBySong = x.data ?? EMPTY_TAGS_BY_SONG;
+
+    return {
+        activityTagsBySong,
+        activityTagsBySongLoading: x.isLoading,
+        activityTagsBySongErr: x.error,
+    };
+}
+
+/**
+ * Counts one play of a song: My Plays goes up by one and the First Played /
+ * Last Played dates move. `play-recorder.ts` is the one caller and decides what
+ * counts as a play.
+ */
+export function useRecordPlay() {
+    const x = useAPIMutation<{ song_id: string }, void>(
+        "POST",
+        "/songs/plays",
+        ({ song_id }) => [
+            { path: "/songs/activity-tags", params: { song_id } },
+            { path: "/songs/activity-tags/batch" },
+            { path: "/queries/results" },
+        ],
+    );
+    return {
+        recordPlayErr: x.error,
+        recordPlayLoading: x.isMutating,
+        recordPlay: x.trigger,
+    };
+}
+
 export type EditUserSongsPayload = {
     /** Song ids to put in the user's library. Ones already there are ignored. */
     add: string[];
