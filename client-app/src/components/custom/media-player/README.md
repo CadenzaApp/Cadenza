@@ -8,22 +8,22 @@ always-mounted pages in one horizontal pager at the bottom of that sheet.
 
 ## Files
 
-| file                     | role                                                                                                                                                 |
-| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `index.ts`               | Public exports for the native accessory and compatibility overlay.                                                                                   |
-| `media-player-host.tsx`  | Adapts native accessory placement, decides whether an accessory is declared at all, and positions the fallback.                                      |
-| `media-player.tsx`       | Playback wiring shared by both native placements and the fallback.                                                                                   |
-| `player-pager.tsx`       | Always-mounted horizontal pager plus its glass Comments / Player / Tags selector.                                                                    |
-| `player-tabs.tsx`        | Selected-page context shared by the pager and Modify Tags actions.                                                                                   |
-| `player-chrome.tsx`      | Context carrying how much room the pager's selector takes below the pages, for keyboard avoidance.                                                   |
-| `player-scope.tsx`       | Resolves and shares the focused song across the sheet's three pages, and selects Tags for Modify Tags.                                               |
-| `player-page.tsx`        | The Player route: artwork or the queue, the scrubber, and the transport. The only route that touches playback.                                       |
-| `comments-page.tsx`      | The Comments route: every user's comments on `focusedSong`, highest score first. Posts, replies, votes, and deletes through `@/lib/routes/comments`. |
-| `tags-page.tsx`          | The Tags route: every user tag for `focusedSong`, applied first, plus default tags a tap adopts and a long press removes.                            |
-| `compact.tsx`            | Regular and inline compact content. Adds glass only for the compatibility fallback.                                                                  |
-| `playback-details.tsx`   | `MediaPlayerTrackHeading` (title, artist, favorite, `...`) and `MediaPlayerProgress` (scrubber and timestamps).                                      |
-| `queue-view.tsx`         | What replaces the artwork when the queue is open: compact heading, shuffle/repeat pills, and the reorderable next list.                              |
-| `transport-controls.tsx` | Shuffle, skip, play, skip, queue.                                                                                                                    |
+| file                     | role                                                                                                                                                         |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `index.ts`               | Public exports for the native accessory and compatibility overlay.                                                                                           |
+| `media-player-host.tsx`  | Adapts native accessory placement, decides whether an accessory is declared at all, and positions the fallback.                                              |
+| `media-player.tsx`       | Playback wiring shared by both native placements and the fallback.                                                                                           |
+| `player-pager.tsx`       | Always-mounted horizontal pager plus its glass Comments / Player / Tags selector.                                                                            |
+| `player-tabs.tsx`        | Selected-page context shared by the pager and Modify Tags actions.                                                                                           |
+| `player-chrome.tsx`      | Context carrying how much room the pager's selector takes below the pages, for keyboard avoidance.                                                           |
+| `player-scope.tsx`       | Resolves and shares the focused song across the sheet's three pages, and selects Tags for Modify Tags.                                                       |
+| `player-page.tsx`        | The Player route: artwork or the queue, the scrubber, and the transport. The only route that touches playback.                                               |
+| `comments-page.tsx`      | The Comments route: every user's comments on `focusedSong`, highest score first. Posts, replies, votes, and deletes through `@/lib/routes/comments`.         |
+| `tags-page.tsx`          | The Tags route: every user tag for `focusedSong`, applied first, plus default tags a tap adopts and a long press removes, then read-only Activity Tags last. |
+| `compact.tsx`            | Regular and inline compact content. Adds glass only for the compatibility fallback.                                                                          |
+| `playback-details.tsx`   | `MediaPlayerTrackHeading` (title, artist, favorite, `...`) and `MediaPlayerProgress` (scrubber and timestamps).                                              |
+| `queue-view.tsx`         | What replaces the artwork when the queue is open: compact heading, shuffle/repeat pills, and the reorderable next list.                                      |
+| `transport-controls.tsx` | Shuffle, skip, play, skip, queue.                                                                                                                            |
 
 The `...` menu and its tag editor are **not** in this directory any more. They moved to
 `@/components/custom/options-menu::SongOptionsMenu` and `@/components/custom/song-tag-editor`,
@@ -215,6 +215,9 @@ smoothly between the 750ms native snapshot polls, and scrubbing overrides it wit
   Default tags section works the same way in reverse: tapping one of the song's shared defaults
   copies it into the user's tags (or reuses their tag of that name) and applies it, so the pill
   moves up to On this song.
+- The Activity Tags section is always last and read only: My Plays, First Played and Last Played
+  from `useActivityTagsOnSong`, with a never-set date reading "Never". They change as the user
+  listens (`@/lib/play-recorder`), never from a tap here.
 - Long pressing a Suggested tags pill opens `SuggestedTagMenu`, the same glass `ModalPopup` the
   `...` menus use, holding one Remove this action. It calls `useSongTagEditor`'s
   `removeDefaultTag`, which hides that suggestion on this song for this user alone and counts a

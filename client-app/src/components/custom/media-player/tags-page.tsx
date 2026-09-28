@@ -11,7 +11,9 @@ import { TagPill } from "@/components/custom/tag-pill";
 import { TagValueDialog } from "@/components/custom/tag-value-dialog";
 import { GlassSurface } from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
-import type { Tag } from "@/lib/types";
+import { useActivityTagsOnSong } from "@/lib/routes/songs";
+import { activityTagDisplayValue, formatTagValue } from "@/lib/tag-values";
+import type { AppliedTag, Tag } from "@/lib/types";
 
 import { useSongTagEditor, type EditableSongTag } from "../song-tag-editor";
 import type { FocusedSong } from "./player-scope";
@@ -43,6 +45,7 @@ export function TagsPage({ focusedSong }: { focusedSong: FocusedSong }) {
         onCreateTagOpenChange,
         onTagCreated,
     } = useSongTagEditor(focusedSong.id);
+    const { activityTagsOnSong = [] } = useActivityTagsOnSong(focusedSong.id);
     const appliedTags = songTags.filter((tag) => tag.applied);
     const availableTags = songTags.filter((tag) => !tag.applied);
 
@@ -98,6 +101,7 @@ export function TagsPage({ focusedSong }: { focusedSong: FocusedSong }) {
                     emptyLabel="Every tag you have is already on this song."
                     onSelectTag={selectTag}
                 />
+                <ActivityTagSection tags={activityTagsOnSong} />
             </ScrollView>
 
             <CreateTagDialog
@@ -165,6 +169,45 @@ function TagSection({
                     ))}
                 </View>
             )}
+        </View>
+    );
+}
+
+/**
+ * The song's activity tags, always last on the page: My Plays, First Played
+ * and Last Played, filled in by listening. Read only, so the pills are not
+ * pressable. A date the user never set reads "Never". Nothing shows until the
+ * read comes back.
+ */
+function ActivityTagSection({ tags }: { tags: AppliedTag[] }) {
+    if (tags.length === 0) return null;
+
+    return (
+        <View className="gap-2">
+            <Text className="text-sm font-medium text-muted-foreground">
+                Activity Tags
+            </Text>
+            <View className="flex-row flex-wrap gap-2">
+                {tags.map((tag) => (
+                    <View
+                        key={tag.id}
+                        accessible
+                        // read the value the way the pill shows it, not as
+                        // the stored ISO timestamp
+                        accessibilityLabel={`${tag.name}: ${formatTagValue(tag.type, activityTagDisplayValue(tag))}`}
+                    >
+                        <TagPill
+                            tag={tag}
+                            height={14}
+                            value={activityTagDisplayValue(tag)}
+                        />
+                    </View>
+                ))}
+            </View>
+            <Text className="text-xs text-muted-foreground">
+                Set by what you listen to. You can filter on these in the
+                advanced query builder.
+            </Text>
         </View>
     );
 }
