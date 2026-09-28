@@ -184,9 +184,8 @@ sets from listening. `useUserTags` never returns them, so they stay off the Tags
 `useActivityTags` lists them for the advanced query builder, and `useActivityTagsOnSong` /
 `useActivityTagsOnSongs` read their values, with every tag present for every song.
 `useActivityTagIdsInQuery` picks the activity tags a query filters on, which the query result
-rows show. The only
-write is `useRecordPlay`, which `play-recorder.ts` calls, and it invalidates both activity reads
-and `/queries/results`.
+rows show. The only write is `useRecordPlay`, which `play-recorder.ts` calls, and it invalidates
+both activity reads and `/queries/results`.
 
 `musickit-hooks.ts` does the same job for the native module, using plain `useSWR` with tuple
 keys like `["MusicKit.getSongInfo", ids]`. `useSongFavoriteStatus` and `useCollectionFavoriteStatus`

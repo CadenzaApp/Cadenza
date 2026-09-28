@@ -250,8 +250,8 @@ them: it used to send its Apple Music library as `song_ids` on the request, and 
 Before compiling it checks the tree size (`MAX_NODES` 200, `MAX_DEPTH` 20), then looks up the type
 of every tag id the query mentions. `get_queryable_tags` is user scoped, so another user's tag
 or a deleted one is a `QueryFormatError`. Activity tags are always queryable. With
-`consider_default_tags` a shared default tag is queryable as well, removed or not. A query naming a default tag the user removed is valid and
-simply matches nothing of theirs.
+`consider_default_tags` a shared default tag is queryable as well, removed or not. A query naming
+a default tag the user removed is valid and simply matches nothing of theirs.
 
 `applied_tags_source` is the single definition of what counts as a tag on a song, and every part
 of the statement reads through it: the ranking left join and each filter subquery. Without the flag it is the user's own applied tags. With it, those `UNION ALL` the rows

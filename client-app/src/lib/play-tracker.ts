@@ -4,9 +4,9 @@
  * and reports each play it finds to the backend.
  *
  * A listen counts once it has played for `PLAY_THRESHOLD_SECONDS`. A song
- * shorter than that has to be played to the end. Each listen counts once. A new listen starts when
- * the song changes, or when the same song jumps back to its start, which is
- * what repeat-one and skipping back look like.
+ * shorter than that has to be played to the end. Each listen counts once. A
+ * new listen starts when the song changes, or when the same song jumps back to
+ * its start, which is what repeat-one and skipping back look like.
  */
 
 /** Played this long and it counts, unless the song is shorter than this. */
