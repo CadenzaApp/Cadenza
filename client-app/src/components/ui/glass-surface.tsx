@@ -59,6 +59,21 @@ const FALLBACK_INTENSITY: Record<GlassSurfaceVariant, number> = {
 };
 
 /**
+ * Android glass has no live blur unless a `GlassBlurTarget` is mounted, so it
+ * falls back to a near solid fill. These match `--card` in global.css. Raise
+ * the opacity toward 1 if content still shows through too much.
+ */
+const ANDROID_FILL: Record<"light" | "dark", string> = {
+    light: "#fcfcfc",
+    dark: "#171717",
+};
+
+const ANDROID_FILL_OPACITY: Record<GlassSurfaceVariant, number> = {
+    regular: 0.94,
+    clear: 0.82,
+};
+
+/**
  * A translucent background layer. Renders real liquid glass on iOS 26, a blur
  * on anything older, and a flat translucent card on web. Every floating bar in
  * the app draws its background through this, so swapping the implementation is
@@ -112,6 +127,28 @@ export function GlassSurface({
     // every frame, so the target is withheld there and the fill stays.
     const androidTarget =
         Platform.OS === "android" && Platform.Version >= 31 ? blurTarget : null;
+
+    // Android with nothing to blur: a translucent fill alone lets the content
+    // underneath read straight through, so paint a mostly solid surface
+    // instead. The frost look comes from opacity here, not a blur.
+    if (Platform.OS === "android" && !androidTarget) {
+        return (
+            <View className={className} {...rest}>
+                <View
+                    pointerEvents="none"
+                    style={[
+                        StyleSheet.absoluteFill,
+                        {
+                            backgroundColor: ANDROID_FILL[scheme],
+                            opacity: ANDROID_FILL_OPACITY[variant],
+                        },
+                    ]}
+                />
+                <FallbackTint color={tintColor} />
+                {children}
+            </View>
+        );
+    }
 
     return (
         <BlurView
