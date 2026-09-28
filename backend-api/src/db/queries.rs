@@ -7,6 +7,7 @@ use sea_orm::{
     QueryFilter, Statement,
 };
 
+use crate::db::activity_tags::ActivityTag;
 use crate::db::entity::sea_orm_active_enums::TagType;
 use crate::db::entity::tags;
 use crate::err::CadenzaError;
@@ -45,9 +46,18 @@ pub async fn run_query(
 
     let mut tag_ids = HashSet::new();
     collect_tag_ids(&query.root, &mut tag_ids);
-    let tag_types = get_queryable_tag_types(db, user_id, &tag_ids, consider_default_tags).await?;
+    let QueryableTags {
+        tag_types,
+        number_defaults,
+    } = get_queryable_tags(db, user_id, &tag_ids, consider_default_tags).await?;
 
-    let (sql, values) = compile_query(query, &tag_types, user_id, consider_default_tags)?;
+    let (sql, values) = compile_query(
+        query,
+        &tag_types,
+        &number_defaults,
+        user_id,
+        consider_default_tags,
+    )?;
 
     let song_tag_pairs = SongTagPair::find_by_statement(Statement::from_sql_and_values(
         DbBackend::Postgres,
@@ -90,43 +100,68 @@ fn rank_songs(song_tag_pairs: Vec<SongTagPair>, mentioned_tags: &HashSet<i64>) -
     songs.into_iter().map(|(song_id, _)| song_id).collect()
 }
 
-/// Looks up the type of every tag the query mentions. A tag that does not exist
-/// or belongs to someone else is a `QueryFormatError`.
+/// What the compiler needs to know about the tags a query names.
+#[derive(Default)]
+struct QueryableTags {
+    /// The type of every tag the query mentions.
+    tag_types: HashMap<i64, TagType>,
+    /// Number tags whose missing row reads as a value rather than as empty,
+    /// which is how "My Plays < 2" matches a song the user never played.
+    number_defaults: HashMap<i64, f64>,
+}
+
+/// Looks up every tag the query mentions. A tag that does not exist or belongs
+/// to someone else is a `QueryFormatError`.
 ///
-/// With `consider_default_tags` a shared default tag (`user_id IS NULL`) is
+/// Activity tags are shared by every user, so they are always queryable. With
+/// `consider_default_tags` a shared default tag (`user_id IS NULL`) is
 /// queryable as well, so the query may name one.
-async fn get_queryable_tag_types(
+async fn get_queryable_tags(
     db: &DatabaseConnection,
     user_id: Uuid,
     tag_ids: &HashSet<i64>,
     consider_default_tags: bool,
-) -> Result<HashMap<i64, TagType>, CadenzaError> {
+) -> Result<QueryableTags, CadenzaError> {
     if tag_ids.is_empty() {
-        return Ok(HashMap::new());
+        return Ok(QueryableTags::default());
     }
 
-    let mut owned_by_caller = Condition::any().add(tags::Column::UserId.eq(user_id));
+    let mut owned_by_caller = Condition::any()
+        .add(tags::Column::UserId.eq(user_id))
+        .add(tags::Column::IsActivity.eq(true));
     if consider_default_tags {
         owned_by_caller = owned_by_caller.add(tags::Column::UserId.is_null());
     }
 
-    let tag_types: HashMap<i64, TagType> = tags::Entity::find()
+    let mut queryable = QueryableTags::default();
+    for tag in tags::Entity::find()
         .filter(tags::Column::TagId.is_in(tag_ids.iter().copied()))
         .filter(owned_by_caller)
         .all(db)
         .await?
-        .into_iter()
-        .map(|tag| (tag.tag_id, tag.r#type))
-        .collect();
+    {
+        if tag.is_activity
+            && tag.r#type == TagType::Number
+            && let Some(default) = ActivityTag::from_name(&tag.name)
+                .and_then(ActivityTag::default_value)
+                .and_then(|value| value.parse::<f64>().ok())
+        {
+            queryable.number_defaults.insert(tag.tag_id, default);
+        }
+        queryable.tag_types.insert(tag.tag_id, tag.r#type);
+    }
 
-    if let Some(missing) = tag_ids.iter().find(|id| !tag_types.contains_key(id)) {
+    if let Some(missing) = tag_ids
+        .iter()
+        .find(|id| !queryable.tag_types.contains_key(id))
+    {
         return Err(CadenzaError::QueryFormatError(format!(
             "tag {} does not exist",
             missing
         )));
     }
 
-    Ok(tag_types)
+    Ok(queryable)
 }
 
 fn check_size(root: &QueryNode) -> Result<(), CadenzaError> {
@@ -213,7 +248,9 @@ fn applied_tags_source(consider_default_tags: bool) -> &'static str {
 const LIBRARY_SONGS_SOURCE: &str = "(SELECT song_id FROM user_songs WHERE user_id=$1)";
 
 /// Converts the query to a full SQL statement and its values. `tag_types` must
-/// hold the type of every tag id the query mentions.
+/// hold the type of every tag id the query mentions. `number_defaults` holds
+/// the number tags a song without the tag counts as having a value for (see
+/// [`QueryableTags::number_defaults`]).
 ///
 /// Every filter becomes one correlated `EXISTS` (or `NOT EXISTS`) over the
 /// song's applied tags. A song without the tag at all counts as empty, so
@@ -227,12 +264,14 @@ const LIBRARY_SONGS_SOURCE: &str = "(SELECT song_id FROM user_songs WHERE user_i
 fn compile_query(
     query: &Query,
     tag_types: &HashMap<i64, TagType>,
+    number_defaults: &HashMap<i64, f64>,
     user_id: Uuid,
     consider_default_tags: bool,
 ) -> Result<(String, Vec<sea_query::Value>), CadenzaError> {
     let applied_tags = applied_tags_source(consider_default_tags);
     let mut compiler = Compiler {
         tag_types,
+        number_defaults,
         values: vec![sea_query::Value::Uuid(Some(user_id))],
         applied_tags,
     };
@@ -253,6 +292,7 @@ fn compile_query(
 
 struct Compiler<'a> {
     tag_types: &'a HashMap<i64, TagType>,
+    number_defaults: &'a HashMap<i64, f64>,
     /// `$1` is always the user id, so the first filter binds at `$2`.
     values: Vec<sea_query::Value>,
     /// The `FROM` item every filter reads its tags through.
@@ -457,6 +497,10 @@ impl Compiler<'_> {
             return Ok(tag_exists(self.applied_tags, &tag_param, false, matched));
         }
 
+        // For a number tag with a default, whether a song without the tag
+        // passes: the operator applied to the default rather than to nothing.
+        let mut missing_passes = None;
+
         let matched = match tag_type {
             TagType::Basic => return Err(unsupported_op(op, "basic tags")),
 
@@ -483,6 +527,16 @@ impl Compiler<'_> {
                 | FilterOp::Gt
                 | FilterOp::Ge => {
                     let number = parse_number(required_value(op, value)?)?;
+                    if let Some(default) = self.number_defaults.get(&tag_id) {
+                        missing_passes = Some(match op {
+                            FilterOp::Eq => *default == number,
+                            FilterOp::Ne => *default != number,
+                            FilterOp::Lt => *default < number,
+                            FilterOp::Le => *default <= number,
+                            FilterOp::Gt => *default > number,
+                            _ => *default >= number,
+                        });
+                    }
                     let param = self.bind(number);
                     let comparison = match op {
                         FilterOp::Eq | FilterOp::Ne => "=",
@@ -514,7 +568,26 @@ impl Compiler<'_> {
             }
         };
 
-        Ok(tag_exists(self.applied_tags, &tag_param, true, matched))
+        // Left alone, a song without the tag fails `Any` and passes `None`.
+        // When the default says otherwise, add or rule out exactly those songs.
+        let missing_passes_already = matches!(matched, Match::None(_));
+        let snippet = tag_exists(self.applied_tags, &tag_param, true, matched);
+        Ok(match missing_passes {
+            Some(passes) if passes != missing_passes_already => {
+                let applied = tag_exists(
+                    self.applied_tags,
+                    &tag_param,
+                    false,
+                    Match::Any("TRUE".into()),
+                );
+                if passes {
+                    format!("({snippet} OR NOT {applied})")
+                } else {
+                    format!("({snippet} AND {applied})")
+                }
+            }
+            _ => snippet,
+        })
     }
 }
 
@@ -661,11 +734,88 @@ mod tests {
     }
 
     fn compile(json: &str) -> Result<(String, Vec<sea_query::Value>), CadenzaError> {
-        compile_query(&parse(json), &tag_types(), Uuid::nil(), false)
+        compile_query(
+            &parse(json),
+            &tag_types(),
+            &HashMap::new(),
+            Uuid::nil(),
+            false,
+        )
     }
 
     fn compile_with_defaults(json: &str) -> Result<(String, Vec<sea_query::Value>), CadenzaError> {
-        compile_query(&parse(json), &tag_types(), Uuid::nil(), true)
+        compile_query(
+            &parse(json),
+            &tag_types(),
+            &HashMap::new(),
+            Uuid::nil(),
+            true,
+        )
+    }
+
+    /// Tag 4 is a number tag. Compiled as if it were My Plays, where a song
+    /// with no row counts as 0.
+    fn compile_with_zero_default(json: &str) -> String {
+        compile_query(
+            &parse(json),
+            &tag_types(),
+            &HashMap::from([(4, 0.0)]),
+            Uuid::nil(),
+            false,
+        )
+        .unwrap()
+        .0
+    }
+
+    fn number_filter(op: &str, value: &str) -> String {
+        filter(&format!(
+            r#"{{ "field": "tag", "tag_id": 4, "op": "{op}", "value": "{value}" }}"#
+        ))
+    }
+
+    fn squash(sql: &str) -> String {
+        sql.split_whitespace().collect::<Vec<_>>().join(" ")
+    }
+
+    #[test]
+    fn a_missing_count_passes_when_zero_would() {
+        // 0 < 2, so never played songs are added to the ones that match
+        let sql = squash(&compile_with_zero_default(&number_filter("lt", "2")));
+        assert!(sql.contains("OR NOT EXISTS"), "{sql}");
+        // 0 = 0 as well
+        let sql = squash(&compile_with_zero_default(&number_filter("eq", "0")));
+        assert!(sql.contains("OR NOT EXISTS"), "{sql}");
+        let sql = squash(&compile_with_zero_default(&number_filter("le", "0")));
+        assert!(sql.contains("OR NOT EXISTS"), "{sql}");
+    }
+
+    #[test]
+    fn a_missing_count_fails_when_zero_would() {
+        // `ne` is a NOT EXISTS, which a missing row passes on its own, so
+        // "!= 0" has to rule never played songs back out
+        let sql = squash(&compile_with_zero_default(&number_filter("ne", "0")));
+        assert!(sql.contains("AND EXISTS"), "{sql}");
+        // 0 != 3 is true, and a missing row already passes, so nothing changes
+        let sql = squash(&compile_with_zero_default(&number_filter("ne", "3")));
+        assert!(
+            !sql.contains("AND EXISTS") && !sql.contains("OR NOT"),
+            "{sql}"
+        );
+    }
+
+    #[test]
+    fn a_missing_count_is_left_alone_when_zero_fails_anyway() {
+        for (op, value) in [("gt", "0"), ("ge", "1"), ("eq", "5"), ("lt", "0")] {
+            let with_default = squash(&compile_with_zero_default(&number_filter(op, value)));
+            let without = squash(&compile(&number_filter(op, value)).unwrap().0);
+            assert_eq!(with_default, without, "{op} {value}");
+        }
+    }
+
+    #[test]
+    fn number_tags_without_a_default_are_unchanged() {
+        let sql = squash(&compile(&number_filter("lt", "2")).unwrap().0);
+        assert!(!sql.contains("OR NOT"), "{sql}");
     }
 
     fn pair(song_id: &str, tag_id: Option<i64>) -> SongTagPair {
