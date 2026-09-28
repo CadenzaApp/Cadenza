@@ -5,6 +5,7 @@ use crate::{
     auth::SupabaseClaims,
     db::{
         self,
+        activity_tags::{get_activity_tags_on_songs, record_play},
         tags::{get_default_tags_on_songs, get_user_tags_on_song, get_user_tags_on_songs},
     },
     err::CadenzaError,
@@ -23,6 +24,7 @@ use axum::{
     routing::{get, patch, post},
 };
 use axum_jwt_auth::Claims;
+use chrono::Utc;
 use sea_orm::DatabaseConnection;
 use serde::Deserialize;
 
@@ -219,6 +221,75 @@ async fn remove_default_tag_handler(
         .await
 }
 
+/// Returns every activity tag on one song for the signed in user, with its
+/// value, in display order. A song they never played still gets every tag:
+/// My Plays reads `"0"` and the dates read `null`.
+///
+/// ```json
+/// [
+///   {"id": 41, "name": "My Plays", "color": "#0ea5e9", "type": "number", "is_activity": true, "value": "3"},
+///   {"id": 42, "name": "First Played", "color": "#22c55e", "type": "datetime", "is_activity": true, "value": "2026-09-20T18:03:11.482913+00:00"},
+///   {"id": 43, "name": "Last Played", "color": "#f59e0b", "type": "datetime", "is_activity": true, "value": "2026-09-23T09:14:02.100000+00:00"}
+/// ]
+/// ```
+async fn get_activity_tags_on_song_handler(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Query(params): Query<SongIdQueryParams>,
+) -> Result<Json<Vec<AppliedTag>>, CadenzaError> {
+    let mut tags_by_song =
+        get_activity_tags_on_songs(&db, claims.user_id, std::slice::from_ref(&params.song_id))
+            .await?;
+    Ok(Json(vec_into(
+        tags_by_song.remove(&params.song_id).unwrap_or_default(),
+    )))
+}
+
+/// Same as `GET /songs/activity-tags` for many songs at once, keyed by song id.
+/// Every requested song gets an entry, with every activity tag.
+///
+/// ```json
+/// {"1234567": [{"id": 41, "name": "My Plays", "color": "#0ea5e9", "type": "number", "is_activity": true, "value": "0"}, ...]}
+/// ```
+async fn get_activity_tags_on_songs_handler(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Json(payload): Json<SongIdsPayload>,
+) -> Result<Json<HashMap<String, Vec<AppliedTag>>>, CadenzaError> {
+    check_batch_size(payload.song_ids.len())?;
+
+    let tags_by_song = get_activity_tags_on_songs(&db, claims.user_id, &payload.song_ids).await?;
+
+    Ok(Json(
+        tags_by_song
+            .into_iter()
+            .map(|(song_id, tags)| (song_id, vec_into(tags)))
+            .collect(),
+    ))
+}
+
+#[derive(Deserialize)]
+pub struct RecordPlayPayload {
+    song_id: String,
+}
+
+/// Counts one play of the song for the signed in user, at the server's clock:
+/// adds 1 to My Plays and moves First Played / Last Played as needed. Returns
+/// an empty body. The client decides what counts as a play and calls this
+/// once per play.
+async fn record_play_handler(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Json(payload): Json<RecordPlayPayload>,
+) -> Result<(), CadenzaError> {
+    if payload.song_id.trim().is_empty() {
+        return Err(CadenzaError::QueryFormatError(
+            "song_id cannot be blank".to_string(),
+        ));
+    }
+    record_play(&db, claims.user_id, &payload.song_id, Utc::now()).await
+}
+
 #[derive(Deserialize)]
 pub struct UnapplyTagPayload {
     song_id: String,
@@ -277,4 +348,10 @@ pub fn get_songs_router() -> Router<AppState> {
                 .delete(unapply_user_tag_handler),
         )
         .route("/local-tags/batch", post(get_local_tags_on_songs_handler))
+        .route("/activity-tags", get(get_activity_tags_on_song_handler))
+        .route(
+            "/activity-tags/batch",
+            post(get_activity_tags_on_songs_handler),
+        )
+        .route("/plays", post(record_play_handler))
 }

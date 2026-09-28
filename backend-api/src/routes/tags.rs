@@ -126,6 +126,22 @@ async fn get_songs_with_user_tag_handler(
     ))
 }
 
+/// Returns every activity tag, in display order. These are the same for every
+/// user; only their values on songs differ. Query builders offer them next to
+/// the user's own tags.
+///
+/// JSON return value format:
+/// ```json
+/// [ { "id": 41, "name": "My Plays", "color": "#0ea5e9", "type": "number", "is_activity": true }, ... ]
+/// ```
+async fn get_activity_tags_handler(
+    State(db): State<DatabaseConnection>,
+    _: Claims<SupabaseClaims>, // must have credentials to use this route
+) -> Result<Json<Vec<Tag>>, CadenzaError> {
+    let tags = db::activity_tags::get_activity_tags(&db).await?;
+    Ok(Json(tags.into_iter().map(|(_, tag)| tag.into()).collect()))
+}
+
 /// How many default tags one search returns at most.
 const DEFAULT_TAG_SEARCH_LIMIT: u64 = 5;
 
@@ -255,5 +271,6 @@ pub fn get_tags_router() -> Router<AppState> {
             get(get_top_tag_scores_handler).patch(edit_tag_scores_handler),
         )
         .route("/default-tags", get(search_default_tags_handler))
+        .route("/activity", get(get_activity_tags_handler))
         .route("/suggest", get(suggest_tags_handler))
 }
