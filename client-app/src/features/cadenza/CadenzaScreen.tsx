@@ -19,7 +19,11 @@ import type { QueryCondition } from "@/features/query-builder/types";
 import { useTracksForSongIds } from "@/lib/musickit-hooks";
 import { positiveQueryTagNames } from "@/lib/query-json";
 import { useQueryResults } from "@/lib/routes/queries";
-import { useActivityTags, useUserTags } from "@/lib/routes/tags";
+import {
+    useActivityTagIdsInQuery,
+    useActivityTags,
+    useUserTags,
+} from "@/lib/routes/tags";
 import { useScoreQueryTags } from "@/lib/tag-scores";
 import type { Tag } from "@/lib/types";
 
@@ -75,6 +79,7 @@ export function CadenzaScreen() {
     }, [conditions, mode, query, userTags]);
     const { matchedSongIds, queryResultsLoading, queryResultsErr } =
         useQueryResults(query, includeSuggestedTags);
+    const activityTagIds = useActivityTagIdsInQuery(query);
     // A suggested tag only matches while the request carries
     // consider_default_tags, so leaving one in the query after the toggle goes
     // off would quietly change what the same query returns. Clear it instead.
@@ -148,6 +153,7 @@ export function CadenzaScreen() {
                     });
                 }}
                 mostRelevantTags={relevantTagNames}
+                activityTagIds={activityTagIds}
             />
             {mode === "simple" ? (
                 <QueryBuilder

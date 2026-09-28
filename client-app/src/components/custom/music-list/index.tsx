@@ -14,7 +14,11 @@ import Animated, {
 import { Text } from "@/components/ui/text";
 import { SongOptionsMenu } from "@/components/custom/options-menu/song-options-menu";
 import { usePlaybackCommands } from "@/lib/playback";
-import { useDefaultTagsOnSongs, useTagsOnSongs } from "@/lib/routes/songs";
+import {
+    useActivityTagsOnSongs,
+    useDefaultTagsOnSongs,
+    useTagsOnSongs,
+} from "@/lib/routes/songs";
 import { useUserTags } from "@/lib/routes/tags";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { useScreenScroll } from "@/lib/screen-scroll";
@@ -36,6 +40,8 @@ const DEFAULT_SORT: MusicListSort = {
     direction: "ascending",
 };
 const EMPTY_TAG_NAMES: readonly string[] = [];
+const EMPTY_TAG_IDS: readonly number[] = [];
+const EMPTY_SONG_IDS: readonly string[] = [];
 const MUSIC_LIST_WINDOW_SIZE = 3;
 const MUSIC_LIST_RENDER_BATCH_SIZE = 8;
 // for multiselects, if you have a really long music list
@@ -60,6 +66,7 @@ export function MusicList({
     onCompactChange,
     showTags = true,
     mostRelevantTags = EMPTY_TAG_NAMES,
+    activityTagIds = EMPTY_TAG_IDS,
     anticipatedTrackCount = 8,
     header: headerProp,
     listHeader,
@@ -117,6 +124,11 @@ export function MusicList({
     const { tagsBySong } = useTagsOnSongs(taggableIds);
     const { defaultTagsBySong } = useDefaultTagsOnSongs(taggableIds);
     const { userTagsMeta } = useUserTags(showTags);
+    // only fetched when a caller asks for activity tags, which only query
+    // results do
+    const { activityTagsBySong } = useActivityTagsOnSongs(
+        activityTagIds.length > 0 ? taggableIds : EMPTY_SONG_IDS,
+    );
     const displayedTracks = useMemo(
         () =>
             sortingEnabled && sortStrategy === "local"
@@ -387,6 +399,15 @@ export function MusicList({
                                             }
                                             mostRelevantTags={mostRelevantTags}
                                             tagMetadata={userTagsMeta}
+                                            activityTags={
+                                                activityTagIds.length > 0
+                                                    ? activityTagsBySong[
+                                                          item.catalogId ??
+                                                              item.id
+                                                      ]
+                                                    : undefined
+                                            }
+                                            activityTagIds={activityTagIds}
                                             onPress={handleTrackPress}
                                             onLongPress={
                                                 selection.beginSelection

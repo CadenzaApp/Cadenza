@@ -147,7 +147,10 @@ Rows use the query-revamp spacing, artwork alignment, skeletons, and solid-color
 appearance. `mostRelevantTags` places matching names first in every row, in the supplied order.
 Other tags are ordered by how many songs in the user's library carry them, then by stable name and
 ID tie breakers. Filled user tags and unfilled shared default tags share that order; `index.tsx`
-reads both with one batched request each. The horizontal rail can be dragged to inspect tags beyond
+reads both with one batched request each. Activity tags (My Plays and the rest) show only when a
+caller passes `activityTagIds`: those tags go first, with the song's value, and `index.tsx` fetches
+them in a third batched request. Only query results do that, with the activity tags their query
+filters on. The horizontal rail can be dragged to inspect tags beyond
 the trailing fade without playing the song. The density gesture changes row size
 without switching back to the older translucent pill design. Selected rows use a light foreground
 tint with alpha instead of an opaque replacement color, so artwork gradients remain visible. The

@@ -1,4 +1,4 @@
-import { memo, useRef, useState } from "react";
+import { memo, useMemo, useRef, useState } from "react";
 import { Image, Pressable, StyleSheet, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTheme } from "expo-router/react-navigation";
@@ -31,6 +31,10 @@ type MusicListItemProps = {
     defaultTags?: Tag[];
     mostRelevantTags?: readonly string[];
     tagMetadata?: Readonly<Record<number, TagMetadata>>;
+    /** Every activity tag on the song for this user, as the backend returns them. */
+    activityTags?: AppliedTag[];
+    /** Which of `activityTags` to show, and in what order. */
+    activityTagIds?: readonly number[];
     selected: boolean;
     selectionMode: boolean;
     multiSelectEnabled: boolean;
@@ -52,6 +56,8 @@ export const MusicListItem = memo(function MusicListItem({
     defaultTags,
     mostRelevantTags,
     tagMetadata,
+    activityTags,
+    activityTagIds,
     selected,
     selectionMode,
     multiSelectEnabled,
@@ -71,7 +77,14 @@ export const MusicListItem = memo(function MusicListItem({
     const longPressConsumedRef = useRef(false);
     const itemTags = tags ?? [];
     const itemDefaultTags = defaultTags ?? [];
-    const hasTags = itemTags.length > 0 || itemDefaultTags.length > 0;
+    const shownActivityTags = useMemo(
+        () => pickActivityTags(activityTags, activityTagIds),
+        [activityTags, activityTagIds],
+    );
+    const hasTags =
+        itemTags.length > 0 ||
+        itemDefaultTags.length > 0 ||
+        shownActivityTags.length > 0;
     const artworkUrl = item.artworkUrl?.trim();
     const canRenderArtwork =
         !artworkFailed &&
@@ -276,6 +289,7 @@ export const MusicListItem = memo(function MusicListItem({
                                 defaultTags={itemDefaultTags}
                                 mostRelevantTags={mostRelevantTags}
                                 tagMetadata={tagMetadata}
+                                activityTags={shownActivityTags}
                                 compact={compact}
                             />
                         ) : null}
@@ -363,4 +377,19 @@ function hexWithAlpha(hex: string, alpha: number) {
     const green = Number.parseInt(normalized.slice(2, 4), 16);
     const blue = Number.parseInt(normalized.slice(4, 6), 16);
     return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+}
+
+const NO_ACTIVITY_TAGS: AppliedTag[] = [];
+
+/** The activity tags named by `ids`, in that order, out of the song's. */
+function pickActivityTags(
+    activityTags: AppliedTag[] | undefined,
+    ids: readonly number[] | undefined,
+): AppliedTag[] {
+    if (!activityTags?.length || !ids?.length) return NO_ACTIVITY_TAGS;
+    const byId = new Map(activityTags.map((tag) => [tag.id, tag]));
+    return ids.flatMap((id) => {
+        const tag = byId.get(id);
+        return tag ? [tag] : [];
+    });
 }

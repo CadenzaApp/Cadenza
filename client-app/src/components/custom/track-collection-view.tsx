@@ -60,6 +60,8 @@ type Props = {
     multiSelect?: MusicListMultiSelectConfig | null;
     showTags?: boolean;
     mostRelevantTags?: readonly string[];
+    /** Activity tags to show on every row; see `MusicListProps`. */
+    activityTagIds?: readonly number[];
     artworkUrls?: readonly string[];
     subtitle?: string;
     summary?: string;
@@ -91,6 +93,7 @@ export function TrackCollectionView({
     multiSelect = null,
     showTags = true,
     mostRelevantTags,
+    activityTagIds,
     artworkUrls: artworkUrlsOverride,
     subtitle,
     summary: summaryOverride,
@@ -286,6 +289,7 @@ export function TrackCollectionView({
                 multiSelect={multiSelect}
                 showTags={showTags}
                 mostRelevantTags={mostRelevantTags}
+                activityTagIds={activityTagIds}
                 fullBleedRows
             />
 

@@ -81,6 +81,22 @@ export function positiveQueryTagNames(
     return names;
 }
 
+/**
+ * The id of every tag a filter in `query` names, whatever its operator and
+ * whether or not it is negated, in query traversal order.
+ */
+export function queryTagIds(query: QueryJSON): number[] {
+    const ids = new Set<number>();
+    const visit = (node: QueryJSONNode) => {
+        if ("and" in node) node.and.forEach(visit);
+        else if ("or" in node) node.or.forEach(visit);
+        else if ("not" in node) visit(node.not);
+        else if (node.filter.field === "tag") ids.add(node.filter.tag_id);
+    };
+    visit(query.where);
+    return [...ids];
+}
+
 /** Adds the id of every tag `node` asks for to `out`. */
 function collectPositiveTagIds(
     node: QueryJSONNode,
