@@ -2,7 +2,7 @@ import { Badge } from "@/components/ui/badge";
 import { Text } from "@/components/ui/text";
 import { THEME } from "@/lib/theme";
 import { useColorScheme } from "nativewind";
-import type { ComponentProps, ReactNode } from "react";
+import { memo, type ComponentProps, type ReactNode } from "react";
 import { Pressable, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type { Tag } from "../../lib/types";
@@ -84,7 +84,7 @@ export function useTagScreenColor(tagColor: string) {
  * @param onRemove  - If provided, renders an × button inside the pill.
  *                   Called when the user taps it and caller decides what to do.
  */
-export function TagPill({
+export const TagPill = memo(function TagPill({
     tag,
     height,
     value,
@@ -248,7 +248,7 @@ export function TagPill({
             )}
         </Badge>
     );
-}
+});
 
 /** Black or white, whichever has better contrast against the supplied color. */
 export function readableTextColor(hex: string) {

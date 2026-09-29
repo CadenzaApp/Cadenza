@@ -36,6 +36,8 @@ Every route below requires `Authorization: Bearer <supabase jwt>`.
 | PATCH | `/songs` | `{add: [...], remove: [...]}` | empty. Adds and removes the user's songs |
 | GET | `/songs/local-tags` | `?song_id=...` | `[AppliedTag]`, the user's tags on that song |
 | POST | `/songs/local-tags/batch` | `{song_ids: [...]}` | `{song_id: [AppliedTag]}`, an entry per requested song |
+| PATCH | `/songs/local-tags/batch` | `{song_ids: [...], tag_ids: [...]}` | empty. Applies every tag to every song, preserving existing applications and values |
+| DELETE | `/songs/local-tags/batch` | `{song_ids: [...], tag_ids: [...]}` | empty. Removes every tag from every song; missing applications are ignored |
 | GET | `/songs/default-tags` | `?song_id=...` | `[Tag]`, the shared default tags on that song, minus the ones this user removed. Generates them first if the song has never had them |
 | POST | `/songs/default-tags/batch` | `{song_ids: [...]}` | `{song_id: [Tag]}`, the same read for a list of songs, an entry per requested song. Generates for any that have never had defaults |
 | DELETE | `/songs/default-tags` | `{song_id, tag_id}` | empty. Records that this user removed the suggested tag and counts it. 404 if the tag is not a default tag on the song |

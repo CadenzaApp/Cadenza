@@ -8,6 +8,7 @@ import { AppliedTag, Tag } from "@/lib/types";
 
 // the backend caps a batch at 200 ids
 const TAGS_ON_SONGS_BATCH_SIZE = 200;
+const TAG_EDITS_PER_BATCH = 4_000;
 
 export function useTagsOnSong(songId?: string) {
     const x = useAPIData<AppliedTag[]>("/songs/local-tags", {
@@ -123,6 +124,87 @@ export function useUnapplyTag() {
         resetUnpplyTag: x.reset,
         unapplyTag: x.trigger,
     };
+}
+
+export type EditTagsOnSongsPayload = {
+    song_ids: string[];
+    tag_ids: number[];
+};
+
+const BATCH_TAG_INVALIDATIONS = [
+    { path: "/songs/local-tags" },
+    { path: "/songs/local-tags/batch" },
+    { path: "/songs/default-tags" },
+    { path: "/songs/default-tags/batch" },
+    { path: "/tags" },
+    { path: "/queries/results" },
+];
+
+/** Applies each tag to each song, splitting requests at the backend's caps. */
+export function useApplyTagsToSongs() {
+    const mutation = useAPIMutation<EditTagsOnSongsPayload, void>(
+        "PATCH",
+        "/songs/local-tags/batch",
+        BATCH_TAG_INVALIDATIONS,
+        { awaitInvalidation: true },
+    );
+
+    return {
+        applyTagsToSongsLoading: mutation.isMutating,
+        applyTagsToSongsErr: mutation.error,
+        applyTagsToSongs: (payload: EditTagsOnSongsPayload) =>
+            editTagsInBatches(mutation.trigger, payload),
+    };
+}
+
+/** Removes each tag from each song, splitting requests at the backend's caps. */
+export function useRemoveTagsFromSongs() {
+    const mutation = useAPIMutation<EditTagsOnSongsPayload, void>(
+        "DELETE",
+        "/songs/local-tags/batch",
+        BATCH_TAG_INVALIDATIONS,
+        { awaitInvalidation: true },
+    );
+
+    return {
+        removeTagsFromSongsLoading: mutation.isMutating,
+        removeTagsFromSongsErr: mutation.error,
+        removeTagsFromSongs: (payload: EditTagsOnSongsPayload) =>
+            editTagsInBatches(mutation.trigger, payload),
+    };
+}
+
+async function editTagsInBatches(
+    trigger: (payload: EditTagsOnSongsPayload) => Promise<void>,
+    payload: EditTagsOnSongsPayload,
+) {
+    const songIds = [...new Set(payload.song_ids.filter(Boolean))];
+    const tagIds = [...new Set(payload.tag_ids)];
+
+    for (
+        let tagOffset = 0;
+        tagOffset < tagIds.length;
+        tagOffset += TAG_EDITS_PER_BATCH
+    ) {
+        const tagBatch = tagIds.slice(
+            tagOffset,
+            tagOffset + TAG_EDITS_PER_BATCH,
+        );
+        const songBatchSize = Math.min(
+            TAGS_ON_SONGS_BATCH_SIZE,
+            Math.max(1, Math.floor(TAG_EDITS_PER_BATCH / tagBatch.length)),
+        );
+        for (
+            let songOffset = 0;
+            songOffset < songIds.length;
+            songOffset += songBatchSize
+        ) {
+            await trigger({
+                song_ids: songIds.slice(songOffset, songOffset + songBatchSize),
+                tag_ids: tagBatch,
+            });
+        }
+    }
 }
 
 type RemoveDefaultTagPayload = {

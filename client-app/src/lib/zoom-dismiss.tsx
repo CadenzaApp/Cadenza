@@ -4,6 +4,7 @@ import {
     useCallback,
     useContext,
     useEffect,
+    useLayoutEffect,
     useMemo,
     useRef,
     useState,
@@ -17,6 +18,7 @@ import {
 } from "react-native";
 import Animated, {
     Easing,
+    makeMutable,
     runOnJS,
     useAnimatedStyle,
     useSharedValue,
@@ -45,24 +47,27 @@ import {
  * the scroll handler, and the pop only happens once the animation finishes.
  */
 
-export type ZoomOrigin = ZoomRect & {
-    /** When it was measured. See `ORIGIN_MAX_AGE`. */
-    at: number;
-};
+export type ZoomOrigin = ZoomRect;
 
 const ZOOM_EASING = Easing.bezier(0.32, 0.72, 0, 1);
-/**
- * How stale a rect may be, relative to when the screen mounted, and still count
- * as the thing that opened it. Without this a screen opened by something that
- * records nothing would grow out of whatever row was tapped minutes ago.
- * Measured against mount rather than now, so a rect that lands a frame late
- * still counts and the screen keeps the same target for as long as it is open.
- */
-const ORIGIN_MAX_AGE = 1500;
+/** A measured source only belongs to the navigation immediately after it. */
+const LAUNCH_TICKET_MAX_AGE = 1500;
+
+type ZoomViewport = {
+    width: number;
+    height: number;
+};
+
+type ZoomLaunchTicket = {
+    createdAt: number;
+    viewport: ZoomViewport;
+    origin: SharedValue<ZoomOrigin | null>;
+};
 
 type ZoomOriginStore = {
-    origin: SharedValue<ZoomOrigin | null>;
-    record: (rect: ZoomOrigin) => void;
+    beginLaunch: (viewport: ZoomViewport) => ZoomLaunchTicket;
+    peekLaunch: (viewport: ZoomViewport) => ZoomLaunchTicket | null;
+    consumeLaunch: (ticket: ZoomLaunchTicket) => void;
 };
 
 const ZoomOriginContext = createContext<ZoomOriginStore | null>(null);
@@ -81,18 +86,38 @@ export type ZoomDismissController = {
 const ZoomDismissContext = createContext<ZoomDismissController | null>(null);
 
 /**
- * Holds the rect of the last thing that navigated. One slot, not a map: only
- * the screen on top is ever closing, and it came from the last recorded row.
+ * Hands each pushed screen its own launch measurement. A screen keeps the
+ * ticket it claims, so a nested push cannot replace its eventual close target.
+ * The store itself stays stable and does not rerender every source row.
  */
 export function ZoomOriginProvider({ children }: { children: ReactNode }) {
-    const origin = useSharedValue<ZoomOrigin | null>(null);
-    const record = useCallback(
-        (rect: ZoomOrigin) => {
-            origin.set(rect);
-        },
-        [origin],
+    const pendingLaunch = useRef<ZoomLaunchTicket | null>(null);
+    const beginLaunch = useCallback((viewport: ZoomViewport) => {
+        const ticket = {
+            createdAt: Date.now(),
+            viewport,
+            origin: makeMutable<ZoomOrigin | null>(null),
+        };
+        pendingLaunch.current = ticket;
+        return ticket;
+    }, []);
+    const peekLaunch = useCallback((viewport: ZoomViewport) => {
+        const ticket = pendingLaunch.current;
+        if (!ticket) return null;
+
+        const fresh = Date.now() - ticket.createdAt <= LAUNCH_TICKET_MAX_AGE;
+        const sameViewport =
+            ticket.viewport.width === viewport.width &&
+            ticket.viewport.height === viewport.height;
+        return fresh && sameViewport ? ticket : null;
+    }, []);
+    const consumeLaunch = useCallback((ticket: ZoomLaunchTicket) => {
+        if (pendingLaunch.current === ticket) pendingLaunch.current = null;
+    }, []);
+    const store = useMemo(
+        () => ({ beginLaunch, peekLaunch, consumeLaunch }),
+        [beginLaunch, consumeLaunch, peekLaunch],
     );
-    const store = useMemo(() => ({ origin, record }), [origin, record]);
 
     return (
         <ZoomOriginContext.Provider value={store}>
@@ -121,14 +146,19 @@ export function ZoomOriginProvider({ children }: { children: ReactNode }) {
 export function useZoomSource() {
     const store = useContext(ZoomOriginContext);
     const ref = useRef<RNView>(null);
+    const viewport = useWindowDimensions();
 
     const capture = useCallback(() => {
         if (!store) return;
+        const ticket = store.beginLaunch({
+            width: viewport.width,
+            height: viewport.height,
+        });
         ref.current?.measureInWindow((x, y, width, height) => {
             if (width <= 0 || height <= 0) return;
-            store.record({ x, y, width, height, at: Date.now() });
+            ticket.origin.set({ x, y, width, height });
         });
-    }, [store]);
+    }, [store, viewport.height, viewport.width]);
 
     return { ref, capture };
 }
@@ -166,17 +196,32 @@ export function useCloseScreen() {
  * there underneath: the card shrinks over it rather than over black, and the
  * rounded corners show it at rest.
  */
-export function ZoomDismissScreen({ children }: { children: ReactNode }) {
+export function ZoomDismissScreen({
+    children,
+    overlay,
+}: {
+    children: ReactNode;
+    /** Chrome that should transform and clip with this particular card. */
+    overlay?: ReactNode;
+}) {
     const store = useContext(ZoomOriginContext);
     const router = useRouter();
     const { width, height } = useWindowDimensions();
     // Starts minimized and grows, so the first frame is the artwork rather
     // than a full screen that then has to be animated down.
-    const [mountedAt] = useState(() => Date.now());
+    const fallbackOrigin = useSharedValue<ZoomOrigin | null>(null);
+    const [launch] = useState(() => store?.peekLaunch({ width, height }));
     const progress = useSharedValue(1);
     const closing = useSharedValue(false);
     const cardVisible = useSharedValue(1);
-    const origin = store?.origin;
+    const animationGeneration = useSharedValue(0);
+    const launchMatchesViewport =
+        launch?.viewport.width === width && launch.viewport.height === height;
+    const origin = launchMatchesViewport ? launch.origin : fallbackOrigin;
+
+    useLayoutEffect(() => {
+        if (launch) store?.consumeLaunch(launch);
+    }, [launch, store]);
 
     useEffect(() => {
         cardVisible.set(1);
@@ -189,21 +234,39 @@ export function ZoomDismissScreen({ children }: { children: ReactNode }) {
     }, [cardVisible, progress]);
 
     const pop = useCallback(() => {
-        if (router.canGoBack()) router.back();
-    }, [router]);
+        if (router.canGoBack()) {
+            router.back();
+            return;
+        }
+
+        // A deep-linked route may have nowhere to pop. Do not leave its card
+        // invisible and permanently latched in the closing state.
+        cardVisible.set(1);
+        closing.set(false);
+        progress.set(withSpring(0, { damping: 20, stiffness: 220 }));
+    }, [cardVisible, closing, progress, router]);
 
     const runCloseAnimation = useCallback(() => {
+        const generation = animationGeneration.get() + 1;
+        animationGeneration.set(generation);
         const duration = zoomCloseDuration(progress.get());
         progress.set(
             withTiming(1, { duration, easing: ZOOM_EASING }, (finished) => {
-                if (!finished) return;
+                if (animationGeneration.get() !== generation) return;
+                if (!finished) {
+                    closing.set(false);
+                    progress.set(
+                        withSpring(0, { damping: 20, stiffness: 220 }),
+                    );
+                    return;
+                }
                 // Reveal the source immediately. A delayed JS pop cannot
                 // leave the minimized card hovering over the artwork.
                 cardVisible.set(0);
                 runOnJS(pop)();
             }),
         );
-    }, [cardVisible, pop, progress]);
+    }, [animationGeneration, cardVisible, closing, pop, progress]);
 
     const close = useCallback(() => {
         if (closing.get()) return;
@@ -224,11 +287,7 @@ export function ZoomDismissScreen({ children }: { children: ReactNode }) {
 
     const cardStyle = useAnimatedStyle(() => {
         const p = progress.get();
-        const recorded = origin?.get() ?? null;
-        const rect =
-            recorded && recorded.at >= mountedAt - ORIGIN_MAX_AGE
-                ? recorded
-                : null;
+        const rect = origin.get();
         const geometry = zoomGeometry(width, height, rect, p);
 
         return {
@@ -249,6 +308,7 @@ export function ZoomDismissScreen({ children }: { children: ReactNode }) {
             <View style={styles.root}>
                 <Animated.View style={[styles.card, cardStyle]}>
                     {children}
+                    {overlay}
                 </Animated.View>
             </View>
         </ZoomDismissContext.Provider>

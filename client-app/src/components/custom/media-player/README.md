@@ -11,12 +11,12 @@ always-mounted pages in one horizontal pager at the bottom of that sheet.
 | file                     | role                                                                                                                                                 |
 | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `index.ts`               | Public exports for the native accessory and compatibility overlay.                                                                                   |
-| `media-player-host.tsx`  | Adapts native accessory placement, decides whether an accessory is declared at all, and positions the fallback.                                      |
+| `media-player-host.tsx`  | Adapts native accessory placement, owns zoom-card and root-screen compact-player hosts, and positions the fallback.                                  |
 | `media-player.tsx`       | Playback wiring shared by both native placements and the fallback.                                                                                   |
 | `player-pager.tsx`       | Always-mounted horizontal pager plus its glass Comments / Player / Tags selector.                                                                    |
-| `player-tabs.tsx`        | Selected-page context shared by the pager and Modify Tags actions.                                                                                   |
+| `player-tabs.tsx`        | Selected-page context shared by the pager and its glass tab selector.                                                                                |
 | `player-chrome.tsx`      | Context carrying how much room the pager's selector takes below the pages, for keyboard avoidance.                                                   |
-| `player-scope.tsx`       | Resolves and shares the focused song across the sheet's three pages, and selects Tags for Modify Tags.                                               |
+| `player-scope.tsx`       | Resolves and shares the focused song across the sheet's three pages.                                                                                 |
 | `player-page.tsx`        | The Player route: artwork or the queue, the scrubber, and the transport. The only route that touches playback.                                       |
 | `comments-page.tsx`      | The Comments route: every user's comments on `focusedSong`, highest score first. Posts, replies, votes, and deletes through `@/lib/routes/comments`. |
 | `tags-page.tsx`          | The Tags route: every user tag for `focusedSong`, applied first, plus default tags a tap adopts and a long press removes.                            |
@@ -29,8 +29,8 @@ The `...` menu and its tag editor are **not** in this directory any more. They m
 `@/components/custom/options-menu::SongOptionsMenu` and `@/components/custom/song-tag-editor`,
 since the list-row song menu needed the same Favorite/Share/Add to Playlist/Go to Album/Go to
 Artist/Modify Tags shape this sheet already had. `player-page.tsx` renders `SongOptionsMenu` with
-a `navigate` that dismisses the sheet before pushing, and an `onModifyTags` that selects the
-already-mounted Tags page in place instead of opening another sheet (see Connects to).
+a `navigate` that dismisses the sheet before pushing. Modify Tags stays in place and swaps the
+options menu for the shared selector popup (see Connects to).
 
 ## How it works
 
@@ -73,9 +73,7 @@ knows that number, so it reports it rather than letting each page guess.
 
 `PlayerScopeProvider` resolves a `focusedSong` (id, title, artwork) from `usePlayback()`'s
 `activeTrack` or the route's `tagsSongId` / `tagsSongTitle` / `tagsArtworkUrl` /
-`tagsArtworkColor` params and shares it across the three routes. Modify Tags on a song that is not
-playing pushes `/player/tags` with those params. Modify Tags from the Player page updates the
-scope and selects the already-mounted Tags page without changing routes.
+`tagsArtworkColor` params and shares it across the three routes.
 
 `CommentsPage` also takes `active`, whether the pager is on it, so it knows when to hold its
 comment order. The pager derives that from the selected tab, which settles on momentum scroll end.
@@ -106,8 +104,7 @@ Playback state is unaffected either way, because it lives in `PlaybackProvider`,
 
 The two halves are split by what they render into. `media-player.tsx` owns playback commands and
 the tap that pushes `/player`. `player-scope.tsx` owns the song shared by the sheet routes.
-`player-page.tsx` takes only `onModifyTags` as a prop and derives everything else from
-`usePlayback()`. Favorites for the heading/queue heart go through
+`player-page.tsx` derives its state from `usePlayback()`. Favorites for the heading/queue heart go through
 `useSongFavoriteStatus`, which updates optimistically; tag editing and the `...` menu's own
 favorite copy now live inside `SongOptionsMenu`, not here (see Files).
 
@@ -144,7 +141,7 @@ smoothly between the 750ms native snapshot polls, and scrubbing overrides it wit
   [../../README.md](../../README.md). `player-page.tsx` passes it a `navigate` that dismisses the
   sheet before pushing (`router.back()` then `router.push`), since Add to Playlist / Go to
   Album / Go to Artist are full screen routes and a push from inside a presented sheet would
-  land inside its box, and an `onModifyTags` that selects the mounted Tags page in place.
+  land inside its box. Modify Tags opens the menu's selector popup without navigating.
 - Mounted by `src/app/(tabs)/_layout.tsx`; the sheet navigator is declared by
   `src/app/player/_layout.tsx`.
 

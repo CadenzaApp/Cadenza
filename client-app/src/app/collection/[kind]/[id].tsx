@@ -16,6 +16,7 @@ import { useCollectionSongs } from "@/lib/musickit-hooks";
 import { isTrackInCollection } from "@/lib/playable-item";
 import { usePlaybackCommands, usePlaybackTrackState } from "@/lib/playback";
 import { ZoomDismissScreen } from "@/lib/zoom-dismiss";
+import { MediaPlayerZoomOverlay } from "@/components/custom/media-player";
 
 import type { LibraryCollectionKind } from "@/lib/musickit-hooks";
 
@@ -124,7 +125,7 @@ export default function CollectionDetailScreen() {
     }
 
     return (
-        <ZoomDismissScreen>
+        <ZoomDismissScreen overlay={<MediaPlayerZoomOverlay />}>
             <View className="flex-1">
                 <TrackCollectionView
                     title={

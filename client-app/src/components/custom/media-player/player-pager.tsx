@@ -51,7 +51,7 @@ const TAB_PRESENTATION = {
 
 /** Three always-mounted pages in one native horizontal scroll surface. */
 export function PlayerPager() {
-    const { focusedSong, showTagsFor } = usePlayerScope();
+    const { focusedSong } = usePlayerScope();
     const { selectedTab, selectTab } = usePlayerTabs();
     const { width } = useWindowDimensions();
     const insets = useSafeAreaInsets();
@@ -121,7 +121,7 @@ export function PlayerPager() {
                         />
                     </View>
                     <View style={{ width }}>
-                        <PlayerPage onModifyTags={showTagsFor} />
+                        <PlayerPage />
                     </View>
                     <View style={{ width }}>
                         <TagsPage focusedSong={focusedSong} />

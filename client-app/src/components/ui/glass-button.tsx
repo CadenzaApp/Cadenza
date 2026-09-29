@@ -1,5 +1,11 @@
 import type { ReactNode } from "react";
-import { Pressable, StyleSheet, View, type PressableProps } from "react-native";
+import {
+    Pressable,
+    StyleSheet,
+    View,
+    type ColorValue,
+    type PressableProps,
+} from "react-native";
 
 import { GlassSurface } from "@/components/ui/glass-surface";
 import { TextClassContext } from "@/components/ui/text";
@@ -10,6 +16,7 @@ export type GlassButtonVariant = "default" | "destructive";
 type GlassButtonProps = Omit<PressableProps, "children" | "style"> & {
     variant?: GlassButtonVariant;
     className?: string;
+    glassTintColor?: ColorValue;
     children: ReactNode;
 };
 
@@ -17,6 +24,7 @@ type GlassButtonProps = Omit<PressableProps, "children" | "style"> & {
 export function GlassButton({
     variant = "default",
     className,
+    glassTintColor,
     children,
     disabled,
     ...props
@@ -45,6 +53,7 @@ export function GlassButton({
                     <View pointerEvents="none" style={StyleSheet.absoluteFill}>
                         <GlassSurface
                             variant="regular"
+                            tintColor={glassTintColor}
                             style={StyleSheet.absoluteFill}
                         />
                     </View>

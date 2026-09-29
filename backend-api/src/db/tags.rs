@@ -489,6 +489,141 @@ pub async fn unapply_user_tag(
     Ok(())
 }
 
+/// Applies every requested user tag to every requested song in one transaction.
+/// Existing relations are left alone, including any attribute values they hold.
+pub async fn apply_user_tags_to_songs(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+    song_ids: &[String],
+    tag_ids: &[i64],
+) -> Result<(), CadenzaError> {
+    if song_ids.is_empty() || tag_ids.is_empty() {
+        return Ok(());
+    }
+
+    let song_ids: Vec<String> = song_ids
+        .iter()
+        .cloned()
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+    let tag_ids: Vec<i64> = tag_ids
+        .iter()
+        .copied()
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+    let txn = db.begin().await?;
+    let owned_tags = tags::Entity::find()
+        .filter(tags::Column::UserId.eq(user_id))
+        .filter(tags::Column::TagId.is_in(tag_ids.iter().copied()))
+        .all(&txn)
+        .await?;
+    if owned_tags.len() != tag_ids.len() {
+        return Err(CadenzaError::NotFound);
+    }
+    let tags_by_id: HashMap<i64, tags::Model> = owned_tags
+        .into_iter()
+        .map(|tag| (tag.tag_id, tag))
+        .collect();
+    let existing: HashSet<(String, i64)> = user_tags_applied::Entity::find()
+        .filter(user_tags_applied::Column::UserId.eq(user_id))
+        .filter(user_tags_applied::Column::SongId.is_in(song_ids.iter().cloned()))
+        .filter(user_tags_applied::Column::TagId.is_in(tag_ids.iter().copied()))
+        .all(&txn)
+        .await?
+        .into_iter()
+        .map(|row| (row.song_id, row.tag_id))
+        .collect();
+    let mut recorded = Vec::new();
+
+    for song_id in &song_ids {
+        for tag_id in &tag_ids {
+            if existing.contains(&(song_id.clone(), *tag_id)) {
+                continue;
+            }
+            user_tags_applied::ActiveModel {
+                user_id: Set(user_id),
+                song_id: Set(song_id.clone()),
+                tag_id: Set(*tag_id),
+                value: Set(None),
+            }
+            .insert(&txn)
+            .await?;
+            recorded.push(count_tag_applied(&txn, user_id, song_id, &tags_by_id[tag_id]).await?);
+        }
+    }
+
+    txn.commit().await?;
+    for activity in recorded {
+        activity.log();
+    }
+    Ok(())
+}
+
+/// Removes every requested user tag from every requested song in one transaction.
+/// Missing relations are no-ops.
+pub async fn unapply_user_tags_from_songs(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+    song_ids: &[String],
+    tag_ids: &[i64],
+) -> Result<(), CadenzaError> {
+    if song_ids.is_empty() || tag_ids.is_empty() {
+        return Ok(());
+    }
+
+    let song_ids: Vec<String> = song_ids
+        .iter()
+        .cloned()
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+    let tag_ids: Vec<i64> = tag_ids
+        .iter()
+        .copied()
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+    let txn = db.begin().await?;
+    let owned_tags = tags::Entity::find()
+        .filter(tags::Column::UserId.eq(user_id))
+        .filter(tags::Column::TagId.is_in(tag_ids.iter().copied()))
+        .all(&txn)
+        .await?;
+    if owned_tags.len() != tag_ids.len() {
+        return Err(CadenzaError::NotFound);
+    }
+    let tags_by_id: HashMap<i64, tags::Model> = owned_tags
+        .into_iter()
+        .map(|tag| (tag.tag_id, tag))
+        .collect();
+    let applied = user_tags_applied::Entity::find()
+        .filter(user_tags_applied::Column::UserId.eq(user_id))
+        .filter(user_tags_applied::Column::SongId.is_in(song_ids.iter().cloned()))
+        .filter(user_tags_applied::Column::TagId.is_in(tag_ids.iter().copied()))
+        .all(&txn)
+        .await?;
+    let mut recorded = Vec::with_capacity(applied.len());
+
+    for relation in applied {
+        let song_id = relation.song_id.clone();
+        let tag_id = relation.tag_id;
+        let deleted = relation.delete(&txn).await?;
+        if deleted.rows_affected > 0 {
+            recorded.push(
+                count_tag_unapplied(&txn, user_id, &song_id, &tags_by_id[&tag_id].name).await?,
+            );
+        }
+    }
+
+    txn.commit().await?;
+    for activity in recorded {
+        activity.log();
+    }
+    Ok(())
+}
+
 /// Removes one of the song's suggested tags for this user: remembers it in
 /// `default_tags_removed` and counts a remove for the tag's name (see
 /// [`count_tag_removed`]).

@@ -1,6 +1,6 @@
 import MaskedView from "@react-native-masked-view/masked-view";
 import { LinearGradient } from "expo-linear-gradient";
-import { useMemo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
 
 import { TagPill } from "@/components/custom/tag-pill";
@@ -12,20 +12,21 @@ import { sortMusicListTags } from "./sort-tags";
 
 const TAG_RAIL_TOUCH_INSET = 10;
 const EMPTY_TAG_NAMES: readonly string[] = [];
+const SUGGESTED_TAG_STYLE = { opacity: 0.58 } as const;
 
 /**
  * The song's own and shared default tags in list-wide relevance order.
  * Defaults stay unfilled so their source remains visible after sorting.
  */
-export function TagFadeRail({
+export const TagFadeRail = memo(function TagFadeRail({
     tags,
     defaultTags = [],
     mostRelevantTags,
     tagMetadata,
     compact,
 }: {
-    tags: AppliedTag[];
-    defaultTags?: Tag[];
+    tags: readonly AppliedTag[];
+    defaultTags?: readonly Tag[];
     mostRelevantTags?: readonly string[];
     tagMetadata?: Readonly<Record<number, TagMetadata>>;
     compact: boolean;
@@ -89,7 +90,9 @@ export function TagFadeRail({
                 {orderedTags.map(({ source, tag }) => (
                     <View
                         key={`${source}:${tag.id}`}
-                        style={source === "default" ? { opacity: 0.58 } : null}
+                        style={
+                            source === "default" ? SUGGESTED_TAG_STYLE : null
+                        }
                     >
                         <TagPill
                             tag={tag}
@@ -103,4 +106,4 @@ export function TagFadeRail({
             </ScrollView>
         </MaskedView>
     );
-}
+});

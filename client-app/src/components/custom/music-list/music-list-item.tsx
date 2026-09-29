@@ -26,9 +26,9 @@ import { TagFadeRail } from "./tag-fade-rail";
 
 type MusicListItemProps = {
     item: MusicItem;
-    tags?: AppliedTag[];
+    tags?: readonly AppliedTag[];
     /** Shared default tags on the song, rendered unfilled after the user's own. */
-    defaultTags?: Tag[];
+    defaultTags?: readonly Tag[];
     mostRelevantTags?: readonly string[];
     tagMetadata?: Readonly<Record<number, TagMetadata>>;
     selected: boolean;
@@ -45,6 +45,8 @@ type MusicListItemProps = {
 };
 
 const ARTWORK_SIZE = 58;
+const EMPTY_APPLIED_TAGS: readonly AppliedTag[] = [];
+const EMPTY_DEFAULT_TAGS: readonly Tag[] = [];
 
 export const MusicListItem = memo(function MusicListItem({
     item,
@@ -66,19 +68,11 @@ export const MusicListItem = memo(function MusicListItem({
     const { colors } = useTheme();
     const { colorScheme = "light" } = useColorScheme();
     const theme = THEME[colorScheme];
-    const [artworkFailed, setArtworkFailed] = useState(false);
     const [rowPressed, setRowPressed] = useState(false);
     const longPressConsumedRef = useRef(false);
-    const itemTags = tags ?? [];
-    const itemDefaultTags = defaultTags ?? [];
-    const hasTags = itemTags.length > 0 || itemDefaultTags.length > 0;
-    const artworkUrl = item.artworkUrl?.trim();
-    const canRenderArtwork =
-        !artworkFailed &&
-        typeof artworkUrl === "string" &&
-        /^https?:\/\//i.test(artworkUrl);
+    const itemTags = tags ?? EMPTY_APPLIED_TAGS;
+    const itemDefaultTags = defaultTags ?? EMPTY_DEFAULT_TAGS;
     const selectionColor = hexWithAlpha(theme.foreground, 0.12);
-    const artworkSize = compact ? 48 : ARTWORK_SIZE;
     const animatedRowStyle = useAnimatedStyle(
         () => ({
             backgroundColor: withTiming(
@@ -205,81 +199,14 @@ export const MusicListItem = memo(function MusicListItem({
                         accessibilityLabel={`${item.title} by ${item.artistName}`}
                         accessibilityState={{ selected }}
                     />
-                    {canRenderArtwork ? (
-                        <View
-                            pointerEvents="none"
-                            className="mr-2 shrink-0"
-                            style={{
-                                width: artworkSize,
-                                aspectRatio: 1,
-                                transform: [{ translateY: compact ? 2 : 4 }],
-                            }}
-                        >
-                            <Image
-                                source={{ uri: artworkUrl }}
-                                className="h-full w-full rounded bg-muted"
-                                resizeMode="cover"
-                                style={{ borderRadius: 4 }}
-                                onError={() => setArtworkFailed(true)}
-                            />
-                        </View>
-                    ) : (
-                        <View
-                            pointerEvents="none"
-                            className="mr-2 shrink-0 items-center justify-center rounded bg-muted"
-                            style={{
-                                width: artworkSize,
-                                aspectRatio: 1,
-                                transform: [{ translateY: compact ? 2 : 4 }],
-                            }}
-                        >
-                            <Text className="text-xs text-muted-foreground text-center">
-                                No Art
-                            </Text>
-                        </View>
-                    )}
-
-                    <View
-                        pointerEvents="box-none"
-                        className="flex-1 flex-col justify-center overflow-hidden"
-                        style={
-                            !hasTags
-                                ? {
-                                      rowGap: 1,
-                                      transform: [{ translateY: 5 }],
-                                  }
-                                : {
-                                      rowGap: 3,
-                                      transform: [{ translateY: 1 }],
-                                  }
-                        }
-                    >
-                        <View pointerEvents="none">
-                            <Text
-                                className="text-base font-bold leading-tight text-foreground"
-                                numberOfLines={1}
-                            >
-                                {item.title}
-                            </Text>
-                            <Text
-                                className="text-sm leading-tight text-muted-foreground"
-                                style={{ transform: [{ translateY: -1 }] }}
-                                numberOfLines={1}
-                            >
-                                {item.artistName}
-                            </Text>
-                        </View>
-
-                        {hasTags ? (
-                            <TagFadeRail
-                                tags={itemTags}
-                                defaultTags={itemDefaultTags}
-                                mostRelevantTags={mostRelevantTags}
-                                tagMetadata={tagMetadata}
-                                compact={compact}
-                            />
-                        ) : null}
-                    </View>
+                    <MusicListItemVisuals
+                        item={item}
+                        tags={itemTags}
+                        defaultTags={itemDefaultTags}
+                        mostRelevantTags={mostRelevantTags}
+                        tagMetadata={tagMetadata}
+                        compact={compact}
+                    />
                 </View>
             </Animated.View>
 
@@ -313,6 +240,112 @@ export const MusicListItem = memo(function MusicListItem({
                 </Animated.View>
             ) : null}
         </Animated.View>
+    );
+});
+
+/** The expensive, selection-independent part of a row. */
+const MusicListItemVisuals = memo(function MusicListItemVisuals({
+    item,
+    tags,
+    defaultTags,
+    mostRelevantTags,
+    tagMetadata,
+    compact,
+}: {
+    item: MusicItem;
+    tags: readonly AppliedTag[];
+    defaultTags: readonly Tag[];
+    mostRelevantTags?: readonly string[];
+    tagMetadata?: Readonly<Record<number, TagMetadata>>;
+    compact: boolean;
+}) {
+    const [artworkFailed, setArtworkFailed] = useState(false);
+    const hasTags = tags.length > 0 || defaultTags.length > 0;
+    const artworkUrl = item.artworkUrl?.trim();
+    const canRenderArtwork =
+        !artworkFailed &&
+        typeof artworkUrl === "string" &&
+        /^https?:\/\//i.test(artworkUrl);
+    const artworkSize = compact ? 48 : ARTWORK_SIZE;
+
+    return (
+        <>
+            {canRenderArtwork ? (
+                <View
+                    pointerEvents="none"
+                    className="mr-2 shrink-0"
+                    style={{
+                        width: artworkSize,
+                        aspectRatio: 1,
+                        transform: [{ translateY: compact ? 2 : 4 }],
+                    }}
+                >
+                    <Image
+                        source={{ uri: artworkUrl }}
+                        className="h-full w-full rounded bg-muted"
+                        resizeMode="cover"
+                        style={{ borderRadius: 4 }}
+                        onError={() => setArtworkFailed(true)}
+                    />
+                </View>
+            ) : (
+                <View
+                    pointerEvents="none"
+                    className="mr-2 shrink-0 items-center justify-center rounded bg-muted"
+                    style={{
+                        width: artworkSize,
+                        aspectRatio: 1,
+                        transform: [{ translateY: compact ? 2 : 4 }],
+                    }}
+                >
+                    <Text className="text-xs text-muted-foreground text-center">
+                        No Art
+                    </Text>
+                </View>
+            )}
+
+            <View
+                pointerEvents="box-none"
+                className="flex-1 flex-col justify-center overflow-hidden"
+                style={
+                    !hasTags
+                        ? {
+                              rowGap: 1,
+                              transform: [{ translateY: 5 }],
+                          }
+                        : {
+                              rowGap: 3,
+                              transform: [{ translateY: 1 }],
+                          }
+                }
+            >
+                <View pointerEvents="none">
+                    <Text
+                        className="text-base font-bold leading-tight text-foreground"
+                        numberOfLines={1}
+                    >
+                        {item.title}
+                    </Text>
+                    <Text
+                        className="text-sm leading-tight text-muted-foreground"
+                        style={{ transform: [{ translateY: -1 }] }}
+                        numberOfLines={1}
+                    >
+                        {item.artistName}
+                    </Text>
+                </View>
+
+                {hasTags ? (
+                    <TagFadeRail
+                        tags={tags}
+                        defaultTags={defaultTags}
+                        mostRelevantTags={mostRelevantTags}
+                        tagMetadata={tagMetadata}
+                        compact={compact}
+                    />
+                ) : null}
+            </View>
+        </>
     );
 });
 

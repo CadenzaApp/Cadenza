@@ -101,7 +101,7 @@ variables), `tailwind.config.js`, and `global.css`. Class merging goes through
 | `options-menu/`             | The song, album, and playlist "..." menus, on liquid glass. See below.                                                                                                                                                                                                                                                                                                       |
 | `song-tag-editor.tsx`       | Tag editing for one song: applied state, values, adopting or removing a default tag, mutations, and dialog state.                                                                                                                                                                                                                                                            |
 | `tag-pill.tsx`              | The app tag chip. `appearance` selects solid chosen styling or a transparent outline, and `suggested` italicizes shared suggestions. Dark colors are adjusted for readable outlines in dark mode. Attribute tags keep their type icon through query negation and can show formatted values. Exports `useTagScreenColor` for surfaces built by hand, and `readableTextColor`. |
-| `tag-selector/`             | Reusable glass selector. Your Tags toggles solid/outline chosen state and paginates by 20. Single-song mode adds a separate Suggested card, while multi-song mode omits it. The selector owns New in both modes. Its pure sorter supports stable single-song and multi-song priority rules.                                                                                  |
+| `tag-selector/`             | Reusable glass selector and its single-song and bulk popups. Your Tags toggles solid/outline chosen state and paginates by 20. Single-song mode adds a separate Suggested card, while multi-song mode omits it. Callers may include New plus right-aligned liquid-glass footer actions. Its pure sorter supports stable single-song and multi-song priority rules.           |
 | `create-tag-dialog.tsx`     | Creates a tag with its name, color, and optional attribute type on the reliable glass `ModalPopup` path.                                                                                                                                                                                                                                                                     |
 | `tag-value-dialog.tsx`      | Liquid-glass per-type editor opened when an attribute tag is applied or edited.                                                                                                                                                                                                                                                                                              |
 | `modal-popup.tsx`           | Small popup used by options, sorting, and selection actions. Liquid glass is the default.                                                                                                                                                                                                                                                                                    |
@@ -142,7 +142,14 @@ list that is fully loaded up front, like a tag's songs or a query's results.
 Multi-select is opt-in too, via `multiSelect`. Selection is scoped to what is currently
 displayed: if paging or a filter drops a row, its id is pruned. A long press starts a selection,
 a tap toggles one, and clearing everything leaves selection mode. Pinching the list toggles
-compact rows; pass `compact` and `onCompactChange` to control that from outside.
+compact rows; pass `compact` and `onCompactChange` to control that from outside. Every selection
+toolbar includes Apply tags and Remove tags. Both open a transactional multi-song `TagSelector`:
+Apply initially chooses only tags present on every selected song, while Remove lists only tags
+present on at least one selected song and starts with none chosen. Neither writes until its
+confirmation button is pressed. Apply may create a tag; Remove deliberately cannot.
+Callers can disable those generic tag actions and provide contextual actions instead. The tag
+detail screen does this to show Add to Queue and Remove tag, which removes the open tag from every
+selected song and refreshes the tag's song list.
 
 Rows use the query-revamp spacing, artwork alignment, skeletons, and solid-color `TagPill`
 appearance. `mostRelevantTags` places matching names first in every row, in the supplied order.
@@ -154,7 +161,10 @@ without switching back to the older translucent pill design. Selected rows use a
 tint with alpha instead of an opaque replacement color, so artwork gradients remain visible. The
 floating selection toolbar and its overflow popup are liquid glass. The toolbar uses the same
 screen-aware bottom anchor as the sort bubble, so native tab and player insets are not counted
-twice. `trackMenuActions` appends caller actions to the shared `SongOptionsMenu`; do not restore
+twice. Row artwork, metadata, tag rails, and tag pills are memoized away from selection-only
+updates. The entrance transition also uses a weighted row-plus-tag cost and snaps directly into
+selection mode for tag-heavy lists, avoiding simultaneous animation of many masked rails.
+`trackMenuActions` appends caller actions to the shared `SongOptionsMenu`; do not restore
 the deleted list-specific track menu.
 
 `collection-list.tsx` is deliberately not `MusicList`. Sorting, multi-select, tagging, and the
@@ -199,20 +209,16 @@ scroll view for inset, scroll-to-top, and tab-bar/accessory minimization.
 
 ### custom/options-menu/
 
-| file                          | role                                                                                                                                                                                                                                                                                   |
-| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `song-options-menu.tsx`       | `SongOptionsMenu`. Favorite + Share, Add to Playlist, Play Next, Add to Queue, Go to Album, Go to Artist, then a pronounced Modify Tags footer. Self-contained: owns its own favorite and artist state from just a `track`. Used by the music list row menu and the now-playing sheet. |
-| `collection-options-menu.tsx` | `CollectionOptionsMenu`. Favorite + Share for the album/playlist itself, then Play Next / Add to Queue against its songs. Used by `/collection/[kind]/[id]`.                                                                                                                           |
-| `favorite-share-row.tsx`      | `FavoriteShareRow`, the icon row + divider both menus lead with. Generic over the target type.                                                                                                                                                                                         |
+| file                          | role                                                                                                                                                                                                                                                                      |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `song-options-menu.tsx`       | `SongOptionsMenu`. Favorite + Share, then Modify Tags, Add to Playlist, Play Next, Add to Queue, Go to Album, and Go to Artist. Modify Tags swaps the menu for an inline selector popup. Self-contained from just a `track`; used by list rows and the now-playing sheet. |
+| `collection-options-menu.tsx` | `CollectionOptionsMenu`. Favorite + Share for the album/playlist itself, then Play Next / Add to Queue against its songs. Used by `/collection/[kind]/[id]`.                                                                                                              |
+| `favorite-share-row.tsx`      | `FavoriteShareRow`, the icon row + divider both menus lead with. Generic over the target type.                                                                                                                                                                            |
 
-Both menus render through the liquid-glass default in `ModalPopup`. Neither owns navigation directly:
-`SongOptionsMenu` takes an optional `navigate` (defaulting to a plain `router.push`), so the
-now-playing sheet can pass a function that dismisses itself first, without that assumption living
-in the shared component. Modify Tags is the same shape: `SongOptionsMenu` takes an optional
-`onModifyTags`, defaulting to a route push to `/player/tags` with `tagsSongId` and friends (opening the
-now-playing sheet's Tags page for a song that may not be playing), while the now-playing sheet's
-own menu instance passes a function that selects its native Tags tab in place instead - see
-[custom/media-player/README.md](custom/media-player/README.md).
+Both menus render through the liquid-glass default in `ModalPopup`. `SongOptionsMenu` takes an
+optional `navigate` (defaulting to a plain `router.push`), so the now-playing sheet can dismiss
+itself before opening full-screen destinations. Modify Tags does not navigate. It replaces the
+options popup with a `TagSelector` popup for that song.
 
 Gotchas carried over from before the two "..." menus were merged: `SongOptionsMenu` resolves the
 song's artist (for Go to Artist) as soon as it mounts, which is only while the menu is open, so

@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/tint-backdrop";
 import { darken, useArtworkTint, withAlpha } from "@/lib/artwork-color";
 import { useZoomSource, ZoomDismissScreen } from "@/lib/zoom-dismiss";
+import { MediaPlayerZoomOverlay } from "@/components/custom/media-player";
 import { collectionRoute } from "@/lib/music-routes";
 import { useArtist } from "@/lib/musickit-hooks";
 import { samePlayableItem } from "@/lib/playable-item";
@@ -98,7 +99,7 @@ export default function ArtistScreen() {
     }
 
     return (
-        <ZoomDismissScreen>
+        <ZoomDismissScreen overlay={<MediaPlayerZoomOverlay />}>
             <View className="flex-1 bg-card">
                 {artistErr ? <ErrorNotice error={artistErr} /> : null}
 

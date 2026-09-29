@@ -29,18 +29,23 @@ import {
     DEFAULT_MUSIC_LIST_SORT_OPTIONS,
     type MusicListProps,
     type MusicListSort,
+    type MusicListTrackAction,
 } from "./types";
 
 const DEFAULT_SORT: MusicListSort = {
     option: "title",
     direction: "ascending",
 };
+const EMPTY_TAG_IDS: readonly string[] = [];
 const EMPTY_TAG_NAMES: readonly string[] = [];
+const EMPTY_TRACK_ACTIONS: readonly MusicListTrackAction[] = [];
 const MUSIC_LIST_WINDOW_SIZE = 3;
 const MUSIC_LIST_RENDER_BATCH_SIZE = 8;
-// for multiselects, if you have a really long music list
-// the animation can get laggy.
-const MAX_ANIMATED_SELECTION_TRACKS = 100;
+// Masked tag rails are substantially more expensive to move than a plain row.
+// Keep the transition for light lists and snap directly into selection mode
+// once the visible content would require too many simultaneous composites.
+const MAX_ANIMATED_SELECTION_COST = 80;
+const TAG_SELECTION_ANIMATION_COST = 2;
 const DENSITY_FADE_OUT_MS = 140;
 const DENSITY_ROW_FADE_IN_MS = 220;
 const DENSITY_ROW_STAGGER_MS = 32;
@@ -50,7 +55,7 @@ export function MusicList({
     tracks,
     isLoading,
     onTrackPressOverride = null,
-    trackMenuActions = [],
+    trackMenuActions = EMPTY_TRACK_ACTIONS,
     multiSelect = null,
     fullBleedRows = false,
     fullBleedRowHorizontalPadding = 24,
@@ -109,14 +114,23 @@ export function MusicList({
     }));
     const { floatingActionBottom, listBottomInset, playerBottomInset } =
         useScreenOverlayInsets();
+    const tagsEnabled = showTags || multiSelect != null;
     const taggableIds = useMemo(
         () =>
-            showTags ? tracks.map((track) => track.catalogId ?? track.id) : [],
-        [showTags, tracks],
+            tagsEnabled
+                ? tracks.map((track) => track.catalogId ?? track.id)
+                : [],
+        [tagsEnabled, tracks],
     );
-    const { tagsBySong } = useTagsOnSongs(taggableIds);
-    const { defaultTagsBySong } = useDefaultTagsOnSongs(taggableIds);
-    const { userTagsMeta } = useUserTags(showTags);
+    const { tagsBySong, tagsBySongLoading } = useTagsOnSongs(taggableIds);
+    const { defaultTagsBySong } = useDefaultTagsOnSongs(
+        showTags ? taggableIds : EMPTY_TAG_IDS,
+    );
+    const {
+        userTags = [],
+        userTagsMeta,
+        userTagsLoading,
+    } = useUserTags(tagsEnabled);
     const displayedTracks = useMemo(
         () =>
             sortingEnabled && sortStrategy === "local"
@@ -127,8 +141,22 @@ export function MusicList({
     const selection = useMusicListSelection(displayedTracks, multiSelect);
     const { isSelecting, toggleSelection } = selection;
     const isSelectingRef = useRef(isSelecting);
+    const selectionAnimationCost = useMemo(() => {
+        let cost = displayedTracks.length;
+        if (!showTags) return cost;
+
+        for (const track of displayedTracks) {
+            const songId = track.catalogId ?? track.id;
+            cost +=
+                TAG_SELECTION_ANIMATION_COST *
+                ((tagsBySong[songId]?.length ?? 0) +
+                    (defaultTagsBySong[songId]?.length ?? 0));
+            if (cost > MAX_ANIMATED_SELECTION_COST) break;
+        }
+        return cost;
+    }, [defaultTagsBySong, displayedTracks, showTags, tagsBySong]);
     const animateSelectionTransition =
-        displayedTracks.length <= MAX_ANIMATED_SELECTION_TRACKS;
+        selectionAnimationCost <= MAX_ANIMATED_SELECTION_COST;
     const selectionToolbarBottom = floatingActionBottom;
     const contentBottomInset = embedded
         ? 0
@@ -290,6 +318,7 @@ export function MusicList({
         },
         [onTrackPressOverride, togglePlayback, toggleSelection],
     );
+    const closeTrackMenu = useCallback(() => setMenuTrack(null), []);
 
     return (
         <View style={{ flex: 1, position: "relative" }}>
@@ -452,12 +481,16 @@ export function MusicList({
                     bottom={selectionToolbarBottom}
                     onClear={selection.clearSelection}
                     onHeightChange={setSelectionToolbarHeight}
+                    userTags={userTags}
+                    userTagsMeta={userTagsMeta}
+                    tagsBySong={tagsBySong}
+                    tagsLoading={tagsBySongLoading || userTagsLoading}
                 />
             ) : null}
 
             <SongOptionsMenu
                 track={menuTrack}
-                onClose={() => setMenuTrack(null)}
+                onClose={closeTrackMenu}
                 extraActions={trackMenuActions}
             />
         </View>

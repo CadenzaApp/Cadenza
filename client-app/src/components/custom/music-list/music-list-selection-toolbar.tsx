@@ -15,11 +15,16 @@ import Animated, {
     withTiming,
 } from "react-native-reanimated";
 
-import { Button } from "@/components/ui/button";
 import { ModalPopup } from "@/components/custom/modal-popup";
+import {
+    BulkTagSelectorPopup,
+    type BulkTagMode,
+} from "@/components/custom/tag-selector/bulk-popup";
+import { Button } from "@/components/ui/button";
 import { GlassSurface } from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
 import { usePlaybackCommands } from "@/lib/playback";
+import type { AppliedTag, Tag, TagMetadata } from "@/lib/types";
 
 import { MusicListActionButton } from "./music-list-action-button";
 import type {
@@ -33,6 +38,10 @@ type MusicListSelectionToolbarProps = {
     bottom: number;
     onClear: () => void;
     onHeightChange: (height: number) => void;
+    userTags: readonly Tag[];
+    userTagsMeta?: Readonly<Record<number, TagMetadata>>;
+    tagsBySong: Readonly<Record<string, AppliedTag[]>>;
+    tagsLoading: boolean;
 };
 
 const SWIPE_DISMISS_DISTANCE = 80;
@@ -44,8 +53,13 @@ export function MusicListSelectionToolbar({
     bottom,
     onClear,
     onHeightChange,
+    userTags,
+    userTagsMeta,
+    tagsBySong,
+    tagsLoading,
 }: MusicListSelectionToolbarProps) {
     const [moreOpen, setMoreOpen] = useState(false);
+    const [tagAction, setTagAction] = useState<BulkTagMode | null>(null);
     const [pendingActionId, setPendingActionId] = useState<string | null>(null);
     const { colors } = useTheme();
     const { addToQueue } = usePlaybackCommands();
@@ -95,10 +109,35 @@ export function MusicListSelectionToolbar({
         icon: "list-outline",
         onPress: addToQueue,
     };
-    const actions = [
+    const applyTagsAction: MusicListSelectionAction = {
+        id: "music-list:apply-tags",
+        label: config.applyTagsLabel ?? "Apply tags",
+        icon: "pricetags",
+        onPress: () => undefined,
+    };
+    const removeTagsAction: MusicListSelectionAction = {
+        id: "music-list:remove-tags",
+        label: "Remove tags",
+        icon: "pricetags-outline",
+        onPress: () => undefined,
+    };
+    const includeTagActions = config.includeTagActions !== false;
+    const tagActions = [
+        ...((config.includeApplyTags ?? includeTagActions)
+            ? [applyTagsAction]
+            : []),
+        ...((config.includeRemoveTags ?? includeTagActions)
+            ? [removeTagsAction]
+            : []),
+    ];
+    const otherActions = [
         ...(config.includeAddToQueue === false ? [] : [queueAction]),
         ...(config.actions ?? []),
     ];
+    const actions =
+        config.tagActionsPlacement === "after"
+            ? [...otherActions, ...tagActions]
+            : [...tagActions, ...otherActions];
     const overflowActions = actions.length > 3 ? actions.slice(2) : [];
     const visibleActions =
         overflowActions.length > 0
@@ -128,6 +167,20 @@ export function MusicListSelectionToolbar({
                     error,
                 );
             });
+    }
+
+    function handleAction(action: MusicListSelectionAction) {
+        if (action.id === applyTagsAction.id) {
+            setMoreOpen(false);
+            setTagAction("apply");
+            return;
+        }
+        if (action.id === removeTagsAction.id) {
+            setMoreOpen(false);
+            setTagAction("remove");
+            return;
+        }
+        runAction(action);
     }
 
     function handleLayout(event: LayoutChangeEvent) {
@@ -196,7 +249,7 @@ export function MusicListSelectionToolbar({
                                             ) {
                                                 setMoreOpen(true);
                                             } else {
-                                                runAction(action);
+                                                handleAction(action);
                                             }
                                         }}
                                     />
@@ -217,13 +270,35 @@ export function MusicListSelectionToolbar({
                                 target={tracks}
                                 onPress={() => {
                                     setMoreOpen(false);
-                                    runAction(action);
+                                    handleAction(action);
                                 }}
                                 busy={pendingActionId === action.id}
                                 disabled={pendingActionId != null}
                             />
                         ))}
                     </ModalPopup>
+
+                    {tagAction ? (
+                        <BulkTagSelectorPopup
+                            key={`${tagAction}:${tagsLoading ? "loading" : "ready"}`}
+                            mode={tagAction}
+                            tracks={tracks}
+                            userTags={userTags}
+                            userTagsMeta={userTagsMeta}
+                            tagsBySong={tagsBySong}
+                            loading={tagsLoading}
+                            excludedTagIds={
+                                tagAction === "apply"
+                                    ? config.applyTagsExcludedTagIds
+                                    : undefined
+                            }
+                            onCancel={() => setTagAction(null)}
+                            onComplete={() => {
+                                setTagAction(null);
+                                onClear();
+                            }}
+                        />
+                    ) : null}
                 </Animated.View>
             </GestureDetector>
         </Animated.View>
