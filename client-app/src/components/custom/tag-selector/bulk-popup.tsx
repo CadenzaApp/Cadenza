@@ -239,6 +239,11 @@ export function BulkTagSelectorPopup({
                 <TagSelector
                     contextKey={sessionKey}
                     tags={selectorItems}
+                    tagsHeading={
+                        mode === "apply"
+                            ? "Select tags to apply"
+                            : "Select tags to remove"
+                    }
                     suggestedTags={suggestedTags}
                     selectionMode={
                         mode === "apply" && songIds.length === 1

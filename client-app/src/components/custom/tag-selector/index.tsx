@@ -45,6 +45,8 @@ type TagSelectorSort = "relevance" | "alphabetical";
 type TagSelectorProps = {
     tags: readonly TagSelectorItem[];
     suggestedTags?: readonly Tag[];
+    /** Heading above the user's available tags. */
+    tagsHeading?: string;
     onToggleTag: (tag: TagSelectorItem) => void;
     onChooseSuggested?: (tag: Tag) => void;
     onDismissSuggested?: (tag: Tag) => void;
@@ -77,6 +79,7 @@ export function TagSelector(props: TagSelectorProps) {
 function TagSelectorSession({
     tags,
     suggestedTags,
+    tagsHeading = "Your Tags",
     onToggleTag,
     onChooseSuggested,
     onDismissSuggested,
@@ -136,7 +139,7 @@ function TagSelectorSession({
                 heading={
                     <View className="flex-row items-center justify-between">
                         <Text className="text-base font-semibold text-foreground">
-                            Your Tags
+                            {tagsHeading}
                         </Text>
                         <View className="flex-row items-center gap-2.5">
                             {onCreateTag ? (
