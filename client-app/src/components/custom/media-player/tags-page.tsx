@@ -71,7 +71,7 @@ export function TagsPage({ focusedSong }: { focusedSong: FocusedSong }) {
                 {editorLoaded ? (
                     <View className="gap-4">
                         <TagSelector
-                            key={focusedSong.id}
+                            key={`tag-selector:${focusedSong.id}`}
                             tags={songTags}
                             suggestedTags={defaultTags}
                             forceVisibleTagIds={recentTagIds}
@@ -84,7 +84,7 @@ export function TagsPage({ focusedSong }: { focusedSong: FocusedSong }) {
                         />
                         <View className="h-px bg-border" />
                         <ActivityTagSection
-                            key={focusedSong.id}
+                            key={`activity-tags:${focusedSong.id}`}
                             tags={activityTagsOnSong}
                             loading={activityTagsOnSongLoading}
                             error={activityTagsOnSongErr}
