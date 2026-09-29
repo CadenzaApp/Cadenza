@@ -117,6 +117,7 @@ export const TagFadeRail = memo(function TagFadeRail({
             style={{
                 alignSelf: "stretch",
                 marginVertical: -TAG_RAIL_TOUCH_INSET,
+                zIndex: 2,
             }}
             onLayout={(event) => {
                 const width = event.nativeEvent.layout.width;

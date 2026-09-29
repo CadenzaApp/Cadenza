@@ -49,8 +49,19 @@ type MusicListItemProps = {
 };
 
 const ARTWORK_SIZE = 58;
+const COMPACT_ARTWORK_SIZE = 48;
+const REGULAR_ROW_VERTICAL_PADDING = 7.5;
+const COMPACT_ROW_VERTICAL_PADDING = 5.5;
+const MENU_CONTROL_SHIFT = 8;
+const TAG_RAIL_END_MARGIN = -4;
 const EMPTY_APPLIED_TAGS: readonly AppliedTag[] = [];
 const EMPTY_DEFAULT_TAGS: readonly Tag[] = [];
+
+/** The fixed artwork and vertical padding determine the height of every row. */
+export const MUSIC_LIST_ITEM_HEIGHT = {
+    regular: ARTWORK_SIZE + 2 * REGULAR_ROW_VERTICAL_PADDING,
+    compact: COMPACT_ARTWORK_SIZE + 2 * COMPACT_ROW_VERTICAL_PADDING,
+} as const;
 
 export const MusicListItem = memo(function MusicListItem({
     item,
@@ -65,7 +76,7 @@ export const MusicListItem = memo(function MusicListItem({
     multiSelectEnabled,
     animateSelectionTransition,
     fullBleed = false,
-    fullBleedHorizontalPadding = 24,
+    fullBleedHorizontalPadding = 18,
     compact = false,
     onPress,
     onLongPress,
@@ -117,7 +128,9 @@ export const MusicListItem = memo(function MusicListItem({
             style={[
                 animatedRowStyle,
                 {
-                    paddingVertical: compact ? 5.5 : 7.5,
+                    paddingVertical: compact
+                        ? COMPACT_ROW_VERTICAL_PADDING
+                        : REGULAR_ROW_VERTICAL_PADDING,
                     paddingHorizontal: fullBleed
                         ? fullBleedHorizontalPadding
                         : 0,
@@ -179,8 +192,15 @@ export const MusicListItem = memo(function MusicListItem({
             <Animated.View className="flex-1" style={animatedContentStyle}>
                 <View
                     pointerEvents="box-none"
-                    className="mr-3 flex-1 flex-row items-center"
-                    style={rowPressed ? { opacity: 0.85 } : undefined}
+                    className="flex-1 flex-row items-center"
+                    style={[
+                        {
+                            marginRight: selectionMode
+                                ? 12
+                                : TAG_RAIL_END_MARGIN,
+                        },
+                        rowPressed ? { opacity: 0.85 } : undefined,
+                    ]}
                 >
                     <Pressable
                         style={StyleSheet.absoluteFill}
@@ -224,6 +244,10 @@ export const MusicListItem = memo(function MusicListItem({
             {!selectionMode ? (
                 <Animated.View
                     key="menu-control"
+                    style={{
+                        zIndex: 1,
+                        transform: [{ translateX: MENU_CONTROL_SHIFT }],
+                    }}
                     entering={
                         animateSelectionTransition
                             ? FadeIn.duration(140)
@@ -280,7 +304,7 @@ const MusicListItemVisuals = memo(function MusicListItemVisuals({
         !artworkFailed &&
         typeof artworkUrl === "string" &&
         /^https?:\/\//i.test(artworkUrl);
-    const artworkSize = compact ? 48 : ARTWORK_SIZE;
+    const artworkSize = compact ? COMPACT_ARTWORK_SIZE : ARTWORK_SIZE;
 
     return (
         <>
@@ -366,23 +390,28 @@ const MusicListItemVisuals = memo(function MusicListItemVisuals({
 
 export function MusicListItemSkeleton({
     fullBleed = false,
-    fullBleedHorizontalPadding = 24,
+    fullBleedHorizontalPadding = 18,
     compact = false,
 }: {
     fullBleed?: boolean;
     fullBleedHorizontalPadding?: number;
     compact?: boolean;
 }) {
-    const artworkSize = compact ? 48 : ARTWORK_SIZE;
+    const artworkSize = compact ? COMPACT_ARTWORK_SIZE : ARTWORK_SIZE;
     return (
         <View
             className="relative flex-row items-center justify-between"
             style={{
-                paddingVertical: compact ? 5.5 : 7.5,
+                paddingVertical: compact
+                    ? COMPACT_ROW_VERTICAL_PADDING
+                    : REGULAR_ROW_VERTICAL_PADDING,
                 paddingHorizontal: fullBleed ? fullBleedHorizontalPadding : 0,
             }}
         >
-            <View className="mr-3 flex-1 flex-row items-center overflow-hidden">
+            <View
+                className="flex-1 flex-row items-center overflow-hidden"
+                style={{ marginRight: TAG_RAIL_END_MARGIN }}
+            >
                 <Skeleton
                     className="mr-2 shrink-0 rounded"
                     style={{
@@ -400,7 +429,10 @@ export function MusicListItemSkeleton({
                     </View>
                 </View>
             </View>
-            <Skeleton className="h-10 w-10 shrink-0 rounded-full" />
+            <Skeleton
+                className="h-10 w-10 shrink-0 rounded-full"
+                style={{ transform: [{ translateX: MENU_CONTROL_SHIFT }] }}
+            />
         </View>
     );
 }

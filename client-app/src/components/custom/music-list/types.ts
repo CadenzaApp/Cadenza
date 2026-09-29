@@ -104,7 +104,7 @@ export type MusicListProps = {
     multiSelect?: MusicListMultiSelectConfig | null;
     /** Extends row backgrounds edge-to-edge while preserving content insets. */
     fullBleedRows?: boolean;
-    /** Overrides the 24px content inset used by full-bleed rows. */
+    /** Overrides the 18px content inset used by full-bleed rows. */
     fullBleedRowHorizontalPadding?: number;
     /** Theme surface beneath transparent rows and their tag-edge fade. */
     rowSurfaceColor?: ThemeColorToken;

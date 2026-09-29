@@ -23,8 +23,13 @@ import { useUserTags } from "@/lib/routes/tags";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { useScreenScroll } from "@/lib/screen-scroll";
 import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
+import { useMusicListPreferences } from "@/lib/music-list-preferences";
 
-import { MusicListItem, MusicListItemSkeleton } from "./music-list-item";
+import {
+    MusicListItem,
+    MusicListItemSkeleton,
+    MUSIC_LIST_ITEM_HEIGHT,
+} from "./music-list-item";
 import { MusicListSelectionToolbar } from "./music-list-selection-toolbar";
 import { MusicListSortButton } from "./music-list-sort-button";
 import { sortTracks } from "./sort-tracks";
@@ -56,6 +61,7 @@ const DENSITY_FADE_OUT_MS = 140;
 const DENSITY_ROW_FADE_IN_MS = 220;
 const DENSITY_ROW_STAGGER_MS = 32;
 const DENSITY_MAX_STAGGER_MS = 560;
+const MUSIC_LIST_BOTTOM_SPACER_ROWS = 2;
 
 export function MusicList({
     tracks,
@@ -64,7 +70,7 @@ export function MusicList({
     trackMenuActions = EMPTY_TRACK_ACTIONS,
     multiSelect = null,
     fullBleedRows = false,
-    fullBleedRowHorizontalPadding = 24,
+    fullBleedRowHorizontalPadding = 18,
     rowSurfaceColor = "background",
     embedded = false,
     compact,
@@ -84,6 +90,7 @@ export function MusicList({
 }: MusicListProps) {
     const header = headerProp ?? listHeader;
     const { togglePlayback } = usePlaybackCommands();
+    const { showSuggestedTags } = useMusicListPreferences();
     const [internalCompact, setInternalCompact] = useState(false);
     const isCompact = compact ?? internalCompact;
     const [densityTransitionRevision, setDensityTransitionRevision] =
@@ -135,8 +142,9 @@ export function MusicList({
         (multiSelect.actions == null ||
             multiSelect.actions.some((action) => action.kind === "apply-tags"));
     const localTagsEnabled = showTags || selection.isSelecting;
+    const showSuggestedTagsInRows = showTags && showSuggestedTags;
     const defaultTagsEnabled =
-        showTags ||
+        showSuggestedTagsInRows ||
         (selection.isSelecting &&
             selection.selectedTracks.length === 1 &&
             selectionCanApplyTags);
@@ -183,13 +191,17 @@ export function MusicList({
     const animateSelectionTransition =
         selectionAnimationCost <= MAX_ANIMATED_SELECTION_COST;
     const selectionToolbarBottom = floatingActionBottom;
-    const contentBottomInset = embedded
+    const bottomRowSpacer =
+        MUSIC_LIST_ITEM_HEIGHT[isCompact ? "compact" : "regular"] *
+        MUSIC_LIST_BOTTOM_SPACER_ROWS;
+    const bottomOverlayInset = embedded
         ? 0
         : selection.isSelecting
           ? selectionToolbarBottom + selectionToolbarHeight + 12
           : sortingEnabled
             ? listBottomInset
             : Math.max(40, playerBottomInset + 12);
+    const contentBottomInset = bottomOverlayInset + bottomRowSpacer;
     const listExtraData = useMemo(
         () => ({
             isCompact,
@@ -427,7 +439,7 @@ export function MusicList({
                                                     : undefined
                                             }
                                             defaultTags={
-                                                showTags
+                                                showSuggestedTagsInRows
                                                     ? defaultTagsBySong[
                                                           item.catalogId ??
                                                               item.id

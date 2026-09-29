@@ -168,6 +168,8 @@ filters on. The horizontal rail can be dragged to inspect tags beyond the traili
 playing the song. The density gesture changes row size without switching back to the older
 translucent pill design. Selected rows use a light foreground
 tint with alpha instead of an opaque replacement color, so artwork gradients remain visible. The
+list footer always reserves two current row heights after the existing player or selection-toolbar
+clearance, so the final song can scroll fully above the compact player. The
 floating selection toolbar and its overflow popup are liquid glass. The toolbar uses the same
 screen-aware bottom anchor as the sort bubble, so native tab and player insets are not counted
 twice. Row artwork, metadata, tag rails, and tag pills are memoized away from selection-only

@@ -48,13 +48,14 @@ GestureHandlerRootView
         SongInitProvider   syncs the apple music library into user_songs after auth
           PlaybackProvider     reads the native playback snapshot
             ThemeProvider      light/dark nav theme from nativewind's colorScheme
-              BottomBarVisibilityProvider   temporary native-tab visibility exceptions
-                ZoomOriginProvider          per-navigation zoom launch measurements
-                  Stack                     the routes
-                  AppleMusicSessionGuard    opens /account when the apple music token dies
-                  TagScoreTracker           scores the tags on each song played for 5 seconds
-                  TasksHost                 background task status
-                  PortalHost                where dialogs and modals render
+              MusicListPreferencesProvider persisted music-list presentation preferences
+                BottomBarVisibilityProvider   temporary native-tab visibility exceptions
+                  ZoomOriginProvider          per-navigation zoom launch measurements
+                    Stack                     the routes
+                    AppleMusicSessionGuard    opens /account when the apple music token dies
+                    TagScoreTracker           scores the tags on each song played for 5 seconds
+                    TasksHost                 background task status
+                    PortalHost                where dialogs and modals render
 ```
 
 `LibraryCategoriesProvider` (`@/features/library`) sits inside `ThemeProvider` and wraps both
