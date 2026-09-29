@@ -28,26 +28,31 @@ export default function TagDetailScreen() {
         if (!tag) return null;
 
         return {
-            includeTagActions: false,
-            includeApplyTags: true,
-            applyTagsLabel: "Apply other tags",
-            applyTagsExcludedTagIds: [tag.id],
-            tagActionsPlacement: "after",
-            includeAddToQueue: true,
             actions: [
                 {
-                    id: `tag:${tag.id}:remove-from-songs`,
-                    label: "Remove this tag",
-                    icon: "trash-outline",
-                    labelColor: "destructive",
-                    iconColor: "destructive",
-                    onPress: (selectedTracks) =>
-                        removeTagsFromSongs({
-                            song_ids: selectedTracks.map(
-                                (track) => track.catalogId ?? track.id,
-                            ),
-                            tag_ids: [tag.id],
-                        }),
+                    kind: "add-to-queue",
+                },
+                {
+                    kind: "custom",
+                    action: {
+                        id: `tag:${tag.id}:remove-from-songs`,
+                        label: "Remove this tag",
+                        icon: "trash-outline",
+                        labelColor: "destructive",
+                        iconColor: "destructive",
+                        onPress: (selectedTracks) =>
+                            removeTagsFromSongs({
+                                song_ids: selectedTracks.map(
+                                    (track) => track.catalogId ?? track.id,
+                                ),
+                                tag_ids: [tag.id],
+                            }),
+                    },
+                },
+                {
+                    kind: "apply-tags",
+                    label: "Apply other tags",
+                    excludedTagIds: [tag.id],
                 },
             ],
         };

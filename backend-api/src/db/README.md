@@ -134,6 +134,12 @@ never deleted, so `apply_promotes_tag` promotes only on the apply that first mak
 qualify. Only applies promote: an unapply lowers `apply_count`, and a remove is only possible on a
 name that is already a default tag there.
 
+Multi-song edits keep the same rules without issuing one statement per relation. `tags.rs` inserts
+with `ON CONFLICT DO NOTHING` or deletes with `RETURNING`, so concurrent requests count only rows
+they actually changed. `count_tags_applied` folds those rows by song and tag name into one bulk
+upsert; `count_tags_unapplied` uses a `VALUES` CTE and one update. Inputs are deduplicated and sorted
+before either relation write, keeping SQL and lock acquisition deterministic.
+
 ## Activity tags
 
 An activity tag is one shared row in `tags` whose values the api writes per user as they listen.

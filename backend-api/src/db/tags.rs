@@ -13,7 +13,10 @@ use serde::Serialize;
 
 use crate::db::entity::sea_orm_active_enums::{TagGenStatus, TagType};
 use crate::db::entity::*;
-use crate::db::tag_activity::{count_tag_applied, count_tag_removed, count_tag_unapplied};
+use crate::db::tag_activity::{
+    count_tag_applied, count_tag_removed, count_tag_unapplied, count_tags_applied,
+    count_tags_unapplied,
+};
 use crate::err::CadenzaError;
 use crate::services::tag_generation::TagSpecs;
 use crate::services::tag_values::canonicalize_tag_value;
@@ -516,18 +519,23 @@ pub async fn apply_user_tags_to_songs(
         return Ok(());
     }
 
-    let song_ids: Vec<String> = song_ids
+    // Keep lock acquisition and generated SQL deterministic. Apart from making
+    // this easier to inspect, a stable order lowers the chance that two large
+    // overlapping edits deadlock each other.
+    let mut song_ids: Vec<String> = song_ids
         .iter()
         .cloned()
         .collect::<HashSet<_>>()
         .into_iter()
         .collect();
-    let tag_ids: Vec<i64> = tag_ids
+    song_ids.sort_unstable();
+    let mut tag_ids: Vec<i64> = tag_ids
         .iter()
         .copied()
         .collect::<HashSet<_>>()
         .into_iter()
         .collect();
+    tag_ids.sort_unstable();
     let txn = db.begin().await?;
     let owned_tags = tags::Entity::find()
         .filter(tags::Column::UserId.eq(user_id))
@@ -541,33 +549,37 @@ pub async fn apply_user_tags_to_songs(
         .into_iter()
         .map(|tag| (tag.tag_id, tag))
         .collect();
-    let existing: HashSet<(String, i64)> = user_tags_applied::Entity::find()
-        .filter(user_tags_applied::Column::UserId.eq(user_id))
-        .filter(user_tags_applied::Column::SongId.is_in(song_ids.iter().cloned()))
-        .filter(user_tags_applied::Column::TagId.is_in(tag_ids.iter().copied()))
-        .all(&txn)
-        .await?
+    let relations = song_ids.iter().flat_map(|song_id| {
+        tag_ids.iter().map(|tag_id| user_tags_applied::ActiveModel {
+            user_id: Set(user_id),
+            song_id: Set(song_id.clone()),
+            tag_id: Set(*tag_id),
+            value: Set(None),
+        })
+    });
+    // The unique relation is the source of truth. ON CONFLICT makes concurrent
+    // requests idempotent, and RETURNING tells us exactly which applies this
+    // transaction owns and should count.
+    let inserted = user_tags_applied::Entity::insert_many(relations)
+        .on_conflict(
+            OnConflict::columns([
+                user_tags_applied::Column::SongId,
+                user_tags_applied::Column::UserId,
+                user_tags_applied::Column::TagId,
+            ])
+            .do_nothing()
+            .to_owned(),
+        )
+        .exec_with_returning(&txn)
+        .await?;
+    let activity_changes = inserted
         .into_iter()
-        .map(|row| (row.song_id, row.tag_id))
+        .map(|relation| {
+            let tag = &tags_by_id[&relation.tag_id];
+            (relation.song_id, tag.name.clone(), tag.color.clone())
+        })
         .collect();
-    let mut recorded = Vec::new();
-
-    for song_id in &song_ids {
-        for tag_id in &tag_ids {
-            if existing.contains(&(song_id.clone(), *tag_id)) {
-                continue;
-            }
-            user_tags_applied::ActiveModel {
-                user_id: Set(user_id),
-                song_id: Set(song_id.clone()),
-                tag_id: Set(*tag_id),
-                value: Set(None),
-            }
-            .insert(&txn)
-            .await?;
-            recorded.push(count_tag_applied(&txn, user_id, song_id, &tags_by_id[tag_id]).await?);
-        }
-    }
+    let recorded = count_tags_applied(&txn, user_id, activity_changes).await?;
 
     txn.commit().await?;
     for activity in recorded {
@@ -588,18 +600,20 @@ pub async fn unapply_user_tags_from_songs(
         return Ok(());
     }
 
-    let song_ids: Vec<String> = song_ids
+    let mut song_ids: Vec<String> = song_ids
         .iter()
         .cloned()
         .collect::<HashSet<_>>()
         .into_iter()
         .collect();
-    let tag_ids: Vec<i64> = tag_ids
+    song_ids.sort_unstable();
+    let mut tag_ids: Vec<i64> = tag_ids
         .iter()
         .copied()
         .collect::<HashSet<_>>()
         .into_iter()
         .collect();
+    tag_ids.sort_unstable();
     let txn = db.begin().await?;
     let owned_tags = tags::Entity::find()
         .filter(tags::Column::UserId.eq(user_id))
@@ -613,24 +627,20 @@ pub async fn unapply_user_tags_from_songs(
         .into_iter()
         .map(|tag| (tag.tag_id, tag))
         .collect();
-    let applied = user_tags_applied::Entity::find()
+    // DELETE ... RETURNING avoids the read/delete race and turns one query per
+    // relation into one statement. Only rows removed by this transaction are
+    // counted below.
+    let removed = user_tags_applied::Entity::delete_many()
         .filter(user_tags_applied::Column::UserId.eq(user_id))
         .filter(user_tags_applied::Column::SongId.is_in(song_ids.iter().cloned()))
         .filter(user_tags_applied::Column::TagId.is_in(tag_ids.iter().copied()))
-        .all(&txn)
+        .exec_with_returning(&txn)
         .await?;
-    let mut recorded = Vec::with_capacity(applied.len());
-
-    for relation in applied {
-        let song_id = relation.song_id.clone();
-        let tag_id = relation.tag_id;
-        let deleted = relation.delete(&txn).await?;
-        if deleted.rows_affected > 0 {
-            recorded.push(
-                count_tag_unapplied(&txn, user_id, &song_id, &tags_by_id[&tag_id].name).await?,
-            );
-        }
-    }
+    let activity_changes = removed
+        .into_iter()
+        .map(|relation| (relation.song_id, tags_by_id[&relation.tag_id].name.clone()))
+        .collect();
+    let recorded = count_tags_unapplied(&txn, user_id, activity_changes).await?;
 
     txn.commit().await?;
     for activity in recorded {

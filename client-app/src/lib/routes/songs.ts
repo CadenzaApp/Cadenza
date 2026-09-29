@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import {
+    invalidateAPIData,
     useAPIData,
     useAPIMutation,
     useAPIPostDataBatched,
@@ -9,6 +10,7 @@ import { AppliedTag, Tag } from "@/lib/types";
 // the backend caps a batch at 200 ids
 const TAGS_ON_SONGS_BATCH_SIZE = 200;
 const TAG_EDITS_PER_BATCH = 4_000;
+const TAG_EDIT_CONCURRENCY = 3;
 
 export function useTagsOnSong(songId?: string) {
     const x = useAPIData<AppliedTag[]>("/songs/local-tags", {
@@ -66,7 +68,7 @@ export function useApplyTag() {
             { path: "/tags" },
             { path: "/queries/results" },
         ],
-        { awaitInvalidation: true },
+        { invalidation: "background" },
     );
     return {
         applyTagErr: x.error,
@@ -92,7 +94,7 @@ export function useSetTagValue() {
             { path: "/tags" },
             { path: "/queries/results" },
         ],
-        { awaitInvalidation: true },
+        { invalidation: "background" },
     );
     return {
         setTagValueErr: x.error,
@@ -116,7 +118,7 @@ export function useUnapplyTag() {
             { path: "/tags" },
             { path: "/queries/results" },
         ],
-        { awaitInvalidation: true },
+        { invalidation: "background" },
     );
     return {
         unapplyTagErr: x.error,
@@ -145,8 +147,8 @@ export function useApplyTagsToSongs() {
     const mutation = useAPIMutation<EditTagsOnSongsPayload, void>(
         "PATCH",
         "/songs/local-tags/batch",
-        BATCH_TAG_INVALIDATIONS,
-        { awaitInvalidation: true },
+        [],
+        { invalidation: "none" },
     );
 
     return {
@@ -162,8 +164,8 @@ export function useRemoveTagsFromSongs() {
     const mutation = useAPIMutation<EditTagsOnSongsPayload, void>(
         "DELETE",
         "/songs/local-tags/batch",
-        BATCH_TAG_INVALIDATIONS,
-        { awaitInvalidation: true },
+        [],
+        { invalidation: "none" },
     );
 
     return {
@@ -180,6 +182,7 @@ async function editTagsInBatches(
 ) {
     const songIds = [...new Set(payload.song_ids.filter(Boolean))];
     const tagIds = [...new Set(payload.tag_ids)];
+    const batches: EditTagsOnSongsPayload[] = [];
 
     for (
         let tagOffset = 0;
@@ -199,10 +202,38 @@ async function editTagsInBatches(
             songOffset < songIds.length;
             songOffset += songBatchSize
         ) {
-            await trigger({
+            batches.push({
                 song_ids: songIds.slice(songOffset, songOffset + songBatchSize),
                 tag_ids: tagBatch,
             });
+        }
+    }
+
+    let nextBatch = 0;
+    try {
+        const workers = Array.from(
+            { length: Math.min(TAG_EDIT_CONCURRENCY, batches.length) },
+            async () => {
+                while (nextBatch < batches.length) {
+                    const batch = batches[nextBatch++];
+                    await trigger(batch);
+                }
+            },
+        );
+        const results = await Promise.allSettled(workers);
+        const failure = results.find(
+            (result): result is PromiseRejectedResult =>
+                result.status === "rejected",
+        );
+        if (failure) throw failure.reason;
+    } finally {
+        // A large edit can require several transport-sized requests. Refresh
+        // once after all workers settle, including partial failure, and do not
+        // make cache freshness hold the action buttons open.
+        if (batches.length > 0) {
+            void invalidateAPIData(BATCH_TAG_INVALIDATIONS).catch((error) =>
+                console.error("Tag edit cache refresh failed", error),
+            );
         }
     }
 }

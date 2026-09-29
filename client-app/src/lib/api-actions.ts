@@ -87,7 +87,16 @@ export function useAPIMutation<RequestBody, Response>(
     invalidatedEndpoints:
         | ((body: RequestBody) => APIDataEndpoint[])
         | APIDataEndpoint[] = [],
-    options?: { awaitInvalidation?: boolean },
+    options?: {
+        /**
+         * Background is the responsive default. Use await only when the caller
+         * cannot proceed until fresh reads arrive, or none when a coordinator
+         * will invalidate once after several related writes.
+         */
+        invalidation?: "background" | "await" | "none";
+        /** @deprecated Prefer `invalidation: "await"`. */
+        awaitInvalidation?: boolean;
+    },
 ) {
     const { account } = useAccount();
 
@@ -99,12 +108,23 @@ export function useAPIMutation<RequestBody, Response>(
                 body,
             });
 
-            const invalidation = invalidateAPIData(
-                Array.isArray(invalidatedEndpoints)
-                    ? invalidatedEndpoints
-                    : invalidatedEndpoints(body),
-            );
-            if (options?.awaitInvalidation) await invalidation;
+            const invalidationMode =
+                options?.invalidation ??
+                (options?.awaitInvalidation ? "await" : "background");
+            if (invalidationMode !== "none") {
+                const invalidation = invalidateAPIData(
+                    Array.isArray(invalidatedEndpoints)
+                        ? invalidatedEndpoints
+                        : invalidatedEndpoints(body),
+                );
+                if (invalidationMode === "await") {
+                    await invalidation;
+                } else {
+                    void invalidation.catch((error) =>
+                        console.error("API cache refresh failed", error),
+                    );
+                }
+            }
 
             return data;
         },

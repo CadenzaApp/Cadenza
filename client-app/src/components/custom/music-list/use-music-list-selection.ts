@@ -3,10 +3,7 @@ import * as Haptics from "expo-haptics";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { MusicListMultiSelectConfig } from "./types";
-import {
-    reduceMusicListSelection,
-    tracksSelectedInDisplayOrder,
-} from "./selection-utils";
+import { reduceMusicListSelection } from "./selection-utils";
 
 const EMPTY_SELECTION: ReadonlySet<string> = new Set();
 
@@ -29,11 +26,27 @@ export function useMusicListSelection(
         () => new Set(displayedTracks.map((track) => track.id)),
         [displayedTracks],
     );
+    const displayedTrackIndex = useMemo(
+        () =>
+            new Map(
+                displayedTracks.map((track, index) => [
+                    track.id,
+                    { track, index },
+                ]),
+            ),
+        [displayedTracks],
+    );
     const selectedTracks = useMemo(() => {
         if (!enabled) return [];
-        return tracksSelectedInDisplayOrder(displayedTracks, selectedIds);
-    }, [displayedTracks, enabled, selectedIds]);
-    const isSelecting = selectedTracks.length > 0;
+        return [...selectedIds]
+            .flatMap((id) => {
+                const item = displayedTrackIndex.get(id);
+                return item ? [item] : [];
+            })
+            .sort((left, right) => left.index - right.index)
+            .map(({ track }) => track);
+    }, [displayedTrackIndex, enabled, selectedIds]);
+    const isSelecting = enabled && selectedIds.size > 0;
 
     const onSelectionChange = config?.onSelectionChange;
     useEffect(() => {

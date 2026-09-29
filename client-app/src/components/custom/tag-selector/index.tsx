@@ -1,6 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useColorScheme } from "nativewind";
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import {
     ActivityIndicator,
     Pressable,
@@ -39,21 +39,7 @@ const TAG_GRID_MAX_HEIGHT =
     TAG_ROW_HEIGHT * MAX_VISIBLE_TAG_ROWS +
     TAG_ROW_GAP * (MAX_VISIBLE_TAG_ROWS - 1);
 
-export function TagSelector({
-    tags,
-    suggestedTags,
-    onToggleTag,
-    onChooseSuggested,
-    onDismissSuggested,
-    onCreateTag,
-    footerActions = [],
-    loading = false,
-    selectionMode = "single",
-    onYourTagsLayout,
-    forceVisibleTagIds = [],
-    pageSize = DEFAULT_PAGE_SIZE,
-    emptyLabel = "You have no tags yet.",
-}: {
+type TagSelectorProps = {
     tags: readonly TagSelectorItem[];
     suggestedTags?: readonly Tag[];
     onToggleTag: (tag: TagSelectorItem) => void;
@@ -69,19 +55,52 @@ export function TagSelector({
     forceVisibleTagIds?: readonly number[];
     pageSize?: number;
     emptyLabel?: string;
-}) {
+    /** Changes when this selector starts editing a different logical target. */
+    contextKey?: string;
+    /** Recoverable mutation failure displayed without dismissing the selector. */
+    errorMessage?: string | null;
+};
+
+export function TagSelector(props: TagSelectorProps) {
+    // The editing target is the lifetime of ordering, pagination, and the New
+    // dialog. Make that reset contract explicit here rather than relying on
+    // whichever parent happens to render the selector.
+    return (
+        <TagSelectorSession key={props.contextKey ?? "default"} {...props} />
+    );
+}
+
+function TagSelectorSession({
+    tags,
+    suggestedTags,
+    onToggleTag,
+    onChooseSuggested,
+    onDismissSuggested,
+    onCreateTag,
+    footerActions = [],
+    loading = false,
+    selectionMode = "single",
+    onYourTagsLayout,
+    forceVisibleTagIds = [],
+    pageSize = DEFAULT_PAGE_SIZE,
+    emptyLabel = "You have no tags yet.",
+    errorMessage,
+}: TagSelectorProps) {
     const { colorScheme } = useColorScheme();
     const newButtonTint = THEME[colorScheme === "dark" ? "dark" : "light"].card;
     const [createTagOpen, setCreateTagOpen] = useState(false);
     const [visibleCount, setVisibleCount] = useState(pageSize);
     const [initialOrder] = useState(() => tags.map((tag) => tag.id));
-    const tagsById = new Map(tags.map((tag) => [tag.id, tag]));
-    const orderedTags = initialOrder.flatMap((tagId) => {
-        const tag = tagsById.get(tagId);
-        return tag ? [tag] : [];
-    });
-    const initiallyKnownIds = new Set(initialOrder);
-    orderedTags.push(...tags.filter((tag) => !initiallyKnownIds.has(tag.id)));
+    const orderedTags = useMemo(() => {
+        const tagsById = new Map(tags.map((tag) => [tag.id, tag]));
+        const ordered = initialOrder.flatMap((tagId) => {
+            const tag = tagsById.get(tagId);
+            return tag ? [tag] : [];
+        });
+        const initiallyKnownIds = new Set(initialOrder);
+        ordered.push(...tags.filter((tag) => !initiallyKnownIds.has(tag.id)));
+        return ordered;
+    }, [initialOrder, tags]);
 
     const visibleTags = visibleTagSelectorItems(
         orderedTags,
@@ -92,7 +111,7 @@ export function TagSelector({
 
     return (
         <View className="gap-4">
-            <SelectorCard heading="Your Tags" onLayout={onYourTagsLayout}>
+            <TagSelectorPanel heading="Your Tags" onLayout={onYourTagsLayout}>
                 {loading ? (
                     <ActivityIndicator accessibilityLabel="Loading tags" />
                 ) : visibleTags.length ? (
@@ -148,10 +167,10 @@ export function TagSelector({
                         </GlassButton>
                     </View>
                 ) : null}
-            </SelectorCard>
+            </TagSelectorPanel>
 
             {selectionMode === "single" ? (
-                <SelectorCard heading="Suggested">
+                <TagSelectorPanel heading="Suggested">
                     {suggestedTags?.length ? (
                         <View className="flex-row flex-wrap gap-2">
                             {suggestedTags.map((tag) => (
@@ -181,7 +200,7 @@ export function TagSelector({
                             No suggestions for this song.
                         </Text>
                     )}
-                </SelectorCard>
+                </TagSelectorPanel>
             ) : null}
 
             {onCreateTag || footerActions.length ? (
@@ -230,16 +249,20 @@ export function TagSelector({
                     onCreated={onCreateTag}
                 />
             ) : null}
+
+            {errorMessage ? (
+                <Text className="text-sm text-destructive">{errorMessage}</Text>
+            ) : null}
         </View>
     );
 }
 
-function SelectorCard({
+export function TagSelectorPanel({
     heading,
     children,
     onLayout,
 }: {
-    heading: string;
+    heading: ReactNode;
     children: ReactNode;
     onLayout?: (layout: LayoutRectangle) => void;
 }) {
@@ -251,9 +274,17 @@ function SelectorCard({
             <View pointerEvents="none" style={StyleSheet.absoluteFill}>
                 <GlassSurface style={StyleSheet.absoluteFill} />
             </View>
-            <Text className="mb-3 text-sm font-semibold text-foreground">
-                {heading}
-            </Text>
+            {typeof heading === "string" ? (
+                <Text
+                    className={`${children == null ? "" : "mb-3 "}text-sm font-semibold text-foreground`}
+                >
+                    {heading}
+                </Text>
+            ) : (
+                <View className={children == null ? undefined : "mb-3"}>
+                    {heading}
+                </View>
+            )}
             {children}
         </View>
     );

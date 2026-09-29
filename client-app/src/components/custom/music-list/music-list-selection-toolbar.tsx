@@ -1,6 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type { MusicItem } from "@apple-musickit";
-import { useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { StyleSheet, View, type LayoutChangeEvent } from "react-native";
 import { useTheme } from "expo-router/react-navigation";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
@@ -24,12 +24,14 @@ import { Button } from "@/components/ui/button";
 import { GlassSurface } from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
 import { usePlaybackCommands } from "@/lib/playback";
+import { classifyError } from "@/lib/app-error";
 import type { AppliedTag, Tag, TagMetadata } from "@/lib/types";
 
 import { MusicListActionButton } from "./music-list-action-button";
 import type {
     MusicListMultiSelectConfig,
     MusicListSelectionAction,
+    MusicListSelectionActionDefinition,
 } from "./types";
 
 type MusicListSelectionToolbarProps = {
@@ -46,6 +48,18 @@ type MusicListSelectionToolbarProps = {
 
 const SWIPE_DISMISS_DISTANCE = 80;
 const SWIPE_DISMISS_VELOCITY = 700;
+const DEFAULT_ACTIONS: readonly MusicListSelectionActionDefinition[] = [
+    { kind: "apply-tags" },
+    { kind: "remove-tags" },
+    { kind: "add-to-queue" },
+];
+
+type ResolvedSelectionAction = MusicListSelectionAction & {
+    tagAction?: {
+        mode: BulkTagMode;
+        excludedTagIds?: readonly number[];
+    };
+};
 
 export function MusicListSelectionToolbar({
     tracks,
@@ -59,8 +73,11 @@ export function MusicListSelectionToolbar({
     tagsLoading,
 }: MusicListSelectionToolbarProps) {
     const [moreOpen, setMoreOpen] = useState(false);
-    const [tagAction, setTagAction] = useState<BulkTagMode | null>(null);
+    const [tagAction, setTagAction] = useState<
+        ResolvedSelectionAction["tagAction"] | null
+    >(null);
     const [pendingActionId, setPendingActionId] = useState<string | null>(null);
+    const [actionError, setActionError] = useState<string | null>(null);
     const { colors } = useTheme();
     const { addToQueue } = usePlaybackCommands();
     const translateX = useSharedValue(0);
@@ -71,73 +88,77 @@ export function MusicListSelectionToolbar({
             opacity: Math.max(0.35, 1 - Math.abs(offset) / 300),
         };
     });
-    const dismissSelection = () => {
-        onClear();
-    };
-    const swipeGesture = Gesture.Pan()
-        .activeOffsetX([-16, 16])
-        .failOffsetY([-12, 12])
-        .onUpdate((event) => {
-            translateX.set(event.translationX);
-        })
-        .onEnd((event) => {
-            const shouldDismiss =
-                Math.abs(event.translationX) >= SWIPE_DISMISS_DISTANCE ||
-                Math.abs(event.velocityX) >= SWIPE_DISMISS_VELOCITY;
-            if (shouldDismiss) {
-                const direction =
-                    event.translationX === 0
-                        ? Math.sign(event.velocityX)
-                        : Math.sign(event.translationX);
-                translateX.set(
-                    withTiming(direction * 500, { duration: 140 }, () =>
-                        runOnJS(dismissSelection)(),
-                    ),
-                );
-            } else {
-                translateX.set(
-                    withSpring(0, {
-                        damping: 18,
-                        stiffness: 220,
-                    }),
-                );
-            }
-        });
-    const queueAction: MusicListSelectionAction = {
-        id: "music-list:add-to-queue",
-        label: "Add to queue",
-        icon: "list-outline",
-        onPress: addToQueue,
-    };
-    const applyTagsAction: MusicListSelectionAction = {
-        id: "music-list:apply-tags",
-        label: config.applyTagsLabel ?? "Apply tags",
-        icon: "pricetags",
-        onPress: () => undefined,
-    };
-    const removeTagsAction: MusicListSelectionAction = {
-        id: "music-list:remove-tags",
-        label: "Remove tags",
-        icon: "pricetags-outline",
-        onPress: () => undefined,
-    };
-    const includeTagActions = config.includeTagActions !== false;
-    const tagActions = [
-        ...((config.includeApplyTags ?? includeTagActions)
-            ? [applyTagsAction]
-            : []),
-        ...((config.includeRemoveTags ?? includeTagActions)
-            ? [removeTagsAction]
-            : []),
-    ];
-    const otherActions = [
-        ...(config.includeAddToQueue === false ? [] : [queueAction]),
-        ...(config.actions ?? []),
-    ];
-    const actions =
-        config.tagActionsPlacement === "after"
-            ? [...otherActions, ...tagActions]
-            : [...tagActions, ...otherActions];
+    const dismissSelection = useCallback(() => onClear(), [onClear]);
+    const swipeGesture = useMemo(
+        () =>
+            Gesture.Pan()
+                .activeOffsetX([-16, 16])
+                .failOffsetY([-12, 12])
+                .onUpdate((event) => {
+                    translateX.set(event.translationX);
+                })
+                .onEnd((event) => {
+                    const shouldDismiss =
+                        Math.abs(event.translationX) >=
+                            SWIPE_DISMISS_DISTANCE ||
+                        Math.abs(event.velocityX) >= SWIPE_DISMISS_VELOCITY;
+                    if (shouldDismiss) {
+                        const direction =
+                            event.translationX === 0
+                                ? Math.sign(event.velocityX)
+                                : Math.sign(event.translationX);
+                        translateX.set(
+                            withTiming(direction * 500, { duration: 140 }, () =>
+                                runOnJS(dismissSelection)(),
+                            ),
+                        );
+                    } else {
+                        translateX.set(
+                            withSpring(0, {
+                                damping: 18,
+                                stiffness: 220,
+                            }),
+                        );
+                    }
+                }),
+        [dismissSelection, translateX],
+    );
+    const actions = useMemo<ResolvedSelectionAction[]>(
+        () =>
+            (config.actions ?? DEFAULT_ACTIONS).map((definition) => {
+                switch (definition.kind) {
+                    case "add-to-queue":
+                        return {
+                            id: "music-list:add-to-queue",
+                            label: definition.label ?? "Add to queue",
+                            icon: "list-outline",
+                            onPress: addToQueue,
+                        };
+                    case "apply-tags":
+                        return {
+                            id: "music-list:apply-tags",
+                            label: definition.label ?? "Apply tags",
+                            icon: "pricetags",
+                            onPress: () => undefined,
+                            tagAction: {
+                                mode: "apply",
+                                excludedTagIds: definition.excludedTagIds,
+                            },
+                        };
+                    case "remove-tags":
+                        return {
+                            id: "music-list:remove-tags",
+                            label: definition.label ?? "Remove tags",
+                            icon: "pricetags-outline",
+                            onPress: () => undefined,
+                            tagAction: { mode: "remove" },
+                        };
+                    case "custom":
+                        return definition.action;
+                }
+            }),
+        [addToQueue, config.actions],
+    );
     const overflowActions = actions.length > 3 ? actions.slice(2) : [];
     const visibleActions =
         overflowActions.length > 0
@@ -152,8 +173,9 @@ export function MusicListSelectionToolbar({
               ]
             : actions;
 
-    function runAction(action: MusicListSelectionAction) {
+    function runAction(action: ResolvedSelectionAction) {
         if (pendingActionId) return;
+        setActionError(null);
         setPendingActionId(action.id);
         void Promise.resolve(action.onPress(tracks))
             .then(() => {
@@ -166,18 +188,14 @@ export function MusicListSelectionToolbar({
                     `Music list selection action failed: ${action.id}`,
                     error,
                 );
+                setActionError(classifyError(error).detail);
             });
     }
 
-    function handleAction(action: MusicListSelectionAction) {
-        if (action.id === applyTagsAction.id) {
+    function handleAction(action: ResolvedSelectionAction) {
+        if (action.tagAction) {
             setMoreOpen(false);
-            setTagAction("apply");
-            return;
-        }
-        if (action.id === removeTagsAction.id) {
-            setMoreOpen(false);
-            setTagAction("remove");
+            setTagAction(action.tagAction);
             return;
         }
         runAction(action);
@@ -257,6 +275,11 @@ export function MusicListSelectionToolbar({
                             ))}
                         </View>
                     ) : null}
+                    {actionError ? (
+                        <Text className="px-2 pb-1 text-sm text-destructive">
+                            {actionError}
+                        </Text>
+                    ) : null}
 
                     <ModalPopup
                         visible={moreOpen}
@@ -280,18 +303,13 @@ export function MusicListSelectionToolbar({
 
                     {tagAction ? (
                         <BulkTagSelectorPopup
-                            key={`${tagAction}:${tagsLoading ? "loading" : "ready"}`}
-                            mode={tagAction}
+                            mode={tagAction.mode}
                             tracks={tracks}
                             userTags={userTags}
                             userTagsMeta={userTagsMeta}
                             tagsBySong={tagsBySong}
                             loading={tagsLoading}
-                            excludedTagIds={
-                                tagAction === "apply"
-                                    ? config.applyTagsExcludedTagIds
-                                    : undefined
-                            }
+                            excludedTagIds={tagAction.excludedTagIds}
                             onCancel={() => setTagAction(null)}
                             onComplete={() => {
                                 setTagAction(null);

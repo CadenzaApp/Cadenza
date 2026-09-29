@@ -66,23 +66,23 @@ export type MusicListTrackAction = MusicListAction<MusicItem> & {
 
 export type MusicListSelectionAction = MusicListAction<readonly MusicItem[]>;
 
+export type MusicListSelectionActionDefinition =
+    | { kind: "add-to-queue"; label?: string }
+    | {
+          kind: "apply-tags";
+          label?: string;
+          excludedTagIds?: readonly number[];
+      }
+    | { kind: "remove-tags"; label?: string }
+    | { kind: "custom"; action: MusicListSelectionAction };
+
 export type MusicListMultiSelectConfig = {
-    /** Include the built-in Apply tags and Remove tags actions. Defaults to true. */
-    includeTagActions?: boolean;
-    /** Overrides `includeTagActions` for the built-in Apply tags action. */
-    includeApplyTags?: boolean;
-    /** Overrides `includeTagActions` for the built-in Remove tags action. */
-    includeRemoveTags?: boolean;
-    /** Custom label for the built-in Apply tags action. */
-    applyTagsLabel?: string;
-    /** Tags omitted from the built-in Apply tags selector. */
-    applyTagsExcludedTagIds?: readonly number[];
-    /** Places built-in tag actions before or after queue and custom actions. */
-    tagActionsPlacement?: "before" | "after";
-    /** Include the built-in Add to Queue action. Defaults to true. */
-    includeAddToQueue?: boolean;
-    /** Additional actions shown after the built-in action. */
-    actions?: readonly MusicListSelectionAction[];
+    /**
+     * Exact left-to-right action order. Omit for Apply tags, Remove tags, then
+     * Add to queue. Built-ins are discriminated so labels cannot accidentally
+     * change behavior.
+     */
+    actions?: readonly MusicListSelectionActionDefinition[];
     /** Receives selected tracks in their current displayed order. */
     onSelectionChange?: (tracks: readonly MusicItem[]) => void;
 };

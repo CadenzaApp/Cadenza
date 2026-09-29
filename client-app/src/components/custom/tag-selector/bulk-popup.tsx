@@ -71,21 +71,36 @@ export function BulkTagSelectorPopup({
         }
         return common;
     }, [mode, songIds, tagsBySong]);
-    const [initialTags] = useState(() =>
-        sortTagSelectorItems(
-            mode === "remove"
-                ? userTags.filter(
-                      (tag) =>
-                          initiallyPresentIds.has(tag.id) &&
-                          !excludedIds.has(tag.id),
-                  )
-                : userTags.filter((tag) => !excludedIds.has(tag.id)),
-            { kind: "multiple", initiallyPresentIds },
-            userTagsMeta,
-        ),
+    const initialTags = useMemo(
+        () =>
+            sortTagSelectorItems(
+                mode === "remove"
+                    ? userTags.filter(
+                          (tag) =>
+                              initiallyPresentIds.has(tag.id) &&
+                              !excludedIds.has(tag.id),
+                      )
+                    : userTags.filter((tag) => !excludedIds.has(tag.id)),
+                { kind: "multiple", initiallyPresentIds },
+                userTagsMeta,
+            ),
+        [excludedIds, initiallyPresentIds, mode, userTags, userTagsMeta],
     );
+    const sessionKey = `${mode}:${songIds.join(",")}`;
     const [createdTags, setCreatedTags] = useState<Tag[]>([]);
-    const [chosenIds, setChosenIds] = useState(initiallyChosenIds);
+    const [selection, setSelection] = useState<{
+        key: string;
+        overrides: Map<number, boolean>;
+    }>({ key: sessionKey, overrides: new Map() });
+    const chosenIds = useMemo(() => {
+        const chosen = new Set(initiallyChosenIds);
+        if (selection.key !== sessionKey) return chosen;
+        for (const [tagId, selected] of selection.overrides) {
+            if (selected) chosen.add(tagId);
+            else chosen.delete(tagId);
+        }
+        return chosen;
+    }, [initiallyChosenIds, selection, sessionKey]);
     const [submitting, setSubmitting] = useState(false);
     const [submitError, setSubmitError] = useState<string | null>(null);
     const { applyTagsToSongs } = useApplyTagsToSongs();
@@ -100,17 +115,24 @@ export function BulkTagSelectorPopup({
     }));
 
     function toggleTag(tag: TagSelectorItem) {
-        setChosenIds((current) => {
-            const next = new Set(current);
-            if (next.has(tag.id)) next.delete(tag.id);
-            else next.add(tag.id);
-            return next;
+        setSelection((current) => {
+            const overrides = new Map(
+                current.key === sessionKey ? current.overrides : [],
+            );
+            overrides.set(tag.id, !chosenIds.has(tag.id));
+            return { key: sessionKey, overrides };
         });
     }
 
     function handleTagCreated(tag: Tag) {
         setCreatedTags((current) => [...current, tag]);
-        setChosenIds((current) => new Set(current).add(tag.id));
+        setSelection((current) => {
+            const overrides = new Map(
+                current.key === sessionKey ? current.overrides : [],
+            );
+            overrides.set(tag.id, true);
+            return { key: sessionKey, overrides };
+        });
     }
 
     async function submit() {
@@ -118,9 +140,16 @@ export function BulkTagSelectorPopup({
         setSubmitting(true);
         setSubmitError(null);
         try {
+            const submittedIds =
+                mode === "apply"
+                    ? [...chosenIds].filter(
+                          (tagId) => !initiallyChosenIds.has(tagId),
+                      )
+                    : [...chosenIds];
+            if (submittedIds.length === 0) return;
             const payload = {
                 song_ids: songIds,
-                tag_ids: [...chosenIds],
+                tag_ids: submittedIds,
             };
             if (mode === "apply") await applyTagsToSongs(payload);
             else await removeTagsFromSongs(payload);
@@ -133,6 +162,11 @@ export function BulkTagSelectorPopup({
     }
 
     const actionLabel = mode === "apply" ? "Apply" : "Remove";
+    const pendingChoiceCount =
+        mode === "apply"
+            ? [...chosenIds].filter((tagId) => !initiallyChosenIds.has(tagId))
+                  .length
+            : chosenIds.size;
 
     return (
         <ModalPopup
@@ -155,6 +189,7 @@ export function BulkTagSelectorPopup({
                     {actionLabel} tags
                 </Text>
                 <TagSelector
+                    contextKey={sessionKey}
                     tags={selectorItems}
                     selectionMode="multiple"
                     loading={loading}
@@ -181,7 +216,9 @@ export function BulkTagSelectorPopup({
                                 : actionLabel,
                             onPress: () => void submit(),
                             disabled:
-                                loading || submitting || chosenIds.size === 0,
+                                loading ||
+                                submitting ||
+                                pendingChoiceCount === 0,
                             variant:
                                 mode === "remove" ? "destructive" : "default",
                         },

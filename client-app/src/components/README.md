@@ -147,9 +147,11 @@ toolbar includes Apply tags and Remove tags. Both open a transactional multi-son
 Apply initially chooses only tags present on every selected song, while Remove lists only tags
 present on at least one selected song and starts with none chosen. Neither writes until its
 confirmation button is pressed. Apply may create a tag; Remove deliberately cannot.
-Callers can disable those generic tag actions and provide contextual actions instead. The tag
-detail screen does this to show Add to Queue and Remove tag, which removes the open tag from every
-selected song and refreshes the tag's song list.
+Callers can replace that default through an ordered, discriminated action list. Each entry names a
+built-in behavior (`add-to-queue`, `apply-tags`, or `remove-tags`) or wraps a custom action, so
+labels never double as behavior identifiers. The tag detail screen uses this to show Add to Queue,
+Remove this tag, then Apply other tags in an explicit order. Removing the open tag updates its song
+list after the batch write.
 
 Rows use the query-revamp spacing, artwork alignment, skeletons, and solid-color `TagPill`
 appearance. `mostRelevantTags` places matching names first in every row, in the supplied order.

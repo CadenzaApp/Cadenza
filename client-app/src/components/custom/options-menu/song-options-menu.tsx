@@ -14,6 +14,7 @@ import { albumRouteForTrack } from "@/lib/music-routes";
 import { useSongArtists, useSongFavoriteStatus } from "@/lib/musickit-hooks";
 import { usePlaybackCommands } from "@/lib/playback";
 import { shareTrack } from "@/lib/share-track";
+import { classifyError } from "@/lib/app-error";
 
 import { FavoriteShareRow } from "./favorite-share-row";
 
@@ -203,6 +204,8 @@ export const SongOptionsMenu = memo(function SongOptionsMenu({
                                     `Song option ${action.id} failed:`,
                                     error,
                                 );
+                                const appError = classifyError(error);
+                                Alert.alert(appError.title, appError.detail);
                             });
                         }}
                     />

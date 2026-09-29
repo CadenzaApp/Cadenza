@@ -30,6 +30,7 @@ export function SongTagSelectorPopup({
         songTags,
         defaultTags,
         editorLoaded,
+        editorError,
         recentTagIds,
         selectTag,
         selectDefaultTag,
@@ -46,6 +47,7 @@ export function SongTagSelectorPopup({
         yourTagsCenterFromPopupTop == null
             ? 0
             : popupHeight / 2 - yourTagsCenterFromPopupTop;
+    const geometryReady = popupHeight > 0 && yourTagsCenterFromPopupTop != null;
 
     return (
         <>
@@ -59,6 +61,7 @@ export function SongTagSelectorPopup({
                     maxWidth: 624,
                     maxHeight: "60%",
                     padding: 0,
+                    opacity: geometryReady ? 1 : 0,
                     transform: [{ translateY: popupTranslateY }],
                 }}
             >
@@ -74,7 +77,7 @@ export function SongTagSelectorPopup({
                 >
                     {editorLoaded ? (
                         <TagSelector
-                            key={songId}
+                            contextKey={songId}
                             tags={songTags}
                             suggestedTags={defaultTags}
                             forceVisibleTagIds={recentTagIds}
@@ -91,6 +94,7 @@ export function SongTagSelectorPopup({
                                 selectDefaultTag(tag.id)
                             }
                             onCreateTag={onTagCreated}
+                            errorMessage={editorError}
                         />
                     ) : (
                         <ActivityIndicator accessibilityLabel="Loading tags" />

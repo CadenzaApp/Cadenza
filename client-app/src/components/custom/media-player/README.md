@@ -212,9 +212,10 @@ smoothly between the 750ms native snapshot polls, and scrubbing overrides it wit
   a time without changing their initial order as choices change. New sits below the selector cards.
   A tag created from New or adopted from Suggested becomes one of the user's tags and is applied to
   `focusedSong` straight away. Basic tag toggles update optimistically while the backend saves.
-- A divider below New separates the read-only Activity Tags glass card. It is collapsed by default
-  and expands to show My Plays, First Played, and Last Played from `useActivityTagsOnSong`. A
-  never-set date reads "Never". These values change only as the user listens
+- Below New, the read-only Activity Tags glass card is collapsed by default. Its data is not fetched
+  until it expands, then it shows My Plays, First Played, and Last Played from
+  `useActivityTagsOnSong`. A never-set date reads
+  "Never". These values change only as the user listens
   (`@/lib/play-recorder`), never from a tap here.
 - Long pressing a Suggested tags pill opens `SuggestedTagMenu`, the same glass `ModalPopup` the
   `...` menus use, holding one Remove this action. It calls `useSongTagEditor`'s
