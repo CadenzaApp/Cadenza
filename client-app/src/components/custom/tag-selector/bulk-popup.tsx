@@ -116,6 +116,9 @@ export function BulkTagSelectorPopup({
         return chosen;
     }, [selection, sessionKey]);
     const [submitting, setSubmitting] = useState(false);
+    const [pendingSuggestedIds, setPendingSuggestedIds] = useState<
+        ReadonlySet<number>
+    >(new Set());
     const [submitError, setSubmitError] = useState<string | null>(null);
     const { applyTagsToSongs } = useApplyTagsToSongs();
     const { removeTagsFromSongs } = useRemoveTagsFromSongs();
@@ -131,14 +134,17 @@ export function BulkTagSelectorPopup({
             (tag) => !ownedNames.has(tag.name.trim().toLowerCase()),
         );
     }, [createdTags, defaultTagsBySong, mode, songIds, userTags]);
-    const selectorItems: TagSelectorItem[] = [
-        ...initialTags,
-        ...createdTags,
-    ].map((tag) => ({
-        ...tag,
-        value: null,
-        chosen: chosenIds.has(tag.id),
-    }));
+    const selectorItems = useMemo<TagSelectorItem[]>(() => {
+        const uniqueTags = new Map<number, Tag>();
+        for (const tag of [...initialTags, ...createdTags]) {
+            uniqueTags.set(tag.id, tag);
+        }
+        return [...uniqueTags.values()].map((tag) => ({
+            ...tag,
+            value: null,
+            chosen: chosenIds.has(tag.id),
+        }));
+    }, [chosenIds, createdTags, initialTags]);
 
     function toggleTag(tag: TagSelectorItem) {
         setSelection((current) => {
@@ -162,7 +168,9 @@ export function BulkTagSelectorPopup({
     }
 
     async function chooseSuggestedTag(tag: Tag) {
+        if (pendingSuggestedIds.has(tag.id)) return;
         setSubmitError(null);
+        setPendingSuggestedIds((current) => new Set([...current, tag.id]));
         try {
             const createdTagId = await createTag({
                 name: tag.name,
@@ -175,6 +183,12 @@ export function BulkTagSelectorPopup({
         } catch (error) {
             console.error("Creating a suggested tag failed:", error);
             setSubmitError(classifyError(error).detail);
+        } finally {
+            setPendingSuggestedIds((current) => {
+                const next = new Set(current);
+                next.delete(tag.id);
+                return next;
+            });
         }
     }
 
@@ -205,7 +219,7 @@ export function BulkTagSelectorPopup({
     return (
         <ModalPopup
             visible
-            onClose={onCancel}
+            onClose={submitting ? () => undefined : onCancel}
             variant="transparent"
             backdropClassName="px-0 py-8"
             contentStyle={{

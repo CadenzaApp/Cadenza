@@ -158,7 +158,10 @@ Rows use the query-revamp spacing, artwork alignment, skeletons, and solid-color
 appearance. `mostRelevantTags` places matching names first in every row, in the supplied order.
 Other tags are ordered by how many songs in the user's library carry them, then by stable name and
 ID tie breakers. Filled user tags and unfilled shared default tags share that order; `index.tsx`
-reads both with one batched request each. Activity tags (My Plays and the rest) show only when a
+reads both with batched requests. Those reads use stable 25-song chunks so appending a page does
+not refetch tags for every earlier page. Do not replace them with one growing all-song request.
+Default-tag reads are skipped for multi-song selection and remove-only workflows; only visible
+row tags and the single-song Apply Suggested panel need them. Activity tags (My Plays and the rest) show only when a
 caller passes `activityTagIds`: those tags go first, with the song's value, and `index.tsx` fetches
 them in a third batched request. Only query results do that, with the activity tags their query
 filters on. The horizontal rail can be dragged to inspect tags beyond the trailing fade without
@@ -170,6 +173,8 @@ screen-aware bottom anchor as the sort bubble, so native tab and player insets a
 twice. Row artwork, metadata, tag rails, and tag pills are memoized away from selection-only
 updates. The entrance transition also uses a weighted row-plus-tag cost and snaps directly into
 selection mode for tag-heavy lists, avoiding simultaneous animation of many masked rails.
+Initial loading placeholders are capped to one screenful. A server result count must never become
+an unvirtualized number of mounted skeleton rows.
 `trackMenuActions` appends caller actions to the shared `SongOptionsMenu`; do not restore
 the deleted list-specific track menu.
 
@@ -187,9 +192,9 @@ sitting above a list that owns the scroll.
 `MusicList` hides its scroll indicator. Overscrolling at the top is how a detail screen closes,
 and an indicator flicking in over the shrinking card is noise.
 
-Tag rails use `MaskedView` with an opaque-to-transparent trailing mask. Do not replace it with a
-gradient painted in a theme color: rows also sit over artwork tints, so no single fill color can
-match every screen.
+Overflowing tag rails use `MaskedView` with an opaque-to-transparent trailing mask. Rails that fit
+skip that compositing layer. Do not replace the mask with a gradient painted in a theme color:
+rows also sit over artwork tints, so no single fill color can match every screen.
 
 `TrackCollectionView` owns the standard mosaic or single-artwork header, play/shuffle row,
 caller-supplied simple glass options, and the `MusicList`. Routes can supply pagination, playback

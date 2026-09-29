@@ -53,8 +53,9 @@ type TagSelectorProps = {
     /** Liquid-glass actions rendered below the tag panels. */
     footerActions?: readonly TagSelectorFooterAction[];
     loading?: boolean;
+    /** Suggested tags load independently so Your Tags can appear first. */
+    suggestedLoading?: boolean;
     selectionMode?: "single" | "multiple";
-    onYourTagsLayout?: (layout: LayoutRectangle) => void;
     forceVisibleTagIds?: readonly number[];
     pageSize?: number;
     emptyLabel?: string;
@@ -82,8 +83,8 @@ function TagSelectorSession({
     onCreateTag,
     footerActions = [],
     loading = false,
+    suggestedLoading = false,
     selectionMode = "single",
-    onYourTagsLayout,
     forceVisibleTagIds = [],
     pageSize = DEFAULT_PAGE_SIZE,
     emptyLabel = "You have no tags yet.",
@@ -178,7 +179,6 @@ function TagSelectorSession({
                         </View>
                     </View>
                 }
-                onLayout={onYourTagsLayout}
             >
                 {loading ? (
                     <ActivityIndicator accessibilityLabel="Loading tags" />
@@ -239,7 +239,9 @@ function TagSelectorSession({
 
             {selectionMode === "single" ? (
                 <TagSelectorPanel heading="Suggested">
-                    {suggestedTags?.length ? (
+                    {suggestedLoading ? (
+                        <ActivityIndicator accessibilityLabel="Loading suggested tags" />
+                    ) : suggestedTags?.length ? (
                         <View className="flex-row flex-wrap gap-2">
                             {suggestedTags.map((tag) => (
                                 <Pressable

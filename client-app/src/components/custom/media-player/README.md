@@ -65,7 +65,10 @@ renders the same `PlayerPager`, which mounts Comments, Player, and Tags side by 
 horizontal paging `ScrollView`. Route choice decides only which page is selected initially.
 Swipes expose the adjacent live page under the finger, and the glass selector's highlight follows
 the scroll position continuously. Each selected tab uses its filled icon variant; inactive tabs
-use outlines. The three page instances stay mounted for the sheet's lifetime.
+use outlines. The three page instances stay mounted for the sheet's lifetime. Comments and Tags
+do not start their network reads merely because their page shell is mounted. The pager enables a
+page's reads the first time that page is selected, then leaves them enabled so revisiting it is
+instant. Preserve that separation when adding data to an offscreen player page.
 
 `PlayerChromeProvider` wraps the three pages with the measured height of the pager's own selector,
 which is what a page needs to lift content clear of the keyboard. The pager is the only thing that

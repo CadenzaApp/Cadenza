@@ -27,13 +27,21 @@ import { useSongTagEditor } from "../song-tag-editor";
 import type { FocusedSong } from "./player-scope";
 
 /** The now-playing sheet's reusable tag selector for the focused song. */
-export function TagsPage({ focusedSong }: { focusedSong: FocusedSong }) {
+export function TagsPage({
+    focusedSong,
+    enabled = true,
+}: {
+    focusedSong: FocusedSong;
+    /** Becomes true after this pager page is first visited. */
+    enabled?: boolean;
+}) {
     const insets = useSafeAreaInsets();
     const [menuTag, setMenuTag] = useState<Tag | null>(null);
     const {
         songTags,
         defaultTags,
         editorLoaded,
+        suggestedTagsLoading,
         editorError,
         recentTagIds,
         selectTag,
@@ -44,7 +52,7 @@ export function TagsPage({ focusedSong }: { focusedSong: FocusedSong }) {
         onValueRemove,
         onValueDialogClose,
         onTagCreated,
-    } = useSongTagEditor(focusedSong.id);
+    } = useSongTagEditor(focusedSong.id, enabled);
     return (
         <View className="flex-1">
             <ScrollView
@@ -64,12 +72,13 @@ export function TagsPage({ focusedSong }: { focusedSong: FocusedSong }) {
                     </Text>
                 </View>
 
-                {editorLoaded ? (
+                {!enabled ? null : editorLoaded ? (
                     <View className="gap-4">
                         <TagSelector
                             contextKey={focusedSong.id}
                             tags={songTags}
                             suggestedTags={defaultTags}
+                            suggestedLoading={suggestedTagsLoading}
                             forceVisibleTagIds={recentTagIds}
                             onToggleTag={(tag) => selectTag(tag.id)}
                             onChooseSuggested={(tag) =>

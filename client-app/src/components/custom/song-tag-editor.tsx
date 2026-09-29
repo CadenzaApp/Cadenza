@@ -12,6 +12,7 @@ import { sortTagSelectorItems } from "@/components/custom/tag-selector/sort-tags
 import { isAttributeTag } from "@/lib/tag-values";
 import type { AppliedTag, Tag } from "@/lib/types";
 import { classifyError } from "@/lib/app-error";
+import { invalidateAPIData } from "@/lib/api-actions";
 
 export type EditableSongTag = AppliedTag & { chosen: boolean };
 
@@ -20,15 +21,22 @@ export type EditableSongTag = AppliedTag & { chosen: boolean };
  * behind it, not the layout. Every one of the user's tags, annotated with
  * whether it is applied and its value, the song's shared default tags with the
  * copy-to-my-tags they do when tapped and the removal that hides one, the
- * toggle/value mutations, and the "New" tag dialog's open state.
+ * toggle and value mutations.
  * Both the now-playing Tags page and the song-options popup use this hook, so
  * editing behavior and failure handling stay independent of either layout.
  */
-export function useSongTagEditor(songId: string) {
-    const { userTags = [], userTagsMeta, userTagsLoading } = useUserTags();
-    const { tagsOnSong = [], tagsOnSongLoading } = useTagsOnSong(songId);
+export function useSongTagEditor(songId: string, enabled = true) {
+    const {
+        userTags = [],
+        userTagsMeta,
+        userTagsLoading,
+    } = useUserTags(enabled);
+    const { tagsOnSong = [], tagsOnSongLoading } = useTagsOnSong(
+        songId,
+        enabled,
+    );
     const { defaultTagsOnSong = [], defaultTagsOnSongLoading } =
-        useDefaultTagsOnSong(songId);
+        useDefaultTagsOnSong(songId, enabled);
     const { applyTag } = useApplyTag();
     const { createTag } = useCreateTag();
     const { unapplyTag } = useUnapplyTag();
@@ -39,20 +47,21 @@ export function useSongTagEditor(songId: string) {
     }>({ songId, tags: [] });
     const [optimisticSelections, setOptimisticSelections] = useState<{
         songId: string;
-        choices: Record<
-            number,
-            { chosen: boolean; baseline: boolean; generation: number }
-        >;
+        choices: Record<number, { chosen: boolean; generation: number }>;
     }>({ songId, choices: {} });
     const mutationGeneration = useRef(0);
-    const latestGenerationByTag = useRef(new Map<number, number>());
-    const mutationChains = useRef(new Map<number, Promise<void>>());
-    const [editorError, setEditorError] = useState<string | null>(null);
+    const latestGenerationByTag = useRef(new Map<string, number>());
+    const mutationChains = useRef(new Map<string, Promise<void>>());
+    const [editorError, setEditorError] = useState<{
+        songId: string;
+        message: string;
+    } | null>(null);
     // the attribute tag whose value is being asked for, if any
     const [valuePrompt, setValuePrompt] = useState<{
         tag: Tag;
         mode: "apply";
         initialValue: string | null;
+        songId: string;
     } | null>(null);
 
     const currentRecentTags = useMemo(
@@ -84,15 +93,13 @@ export function useSongTagEditor(songId: string) {
                 const optimistic = optimisticChoices[tag.id];
                 return {
                     ...tag,
-                    chosen:
-                        optimistic && optimistic.baseline === applied
-                            ? optimistic.chosen
-                            : applied,
+                    chosen: optimistic?.chosen ?? applied,
                     value: appliedTagValues.get(tag.id) ?? null,
                 };
             }),
         [allUserTags, appliedTagValues, optimisticChoices],
     );
+
     const suggestedNames = useMemo(
         () =>
             new Set(
@@ -109,8 +116,9 @@ export function useSongTagEditor(songId: string) {
         );
     }, [allUserTags, defaultTagsOnSong]);
 
-    const editorLoaded =
-        !userTagsLoading && !tagsOnSongLoading && !defaultTagsOnSongLoading;
+    // Suggested tags are intentionally not part of this gate. The editable
+    // panel is useful as soon as the user's tags and applied state arrive.
+    const editorLoaded = !userTagsLoading && !tagsOnSongLoading;
     const songTags = useMemo(
         () =>
             sortTagSelectorItems(
@@ -135,17 +143,13 @@ export function useSongTagEditor(songId: string) {
         }));
     }
 
-    function setOptimisticChoice(
-        tagId: number,
-        chosen: boolean,
-        baseline: boolean,
-    ): number {
+    function setOptimisticChoice(tagId: number, chosen: boolean): number {
         const generation = ++mutationGeneration.current;
         setOptimisticSelections((current) => ({
             songId,
             choices: {
                 ...(current.songId === songId ? current.choices : {}),
-                [tagId]: { chosen, baseline, generation },
+                [tagId]: { chosen, generation },
             },
         }));
         return generation;
@@ -166,33 +170,59 @@ export function useSongTagEditor(songId: string) {
     async function runTagMutation(
         tagId: number,
         chosen: boolean,
-        baseline: boolean,
         mutation: () => Promise<unknown>,
     ) {
         setEditorError(null);
-        const generation = setOptimisticChoice(tagId, chosen, baseline);
-        latestGenerationByTag.current.set(tagId, generation);
-        const previous = mutationChains.current.get(tagId) ?? Promise.resolve();
+        const generation = setOptimisticChoice(tagId, chosen);
+        const mutationKey = `${songId}:${tagId}`;
+        latestGenerationByTag.current.set(mutationKey, generation);
+        const previous =
+            mutationChains.current.get(mutationKey) ?? Promise.resolve();
         const operation = previous
             .catch(() => undefined)
             .then(async () => {
                 await mutation();
             });
-        mutationChains.current.set(tagId, operation);
+        mutationChains.current.set(mutationKey, operation);
 
         try {
             await operation;
+            if (latestGenerationByTag.current.get(mutationKey) === generation) {
+                try {
+                    // Hold the optimistic choice until this one small read
+                    // catches up. Other lists and queries still refresh in the
+                    // background and never block the interaction.
+                    await invalidateAPIData([
+                        {
+                            path: "/songs/local-tags",
+                            params: { song_id: songId },
+                        },
+                    ]);
+                    clearOptimisticChoice(tagId, generation);
+                } catch (refreshError) {
+                    // The write succeeded, so keep showing the user's choice.
+                    // A later SWR refresh can reconcile the cache without
+                    // falsely reporting that the edit itself failed.
+                    console.error(
+                        `Refreshing tags for ${songId} failed`,
+                        refreshError,
+                    );
+                }
+            }
         } catch (error) {
             console.error(`Updating tag ${tagId} failed`, error);
-            if (latestGenerationByTag.current.get(tagId) === generation) {
-                setEditorError(classifyError(error).detail);
+            if (latestGenerationByTag.current.get(mutationKey) === generation) {
+                setEditorError({
+                    songId,
+                    message: classifyError(error).detail,
+                });
+                clearOptimisticChoice(tagId, generation);
             }
         } finally {
-            if (mutationChains.current.get(tagId) === operation) {
-                mutationChains.current.delete(tagId);
-                latestGenerationByTag.current.delete(tagId);
+            if (mutationChains.current.get(mutationKey) === operation) {
+                mutationChains.current.delete(mutationKey);
+                latestGenerationByTag.current.delete(mutationKey);
             }
-            clearOptimisticChoice(tagId, generation);
         }
     }
 
@@ -205,9 +235,8 @@ export function useSongTagEditor(songId: string) {
         const tag = editableTags.find((candidate) => candidate.id === tagId);
         if (!tag) return;
 
-        const applied = appliedTagValues.has(tag.id);
         if (tag.chosen) {
-            await runTagMutation(tag.id, false, applied, () =>
+            await runTagMutation(tag.id, false, () =>
                 unapplyTag({ song_id: songId, tag_id: tag.id }),
             );
             return;
@@ -218,11 +247,12 @@ export function useSongTagEditor(songId: string) {
                 tag,
                 mode: "apply",
                 initialValue: null,
+                songId,
             });
             return;
         }
 
-        await runTagMutation(tag.id, true, applied, () =>
+        await runTagMutation(tag.id, true, () =>
             applyTag({ song_id: songId, tag_id: tag.id }),
         );
     }
@@ -252,10 +282,11 @@ export function useSongTagEditor(songId: string) {
                     tag: owned,
                     mode: "apply",
                     initialValue: null,
+                    songId,
                 });
                 return;
             }
-            await runTagMutation(owned.id, true, false, () =>
+            await runTagMutation(owned.id, true, () =>
                 applyTag({ song_id: songId, tag_id: owned.id }),
             );
             return;
@@ -270,13 +301,16 @@ export function useSongTagEditor(songId: string) {
             });
         } catch (error) {
             console.error("Adopting a suggested tag failed", error);
-            setEditorError(classifyError(error).detail);
+            setEditorError({
+                songId,
+                message: classifyError(error).detail,
+            });
             return;
         }
         if (typeof createdTagId === "number") {
             const createdTag = { ...defaultTag, id: createdTagId };
             rememberRecentTag(createdTag);
-            await runTagMutation(createdTagId, true, false, () =>
+            await runTagMutation(createdTagId, true, () =>
                 applyTagById(createdTagId),
             );
         }
@@ -293,21 +327,18 @@ export function useSongTagEditor(songId: string) {
     }
 
     async function handleValueSubmit(value: string | null) {
-        if (!valuePrompt) return;
+        if (!valuePrompt || valuePrompt.songId !== songId) return;
         const payload = { song_id: songId, tag_id: valuePrompt.tag.id, value };
 
         setValuePrompt(null);
-        const applied = appliedTagValues.has(valuePrompt.tag.id);
-        await runTagMutation(valuePrompt.tag.id, true, applied, () =>
-            applyTag(payload),
-        );
+        await runTagMutation(valuePrompt.tag.id, true, () => applyTag(payload));
     }
 
     async function handleValueRemove() {
-        if (!valuePrompt) return;
+        if (!valuePrompt || valuePrompt.songId !== songId) return;
         const tagId = valuePrompt.tag.id;
         setValuePrompt(null);
-        await runTagMutation(tagId, false, true, () =>
+        await runTagMutation(tagId, false, () =>
             unapplyTag({ song_id: songId, tag_id: tagId }),
         );
     }
@@ -316,14 +347,16 @@ export function useSongTagEditor(songId: string) {
         songTags,
         defaultTags,
         editorLoaded,
-        editorError,
+        suggestedTagsLoading: defaultTagsOnSongLoading,
+        editorError:
+            editorError?.songId === songId ? editorError.message : null,
         recentTagIds,
         selectTag: (tagId: number) => void selectTag(tagId),
         selectDefaultTag: (tagId: number) => void adoptDefaultTag(tagId),
         // the one callback that hands its promise back, so the menu pressing it
         // can report a removal that did not save
         removeDefaultTag: (tagId: number) => removeDefaultTagById(tagId),
-        valuePrompt,
+        valuePrompt: valuePrompt?.songId === songId ? valuePrompt : null,
         onValueSubmit: (value: string | null) => void handleValueSubmit(value),
         onValueRemove: () => void handleValueRemove(),
         onValueDialogClose: () => setValuePrompt(null),
@@ -331,9 +364,7 @@ export function useSongTagEditor(songId: string) {
         // than making the user find it in the list afterwards.
         onTagCreated: (tag: Tag) => {
             rememberRecentTag(tag);
-            void runTagMutation(tag.id, true, false, () =>
-                applyTagById(tag.id),
-            );
+            void runTagMutation(tag.id, true, () => applyTagById(tag.id));
         },
     };
 }

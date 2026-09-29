@@ -25,6 +25,7 @@ export function SongTagSelectorPopup({
         songTags,
         defaultTags,
         editorLoaded,
+        suggestedTagsLoading,
         editorError,
         recentTagIds,
         selectTag,
@@ -58,6 +59,7 @@ export function SongTagSelectorPopup({
                             contextKey={songId}
                             tags={songTags}
                             suggestedTags={defaultTags}
+                            suggestedLoading={suggestedTagsLoading}
                             forceVisibleTagIds={recentTagIds}
                             onToggleTag={(tag) => selectTag(tag.id)}
                             onChooseSuggested={(tag) =>

@@ -12,7 +12,7 @@ import { sortMusicListTags } from "./sort-tags";
 
 const TAG_RAIL_TOUCH_INSET = 10;
 const EMPTY_TAG_NAMES: readonly string[] = [];
-const SUGGESTED_TAG_STYLE = { opacity: 0.58 } as const;
+const SUGGESTED_TAG_STYLE = { opacity: 0.42 } as const;
 
 /**
  * The song's own and shared default tags in list-wide relevance order.
@@ -66,8 +66,51 @@ export const TagFadeRail = memo(function TagFadeRail({
         <View style={[StyleSheet.absoluteFill, { backgroundColor: "black" }]} />
     );
 
+    const rail = (
+        <ScrollView
+            horizontal
+            directionalLockEnabled
+            nestedScrollEnabled
+            showsHorizontalScrollIndicator={false}
+            onContentSizeChange={(width) =>
+                setContentWidth((current) =>
+                    current === width ? current : width,
+                )
+            }
+            contentContainerStyle={{
+                gap: compact ? 4 : 6,
+                paddingRight: overflows ? fadeWidth : 0,
+                paddingVertical: TAG_RAIL_TOUCH_INSET,
+            }}
+        >
+            {activityTags.map((tag) => (
+                <TagPill
+                    key={`activity:${tag.id}`}
+                    tag={tag}
+                    value={activityTagDisplayValue(tag)}
+                    height={compact ? 8 : 9}
+                    showIcon={false}
+                />
+            ))}
+            {orderedTags.map(({ source, tag }) => (
+                <View
+                    key={`${source}:${tag.id}`}
+                    style={source === "default" ? SUGGESTED_TAG_STYLE : null}
+                >
+                    <TagPill
+                        tag={tag}
+                        value={source === "local" ? tag.value : undefined}
+                        height={compact ? 8 : 9}
+                        showIcon={false}
+                        suggested={source === "default"}
+                    />
+                </View>
+            ))}
+        </ScrollView>
+    );
+
     return (
-        <MaskedView
+        <View
             // The negative margin preserves the row's exact layout while the
             // vertical content padding gives the ScrollView a real, larger
             // native touch surface above and below the visible pills.
@@ -75,49 +118,23 @@ export const TagFadeRail = memo(function TagFadeRail({
                 alignSelf: "stretch",
                 marginVertical: -TAG_RAIL_TOUCH_INSET,
             }}
-            onLayout={(event) =>
-                setViewportWidth(event.nativeEvent.layout.width)
-            }
-            maskElement={maskElement}
+            onLayout={(event) => {
+                const width = event.nativeEvent.layout.width;
+                setViewportWidth((current) =>
+                    current === width ? current : width,
+                );
+            }}
         >
-            <ScrollView
-                horizontal
-                directionalLockEnabled
-                nestedScrollEnabled
-                showsHorizontalScrollIndicator={false}
-                onContentSizeChange={(width) => setContentWidth(width)}
-                contentContainerStyle={{
-                    gap: compact ? 4 : 6,
-                    paddingRight: fadeWidth,
-                    paddingVertical: TAG_RAIL_TOUCH_INSET,
-                }}
-            >
-                {activityTags.map((tag) => (
-                    <TagPill
-                        key={`activity:${tag.id}`}
-                        tag={tag}
-                        value={activityTagDisplayValue(tag)}
-                        height={compact ? 8 : 9}
-                        showIcon={false}
-                    />
-                ))}
-                {orderedTags.map(({ source, tag }) => (
-                    <View
-                        key={`${source}:${tag.id}`}
-                        style={
-                            source === "default" ? SUGGESTED_TAG_STYLE : null
-                        }
-                    >
-                        <TagPill
-                            tag={tag}
-                            value={source === "local" ? tag.value : undefined}
-                            height={compact ? 8 : 9}
-                            showIcon={false}
-                            suggested={source === "default"}
-                        />
-                    </View>
-                ))}
-            </ScrollView>
-        </MaskedView>
+            {overflows ? (
+                <MaskedView
+                    style={{ alignSelf: "stretch" }}
+                    maskElement={maskElement}
+                >
+                    {rail}
+                </MaskedView>
+            ) : (
+                rail
+            )}
+        </View>
     );
 });

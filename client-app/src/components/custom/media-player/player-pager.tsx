@@ -59,7 +59,17 @@ export function PlayerPager() {
     const scrollX = useSharedValue(PLAYER_TABS.indexOf(selectedTab) * width);
     const [tabBarWidth, setTabBarWidth] = useState(0);
     const [bottomChromeHeight, setBottomChromeHeight] = useState(0);
+    const [visitedTabs, setVisitedTabs] = useState<ReadonlySet<PlayerTab>>(
+        () => new Set([selectedTab]),
+    );
     const selectedIndex = PLAYER_TABS.indexOf(selectedTab);
+
+    function activateTab(tab: PlayerTab) {
+        setVisitedTabs((current) =>
+            current.has(tab) ? current : new Set([...current, tab]),
+        );
+        selectTab(tab);
+    }
 
     useEffect(() => {
         scrollRef.current?.scrollTo({
@@ -111,20 +121,24 @@ export function PlayerPager() {
                                 ),
                             ),
                         );
-                        selectTab(PLAYER_TABS[index]);
+                        activateTab(PLAYER_TABS[index]);
                     }}
                 >
                     <View style={{ width }}>
                         <CommentsPage
                             focusedSong={focusedSong}
                             active={selectedTab === "comments"}
+                            enabled={visitedTabs.has("comments")}
                         />
                     </View>
                     <View style={{ width }}>
                         <PlayerPage />
                     </View>
                     <View style={{ width }}>
-                        <TagsPage focusedSong={focusedSong} />
+                        <TagsPage
+                            focusedSong={focusedSong}
+                            enabled={visitedTabs.has("tags")}
+                        />
                     </View>
                 </Animated.ScrollView>
 
@@ -188,7 +202,7 @@ export function PlayerPager() {
                                 key={tab}
                                 tab={tab}
                                 selected={selectedTab === tab}
-                                onPress={() => selectTab(tab)}
+                                onPress={() => activateTab(tab)}
                             />
                         ))}
                     </View>

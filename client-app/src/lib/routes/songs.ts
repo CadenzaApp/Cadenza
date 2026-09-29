@@ -7,15 +7,21 @@ import {
 } from "../api-actions";
 import { AppliedTag, Tag } from "@/lib/types";
 
-// the backend caps a batch at 200 ids
-const TAGS_ON_SONGS_BATCH_SIZE = 200;
+// Stable 25-song read chunks match MusicKit paging, so a newly appended page reuses every
+// completed earlier chunk. The backend allows up to 200 ids per request.
+const TAGS_ON_SONGS_BATCH_SIZE = 25;
+const TAG_EDITS_MAX_SONGS_PER_BATCH = 200;
 const TAG_EDITS_PER_BATCH = 4_000;
 const TAG_EDIT_CONCURRENCY = 3;
 
-export function useTagsOnSong(songId?: string) {
-    const x = useAPIData<AppliedTag[]>("/songs/local-tags", {
-        song_id: songId,
-    });
+export function useTagsOnSong(songId?: string, enabled = true) {
+    const x = useAPIData<AppliedTag[]>(
+        "/songs/local-tags",
+        {
+            song_id: songId,
+        },
+        { enabled },
+    );
 
     return {
         tagsOnSong: x.data,
@@ -60,15 +66,13 @@ export function useApplyTag() {
     const x = useAPIMutation<ApplyTagPayload, void>(
         "POST",
         "/songs/local-tags",
-        ({ song_id }) => [
-            { path: "/songs/local-tags", params: { song_id } },
-            { path: "/songs/local-tags/batch" },
-            { path: "/songs/default-tags", params: { song_id } },
-            { path: "/songs/default-tags/batch" },
-            { path: "/tags" },
+        ({ song_id, tag_id }) => [
+            { path: "/songs/local-tags/batch", item: song_id },
+            { path: "/tags", exactParams: true },
+            { path: "/tags", params: { tag_id }, exactParams: true },
             { path: "/queries/results" },
         ],
-        { invalidation: "await" },
+        { invalidation: "background" },
     );
     return {
         applyTagErr: x.error,
@@ -88,13 +92,14 @@ export function useSetTagValue() {
     const x = useAPIMutation<SetTagValuePayload, void>(
         "PATCH",
         "/songs/local-tags",
-        ({ song_id }) => [
+        ({ song_id, tag_id }) => [
             { path: "/songs/local-tags", params: { song_id } },
-            { path: "/songs/local-tags/batch" },
-            { path: "/tags" },
+            { path: "/songs/local-tags/batch", item: song_id },
+            { path: "/tags", exactParams: true },
+            { path: "/tags", params: { tag_id }, exactParams: true },
             { path: "/queries/results" },
         ],
-        { invalidation: "await" },
+        { invalidation: "background" },
     );
     return {
         setTagValueErr: x.error,
@@ -112,13 +117,13 @@ export function useUnapplyTag() {
     const x = useAPIMutation<UnapplyTagPayload, void>(
         "DELETE",
         "/songs/local-tags",
-        ({ song_id }) => [
-            { path: "/songs/local-tags", params: { song_id } },
-            { path: "/songs/local-tags/batch" },
-            { path: "/tags" },
+        ({ song_id, tag_id }) => [
+            { path: "/songs/local-tags/batch", item: song_id },
+            { path: "/tags", exactParams: true },
+            { path: "/tags", params: { tag_id }, exactParams: true },
             { path: "/queries/results" },
         ],
-        { invalidation: "await" },
+        { invalidation: "background" },
     );
     return {
         unapplyTagErr: x.error,
@@ -194,7 +199,7 @@ async function editTagsInBatches(
             tagOffset + TAG_EDITS_PER_BATCH,
         );
         const songBatchSize = Math.min(
-            TAGS_ON_SONGS_BATCH_SIZE,
+            TAG_EDITS_MAX_SONGS_PER_BATCH,
             Math.max(1, Math.floor(TAG_EDITS_PER_BATCH / tagBatch.length)),
         );
         for (
@@ -254,7 +259,7 @@ export function useRemoveDefaultTag() {
         "/songs/default-tags",
         ({ song_id }) => [
             { path: "/songs/default-tags", params: { song_id } },
-            { path: "/songs/default-tags/batch" },
+            { path: "/songs/default-tags/batch", item: song_id },
             { path: "/queries/results" },
         ],
     );
@@ -267,10 +272,14 @@ export function useRemoveDefaultTag() {
 }
 
 /** Returns the shared default tags on one song, minus the ones this user removed. */
-export function useDefaultTagsOnSong(songId?: string) {
-    const x = useAPIData<Tag[]>("/songs/default-tags", {
-        song_id: songId,
-    });
+export function useDefaultTagsOnSong(songId?: string, enabled = true) {
+    const x = useAPIData<Tag[]>(
+        "/songs/default-tags",
+        {
+            song_id: songId,
+        },
+        { enabled },
+    );
 
     return {
         defaultTagsOnSong: x.data,

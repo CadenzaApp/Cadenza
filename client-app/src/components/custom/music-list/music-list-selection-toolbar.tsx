@@ -45,6 +45,7 @@ type MusicListSelectionToolbarProps = {
     tagsBySong: Readonly<Record<string, AppliedTag[]>>;
     defaultTagsBySong: Readonly<Record<string, Tag[]>>;
     tagsLoading: boolean;
+    suggestedTagsLoading: boolean;
 };
 
 const SWIPE_DISMISS_DISTANCE = 80;
@@ -73,6 +74,7 @@ export function MusicListSelectionToolbar({
     tagsBySong,
     defaultTagsBySong,
     tagsLoading,
+    suggestedTagsLoading,
 }: MusicListSelectionToolbarProps) {
     const [moreOpen, setMoreOpen] = useState(false);
     const [tagAction, setTagAction] = useState<
@@ -311,7 +313,12 @@ export function MusicListSelectionToolbar({
                             userTagsMeta={userTagsMeta}
                             tagsBySong={tagsBySong}
                             defaultTagsBySong={defaultTagsBySong}
-                            loading={tagsLoading}
+                            loading={
+                                tagsLoading ||
+                                (tagAction.mode === "apply" &&
+                                    tracks.length === 1 &&
+                                    suggestedTagsLoading)
+                            }
                             excludedTagIds={tagAction.excludedTagIds}
                             onCancel={() => setTagAction(null)}
                             onComplete={() => {
