@@ -209,10 +209,12 @@ smoothly between the 750ms native snapshot polls, and scrubbing overrides it wit
   gotchas now live with `SongOptionsMenu` - see [../../README.md](../../README.md) rather than
   this file. `TagsPage` uses the reusable `TagSelector`: Your Tags and Suggested are separate glass
   cards. Chosen tags are solid, available tags are outlined, and Show more reveals user tags 20 at
-  a time without changing their initial order as choices change. New sits below the selector cards.
-  A tag created from New or adopted from Suggested becomes one of the user's tags and is applied to
-  `focusedSong` straight away. Basic tag toggles update optimistically while the backend saves.
-- Below New, the read-only Activity Tags glass card is collapsed by default. Its data is not fetched
+  a time without changing their initial relevance order as choices change. The funnel in Your Tags
+  switches between relevance and alphabetical order. Its + control opens tag creation. A tag
+  created from it or adopted from Suggested becomes one of the user's tags and is applied to
+  `focusedSong` straight away. Basic tag toggles update
+  optimistically and hold that state until the refreshed backend read arrives.
+- Below the selector, the read-only Activity Tags glass card is collapsed by default. Its data is not fetched
   until it expands, then it shows My Plays, First Played, and Last Played from
   `useActivityTagsOnSong`. A never-set date reads
   "Never". These values change only as the user listens

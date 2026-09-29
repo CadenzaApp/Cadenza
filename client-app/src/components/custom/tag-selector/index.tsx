@@ -11,7 +11,9 @@ import {
 } from "react-native";
 
 import { CreateTagDialog } from "@/components/custom/create-tag-dialog";
+import { ModalPopup } from "@/components/custom/modal-popup";
 import { TagPill } from "@/components/custom/tag-pill";
+import { Button } from "@/components/ui/button";
 import { GlassButton } from "@/components/ui/glass-button";
 import { GlassSurface } from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
@@ -38,6 +40,7 @@ const MAX_VISIBLE_TAG_ROWS = 6;
 const TAG_GRID_MAX_HEIGHT =
     TAG_ROW_HEIGHT * MAX_VISIBLE_TAG_ROWS +
     TAG_ROW_GAP * (MAX_VISIBLE_TAG_ROWS - 1);
+type TagSelectorSort = "relevance" | "alphabetical";
 
 type TagSelectorProps = {
     tags: readonly TagSelectorItem[];
@@ -47,7 +50,7 @@ type TagSelectorProps = {
     onDismissSuggested?: (tag: Tag) => void;
     /** Omit when this selector must not offer tag creation. */
     onCreateTag?: (tag: Tag) => void;
-    /** Liquid-glass actions rendered on the right side of the New button row. */
+    /** Liquid-glass actions rendered below the tag panels. */
     footerActions?: readonly TagSelectorFooterAction[];
     loading?: boolean;
     selectionMode?: "single" | "multiple";
@@ -87,11 +90,14 @@ function TagSelectorSession({
     errorMessage,
 }: TagSelectorProps) {
     const { colorScheme } = useColorScheme();
-    const newButtonTint = THEME[colorScheme === "dark" ? "dark" : "light"].card;
+    const footerButtonTint =
+        THEME[colorScheme === "dark" ? "dark" : "light"].card;
     const [createTagOpen, setCreateTagOpen] = useState(false);
+    const [sortOpen, setSortOpen] = useState(false);
+    const [sort, setSort] = useState<TagSelectorSort>("relevance");
     const [visibleCount, setVisibleCount] = useState(pageSize);
     const [initialOrder] = useState(() => tags.map((tag) => tag.id));
-    const orderedTags = useMemo(() => {
+    const relevanceOrderedTags = useMemo(() => {
         const tagsById = new Map(tags.map((tag) => [tag.id, tag]));
         const ordered = initialOrder.flatMap((tagId) => {
             const tag = tagsById.get(tagId);
@@ -101,6 +107,20 @@ function TagSelectorSession({
         ordered.push(...tags.filter((tag) => !initiallyKnownIds.has(tag.id)));
         return ordered;
     }, [initialOrder, tags]);
+    const orderedTags = useMemo(
+        () =>
+            sort === "relevance"
+                ? relevanceOrderedTags
+                : [...tags].sort((left, right) => {
+                      const nameDifference = left.name.localeCompare(
+                          right.name,
+                          undefined,
+                          { sensitivity: "base" },
+                      );
+                      return nameDifference || left.id - right.id;
+                  }),
+        [relevanceOrderedTags, sort, tags],
+    );
 
     const visibleTags = visibleTagSelectorItems(
         orderedTags,
@@ -111,7 +131,55 @@ function TagSelectorSession({
 
     return (
         <View className="gap-4">
-            <TagSelectorPanel heading="Your Tags" onLayout={onYourTagsLayout}>
+            <TagSelectorPanel
+                heading={
+                    <View className="flex-row items-center justify-between">
+                        <Text className="text-base font-semibold text-foreground">
+                            Your Tags
+                        </Text>
+                        <View className="flex-row items-center gap-2.5">
+                            {onCreateTag ? (
+                                <Pressable
+                                    className="h-8 w-8 items-center justify-center rounded-full bg-black active:opacity-70 dark:bg-white"
+                                    accessibilityRole="button"
+                                    accessibilityLabel="Create a new tag"
+                                    hitSlop={8}
+                                    onPress={() => setCreateTagOpen(true)}
+                                >
+                                    <Ionicons
+                                        name="add"
+                                        size={20}
+                                        color={
+                                            colorScheme === "dark"
+                                                ? "#000000"
+                                                : "#ffffff"
+                                        }
+                                    />
+                                </Pressable>
+                            ) : null}
+                            <Pressable
+                                className="h-8 w-8 items-center justify-center rounded-full bg-black active:opacity-70 dark:bg-white"
+                                accessibilityRole="button"
+                                accessibilityLabel={`Sort tags by ${sort}`}
+                                accessibilityState={{ expanded: sortOpen }}
+                                hitSlop={8}
+                                onPress={() => setSortOpen(true)}
+                            >
+                                <Ionicons
+                                    name="funnel-outline"
+                                    size={16}
+                                    color={
+                                        colorScheme === "dark"
+                                            ? "#000000"
+                                            : "#ffffff"
+                                    }
+                                />
+                            </Pressable>
+                        </View>
+                    </View>
+                }
+                onLayout={onYourTagsLayout}
+            >
                 {loading ? (
                     <ActivityIndicator accessibilityLabel="Loading tags" />
                 ) : visibleTags.length ? (
@@ -203,42 +271,25 @@ function TagSelectorSession({
                 </TagSelectorPanel>
             ) : null}
 
-            {onCreateTag || footerActions.length ? (
-                <View className="flex-row items-center gap-2">
-                    {onCreateTag ? (
+            {footerActions.length ? (
+                <View className="ml-auto flex-row items-center gap-2">
+                    {footerActions.map((action) => (
                         <GlassButton
+                            key={action.id}
                             className="h-10 rounded-full px-4"
-                            glassTintColor={newButtonTint}
-                            accessibilityLabel="Create a new tag"
-                            onPress={() => setCreateTagOpen(true)}
+                            glassTintColor={footerButtonTint}
+                            variant={action.variant}
+                            accessibilityLabel={
+                                action.accessibilityLabel ?? action.label
+                            }
+                            disabled={action.disabled}
+                            onPress={action.onPress}
                         >
-                            <Ionicons name="add" size={18} color="#888888" />
-                            <Text className="text-sm font-medium">New</Text>
+                            <Text className="text-sm font-medium">
+                                {action.label}
+                            </Text>
                         </GlassButton>
-                    ) : null}
-
-                    {footerActions.length ? (
-                        <View className="ml-auto flex-row items-center gap-2">
-                            {footerActions.map((action) => (
-                                <GlassButton
-                                    key={action.id}
-                                    className="h-10 rounded-full px-4"
-                                    glassTintColor={newButtonTint}
-                                    variant={action.variant}
-                                    accessibilityLabel={
-                                        action.accessibilityLabel ??
-                                        action.label
-                                    }
-                                    disabled={action.disabled}
-                                    onPress={action.onPress}
-                                >
-                                    <Text className="text-sm font-medium">
-                                        {action.label}
-                                    </Text>
-                                </GlassButton>
-                            ))}
-                        </View>
-                    ) : null}
+                    ))}
                 </View>
             ) : null}
 
@@ -249,6 +300,33 @@ function TagSelectorSession({
                     onCreated={onCreateTag}
                 />
             ) : null}
+
+            <ModalPopup
+                visible={sortOpen}
+                onClose={() => setSortOpen(false)}
+                title="Sort tags"
+            >
+                {(
+                    [
+                        ["relevance", "Relevance"],
+                        ["alphabetical", "Alphabetical"],
+                    ] as const
+                ).map(([option, label]) => (
+                    <Button
+                        key={option}
+                        variant={sort === option ? "secondary" : "ghost"}
+                        className="w-full justify-start rounded-lg"
+                        accessibilityState={{ selected: sort === option }}
+                        onPress={() => {
+                            setSort(option);
+                            setVisibleCount(pageSize);
+                            setSortOpen(false);
+                        }}
+                    >
+                        <Text>{label}</Text>
+                    </Button>
+                ))}
+            </ModalPopup>
 
             {errorMessage ? (
                 <Text className="text-sm text-destructive">{errorMessage}</Text>
@@ -276,7 +354,7 @@ export function TagSelectorPanel({
             </View>
             {typeof heading === "string" ? (
                 <Text
-                    className={`${children == null ? "" : "mb-3 "}text-sm font-semibold text-foreground`}
+                    className={`${children == null ? "" : "mb-3 "}text-base font-semibold text-foreground`}
                 >
                     {heading}
                 </Text>

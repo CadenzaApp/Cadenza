@@ -68,7 +68,7 @@ export function useApplyTag() {
             { path: "/tags" },
             { path: "/queries/results" },
         ],
-        { invalidation: "background" },
+        { invalidation: "await" },
     );
     return {
         applyTagErr: x.error,
@@ -94,7 +94,7 @@ export function useSetTagValue() {
             { path: "/tags" },
             { path: "/queries/results" },
         ],
-        { invalidation: "background" },
+        { invalidation: "await" },
     );
     return {
         setTagValueErr: x.error,
@@ -118,7 +118,7 @@ export function useUnapplyTag() {
             { path: "/tags" },
             { path: "/queries/results" },
         ],
-        { invalidation: "background" },
+        { invalidation: "await" },
     );
     return {
         unapplyTagErr: x.error,

@@ -127,12 +127,12 @@ function ActivityTagSection({ songId }: { songId: string }) {
                     className="flex-row items-center justify-between active:opacity-70"
                     onPress={() => setExpanded((current) => !current)}
                 >
-                    <Text className="text-sm font-semibold text-foreground">
+                    <Text className="text-base font-semibold text-foreground">
                         Activity Tags
                     </Text>
                     <Ionicons
                         name={expanded ? "chevron-up" : "chevron-down"}
-                        size={18}
+                        size={20}
                         color={colors.text}
                     />
                 </Pressable>

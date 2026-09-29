@@ -43,6 +43,7 @@ type MusicListSelectionToolbarProps = {
     userTags: readonly Tag[];
     userTagsMeta?: Readonly<Record<number, TagMetadata>>;
     tagsBySong: Readonly<Record<string, AppliedTag[]>>;
+    defaultTagsBySong: Readonly<Record<string, Tag[]>>;
     tagsLoading: boolean;
 };
 
@@ -70,6 +71,7 @@ export function MusicListSelectionToolbar({
     userTags,
     userTagsMeta,
     tagsBySong,
+    defaultTagsBySong,
     tagsLoading,
 }: MusicListSelectionToolbarProps) {
     const [moreOpen, setMoreOpen] = useState(false);
@@ -308,6 +310,7 @@ export function MusicListSelectionToolbar({
                             userTags={userTags}
                             userTagsMeta={userTagsMeta}
                             tagsBySong={tagsBySong}
+                            defaultTagsBySong={defaultTagsBySong}
                             loading={tagsLoading}
                             excludedTagIds={tagAction.excludedTagIds}
                             onCancel={() => setTagAction(null)}

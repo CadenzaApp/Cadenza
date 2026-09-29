@@ -30,7 +30,9 @@ export default function TagDetailScreen() {
         return {
             actions: [
                 {
-                    kind: "add-to-queue",
+                    kind: "apply-tags",
+                    label: "Apply other tags",
+                    excludedTagIds: [tag.id],
                 },
                 {
                     kind: "custom",
@@ -50,9 +52,7 @@ export default function TagDetailScreen() {
                     },
                 },
                 {
-                    kind: "apply-tags",
-                    label: "Apply other tags",
-                    excludedTagIds: [tag.id],
+                    kind: "add-to-queue",
                 },
             ],
         };

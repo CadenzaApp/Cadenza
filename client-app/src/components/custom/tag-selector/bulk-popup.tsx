@@ -14,6 +14,7 @@ import {
     useApplyTagsToSongs,
     useRemoveTagsFromSongs,
 } from "@/lib/routes/songs";
+import { useCreateTag } from "@/lib/routes/tags";
 import type { AppliedTag, Tag, TagMetadata } from "@/lib/types";
 
 export type BulkTagMode = "apply" | "remove";
@@ -24,6 +25,7 @@ export function BulkTagSelectorPopup({
     userTags,
     userTagsMeta,
     tagsBySong,
+    defaultTagsBySong,
     loading,
     excludedTagIds = [],
     onCancel,
@@ -34,6 +36,7 @@ export function BulkTagSelectorPopup({
     userTags: readonly Tag[];
     userTagsMeta?: Readonly<Record<number, TagMetadata>>;
     tagsBySong: Readonly<Record<string, AppliedTag[]>>;
+    defaultTagsBySong: Readonly<Record<string, Tag[]>>;
     loading: boolean;
     excludedTagIds?: readonly number[];
     onCancel: () => void;
@@ -55,7 +58,7 @@ export function BulkTagSelectorPopup({
         }
         return ids;
     }, [songIds, tagsBySong]);
-    const initiallyChosenIds = useMemo(() => {
+    const appliedToAllIds = useMemo(() => {
         if (mode === "remove" || songIds.length === 0) return new Set<number>();
 
         const common = new Set(
@@ -80,11 +83,22 @@ export function BulkTagSelectorPopup({
                               initiallyPresentIds.has(tag.id) &&
                               !excludedIds.has(tag.id),
                       )
-                    : userTags.filter((tag) => !excludedIds.has(tag.id)),
+                    : userTags.filter(
+                          (tag) =>
+                              !excludedIds.has(tag.id) &&
+                              !appliedToAllIds.has(tag.id),
+                      ),
                 { kind: "multiple", initiallyPresentIds },
                 userTagsMeta,
             ),
-        [excludedIds, initiallyPresentIds, mode, userTags, userTagsMeta],
+        [
+            appliedToAllIds,
+            excludedIds,
+            initiallyPresentIds,
+            mode,
+            userTags,
+            userTagsMeta,
+        ],
     );
     const sessionKey = `${mode}:${songIds.join(",")}`;
     const [createdTags, setCreatedTags] = useState<Tag[]>([]);
@@ -93,18 +107,30 @@ export function BulkTagSelectorPopup({
         overrides: Map<number, boolean>;
     }>({ key: sessionKey, overrides: new Map() });
     const chosenIds = useMemo(() => {
-        const chosen = new Set(initiallyChosenIds);
+        const chosen = new Set<number>();
         if (selection.key !== sessionKey) return chosen;
         for (const [tagId, selected] of selection.overrides) {
             if (selected) chosen.add(tagId);
             else chosen.delete(tagId);
         }
         return chosen;
-    }, [initiallyChosenIds, selection, sessionKey]);
+    }, [selection, sessionKey]);
     const [submitting, setSubmitting] = useState(false);
     const [submitError, setSubmitError] = useState<string | null>(null);
     const { applyTagsToSongs } = useApplyTagsToSongs();
     const { removeTagsFromSongs } = useRemoveTagsFromSongs();
+    const { createTag } = useCreateTag();
+    const suggestedTags = useMemo(() => {
+        if (mode !== "apply" || songIds.length !== 1) return undefined;
+        const ownedNames = new Set(
+            [...userTags, ...createdTags].map((tag) =>
+                tag.name.trim().toLowerCase(),
+            ),
+        );
+        return (defaultTagsBySong[songIds[0]] ?? []).filter(
+            (tag) => !ownedNames.has(tag.name.trim().toLowerCase()),
+        );
+    }, [createdTags, defaultTagsBySong, mode, songIds, userTags]);
     const selectorItems: TagSelectorItem[] = [
         ...initialTags,
         ...createdTags,
@@ -135,17 +161,29 @@ export function BulkTagSelectorPopup({
         });
     }
 
+    async function chooseSuggestedTag(tag: Tag) {
+        setSubmitError(null);
+        try {
+            const createdTagId = await createTag({
+                name: tag.name,
+                color: tag.color,
+                type: tag.type,
+            });
+            if (typeof createdTagId === "number") {
+                handleTagCreated({ ...tag, id: createdTagId });
+            }
+        } catch (error) {
+            console.error("Creating a suggested tag failed:", error);
+            setSubmitError(classifyError(error).detail);
+        }
+    }
+
     async function submit() {
         if (submitting || chosenIds.size === 0) return;
         setSubmitting(true);
         setSubmitError(null);
         try {
-            const submittedIds =
-                mode === "apply"
-                    ? [...chosenIds].filter(
-                          (tagId) => !initiallyChosenIds.has(tagId),
-                      )
-                    : [...chosenIds];
+            const submittedIds = [...chosenIds];
             if (submittedIds.length === 0) return;
             const payload = {
                 song_ids: songIds,
@@ -162,11 +200,7 @@ export function BulkTagSelectorPopup({
     }
 
     const actionLabel = mode === "apply" ? "Apply" : "Remove";
-    const pendingChoiceCount =
-        mode === "apply"
-            ? [...chosenIds].filter((tagId) => !initiallyChosenIds.has(tagId))
-                  .length
-            : chosenIds.size;
+    const pendingChoiceCount = chosenIds.size;
 
     return (
         <ModalPopup
@@ -191,7 +225,12 @@ export function BulkTagSelectorPopup({
                 <TagSelector
                     contextKey={sessionKey}
                     tags={selectorItems}
-                    selectionMode="multiple"
+                    suggestedTags={suggestedTags}
+                    selectionMode={
+                        mode === "apply" && songIds.length === 1
+                            ? "single"
+                            : "multiple"
+                    }
                     loading={loading}
                     emptyLabel={
                         mode === "remove"
@@ -199,6 +238,7 @@ export function BulkTagSelectorPopup({
                             : "You have no tags yet."
                     }
                     onToggleTag={toggleTag}
+                    onChooseSuggested={(tag) => void chooseSuggestedTag(tag)}
                     onCreateTag={
                         mode === "apply" ? handleTagCreated : undefined
                     }

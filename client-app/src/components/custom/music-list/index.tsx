@@ -132,9 +132,8 @@ export function MusicList({
     const { tagsBySong, tagsBySongLoading } = useTagsOnSongs(
         localTagsEnabled ? taggableIds : EMPTY_SONG_IDS,
     );
-    const { defaultTagsBySong } = useDefaultTagsOnSongs(
-        showTags ? taggableIds : EMPTY_SONG_IDS,
-    );
+    const { defaultTagsBySong, defaultTagsBySongLoading } =
+        useDefaultTagsOnSongs(localTagsEnabled ? taggableIds : EMPTY_SONG_IDS);
     const {
         userTags = [],
         userTagsMeta,
@@ -507,7 +506,12 @@ export function MusicList({
                     userTags={userTags}
                     userTagsMeta={userTagsMeta}
                     tagsBySong={tagsBySong}
-                    tagsLoading={tagsBySongLoading || userTagsLoading}
+                    defaultTagsBySong={defaultTagsBySong}
+                    tagsLoading={
+                        tagsBySongLoading ||
+                        defaultTagsBySongLoading ||
+                        userTagsLoading
+                    }
                 />
             ) : null}
 
