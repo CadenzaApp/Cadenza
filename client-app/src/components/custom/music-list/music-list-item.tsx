@@ -1,4 +1,4 @@
-import { memo, useRef, useState } from "react";
+import { memo, useMemo, useRef, useState } from "react";
 import { Image, Pressable, StyleSheet, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTheme } from "expo-router/react-navigation";
@@ -31,6 +31,10 @@ type MusicListItemProps = {
     defaultTags?: readonly Tag[];
     mostRelevantTags?: readonly string[];
     tagMetadata?: Readonly<Record<number, TagMetadata>>;
+    /** Every activity tag on the song for this user, as the backend returns them. */
+    activityTags?: readonly AppliedTag[];
+    /** Which of `activityTags` to show, and in what order. */
+    activityTagIds?: readonly number[];
     selected: boolean;
     selectionMode: boolean;
     multiSelectEnabled: boolean;
@@ -52,8 +56,10 @@ export const MusicListItem = memo(function MusicListItem({
     item,
     tags,
     defaultTags,
+    activityTags,
     mostRelevantTags,
     tagMetadata,
+    activityTagIds,
     selected,
     selectionMode,
     multiSelectEnabled,
@@ -72,6 +78,10 @@ export const MusicListItem = memo(function MusicListItem({
     const longPressConsumedRef = useRef(false);
     const itemTags = tags ?? EMPTY_APPLIED_TAGS;
     const itemDefaultTags = defaultTags ?? EMPTY_DEFAULT_TAGS;
+    const shownActivityTags = useMemo(
+        () => pickActivityTags(activityTags, activityTagIds),
+        [activityTags, activityTagIds],
+    );
     const selectionColor = hexWithAlpha(theme.foreground, 0.12);
     const animatedRowStyle = useAnimatedStyle(
         () => ({
@@ -203,6 +213,7 @@ export const MusicListItem = memo(function MusicListItem({
                         item={item}
                         tags={itemTags}
                         defaultTags={itemDefaultTags}
+                        activityTags={shownActivityTags}
                         mostRelevantTags={mostRelevantTags}
                         tagMetadata={tagMetadata}
                         compact={compact}
@@ -248,6 +259,7 @@ const MusicListItemVisuals = memo(function MusicListItemVisuals({
     item,
     tags,
     defaultTags,
+    activityTags,
     mostRelevantTags,
     tagMetadata,
     compact,
@@ -255,12 +267,14 @@ const MusicListItemVisuals = memo(function MusicListItemVisuals({
     item: MusicItem;
     tags: readonly AppliedTag[];
     defaultTags: readonly Tag[];
+    activityTags: readonly AppliedTag[];
     mostRelevantTags?: readonly string[];
     tagMetadata?: Readonly<Record<number, TagMetadata>>;
     compact: boolean;
 }) {
     const [artworkFailed, setArtworkFailed] = useState(false);
-    const hasTags = tags.length > 0 || defaultTags.length > 0;
+    const hasTags =
+        tags.length > 0 || defaultTags.length > 0 || activityTags.length > 0;
     const artworkUrl = item.artworkUrl?.trim();
     const canRenderArtwork =
         !artworkFailed &&
@@ -339,6 +353,7 @@ const MusicListItemVisuals = memo(function MusicListItemVisuals({
                     <TagFadeRail
                         tags={tags}
                         defaultTags={defaultTags}
+                        activityTags={activityTags}
                         mostRelevantTags={mostRelevantTags}
                         tagMetadata={tagMetadata}
                         compact={compact}
@@ -396,4 +411,19 @@ function hexWithAlpha(hex: string, alpha: number) {
     const green = Number.parseInt(normalized.slice(2, 4), 16);
     const blue = Number.parseInt(normalized.slice(4, 6), 16);
     return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+}
+
+const NO_ACTIVITY_TAGS: readonly AppliedTag[] = [];
+
+/** The activity tags named by `ids`, in that order, out of the song's. */
+function pickActivityTags(
+    activityTags: readonly AppliedTag[] | undefined,
+    ids: readonly number[] | undefined,
+): readonly AppliedTag[] {
+    if (!activityTags?.length || !ids?.length) return NO_ACTIVITY_TAGS;
+    const byId = new Map(activityTags.map((tag) => [tag.id, tag]));
+    return ids.flatMap((id) => {
+        const tag = byId.get(id);
+        return tag ? [tag] : [];
+    });
 }

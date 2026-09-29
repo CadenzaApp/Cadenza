@@ -22,9 +22,13 @@ import {
     GroupConjunction,
 } from "./types";
 
-/** The user's tags, in the shapes the rows need. */
+/** The tags a filter can name, in the shapes the rows need. */
 export type BuilderTags = {
+    /** The user's own tags. */
     list: Tag[];
+    /** The activity tags, offered in a section of their own. */
+    activity: Tag[];
+    /** Both of the above, by id. */
     byId: ReadonlyMap<number, Tag>;
     types: ReadonlyMap<number, TagType>;
 };

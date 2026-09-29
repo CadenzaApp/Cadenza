@@ -36,7 +36,8 @@ const NORMALIZED_TAG_NAME_SQL: &str =
     "lower(left(btrim(regexp_replace(tags.name, '\\s+', ' ', 'g')), 50))";
 
 /// The user's own tags and the shared default tags whose names normalize to one
-/// of `names`, oldest first. Other users' tags are never included.
+/// of `names`, oldest first. Other users' tags and activity tags are never
+/// included.
 pub async fn get_tags_named(
     db: &impl ConnectionTrait,
     user_id: Uuid,
@@ -57,6 +58,8 @@ fn tags_named_select(user_id: Uuid, names: &[String]) -> Select<tags::Entity> {
                 .eq(user_id)
                 .or(tags::Column::UserId.is_null()),
         )
+        // activity tags have no owner either, but they are not default tags
+        .filter(tags::Column::IsActivity.eq(false))
         .filter(Expr::cust(NORMALIZED_TAG_NAME_SQL).is_in(names.iter().cloned()))
         .order_by_asc(tags::Column::TagId)
 }
@@ -93,6 +96,9 @@ fn default_tag_search_query(search: &str, limit: u64) -> Select<tags::Entity> {
     }
 
     query
+        // activity tags have no owner either, but they are not default tags.
+        // Filtered after the search so the search text stays the first value.
+        .filter(tags::Column::IsActivity.eq(false))
         .join_rev(
             JoinType::LeftJoin,
             default_tags_applied::Relation::Tags.def(),
@@ -369,6 +375,7 @@ pub async fn new_user_tag(
         name: Set(name),
         color: Set(color),
         r#type: Set(tag_type),
+        is_activity: Set(false),
     };
     let new_tag = new_tag.insert(&db).await?;
 
@@ -452,7 +459,8 @@ pub async fn set_user_tag_value(
 
 /// Takes one of the user's tags off a song, and takes their apply of the tag's
 /// name on the song back off its count (see [`count_tag_unapplied`]). No-ops if
-/// the tag isn't on the song.
+/// the tag isn't on the song. `ActivityTagReadOnly` for an activity tag, whose
+/// values only the api writes.
 pub async fn unapply_user_tag(
     db: DatabaseConnection,
     user_id: Uuid,
@@ -469,6 +477,13 @@ pub async fn unapply_user_tag(
         .find_also_related(tags::Entity)
         .one(&txn)
         .await?;
+
+    // activity tags are written by the api as the user listens, never by hand
+    if let Some((_, Some(tag))) = &applied
+        && tag.is_activity
+    {
+        return Err(CadenzaError::ActivityTagReadOnly);
+    }
 
     // the count this request took off, if it is the one that removed the tag
     let mut recorded = None;
@@ -644,6 +659,7 @@ pub async fn remove_default_tag_from_song(
     let (_, tag) = default_tags_applied::Entity::find_by_id((song_id.clone(), tag_id))
         .find_also_related(tags::Entity)
         .filter(tags::Column::UserId.is_null())
+        .filter(tags::Column::IsActivity.eq(false))
         .one(&txn)
         .await?
         .ok_or(CadenzaError::NotFound)?;
@@ -695,6 +711,7 @@ pub async fn add_default_tag_to_song(
     // reuse the default tag with this name, the oldest if there are several
     let existing = tags::Entity::find()
         .filter(tags::Column::UserId.is_null())
+        .filter(tags::Column::IsActivity.eq(false))
         .filter(tags::Column::Name.eq(name))
         .order_by_asc(tags::Column::TagId)
         .one(db)
@@ -710,6 +727,7 @@ pub async fn add_default_tag_to_song(
                 name: Set(name.to_owned()),
                 color: Set(color.to_owned()),
                 r#type: NotSet,
+                is_activity: Set(false),
             }
             .insert(db)
             .await?;
@@ -760,6 +778,7 @@ fn default_tags_on_songs_query(
         .filter(default_tags_removed::Column::UserId.is_null())
         .find_also_related(tags::Entity)
         .filter(tags::Column::UserId.is_null())
+        .filter(tags::Column::IsActivity.eq(false))
 }
 
 /// Returns the default tags on each given song as this user sees them, keyed by
@@ -808,6 +827,7 @@ pub async fn set_default_tags_on_songs(
 
     let mut name_to_tag: HashMap<&str, tags::Model> = tags::Entity::find()
         .filter(tags::Column::UserId.is_null())
+        .filter(tags::Column::IsActivity.eq(false))
         .filter(tags::Column::Name.is_in(new_tags.keys().copied()))
         .all(db)
         .await?
@@ -826,6 +846,7 @@ pub async fn set_default_tags_on_songs(
             name: Set(new_tag.name.clone()),
             color: Set(new_tag.color.clone()),
             r#type: NotSet,
+            is_activity: Set(false),
         }
         .insert(db)
         .await?;
@@ -884,7 +905,7 @@ mod tests {
 
         assert!(
             sql.ends_with(
-                r#"WHERE ("tags"."user_id" = '00000000-0000-0000-0000-000000000000' OR "tags"."user_id" IS NULL) AND (lower(left(btrim(regexp_replace(tags.name, '\s+', ' ', 'g')), 50))) IN ('pop', 'road trip') ORDER BY "tags"."tag_id" ASC"#
+                r#"WHERE ("tags"."user_id" = '00000000-0000-0000-0000-000000000000' OR "tags"."user_id" IS NULL) AND "tags"."is_activity" = FALSE AND (lower(left(btrim(regexp_replace(tags.name, '\s+', ' ', 'g')), 50))) IN ('pop', 'road trip') ORDER BY "tags"."tag_id" ASC"#
             ),
             "{sql}"
         );

@@ -25,6 +25,8 @@ type Props = {
     error?: unknown;
     anticipatedTrackCount?: number;
     mostRelevantTags?: readonly string[];
+    /** The activity tags the query filters on, shown on every row. */
+    activityTagIds?: readonly number[];
 };
 
 export default function QueryResults({
@@ -33,6 +35,7 @@ export default function QueryResults({
     error,
     anticipatedTrackCount,
     mostRelevantTags,
+    activityTagIds,
 }: Props) {
     const { width: screenWidth, height: screenHeight } = useWindowDimensions();
     const [saveOpen, setSaveOpen] = useState(false);
@@ -89,6 +92,7 @@ export default function QueryResults({
                 multiSelect={{ includeAddToQueue: true }}
                 showTags
                 mostRelevantTags={mostRelevantTags}
+                activityTagIds={activityTagIds}
                 overscrollBackground={
                     <TintOverscrollBackdrop tint={tint} depth={TINT_DEPTH} />
                 }

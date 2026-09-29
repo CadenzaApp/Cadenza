@@ -19,11 +19,17 @@ import type { QueryCondition } from "@/features/query-builder/types";
 import { useTracksForSongIds } from "@/lib/musickit-hooks";
 import { positiveQueryTagNames } from "@/lib/query-json";
 import { useQueryResults } from "@/lib/routes/queries";
-import { useUserTags } from "@/lib/routes/tags";
+import {
+    useActivityTagIdsInQuery,
+    useActivityTags,
+    useUserTags,
+} from "@/lib/routes/tags";
 import { useScoreQueryTags } from "@/lib/tag-scores";
 import type { Tag } from "@/lib/types";
 
 type BuilderMode = "simple" | "advanced";
+
+const EMPTY_TAGS: Tag[] = [];
 
 /**
  * The boolean query workspace. Tags used to live here behind a segmented
@@ -32,6 +38,9 @@ type BuilderMode = "simple" | "advanced";
 export function CadenzaScreen() {
     const { userTags, userTagsMeta, userTagsLoading, userTagsErr } =
         useUserTags();
+    // offered by the advanced builder only; the simple builder's palette is
+    // the user's own tags
+    const { activityTags } = useActivityTags();
     const router = useRouter();
     const scoreQueryTags = useScoreQueryTags();
     const [mode, setMode] = useState<BuilderMode>("simple");
@@ -43,8 +52,14 @@ export function CadenzaScreen() {
     );
     const simpleQuery = useMemo(() => queryToJSON(conditions), [conditions]);
     const tagTypes = useMemo(
-        () => new Map((userTags ?? []).map((tag) => [tag.id, tag.type])),
-        [userTags],
+        () =>
+            new Map(
+                [...(userTags ?? []), ...(activityTags ?? [])].map((tag) => [
+                    tag.id,
+                    tag.type,
+                ]),
+            ),
+        [userTags, activityTags],
     );
     const advancedBuild = useMemo(
         () => buildAdvancedQuery(advancedRoot, tagTypes),
@@ -64,6 +79,7 @@ export function CadenzaScreen() {
     }, [conditions, mode, query, userTags]);
     const { matchedSongIds, queryResultsLoading, queryResultsErr } =
         useQueryResults(query, includeSuggestedTags);
+    const activityTagIds = useActivityTagIdsInQuery(query);
     // A suggested tag only matches while the request carries
     // consider_default_tags, so leaving one in the query after the toggle goes
     // off would quietly change what the same query returns. Clear it instead.
@@ -137,6 +153,7 @@ export function CadenzaScreen() {
                     });
                 }}
                 mostRelevantTags={relevantTagNames}
+                activityTagIds={activityTagIds}
             />
             {mode === "simple" ? (
                 <QueryBuilder
@@ -150,6 +167,7 @@ export function CadenzaScreen() {
             ) : (
                 <AdvancedQueryBuilder
                     tags={userTags ?? []}
+                    activityTags={activityTags ?? EMPTY_TAGS}
                     root={advancedRoot}
                     setRoot={setAdvancedRoot}
                     message={advancedBuild.ok ? null : advancedBuild.error}

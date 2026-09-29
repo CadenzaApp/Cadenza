@@ -1,14 +1,26 @@
+import Ionicons from "@expo/vector-icons/Ionicons";
+import { useTheme } from "expo-router/react-navigation";
 import { useState } from "react";
-import { ActivityIndicator, ScrollView, View } from "react-native";
+import {
+    ActivityIndicator,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ModalPopup } from "@/components/custom/modal-popup";
 import { MusicListActionButton } from "@/components/custom/music-list/music-list-action-button";
 import type { MusicListAction } from "@/components/custom/music-list/types";
+import { TagPill } from "@/components/custom/tag-pill";
 import { TagSelector } from "@/components/custom/tag-selector";
 import { TagValueDialog } from "@/components/custom/tag-value-dialog";
+import { GlassSurface } from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
-import type { Tag } from "@/lib/types";
+import { useActivityTagsOnSong } from "@/lib/routes/songs";
+import { activityTagDisplayValue, formatTagValue } from "@/lib/tag-values";
+import type { AppliedTag, Tag } from "@/lib/types";
 
 import { useSongTagEditor } from "../song-tag-editor";
 import type { FocusedSong } from "./player-scope";
@@ -31,6 +43,11 @@ export function TagsPage({ focusedSong }: { focusedSong: FocusedSong }) {
         onValueDialogClose,
         onTagCreated,
     } = useSongTagEditor(focusedSong.id);
+    const {
+        activityTagsOnSong = [],
+        activityTagsOnSongLoading,
+        activityTagsOnSongErr,
+    } = useActivityTagsOnSong(focusedSong.id);
 
     return (
         <View className="flex-1">
@@ -52,16 +69,27 @@ export function TagsPage({ focusedSong }: { focusedSong: FocusedSong }) {
                 </View>
 
                 {editorLoaded ? (
-                    <TagSelector
-                        key={focusedSong.id}
-                        tags={songTags}
-                        suggestedTags={defaultTags}
-                        forceVisibleTagIds={recentTagIds}
-                        onToggleTag={(tag) => selectTag(tag.id)}
-                        onChooseSuggested={(tag) => selectDefaultTag(tag.id)}
-                        onDismissSuggested={setMenuTag}
-                        onCreateTag={onTagCreated}
-                    />
+                    <View className="gap-4">
+                        <TagSelector
+                            key={focusedSong.id}
+                            tags={songTags}
+                            suggestedTags={defaultTags}
+                            forceVisibleTagIds={recentTagIds}
+                            onToggleTag={(tag) => selectTag(tag.id)}
+                            onChooseSuggested={(tag) =>
+                                selectDefaultTag(tag.id)
+                            }
+                            onDismissSuggested={setMenuTag}
+                            onCreateTag={onTagCreated}
+                        />
+                        <View className="h-px bg-border" />
+                        <ActivityTagSection
+                            key={focusedSong.id}
+                            tags={activityTagsOnSong}
+                            loading={activityTagsOnSongLoading}
+                            error={activityTagsOnSongErr}
+                        />
+                    </View>
                 ) : (
                     <ActivityIndicator accessibilityLabel="Loading tags" />
                 )}
@@ -82,6 +110,75 @@ export function TagsPage({ focusedSong }: { focusedSong: FocusedSong }) {
                 onRemove={removeDefaultTag}
                 onClose={() => setMenuTag(null)}
             />
+        </View>
+    );
+}
+
+function ActivityTagSection({
+    tags,
+    loading,
+    error,
+}: {
+    tags: readonly AppliedTag[];
+    loading: boolean;
+    error: unknown;
+}) {
+    const [expanded, setExpanded] = useState(false);
+    const { colors } = useTheme();
+
+    return (
+        <View className="overflow-hidden rounded-2xl border border-border p-4">
+            <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+                <GlassSurface style={StyleSheet.absoluteFill} />
+            </View>
+            <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`${expanded ? "Collapse" : "Expand"} activity tags`}
+                accessibilityState={{ expanded }}
+                className="flex-row items-center justify-between active:opacity-70"
+                onPress={() => setExpanded((current) => !current)}
+            >
+                <Text className="text-sm font-semibold text-foreground">
+                    Activity Tags
+                </Text>
+                <Ionicons
+                    name={expanded ? "chevron-up" : "chevron-down"}
+                    size={18}
+                    color={colors.text}
+                />
+            </Pressable>
+
+            {expanded ? (
+                <View className="mt-3 gap-3">
+                    {loading ? (
+                        <ActivityIndicator accessibilityLabel="Loading activity tags" />
+                    ) : error ? (
+                        <Text className="text-sm text-muted-foreground">
+                            Activity tags are unavailable right now.
+                        </Text>
+                    ) : (
+                        <View className="flex-row flex-wrap gap-2">
+                            {tags.map((tag) => (
+                                <View
+                                    key={tag.id}
+                                    accessible
+                                    accessibilityLabel={`${tag.name}: ${formatTagValue(tag.type, activityTagDisplayValue(tag))}`}
+                                >
+                                    <TagPill
+                                        tag={tag}
+                                        height={14}
+                                        value={activityTagDisplayValue(tag)}
+                                    />
+                                </View>
+                            ))}
+                        </View>
+                    )}
+                    <Text className="text-xs text-muted-foreground">
+                        Set by what you listen to. You can filter on these in
+                        the advanced query builder.
+                    </Text>
+                </View>
+            ) : null}
         </View>
     );
 }

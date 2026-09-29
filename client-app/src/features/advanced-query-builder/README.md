@@ -14,7 +14,7 @@ submitted query, shared preview, and the Simple / Advanced mode toggle.
 | `AdvancedQueryUtils.ts`    | Pure: operator tables and labels, immutable tree ops, date helpers, and `buildAdvancedQuery`, which compiles the tree to `QueryJSON`. Unit tested in `AdvancedQueryUtils.test.ts`.                 |
 | `AdvancedQueryBuilder.tsx` | Scrollable root group. Binds the tree ops into a `BuilderActions` object; the shared result-summary arrow owns navigation.                                                                         |
 | `FilterGroup.tsx`          | One group: the all / any / none selector, its children, and the "Add filter" / "Add filter group" buttons. Recursive. Exports `BuilderTags` and `BuilderActions`.                                  |
-| `FilterRow.tsx`            | One filter line: connector word, field picker, operator picker, value input, and the remove button. Exports `RemoveButton`.                                                                        |
+| `FilterRow.tsx`            | One filter line: connector word, field picker (Properties, Your tags, Activity tags), operator picker, value input, and the remove button. Exports `RemoveButton`.                                 |
 | `FilterValueInput.tsx`     | The value input for a line: text, number, a calendar day, a date and time, or a tag type.                                                                                                          |
 | `OptionPicker.tsx`         | Liquid-glass popup list with optional sections and search. Its own `Modal`, sized for a phone: near full width, up to 80% of the screen tall, 56pt rows. Scrolls vertically and wraps long labels. |
 | `field-icons.ts`           | `TYPE_ICONS` (an alias of `@/lib/tag-values::TAG_TYPE_ICONS`, shared with `TagPill`), and the three "property" fields (tag name, tag value, tag type).                                             |
@@ -84,7 +84,11 @@ the simple builder; the arrow opens the shared `/query-results` full-screen `Que
 ## Gotchas
 
 - Semantics live on the backend. A song without the tag counts as empty, so `is not`, `not on`,
-  `ne`, `is empty`, and `is null` match it. Text matching ignores case.
+  `ne`, `is empty`, and `is null` match it. Text matching ignores case. The one exception is My
+  Plays, where a song never played counts as 0, so "My Plays < 2" includes it.
+- Activity tags (`BuilderTags.activity`) are filtered like any other tag of their type. They come
+  from `useActivityTags` by way of the screen, and the screen adds their types to the map
+  `buildAdvancedQuery` checks, or a filter on one would read as a deleted tag.
 - The query is evaluated over the whole cached library, not just tagged songs, so a song with no
   Cadenza tags at all can match `is not applied` and the other negative operators.
 - An incomplete filter compiles to no request and shows its build error beneath the editor. Once

@@ -193,7 +193,8 @@ smoothly between the 750ms native snapshot polls, and scrubbing overrides it wit
   parent's `overflow: hidden`. Native glass shapes its lensing and specular edge from its own
   corners, so a clipped square reads as a flat fill. The glass also stays off the touch path
   behind a `pointerEvents="none"` wrapper; the native view ignores `pointerEvents` itself and
-  swallows the tab presses.- Comment authors are placeholders. The backend sends `mine` and no author, so `CommentsPage` signs
+  swallows the tab presses.
+- Comment authors are placeholders. The backend sends `mine` and no author, so `CommentsPage` signs
   the user's own comments with their email and everyone else's with `Anonymous`.
 - Only top level comments get vote buttons and a Reply button, since replies go one level deep.
   The backend takes votes on replies too; the page just does not offer them.
@@ -211,6 +212,10 @@ smoothly between the 750ms native snapshot polls, and scrubbing overrides it wit
   a time without changing their initial order as choices change. New sits below the selector cards.
   A tag created from New or adopted from Suggested becomes one of the user's tags and is applied to
   `focusedSong` straight away. Basic tag toggles update optimistically while the backend saves.
+- A divider below New separates the read-only Activity Tags glass card. It is collapsed by default
+  and expands to show My Plays, First Played, and Last Played from `useActivityTagsOnSong`. A
+  never-set date reads "Never". These values change only as the user listens
+  (`@/lib/play-recorder`), never from a tap here.
 - Long pressing a Suggested tags pill opens `SuggestedTagMenu`, the same glass `ModalPopup` the
   `...` menus use, holding one Remove this action. It calls `useSongTagEditor`'s
   `removeDefaultTag`, which hides that suggestion on this song for this user alone and counts a

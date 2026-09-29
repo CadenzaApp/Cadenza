@@ -11,6 +11,7 @@ import { Alert, AppState } from "react-native";
 import { MusicItem, Playback, RepeatMode, ShuffleMode } from "@apple-musickit";
 
 import { useAppleMusic } from "./apple-music-auth";
+import { usePlayRecorder } from "./play-recorder";
 import {
     insertQueueEntriesNext,
     jumpToQueueEntry,
@@ -137,6 +138,8 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
             ? queuedTrack
             : snapshotTrack;
     const activeTrackId = activeTrack?.id ?? null;
+    // counts plays for the activity tags, off the snapshot polled below
+    usePlayRecorder(snapshot, activeTrack);
 
     function showPlayer() {
         isPlayerDismissedRef.current = false;

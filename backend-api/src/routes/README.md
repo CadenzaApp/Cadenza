@@ -9,12 +9,12 @@ call into `src/db/` or `src/services/`, and shape the response.
 | file | role |
 | --- | --- |
 | `mod.rs` | Declares `json`, `comments`, `queries`, `tags`, `songs`. |
-| `tags.rs` | Tag CRUD for the signed-in user, tag score edits, default tag search, plus LLM tag suggestion. Mounted at `/tags`. |
-| `songs.rs` | Adding and removing the user's songs, reading and changing user tags, and reading default tags. Mounted at `/songs`. |
+| `tags.rs` | Tag CRUD for the signed-in user, tag score edits, default tag search, listing the activity tags, plus LLM tag suggestion. Mounted at `/tags`. |
+| `songs.rs` | Adding and removing the user's songs, reading and changing user tags, reading default tags, reading activity tags, and recording plays. Mounted at `/songs`. |
 | `queries.rs` | Runs a tag query and returns song ids by relevance. Mounted at `/queries`. |
 | `comments.rs` | Reading, leaving, deleting, and voting on comments on songs. Mounted at `/comments`. |
 | `json/mod.rs` | `vec_into`, a small `Vec<A> -> Vec<B>` helper. Declares `comment`, `query`, `tag`, and `tag_score`. |
-| `json/tag.rs` | `TagType`, `Tag`, and `AppliedTag`, the wire shapes of a tag. `From<tags::Model>` drops `user_id`. |
+| `json/tag.rs` | `TagType`, `Tag`, and `AppliedTag`, the wire shapes of a tag. `From<tags::Model>` drops `user_id` and keeps `is_activity`. |
 | `json/tag_score.rs` | `ScoredTag`, one top tag as a `[score, color, source]` array, and `TagSource`, `"local"` or `"global"`. |
 | `json/comment.rs` | `Comment` and `CommentThread`, the wire shapes of a comment and of a top level comment with its replies. Both take the reading user's id, to turn `user_id` into `mine`, and each comment's vote tally. |
 | `json/query.rs` | `Query`, `QueryNode`, `Filter`, `FilterOp`: the input schema of a tag query. Both client builders produce it. |
@@ -32,6 +32,7 @@ Every route below requires `Authorization: Bearer <supabase jwt>`.
 | GET | `/tags/scores` | `?k=N` | `{tag_name: [score, color, "local" \| "global"]}`, the user's `k` highest scores, 0 and below and names with no tag left out. `k` is at most 200 |
 | PATCH | `/tags/scores` | `{"pop": 5, "rock": 10, "jazz": -2}` | `{tag_name: score}`, the score every named tag is left at |
 | GET | `/tags/default-tags` | `?search=...` | `[Tag]`, at most 5 default tags matching the search, most used first |
+| GET | `/tags/activity` | none | `[Tag]`, every activity tag in display order. The same for every user |
 | GET | `/tags/suggest` | `?song_desc=...&requested_tag_count=N` | `[{name, color}, ...]` |
 | PATCH | `/songs` | `{add: [...], remove: [...]}` | empty. Adds and removes the user's songs |
 | GET | `/songs/local-tags` | `?song_id=...` | `[AppliedTag]`, the user's tags on that song |
@@ -44,6 +45,9 @@ Every route below requires `Authorization: Bearer <supabase jwt>`.
 | POST | `/songs/local-tags` | `{song_id, tag_id, value?}` | empty. Also votes for the tag name |
 | PATCH | `/songs/local-tags` | `{song_id, tag_id, value}` | empty. A null value clears it |
 | DELETE | `/songs/local-tags` | `{song_id, tag_id}` | empty. Takes that vote back when it removes the tag |
+| GET | `/songs/activity-tags` | `?song_id=...` | `[AppliedTag]`, every activity tag with this user's value on that song. Never played: My Plays is `"0"`, the dates `null` |
+| POST | `/songs/activity-tags/batch` | `{song_ids: [...]}` | `{song_id: [AppliedTag]}`, the same read for a list of songs, an entry per requested song |
+| POST | `/songs/plays` | `{song_id}` | empty. Counts one play at the server's clock: My Plays +1, First Played and Last Played moved as needed |
 | POST | `/queries/results` | `{query, consider_default_tags?}` | `["songid", ...]`, most relevant first |
 | GET | `/comments` | `?song_id=...` | `[CommentThread]`, every user's comments on the song, newest first, each with its `replies` oldest first |
 | POST | `/comments` | `{song_id, content, parent_id?}` | the new `Comment`. `parent_id` makes it a reply to a top level comment on that song. `content` is trimmed and must then be 1 to 2000 characters |
@@ -182,6 +186,15 @@ the generation path still treats the song as having defaults. The two reads abov
 with `consider_default_tags` all leave out this user's removals, so the tag stops coming back for
 them.
 
+Activity tags (My Plays, First Played, Last Played) are shared tag rows with `is_activity` set.
+`GET /tags` leaves them out, since they belong to no user, and so do the default tag routes.
+`GET /tags/activity` lists them for the query builders, and `GET /songs/activity-tags` and its
+batch read their values per song. The only write is `POST /songs/plays`, which goes to
+`db::activity_tags::record_play`. Writing one by hand through `/songs/local-tags` fails:
+`POST` and `PATCH` are `NotFound` because the tag is not the user's, and `DELETE` is
+`ActivityTagReadOnly` (403). The client decides what counts as a play; see
+`client-app/src/lib/play-tracker.ts`.
+
 `queries.rs` is one handler. The query arrives already typed, because serde parses the body
 straight into `Query`, so a bad shape is a `QueryFormatError` carrying serde's message. The
 handler hands it straight to `db::queries::run_query`, which does the compiling, running, and
@@ -208,7 +221,7 @@ api as JSON should have a type here rather than serializing an entity model dire
 
 ## Connects to
 
-- `crate::db::tags`, `crate::db::tag_scores`, `crate::db::queries`, `crate::db::comments`, `crate::db::comment_votes`, and
+- `crate::db::tags`, `crate::db::activity_tags`, `crate::db::tag_scores`, `crate::db::queries`, `crate::db::comments`, `crate::db::comment_votes`, and
   `crate::db::user_songs` for all data access.
 - `crate::services::tag_generation::TagGenerationService` for `/tags/suggest`, and through
   `crate::services::default_tags` for the default tag reads.
@@ -248,10 +261,13 @@ api as JSON should have a type here rather than serializing an entity model dire
   clients will not send one on a DELETE.
 - `GET /songs/local-tags` returns only the user's own tags. Default tags (`user_id IS NULL`) are
   available separately from `GET /songs/default-tags`.
-- `POST /songs/local-tags/batch` and `POST /songs/default-tags/batch` are reads. They are POSTs
-  because their id lists do not belong in a query string. Both cap out at 200 ids, as does
-  `PATCH /songs` across its two lists. Songs with no tags come back as an empty list from the two
-  tag batches, never missing.
+- `POST /songs/local-tags/batch`, `POST /songs/default-tags/batch`, and
+  `POST /songs/activity-tags/batch` are reads. They are POSTs because their id lists do not belong
+  in a query string. All three cap out at 200 ids, as does `PATCH /songs` across its two lists.
+  Songs with no tags come back as an empty list from the local and default batches, never
+  missing, and every song gets all activity tags.
+- `POST /songs/plays` trusts the client to call it once per play. Nothing stops a client from
+  calling it in a loop.
 - A user tag name becomes a default tag on a song once it has 10 counts in `default_tag_activity`,
   applies and removes together, with more than 1.5 times as many applies as removes. Applying a
   tag counts an apply, unapplying takes that apply back off, and `DELETE /songs/default-tags`

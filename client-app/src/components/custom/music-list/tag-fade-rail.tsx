@@ -4,7 +4,7 @@ import { memo, useMemo, useState } from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
 
 import { TagPill } from "@/components/custom/tag-pill";
-import { unownedDefaultTags } from "@/lib/tag-values";
+import { activityTagDisplayValue, unownedDefaultTags } from "@/lib/tag-values";
 import type { AppliedTag, Tag, TagMetadata } from "@/lib/types";
 
 import { tagFadeStart } from "./tag-fade-utils";
@@ -17,18 +17,23 @@ const SUGGESTED_TAG_STYLE = { opacity: 0.58 } as const;
 /**
  * The song's own and shared default tags in list-wide relevance order.
  * Defaults stay unfilled so their source remains visible after sorting.
+ * Activity tags come first when given, since a list only passes the ones its
+ * query filters on, each with the song's value ("My Plays 3").
  */
 export const TagFadeRail = memo(function TagFadeRail({
     tags,
     defaultTags = [],
     mostRelevantTags,
     tagMetadata,
+    activityTags = [],
     compact,
 }: {
     tags: readonly AppliedTag[];
     defaultTags?: readonly Tag[];
     mostRelevantTags?: readonly string[];
     tagMetadata?: Readonly<Record<number, TagMetadata>>;
+    /** Already narrowed to the ones to show, in order. */
+    activityTags?: readonly AppliedTag[];
     compact: boolean;
 }) {
     const shownDefaultTags = useMemo(
@@ -87,6 +92,15 @@ export const TagFadeRail = memo(function TagFadeRail({
                     paddingVertical: TAG_RAIL_TOUCH_INSET,
                 }}
             >
+                {activityTags.map((tag) => (
+                    <TagPill
+                        key={`activity:${tag.id}`}
+                        tag={tag}
+                        value={activityTagDisplayValue(tag)}
+                        height={compact ? 8 : 9}
+                        showIcon={false}
+                    />
+                ))}
                 {orderedTags.map(({ source, tag }) => (
                     <View
                         key={`${source}:${tag.id}`}

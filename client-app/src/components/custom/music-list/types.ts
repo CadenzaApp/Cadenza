@@ -118,6 +118,12 @@ export type MusicListProps = {
     showTags?: boolean;
     /** Tag names placed first, in this order, in every row's tag rail. */
     mostRelevantTags?: readonly string[];
+    /**
+     * Activity tags to show first in every row's tag rail, with the row's own
+     * value. Query results pass the ones the query filters on. Omitted or
+     * empty, rows show no activity tags and none are fetched.
+     */
+    activityTagIds?: readonly number[];
     anticipatedTrackCount?: number;
     /** Content rendered above the first row inside the list's scroll surface. */
     header?: ReactNode;
