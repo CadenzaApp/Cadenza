@@ -24,10 +24,17 @@ class UpdateInterestsBody(BaseModel):
     user_id: str
     delta_scores: list[InterestScoreUpdate]
 
-@app.patch("/interests")
+@app.patch("/interests/update")
 async def update_interests_route(body: UpdateInterestsBody):
     update_interests(model, body.user_id, body.delta_scores)
 
+
+class DecayInterestsBody(BaseModel):
+    user_id: str
+
+@app.patch("/interests/decay")
+async def decay_interests_route(body: DecayInterestsBody):
+    decay_interests(body.user_id)
 
 class EmbedPostBody(BaseModel):
     post_id: int

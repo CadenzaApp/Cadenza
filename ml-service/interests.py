@@ -1,3 +1,5 @@
+from datetime import datetime, UTC, timedelta
+import time
 from typing import Literal
 
 from fastapi import HTTPException
@@ -133,4 +135,55 @@ def update_interests(
             raise HTTPException(status_code=404, detail="No user found with that uuid")
 
 
+def decay_interests(user_id: str):
+    DEFAULT_DECAY_COEFFICIENT = 0.6
+    DEFAULT_DECAY_COOLDOWN = 60 * 60 * 6  # 6 hrs
+    INTEREST_THRESHOLD = 3
 
+    decay_coefficient = int(
+        os.environ.get("INTEREST_DELAY_COEFFICIENT", DEFAULT_DECAY_COEFFICIENT)
+    )
+    decay_cooldown = timedelta(
+        seconds=int(os.environ.get("INTEREST_DELAY_COOLDOWN", DEFAULT_DECAY_COOLDOWN))
+    )
+
+    with db_conn() as conn, conn.cursor() as cur:
+        # cancel if decayed recently
+        row = cur.execute(
+            """
+                SELECT decayed_at FROM interest_scores_metadata
+                WHERE user_id=%s;
+            """,
+            (user_id,),
+        ).fetchone()
+        if (
+            row is not None
+            and (datetime.now(UTC) - row["decayed_at"]) <= decay_cooldown  # type: ignore
+        ):
+            return
+
+        # cancel if max score is below threshold
+        row = cur.execute(
+            """
+                SELECT MAX(score) AS max_score FROM interest_scores
+                WHERE user_id=%s;
+            """,
+            (user_id,),
+        ).fetchone()
+        if row is None or row["max_score"] <= INTEREST_THRESHOLD:  # type: ignore
+            return
+
+        # decay interest scores and update decayed_at
+        row = cur.execute(
+            """
+                UPDATE interest_scores
+                SET score = score * %s
+                WHERE user_id = %s;
+                
+                UPDATE interest_scores_metadata 
+                SET decayed_at = now()
+                WHERE user_id = %s;
+            """,
+            (decay_coefficient, user_id, user_id),
+        )
+        
