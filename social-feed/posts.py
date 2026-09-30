@@ -8,28 +8,15 @@ from util import *
 def post_embedding(model: SentenceTransformer, content: str) -> np.ndarray:
     return model.encode_document(content)
 
-def create_post_embedding(model: SentenceTransformer, post_id: int):
+def create_post(model: SentenceTransformer, user_id: str, content: str):
     with db_conn() as conn, conn.cursor() as cur:
-        # fetch post content
-        post_content = cur.execute(
-            """
-                SELECT content FROM posts WHERE post_id=%s;
-            """,
-            (post_id,),
-        ).fetchone()
-        if post_content is None:
-            return
-        post_content = post_content["content"]  # type: ignore
-
-        # create embedding and put in db
-        embedding = embedding_to_str(post_embedding(model, post_content))
+        embedding = embedding_to_str(post_embedding(model, content))
         cur.execute(
             """
-                UPDATE posts
-                SET embedding = %s
-                WHERE post_id=%s;
+                INSERT INTO posts (user_id, content, embedding)
+                VALUES (%s, %s, %s)
             """,
-            (embedding, post_id),
+            (user_id, content, embedding),
         )
 
 def _get_user_vector(user_id: str) -> ndarray | None:
@@ -68,16 +55,29 @@ def posts_similar_to_user(user_id: str, n: int):
     if user_vector is None:
         return []
 
-    with db_conn() as conn, conn.cursor() as cur:
-        cur.execute(
+    with db_conn() as conn:
+        rows = conn.execute(
             """
                 SELECT post_id, embedding FROM posts 
                 ORDER BY embedding <=> %s
                 LIMIT %s
             """,
             (embedding_to_str(user_vector), n),
-        )
-        return [PostAndEmbedding.from_sql_row(row) for row in cur.fetchall()]
+        ).fetchall()
+        return [PostAndEmbedding.from_sql_row(row) for row in rows]
+
+def hot_posts(n: int):
+    with db_conn() as conn:
+        rows = conn.execute(
+            """
+                SELECT post_id, embedding FROM posts 
+                ORDER BY embedding <=> %s
+                LIMIT %s
+            """,
+            (n,),
+        ).fetchall()
+        return [PostAndEmbedding.from_sql_row(row) for row in rows]
+
 
 
 def get_feed(user_id: str, n: int):

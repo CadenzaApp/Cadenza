@@ -36,9 +36,10 @@ class DecayInterestsBody(BaseModel):
 async def decay_interests_route(body: DecayInterestsBody):
     decay_interests(body.user_id)
 
-class EmbedPostBody(BaseModel):
-    post_id: int
+class CreatePostBody(BaseModel):
+    user_id: str
+    content: str
 
-@app.post("/posts/embeddings")
-async def embed_post_route(body: EmbedPostBody):
-    create_post_embedding(model, body.post_id)
+@app.post("/posts")
+async def create_post_route(body: CreatePostBody):
+    create_post(model, body.user_id, body.content)

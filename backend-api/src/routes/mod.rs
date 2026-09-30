@@ -4,3 +4,4 @@ pub mod comments;
 pub mod queries;
 pub mod songs;
 pub mod tags;
+pub mod social;

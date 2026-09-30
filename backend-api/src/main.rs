@@ -15,12 +15,9 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use crate::{
-    auth::{SupabaseClaims, new_jwt_decoder},
-    routes::{
-        comments::get_comments_router, queries::get_queries_router, songs::get_songs_router,
-        tags::get_tags_router,
-    },
-    services::{
+    auth::{SupabaseClaims, new_jwt_decoder}, routes::{
+        comments::get_comments_router, queries::get_queries_router, social::get_social_router, songs::get_songs_router, tags::get_tags_router,
+    }, services::{
         default_tags::{BackfillConfig, spawn_default_tag_backfill},
         song_metadata::SongMetadataService,
         tag_generation::{TagGenerationService, openai_tag_generator::OpenAiTagGenerator},
@@ -34,6 +31,7 @@ struct AppState {
     jwt_decoder: Decoder<SupabaseClaims>,
     tag_gen_service: TagGenerationService,
     song_meta_service: SongMetadataService,
+    http_client: reqwest::Client,
 }
 
 /// The pool we are allowed to open against Supabase's pooler.
@@ -112,6 +110,7 @@ async fn main() {
         jwt_decoder,
         tag_gen_service,
         song_meta_service,
+        http_client: reqwest::Client::new()
     };
 
     // route paths
@@ -120,6 +119,7 @@ async fn main() {
         .nest("/songs", get_songs_router())
         .nest("/queries", get_queries_router())
         .nest("/comments", get_comments_router())
+        .nest("/social", get_social_router())
         .route("/test", axum::routing::get(async || "server is reachable"))
         .with_state(app_state);
 

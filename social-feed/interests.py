@@ -174,16 +174,20 @@ def decay_interests(user_id: str):
             return
 
         # decay interest scores and update decayed_at
-        row = cur.execute(
+        cur.execute(
             """
                 UPDATE interest_scores
                 SET score = score * %s
                 WHERE user_id = %s;
-                
+            """,
+            (decay_coefficient, user_id),
+        )
+        cur.execute(
+            """
                 UPDATE interest_scores_metadata 
                 SET decayed_at = now()
                 WHERE user_id = %s;
             """,
-            (decay_coefficient, user_id, user_id),
+            (user_id,),
         )
         
