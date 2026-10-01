@@ -39,7 +39,6 @@ pub fn get_social_router() -> Router<AppState> {
                         }
                     }
                 }
-                println!("url {url}",);
                 let mut req = http_client.request(method.clone(), url);
 
                 match method {
@@ -53,7 +52,6 @@ pub fn get_social_router() -> Router<AppState> {
                                     json.insert("user_id".into(), user_id.into());
                                     let json = Value::Object(json);
                                     req = req.body(serde_json::to_vec(&json).unwrap());
-                                    println!("body added",);
                                 }
                                 None => {
                                     return (
@@ -74,7 +72,7 @@ pub fn get_social_router() -> Router<AppState> {
                     Ok(resp) => (
                         resp.status(),
                         [(header::CONTENT_TYPE, "application/json")],
-                        resp.json().await.unwrap_or("{}".into()),
+                        resp.text().await.unwrap_or("".into()),
                     ),
                     Err(err) => (
                         StatusCode::INTERNAL_SERVER_ERROR,

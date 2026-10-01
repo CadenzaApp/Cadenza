@@ -1,15 +1,16 @@
-from datetime import datetime, UTC, timedelta
-import time
+from datetime import UTC, datetime, timedelta
 from typing import Literal
 
-from fastapi import HTTPException
 import numpy as np
+from fastapi import HTTPException
 from numpy import ndarray
 from psycopg.errors import ForeignKeyViolation
 from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
 
 from util import *
+
+logger = get_logger(__name__, "interests")
 
 type InterestType = Literal["genre", "artist"]
 INTEREST_TYPE_TO_PREFIX: dict[InterestType, str] = {
@@ -42,6 +43,7 @@ class Interest(BaseModel, arbitrary_types_allowed=True):
 def interest_embeddings(
     model: SentenceTransformer, interests: list[tuple[str, InterestType]]
 ) -> list[np.ndarray]:
+    logger.info(f"embedding {len(interests)} interests")
     res = model.encode_query(
         [INTEREST_TYPE_TO_PREFIX[itype] + name for name, itype in interests]
     )
@@ -92,31 +94,31 @@ def update_interests(
 
         # find interests without embeddings and create embeddings for them
         interests_to_embed: list[dict] = [
-            row
-            for row in rows
-            if not row["embedding_exists"]  # type: ignore
+            row for row in rows if row and not row["embedding_exists"]
         ]
-        embeddings = interest_embeddings(
-            model, [(i["name"], i["interest_type"]) for i in interests_to_embed]
-        )
+        if len(interests_to_embed) > 0:
+            embeddings = interest_embeddings(
+                model, [(i["name"], i["interest_type"]) for i in interests_to_embed]
+            )
 
-        # put new embeddings into db
-        cur.executemany(
-            """
-                UPDATE interests 
-                SET embedding = %s
-                WHERE interest_id = %s;
-            """,
-            [
-                (embedding_to_str(embedding), i["interest_id"])
-                for i, embedding in zip(interests_to_embed, embeddings)
-            ],
-        )
+            # put new embeddings into db
+            cur.executemany(
+                """
+                    UPDATE interests 
+                    SET embedding = %s
+                    WHERE interest_id = %s;
+                """,
+                [
+                    (embedding_to_str(embedding), i["interest_id"])
+                    for i, embedding in zip(interests_to_embed, embeddings)
+                ],
+            )
+        else:
+            logger.info("updated interests are all already embedded")
 
         # update interest scores
         name_type_to_id = {
-            (i["name"], i["interest_type"]): i["interest_id"]  # type: ignore
-            for i in rows
+            (i["name"], i["interest_type"]): i["interest_id"] for i in rows if i
         }
         try:
             cur.executemany(
@@ -136,16 +138,11 @@ def update_interests(
 
 
 def decay_interests(user_id: str):
-    DEFAULT_DECAY_COEFFICIENT = 0.6
-    DEFAULT_DECAY_COOLDOWN = 60 * 60 * 6  # 6 hrs
-    INTEREST_THRESHOLD = 3
+    DECAY_COEFFICIENT = 0.6
+    DECAY_COOLDOWN = timedelta(hours=6)
 
-    decay_coefficient = float(
-        os.environ.get("INTEREST_DECAY_COEFFICIENT", DEFAULT_DECAY_COEFFICIENT)
-    )
-    decay_cooldown = timedelta(
-        seconds=int(os.environ.get("INTEREST_DELAY_COOLDOWN", DEFAULT_DECAY_COOLDOWN))
-    )
+    # if a user's highest interest is below this, don't decay
+    INTEREST_THRESHOLD = 3
 
     with db_conn() as conn, conn.cursor() as cur:
         # cancel if decayed recently
@@ -158,8 +155,11 @@ def decay_interests(user_id: str):
         ).fetchone()
         if (
             row is not None
-            and (datetime.now(UTC) - row["decayed_at"]) <= decay_cooldown  # type: ignore
+            and (datetime.now(UTC) - row["decayed_at"]) <= DECAY_COOLDOWN
         ):
+            logger.info(
+                f"decay is cooldown so didn't decay, user_id={user_id} decayed_at={row['decayed_at']}"
+            )
             return
 
         # cancel if max score is below threshold
@@ -170,7 +170,10 @@ def decay_interests(user_id: str):
             """,
             (user_id,),
         ).fetchone()
-        if row is None or row["max_score"] <= INTEREST_THRESHOLD:  # type: ignore
+        if row is None or row["max_score"] <= INTEREST_THRESHOLD:
+            logger.info(
+                f"max score below threshold so didn't decay, user_id={user_id} max_score={row['max_score'] if row else 'none'}"
+            )
             return
 
         # decay interest scores and update decayed_at
@@ -180,7 +183,7 @@ def decay_interests(user_id: str):
                 SET score = score * %s
                 WHERE user_id = %s;
             """,
-            (decay_coefficient, user_id),
+            (DECAY_COEFFICIENT, user_id),
         )
         cur.execute(
             """
@@ -192,4 +195,3 @@ def decay_interests(user_id: str):
             """,
             (user_id,),
         )
-        

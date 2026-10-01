@@ -1,3 +1,7 @@
+import math
+from datetime import timedelta
+
+import numpy as np
 from sentence_transformers import SentenceTransformer
 
 from interests import *
@@ -8,23 +12,42 @@ from util import *
 def post_embedding(model: SentenceTransformer, content: str) -> np.ndarray:
     return model.encode_document(content)
 
+
 def create_post(model: SentenceTransformer, user_id: str, content: str):
     with db_conn() as conn, conn.cursor() as cur:
         embedding = embedding_to_str(post_embedding(model, content))
-        cur.execute(
+        row = cur.execute(
             """
                 INSERT INTO posts (user_id, content, embedding)
                 VALUES (%s, %s, %s)
+                RETURNING post_id
             """,
             (user_id, content, embedding),
+        ).fetchone()
+        if row:
+            return row["post_id"]
+
+
+def like_post(post_id: int):
+    with db_conn() as conn:
+        conn.execute(
+            """
+                UPDATE posts
+                SET 
+                    likes = likes + 1,
+                    hot_score = 5 * LOG(2, likes + 1) + (created_at::date - '1970-01-01'::date)
+                WHERE post_id=%s;
+            """,
+            (post_id,),
         )
+
 
 def _get_user_vector(user_id: str) -> ndarray | None:
     """Not normalized!"""
 
     genres = top_k_of_interest(user_id, "genre", 10)
     artists = top_k_of_interest(user_id, "artist", 10)
-    
+
     if len(genres) == 0 and len(artists) == 0:
         return None
 
@@ -38,16 +61,16 @@ def _get_user_vector(user_id: str) -> ndarray | None:
     return total_weighted_embeddings  # type: ignore
 
 
-class PostAndEmbedding(BaseModel, arbitrary_types_allowed=True):
-    post_id: int
-    embedding: ndarray | None
+def get_post_similarities(
+    model: SentenceTransformer, rows: list[DictRow], user_vector: ndarray | None
+) -> list[float]:
+    if user_vector is None:
+        return [0 for _ in rows]
 
-    @staticmethod
-    def from_sql_row(row):
-        return PostAndEmbedding(
-            post_id=row["post_id"],
-            embedding=str_to_embedding(row["embedding"]),
-        )
+    embeddings = [str_to_embedding(row["embedding"]) for row in rows]
+    embeddings = np.stack(embeddings, axis=0)
+    similarities = model.similarity(user_vector, embeddings)
+    return similarities.tolist()
 
 
 def posts_similar_to_user(user_id: str, n: int):
@@ -56,30 +79,40 @@ def posts_similar_to_user(user_id: str, n: int):
         return []
 
     with db_conn() as conn:
-        rows = conn.execute(
+        return conn.execute(
             """
-                SELECT post_id, embedding FROM posts 
+                SELECT post_id, embedding, likes, created_at FROM posts 
                 ORDER BY embedding <=> %s
                 LIMIT %s
             """,
             (embedding_to_str(user_vector), n),
         ).fetchall()
-        return [PostAndEmbedding.from_sql_row(row) for row in rows]
+
 
 def hot_posts(n: int):
     with db_conn() as conn:
-        rows = conn.execute(
+        return conn.execute(
             """
-                SELECT post_id, embedding FROM posts 
-                ORDER BY embedding <=> %s
+                SELECT post_id, embedding, likes, created_at FROM posts 
+                ORDER BY hot_score DESC
                 LIMIT %s
             """,
             (n,),
         ).fetchall()
-        return [PostAndEmbedding.from_sql_row(row) for row in rows]
 
 
+def get_feed(model: SentenceTransformer, user_id: str, n: int):
+    sources = [posts_similar_to_user(user_id, n), hot_posts(n)]
+    posts = [s for source in sources for s in source]  # flatten sources
 
-def get_feed(user_id: str, n: int):
-    sources = [posts_similar_to_user(user_id, n)]
-    return [s.post_id for s in sources[0]]
+    if len(posts) == 0:
+        return []
+
+    similiarities = get_post_similarities(model, posts, _get_user_vector(user_id))
+
+    for post, similarity in zip(posts, similiarities):
+        popularity = 5 * math.log2(post["likes"])
+        age: timedelta = post["created_at"] - datetime.now(UTC)
+        print(similarity)
+
+    return []
