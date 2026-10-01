@@ -57,7 +57,7 @@ def top_k_of_interest(
         cur.execute(
             """
                 SELECT * FROM interests NATURAL JOIN interest_scores
-                WHERE user_id=%s AND embedding IS NOT NULL AND interest_type=%s
+                WHERE user_id=%s AND embedding IS NOT NULL AND interest_type=%s AND score != 0
                 ORDER BY score DESC
                 LIMIT %s
             """,
@@ -142,7 +142,7 @@ def decay_interests(user_id: str):
     DECAY_COOLDOWN = timedelta(hours=6)
 
     # if a user's highest interest is below this, don't decay
-    INTEREST_THRESHOLD = 3
+    INTEREST_THRESHOLD = 5
 
     with db_conn() as conn, conn.cursor() as cur:
         # cancel if decayed recently
@@ -170,7 +170,7 @@ def decay_interests(user_id: str):
             """,
             (user_id,),
         ).fetchone()
-        if row is None or row["max_score"] <= INTEREST_THRESHOLD:
+        if row is None or row["max_score"] < INTEREST_THRESHOLD:
             logger.info(
                 f"max score below threshold so didn't decay, user_id={user_id} max_score={row['max_score'] if row else 'none'}"
             )
@@ -190,8 +190,7 @@ def decay_interests(user_id: str):
                 INSERT INTO interest_scores_metadata (user_id)
                 VALUES (%s)
                 ON CONFLICT (user_id) DO UPDATE
-                    SET decayed_at = now()
-                    WHERE user_id = EXCLUDED.user_id;
+                SET decayed_at = now();
             """,
             (user_id,),
         )

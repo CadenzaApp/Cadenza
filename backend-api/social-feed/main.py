@@ -17,8 +17,9 @@ model.similarity_fn_name = "cosine"
 
 
 @app.get("/feed")
-async def get_feed_route(user_id: str, n: int):
-    return {"feed": get_feed(model, user_id, n)}
+async def get_feed_route(user_id: str):
+    FEED_SIZE = 100; # todo: allow fetching past FEED_SIZE
+    return {"feed": get_feed(model, user_id, 100)}
 
 
 class UpdateInterestsBody(BaseModel):
