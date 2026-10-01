@@ -23,8 +23,10 @@ export function InterestDecay() {
     useEffect(() => {
         if (!account || decayedIdsRef.current.has(account.id)) return;
         decayedIdsRef.current.add(account.id);
-        
-        decayInterests().catch(e => console.warn("Failed to decay interests:", e));
+
+        decayInterests().catch((e) =>
+            console.warn("Failed to decay interests:", e),
+        );
     }, [account, decayInterests]);
 
     return null;

@@ -15,9 +15,12 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use crate::{
-    auth::{SupabaseClaims, new_jwt_decoder}, routes::{
-        comments::get_comments_router, queries::get_queries_router, social::get_social_router, songs::get_songs_router, tags::get_tags_router,
-    }, services::{
+    auth::{SupabaseClaims, new_jwt_decoder},
+    routes::{
+        comments::get_comments_router, queries::get_queries_router, social::get_social_router,
+        songs::get_songs_router, tags::get_tags_router,
+    },
+    services::{
         default_tags::{BackfillConfig, spawn_default_tag_backfill},
         song_metadata::SongMetadataService,
         tag_generation::{TagGenerationService, openai_tag_generator::OpenAiTagGenerator},
@@ -110,7 +113,7 @@ async fn main() {
         jwt_decoder,
         tag_gen_service,
         song_meta_service,
-        http_client: reqwest::Client::new()
+        http_client: reqwest::Client::new(),
     };
 
     // route paths
