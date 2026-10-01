@@ -115,7 +115,7 @@ contracts, or gotchas. Do not create documentation that merely repeats the code.
   and the screen just wires it up.
   
   
-Prefer async/await + try/catch over .then()/.catch() whenever possible.
+Prefer async/await + try/catch over .then()/.catch() whenever possible for tasks with more than one async steps.
 
 ### Visual verification
 

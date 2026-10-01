@@ -49,6 +49,19 @@ export type ScoredTag = [score: number, color: string, source: TagSource];
 /** The user's top tags, keyed by the lowercased tag name, in no order. */
 export type TopTagScores = Record<string, ScoredTag>;
 
+/** What kind of thing the social feed tracks the user's interest in. */
+export type InterestType = "artist" | "genre";
+
+/**
+ * How far to move the user's interest in one named artist or genre. A positive
+ * `delta` raises it, a negative one lowers it.
+ */
+export type InterestScoreDelta = {
+    name: string;
+    itype: InterestType;
+    delta: number;
+};
+
 export type CommentVote = "up" | "down";
 
 /** a comment on a song, as the signed in user sees it */

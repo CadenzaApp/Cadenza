@@ -140,8 +140,8 @@ def decay_interests(user_id: str):
     DEFAULT_DECAY_COOLDOWN = 60 * 60 * 6  # 6 hrs
     INTEREST_THRESHOLD = 3
 
-    decay_coefficient = int(
-        os.environ.get("INTEREST_DELAY_COEFFICIENT", DEFAULT_DECAY_COEFFICIENT)
+    decay_coefficient = float(
+        os.environ.get("INTEREST_DECAY_COEFFICIENT", DEFAULT_DECAY_COEFFICIENT)
     )
     decay_cooldown = timedelta(
         seconds=int(os.environ.get("INTEREST_DELAY_COOLDOWN", DEFAULT_DECAY_COOLDOWN))
@@ -184,9 +184,11 @@ def decay_interests(user_id: str):
         )
         cur.execute(
             """
-                UPDATE interest_scores_metadata 
-                SET decayed_at = now()
-                WHERE user_id = %s;
+                INSERT INTO interest_scores_metadata (user_id)
+                VALUES (%s)
+                ON CONFLICT (user_id) DO UPDATE
+                    SET decayed_at = now()
+                    WHERE user_id = EXCLUDED.user_id;
             """,
             (user_id,),
         )

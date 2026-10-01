@@ -52,7 +52,8 @@ GestureHandlerRootView
                 ZoomOriginProvider          the rect a pushed screen minimizes back into
                   Stack                     the routes
                   AppleMusicSessionGuard    opens /account when the apple music token dies
-                  TagScoreTracker           scores the tags on each song played for 5 seconds
+                  TagScoreTracker           scores the tags, artist, and genres of each song played for 5 seconds
+                  InterestDecay             decays the user's interest scores once per launch
                   TasksHost                 background task status
                   PortalHost                where dialogs and modals render
 ```
@@ -68,7 +69,13 @@ skips the splash and auth routes.
 
 `TagScoreTracker` (`@/lib/tag-scores`) renders nothing. It sits beside the root `Stack` because
 it only needs to be inside `PlaybackProvider` and `AccountProvider`, and it sends one
-`PATCH /tags/scores` per song that plays for 5 seconds. See [../lib/README.md](../lib/README.md).
+`PATCH /tags/scores` and one `PATCH /social/interests/update` per song that plays for 5 seconds.
+See [../lib/README.md](../lib/README.md).
+
+`InterestDecay` (`@/lib/interest-decay`) renders nothing. It sends one
+`PATCH /social/interests/decay` per launch as soon as an account is signed in, whether restored
+by the splash screen or from a fresh sign in. The social feed service ignores it if it decayed
+in the last 6 hours.
 
 `PortalHost` remains beside the root `Stack`. The tab bar and player are inside the `(tabs)`
 navigator. `NativeTabs` owns the platform tab bar and its iOS 26 bottom accessory. Playback state
