@@ -369,6 +369,7 @@ pub async fn new_user_tag(
         name: Set(name),
         color: Set(color),
         r#type: Set(tag_type),
+        is_activity: NotSet,
     };
     let new_tag = new_tag.insert(&db).await?;
 
@@ -575,6 +576,7 @@ pub async fn add_default_tag_to_song(
                 name: Set(name.to_owned()),
                 color: Set(color.to_owned()),
                 r#type: NotSet,
+                is_activity: NotSet,
             }
             .insert(db)
             .await?;
@@ -691,6 +693,7 @@ pub async fn set_default_tags_on_songs(
             name: Set(new_tag.name.clone()),
             color: Set(new_tag.color.clone()),
             r#type: NotSet,
+            is_activity: NotSet,
         }
         .insert(db)
         .await?;
