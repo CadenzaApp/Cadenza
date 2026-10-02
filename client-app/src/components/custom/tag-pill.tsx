@@ -113,7 +113,7 @@ export const TagPill = memo(function TagPill({
     const outlined = appearance === "outline";
     const outlineColor =
         luminance(backgroundColor) <= LIGHT_LUMINANCE &&
-        luminance(tag.color) <= LIGHT_LUMINANCE
+            luminance(tag.color) <= LIGHT_LUMINANCE
             ? screenColor
             : tag.color;
     const contentColor = outlined ? outlineColor : screenColor;
@@ -123,6 +123,7 @@ export const TagPill = memo(function TagPill({
     const countPaddingHorizontal = 0.9 * height;
     const countPaddingVertical = 0.1 * height;
     const displayedValue = formatTagValue(tag.type, value);
+    const countGapAdjustment = count === undefined ? 0 : -0.05 * height;
 
     return (
         <Badge
@@ -131,42 +132,46 @@ export const TagPill = memo(function TagPill({
             style={{
                 backgroundColor: outlined ? "transparent" : tag.color,
                 borderColor: outlined ? outlineColor : "transparent",
-                paddingHorizontal: 0.7 * height,
+                paddingLeft: showIcon ? 0.35 * height : 0.67 * height,
+                paddingRight:
+                    count !== undefined ? 0.275 * height : 0.67 * height,
                 paddingVertical: 0.2 * height,
                 gap: 0.5 * height,
                 alignItems: "center",
                 justifyContent: "center",
             }}
         >
-            {showIcon
-                ? (leadingIcon ??
-                  (leadingIconName ? (
-                      <Ionicons
-                          name={leadingIconName}
-                          size={iconSize}
-                          color={contentColor}
-                          accessibilityElementsHidden
-                          importantForAccessibility="no"
-                      />
-                  ) : null) ??
-                  (tag.type === "basic" ? (
-                      <Ionicons
-                          name="pricetag"
-                          size={iconSize}
-                          color={contentColor}
-                          accessibilityElementsHidden
-                          importantForAccessibility="no"
-                      />
-                  ) : (
-                      <Ionicons
-                          name={TAG_TYPE_ICONS[tag.type]}
-                          size={iconSize}
-                          color={contentColor}
-                          accessibilityElementsHidden
-                          importantForAccessibility="no"
-                      />
-                  )))
-                : null}
+            {showIcon ? (
+                <View style={{ marginRight: -0.05 * height }}>
+                    {leadingIcon ??
+                        (leadingIconName ? (
+                            <Ionicons
+                                name={leadingIconName}
+                                size={iconSize}
+                                color={contentColor}
+                                accessibilityElementsHidden
+                                importantForAccessibility="no"
+                            />
+                        ) : null) ??
+                        (tag.type === "basic" ? (
+                            <Ionicons
+                                name="pricetag"
+                                size={iconSize}
+                                color={contentColor}
+                                accessibilityElementsHidden
+                                importantForAccessibility="no"
+                            />
+                        ) : (
+                            <Ionicons
+                                name={TAG_TYPE_ICONS[tag.type]}
+                                size={iconSize}
+                                color={contentColor}
+                                accessibilityElementsHidden
+                                importantForAccessibility="no"
+                            />
+                        ))}
+                </View>
+            ) : null}
             {/* Tag text */}
             <Text
                 style={{
@@ -178,6 +183,7 @@ export const TagPill = memo(function TagPill({
                     textAlign: "center",
                     textAlignVertical: "center",
                     includeFontPadding: false,
+                    marginRight: displayedValue === "" ? countGapAdjustment : 0,
                 }}
             >
                 {tag.name}
@@ -192,8 +198,9 @@ export const TagPill = memo(function TagPill({
                         fontWeight: "400",
                         fontStyle: suggested ? "italic" : "normal",
                         lineHeight: fontSize * 1.4,
-                        opacity: 0.75,
+                        opacity: 1.0,
                         maxWidth: 14 * height,
+                        marginRight: countGapAdjustment,
                     }}
                 >
                     {displayedValue}
@@ -206,12 +213,12 @@ export const TagPill = memo(function TagPill({
                         borderRadius: 999,
                         paddingHorizontal: countPaddingHorizontal,
                         paddingVertical: countPaddingVertical,
-                        backgroundColor: hexToRgba(contentColor, 0.2),
+                        backgroundColor: hexToRgba(contentColor, 1.0),
                     }}
                 >
                     <Text
                         style={{
-                            color: contentColor,
+                            color: tag.color,
                             fontSize: countFontSize,
                             fontWeight: "500",
                             lineHeight: fontSize * 1.25,

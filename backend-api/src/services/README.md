@@ -58,7 +58,11 @@ schema-constrained system prompt, then parses a
 echoes its song's description back, which is how tags are matched to songs rather than by
 position. It short circuits on an empty input list or a zero tag count, rejects combined
 descriptions over `MAX_COMBINED_SONG_DESC_LENGTH` (2000 bytes), truncates any over-long tag list
-from the model, and runs every tag through `normalize_tag_name` before returning.
+from the model, and runs every tag through `normalize_tag_name` before returning. It ignores the
+model's color and randomly chooses an accessible RGB palette color instead. The curated palette is
+sorted by hue, followed by brown and gray, and every color has at least 4.5:1 contrast against its
+preferred black or white foreground. Repeated names in one response share their first generated
+color.
 
 It checks the response status before the body, because a 429 body has no `output` and would
 otherwise come back as a parse failure rather than as the rate limit it is. A 429 returns

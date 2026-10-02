@@ -4,7 +4,7 @@ import { StyleSheet, View } from "react-native";
 import { darken } from "@/lib/artwork-color";
 
 type TintBackdropProps = {
-    /** `#rrggbb` from `useArtworkTint`. Renders nothing when null. */
+    /** Base tint or first sampled stop. Renders nothing when null. */
     tint: string | null;
     /**
      * Height to run the gradient over, for a surface whose content is taller
@@ -13,13 +13,15 @@ type TintBackdropProps = {
     height?: number;
     /** Brightness the bottom of the gradient lands on, as a fraction. */
     depth?: number;
+    /** Precomputed color-space-aware stops. Defaults to the legacy RGB fade. */
+    colors?: readonly [string, string, ...string[]];
 };
 
 const DEFAULT_DEPTH = 0.3;
 
 /**
- * The artwork-colored wash behind a page. Full strength at the top, darkening
- * with distance down it.
+ * The colored wash behind a page. Without explicit stops it starts at full
+ * strength and darkens with distance down the page.
  *
  * It never reaches black. The bottom is the same color at `depth` of its
  * brightness, which is what keeps a page reading as one color rather than a
@@ -33,6 +35,7 @@ export function TintBackdrop({
     tint,
     height,
     depth = DEFAULT_DEPTH,
+    colors,
 }: TintBackdropProps) {
     if (!tint) return null;
 
@@ -50,7 +53,7 @@ export function TintBackdrop({
                           height,
                       }
             }
-            colors={[tint, darken(tint, depth)]}
+            colors={colors ?? [tint, darken(tint, depth)]}
         />
     );
 }
@@ -63,15 +66,22 @@ export function TintBackdrop({
 export function TintOverscrollBackdrop({
     tint,
     depth = DEFAULT_DEPTH,
-}: Pick<TintBackdropProps, "tint" | "depth">) {
+    colors,
+}: Pick<TintBackdropProps, "tint" | "depth" | "colors">) {
     if (!tint) return null;
 
     return (
         <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-            <View className="flex-1" style={{ backgroundColor: tint }} />
             <View
                 className="flex-1"
-                style={{ backgroundColor: darken(tint, depth) }}
+                style={{ backgroundColor: colors?.[0] ?? tint }}
+            />
+            <View
+                className="flex-1"
+                style={{
+                    backgroundColor:
+                        colors?.[colors.length - 1] ?? darken(tint, depth),
+                }}
             />
         </View>
     );

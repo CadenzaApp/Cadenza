@@ -12,7 +12,7 @@ native module directly.
 | `api-actions.ts`             | The generic SWR wrappers: `useAPIData`, `useAPIPostData`, `useAPIPostDataBatched`, `useAPIFetch`, `useAPIMutation`.                                                                                                                                                                               |
 | `api-endpoints.ts`           | `matchesEndpoint`, the cache-key matcher behind invalidation. Import-free so it can be unit tested.                                                                                                                                                                                               |
 | `swr-utils.ts`               | `clearCache` and `useSimpleMutation`, for things that are not plain backend calls.                                                                                                                                                                                                                |
-| `routes/tags.ts`             | Hooks for `/tags`: `useUserTags`, `useTag`, `useCreateTag`, `useDeleteTag`, `useDefaultTags`, `useActivityTags`, `useActivityTagIdsInQuery`, `useSuggestTags`, `useEditTagScores`, `useTopTagScores`.                                                                                             |
+| `routes/tags.ts`             | Hooks for `/tags`: `useUserTags`, `useTag`, `useCreateTag`, `useUpdateTag`, `useDeleteTag`, `useDefaultTags`, `useActivityTags`, `useActivityTagIdsInQuery`, `useSuggestTags`, `useEditTagScores`, `useTopTagScores`.                                                                             |
 | `routes/songs.ts`            | Hooks for local, default, and activity tag reads (one song and batched), local tag writes, removing a suggested tag, recording a play, missing-default checks, generation, and editing the user's library.                                                                                        |
 | `routes/queries.ts`          | `useQueryResults`, the one cached hook for `/queries/results`. Both builders go through it, and it carries the suggested-tag flag. It sends no song ids: the backend queries the library it already has.                                                                                          |
 | `routes/comments.ts`         | Hooks for `/comments`: `useSongComments`, `useCreateComment`, `useDeleteComment`, `useVoteOnComment`.                                                                                                                                                                                             |
@@ -33,7 +33,8 @@ native module directly.
 | `theme.ts`                   | `NAV_THEME`, light and dark palettes for react-navigation, `sheetScreenOptions` for sheet routes, and `pushedScreenOptions` for the pushed detail routes.                                                                                                                                         |
 | `error-utils.ts`             | `getErrorDetails` / `getErrorMessage`, for unwrapping native and backend errors.                                                                                                                                                                                                                  |
 | `artwork-color.ts`           | `useArtworkTint`, the color a surface paints itself with, plus alpha, darkening, and multi-artwork averaging helpers.                                                                                                                                                                             |
-| `artwork-color-utils.ts`     | Native-free channel averaging for multi-artwork tints.                                                                                                                                                                                                                                            |
+| `artwork-color-utils.ts`     | Native-free Oklab averaging for multi-artwork colors and Oklch gradient sampling for track collections.                                                                                                                                                                                           |
+| `tag-color-palette.ts`       | Curated RGB tag palette sorted by hue, followed by brown and gray. Every swatch has tested contrast against black and white.                                                                                                                                                                      |
 | `music-routes.ts`            | `collectionRoute` / `albumRouteForTrack`. Hrefs into the resource screens, params and all.                                                                                                                                                                                                        |
 | `music-list-preferences.tsx` | `MusicListPreferencesProvider` / `useMusicListPreferences`. The persisted device-local preference for suggested tag pills in music-list rows.                                                                                                                                                     |
 | `share-track.ts`             | `shareTrack` / `shareCollection`. Builds and fires the native share sheet for a song, album, or playlist's canonical Apple Music link.                                                                                                                                                            |
@@ -286,10 +287,12 @@ artwork. Two sources, in order:
 Library artwork usually has no color of its own, which is the only reason the second path
 exists. Expo Go has no native module for it and returns null, and a null tint renders untinted.
 
-`@/components/ui/tint-backdrop::TintBackdrop` is what actually paints it: the color at the top,
-darkening down the page and bottoming out at `depth` of its brightness rather than at black.
-The player sheet, collection screen, artist screen, and query-results mosaic all go through those
-two. Query results average the four displayed mosaic-cell colors before painting the gradient.
+`@/components/ui/tint-backdrop::TintBackdrop` paints legacy detail-screen tints. Track collection
+routes instead hand one source color to `TrackCollectionView`, which reduces its chroma and samples
+a mode-aware full-height gradient in Oklch. Query results use the shared collection-artwork hook to
+rank one four-cell sample, convert those colors to Oklab, average their channels, and convert the
+result back to RGB for that source color. Fixed endpoint colors beneath the list keep elastic
+overscroll seamless.
 
 Hand `useArtworkTint` the **small** artwork. Averaging only needs a thumbnail, and a hero-sized
 one costs a megabyte to reach the same answer. `ArtworkSource.artworkUrlSmall` wins over

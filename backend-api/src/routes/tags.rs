@@ -6,7 +6,7 @@ use crate::{
     db::{
         self,
         tags::{
-            TagMetadata, get_all_user_tags, get_songs_with_user_tag, get_tag,
+            TagMetadata, get_all_user_tags, get_songs_with_user_tag, get_user_tag,
             get_user_tags_metadata,
         },
     },
@@ -56,7 +56,7 @@ async fn get_user_tags_handler(
 ) -> Result<Json<GetTagsResponse>, CadenzaError> {
     match params.tag_id {
         Some(tag_id) => {
-            let Some(tag) = get_tag(&db, tag_id).await? else {
+            let Some(tag) = get_user_tag(&db, claims.user_id, tag_id).await? else {
                 return Err(CadenzaError::NotFound);
             };
             Ok(Json(GetTagsResponse::One(TagPlusSongs {
@@ -96,6 +96,31 @@ async fn new_user_tag_handler(
     .await?;
 
     Ok(new_tag_id.to_string())
+}
+
+#[derive(Deserialize)]
+pub struct UpdateTagPayload {
+    tag_id: i64,
+    name: Option<String>,
+    color: Option<String>,
+}
+
+/// Changes the name, color, or both on one tag owned by the signed-in user.
+async fn update_user_tag_handler(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Json(payload): Json<UpdateTagPayload>,
+) -> Result<Json<Tag>, CadenzaError> {
+    let tag = db::tags::update_user_tag(
+        db,
+        claims.user_id,
+        payload.tag_id,
+        payload.name,
+        payload.color,
+    )
+    .await?;
+
+    Ok(Json(tag.into()))
 }
 
 #[derive(Deserialize)]
@@ -265,6 +290,7 @@ pub fn get_tags_router() -> Router<AppState> {
     Router::new()
         .route("/", get(get_user_tags_handler))
         .route("/", post(new_user_tag_handler))
+        .route("/", patch(update_user_tag_handler))
         .route("/", delete(delete_user_tag_handler))
         .route(
             "/scores",

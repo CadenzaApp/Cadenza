@@ -84,6 +84,20 @@ type NewTagPayload = {
     color: string;
     type: TagType;
 };
+
+export function tagMutationErrorMessage(error: unknown) {
+    if (
+        typeof error === "object" &&
+        error !== null &&
+        "error_type" in error &&
+        error.error_type === "TagNameAlreadyTaken"
+    ) {
+        return "You already have a tag with that name.";
+    }
+
+    return "Couldn't save this tag. Please try again.";
+}
+
 export function useCreateTag() {
     const x = useAPIMutation<NewTagPayload, number>("POST", "/tags", [
         { path: "/songs/local-tags" },
@@ -100,14 +114,44 @@ export function useCreateTag() {
     };
 }
 
+type UpdateTagPayload = {
+    tag_id: number;
+    name?: string;
+    color?: string;
+};
+export function useUpdateTag() {
+    const x = useAPIMutation<UpdateTagPayload, Tag>(
+        "PATCH",
+        "/tags",
+        [
+            { path: "/songs/local-tags" },
+            { path: "/songs/local-tags/batch" },
+            { path: "/tags" },
+            { path: "/tags/scores" },
+        ],
+        { invalidation: "await" },
+    );
+    return {
+        updateTagErr: x.error,
+        updateTagLoading: x.isMutating,
+        resetUpdateTag: x.reset,
+        updateTag: x.trigger,
+    };
+}
+
 export function useDeleteTag() {
-    const x = useAPIMutation<{ tag_id: number }, void>("DELETE", "/tags", [
-        { path: "/songs/local-tags" },
-        { path: "/songs/local-tags/batch" },
-        { path: "/tags" },
-        // a deleted tag can drop out of the top tags or fall back to global
-        { path: "/tags/scores" },
-    ]);
+    const x = useAPIMutation<{ tag_id: number }, void>(
+        "DELETE",
+        "/tags",
+        [
+            { path: "/songs/local-tags" },
+            { path: "/songs/local-tags/batch" },
+            { path: "/tags" },
+            // a deleted tag can drop out of the top tags or fall back to global
+            { path: "/tags/scores" },
+        ],
+        { invalidation: "await" },
+    );
     return {
         deleteTagErr: x.error,
         deleteTagLoading: x.isMutating,

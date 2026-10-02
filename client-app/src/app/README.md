@@ -185,15 +185,18 @@ The player sheet paints one tint in `DetailScreen`, behind its header and the tr
 All three pages stay mounted side by side, so a swipe reveals live adjacent content continuously
 instead of navigating after a threshold. The custom glass selector follows the same scroll offset.
 
-`/artist/:id`, `/collection/:kind/:id`, and `/query-results` use the
+`/artist/:id`, `/collection/:kind/:id`, `/tag/:tagId`, and `/query-results` use the
 shared `TrackCollectionView` instead of a `DetailScreen` header, and float their own X in the
 same corner. The artist supplies its full-bleed image hero and albums rail as custom header and
 footer content. The collection uses the standard single-artwork layout with Play/Pause, Shuffle,
-and a caller-supplied action that opens `CollectionOptionsMenu`. Query results use the standard
+and a caller-supplied action that opens `CollectionOptionsMenu`. A tag uses the standard mosaic,
+uses its tag pill and song count as the title, and supplies its tag color as the page color,
+and offers rename, recolor, and delete actions. Query results use the standard
 weighted mosaic and an edge-to-edge tint, but use a normal opaque stack presentation rather than
 the collection's zoom transition. Each gradient-backed `TrackCollectionView` also paints fixed
 start and end colors beneath the list, so either elastic overscroll edge meets the scrolling
-gradient without a seam.
+gradient without a seam. `TrackCollectionView` owns the mode-aware Oklch chroma reduction and
+gradient sampling for every one of these routes; callers provide only a source color.
 Under the last row it prints the song count and running time, but only once every page is in,
 since a count off a half-loaded list is a wrong number. Everything the collection draws over its
 tint stays inside the same scroll surface. Either way the hero is the `MusicList` header inside

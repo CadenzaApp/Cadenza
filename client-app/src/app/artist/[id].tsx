@@ -4,6 +4,7 @@ import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useTheme } from "expo-router/react-navigation";
+import { useColorScheme } from "nativewind";
 import { useState } from "react";
 import {
     Image as RNImage,
@@ -18,11 +19,8 @@ import { TrackCollectionView } from "@/components/custom/track-collection-view";
 import { FloatingCloseButton } from "@/components/ui/floating-close-button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
-import {
-    TintBackdrop,
-    TintOverscrollBackdrop,
-} from "@/components/ui/tint-backdrop";
-import { darken, useArtworkTint, withAlpha } from "@/lib/artwork-color";
+import { useArtworkTint, withAlpha } from "@/lib/artwork-color";
+import { sampleTrackCollectionGradientColor } from "@/lib/artwork-color-utils";
 import { useZoomSource, ZoomDismissScreen } from "@/lib/zoom-dismiss";
 import { MediaPlayerZoomOverlay } from "@/components/custom/media-player";
 import { collectionRoute } from "@/lib/music-routes";
@@ -42,8 +40,6 @@ const NO_PAGINATION = {
 const HERO_HEIGHT_RATIO = 0.45;
 /** How much of the hero the name sits over, fading the image into the page. */
 const HERO_FADE_RATIO = 0.45;
-/** Brightness the page bottoms out at. Shared with the hero, so they meet. */
-const TINT_DEPTH = 0.3;
 
 /**
  * One catalog artist: the artist image full bleed, their top songs, then their
@@ -60,6 +56,7 @@ const TINT_DEPTH = 0.3;
 export default function ArtistScreen() {
     const { id, name } = useLocalSearchParams<{ id: string; name?: string }>();
     const router = useRouter();
+    const { colorScheme = "light" } = useColorScheme();
     const { height: windowHeight } = useWindowDimensions();
     const { artist, artistLoading, artistErr } = useArtist(id);
     const { tint } = useArtworkTint(artist);
@@ -111,28 +108,12 @@ export default function ArtistScreen() {
                     pagination={NO_PAGINATION}
                     sorting={null}
                     multiSelect={DEFAULT_MULTI_SELECT_CONFIG}
-                    overscrollBackground={
-                        <TintOverscrollBackdrop
-                            tint={tint}
-                            depth={TINT_DEPTH}
-                        />
-                    }
+                    backgroundColor={tint}
                     onContentSizeChange={(_, height) =>
                         setContentHeight(Math.max(windowHeight, height))
                     }
-                    // Same as the collection screen: the backdrop runs past
-                    // the header, and Android would detach it with the header.
-                    removeClippedSubviews={false}
                     header={
                         <>
-                            {/* Inside the header, so it scrolls with the content it
-                            is painted behind. Rows draw no background of their
-                            own, so it shows through all the way down. */}
-                            <TintBackdrop
-                                tint={tint}
-                                height={contentHeight}
-                                depth={TINT_DEPTH}
-                            />
                             <ArtistHero
                                 artist={artist}
                                 name={artist?.name ?? name ?? "Artist"}
@@ -143,12 +124,10 @@ export default function ArtistScreen() {
                                 // page rather than into a brighter band.
                                 fadeTo={
                                     tint
-                                        ? darken(
+                                        ? sampleTrackCollectionGradientColor(
                                               tint,
-                                              1 -
-                                                  (1 - TINT_DEPTH) *
-                                                      (heroHeight /
-                                                          contentHeight),
+                                              colorScheme,
+                                              heroHeight / contentHeight,
                                           )
                                         : null
                                 }

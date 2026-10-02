@@ -26,8 +26,9 @@ Every route below requires `Authorization: Bearer <supabase jwt>`.
 | method | path | input | output |
 | --- | --- | --- | --- |
 | GET | `/tags` | none | `{"All": {tags: [Tag], metadata: {tag_id: {count}}}}` |
-| GET | `/tags?tag_id=N` | query param | `{"One": {tag, song_ids}}`, 404 if the tag does not exist |
-| POST | `/tags` | `{name, color, type?}` | the new tag id, as a bare number in the body |
+| GET | `/tags?tag_id=N` | query param | `{"One": {tag, song_ids}}`, 404 if the tag does not belong to the signed-in user |
+| POST | `/tags` | `{name, color, type?}` | the new tag id, as a bare number in the body; 409 when the user already owns that normalized name |
+| PATCH | `/tags` | `{tag_id, name?, color?}` | the updated tag. 404 if the tag is not yours; 409 when its new name matches another tag you own |
 | DELETE | `/tags` | `{tag_id}` | empty. Silently no-ops if the tag is not yours |
 | GET | `/tags/scores` | `?k=N` | `{tag_name: [score, color, "local" \| "global"]}`, the user's `k` highest scores, 0 and below and names with no tag left out. `k` is at most 200 |
 | PATCH | `/tags/scores` | `{"pop": 5, "rock": 10, "jazz": -2}` | `{tag_name: score}`, the score every named tag is left at |

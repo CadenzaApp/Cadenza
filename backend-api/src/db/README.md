@@ -354,6 +354,14 @@ every song scores zero and the whole list is ordered by song id.
   pairs, not bare models, because the value lives on the application row rather than on the tag.
 - `delete_user_tag` and `unapply_user_tag` silently no-op when nothing matches, rather than
   returning `NotFound`.
+- `new_user_tag` and `update_user_tag` reject a name that normalizes to another tag the same user
+  owns. Both take the same per-user PostgreSQL transaction advisory lock; renames also lock the
+  user's current tag rows in tag-id order. Concurrent creates and renames therefore re-check after
+  the first commit, including for a user with no existing tags. Shared default and activity tags do
+  not participate. This remains an application convention until normalized names have a database
+  uniqueness constraint.
+- `get_user_tag` scopes a single-tag read by both tag id and user id; the detail endpoint never
+  returns another user's tag metadata.
 - `get_user_tags_metadata` returns a `HashMap<i64, TagMetadata>` keyed by tag id. Tags with no
   applications still get an entry, with `count: 0`.
 - `apply_user_tag` and `set_user_tag_value` both go through `get_owned_tag` first, which filters

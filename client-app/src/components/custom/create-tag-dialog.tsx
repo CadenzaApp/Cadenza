@@ -10,11 +10,15 @@ import {
 } from "react-native";
 import { ScreenFloatingBubble } from "@/components/custom/floating-bubble";
 import { ModalPopup } from "@/components/custom/modal-popup";
+import {
+    TAG_COLOR_OPTIONS,
+    TagColorPicker,
+} from "@/components/custom/tag-color-picker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Text } from "@/components/ui/text";
-import { useCreateTag } from "@/lib/routes/tags";
+import { tagMutationErrorMessage, useCreateTag } from "@/lib/routes/tags";
 import {
     TAG_TYPES,
     TAG_TYPE_DESCRIPTIONS,
@@ -45,33 +49,6 @@ const TYPE_ICON_GAP = 6;
 const TYPE_HELP_TEXT =
     "A tag's type decides what kind of value it holds, so you can give each " +
     "song a value for this tag. A tag's type cannot be changed later.";
-
-const COLOR_COLUMNS = 5;
-const GRID_GAP = 8;
-
-// 15 swatches laid out as 3 rows of 5: a full hue wheel plus two neutrals.
-const COLOR_OPTIONS: string[] = [
-    "#da4a40",
-    "#ce7129",
-    "#e4ba25",
-    "#73dd2c",
-    "#25924f",
-    "#26c2aa",
-    "#22b8cf",
-    "#1f93d6",
-    "#3863d8",
-    "#5644ce",
-    "#963dd1",
-    "#da34c1",
-    "#d62f67",
-    "#8a5a3c",
-    "#6b7280",
-];
-
-const COLOR_ROWS = Array.from(
-    { length: Math.ceil(COLOR_OPTIONS.length / COLOR_COLUMNS) },
-    (_, i) => i,
-);
 
 /**
  * The floating bubble that opens the create-tag dialog. This is the form the
@@ -118,12 +95,8 @@ export function CreateTagDialog({
     );
     // Usable width inside the dialog's padding.
     const innerWidth = dialogWidth - DIALOG_PADDING * 2;
-    // Swatches stay square and together span the full inner width.
-    const colorBoxSize =
-        (innerWidth - GRID_GAP * (COLOR_COLUMNS - 1)) / COLOR_COLUMNS;
-
     const [name, setName] = useState("");
-    const [selectedColor, setSelectedColor] = useState(COLOR_OPTIONS[0]);
+    const [selectedColor, setSelectedColor] = useState(TAG_COLOR_OPTIONS[0]);
     const [selectedType, setSelectedType] = useState<TagType>("basic");
     const [showAdvanced, setShowAdvanced] = useState(false);
     const [showTypeHelp, setShowTypeHelp] = useState(false);
@@ -131,7 +104,7 @@ export function CreateTagDialog({
     function resetForm() {
         resetCreateTag();
         setName("");
-        setSelectedColor(COLOR_OPTIONS[0]);
+        setSelectedColor(TAG_COLOR_OPTIONS[0]);
         setSelectedType("basic");
         setShowAdvanced(false);
         setShowTypeHelp(false);
@@ -145,19 +118,23 @@ export function CreateTagDialog({
     async function handleCreate() {
         if (!name.trim()) return;
 
-        const createdTagId = await createTag({
-            name: name.trim(),
-            color: selectedColor,
-            type: selectedType,
-        });
-        setOpen(false);
-        if (typeof createdTagId === "number") {
-            onCreated?.({
-                id: createdTagId,
+        try {
+            const createdTagId = await createTag({
                 name: name.trim(),
                 color: selectedColor,
                 type: selectedType,
             });
+            setOpen(false);
+            if (typeof createdTagId === "number") {
+                onCreated?.({
+                    id: createdTagId,
+                    name: name.trim(),
+                    color: selectedColor,
+                    type: selectedType,
+                });
+            }
+        } catch {
+            // The mutation hook owns the error shown below and the form stays open.
         }
     }
 
@@ -202,34 +179,11 @@ export function CreateTagDialog({
 
             <View className="gap-1.5">
                 <Label>Color</Label>
-                <View style={{ gap: GRID_GAP }}>
-                    {COLOR_ROWS.map((rowIndex) => (
-                        <View
-                            key={rowIndex}
-                            className="flex-row"
-                            style={{ gap: GRID_GAP }}
-                        >
-                            {COLOR_OPTIONS.slice(
-                                rowIndex * COLOR_COLUMNS,
-                                rowIndex * COLOR_COLUMNS + COLOR_COLUMNS,
-                            ).map((color) => {
-                                const isSelected = color === selectedColor;
-                                return (
-                                    <Pressable
-                                        key={color}
-                                        onPress={() => setSelectedColor(color)}
-                                        className={`rounded-md items-center justify-center ${isSelected ? "border-2 border-foreground" : ""}`}
-                                        style={{
-                                            width: colorBoxSize,
-                                            height: colorBoxSize,
-                                            backgroundColor: color,
-                                        }}
-                                    />
-                                );
-                            })}
-                        </View>
-                    ))}
-                </View>
+                <TagColorPicker
+                    width={innerWidth}
+                    selectedColor={selectedColor}
+                    onSelectColor={setSelectedColor}
+                />
             </View>
 
             <View>
@@ -348,7 +302,7 @@ export function CreateTagDialog({
 
             {createTagErr && (
                 <Text className="text-destructive text-sm mb-2">
-                    {JSON.stringify(createTagErr)}
+                    {tagMutationErrorMessage(createTagErr)}
                 </Text>
             )}
 
