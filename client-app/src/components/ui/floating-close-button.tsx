@@ -1,4 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { useTheme } from "expo-router/react-navigation";
 import { View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -26,6 +27,7 @@ export function FloatingCloseButton({
 }) {
     const insets = useSafeAreaInsets();
     const close = useCloseScreen();
+    const { colors } = useTheme();
 
     return (
         <View
@@ -38,7 +40,7 @@ export function FloatingCloseButton({
                 accessibilityLabel={label}
                 onPress={close}
             >
-                <Ionicons name="close" size={22} color="#ffffff" />
+                <Ionicons name="close" size={22} color={colors.text} />
             </GlassIconButton>
         </View>
     );

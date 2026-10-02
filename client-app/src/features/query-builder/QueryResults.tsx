@@ -1,22 +1,16 @@
 import type { MusicItem } from "@apple-musickit";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useWindowDimensions, View } from "react-native";
 
 import { TrackCollectionView } from "@/components/custom/track-collection-view";
-import { collectionArtworkGridTracks } from "@/components/custom/track-collection-utils";
+import { useCollectionArtworkTint } from "@/components/custom/use-collection-artwork-tint";
 import { ModalPopup } from "@/components/custom/modal-popup";
 import { FloatingCloseButton } from "@/components/ui/floating-close-button";
 import { GlassButton } from "@/components/ui/glass-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Text } from "@/components/ui/text";
-import {
-    TintBackdrop,
-    TintOverscrollBackdrop,
-} from "@/components/ui/tint-backdrop";
-import { averageArtworkColors, useArtworkTint } from "@/lib/artwork-color";
 
-const TINT_DEPTH = 0.3;
 const HERO_BUTTON_SIZE = 52;
 
 type Props = {
@@ -37,28 +31,10 @@ export default function QueryResults({
     mostRelevantTags,
     activityTagIds,
 }: Props) {
-    const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+    const { width: screenWidth } = useWindowDimensions();
     const [saveOpen, setSaveOpen] = useState(false);
     const [saveName, setSaveName] = useState("");
-    const [contentHeight, setContentHeight] = useState(screenHeight * 1.5);
-    const tintTracks = useMemo(
-        () => collectionArtworkGridTracks(songs),
-        [songs],
-    );
-    const firstTint = useArtworkTint(tintTracks[0]).tint;
-    const secondTint = useArtworkTint(tintTracks[1]).tint;
-    const thirdTint = useArtworkTint(tintTracks[2]).tint;
-    const fourthTint = useArtworkTint(tintTracks[3]).tint;
-    const tint = useMemo(
-        () =>
-            averageArtworkColors([
-                firstTint,
-                secondTint,
-                thirdTint,
-                fourthTint,
-            ]),
-        [firstTint, fourthTint, secondTint, thirdTint],
-    );
+    const { tint, artworkUrls } = useCollectionArtworkTint(songs);
     const saveDialogWidth = Math.round(screenWidth * 0.75);
     function closeSaveDialog() {
         setSaveOpen(false);
@@ -93,19 +69,8 @@ export default function QueryResults({
                 showTags
                 mostRelevantTags={mostRelevantTags}
                 activityTagIds={activityTagIds}
-                overscrollBackground={
-                    <TintOverscrollBackdrop tint={tint} depth={TINT_DEPTH} />
-                }
-                background={
-                    <TintBackdrop
-                        tint={tint}
-                        height={contentHeight}
-                        depth={TINT_DEPTH}
-                    />
-                }
-                onContentSizeChange={(_, height) =>
-                    setContentHeight(Math.max(screenHeight, height))
-                }
+                backgroundColor={tint}
+                artworkUrls={artworkUrls}
                 options={[
                     {
                         id: "save-query",

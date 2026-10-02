@@ -54,15 +54,13 @@ hand-rolling another circle of glass.
 `glass-toggle.tsx` exports `GlassToggle`, the on/off switch. The track is glass and tints with the
 nav theme's notification color while on. Account settings and the query builder both use it.
 
-`tint-backdrop.tsx` exports `TintBackdrop`, the artwork-colored wash behind a page. It uses
-`expo-linear-gradient` to run the source color at the top continuously into a darker fraction of
-that same color at the bottom, rather than into black. Pass `height` to run it over content taller
-than the screen, from inside that content, so it scrolls with what it is painted behind. It takes
-the tint `@/lib/artwork-color` hands back and renders nothing for a null one, so callers mount it
+`tint-backdrop.tsx` exports `TintBackdrop`, the colored wash behind a page. It requires the single
+gradient object returned by `useTintGradient`, which reduces the source chroma and interpolates the
+light/dark-mode endpoints in Oklch before the native RGB renderer sees them. Pass `height` to run
+it over content taller than the screen. It renders nothing for a null gradient, so callers mount it
 unconditionally. `TintOverscrollBackdrop` paints the exact start color above the exact end color
 under a scrolling gradient. Its center boundary stays covered by content, while elastic scrolling
-reveals a matching solid endpoint. `DetailScreen` takes the same color as a `tint` prop and draws
-one itself.
+reveals a matching solid endpoint. `DetailScreen` and `TrackCollectionView` share that same hook.
 
 `reorderable-list.tsx` is in `custom/` rather than `ui/` only because nothing else needs it yet.
 It knows nothing about songs: `data`, `itemHeight`, `renderItem`, and an `onReorder(from, to)`.
@@ -84,7 +82,7 @@ its box while the sheet animates. The header paints and hit-tests above the body
 that gets this wrong can no longer cover the close button. It also wraps the body in `InsideSheetContext`, so
 overlay insets inside it stop counting the tab bar and the compact player. Every sheet route
 uses it, which is what keeps them identical. An optional `tint` washes the whole sheet in an
-artwork color through `TintBackdrop`; the now playing and album sheets pass one.
+artwork color through the shared mode-aware Oklch `TintBackdrop`; the now-playing sheet passes one.
 
 There is no `icon` primitive. Icons come straight from `@expo/vector-icons/Ionicons`.
 
@@ -103,6 +101,8 @@ variables), `tailwind.config.js`, and `global.css`. Class merging goes through
 | `tag-pill.tsx`              | The app tag chip. `appearance` selects solid chosen styling or a transparent outline, and `suggested` italicizes shared suggestions. Dark colors are adjusted for readable outlines in dark mode. Attribute tags keep their type icon through query negation and can show formatted values. Exports `useTagScreenColor` for surfaces built by hand, and `readableTextColor`.                                                                                                                                                                                                                                  |
 | `tag-selector/`             | Reusable glass selector and its single-song and bulk popups. The primary heading defaults to Your Tags but can be retitled for an action. Its tags toggle solid/outline chosen state, paginate by 20, and switch between relevance and alphabetical order from the small funnel control. When creation is enabled, its compact + control sits beside the funnel. A selector for one song adds a separate Suggested card, while selectors for several songs omit it. Callers may include right-aligned liquid-glass footer actions. Its pure sorter supports stable single-song and multi-song priority rules. |
 | `create-tag-dialog.tsx`     | Creates a tag with its name, color, and optional attribute type on the reliable glass `ModalPopup` path.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `edit-tag-dialog.tsx`       | Renames or recolors an existing tag from the tag detail collection.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `tag-color-picker.tsx`      | Shared curated palette used by tag creation and recoloring. Chromatic swatches are sorted by hue, with brown and gray at the end.                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `tag-value-dialog.tsx`      | Liquid-glass per-type editor opened when an attribute tag is applied or edited.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `modal-popup.tsx`           | Small popup used by options, sorting, and selection actions. Liquid glass is the default.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `tab-stack.tsx`             | The native stack each bottom tab nests for the shared `TopRail` header.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
@@ -200,8 +200,14 @@ rows also sit over artwork tints, so no single fill color can match every screen
 
 `TrackCollectionView` owns the standard mosaic or single-artwork header, play/shuffle row,
 caller-supplied simple glass options, and the `MusicList`. Routes can supply pagination, playback
-overrides, scrolling tint content, a fixed overscroll background, close controls, and opt the
-standard header into the device's top safe area. Gradient-backed routes pair scrolling content
+overrides, one background source color, close controls, and opt the standard header into the
+device's top safe area. The view turns that color into the shared Oklch gradient for the active
+color mode, including matching fixed overscroll endpoints. The gradient is
+a scroll-translated sibling behind the virtualized list, so removing an offscreen header cannot
+remove the page background. `useCollectionArtworkTint` selects one representative four-cell sample
+for both the mosaic and its Oklab-averaged source color. Routes can also append actions to each track's
+shared options menu; the tag detail uses that to preserve Remove this tag. A caller can replace
+the standard title row, which the tag detail does with `TagPill` and its song count. Gradient-backed routes pair scrolling content
 with the fixed endpoint underlay, so elastic scrolling reveals the exact top or bottom color
 without placing a second gradient seam at the bounce boundary. Artist uses its custom hero and albums
 rail through the header/footer inputs, while album and playlist details use the standard layout

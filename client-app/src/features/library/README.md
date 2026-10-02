@@ -51,9 +51,12 @@ opening Albums does not fetch songs. Each list fills a `ScreenScrollMarker`, inc
 native scrolling can minimize the tab bar and move its player accessory inline.
 
 Album and playlist details render through the shared `TrackCollectionView`. The route supplies
-pagination, tint, current playback state, and its rich collection options menu. Artist details use
+pagination, an artwork-derived background color, current playback state, and its rich collection options menu. Artist details use
 the same track surface with a custom full-bleed hero and albums footer. Query results use the
-standard mosaic header and add their Save action through the same options input.
+standard mosaic header and add their Save action through the same options input. Tag details also
+use the mosaic, tag pill and song count as the title, and supply their tag color as the background
+source. The shared view builds every mode-aware Oklch gradient. Tag details also offer options to
+rename, recolor, or delete the tag.
 
 An artist row opens `/artist/:catalogId`, the same catalog artist screen the player's `...` menu
 reaches. A library artist Apple knows no catalog equivalent for has nowhere to go, and

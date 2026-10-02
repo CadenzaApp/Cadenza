@@ -176,9 +176,10 @@ The Cadenza tab owns conditions, so returning from the full list preserves the q
 are a normal opaque root-stack view rather than a zoom/pull-dismissed card. It keeps its own safe
 area and floating close control, and the app-level compact player renders over it. The results surface uses
 `TrackCollectionView` with a weighted artwork
-mosaic, play and shuffle queues, local Music List sorting, and a caller-supplied save option. Its
-page tint averages the representative colors for the four mosaic cells, then uses the same
-full-height darkening gradient as collection details. Fixed solid endpoint colors sit under the
+mosaic, play and shuffle queues, local Music List sorting, and a caller-supplied save option.
+`useCollectionArtworkTint` ranks the artwork once and reuses those cells for the mosaic and color
+sampling. It averages their representative colors in Oklab, then hands that one source color to
+TrackCollectionView's mode-aware Oklch gradient. Fixed solid endpoint colors sit under the
 scrolling gradient so elastic overscroll meets the exact color at either edge. One
 distinct artwork renders as a single image instead of a repeated grid. The results surface owns the
 save-name popup, rendered through the same reliable liquid-glass modal path as Sort. Its round Save

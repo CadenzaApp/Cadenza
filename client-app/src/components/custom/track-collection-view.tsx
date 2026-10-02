@@ -5,6 +5,7 @@ import type { ComponentProps, ReactNode } from "react";
 import { useMemo, useState } from "react";
 import {
     Image,
+    useWindowDimensions,
     View,
     type ColorValue,
     type StyleProp,
@@ -24,12 +25,18 @@ import {
     type MusicListMultiSelectConfig,
     type MusicListPagination,
     type MusicListSorting,
+    type MusicListTrackAction,
 } from "@/components/custom/music-list";
 import { ModalPopup } from "@/components/custom/modal-popup";
 import { Button } from "@/components/ui/button";
 import { GlassIconButton } from "@/components/ui/glass-icon-button";
 import { Text } from "@/components/ui/text";
+import {
+    TintBackdrop,
+    TintOverscrollBackdrop,
+} from "@/components/ui/tint-backdrop";
 import { usePlaybackCommands } from "@/lib/playback";
+import { useTintGradient } from "@/lib/use-tint-gradient";
 
 import {
     collectionArtworkGrid,
@@ -38,11 +45,26 @@ import {
 
 const ARTWORK_SIZE = 224;
 const ARTWORK_SCROLL_SCALE_DISTANCE = 120;
+const ARTWORK_SHADOW: ViewStyle = {
+    shadowColor: "#000",
+    shadowOpacity: 0.16,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 4,
+};
+const TITLE_CONTENT_SHADOW: ViewStyle = {
+    shadowColor: "#000",
+    shadowOpacity: 0.12,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+};
 
 export type TrackCollectionOption = {
     id: string;
     label: string;
     icon: ComponentProps<typeof Ionicons>["name"];
+    destructive?: boolean;
     onPress: () => void | Promise<void>;
 };
 
@@ -50,6 +72,10 @@ export type { MusicListMultiSelectConfig } from "@/components/custom/music-list"
 
 type Props = {
     title: string;
+    /** A filled icon rendered immediately before the standard collection title. */
+    titleIcon?: ComponentProps<typeof Ionicons>["name"];
+    /** Replaces the standard title row while preserving its place in the hero. */
+    titleContent?: ReactNode;
     tracks: MusicItem[];
     isLoading: boolean;
     error?: unknown;
@@ -58,6 +84,7 @@ type Props = {
     closeControl?: ReactNode;
     options?: readonly TrackCollectionOption[];
     multiSelect?: MusicListMultiSelectConfig | null;
+    trackMenuActions?: readonly MusicListTrackAction[];
     showTags?: boolean;
     mostRelevantTags?: readonly string[];
     /** Activity tags to show on every row; see `MusicListProps`. */
@@ -67,9 +94,8 @@ type Props = {
     summary?: string;
     header?: ReactNode;
     footer?: ReactNode;
-    /** Fixed backdrop revealed only when the scroll view elastically overscrolls. */
-    overscrollBackground?: ReactNode;
-    background?: ReactNode;
+    /** Source color for the mode-aware Oklch background gradient. */
+    backgroundColor?: string | null;
     containerStyle?: StyleProp<ViewStyle>;
     pagination?: MusicListPagination | null;
     sorting?: MusicListSorting | null;
@@ -84,6 +110,8 @@ type Props = {
 /** Reusable artwork, actions, metadata, and track-list surface for a collection. */
 export function TrackCollectionView({
     title,
+    titleIcon,
+    titleContent,
     tracks,
     isLoading,
     error,
@@ -91,6 +119,7 @@ export function TrackCollectionView({
     onBackPress,
     options = [],
     multiSelect = null,
+    trackMenuActions,
     showTags = true,
     mostRelevantTags,
     activityTagIds,
@@ -99,8 +128,7 @@ export function TrackCollectionView({
     summary: summaryOverride,
     header,
     footer,
-    overscrollBackground,
-    background,
+    backgroundColor = null,
     containerStyle,
     pagination = null,
     sorting = {
@@ -116,19 +144,23 @@ export function TrackCollectionView({
     respectTopSafeArea = false,
 }: Props) {
     const { colors } = useTheme();
+    const { height: windowHeight } = useWindowDimensions();
     const insets = useSafeAreaInsets();
     const { playQueue } = usePlaybackCommands();
     const [optionsOpen, setOptionsOpen] = useState(false);
+    const [contentHeight, setContentHeight] = useState(windowHeight * 1.5);
     const scrollY = useSharedValue(0);
     const derivedArtworkUrls = useMemo(
-        () => collectionArtworkGrid(tracks),
-        [tracks],
+        () =>
+            artworkUrlsOverride || header ? [] : collectionArtworkGrid(tracks),
+        [artworkUrlsOverride, header, tracks],
     );
     const artworkUrls = artworkUrlsOverride ?? derivedArtworkUrls;
     const summary = useMemo(
         () => summaryOverride ?? formatTrackCollectionSummary(tracks),
         [summaryOverride, tracks],
     );
+    const gradient = useTintGradient(backgroundColor);
     const actionsDisabled = tracks.length === 0 || isLoading;
     const onScroll = useAnimatedScrollHandler((event) => {
         scrollY.set(Math.max(0, event.contentOffset.y));
@@ -145,6 +177,9 @@ export function TrackCollectionView({
                 ),
             },
         ],
+    }));
+    const backdropStyle = useAnimatedStyle(() => ({
+        transform: [{ translateY: -scrollY.get() }],
     }));
 
     function playAll() {
@@ -184,22 +219,43 @@ export function TrackCollectionView({
         });
     }
 
+    function handleContentSizeChange(width: number, height: number) {
+        setContentHeight(Math.max(windowHeight, height));
+        onContentSizeChange?.(width, height);
+    }
+
     const defaultHeader = (
         <View
             className="relative px-4 pb-4"
             style={{ paddingTop: 32 + (respectTopSafeArea ? insets.top : 0) }}
         >
-            {background}
             <View className="items-center">
-                <Animated.View style={artworkStyle}>
+                <Animated.View style={[artworkStyle, ARTWORK_SHADOW]}>
                     <ArtworkMosaic
                         artworkUrls={artworkUrls}
                         placeholderColor={colors.text}
                     />
                 </Animated.View>
-                <Text className="mt-4 text-center text-2xl font-bold">
-                    {title}
-                </Text>
+                {titleContent ? (
+                    <View className="mt-4" style={TITLE_CONTENT_SHADOW}>
+                        {titleContent}
+                    </View>
+                ) : (
+                    <View className="mt-4 flex-row items-center justify-center gap-2">
+                        {titleIcon ? (
+                            <Ionicons
+                                name={titleIcon}
+                                size={24}
+                                color={colors.text}
+                                accessibilityElementsHidden
+                                importantForAccessibility="no"
+                            />
+                        ) : null}
+                        <Text className="text-center text-2xl font-bold">
+                            {title}
+                        </Text>
+                    </View>
+                )}
                 {subtitle ? (
                     <Text className="mt-1 text-center text-base text-muted-foreground">
                         {subtitle}
@@ -238,26 +294,26 @@ export function TrackCollectionView({
                 </Button>
                 {options.length === 1 ? (
                     <GlassIconButton
-                        size={44}
+                        size={48}
                         onPress={() => runOption(options[0])}
                         accessibilityLabel={options[0].label}
                     >
                         <Ionicons
                             name={options[0].icon}
-                            size={20}
+                            size={25}
                             color={colors.text}
                         />
                     </GlassIconButton>
                 ) : options.length > 1 ? (
                     <GlassIconButton
-                        size={44}
+                        size={48}
                         onPress={() => setOptionsOpen(true)}
                         accessibilityLabel={`More options for ${title}`}
                         accessibilityState={{ expanded: optionsOpen }}
                     >
                         <Ionicons
                             name="ellipsis-vertical"
-                            size={20}
+                            size={25}
                             color={colors.text}
                         />
                     </GlassIconButton>
@@ -271,22 +327,41 @@ export function TrackCollectionView({
             ) : null}
         </View>
     );
+    const listHeader = header ?? defaultHeader;
 
     return (
         <View className="flex-1 bg-background" style={containerStyle}>
-            {overscrollBackground}
+            <TintOverscrollBackdrop gradient={gradient} />
+            {gradient ? (
+                <Animated.View
+                    pointerEvents="none"
+                    style={[
+                        {
+                            position: "absolute",
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            height: contentHeight,
+                        },
+                        backdropStyle,
+                    ]}
+                >
+                    <TintBackdrop gradient={gradient} />
+                </Animated.View>
+            ) : null}
             <MusicList
                 tracks={tracks}
                 isLoading={isLoading}
                 pagination={pagination}
                 sorting={sorting}
                 anticipatedTrackCount={anticipatedTrackCount}
-                header={header ?? defaultHeader}
+                header={listHeader}
                 footer={footer}
-                onContentSizeChange={onContentSizeChange}
+                onContentSizeChange={handleContentSizeChange}
                 removeClippedSubviews={removeClippedSubviews}
-                onScroll={header ? undefined : onScroll}
+                onScroll={onScroll}
                 multiSelect={multiSelect}
+                trackMenuActions={trackMenuActions}
                 showTags={showTags}
                 mostRelevantTags={mostRelevantTags}
                 activityTagIds={activityTagIds}
@@ -332,9 +407,21 @@ export function TrackCollectionView({
                         <Ionicons
                             name={option.icon}
                             size={19}
-                            color={colors.text}
+                            color={
+                                option.destructive
+                                    ? colors.notification
+                                    : colors.text
+                            }
                         />
-                        <Text>{option.label}</Text>
+                        <Text
+                            className={
+                                option.destructive
+                                    ? "text-destructive"
+                                    : undefined
+                            }
+                        >
+                            {option.label}
+                        </Text>
                     </Button>
                 ))}
             </ModalPopup>

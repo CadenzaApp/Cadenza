@@ -10,14 +10,19 @@ use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::env;
 use std::time::Duration;
+use uuid::Uuid;
 
 const OPENAI_RESPONSES_URL: &str = "https://api.openai.com/v1/responses";
 const OPENAI_HTTP_TIMEOUT_SECS: u64 = 60;
 const OPENAI_MODEL: &str = "gpt-4o-mini";
-const TAG_GENERATION_SYSTEM_PROMPT: &str = r#"Generate one word music tags for each given song. Prefer tags that describe the song's genre or sound (e.g. pop, metal, instrumental). Return one entry per input song, copying that song's description back exactly in `song` alongside its tags, so tags are never matched to the wrong song. Generate `requested_tag_count` tags per song. Give every tag a `#RRGGBB` hex color that reflects what it evokes - its mood, energy, genre or era. Warm bright colors for energetic or happy tags, cool dark colors for somber or calm ones. When the same tag appears on more than one song, give it the same color each time."#;
+const TAG_GENERATION_SYSTEM_PROMPT: &str = r#"Generate one word music tags for each given song. Prefer tags that describe the song's genre or sound (e.g. pop, metal, instrumental). Return one entry per input song, copying that song's description back exactly in `song` alongside its tags, so tags are never matched to the wrong song. Generate `requested_tag_count` tags per song. Give every tag a six-digit `#RRGGBB` color. Cadenza replaces the color with one from its accessible tag palette, so the exact color you provide is not important."#;
 
-/// color used when the model returns a color we can't parse
-const FALLBACK_TAG_COLOR: &str = "#808080";
+/// Curated colors in hue order, followed by brown and gray. Each has at least
+/// 4.5:1 contrast against its preferred black or white foreground.
+const SUGGESTED_TAG_COLORS: &[&str] = &[
+    "#b01843", "#f22933", "#ee5300", "#dc8f00", "#6f9808", "#00a446", "#00907f", "#0092b4",
+    "#2061f1", "#6d35d5", "#ae6ff1", "#dd34e5", "#f83ca0", "#8c5939", "#6b7281",
+];
 
 /// A header's value as a string, when it is there and is not binary.
 fn header_str<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
@@ -76,17 +81,10 @@ fn rate_limit_wait(headers: &HeaderMap) -> Option<Duration> {
     requests.max(tokens)
 }
 
-fn normalize_tag_color(color: &str) -> String {
-    let color = color.trim();
-
-    let is_hex_color = color.len() == 7
-        && color.starts_with('#')
-        && color[1..].chars().all(|c| c.is_ascii_hexdigit());
-
-    match is_hex_color {
-        true => color.to_lowercase(),
-        false => FALLBACK_TAG_COLOR.to_owned(),
-    }
+/** Chooses an accessible color for one suggested tag. */
+fn random_suggested_tag_color() -> String {
+    let index = (Uuid::new_v4().as_u128() % SUGGESTED_TAG_COLORS.len() as u128) as usize;
+    SUGGESTED_TAG_COLORS[index].to_owned()
 }
 
 fn get_tag_generation_req_body(song_descs: &[String], requested_tag_count: usize) -> Value {
@@ -220,9 +218,8 @@ struct OpenAiGeneratedTags {
 /// Each entry goes to the song whose description it echoes, so a song the model skipped, repeated,
 /// or answered out of order leaves an empty list instead of shifting every later song onto the
 /// wrong tags. Two songs sharing a description get the same tags. Keeps at most
-/// `requested_tag_count` tags per song, normalizes every name and color, and gives every copy of a
-/// name the first usable color that name got anywhere in the reply. A name that never got a usable
-/// color falls back to `FALLBACK_TAG_COLOR`.
+/// `requested_tag_count` tags per song, normalizes every name, gives each one a random accessible
+/// palette color, and gives every copy of one name the first color it got anywhere in the reply.
 fn to_tag_specs(
     generated_tags: Vec<SongTags>,
     song_descs: &[String],
@@ -242,7 +239,8 @@ fn to_tag_specs(
     let mut songs_tags: Vec<Vec<TagSpecs>> = vec![Vec::new(); song_descs.len()];
     let mut answered = vec![false; song_descs.len()];
 
-    // drop tags past the requested count, and normalize each name and color
+    // Drop tags past the requested count. Model colors are never used, so every
+    // suggested tag stays within Cadenza's accessible Oklch color range.
     for song in generated_tags {
         // a description matching no input song belongs in no slot
         let Some(indices) = desc_to_indices.get(&desc_match_key(&song.song)) else {
@@ -255,7 +253,7 @@ fn to_tag_specs(
             .take(requested_tag_count)
             .map(|tag| TagSpecs {
                 name: normalize_tag_name(&tag.name),
-                color: normalize_tag_color(&tag.color),
+                color: random_suggested_tag_color(),
             })
             .collect();
 
@@ -269,17 +267,15 @@ fn to_tag_specs(
         }
     }
 
-    // the first usable color each name got, so one name is one color across the whole reply
+    // The first generated color each name got, so one name is one color across the whole reply.
     let mut name_to_color: HashMap<String, String> = HashMap::new();
     for tag in songs_tags.iter().flatten() {
-        if tag.color != FALLBACK_TAG_COLOR {
-            name_to_color
-                .entry(tag.name.clone())
-                .or_insert_with(|| tag.color.clone());
-        }
+        name_to_color
+            .entry(tag.name.clone())
+            .or_insert_with(|| tag.color.clone());
     }
 
-    // give each tag its name's color, keeping the fallback for names that never got a usable one
+    // Give each tag its name's color.
     songs_tags
         .into_iter()
         .map(|tags| {
@@ -388,32 +384,15 @@ mod tests {
                 .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
     }
 
-    // ----- normalize_tag_color, no api calls -----
+    // ----- suggested colors, no api calls -----
 
     #[test]
-    fn normalize_tag_color_keeps_hex_colors() {
-        assert_eq!(normalize_tag_color("#1a2b3c"), "#1a2b3c");
-        assert_eq!(normalize_tag_color("#FF0000"), "#ff0000");
-        assert_eq!(normalize_tag_color("  #00ff00  "), "#00ff00");
-    }
-
-    #[test]
-    fn normalize_tag_color_falls_back_on_bad_input() {
-        for bad in [
-            "", "red", "#12345", "#1234567", "#ggghhh", "1a2b3c", "#1a2b3g",
-        ] {
-            assert_eq!(
-                normalize_tag_color(bad),
-                FALLBACK_TAG_COLOR,
-                "expected fallback for {:?}",
-                bad
-            );
+    fn random_suggested_colors_always_come_from_the_accessible_palette() {
+        for _ in 0..100 {
+            let color = random_suggested_tag_color();
+            assert!(SUGGESTED_TAG_COLORS.contains(&color.as_str()));
+            assert!(is_normalized_hex_color(&color));
         }
-    }
-
-    #[test]
-    fn fallback_tag_color_is_normalized() {
-        assert!(is_normalized_hex_color(FALLBACK_TAG_COLOR));
     }
 
     // ----- rate limit headers, no api calls -----
@@ -530,14 +509,10 @@ mod tests {
         );
 
         assert_eq!(res.len(), 2);
-        assert_eq!(
-            (res[0][0].name.as_str(), res[0][0].color.as_str()),
-            ("pop", "#ff6f61")
-        );
-        assert_eq!(
-            (res[1][0].name.as_str(), res[1][0].color.as_str()),
-            ("metal", "#000000")
-        );
+        assert_eq!(res[0][0].name, "pop");
+        assert_eq!(res[1][0].name, "metal");
+        assert!(SUGGESTED_TAG_COLORS.contains(&res[0][0].color.as_str()));
+        assert!(SUGGESTED_TAG_COLORS.contains(&res[1][0].color.as_str()));
     }
 
     #[test]
@@ -559,8 +534,7 @@ mod tests {
     }
 
     #[test]
-    fn to_tag_specs_gives_a_repeated_name_its_first_usable_color() {
-        // the first copy has a bad color, so the second copy's color should win everywhere
+    fn to_tag_specs_gives_a_repeated_name_its_first_generated_color() {
         let res = to_tag_specs(
             vec![
                 raw_song("first", vec![raw_tag("Dreamy", "not a color")]),
@@ -573,19 +547,20 @@ mod tests {
 
         for tags in &res {
             assert_eq!(tags[0].name, "dreamy");
-            assert_eq!(tags[0].color, "#a1c6ea");
+            assert_eq!(tags[0].color, res[0][0].color);
+            assert!(SUGGESTED_TAG_COLORS.contains(&tags[0].color.as_str()));
         }
     }
 
     #[test]
-    fn to_tag_specs_falls_back_when_a_name_never_gets_a_usable_color() {
+    fn to_tag_specs_replaces_an_invalid_model_color_with_a_palette_color() {
         let res = to_tag_specs(
             vec![raw_song("song", vec![raw_tag("dreamy", "blue")])],
             &descs(&["song"]),
             10,
         );
 
-        assert_eq!(res[0][0].color, FALLBACK_TAG_COLOR);
+        assert!(SUGGESTED_TAG_COLORS.contains(&res[0][0].color.as_str()));
     }
 
     /// the shape of the reported bug: the model answered for one song fewer than it was

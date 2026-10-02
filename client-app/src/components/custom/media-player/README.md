@@ -82,8 +82,9 @@ knows that number, so it reports it rather than letting each page guess.
 comment order. The pager derives that from the selected tab, which settles on momentum scroll end.
 
 Only `PlayerPage` touches playback. `CommentsPage` and `TagsPage` take only `focusedSong` and never
-read `usePlayback()`. `DetailScreen` paints the tint once behind the header and the transparent
-pager, so there is no second gradient boundary below the title. The pager is the gesture surface;
+read `usePlayback()`. `DetailScreen` hands the sampled artwork color to the same mode-aware Oklch
+gradient hook as `TrackCollectionView`, then paints those stops once behind the header and the
+transparent pager, so there is no second gradient boundary below the title. The pager is the gesture surface;
 it does not navigate during a swipe or wait for a destination route to mount.
 
 The primary native bar and compact player remain mounted underneath a sheet. The sheet itself
@@ -217,7 +218,8 @@ smoothly between the 750ms native snapshot polls, and scrubbing overrides it wit
   created from it or adopted from Suggested becomes one of the user's tags and is applied to
   `focusedSong` straight away. Basic tag toggles update
   optimistically and hold that state until the refreshed backend read arrives.
-- Below the selector, the read-only Activity Tags glass card is collapsed by default. Its data is not fetched
+- Below the selector, the read-only Activity Tags card uses the same theme-aware `TagSelectorPanel`
+  surface as Your Tags and Suggested and is collapsed by default. Its data is not fetched
   until it expands, then it shows My Plays, First Played, and Last Played from
   `useActivityTagsOnSong`. A never-set date reads
   "Never". These values change only as the user listens

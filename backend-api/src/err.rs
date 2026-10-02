@@ -16,6 +16,7 @@ pub enum CadenzaError {
     SongNotInLibrary,
     SongAlreadyInLibrary,
     TagAlreadyApplied,
+    TagNameAlreadyTaken,
     DatabaseError(String), // generic database error
     QueryFormatError(String),
     TagGenerationErr(String),
@@ -38,6 +39,7 @@ impl CadenzaError {
             Self::SongNotInLibrary => 404,
             Self::SongAlreadyInLibrary => 409,
             Self::TagAlreadyApplied => 409,
+            Self::TagNameAlreadyTaken => 409,
             Self::DatabaseError(_) => 500,
             Self::QueryFormatError(_) => 422,
             Self::TagGenerationErr(_) => 500,
@@ -60,6 +62,10 @@ impl CadenzaError {
             }),
             Self::TagAlreadyApplied => json!({
                 "error_type": "TagAlreadyApplied",
+            }),
+            Self::TagNameAlreadyTaken => json!({
+                "error_type": "TagNameAlreadyTaken",
+                "message": "you already have a tag with that name"
             }),
             Self::DatabaseError(msg) => json!({
                 "error_type": "DatabaseError",

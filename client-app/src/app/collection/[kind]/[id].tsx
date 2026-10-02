@@ -1,16 +1,12 @@
 import { ShuffleMode, type MusicItem } from "@apple-musickit";
 import { useLocalSearchParams } from "expo-router";
 import { useState } from "react";
-import { useWindowDimensions, View } from "react-native";
+import { View } from "react-native";
 
 import { CollectionOptionsMenu } from "@/components/custom/options-menu/collection-options-menu";
 import { TrackCollectionView } from "@/components/custom/track-collection-view";
 import { FloatingCloseButton } from "@/components/ui/floating-close-button";
 import { Text } from "@/components/ui/text";
-import {
-    TintBackdrop,
-    TintOverscrollBackdrop,
-} from "@/components/ui/tint-backdrop";
 import { useArtworkTint } from "@/lib/artwork-color";
 import { useCollectionSongs } from "@/lib/musickit-hooks";
 import { isTrackInCollection } from "@/lib/playable-item";
@@ -23,15 +19,6 @@ import type { LibraryCollectionKind } from "@/lib/musickit-hooks";
 const DEFAULT_MULTI_SELECT_CONFIG = {} as const;
 /** Diameter of the floating close button. */
 const HERO_BUTTON_SIZE = 52;
-/** Brightness the page bottoms out at. Shared with the artist screen. */
-const TINT_DEPTH = 0.3;
-/**
- * Everything drawn over the cover is white, on every tint. The wash is dark
- * enough at any color, and text that flips to black on a pale album is a
- * screen that changes shape depending on what you tapped.
- */
-const HERO_FOREGROUND = "#ffffff";
-
 /**
  * The songs inside one library album or playlist. Both kinds render the same
  * way, so the kind is a route param rather than two screens.
@@ -58,7 +45,6 @@ export default function CollectionDetailScreen() {
         artworkUrl?: string;
         artworkUrlLarge?: string;
     }>();
-    const { height: windowHeight } = useWindowDimensions();
     const { activeTrack, isPlaying } = usePlaybackTrackState();
     const { playQueue, setShuffleMode, togglePlayback } = usePlaybackCommands();
     const [optionsOpen, setOptionsOpen] = useState(false);
@@ -83,9 +69,6 @@ export default function CollectionDetailScreen() {
         artworkColor: artworkColor ?? firstTrack?.artworkColor,
         artworkUrl: artworkUrl ?? firstTrack?.artworkUrl,
     });
-    // Same reason as the artist screen: the wash runs the height of the whole
-    // page, so scrolling moves through one gradient instead of repeating it.
-    const [contentHeight, setContentHeight] = useState(windowHeight * 1.5);
     // Only once every page is in. A count off a half-loaded list is a wrong
     // number, which is worse than no number.
     const summary =
@@ -143,6 +126,7 @@ export default function CollectionDetailScreen() {
                     multiSelect={DEFAULT_MULTI_SELECT_CONFIG}
                     subtitle={artistName ?? firstTrack?.artistName}
                     summary={collectionMeta(firstTrack)}
+                    backgroundColor={tint}
                     artworkUrls={[
                         artworkUrlLarge ??
                             firstTrack?.artworkUrlLarge ??
@@ -168,31 +152,9 @@ export default function CollectionDetailScreen() {
                             size={HERO_BUTTON_SIZE}
                         />
                     }
-                    overscrollBackground={
-                        <TintOverscrollBackdrop
-                            tint={tint}
-                            depth={TINT_DEPTH}
-                        />
-                    }
-                    background={
-                        <TintBackdrop
-                            tint={tint}
-                            height={contentHeight}
-                            depth={TINT_DEPTH}
-                        />
-                    }
-                    onContentSizeChange={(_, height) =>
-                        setContentHeight(Math.max(windowHeight, height))
-                    }
                     footer={
                         summary ? (
-                            <Text
-                                className="px-6 pb-2 pt-5 text-center text-sm"
-                                style={{
-                                    color: HERO_FOREGROUND,
-                                    opacity: 0.6,
-                                }}
-                            >
+                            <Text className="px-6 pb-2 pt-5 text-center text-sm text-muted-foreground">
                                 {summary}
                             </Text>
                         ) : null

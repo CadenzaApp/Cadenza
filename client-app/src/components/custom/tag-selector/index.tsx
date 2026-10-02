@@ -351,7 +351,7 @@ export function TagSelectorPanel({
 }) {
     return (
         <View
-            className="overflow-hidden rounded-2xl border border-border p-4"
+            className="overflow-hidden rounded-2xl border border-border bg-card p-4"
             onLayout={(event) => onLayout?.(event.nativeEvent.layout)}
         >
             <View pointerEvents="none" style={StyleSheet.absoluteFill}>
