@@ -30,6 +30,10 @@ pub enum CadenzaError {
     InvalidTagValue(String),
     /// An activity tag was named in a write. Their values come from listening.
     ActivityTagReadOnly,
+    /// The social feed service could not be reached, or its response could not be read.
+    SocialFeedErr(String),
+    /// The request body was not shaped the way the handler needs it.
+    InvalidRequestBody(String),
 }
 
 impl CadenzaError {
@@ -47,6 +51,8 @@ impl CadenzaError {
             Self::SongMetadataErr(_) => 500,
             Self::InvalidTagValue(_) => 422,
             Self::ActivityTagReadOnly => 403,
+            Self::SocialFeedErr(_) => 502,
+            Self::InvalidRequestBody(_) => 422,
         }
     }
     fn get_json(&self) -> Value {
@@ -100,6 +106,14 @@ impl CadenzaError {
             Self::ActivityTagReadOnly => json!({
                 "error_type": "ActivityTagReadOnly",
                 "message": "activity tags are set by listening and cannot be changed by hand"
+            }),
+            Self::SocialFeedErr(msg) => json!({
+                "error_type": "SocialFeedErr",
+                "message": msg
+            }),
+            Self::InvalidRequestBody(msg) => json!({
+                "error_type": "InvalidRequestBody",
+                "message": msg
             }),
         }
     }

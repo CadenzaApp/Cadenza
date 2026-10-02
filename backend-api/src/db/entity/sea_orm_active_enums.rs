@@ -3,6 +3,14 @@
 use sea_orm::entity::prelude::*;
 
 #[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
+#[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "interest")]
+pub enum Interest {
+    #[sea_orm(string_value = "genre")]
+    Genre,
+    #[sea_orm(string_value = "artist")]
+    Artist,
+}
+#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "tag_gen_status")]
 pub enum TagGenStatus {
     #[sea_orm(string_value = "in_flight")]

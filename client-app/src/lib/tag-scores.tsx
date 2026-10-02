@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { useAccount } from "./account";
+import { playInterestScoreDeltas } from "./interest-score-deltas";
 import { usePlaybackTrackState } from "./playback";
 import type { QueryJSON } from "./query-json";
+import { useEditInterestScores } from "./routes/social";
 import { useDefaultTagsOnSong, useTagsOnSong } from "./routes/songs";
 import { useEditTagScores } from "./routes/tags";
 import { playTagScoreDeltas, queryTagScoreDeltas } from "./tag-score-deltas";
@@ -32,14 +35,20 @@ type Play = { trackId: string; listened: boolean };
  * A default tag that shares a name with one of the user's tags on the song
  * counts as the user's own, once.
  *
+ * The same play also raises the user's interest in the song's artist and each
+ * of its genres, from the track's Apple Music metadata, in one
+ * `PATCH /social/interests/update`. That is what the social feed ranks posts
+ * by. See `playInterestScoreDeltas`. It needs nothing but the track, so it does
+ * not wait on the tag reads, and the two requests fail independently.
+ *
  * Reading a song's default tags generates them if nothing has yet, so playing
  * a song no list has shown can spend an LLM call. A song played from a list
  * usually has them already, since the list rows read them. If the default read
  * fails, the play still scores the user's own tags.
  *
  * Mounted at the root under `PlaybackProvider`, which is itself under
- * `AccountProvider`. The tag read is dormant without an account, so a signed out
- * session scores nothing.
+ * `AccountProvider`. The tag read is dormant without an account, and the
+ * interest update waits for one, so a signed out session scores nothing.
  */
 export function TagScoreTracker() {
     const { activeTrack, activeTrackId, isPlaying } = usePlaybackTrackState();
@@ -52,10 +61,14 @@ export function TagScoreTracker() {
     const { defaultTagsOnSong, defaultTagsOnSongErr } =
         useDefaultTagsOnSong(songId);
     const { editTagScores } = useEditTagScores();
+    const { account } = useAccount();
+    const { editInterestScores } = useEditInterestScores();
     const [play, setPlay] = useState<Play | null>(null);
     // the play that has scored. a play object is replaced only by a new play or
     // once when it becomes listened, so this cannot match a later play
     const scoredPlayRef = useRef<Play | null>(null);
+    // the same, for the play's artist and genres
+    const interestScoredPlayRef = useRef<Play | null>(null);
 
     // a different song is a new play. a missing track is ignored, so a snapshot
     // that briefly loses the track and finds the same one again does not start a
@@ -104,6 +117,27 @@ export function TagScoreTracker() {
         play,
         tagsOnSong,
     ]);
+
+    useEffect(() => {
+        if (!play?.listened || play.trackId !== activeTrackId) return;
+        if (interestScoredPlayRef.current === play) return;
+        if (!account || !activeTrack) return;
+
+        interestScoredPlayRef.current = play;
+        const deltas = playInterestScoreDeltas(activeTrack);
+        if (deltas.length === 0) return;
+
+        (async () => {
+            try {
+                await editInterestScores({ delta_scores: deltas });
+            } catch (e) {
+                console.warn(
+                    "Failed to score the interests in a played song:",
+                    e,
+                );
+            }
+        })();
+    }, [account, activeTrack, activeTrackId, editInterestScores, play]);
 
     return null;
 }

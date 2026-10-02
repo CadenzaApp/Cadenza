@@ -16,13 +16,16 @@ native module directly.
 | `routes/songs.ts`            | Hooks for local, default, and activity tag reads (one song and batched), local tag writes, removing a suggested tag, recording a play, missing-default checks, generation, and editing the user's library.                                                                                        |
 | `routes/queries.ts`          | `useQueryResults`, the one cached hook for `/queries/results`. Both builders go through it, and it carries the suggested-tag flag. It sends no song ids: the backend queries the library it already has.                                                                                          |
 | `routes/comments.ts`         | Hooks for `/comments`: `useSongComments`, `useCreateComment`, `useDeleteComment`, `useVoteOnComment`.                                                                                                                                                                                             |
+| `routes/social.ts`           | `useDecayInterests` and `useEditInterestScores`, for `/social`, the proxy to the social feed service.                                                                                                                                                                                             |
 | `comment-votes.ts`           | `applyCommentVote`, the optimistic update `useVoteOnComment` makes to cached comment threads. `sortThreadsByVotes` and `orderThreadsLike`, which `CommentsPage` uses to sort threads by score and then hold that order while it is in view. Only type imports, tested in `comment-votes.test.ts`. |
 | `musickit-hooks.ts`          | SWR over the native module: song info, catalog search, paged and complete-library songs, albums, artists, playlists, collection metadata, favorites, artist search, and playlist writes.                                                                                                          |
 | `song-init.tsx`              | `SongInitProvider`, which runs the library sync job after account and Apple Music authorization.                                                                                                                                                                                                  |
 | `song-init-job.ts`           | Import-free, tested library sync job: walks Apple Music, diffs it against the local record, and sends the difference to `PATCH /songs`.                                                                                                                                                           |
 | `initialized-songs-db.ts`    | The expo-sqlite `initialized_songs` table, the device's record of what `user_songs` holds. Opens the database and hands the job an `InitializedSongsStore`.                                                                                                                                       |
-| `tag-scores.tsx`             | `TagScoreTracker`, which gives each of the user's own tags on a song 2 points and each default tag 1 point once that song has played for 5 seconds, and `useScoreQueryTags`, which gives every tag a query uses positively 10 points.                                                             |
+| `tag-scores.tsx`             | `TagScoreTracker`, which gives each of the user's own tags on a song 2 points and each default tag 1 point once that song has played for 5 seconds, plus 1 interest point to its artist and each genre, and `useScoreQueryTags`, which gives every tag a query uses positively 10 points.         |
 | `tag-score-deltas.ts`        | The `PATCH /tags/scores` body one play of a song, or one run of a query, is worth. Only type imports, tested in `tag-score-deltas.test.ts`.                                                                                                                                                       |
+| `interest-score-deltas.ts`   | The `PATCH /social/interests/update` deltas one play of a song is worth, from its artist and genres. Only type imports, tested in `interest-score-deltas.test.ts`.                                                                                                                                |
+| `interest-decay.tsx`         | `InterestDecay`, which sends one `PATCH /social/interests/decay` per app launch once someone is signed in.                                                                                                                                                                                        |
 | `account.tsx`                | `AccountProvider` / `useAccount`. Who is signed in (id and email), and sign in / sign up / sign out.                                                                                                                                                                                              |
 | `apple-music-auth.tsx`       | `AppleMusicProvider` / `useAppleMusic`. Apple Music tokens, persisted in secure store.                                                                                                                                                                                                            |
 | `playback.tsx`               | `PlaybackProvider`, broad `usePlayback`, lightweight `usePlaybackTrackState`, and stable `usePlaybackCommands`. Queue, native playback snapshot, and compact-player dismissal state.                                                                                                              |
@@ -165,6 +168,11 @@ One file per backend router, and every backend endpoint has at least one hook.
 |                      | `POST /comments`                  | `comments.ts` -> `useCreateComment()`           |
 |                      | `DELETE /comments`                | `comments.ts` -> `useDeleteComment()`           |
 |                      | `POST /comments/votes`            | `comments.ts` -> `useVoteOnComment(songId)`     |
+| `routes/social.rs`   | `PATCH /social/interests/decay`   | `social.ts` -> `useDecayInterests()`            |
+|                      | `PATCH /social/interests/update`  | `social.ts` -> `useEditInterestScores()`        |
+
+`routes/social.rs` forwards any `/social/*` path to the social feed service and adds the
+user id, so it has no fixed endpoint list. Only the paths the app calls get a hook.
 
 `GET /tags` has two hooks because the handler returns a tagged union: without `tag_id` it
 responds with `All { tags, metadata }`, with one it responds with `One { tag, song_ids }`.
@@ -488,6 +496,14 @@ scores the user's own tags alone.
 Reading a song's default tags generates them when nothing has yet, so playing a song that no list
 or player sheet has shown can spend an LLM call and holds the play's score until generation
 finishes.
+
+The same play also sends one `PATCH /social/interests/update`, which is what the social feed ranks
+posts by. The body is `interest-score-deltas.ts::playInterestScoreDeltas`: 1 point for the track's
+`artistName` (`ARTIST_PLAY_INTEREST_DELTA`) and 1 for each of its `genres`
+(`GENRE_PLAY_INTEREST_DELTA`), straight off the active track's Apple Music metadata. Apple's
+catch-all "Music" genre is dropped, since it is on nearly every song. It needs no read, so it does
+not wait on the tag reads, but it does wait for an account. The Android playback snapshot carries
+no genres, so a track that is not also in the app's queue mirror scores its artist only.
 
 ## Scoring tags in queries
 

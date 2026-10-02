@@ -33,15 +33,19 @@ State(db): State<DatabaseConnection>
 State(tag_gen_service): State<TagGenerationService>
 ```
 
-Four routers get nested, plus a health route:
+Five routers get nested, plus a health route:
 
 ```
 /tags      get_tags_router()
 /songs     get_songs_router()
 /queries   get_queries_router()
 /comments  get_comments_router()
+/social    get_social_router()
 /test      returns "server is reachable"
 ```
+
+`/social` is a proxy, not a resource. It forwards whatever path follows to the social feed
+service and adds the caller's user id. See [social-feed/README.md](social-feed/README.md).
 
 Auth is per handler, not middleware. A handler that needs a user adds
 `Claims { claims, .. }: Claims<SupabaseClaims>` to its arguments, and `axum-jwt-auth` rejects
@@ -79,6 +83,7 @@ that shape.
 | `DEFAULT_TAG_BACKFILL_ENABLED` | no | `true` turns on the background job that generates default tags for songs nothing has read yet. Off for any other value, and off when unset, because every pass can spend Apple Music and OpenAI calls. |
 | `DEFAULT_TAG_BACKFILL_BATCH_SIZE` | no | Songs one pass covers. Defaults to 50, clamped to 1..=200 so a pass can never reach the 300 id cap `SongMetadataService` panics past. An unparseable value falls back to the default. |
 | `DEFAULT_TAG_BACKFILL_INTERVAL_SECS` | no | Seconds between passes. Defaults to 300. Zero and unparseable values fall back to the default, since a zero interval would spin the loop. A pass OpenAI rate limited waits a fixed 300 seconds instead, however short this is. |
+| `SOCIAL_FEED_URL` | no | Base url of the social feed service that `/social/*` forwards to. Defaults to `http://localhost:3001`. A trailing slash is trimmed. The service has no auth, so this must stay on a private address. |
 
 ### Database connections
 

@@ -8,11 +8,12 @@ call into `src/db/` or `src/services/`, and shape the response.
 
 | file | role |
 | --- | --- |
-| `mod.rs` | Declares `json`, `comments`, `queries`, `tags`, `songs`. |
+| `mod.rs` | Declares `json`, `comments`, `queries`, `social`, `tags`, `songs`. |
 | `tags.rs` | Tag CRUD for the signed-in user, tag score edits, default tag search, listing the activity tags, plus LLM tag suggestion. Mounted at `/tags`. |
 | `songs.rs` | Adding and removing the user's songs, reading and changing user tags, reading default tags, reading activity tags, and recording plays. Mounted at `/songs`. |
 | `queries.rs` | Runs a tag query and returns song ids by relevance. Mounted at `/queries`. |
 | `comments.rs` | Reading, leaving, deleting, and voting on comments on songs. Mounted at `/comments`. |
+| `social.rs` | One catch-all handler that proxies `/social/*` to the social feed service with the caller's user id attached. No endpoint list of its own. Mounted at `/social`. |
 | `json/mod.rs` | `vec_into`, a small `Vec<A> -> Vec<B>` helper. Declares `comment`, `query`, `tag`, and `tag_score`. |
 | `json/tag.rs` | `TagType`, `Tag`, and `AppliedTag`, the wire shapes of a tag. `From<tags::Model>` drops `user_id` and keeps `is_activity`. |
 | `json/tag_score.rs` | `ScoredTag`, one top tag as a `[score, color, source]` array, and `TagSource`, `"local"` or `"global"`. |
@@ -73,6 +74,15 @@ A `value` that does not fit the tag's type (not a number, not RFC 3339, not a
 `YYYY-MM-DD` date, not `true`/`false`, or
 any non-blank value on a `basic` tag) is rejected with `CadenzaError::InvalidTagValue` (422). See
 [../services/README.md](../services/README.md) for the exact per-type rules.
+
+`/social/*` is the one prefix with no endpoint table here. The handler takes any method and
+any path and forwards it to the social feed service, so that service owns its own routes. It
+adds the user id from the JWT (query string on a GET, JSON body otherwise) and relays the
+status, content type, and body back unchanged. A request body that is not a JSON object is
+rejected with `InvalidRequestBody` (422), and a service that cannot be reached gives
+`SocialFeedErr` (502). The paths the app actually calls are listed in
+[../../social-feed/README.md](../../social-feed/README.md) and hooked in
+`client-app/src/lib/routes/social.ts`.
 
 A `Comment` is `{id, content, created_at, mine, votes, my_vote}`, and a `CommentThread` is a top
 level `Comment` with a `replies` array of `Comment`s beside those fields. `mine` is true on the
@@ -228,6 +238,7 @@ api as JSON should have a type here rather than serializing an entity model dire
   `crate::services::default_tags` for the default tag reads.
 - `crate::services::song_metadata::SongMetadataService` for the titles those reads generate
   default tags from.
+- `crate::services::social_feed::SocialFeedService` for everything under `/social`.
 - `crate::err::CadenzaError` for every error path.
 - Client side: `client-app/src/lib/routes/*.ts` wraps every one of these in an SWR hook,
   including `client-app/src/lib/routes/comments.ts` for the `/comments` routes behind the
@@ -240,6 +251,8 @@ api as JSON should have a type here rather than serializing an entity model dire
 - `POST /queries/results` ignores an unknown field, so a client still sending `song_ids` gets no
   error, just results over whatever `PATCH /songs` last put in `user_songs`. A user who has never
   synced their library matches nothing.
+- `social.rs` does not read the proxied response, so nothing here validates what the social feed
+  service sends. A bad shape reaches the client as-is.
 - `tags.rs::get_songs_with_user_tag_handler` exists but is not routed anywhere. Dead code. The
   same data comes back from `GET /tags?tag_id=N`.
 - `GET /tags/suggest` uses `requested_tag_count` as a **required** query param, not optional, so

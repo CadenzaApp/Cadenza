@@ -3,20 +3,21 @@
 Business logic that is not data access. Right now that means turning a song description into
 tags with an LLM, normalizing tag names, validating/canonicalizing tag values, reading catalog
 song metadata from Apple Music, the one step that puts those together (generating a song's
-default tags the first time anything asks for them), and the weekly decay that halves each user's
-tag scores.
+default tags the first time anything asks for them), the weekly decay that halves each user's
+tag scores, and the proxy to the social feed service.
 
 ## Files
 
 | file | role |
 | --- | --- |
-| `mod.rs` | Declares `default_tags`, `song_metadata`, `tag_generation`, `tag_normalizer`, `tag_score_decay`, and `tag_values`. |
+| `mod.rs` | Declares `default_tags`, `social_feed`, `song_metadata`, `tag_generation`, `tag_normalizer`, `tag_score_decay`, and `tag_values`. |
 | `tag_normalizer.rs` | `normalize_tag_name`: trim, collapse whitespace, truncate to 50 bytes on a character boundary, lowercase. Unit tested. |
 | `tag_generation/mod.rs` | The `TagGenerator` trait, its `TagGenerationError`, and the `TagGenerationService` wrapper. |
 | `tag_generation/openai_tag_generator.rs` | The OpenAI implementation, including rate limit detection off the response headers. Unit tested, plus ignored integration tests. |
 | `tag_values.rs` | `canonicalize_tag_value`: validates a tag value string against the tag's `TagType` and returns its canonical stored form (or `CadenzaError::InvalidTagValue`). Unit tested. |
 | `song_metadata.rs` | `SongMetadataService`: song ids to Apple Music catalog metadata, developer token only. Unit tested, plus ignored integration tests. |
 | `default_tags.rs` | `ensure_default_tags_generated`: generates a song's default tags the first time they are read, claiming the song in `default_tags_generation` first so it happens once. Also `backfill_default_tags` and the background job that runs it, which does the same for songs nothing has read yet. |
+| `social_feed.rs` | `SocialFeedService::forward`: sends a request to the social feed service with the caller's user id attached, and hands the response back for the route to relay. Unit tested. |
 | `tag_score_decay.rs` | `decay_due_users` and the background job that runs it: halves each user's tag scores once a week in one transaction per user, skipping users whose highest score is below 5, tracked by a week number per user in `tag_scores_metadata`. Unit tested. |
 
 ## How it works
@@ -212,9 +213,28 @@ accepts `"true"`/`"false"` case-insensitively and stores lowercase. Anything els
   `clear_default_tag_generation`. Nothing else writes that table.
 - The backfill job is spawned from `src/main.rs`, which is also where `BackfillConfig::from_env`
   decides whether it runs at all.
+- `SocialFeedService` is built in `src/main.rs` from `SOCIAL_FEED_URL` and lives in `AppState`.
+  Its only caller is `src/routes/social.rs`.
 - `tag_score_decay` reads and writes `tag_scores_metadata` through `db::tag_scores_metadata`, and
   lists and halves users through `db::tag_scores::get_users_due_for_decay`, `get_max_score`, and
   `halve_user_tag_scores`. It is the only caller of all of them. It is spawned from `src/main.rs` unconditionally.
+
+### The social feed proxy
+
+`social_feed.rs` exists because the social feed service (`backend-api/social-feed/`, python)
+has no auth and takes `user_id` as data. The id has to come from the verified JWT, so every
+call goes through here.
+
+`forward` builds `base_url/path`, keeps the original query string, and puts the user id where
+the service reads it: the query string on a GET, the top level of the JSON body on anything
+else. A body that is not a JSON object has nowhere to hold the id and comes back as
+`CadenzaError::InvalidRequestBody` (422). A body that carries its own `user_id` has it
+overwritten, so a client cannot act as someone else.
+
+`build_url` and `with_user_id` are free functions so they can be tested without a service
+running. The one method that does I/O returns the raw `reqwest::Response`, and
+`routes/social.rs` relays its status, content type, and body unchanged. Nothing here reads the
+response, so the service can add endpoints without touching rust.
 
 ## Gotchas
 
@@ -223,6 +243,11 @@ accepts `"true"`/`"false"` case-insensitively and stores lowercase. Anything els
 - `MAX_COMBINED_SONG_DESC_LENGTH` is 2000 bytes across the whole batch, not per song.
   `TagGenerationService::generate_tags` splits the batch into as many generator calls as it
   takes to stay under it, and truncates any single description longer than that on its own.
+- `SocialFeedService::new()` does not panic on a missing `SOCIAL_FEED_URL`, unlike the other
+  services. It falls back to `http://localhost:3001`, so a misconfigured deployment proxies into
+  nothing and `/social/*` answers 502 instead of failing at startup.
+- The social feed service has no auth of its own. If it is reachable from outside, anyone can
+  pass any `user_id`. Keep `SOCIAL_FEED_URL` on a private address.
 - The integration tests in `openai_tag_generator.rs` are `#[ignore]`d because they spend real
   tokens. Comment header says last run Jul 26.
 - Only rate limiting is structured. Everything else is `TagGenerationError::Other`, so that
