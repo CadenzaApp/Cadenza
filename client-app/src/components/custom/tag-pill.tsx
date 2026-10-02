@@ -113,7 +113,7 @@ export const TagPill = memo(function TagPill({
     const outlined = appearance === "outline";
     const outlineColor =
         luminance(backgroundColor) <= LIGHT_LUMINANCE &&
-            luminance(tag.color) <= LIGHT_LUMINANCE
+        luminance(tag.color) <= LIGHT_LUMINANCE
             ? screenColor
             : tag.color;
     const contentColor = outlined ? outlineColor : screenColor;
