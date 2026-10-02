@@ -1,3 +1,4 @@
+pub mod analytics;
 pub mod default_tags;
 pub mod social_feed;
 pub mod song_metadata;
