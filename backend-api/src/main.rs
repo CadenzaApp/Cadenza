@@ -1,11 +1,12 @@
 mod auth;
 mod db;
 mod err;
+mod metrics;
 mod routes;
 mod services;
 mod test_utils;
 
-use axum::{Router, extract::FromRef};
+use axum::{Router, extract::FromRef, middleware, routing::get};
 
 use axum_jwt_auth::Decoder;
 use dotenvy::dotenv;
@@ -16,6 +17,7 @@ use std::time::Duration;
 
 use crate::{
     auth::{SupabaseClaims, new_jwt_decoder},
+    metrics::{Metrics, metrics_handler, record_http_metrics},
     routes::{
         comments::get_comments_router, queries::get_queries_router, songs::get_songs_router,
         tags::get_tags_router,
@@ -34,6 +36,7 @@ struct AppState {
     jwt_decoder: Decoder<SupabaseClaims>,
     tag_gen_service: TagGenerationService,
     song_meta_service: SongMetadataService,
+    metrics: Metrics,
 }
 
 /// The pool we are allowed to open against Supabase's pooler.
@@ -82,6 +85,8 @@ async fn main() {
 
     let song_meta_service = SongMetadataService::new();
 
+    let metrics = Metrics::new();
+
     // fills in default tags for songs nothing has read yet. off unless the
     // environment turns it on, since every pass can spend Apple Music and
     // OpenAI calls that no request asked for
@@ -112,7 +117,12 @@ async fn main() {
         jwt_decoder,
         tag_gen_service,
         song_meta_service,
+        metrics: metrics.clone(),
     };
+
+    let instrumented_test_route = Router::new().route("/test", get(test_handler)).route_layer(
+        middleware::from_fn_with_state(metrics.clone(), record_http_metrics),
+    );
 
     // route paths
     let app = Router::new()
@@ -120,7 +130,8 @@ async fn main() {
         .nest("/songs", get_songs_router())
         .nest("/queries", get_queries_router())
         .nest("/comments", get_comments_router())
-        .route("/test", axum::routing::get(async || "server is reachable"))
+        .merge(instrumented_test_route)
+        .route("/metrics", get(metrics_handler))
         .with_state(app_state);
 
     // show time baby
@@ -136,4 +147,9 @@ async fn main() {
         .serve(app.into_make_service())
         .await
         .unwrap();
+}
+
+async fn test_handler() -> &'static str {
+    tokio::time::sleep(Duration::from_millis(250)).await;
+    "server is reachable"
 }
