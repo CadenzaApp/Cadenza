@@ -1,40 +1,28 @@
 import { LinearGradient } from "expo-linear-gradient";
 import { StyleSheet, View } from "react-native";
 
-import { darken } from "@/lib/artwork-color";
+import type { TintGradient } from "@/lib/artwork-color-utils";
 
 type TintBackdropProps = {
-    /** `#rrggbb` from `useArtworkTint`. Renders nothing when null. */
-    tint: string | null;
+    /** Shared mode-aware gradient. Renders nothing when null. */
+    gradient: TintGradient | null;
     /**
      * Height to run the gradient over, for a surface whose content is taller
      * than the screen. Omit to fill the surface it sits in.
      */
     height?: number;
-    /** Brightness the bottom of the gradient lands on, as a fraction. */
-    depth?: number;
 };
 
-const DEFAULT_DEPTH = 0.3;
-
 /**
- * The artwork-colored wash behind a page. Full strength at the top, darkening
- * with distance down it.
- *
- * It never reaches black. The bottom is the same color at `depth` of its
- * brightness, which is what keeps a page reading as one color rather than a
- * gradient into a hole. Music does the same.
+ * The shared colored wash behind a page. Its Oklch stops are calculated before
+ * rendering so every gradient-backed surface uses the same color treatment.
  *
  * Absolutely positioned, so it takes no part in the layout it is dropped into.
- * Renders null for a null tint, so every caller can mount it unconditionally
- * and let the color decide.
+ * Renders null for a null gradient, so every caller can mount it
+ * unconditionally and let the color decide.
  */
-export function TintBackdrop({
-    tint,
-    height,
-    depth = DEFAULT_DEPTH,
-}: TintBackdropProps) {
-    if (!tint) return null;
+export function TintBackdrop({ gradient, height }: TintBackdropProps) {
+    if (!gradient) return null;
 
     return (
         <LinearGradient
@@ -50,7 +38,7 @@ export function TintBackdrop({
                           height,
                       }
             }
-            colors={[tint, darken(tint, depth)]}
+            colors={gradient.colors}
         />
     );
 }
@@ -61,17 +49,22 @@ export function TintBackdrop({
  * the edge being pulled.
  */
 export function TintOverscrollBackdrop({
-    tint,
-    depth = DEFAULT_DEPTH,
-}: Pick<TintBackdropProps, "tint" | "depth">) {
-    if (!tint) return null;
+    gradient,
+}: Pick<TintBackdropProps, "gradient">) {
+    if (!gradient) return null;
 
     return (
         <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-            <View className="flex-1" style={{ backgroundColor: tint }} />
             <View
                 className="flex-1"
-                style={{ backgroundColor: darken(tint, depth) }}
+                style={{ backgroundColor: gradient.colors[0] }}
+            />
+            <View
+                className="flex-1"
+                style={{
+                    backgroundColor:
+                        gradient.colors[gradient.colors.length - 1],
+                }}
             />
         </View>
     );

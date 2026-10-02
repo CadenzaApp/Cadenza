@@ -22,6 +22,7 @@ export function ResultsSummary({
     onBuilderToggle,
     onNext,
     mostRelevantTags,
+    activityTagIds,
 }: {
     songs: MusicItem[];
     count: number;
@@ -33,6 +34,8 @@ export function ResultsSummary({
     onBuilderToggle: () => void;
     onNext: () => void;
     mostRelevantTags?: readonly string[];
+    /** The activity tags the query filters on, shown on every preview row. */
+    activityTagIds?: readonly number[];
 }) {
     const [expanded, setExpanded] = useState(false);
     const { colorScheme = "light" } = useColorScheme();
@@ -155,6 +158,7 @@ export function ResultsSummary({
                             fullBleedRowHorizontalPadding={12}
                             rowSurfaceColor="card"
                             mostRelevantTags={mostRelevantTags}
+                            activityTagIds={activityTagIds}
                         />
                     )}
                 </View>

@@ -11,12 +11,12 @@ always-mounted pages in one horizontal pager at the bottom of that sheet.
 | file                     | role                                                                                                                                                 |
 | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `index.ts`               | Public exports for the native accessory and compatibility overlay.                                                                                   |
-| `media-player-host.tsx`  | Adapts native accessory placement, decides whether an accessory is declared at all, and positions the fallback.                                      |
+| `media-player-host.tsx`  | Adapts native accessory placement, owns zoom-card and root-screen compact-player hosts, and positions the fallback.                                  |
 | `media-player.tsx`       | Playback wiring shared by both native placements and the fallback.                                                                                   |
 | `player-pager.tsx`       | Always-mounted horizontal pager plus its glass Comments / Player / Tags selector.                                                                    |
-| `player-tabs.tsx`        | Selected-page context shared by the pager and Modify Tags actions.                                                                                   |
+| `player-tabs.tsx`        | Selected-page context shared by the pager and its glass tab selector.                                                                                |
 | `player-chrome.tsx`      | Context carrying how much room the pager's selector takes below the pages, for keyboard avoidance.                                                   |
-| `player-scope.tsx`       | Resolves and shares the focused song across the sheet's three pages, and selects Tags for Modify Tags.                                               |
+| `player-scope.tsx`       | Resolves and shares the focused song across the sheet's three pages.                                                                                 |
 | `player-page.tsx`        | The Player route: artwork or the queue, the scrubber, and the transport. The only route that touches playback.                                       |
 | `comments-page.tsx`      | The Comments route: every user's comments on `focusedSong`, highest score first. Posts, replies, votes, and deletes through `@/lib/routes/comments`. |
 | `tags-page.tsx`          | The Tags route: every user tag for `focusedSong`, applied first, plus default tags a tap adopts and a long press removes.                            |
@@ -29,8 +29,8 @@ The `...` menu and its tag editor are **not** in this directory any more. They m
 `@/components/custom/options-menu::SongOptionsMenu` and `@/components/custom/song-tag-editor`,
 since the list-row song menu needed the same Favorite/Share/Add to Playlist/Go to Album/Go to
 Artist/Modify Tags shape this sheet already had. `player-page.tsx` renders `SongOptionsMenu` with
-a `navigate` that dismisses the sheet before pushing, and an `onModifyTags` that selects the
-already-mounted Tags page in place instead of opening another sheet (see Connects to).
+a `navigate` that dismisses the sheet before pushing. Modify Tags stays in place and swaps the
+options menu for the shared selector popup (see Connects to).
 
 ## How it works
 
@@ -65,7 +65,10 @@ renders the same `PlayerPager`, which mounts Comments, Player, and Tags side by 
 horizontal paging `ScrollView`. Route choice decides only which page is selected initially.
 Swipes expose the adjacent live page under the finger, and the glass selector's highlight follows
 the scroll position continuously. Each selected tab uses its filled icon variant; inactive tabs
-use outlines. The three page instances stay mounted for the sheet's lifetime.
+use outlines. The three page instances stay mounted for the sheet's lifetime. Comments and Tags
+do not start their network reads merely because their page shell is mounted. The pager enables a
+page's reads the first time that page is selected, then leaves them enabled so revisiting it is
+instant. Preserve that separation when adding data to an offscreen player page.
 
 `PlayerChromeProvider` wraps the three pages with the measured height of the pager's own selector,
 which is what a page needs to lift content clear of the keyboard. The pager is the only thing that
@@ -73,16 +76,15 @@ knows that number, so it reports it rather than letting each page guess.
 
 `PlayerScopeProvider` resolves a `focusedSong` (id, title, artwork) from `usePlayback()`'s
 `activeTrack` or the route's `tagsSongId` / `tagsSongTitle` / `tagsArtworkUrl` /
-`tagsArtworkColor` params and shares it across the three routes. Modify Tags on a song that is not
-playing pushes `/player/tags` with those params. Modify Tags from the Player page updates the
-scope and selects the already-mounted Tags page without changing routes.
+`tagsArtworkColor` params and shares it across the three routes.
 
 `CommentsPage` also takes `active`, whether the pager is on it, so it knows when to hold its
 comment order. The pager derives that from the selected tab, which settles on momentum scroll end.
 
 Only `PlayerPage` touches playback. `CommentsPage` and `TagsPage` take only `focusedSong` and never
-read `usePlayback()`. `DetailScreen` paints the tint once behind the header and the transparent
-pager, so there is no second gradient boundary below the title. The pager is the gesture surface;
+read `usePlayback()`. `DetailScreen` hands the sampled artwork color to the same mode-aware Oklch
+gradient hook as `TrackCollectionView`, then paints those stops once behind the header and the
+transparent pager, so there is no second gradient boundary below the title. The pager is the gesture surface;
 it does not navigate during a swipe or wait for a destination route to mount.
 
 The primary native bar and compact player remain mounted underneath a sheet. The sheet itself
@@ -106,8 +108,7 @@ Playback state is unaffected either way, because it lives in `PlaybackProvider`,
 
 The two halves are split by what they render into. `media-player.tsx` owns playback commands and
 the tap that pushes `/player`. `player-scope.tsx` owns the song shared by the sheet routes.
-`player-page.tsx` takes only `onModifyTags` as a prop and derives everything else from
-`usePlayback()`. Favorites for the heading/queue heart go through
+`player-page.tsx` derives its state from `usePlayback()`. Favorites for the heading/queue heart go through
 `useSongFavoriteStatus`, which updates optimistically; tag editing and the `...` menu's own
 favorite copy now live inside `SongOptionsMenu`, not here (see Files).
 
@@ -144,7 +145,7 @@ smoothly between the 750ms native snapshot polls, and scrubbing overrides it wit
   [../../README.md](../../README.md). `player-page.tsx` passes it a `navigate` that dismisses the
   sheet before pushing (`router.back()` then `router.push`), since Add to Playlist / Go to
   Album / Go to Artist are full screen routes and a push from inside a presented sheet would
-  land inside its box, and an `onModifyTags` that selects the mounted Tags page in place.
+  land inside its box. Modify Tags opens the menu's selector popup without navigating.
 - Mounted by `src/app/(tabs)/_layout.tsx`; the sheet navigator is declared by
   `src/app/player/_layout.tsx`.
 
@@ -196,7 +197,8 @@ smoothly between the 750ms native snapshot polls, and scrubbing overrides it wit
   parent's `overflow: hidden`. Native glass shapes its lensing and specular edge from its own
   corners, so a clipped square reads as a flat fill. The glass also stays off the touch path
   behind a `pointerEvents="none"` wrapper; the native view ignores `pointerEvents` itself and
-  swallows the tab presses.- Comment authors are placeholders. The backend sends `mine` and no author, so `CommentsPage` signs
+  swallows the tab presses.
+- Comment authors are placeholders. The backend sends `mine` and no author, so `CommentsPage` signs
   the user's own comments with their email and everyone else's with `Anonymous`.
 - Only top level comments get vote buttons and a Reply button, since replies go one level deep.
   The backend takes votes on replies too; the page just does not offer them.
@@ -209,12 +211,19 @@ smoothly between the 750ms native snapshot polls, and scrubbing overrides it wit
   away rather than while it slides in.
 - The `...` menu, its artist resolution, Go to Artist's library-only disabling, and its own
   gotchas now live with `SongOptionsMenu` - see [../../README.md](../../README.md) rather than
-  this file. `TagsPage` lists **all** of the user's tags, not just applied ones (via
-  `useSongTagEditor`, `@/components/custom/song-tag-editor`), so it grows unbounded with the tag
-  count, and a tag created from its New button is applied to `focusedSong` straight away. The
-  Default tags section works the same way in reverse: tapping one of the song's shared defaults
-  copies it into the user's tags (or reuses their tag of that name) and applies it, so the pill
-  moves up to On this song.
+  this file. `TagsPage` uses the reusable `TagSelector`: Your Tags and Suggested are separate glass
+  cards. Chosen tags are solid, available tags are outlined, and Show more reveals user tags 20 at
+  a time without changing their initial relevance order as choices change. The funnel in Your Tags
+  switches between relevance and alphabetical order. Its + control opens tag creation. A tag
+  created from it or adopted from Suggested becomes one of the user's tags and is applied to
+  `focusedSong` straight away. Basic tag toggles update
+  optimistically and hold that state until the refreshed backend read arrives.
+- Below the selector, the read-only Activity Tags card uses the same theme-aware `TagSelectorPanel`
+  surface as Your Tags and Suggested and is collapsed by default. Its data is not fetched
+  until it expands, then it shows My Plays, First Played, and Last Played from
+  `useActivityTagsOnSong`. A never-set date reads
+  "Never". These values change only as the user listens
+  (`@/lib/play-recorder`), never from a tap here.
 - Long pressing a Suggested tags pill opens `SuggestedTagMenu`, the same glass `ModalPopup` the
   `...` menus use, holding one Remove this action. It calls `useSongTagEditor`'s
   `removeDefaultTag`, which hides that suggestion on this song for this user alone and counts a

@@ -58,9 +58,9 @@ The toggle also sets `consider_default_tags` on the results request, so with it 
 default tags count as tags on it for both matching and ranking. That flag is what makes a suggested
 tag in the query resolve at all, so the toggle both supplies the tags and licenses them.
 
-Suggested tags are inverted wherever they appear, in the palette, in flight, and in the query, so
-they read as tag-colored content and outline on the screen color rather than a filled pill. They
-drag into the query exactly like the user's own tags.
+Suggested tags stay solid wherever they appear, in the palette, in flight, and in the query. Italic
+text and a sparkles icon distinguish them from the user's own tags. They drag into the query exactly
+like the user's own tags.
 
 Turning the toggle off while the query holds a suggested tag clears the whole query.
 `CadenzaScreen` owns that, through `hasSuggestedTag`. Leaving the tag in place would send a query
@@ -176,9 +176,10 @@ The Cadenza tab owns conditions, so returning from the full list preserves the q
 are a normal opaque root-stack view rather than a zoom/pull-dismissed card. It keeps its own safe
 area and floating close control, and the app-level compact player renders over it. The results surface uses
 `TrackCollectionView` with a weighted artwork
-mosaic, play and shuffle queues, local Music List sorting, and a caller-supplied save option. Its
-page tint averages the representative colors for the four mosaic cells, then uses the same
-full-height darkening gradient as collection details. Fixed solid endpoint colors sit under the
+mosaic, play and shuffle queues, local Music List sorting, and a caller-supplied save option.
+`useCollectionArtworkTint` ranks the artwork once and reuses those cells for the mosaic and color
+sampling. It averages their representative colors in Oklab, then hands that one source color to
+TrackCollectionView's mode-aware Oklch gradient. Fixed solid endpoint colors sit under the
 scrolling gradient so elastic overscroll meets the exact color at either edge. One
 distinct artwork renders as a single image instead of a repeated grid. The results surface owns the
 save-name popup, rendered through the same reliable liquid-glass modal path as Sort. Its round Save

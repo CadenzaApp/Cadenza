@@ -12,6 +12,11 @@ export type Tag = {
     name: string;
     color: string;
     type: TagType;
+    /**
+     * An activity tag, like "My Plays". Shared by every user, and its value on
+     * a song is set by listening rather than by hand.
+     */
+    is_activity?: boolean;
 };
 
 /**

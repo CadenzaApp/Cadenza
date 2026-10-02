@@ -48,14 +48,15 @@ GestureHandlerRootView
         SongInitProvider   syncs the apple music library into user_songs after auth
           PlaybackProvider     reads the native playback snapshot
             ThemeProvider      light/dark nav theme from nativewind's colorScheme
-              BottomBarVisibilityProvider   temporary native-tab visibility exceptions
-                ZoomOriginProvider          the rect a pushed screen minimizes back into
-                  Stack                     the routes
-                  AppleMusicSessionGuard    opens /account when the apple music token dies
-                  TagScoreTracker           scores the tags, artist, and genres of each song played for 5 seconds
-                  InterestDecay             decays the user's interest scores once per launch
-                  TasksHost                 background task status
-                  PortalHost                where dialogs and modals render
+              MusicListPreferencesProvider persisted music-list presentation preferences
+                BottomBarVisibilityProvider   temporary native-tab visibility exceptions
+                  ZoomOriginProvider          per-navigation zoom launch measurements
+                    Stack                     the routes
+                    AppleMusicSessionGuard    opens /account when the apple music token dies
+                    TagScoreTracker           scores the tags, artist, and genres of each song played for 5 seconds
+                    InterestDecay             decays the user's interest scores once per launch
+                    TasksHost                 background task status
+                    PortalHost                where dialogs and modals render
 ```
 
 `LibraryCategoriesProvider` (`@/features/library`) sits inside `ThemeProvider` and wraps both
@@ -136,10 +137,12 @@ hero stays anchored near the card's top edge instead of opening a large empty ar
 gradient is always at least one viewport tall, so short albums and playlists do not end in a flat
 color band.
 
-That is `@/lib/zoom-dismiss`: rows record where their artwork is before they navigate, the screen
-wraps itself in a card that shrinks toward that rect, and `useCloseScreen` is what the X calls.
-The artist album rail records its covers too, so an album opened from an artist returns to the
-right tile. `useScreenScroll` drives the pull through the same controller, and `useIsPushedDetailScreen`
+That is `@/lib/zoom-dismiss`: rows create a launch ticket and measure their artwork before they
+navigate. The destination claims that ticket and keeps its own rect, so nested screens cannot
+replace one another's close targets. The screen wraps itself and its compact player in a card that
+shrinks toward that rect, and `useCloseScreen` is what the X calls. The artist album rail records
+its covers too, so an album opened from an artist returns to the right tile. `useScreenScroll`
+drives the pull through the same controller, and `useIsPushedDetailScreen`
 (`@/lib/screen-overlay`) keeps all of it off the tabs and off the sheets, which drag down natively
 already.
 
@@ -182,26 +185,25 @@ top padding, a screen pays the full top inset. It also sets `InsideSheetContext`
 `useScreenOverlayInsets` in sheet-local coordinates.
 
 `/player` is pushed by the mini player rather than by a header button. It is a root sheet whose
-three routes all render one always-mounted Comments / Player / Tags pager. `SongOptionsMenu`'s
-default Modify Tags handler opens `/player/tags` with
-`tagsSongId` params for a song that is not playing (see
-[../components/custom/media-player/README.md](../components/custom/media-player/README.md)). It
-redirects back if playback stops while it is open, unless those params are present - there is
-still a Tags/Comments page to show even with nothing playing.
+three routes all render one always-mounted Comments / Player / Tags pager. Song menus edit tags in
+their own `TagSelector` popup instead of routing through this sheet.
 
 The player sheet paints one tint in `DetailScreen`, behind its header and the transparent pager.
 All three pages stay mounted side by side, so a swipe reveals live adjacent content continuously
 instead of navigating after a threshold. The custom glass selector follows the same scroll offset.
 
-`/artist/:id`, `/collection/:kind/:id`, and `/query-results` use the
+`/artist/:id`, `/collection/:kind/:id`, `/tag/:tagId`, and `/query-results` use the
 shared `TrackCollectionView` instead of a `DetailScreen` header, and float their own X in the
 same corner. The artist supplies its full-bleed image hero and albums rail as custom header and
 footer content. The collection uses the standard single-artwork layout with Play/Pause, Shuffle,
-and a caller-supplied action that opens `CollectionOptionsMenu`. Query results use the standard
+and a caller-supplied action that opens `CollectionOptionsMenu`. A tag uses the standard mosaic,
+uses its tag pill and song count as the title, and supplies its tag color as the page color,
+and offers rename, recolor, and delete actions. Query results use the standard
 weighted mosaic and an edge-to-edge tint, but use a normal opaque stack presentation rather than
 the collection's zoom transition. Each gradient-backed `TrackCollectionView` also paints fixed
 start and end colors beneath the list, so either elastic overscroll edge meets the scrolling
-gradient without a seam.
+gradient without a seam. `TrackCollectionView` turns every route's source color into the shared
+mode-aware Oklch gradient object; callers provide only that source color.
 Under the last row it prints the song count and running time, but only once every page is in,
 since a count off a half-loaded list is a wrong number. Everything the collection draws over its
 tint stays inside the same scroll surface. Either way the hero is the `MusicList` header inside
@@ -214,9 +216,11 @@ artist, both artwork sizes, and the artwork color so the hero and the tint are t
 song fetch lands.
 
 These root routes render above the native tab controller, so its bottom accessory cannot appear
-over them. One `MediaPlayerPushedScreenOverlay` is mounted above the root stack and becomes visible
-over artist, collection, and query-results screens once a track is active. The same route predicate
-makes their lists reserve exactly that overlay's height.
+over them. Every zoom-dismiss card owns a compact player layer, which makes the player transform
+with that card and lets a nested close reveal the parent card's already-mounted player. Query
+results do not use a zoom card, so `MediaPlayerPushedScreenOverlay` hosts their compact player at
+the root through an iOS full-window overlay. The shared route predicate still makes all of these
+lists reserve exactly the compact player's height.
 
 ## Connects to
 

@@ -6,7 +6,7 @@ use crate::{
     db::{
         self,
         tags::{
-            TagMetadata, get_all_user_tags, get_songs_with_user_tag, get_tag,
+            TagMetadata, get_all_user_tags, get_songs_with_user_tag, get_user_tag,
             get_user_tags_metadata,
         },
     },
@@ -56,7 +56,7 @@ async fn get_user_tags_handler(
 ) -> Result<Json<GetTagsResponse>, CadenzaError> {
     match params.tag_id {
         Some(tag_id) => {
-            let Some(tag) = get_tag(&db, tag_id).await? else {
+            let Some(tag) = get_user_tag(&db, claims.user_id, tag_id).await? else {
                 return Err(CadenzaError::NotFound);
             };
             Ok(Json(GetTagsResponse::One(TagPlusSongs {
@@ -99,6 +99,31 @@ async fn new_user_tag_handler(
 }
 
 #[derive(Deserialize)]
+pub struct UpdateTagPayload {
+    tag_id: i64,
+    name: Option<String>,
+    color: Option<String>,
+}
+
+/// Changes the name, color, or both on one tag owned by the signed-in user.
+async fn update_user_tag_handler(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Json(payload): Json<UpdateTagPayload>,
+) -> Result<Json<Tag>, CadenzaError> {
+    let tag = db::tags::update_user_tag(
+        db,
+        claims.user_id,
+        payload.tag_id,
+        payload.name,
+        payload.color,
+    )
+    .await?;
+
+    Ok(Json(tag.into()))
+}
+
+#[derive(Deserialize)]
 pub struct DeleteTagPayload {
     tag_id: i64,
 }
@@ -124,6 +149,22 @@ async fn get_songs_with_user_tag_handler(
     Ok(Json(
         get_songs_with_user_tag(&db, claims.user_id, payload.tag_id).await?,
     ))
+}
+
+/// Returns every activity tag, in display order. These are the same for every
+/// user; only their values on songs differ. Query builders offer them next to
+/// the user's own tags.
+///
+/// JSON return value format:
+/// ```json
+/// [ { "id": 41, "name": "My Plays", "color": "#0ea5e9", "type": "number", "is_activity": true }, ... ]
+/// ```
+async fn get_activity_tags_handler(
+    State(db): State<DatabaseConnection>,
+    _: Claims<SupabaseClaims>, // must have credentials to use this route
+) -> Result<Json<Vec<Tag>>, CadenzaError> {
+    let tags = db::activity_tags::get_activity_tags(&db).await?;
+    Ok(Json(tags.into_iter().map(|(_, tag)| tag.into()).collect()))
 }
 
 /// How many default tags one search returns at most.
@@ -249,11 +290,13 @@ pub fn get_tags_router() -> Router<AppState> {
     Router::new()
         .route("/", get(get_user_tags_handler))
         .route("/", post(new_user_tag_handler))
+        .route("/", patch(update_user_tag_handler))
         .route("/", delete(delete_user_tag_handler))
         .route(
             "/scores",
             get(get_top_tag_scores_handler).patch(edit_tag_scores_handler),
         )
         .route("/default-tags", get(search_default_tags_handler))
+        .route("/activity", get(get_activity_tags_handler))
         .route("/suggest", get(suggest_tags_handler))
 }

@@ -16,6 +16,7 @@ pub enum CadenzaError {
     SongNotInLibrary,
     SongAlreadyInLibrary,
     TagAlreadyApplied,
+    TagNameAlreadyTaken,
     DatabaseError(String), // generic database error
     QueryFormatError(String),
     TagGenerationErr(String),
@@ -27,6 +28,8 @@ pub enum CadenzaError {
     },
     SongMetadataErr(String),
     InvalidTagValue(String),
+    /// An activity tag was named in a write. Their values come from listening.
+    ActivityTagReadOnly,
 }
 
 impl CadenzaError {
@@ -36,12 +39,14 @@ impl CadenzaError {
             Self::SongNotInLibrary => 404,
             Self::SongAlreadyInLibrary => 409,
             Self::TagAlreadyApplied => 409,
+            Self::TagNameAlreadyTaken => 409,
             Self::DatabaseError(_) => 500,
             Self::QueryFormatError(_) => 422,
             Self::TagGenerationErr(_) => 500,
             Self::TagGenerationRateLimited { .. } => 429,
             Self::SongMetadataErr(_) => 500,
             Self::InvalidTagValue(_) => 422,
+            Self::ActivityTagReadOnly => 403,
         }
     }
     fn get_json(&self) -> Value {
@@ -57,6 +62,10 @@ impl CadenzaError {
             }),
             Self::TagAlreadyApplied => json!({
                 "error_type": "TagAlreadyApplied",
+            }),
+            Self::TagNameAlreadyTaken => json!({
+                "error_type": "TagNameAlreadyTaken",
+                "message": "you already have a tag with that name"
             }),
             Self::DatabaseError(msg) => json!({
                 "error_type": "DatabaseError",
@@ -87,6 +96,10 @@ impl CadenzaError {
             Self::InvalidTagValue(msg) => json!({
                 "error_type": "InvalidTagValue",
                 "message": msg
+            }),
+            Self::ActivityTagReadOnly => json!({
+                "error_type": "ActivityTagReadOnly",
+                "message": "activity tags are set by listening and cannot be changed by hand"
             }),
         }
     }

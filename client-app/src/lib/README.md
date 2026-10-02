@@ -12,8 +12,8 @@ native module directly.
 | `api-actions.ts`             | The generic SWR wrappers: `useAPIData`, `useAPIPostData`, `useAPIPostDataBatched`, `useAPIFetch`, `useAPIMutation`.                                                                                                                                                                               |
 | `api-endpoints.ts`           | `matchesEndpoint`, the cache-key matcher behind invalidation. Import-free so it can be unit tested.                                                                                                                                                                                               |
 | `swr-utils.ts`               | `clearCache` and `useSimpleMutation`, for things that are not plain backend calls.                                                                                                                                                                                                                |
-| `routes/tags.ts`             | Hooks for `/tags`: `useUserTags`, `useTag`, `useCreateTag`, `useDeleteTag`, `useDefaultTags`, `useSuggestTags`, `useEditTagScores`, `useTopTagScores`.                                                                                                                                            |
-| `routes/songs.ts`            | Hooks for local and default tag reads (one song and batched), local tag writes, removing a suggested tag, missing-default checks, generation, and editing the user's library.                                                                                                                     |
+| `routes/tags.ts`             | Hooks for `/tags`: `useUserTags`, `useTag`, `useCreateTag`, `useUpdateTag`, `useDeleteTag`, `useDefaultTags`, `useActivityTags`, `useActivityTagIdsInQuery`, `useSuggestTags`, `useEditTagScores`, `useTopTagScores`.                                                                             |
+| `routes/songs.ts`            | Hooks for local, default, and activity tag reads (one song and batched), local tag writes, removing a suggested tag, recording a play, missing-default checks, generation, and editing the user's library.                                                                                        |
 | `routes/queries.ts`          | `useQueryResults`, the one cached hook for `/queries/results`. Both builders go through it, and it carries the suggested-tag flag. It sends no song ids: the backend queries the library it already has.                                                                                          |
 | `routes/comments.ts`         | Hooks for `/comments`: `useSongComments`, `useCreateComment`, `useDeleteComment`, `useVoteOnComment`.                                                                                                                                                                                             |
 | `routes/social.ts`           | `useDecayInterests` and `useEditInterestScores`, for `/social`, the proxy to the social feed service.                                                                                                                                                                                             |
@@ -29,13 +29,18 @@ native module directly.
 | `account.tsx`                | `AccountProvider` / `useAccount`. Who is signed in (id and email), and sign in / sign up / sign out.                                                                                                                                                                                              |
 | `apple-music-auth.tsx`       | `AppleMusicProvider` / `useAppleMusic`. Apple Music tokens, persisted in secure store.                                                                                                                                                                                                            |
 | `playback.tsx`               | `PlaybackProvider`, broad `usePlayback`, lightweight `usePlaybackTrackState`, and stable `usePlaybackCommands`. Queue, native playback snapshot, and compact-player dismissal state.                                                                                                              |
+| `play-tracker.ts`            | Pure: what counts as a play (15 seconds, or the whole of a shorter song, once per listen). Tested in `play-tracker.test.ts`.                                                                                                                                                                      |
+| `play-recorder.ts`           | `usePlayRecorder`, called by `PlaybackProvider`. Feeds each snapshot to `play-tracker.ts` and posts each play to `/songs/plays`.                                                                                                                                                                  |
 | `queue-order.ts`             | Pure index math for the queue mirror. Tested in `queue-order.test.ts`.                                                                                                                                                                                                                            |
 | `supabase.ts`                | The Supabase client, backed by AsyncStorage, plus `getAccessToken()`, the fresh access token every backend request uses.                                                                                                                                                                          |
 | `theme.ts`                   | `NAV_THEME`, light and dark palettes for react-navigation, `sheetScreenOptions` for sheet routes, and `pushedScreenOptions` for the pushed detail routes.                                                                                                                                         |
 | `error-utils.ts`             | `getErrorDetails` / `getErrorMessage`, for unwrapping native and backend errors.                                                                                                                                                                                                                  |
 | `artwork-color.ts`           | `useArtworkTint`, the color a surface paints itself with, plus alpha, darkening, and multi-artwork averaging helpers.                                                                                                                                                                             |
-| `artwork-color-utils.ts`     | Native-free channel averaging for multi-artwork tints.                                                                                                                                                                                                                                            |
+| `artwork-color-utils.ts`     | Native-free Oklab averaging for multi-artwork colors and shared Oklch tint-gradient sampling.                                                                                                                                                                                                     |
+| `use-tint-gradient.ts`       | Theme-aware hook that turns one source color into the shared light/dark Oklch gradient stops.                                                                                                                                                                                                     |
+| `tag-color-palette.ts`       | Curated RGB tag palette sorted by hue, followed by brown and gray. Every swatch has tested contrast against black and white.                                                                                                                                                                      |
 | `music-routes.ts`            | `collectionRoute` / `albumRouteForTrack`. Hrefs into the resource screens, params and all.                                                                                                                                                                                                        |
+| `music-list-preferences.tsx` | `MusicListPreferencesProvider` / `useMusicListPreferences`. The persisted device-local preference for suggested tag pills in music-list rows.                                                                                                                                                     |
 | `share-track.ts`             | `shareTrack` / `shareCollection`. Builds and fires the native share sheet for a song, album, or playlist's canonical Apple Music link.                                                                                                                                                            |
 | `screen-overlay.ts`          | `useScreenOverlayInsets`, native tab/accessory visibility, extra overlay clearance, focused-screen and keyboard suppression, and pushed-screen detection.                                                                                                                                         |
 | `screen-overlay-geometry.ts` | Pure, tested bottom-inset arithmetic shared by tab-hosted and pushed-screen compact players.                                                                                                                                                                                                      |
@@ -45,8 +50,8 @@ native module directly.
 | `zoom-dismiss.tsx`           | `ZoomOriginProvider`, `useZoomSource`, `ZoomDismissScreen`, `useCloseScreen`. Closing a pushed screen by shrinking it back into the artwork that opened it.                                                                                                                                       |
 | `zoom-dismiss-geometry.ts`   | Pure pull, transform, timing, and corner math for `zoom-dismiss`, tested without React Native.                                                                                                                                                                                                    |
 | `types.ts`                   | Shared wire types: `TagType`, `Tag`, `AppliedTag` and `TagMetadata`.                                                                                                                                                                                                                              |
-| `query-json.ts`              | The tag query wire format: `QueryJSON`, `QueryJSONNode`, `FilterJSON`, `FilterOp`. Types only, so the pure builder utils stay testable under `node --test`.                                                                                                                                       |
-| `tag-values.ts`              | Per-type tag helpers: `TAG_TYPES`, labels, descriptions, `TAG_TYPE_ICONS`, value validation, canonicalization, formatting, the date-only helpers, and `unownedDefaultTags`.                                                                                                                       |
+| `query-json.ts`              | The tag query wire format: `QueryJSON`, `QueryJSONNode`, `FilterJSON`, `FilterOp`, plus the pure `positiveQueryTagNames` and `queryTagIds`. Import-free apart from types, so it stays testable under `node --test`.                                                                               |
+| `tag-values.ts`              | Per-type tag helpers: `TAG_TYPES`, labels, descriptions, `TAG_TYPE_ICONS`, value validation, canonicalization, formatting, the date-only helpers, `unownedDefaultTags`, and the activity tag helper `activityTagDisplayValue`.                                                                    |
 | `app-error.ts`               | `classifyError`, turning any thrown value into an `AppError` with a title, a sentence, and an optional way out. Tested in `app-error.test.ts`.                                                                                                                                                    |
 | `utils.ts`                   | `cn()`, the clsx + tailwind-merge helper.                                                                                                                                                                                                                                                         |
 
@@ -82,9 +87,11 @@ otherwise drop to undefined between responses. `useDefaultTags` is the caller.
 
 `useAPIPostDataBatched` exists for reads whose request is a list too long for a query string. It
 splits the list into parallel requests and merges the responses, but stays **one** `api-data`
-key so invalidation works like every other read. `useTagsOnSongs` and `useDefaultTagsOnSongs`
-are the callers: a list screen reads both, so each row can show the user's tags and the song's
-shared defaults.
+key so invalidation works like every other read. Completed transport chunks also have a small
+bounded read-through cache. Keep list chunk boundaries stable: when paging appends ids, old chunks
+must be reused and only new chunks should reach the network. Invalidation clears matching chunks
+before SWR revalidates the merged read. `useTagsOnSongs` and `useDefaultTagsOnSongs` are the main
+callers.
 
 Do not reach for `useSWRInfinite` here. `mutate(filterFn)` skips `$inf$` keys outright, and the
 per-page keys it does visit have no subscribed revalidator, so a filtered `mutate` silently
@@ -97,6 +104,10 @@ depends on what was just written. After a successful request it matches every `a
 whose `path` is equal and whose `params` are a **superset** of the listed ones. So a bare
 `{ path: "/songs/local-tags" }` invalidates the local tags of every song, while
 `{ path: "/songs/local-tags", params: { song_id } }` invalidates just the one that changed.
+Set `exactParams: true` when an endpoint uses the same path for a collection and one item and the
+mutation must distinguish them.
+For a batched key, `item` narrows invalidation to merged reads and transport chunks containing
+that song id. Use it for single-song writes so changing one row does not discard every list chunk.
 
 ```ts
 // invalidate only this song's tag list, plus the tag counts
@@ -113,35 +124,52 @@ useAPIMutation<ApplyTagPayload, void>(
 `invalidatedEndpoints` defaults to `[]`. A mutation that lists nothing leaves every cached
 `useAPIData` entry alone and the UI showing stale data, including caches in other route files.
 
+User-triggered writes should normally use background invalidation. Do not make a tag tap await
+every mounted list, tag detail, and query result that happens to share an endpoint. The initiating
+surface owns an optimistic state with rollback, while SWR refreshes other surfaces after the write.
+That optimistic state must remain authoritative until a refreshed read agrees with the newest
+user choice, or an older cache snapshot will cause a visible solid-outline-solid flicker.
+
+`useSongInfo` resolves ids as cached 25-song pages and exposes completed pages immediately. Do not
+collapse it back into one all-or-nothing `getSongInfo` key: tag and query screens may contain
+hundreds of ids, and their first rows should not wait for the final Apple Music request.
+Likewise, query-result resolution starts missing-id pages during a cold library scan. It may do
+some duplicate Apple reads, but waiting for the complete library walk makes deep links appear
+stuck and is not an acceptable tradeoff.
+
 ## `routes/` mirrors `backend-api/src/routes/`
 
 One file per backend router, and every backend endpoint has at least one hook.
 
-| backend              | endpoint                         | hook                                           |
-| -------------------- | -------------------------------- | ---------------------------------------------- |
-| `routes/tags.rs`     | `GET /tags`                      | `tags.ts` -> `useUserTags()`, `useTag(tagId)`  |
-|                      | `POST /tags`                     | `tags.ts` -> `useCreateTag()`                  |
-|                      | `DELETE /tags`                   | `tags.ts` -> `useDeleteTag()`                  |
-|                      | `GET /tags/default-tags`         | `tags.ts` -> `useDefaultTags(search)`          |
-|                      | `GET /tags/suggest`              | `tags.ts` -> `useSuggestTags()`                |
-|                      | `GET /tags/scores`               | `tags.ts` -> `useTopTagScores(k)`              |
-|                      | `PATCH /tags/scores`             | `tags.ts` -> `useEditTagScores()`              |
-| `routes/songs.rs`    | `GET /songs/local-tags`          | `songs.ts` -> `useTagsOnSong(songId)`          |
-|                      | `POST /songs/local-tags/batch`   | `songs.ts` -> `useTagsOnSongs(songIds)`        |
-|                      | `GET /songs/default-tags`        | `songs.ts` -> `useDefaultTagsOnSong(songId)`   |
-|                      | `POST /songs/default-tags/batch` | `songs.ts` -> `useDefaultTagsOnSongs(songIds)` |
-|                      | `DELETE /songs/default-tags`     | `songs.ts` -> `useRemoveDefaultTag()`          |
-|                      | `POST /songs/local-tags`         | `songs.ts` -> `useApplyTag()`                  |
-|                      | `PATCH /songs/local-tags`        | `songs.ts` -> `useSetTagValue()`               |
-|                      | `DELETE /songs/local-tags`       | `songs.ts` -> `useUnapplyTag()`                |
-|                      | `PATCH /songs`                   | `songs.ts` -> `useEditUserSongs()`             |
-| `routes/queries.rs`  | `POST /queries/results`          | `queries.ts` -> `useQueryResults()`            |
-| `routes/comments.rs` | `GET /comments`                  | `comments.ts` -> `useSongComments(songId)`     |
-|                      | `POST /comments`                 | `comments.ts` -> `useCreateComment()`          |
-|                      | `DELETE /comments`               | `comments.ts` -> `useDeleteComment()`          |
-|                      | `POST /comments/votes`           | `comments.ts` -> `useVoteOnComment(songId)`    |
-| `routes/social.rs`   | `PATCH /social/interests/decay`  | `social.ts` -> `useDecayInterests()`           |
-|                      | `PATCH /social/interests/update` | `social.ts` -> `useEditInterestScores()`       |
+| backend              | endpoint                          | hook                                            |
+| -------------------- | --------------------------------- | ----------------------------------------------- |
+| `routes/tags.rs`     | `GET /tags`                       | `tags.ts` -> `useUserTags()`, `useTag(tagId)`   |
+|                      | `POST /tags`                      | `tags.ts` -> `useCreateTag()`                   |
+|                      | `DELETE /tags`                    | `tags.ts` -> `useDeleteTag()`                   |
+|                      | `GET /tags/default-tags`          | `tags.ts` -> `useDefaultTags(search)`           |
+|                      | `GET /tags/activity`              | `tags.ts` -> `useActivityTags()`                |
+|                      | `GET /tags/suggest`               | `tags.ts` -> `useSuggestTags()`                 |
+|                      | `GET /tags/scores`                | `tags.ts` -> `useTopTagScores(k)`               |
+|                      | `PATCH /tags/scores`              | `tags.ts` -> `useEditTagScores()`               |
+| `routes/songs.rs`    | `GET /songs/local-tags`           | `songs.ts` -> `useTagsOnSong(songId)`           |
+|                      | `POST /songs/local-tags/batch`    | `songs.ts` -> `useTagsOnSongs(songIds)`         |
+|                      | `GET /songs/default-tags`         | `songs.ts` -> `useDefaultTagsOnSong(songId)`    |
+|                      | `POST /songs/default-tags/batch`  | `songs.ts` -> `useDefaultTagsOnSongs(songIds)`  |
+|                      | `DELETE /songs/default-tags`      | `songs.ts` -> `useRemoveDefaultTag()`           |
+|                      | `POST /songs/local-tags`          | `songs.ts` -> `useApplyTag()`                   |
+|                      | `PATCH /songs/local-tags`         | `songs.ts` -> `useSetTagValue()`                |
+|                      | `DELETE /songs/local-tags`        | `songs.ts` -> `useUnapplyTag()`                 |
+|                      | `PATCH /songs`                    | `songs.ts` -> `useEditUserSongs()`              |
+|                      | `GET /songs/activity-tags`        | `songs.ts` -> `useActivityTagsOnSong(songId)`   |
+|                      | `POST /songs/activity-tags/batch` | `songs.ts` -> `useActivityTagsOnSongs(songIds)` |
+|                      | `POST /songs/plays`               | `songs.ts` -> `useRecordPlay()`                 |
+| `routes/queries.rs`  | `POST /queries/results`           | `queries.ts` -> `useQueryResults()`             |
+| `routes/comments.rs` | `GET /comments`                   | `comments.ts` -> `useSongComments(songId)`      |
+|                      | `POST /comments`                  | `comments.ts` -> `useCreateComment()`           |
+|                      | `DELETE /comments`                | `comments.ts` -> `useDeleteComment()`           |
+|                      | `POST /comments/votes`            | `comments.ts` -> `useVoteOnComment(songId)`     |
+| `routes/social.rs`   | `PATCH /social/interests/decay`   | `social.ts` -> `useDecayInterests()`            |
+|                      | `PATCH /social/interests/update`  | `social.ts` -> `useEditInterestScores()`        |
 
 `routes/social.rs` forwards any `/social/*` path to the social feed service and adds the
 user id, so it has no fixed endpoint list. Only the paths the app calls get a hook.
@@ -180,6 +208,14 @@ invalidates both default-tag reads.
 only, so it invalidates both default-tag reads plus `/queries/results`, which counts suggested
 tags when the caller asks it to. It leaves `/tags` and the local tag reads alone, since the
 user's own tags do not change.
+
+Activity tags (My Plays, First Played, Last Played) are shared tags whose values the backend
+sets from listening. `useUserTags` never returns them, so they stay off the Tags pages;
+`useActivityTags` lists them for the advanced query builder, and `useActivityTagsOnSong` /
+`useActivityTagsOnSongs` read their values, with every tag present for every song.
+`useActivityTagIdsInQuery` picks the activity tags a query filters on, which the query result
+rows show. The only write is `useRecordPlay`, which `play-recorder.ts` calls, and it invalidates
+both activity reads and `/queries/results`.
 
 `musickit-hooks.ts` does the same job for the native module, using plain `useSWR` with tuple
 keys like `["MusicKit.getSongInfo", ids]`. `useSongFavoriteStatus` and `useCollectionFavoriteStatus`
@@ -260,10 +296,15 @@ artwork. Two sources, in order:
 Library artwork usually has no color of its own, which is the only reason the second path
 exists. Expo Go has no native module for it and returns null, and a null tint renders untinted.
 
-`@/components/ui/tint-backdrop::TintBackdrop` is what actually paints it: the color at the top,
-darkening down the page and bottoming out at `depth` of its brightness rather than at black.
-The player sheet, collection screen, artist screen, and query-results mosaic all go through those
-two. Query results average the four displayed mosaic-cell colors before painting the gradient.
+`use-tint-gradient.ts::useTintGradient` returns one mode-aware Oklch gradient object: its dark-mode
+top preserves lightness and retains 60% chroma; its light-mode top moves 47.5% toward white and
+retains 75% chroma. Both endpoints retain 20% chroma, with the bottom moving toward the relevant
+page background. `DetailScreen` uses it for the full-screen player, and track collection routes
+hand their source color to `TrackCollectionView`, which uses the same object over its full content
+height. Query results use the shared collection-artwork hook to
+rank one four-cell sample, convert those colors to Oklab, average their channels, and convert the
+result back to RGB for that source color. Fixed endpoint colors beneath the list keep elastic
+overscroll seamless.
 
 Hand `useArtworkTint` the **small** artwork. Averaging only needs a thumbnail, and a hero-sized
 one costs a megabyte to reach the same answer. `ArtworkSource.artworkUrlSmall` wins over
@@ -519,6 +560,8 @@ no one tag and score nothing. Tag ids resolve to names through the tag list the 
 - An access token lives about an hour. `api-actions.ts` fetches one per request through
   `getAccessToken()`, which refreshes an expired one, so nothing holds a token. A component
   rendered before the session is restored sends no `Authorization` header at all.
+- Plays are only counted while `PlaybackProvider` is polling, which is only in the foreground. A
+  song that plays start to finish with the app in the background is never counted.
 - A comment vote is absolute (`"up"`, `"down"`, or `null`), and the server keeps whichever request
   it handles last. Two quick taps on one comment send two requests that can land out of order.
 - Opening the app while Apple Music is already playing scores that song. The first snapshot looks

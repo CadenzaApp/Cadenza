@@ -1,18 +1,27 @@
 import { useMemo } from "react";
 import {
+    invalidateAPIData,
     useAPIData,
     useAPIMutation,
     useAPIPostDataBatched,
 } from "../api-actions";
 import { AppliedTag, Tag } from "@/lib/types";
 
-// the backend caps a batch at 200 ids
-const TAGS_ON_SONGS_BATCH_SIZE = 200;
+// Stable 25-song read chunks match MusicKit paging, so a newly appended page reuses every
+// completed earlier chunk. The backend allows up to 200 ids per request.
+const TAGS_ON_SONGS_BATCH_SIZE = 25;
+const TAG_EDITS_MAX_SONGS_PER_BATCH = 200;
+const TAG_EDITS_PER_BATCH = 4_000;
+const TAG_EDIT_CONCURRENCY = 3;
 
-export function useTagsOnSong(songId?: string) {
-    const x = useAPIData<AppliedTag[]>("/songs/local-tags", {
-        song_id: songId,
-    });
+export function useTagsOnSong(songId?: string, enabled = true) {
+    const x = useAPIData<AppliedTag[]>(
+        "/songs/local-tags",
+        {
+            song_id: songId,
+        },
+        { enabled },
+    );
 
     return {
         tagsOnSong: x.data,
@@ -57,14 +66,13 @@ export function useApplyTag() {
     const x = useAPIMutation<ApplyTagPayload, void>(
         "POST",
         "/songs/local-tags",
-        ({ song_id }) => [
-            { path: "/songs/local-tags", params: { song_id } },
-            { path: "/songs/local-tags/batch" },
-            { path: "/songs/default-tags", params: { song_id } },
-            { path: "/songs/default-tags/batch" },
-            { path: "/tags" },
+        ({ song_id, tag_id }) => [
+            { path: "/songs/local-tags/batch", item: song_id },
+            { path: "/tags", exactParams: true },
+            { path: "/tags", params: { tag_id }, exactParams: true },
             { path: "/queries/results" },
         ],
+        { invalidation: "background" },
     );
     return {
         applyTagErr: x.error,
@@ -84,12 +92,14 @@ export function useSetTagValue() {
     const x = useAPIMutation<SetTagValuePayload, void>(
         "PATCH",
         "/songs/local-tags",
-        ({ song_id }) => [
+        ({ song_id, tag_id }) => [
             { path: "/songs/local-tags", params: { song_id } },
-            { path: "/songs/local-tags/batch" },
-            { path: "/tags" },
+            { path: "/songs/local-tags/batch", item: song_id },
+            { path: "/tags", exactParams: true },
+            { path: "/tags", params: { tag_id }, exactParams: true },
             { path: "/queries/results" },
         ],
+        { invalidation: "background" },
     );
     return {
         setTagValueErr: x.error,
@@ -107,12 +117,13 @@ export function useUnapplyTag() {
     const x = useAPIMutation<UnapplyTagPayload, void>(
         "DELETE",
         "/songs/local-tags",
-        ({ song_id }) => [
-            { path: "/songs/local-tags", params: { song_id } },
-            { path: "/songs/local-tags/batch" },
-            { path: "/tags" },
+        ({ song_id, tag_id }) => [
+            { path: "/songs/local-tags/batch", item: song_id },
+            { path: "/tags", exactParams: true },
+            { path: "/tags", params: { tag_id }, exactParams: true },
             { path: "/queries/results" },
         ],
+        { invalidation: "background" },
     );
     return {
         unapplyTagErr: x.error,
@@ -120,6 +131,116 @@ export function useUnapplyTag() {
         resetUnpplyTag: x.reset,
         unapplyTag: x.trigger,
     };
+}
+
+export type EditTagsOnSongsPayload = {
+    song_ids: string[];
+    tag_ids: number[];
+};
+
+const BATCH_TAG_INVALIDATIONS = [
+    { path: "/songs/local-tags" },
+    { path: "/songs/local-tags/batch" },
+    { path: "/songs/default-tags" },
+    { path: "/songs/default-tags/batch" },
+    { path: "/tags" },
+    { path: "/queries/results" },
+];
+
+/** Applies each tag to each song, splitting requests at the backend's caps. */
+export function useApplyTagsToSongs() {
+    const mutation = useAPIMutation<EditTagsOnSongsPayload, void>(
+        "PATCH",
+        "/songs/local-tags/batch",
+        [],
+        { invalidation: "none" },
+    );
+
+    return {
+        applyTagsToSongsLoading: mutation.isMutating,
+        applyTagsToSongsErr: mutation.error,
+        applyTagsToSongs: (payload: EditTagsOnSongsPayload) =>
+            editTagsInBatches(mutation.trigger, payload),
+    };
+}
+
+/** Removes each tag from each song, splitting requests at the backend's caps. */
+export function useRemoveTagsFromSongs() {
+    const mutation = useAPIMutation<EditTagsOnSongsPayload, void>(
+        "DELETE",
+        "/songs/local-tags/batch",
+        [],
+        { invalidation: "none" },
+    );
+
+    return {
+        removeTagsFromSongsLoading: mutation.isMutating,
+        removeTagsFromSongsErr: mutation.error,
+        removeTagsFromSongs: (payload: EditTagsOnSongsPayload) =>
+            editTagsInBatches(mutation.trigger, payload),
+    };
+}
+
+async function editTagsInBatches(
+    trigger: (payload: EditTagsOnSongsPayload) => Promise<void>,
+    payload: EditTagsOnSongsPayload,
+) {
+    const songIds = [...new Set(payload.song_ids.filter(Boolean))];
+    const tagIds = [...new Set(payload.tag_ids)];
+    const batches: EditTagsOnSongsPayload[] = [];
+
+    for (
+        let tagOffset = 0;
+        tagOffset < tagIds.length;
+        tagOffset += TAG_EDITS_PER_BATCH
+    ) {
+        const tagBatch = tagIds.slice(
+            tagOffset,
+            tagOffset + TAG_EDITS_PER_BATCH,
+        );
+        const songBatchSize = Math.min(
+            TAG_EDITS_MAX_SONGS_PER_BATCH,
+            Math.max(1, Math.floor(TAG_EDITS_PER_BATCH / tagBatch.length)),
+        );
+        for (
+            let songOffset = 0;
+            songOffset < songIds.length;
+            songOffset += songBatchSize
+        ) {
+            batches.push({
+                song_ids: songIds.slice(songOffset, songOffset + songBatchSize),
+                tag_ids: tagBatch,
+            });
+        }
+    }
+
+    let nextBatch = 0;
+    try {
+        const workers = Array.from(
+            { length: Math.min(TAG_EDIT_CONCURRENCY, batches.length) },
+            async () => {
+                while (nextBatch < batches.length) {
+                    const batch = batches[nextBatch++];
+                    await trigger(batch);
+                }
+            },
+        );
+        const results = await Promise.allSettled(workers);
+        const failure = results.find(
+            (result): result is PromiseRejectedResult =>
+                result.status === "rejected",
+        );
+        if (failure) throw failure.reason;
+    } finally {
+        // A large edit can require several transport-sized requests. Refresh
+        // once after all workers settle, including partial failure, and do not
+        // make cache freshness hold the action buttons open.
+        if (batches.length > 0) {
+            void invalidateAPIData(BATCH_TAG_INVALIDATIONS).catch((error) =>
+                console.error("Tag edit cache refresh failed", error),
+            );
+        }
+    }
 }
 
 type RemoveDefaultTagPayload = {
@@ -138,7 +259,7 @@ export function useRemoveDefaultTag() {
         "/songs/default-tags",
         ({ song_id }) => [
             { path: "/songs/default-tags", params: { song_id } },
-            { path: "/songs/default-tags/batch" },
+            { path: "/songs/default-tags/batch", item: song_id },
             { path: "/queries/results" },
         ],
     );
@@ -151,10 +272,14 @@ export function useRemoveDefaultTag() {
 }
 
 /** Returns the shared default tags on one song, minus the ones this user removed. */
-export function useDefaultTagsOnSong(songId?: string) {
-    const x = useAPIData<Tag[]>("/songs/default-tags", {
-        song_id: songId,
-    });
+export function useDefaultTagsOnSong(songId?: string, enabled = true) {
+    const x = useAPIData<Tag[]>(
+        "/songs/default-tags",
+        {
+            song_id: songId,
+        },
+        { enabled },
+    );
 
     return {
         defaultTagsOnSong: x.data,
@@ -188,6 +313,68 @@ export function useDefaultTagsOnSongs(songIds: readonly string[]) {
 }
 
 const EMPTY_DEFAULT_TAGS_BY_SONG: Record<string, Tag[]> = {};
+
+/**
+ * This user's activity tags on one song, with values, in display order. A song
+ * never played still gets every tag: My Plays is "0" and the dates are null.
+ */
+export function useActivityTagsOnSong(songId?: string) {
+    const x = useAPIData<AppliedTag[]>("/songs/activity-tags", {
+        song_id: songId,
+    });
+
+    return {
+        activityTagsOnSong: x.data,
+        activityTagsOnSongLoading: x.isLoading,
+        activityTagsOnSongErr: x.error,
+    };
+}
+
+/** Activity tags for many songs at once, batched the same way as `useTagsOnSongs`. */
+export function useActivityTagsOnSongs(songIds: readonly string[]) {
+    const normalizedIds = useMemo(
+        () => [...new Set(songIds.filter(Boolean))],
+        [songIds],
+    );
+    const x = useAPIPostDataBatched<
+        string,
+        { song_ids: string[] },
+        Record<string, AppliedTag[]>
+    >("/songs/activity-tags/batch", normalizedIds, {
+        batchSize: TAGS_ON_SONGS_BATCH_SIZE,
+        toBody: (song_ids) => ({ song_ids }),
+        merge: (responses) => Object.assign({}, ...responses),
+    });
+    const activityTagsBySong = x.data ?? EMPTY_TAGS_BY_SONG;
+
+    return {
+        activityTagsBySong,
+        activityTagsBySongLoading: x.isLoading,
+        activityTagsBySongErr: x.error,
+    };
+}
+
+/**
+ * Counts one play of a song: My Plays goes up by one and the First Played /
+ * Last Played dates move. `play-recorder.ts` is the one caller and decides what
+ * counts as a play.
+ */
+export function useRecordPlay() {
+    const x = useAPIMutation<{ song_id: string }, void>(
+        "POST",
+        "/songs/plays",
+        ({ song_id }) => [
+            { path: "/songs/activity-tags", params: { song_id } },
+            { path: "/songs/activity-tags/batch" },
+            { path: "/queries/results" },
+        ],
+    );
+    return {
+        recordPlayErr: x.error,
+        recordPlayLoading: x.isMutating,
+        recordPlay: x.trigger,
+    };
+}
 
 export type EditUserSongsPayload = {
     /** Song ids to put in the user's library. Ones already there are ignored. */

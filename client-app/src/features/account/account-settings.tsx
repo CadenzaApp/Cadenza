@@ -15,6 +15,7 @@ import { GlassToggle } from "@/components/ui/glass-toggle";
 import { Text } from "@/components/ui/text";
 import { useAccount } from "@/lib/account";
 import { useAppleMusic } from "@/lib/apple-music-auth";
+import { useMusicListPreferences } from "@/lib/music-list-preferences";
 
 import { GlassSettingsPanel, SettingsIcon, SettingsRow } from "./settings-ui";
 import { TopTagsPanel } from "./top-tags";
@@ -26,6 +27,8 @@ export function AccountSettingsScreen() {
     const insets = useSafeAreaInsets();
     const { colors } = useTheme();
     const { account, signOut } = useAccount();
+    const { showSuggestedTags, setShowSuggestedTags } =
+        useMusicListPreferences();
     const {
         authResult,
         isInitializing,
@@ -242,6 +245,21 @@ export function AccountSettingsScreen() {
                 </GlassSettingsPanel>
 
                 <TopTagsPanel />
+
+                <GlassSettingsPanel>
+                    <SettingsRow
+                        icon="sparkles-outline"
+                        title="Tag Suggestions in Lists"
+                        description="Show suggested tags beneath songs in music lists."
+                        trailing={
+                            <GlassToggle
+                                value={showSuggestedTags}
+                                onValueChange={setShowSuggestedTags}
+                                accessibilityLabel="Show suggested tags in music lists"
+                            />
+                        }
+                    />
+                </GlassSettingsPanel>
 
                 <GlassSettingsPanel>
                     <SettingsRow

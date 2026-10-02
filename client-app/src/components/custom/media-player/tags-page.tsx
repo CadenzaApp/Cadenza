@@ -1,36 +1,49 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { useTheme } from "expo-router/react-navigation";
 import { useState } from "react";
-import { Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { ActivityIndicator, Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Animated, {
+    FadeIn,
+    FadeOut,
+    LinearTransition,
+} from "react-native-reanimated";
 
-import { CreateTagDialog } from "@/components/custom/create-tag-dialog";
 import { ModalPopup } from "@/components/custom/modal-popup";
 import { MusicListActionButton } from "@/components/custom/music-list/music-list-action-button";
 import type { MusicListAction } from "@/components/custom/music-list/types";
 import { TagPill } from "@/components/custom/tag-pill";
+import {
+    TagSelector,
+    TagSelectorPanel,
+} from "@/components/custom/tag-selector";
 import { TagValueDialog } from "@/components/custom/tag-value-dialog";
-import { GlassSurface } from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
+import { useActivityTagsOnSong } from "@/lib/routes/songs";
+import { activityTagDisplayValue, formatTagValue } from "@/lib/tag-values";
 import type { Tag } from "@/lib/types";
 
-import { useSongTagEditor, type EditableSongTag } from "../song-tag-editor";
+import { useSongTagEditor } from "../song-tag-editor";
 import type { FocusedSong } from "./player-scope";
 
-/**
- * The now-playing sheet's Tags page: every one of the user's tags for the
- * focused song, applied ones first and solid, the rest dimmed, with the song's
- * shared default tags in between as unfilled pills that a tap adopts. Replaces the old
- * stacked-modal tag editor (`TagEditorSheet`) now that Tags is a page of
- * its own rather than something opened over the "..." menu.
- *
- * No artwork and no playback controls. The shared sheet shell paints the
- * gradient behind this page and the other two tabs.
- */
-export function TagsPage({ focusedSong }: { focusedSong: FocusedSong }) {
+/** The now-playing sheet's reusable tag selector for the focused song. */
+export function TagsPage({
+    focusedSong,
+    enabled = true,
+}: {
+    focusedSong: FocusedSong;
+    /** Becomes true after this pager page is first visited. */
+    enabled?: boolean;
+}) {
     const insets = useSafeAreaInsets();
+    const [menuTag, setMenuTag] = useState<Tag | null>(null);
     const {
         songTags,
         defaultTags,
+        editorLoaded,
+        suggestedTagsLoading,
+        editorError,
+        recentTagIds,
         selectTag,
         selectDefaultTag,
         removeDefaultTag,
@@ -38,14 +51,8 @@ export function TagsPage({ focusedSong }: { focusedSong: FocusedSong }) {
         onValueSubmit,
         onValueRemove,
         onValueDialogClose,
-        createTagOpen,
-        openCreateTag,
-        onCreateTagOpenChange,
         onTagCreated,
-    } = useSongTagEditor(focusedSong.id);
-    const appliedTags = songTags.filter((tag) => tag.applied);
-    const availableTags = songTags.filter((tag) => !tag.applied);
-
+    } = useSongTagEditor(focusedSong.id, enabled);
     return (
         <View className="flex-1">
             <ScrollView
@@ -53,58 +60,43 @@ export function TagsPage({ focusedSong }: { focusedSong: FocusedSong }) {
                 contentContainerStyle={{ paddingBottom: insets.bottom + 16 }}
                 showsVerticalScrollIndicator={false}
             >
-                <View className="flex-row items-center gap-3">
-                    <View className="flex-1">
-                        <Text className="text-2xl font-bold text-foreground">
-                            Tags
-                        </Text>
-                        <Text
-                            className="mt-0.5 text-base text-muted-foreground"
-                            numberOfLines={1}
-                        >
-                            {focusedSong.title}
-                        </Text>
-                    </View>
-                    <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel="Create a new tag"
-                        onPress={openCreateTag}
-                        style={({ pressed }) =>
-                            pressed ? { opacity: 0.7 } : null
-                        }
+                <View>
+                    <Text className="text-2xl font-bold text-foreground">
+                        Tags
+                    </Text>
+                    <Text
+                        className="mt-0.5 text-base text-muted-foreground"
+                        numberOfLines={1}
                     >
-                        <View className="h-10 flex-row items-center gap-1 overflow-hidden rounded-full border border-border px-3">
-                            <GlassSurface style={StyleSheet.absoluteFill} />
-                            <Ionicons name="add" size={18} color="#888888" />
-                            <Text className="text-sm font-medium">New</Text>
-                        </View>
-                    </Pressable>
+                        {focusedSong.title}
+                    </Text>
                 </View>
 
-                <TagSection
-                    heading="On this song"
-                    tags={appliedTags}
-                    emptyLabel="No tags on this song yet."
-                    onSelectTag={selectTag}
-                />
-                <DefaultTagSection
-                    tags={defaultTags}
-                    onSelectTag={selectDefaultTag}
-                    onRemoveTag={removeDefaultTag}
-                />
-                <TagSection
-                    heading="Your other tags"
-                    tags={availableTags}
-                    emptyLabel="Every tag you have is already on this song."
-                    onSelectTag={selectTag}
-                />
+                {!enabled ? null : editorLoaded ? (
+                    <View className="gap-4">
+                        <TagSelector
+                            contextKey={focusedSong.id}
+                            tags={songTags}
+                            suggestedTags={defaultTags}
+                            suggestedLoading={suggestedTagsLoading}
+                            forceVisibleTagIds={recentTagIds}
+                            onToggleTag={(tag) => selectTag(tag.id)}
+                            onChooseSuggested={(tag) =>
+                                selectDefaultTag(tag.id)
+                            }
+                            onDismissSuggested={setMenuTag}
+                            onCreateTag={onTagCreated}
+                            errorMessage={editorError}
+                        />
+                        <ActivityTagSection
+                            key={focusedSong.id}
+                            songId={focusedSong.id}
+                        />
+                    </View>
+                ) : (
+                    <ActivityIndicator accessibilityLabel="Loading tags" />
+                )}
             </ScrollView>
-
-            <CreateTagDialog
-                open={createTagOpen}
-                onOpenChange={onCreateTagOpenChange}
-                onCreated={onTagCreated}
-            />
 
             <TagValueDialog
                 open={valuePrompt != null}
@@ -115,119 +107,87 @@ export function TagsPage({ focusedSong }: { focusedSong: FocusedSong }) {
                 onRemove={onValueRemove}
                 onClose={onValueDialogClose}
             />
-        </View>
-    );
-}
-
-function TagSection({
-    heading,
-    tags,
-    emptyLabel,
-    onSelectTag,
-}: {
-    heading: string;
-    tags: EditableSongTag[];
-    emptyLabel: string;
-    onSelectTag: (tagId: number) => void;
-}) {
-    return (
-        <View className="gap-2">
-            <Text className="text-sm font-medium text-muted-foreground">
-                {heading}
-            </Text>
-            {tags.length === 0 ? (
-                <Text className="text-sm text-muted-foreground">
-                    {emptyLabel}
-                </Text>
-            ) : (
-                <View className="flex-row flex-wrap gap-2">
-                    {tags.map((tag) => (
-                        <Pressable
-                            key={tag.id}
-                            accessibilityRole="button"
-                            accessibilityLabel={`${tag.applied ? "Remove" : "Add"} ${tag.name} tag`}
-                            accessibilityState={{ selected: tag.applied }}
-                            onPress={() => onSelectTag(tag.id)}
-                            // Unapplied tags read as available rather than as
-                            // absent, so they are dimmed, not restyled.
-                            className={
-                                tag.applied
-                                    ? "active:opacity-70"
-                                    : "opacity-45 active:opacity-70"
-                            }
-                        >
-                            <TagPill
-                                tag={tag}
-                                height={14}
-                                value={tag.applied ? tag.value : null}
-                            />
-                        </Pressable>
-                    ))}
-                </View>
-            )}
-        </View>
-    );
-}
-
-/**
- * The song's shared default tags, unfilled because they belong to everyone
- * rather than to this user. Tapping one copies it into the user's own tags and
- * puts it on the song, so it moves up to "On this song". A long press opens
- * `SuggestedTagMenu` for that pill instead, which is how one gets removed.
- * Nothing shows when the song has none.
- */
-function DefaultTagSection({
-    tags,
-    onSelectTag,
-    onRemoveTag,
-}: {
-    tags: Tag[];
-    onSelectTag: (tagId: number) => void;
-    onRemoveTag: (tagId: number) => Promise<void>;
-}) {
-    const [menuTag, setMenuTag] = useState<Tag | null>(null);
-
-    if (tags.length === 0) return null;
-
-    return (
-        <View className="gap-2">
-            <Text className="text-sm font-medium text-muted-foreground">
-                Suggested tags
-            </Text>
-            <View className="flex-row flex-wrap gap-2">
-                {tags.map((tag) => (
-                    <Pressable
-                        key={tag.id}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Add ${tag.name} tag`}
-                        onPress={() => onSelectTag(tag.id)}
-                        onLongPress={() => setMenuTag(tag)}
-                        className="active:opacity-70"
-                    >
-                        <TagPill tag={tag} height={14} inverted />
-                    </Pressable>
-                ))}
-            </View>
 
             <SuggestedTagMenu
                 tag={menuTag}
-                onRemove={onRemoveTag}
+                onRemove={removeDefaultTag}
                 onClose={() => setMenuTag(null)}
             />
         </View>
     );
 }
 
-/**
- * The long-press menu on one suggested tag. Same liquid-glass `ModalPopup` the
- * "..." menus use, with one action: Remove this takes the suggestion off the
- * song for this user only, leaving it there for everyone else.
- *
- * The menu closes first and the removal runs after, the same as the `...`
- * menus, so the sheet never sits there waiting on a request. The pill itself
- * goes when the default tag read comes back without it, and
- * `MusicListActionButton` logs a removal that did not save.
- */
+function ActivityTagSection({ songId }: { songId: string }) {
+    const [expanded, setExpanded] = useState(false);
+    const { colors } = useTheme();
+    const {
+        activityTagsOnSong: tags = [],
+        activityTagsOnSongLoading: loading,
+        activityTagsOnSongErr: error,
+    } = useActivityTagsOnSong(expanded ? songId : undefined);
+
+    return (
+        <TagSelectorPanel
+            heading={
+                <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`${expanded ? "Collapse" : "Expand"} activity tags`}
+                    accessibilityState={{ expanded }}
+                    className="flex-row items-center justify-between active:opacity-70"
+                    onPress={() => setExpanded((current) => !current)}
+                >
+                    <Text className="text-base font-semibold text-foreground">
+                        Activity Tags
+                    </Text>
+                    <Ionicons
+                        name={expanded ? "chevron-up" : "chevron-down"}
+                        size={20}
+                        color={colors.text}
+                    />
+                </Pressable>
+            }
+        >
+            {expanded ? (
+                <Animated.View
+                    className="gap-3"
+                    entering={FadeIn.duration(140)}
+                    exiting={FadeOut.duration(100)}
+                    layout={LinearTransition.duration(160)}
+                >
+                    {loading ? (
+                        <ActivityIndicator accessibilityLabel="Loading activity tags" />
+                    ) : error ? (
+                        <Text className="text-sm text-muted-foreground">
+                            Activity tags are unavailable right now.
+                        </Text>
+                    ) : (
+                        <View className="flex-row flex-wrap gap-2">
+                            {tags.map((tag) => (
+                                <View
+                                    key={tag.id}
+                                    accessible
+                                    accessibilityLabel={`${tag.name}: ${formatTagValue(tag.type, activityTagDisplayValue(tag))}`}
+                                >
+                                    <TagPill
+                                        tag={tag}
+                                        height={14}
+                                        value={activityTagDisplayValue(tag)}
+                                    />
+                                </View>
+                            ))}
+                        </View>
+                    )}
+                    <Text className="text-xs text-muted-foreground">
+                        Set by what you listen to. You can filter on these in
+                        the advanced query builder.
+                    </Text>
+                </Animated.View>
+            ) : null}
+        </TagSelectorPanel>
+    );
+}
+
+/** Long-press action that hides one suggestion for this user and song. */
 function SuggestedTagMenu({
     tag,
     onRemove,

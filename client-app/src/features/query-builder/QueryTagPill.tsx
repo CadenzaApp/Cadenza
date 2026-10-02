@@ -20,16 +20,15 @@ export function QueryTagPill({
             <TagPill
                 tag={queryTag.tag}
                 height={height}
-                inverted={queryTag.suggested}
+                suggested={queryTag.suggested}
+                leadingIconName={queryTag.suggested ? "sparkles" : undefined}
             />
         </View>
     );
 }
 
 /**
- * A suggested (default) tag in the palette. Inverted so it reads as a shared
- * suggestion rather than one of the user's own tags, the same way it does once
- * it is in the query.
+ * A suggested (default) tag in the palette, marked by italic text and sparkles.
  */
 export function SuggestedTagPill({ tag }: { tag: Tag }) {
     return (
@@ -39,7 +38,12 @@ export function SuggestedTagPill({ tag }: { tag: Tag }) {
             accessibilityLabel={`${tag.name}, suggested tag`}
             accessibilityHint="Drag this tag into the query"
         >
-            <TagPill tag={tag} height={14} inverted />
+            <TagPill
+                tag={tag}
+                height={14}
+                suggested
+                leadingIconName="sparkles"
+            />
         </View>
     );
 }

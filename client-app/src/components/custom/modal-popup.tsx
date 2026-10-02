@@ -18,8 +18,10 @@ type ModalPopupProps = {
     title?: string;
     children: ReactNode;
     contentStyle?: StyleProp<ViewStyle>;
-    /** Liquid glass by default; "solid" is the explicit compatibility escape hatch. */
-    variant?: "solid" | "glass";
+    /** Overrides the default backdrop padding around the popup. */
+    backdropClassName?: string;
+    /** Liquid glass by default; solid and transparent are explicit shells. */
+    variant?: "solid" | "glass" | "transparent";
 };
 
 /** Shared modal popup with the app's standard fade and outside-tap dismissal. */
@@ -29,6 +31,7 @@ export function ModalPopup({
     title,
     children,
     contentStyle,
+    backdropClassName,
     variant = "glass",
 }: ModalPopupProps) {
     return (
@@ -39,7 +42,10 @@ export function ModalPopup({
             onRequestClose={onClose}
         >
             <Pressable
-                className="flex-1 items-center justify-center bg-black/70 px-4 py-8"
+                className={cn(
+                    "flex-1 items-center justify-center bg-black/70 px-4 py-8",
+                    backdropClassName,
+                )}
                 onPress={onClose}
             >
                 <Pressable

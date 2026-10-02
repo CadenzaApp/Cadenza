@@ -3,23 +3,27 @@ use std::collections::{HashMap, HashSet};
 use sea_orm::{
     ActiveEnum, ActiveModelTrait,
     ActiveValue::{NotSet, Set},
-    ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, FromQueryResult, JoinType,
-    ModelTrait, QueryFilter, QueryOrder, QuerySelect, RelationTrait, Select, SelectTwo,
-    TransactionTrait,
+    ColumnTrait, ConnectionTrait, DatabaseConnection, DbBackend, EntityTrait, FromQueryResult,
+    JoinType, ModelTrait, QueryFilter, QueryOrder, QuerySelect, RelationTrait, Select, SelectTwo,
+    Statement, TransactionTrait,
     prelude::Uuid,
-    sea_query::{Expr, ExprTrait, IntoCondition, OnConflict},
+    sea_query::{Expr, ExprTrait, IntoCondition, LockType, OnConflict},
 };
 use serde::Serialize;
 
 use crate::db::entity::sea_orm_active_enums::{TagGenStatus, TagType};
 use crate::db::entity::*;
-use crate::db::tag_activity::{count_tag_applied, count_tag_removed, count_tag_unapplied};
+use crate::db::tag_activity::{
+    count_tag_applied, count_tag_removed, count_tag_unapplied, count_tags_applied,
+    count_tags_unapplied,
+};
 use crate::err::CadenzaError;
 use crate::services::tag_generation::TagSpecs;
+use crate::services::tag_normalizer::normalize_tag_name;
 use crate::services::tag_values::canonicalize_tag_value;
 
 pub async fn get_all_user_tags(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     user_id: Uuid,
 ) -> Result<Vec<tags::Model>, CadenzaError> {
     Ok(tags::Entity::find()
@@ -36,7 +40,8 @@ const NORMALIZED_TAG_NAME_SQL: &str =
     "lower(left(btrim(regexp_replace(tags.name, '\\s+', ' ', 'g')), 50))";
 
 /// The user's own tags and the shared default tags whose names normalize to one
-/// of `names`, oldest first. Other users' tags are never included.
+/// of `names`, oldest first. Other users' tags and activity tags are never
+/// included.
 pub async fn get_tags_named(
     db: &impl ConnectionTrait,
     user_id: Uuid,
@@ -57,6 +62,8 @@ fn tags_named_select(user_id: Uuid, names: &[String]) -> Select<tags::Entity> {
                 .eq(user_id)
                 .or(tags::Column::UserId.is_null()),
         )
+        // activity tags have no owner either, but they are not default tags
+        .filter(tags::Column::IsActivity.eq(false))
         .filter(Expr::cust(NORMALIZED_TAG_NAME_SQL).is_in(names.iter().cloned()))
         .order_by_asc(tags::Column::TagId)
 }
@@ -93,6 +100,9 @@ fn default_tag_search_query(search: &str, limit: u64) -> Select<tags::Entity> {
     }
 
     query
+        // activity tags have no owner either, but they are not default tags.
+        // Filtered after the search so the search text stays the first value.
+        .filter(tags::Column::IsActivity.eq(false))
         .join_rev(
             JoinType::LeftJoin,
             default_tags_applied::Relation::Tags.def(),
@@ -106,23 +116,26 @@ fn default_tag_search_query(search: &str, limit: u64) -> Select<tags::Entity> {
         .limit(limit)
 }
 
-pub async fn get_tag(
-    db: &DatabaseConnection,
+pub async fn get_user_tag(
+    db: &impl ConnectionTrait,
+    user_id: Uuid,
     tag_id: i64,
 ) -> Result<Option<tags::Model>, CadenzaError> {
-    Ok(tags::Entity::find_by_id(tag_id).one(db).await?)
+    Ok(user_tag_select(user_id, tag_id).one(db).await?)
+}
+
+fn user_tag_select(user_id: Uuid, tag_id: i64) -> Select<tags::Entity> {
+    tags::Entity::find_by_id(tag_id).filter(tags::Column::UserId.eq(user_id))
 }
 
 /// Fetches a tag belonging to the given user. Applying a tag needs its type in
 /// order to validate the value, so this doubles as the ownership check.
 async fn get_owned_tag(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     user_id: Uuid,
     tag_id: i64,
 ) -> Result<tags::Model, CadenzaError> {
-    tags::Entity::find_by_id(tag_id)
-        .filter(tags::Column::UserId.eq(user_id))
-        .one(db)
+    get_user_tag(db, user_id, tag_id)
         .await?
         .ok_or(CadenzaError::NotFound)
 }
@@ -363,17 +376,118 @@ pub async fn new_user_tag(
     color: String,
     tag_type: TagType,
 ) -> Result<i64, CadenzaError> {
+    let txn = db.begin().await?;
+    lock_user_tag_names(&txn, user_id).await?;
+    let user_tags = get_all_user_tags(&txn, user_id).await?;
+    if user_tags
+        .iter()
+        .any(|tag| normalize_tag_name(&tag.name) == normalize_tag_name(&name))
+    {
+        return Err(CadenzaError::TagNameAlreadyTaken);
+    }
+
     let new_tag = tags::ActiveModel {
         tag_id: NotSet,
         user_id: Set(Some(user_id)),
         name: Set(name),
         color: Set(color),
         r#type: Set(tag_type),
-        is_activity: NotSet,
+        is_activity: Set(false),
     };
-    let new_tag = new_tag.insert(&db).await?;
+    let new_tag = new_tag.insert(&txn).await?;
+    txn.commit().await?;
 
     Ok(new_tag.tag_id)
+}
+
+/// Changes the editable fields on one of the user's tags and returns it.
+pub async fn update_user_tag(
+    db: DatabaseConnection,
+    user_id: Uuid,
+    tag_id: i64,
+    name: Option<String>,
+    color: Option<String>,
+) -> Result<tags::Model, CadenzaError> {
+    let txn = db.begin().await?;
+    if name.is_some() {
+        lock_user_tag_names(&txn, user_id).await?;
+    }
+    let tag = if name.is_some() {
+        // Lock this user's current tag namespace until the update commits. This
+        // serializes concurrent renames without a schema migration, so a waiter
+        // checks the names again after the first rename becomes visible.
+        let user_tags = owned_tags_for_update_select(user_id).all(&txn).await?;
+        let tag = user_tags
+            .iter()
+            .find(|tag| tag.tag_id == tag_id)
+            .cloned()
+            .ok_or(CadenzaError::NotFound)?;
+
+        if matches_another_tag_name(
+            tag_id,
+            name.as_deref().unwrap_or_default(),
+            user_tags
+                .iter()
+                .map(|other_tag| (other_tag.tag_id, other_tag.name.as_str())),
+        ) {
+            return Err(CadenzaError::TagNameAlreadyTaken);
+        }
+        tag
+    } else {
+        get_owned_tag(&txn, user_id, tag_id).await?
+    };
+    let mut tag: tags::ActiveModel = tag.into();
+
+    if let Some(name) = name {
+        tag.name = Set(name);
+    }
+    if let Some(color) = color {
+        tag.color = Set(color);
+    }
+
+    let tag = tag.update(&txn).await?;
+    txn.commit().await?;
+    Ok(tag)
+}
+
+/**
+ * Serializes user-tag name creation and renaming for one user. This closes the
+ * insert/rename gap that row locks alone cannot cover, including a user with no
+ * tag rows yet. It remains an application convention rather than a database
+ * invariant, so a unique normalized-name constraint is still the durable fix.
+ */
+async fn lock_user_tag_names(db: &impl ConnectionTrait, user_id: Uuid) -> Result<(), CadenzaError> {
+    db.execute_raw(lock_user_tag_names_statement(user_id))
+        .await?;
+    Ok(())
+}
+
+fn lock_user_tag_names_statement(user_id: Uuid) -> Statement {
+    Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+        [user_id.to_string().into()],
+    )
+}
+
+/** Locks a user's tags in stable order for a transaction that changes a name. */
+fn owned_tags_for_update_select(user_id: Uuid) -> Select<tags::Entity> {
+    tags::Entity::find()
+        .filter(tags::Column::UserId.eq(user_id))
+        .order_by_asc(tags::Column::TagId)
+        .lock(LockType::Update)
+}
+
+/** Whether `name` has the normalized name of another tag owned by this user. */
+fn matches_another_tag_name<'a>(
+    tag_id: i64,
+    name: &str,
+    tags: impl IntoIterator<Item = (i64, &'a str)>,
+) -> bool {
+    let normalized_name = normalize_tag_name(name);
+    tags.into_iter().any(|(other_tag_id, other_name)| {
+        other_tag_id != tag_id && normalize_tag_name(other_name) == normalized_name
+    })
 }
 
 pub async fn delete_user_tag(
@@ -453,7 +567,8 @@ pub async fn set_user_tag_value(
 
 /// Takes one of the user's tags off a song, and takes their apply of the tag's
 /// name on the song back off its count (see [`count_tag_unapplied`]). No-ops if
-/// the tag isn't on the song.
+/// the tag isn't on the song. `ActivityTagReadOnly` for an activity tag, whose
+/// values only the api writes.
 pub async fn unapply_user_tag(
     db: DatabaseConnection,
     user_id: Uuid,
@@ -471,6 +586,13 @@ pub async fn unapply_user_tag(
         .one(&txn)
         .await?;
 
+    // activity tags are written by the api as the user listens, never by hand
+    if let Some((_, Some(tag))) = &applied
+        && tag.is_activity
+    {
+        return Err(CadenzaError::ActivityTagReadOnly);
+    }
+
     // the count this request took off, if it is the one that removed the tag
     let mut recorded = None;
     if let Some((applied_tag, tag)) = applied {
@@ -486,6 +608,148 @@ pub async fn unapply_user_tag(
     // log the count only once it is committed
     if let Some(recorded) = recorded {
         recorded.log();
+    }
+    Ok(())
+}
+
+/// Applies every requested user tag to every requested song in one transaction.
+/// Existing relations are left alone, including any attribute values they hold.
+pub async fn apply_user_tags_to_songs(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+    song_ids: &[String],
+    tag_ids: &[i64],
+) -> Result<(), CadenzaError> {
+    if song_ids.is_empty() || tag_ids.is_empty() {
+        return Ok(());
+    }
+
+    // Keep lock acquisition and generated SQL deterministic. Apart from making
+    // this easier to inspect, a stable order lowers the chance that two large
+    // overlapping edits deadlock each other.
+    let mut song_ids: Vec<String> = song_ids
+        .iter()
+        .cloned()
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+    song_ids.sort_unstable();
+    let mut tag_ids: Vec<i64> = tag_ids
+        .iter()
+        .copied()
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+    tag_ids.sort_unstable();
+    let txn = db.begin().await?;
+    let owned_tags = tags::Entity::find()
+        .filter(tags::Column::UserId.eq(user_id))
+        .filter(tags::Column::TagId.is_in(tag_ids.iter().copied()))
+        .all(&txn)
+        .await?;
+    if owned_tags.len() != tag_ids.len() {
+        return Err(CadenzaError::NotFound);
+    }
+    let tags_by_id: HashMap<i64, tags::Model> = owned_tags
+        .into_iter()
+        .map(|tag| (tag.tag_id, tag))
+        .collect();
+    let relations = song_ids.iter().flat_map(|song_id| {
+        tag_ids.iter().map(|tag_id| user_tags_applied::ActiveModel {
+            user_id: Set(user_id),
+            song_id: Set(song_id.clone()),
+            tag_id: Set(*tag_id),
+            value: Set(None),
+        })
+    });
+    // The unique relation is the source of truth. ON CONFLICT makes concurrent
+    // requests idempotent, and RETURNING tells us exactly which applies this
+    // transaction owns and should count.
+    let inserted = user_tags_applied::Entity::insert_many(relations)
+        .on_conflict(
+            OnConflict::columns([
+                user_tags_applied::Column::SongId,
+                user_tags_applied::Column::UserId,
+                user_tags_applied::Column::TagId,
+            ])
+            .do_nothing()
+            .to_owned(),
+        )
+        .exec_with_returning(&txn)
+        .await?;
+    let activity_changes = inserted
+        .into_iter()
+        .map(|relation| {
+            let tag = &tags_by_id[&relation.tag_id];
+            (relation.song_id, tag.name.clone(), tag.color.clone())
+        })
+        .collect();
+    let recorded = count_tags_applied(&txn, user_id, activity_changes).await?;
+
+    txn.commit().await?;
+    for activity in recorded {
+        activity.log();
+    }
+    Ok(())
+}
+
+/// Removes every requested user tag from every requested song in one transaction.
+/// Missing relations are no-ops.
+pub async fn unapply_user_tags_from_songs(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+    song_ids: &[String],
+    tag_ids: &[i64],
+) -> Result<(), CadenzaError> {
+    if song_ids.is_empty() || tag_ids.is_empty() {
+        return Ok(());
+    }
+
+    let mut song_ids: Vec<String> = song_ids
+        .iter()
+        .cloned()
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+    song_ids.sort_unstable();
+    let mut tag_ids: Vec<i64> = tag_ids
+        .iter()
+        .copied()
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+    tag_ids.sort_unstable();
+    let txn = db.begin().await?;
+    let owned_tags = tags::Entity::find()
+        .filter(tags::Column::UserId.eq(user_id))
+        .filter(tags::Column::TagId.is_in(tag_ids.iter().copied()))
+        .all(&txn)
+        .await?;
+    if owned_tags.len() != tag_ids.len() {
+        return Err(CadenzaError::NotFound);
+    }
+    let tags_by_id: HashMap<i64, tags::Model> = owned_tags
+        .into_iter()
+        .map(|tag| (tag.tag_id, tag))
+        .collect();
+    // DELETE ... RETURNING avoids the read/delete race and turns one query per
+    // relation into one statement. Only rows removed by this transaction are
+    // counted below.
+    let removed = user_tags_applied::Entity::delete_many()
+        .filter(user_tags_applied::Column::UserId.eq(user_id))
+        .filter(user_tags_applied::Column::SongId.is_in(song_ids.iter().cloned()))
+        .filter(user_tags_applied::Column::TagId.is_in(tag_ids.iter().copied()))
+        .exec_with_returning(&txn)
+        .await?;
+    let activity_changes = removed
+        .into_iter()
+        .map(|relation| (relation.song_id, tags_by_id[&relation.tag_id].name.clone()))
+        .collect();
+    let recorded = count_tags_unapplied(&txn, user_id, activity_changes).await?;
+
+    txn.commit().await?;
+    for activity in recorded {
+        activity.log();
     }
     Ok(())
 }
@@ -510,6 +774,7 @@ pub async fn remove_default_tag_from_song(
     let (_, tag) = default_tags_applied::Entity::find_by_id((song_id.clone(), tag_id))
         .find_also_related(tags::Entity)
         .filter(tags::Column::UserId.is_null())
+        .filter(tags::Column::IsActivity.eq(false))
         .one(&txn)
         .await?
         .ok_or(CadenzaError::NotFound)?;
@@ -561,6 +826,7 @@ pub async fn add_default_tag_to_song(
     // reuse the default tag with this name, the oldest if there are several
     let existing = tags::Entity::find()
         .filter(tags::Column::UserId.is_null())
+        .filter(tags::Column::IsActivity.eq(false))
         .filter(tags::Column::Name.eq(name))
         .order_by_asc(tags::Column::TagId)
         .one(db)
@@ -576,7 +842,7 @@ pub async fn add_default_tag_to_song(
                 name: Set(name.to_owned()),
                 color: Set(color.to_owned()),
                 r#type: NotSet,
-                is_activity: NotSet,
+                is_activity: Set(false),
             }
             .insert(db)
             .await?;
@@ -627,6 +893,7 @@ fn default_tags_on_songs_query(
         .filter(default_tags_removed::Column::UserId.is_null())
         .find_also_related(tags::Entity)
         .filter(tags::Column::UserId.is_null())
+        .filter(tags::Column::IsActivity.eq(false))
 }
 
 /// Returns the default tags on each given song as this user sees them, keyed by
@@ -675,6 +942,7 @@ pub async fn set_default_tags_on_songs(
 
     let mut name_to_tag: HashMap<&str, tags::Model> = tags::Entity::find()
         .filter(tags::Column::UserId.is_null())
+        .filter(tags::Column::IsActivity.eq(false))
         .filter(tags::Column::Name.is_in(new_tags.keys().copied()))
         .all(db)
         .await?
@@ -693,7 +961,7 @@ pub async fn set_default_tags_on_songs(
             name: Set(new_tag.name.clone()),
             color: Set(new_tag.color.clone()),
             r#type: NotSet,
-            is_activity: NotSet,
+            is_activity: Set(false),
         }
         .insert(db)
         .await?;
@@ -752,7 +1020,7 @@ mod tests {
 
         assert!(
             sql.ends_with(
-                r#"WHERE ("tags"."user_id" = '00000000-0000-0000-0000-000000000000' OR "tags"."user_id" IS NULL) AND (lower(left(btrim(regexp_replace(tags.name, '\s+', ' ', 'g')), 50))) IN ('pop', 'road trip') ORDER BY "tags"."tag_id" ASC"#
+                r#"WHERE ("tags"."user_id" = '00000000-0000-0000-0000-000000000000' OR "tags"."user_id" IS NULL) AND "tags"."is_activity" = FALSE AND (lower(left(btrim(regexp_replace(tags.name, '\s+', ' ', 'g')), 50))) IN ('pop', 'road trip') ORDER BY "tags"."tag_id" ASC"#
             ),
             "{sql}"
         );
@@ -824,6 +1092,62 @@ mod tests {
             search_sql("rock").contains("strpos"),
             "{}",
             search_sql("rock")
+        );
+    }
+
+    #[test]
+    fn another_owned_tag_with_the_same_normalized_name_is_taken() {
+        assert!(matches_another_tag_name(
+            7,
+            "  Alt   Rock ",
+            [(7, "alt rock"), (8, "ALT ROCK"), (9, "jazz")],
+        ));
+        assert!(!matches_another_tag_name(
+            7,
+            "alt rock",
+            [(7, "ALT ROCK"), (8, "jazz")],
+        ));
+    }
+
+    #[test]
+    fn rename_locks_all_of_the_users_tags_in_stable_order() {
+        let sql = owned_tags_for_update_select(Uuid::nil())
+            .build(sea_orm::DbBackend::Postgres)
+            .to_string();
+
+        assert!(
+            sql.ends_with(
+                r#"WHERE "tags"."user_id" = '00000000-0000-0000-0000-000000000000' ORDER BY "tags"."tag_id" ASC FOR UPDATE"#
+            ),
+            "{sql}"
+        );
+    }
+
+    #[test]
+    fn tag_name_writes_share_a_per_user_transaction_lock() {
+        let statement = lock_user_tag_names_statement(Uuid::nil());
+
+        assert_eq!(
+            statement.sql,
+            "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))"
+        );
+        assert_eq!(
+            statement.values.unwrap().0,
+            [sea_query::Value::from(Uuid::nil().to_string())]
+        );
+    }
+
+    #[test]
+    fn one_tag_read_is_scoped_to_its_owner() {
+        let sql = user_tag_select(Uuid::nil(), 42)
+            .build(sea_orm::DbBackend::Postgres)
+            .to_string();
+
+        assert!(
+            sql.ends_with(
+                r#"WHERE "tags"."tag_id" = 42 AND "tags"."user_id" = '00000000-0000-0000-0000-000000000000'"#
+            ),
+            "{sql}"
         );
     }
 

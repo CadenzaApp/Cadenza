@@ -66,11 +66,23 @@ export type MusicListTrackAction = MusicListAction<MusicItem> & {
 
 export type MusicListSelectionAction = MusicListAction<readonly MusicItem[]>;
 
+export type MusicListSelectionActionDefinition =
+    | { kind: "add-to-queue"; label?: string }
+    | {
+          kind: "apply-tags";
+          label?: string;
+          excludedTagIds?: readonly number[];
+      }
+    | { kind: "remove-tags"; label?: string }
+    | { kind: "custom"; action: MusicListSelectionAction };
+
 export type MusicListMultiSelectConfig = {
-    /** Include the built-in Add to Queue action. Defaults to true. */
-    includeAddToQueue?: boolean;
-    /** Additional actions shown after the built-in action. */
-    actions?: readonly MusicListSelectionAction[];
+    /**
+     * Exact left-to-right action order. Omit for Apply tags, Remove tags, then
+     * Add to queue. Built-ins are discriminated so labels cannot accidentally
+     * change behavior.
+     */
+    actions?: readonly MusicListSelectionActionDefinition[];
     /** Receives selected tracks in their current displayed order. */
     onSelectionChange?: (tracks: readonly MusicItem[]) => void;
 };
@@ -92,7 +104,7 @@ export type MusicListProps = {
     multiSelect?: MusicListMultiSelectConfig | null;
     /** Extends row backgrounds edge-to-edge while preserving content insets. */
     fullBleedRows?: boolean;
-    /** Overrides the 24px content inset used by full-bleed rows. */
+    /** Overrides the 18px content inset used by full-bleed rows. */
     fullBleedRowHorizontalPadding?: number;
     /** Theme surface beneath transparent rows and their tag-edge fade. */
     rowSurfaceColor?: ThemeColorToken;
@@ -106,6 +118,12 @@ export type MusicListProps = {
     showTags?: boolean;
     /** Tag names placed first, in this order, in every row's tag rail. */
     mostRelevantTags?: readonly string[];
+    /**
+     * Activity tags to show first in every row's tag rail, with the row's own
+     * value. Query results pass the ones the query filters on. Omitted or
+     * empty, rows show no activity tags and none are fetched.
+     */
+    activityTagIds?: readonly number[];
     anticipatedTrackCount?: number;
     /** Content rendered above the first row inside the list's scroll surface. */
     header?: ReactNode;
