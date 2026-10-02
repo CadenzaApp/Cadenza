@@ -5,6 +5,18 @@ import { BACKEND_URL } from "./backend";
 import { getAccessToken } from "./supabase";
 import { matchesEndpoint, type APIDataEndpoint } from "./api-endpoints";
 
+type BatchedReadCacheEntry = {
+    path: string;
+    items: readonly unknown[];
+    response: Promise<unknown>;
+};
+
+// SWR caches the merged result for each caller. This smaller read-through
+// cache preserves completed transport chunks when a paginated caller appends
+// more ids and therefore changes its merged SWR key.
+const batchedReadCache = new Map<string, BatchedReadCacheEntry>();
+const MAX_BATCHED_READ_CACHE_ENTRIES = 256;
+
 function queryParamsToStr(params?: Record<string, any>) {
     return !params || Object.keys(params).length === 0
         ? ""
@@ -75,7 +87,21 @@ async function apiRequest<Output>(
 
 /** Revalidates every cached `api-data` read that matches one of the endpoints */
 export function invalidateAPIData(endpoints: APIDataEndpoint[]) {
-    mutate((key: unknown) =>
+    for (const [key, entry] of batchedReadCache) {
+        if (
+            endpoints.some(
+                (endpoint) =>
+                    endpoint.path === entry.path &&
+                    (endpoint.item === undefined ||
+                        entry.items.some((item) =>
+                            Object.is(item, endpoint.item),
+                        )),
+            )
+        ) {
+            batchedReadCache.delete(key);
+        }
+    }
+    return mutate((key: unknown) =>
         endpoints.some((endpoint) => matchesEndpoint(key, endpoint)),
     );
 }
@@ -87,6 +113,16 @@ export function useAPIMutation<RequestBody, Response>(
     invalidatedEndpoints:
         | ((body: RequestBody) => APIDataEndpoint[])
         | APIDataEndpoint[] = [],
+    options?: {
+        /**
+         * Background is the responsive default. Use await only when the caller
+         * cannot proceed until fresh reads arrive, or none when a coordinator
+         * will invalidate once after several related writes.
+         */
+        invalidation?: "background" | "await" | "none";
+        /** @deprecated Prefer `invalidation: "await"`. */
+        awaitInvalidation?: boolean;
+    },
 ) {
     const { account } = useAccount();
 
@@ -98,11 +134,23 @@ export function useAPIMutation<RequestBody, Response>(
                 body,
             });
 
-            invalidateAPIData(
-                Array.isArray(invalidatedEndpoints)
-                    ? invalidatedEndpoints
-                    : invalidatedEndpoints(body),
-            );
+            const invalidationMode =
+                options?.invalidation ??
+                (options?.awaitInvalidation ? "await" : "background");
+            if (invalidationMode !== "none") {
+                const invalidation = invalidateAPIData(
+                    Array.isArray(invalidatedEndpoints)
+                        ? invalidatedEndpoints
+                        : invalidatedEndpoints(body),
+                );
+                if (invalidationMode === "await") {
+                    await invalidation;
+                } else {
+                    void invalidation.catch((error) =>
+                        console.error("API cache refresh failed", error),
+                    );
+                }
+            }
 
             return data;
         },
@@ -182,17 +230,37 @@ export function useAPIPostDataBatched<Item, Body, Output>(
     const { account } = useAccount();
 
     return useSWR(
-        account
+        account && items.length > 0
             ? { keyType: "api-data", path, items, accountId: account.id }
             : null,
         async () => {
             const responses = await Promise.all(
-                chunk(items, batchSize).map((batch) =>
-                    apiRequest<Output>(BACKEND_URL + path, {
+                chunk(items, batchSize).map((batch) => {
+                    const cacheKey = JSON.stringify([account!.id, path, batch]);
+                    const cached = batchedReadCache.get(cacheKey);
+                    if (cached) return cached.response as Promise<Output>;
+
+                    const response = apiRequest<Output>(BACKEND_URL + path, {
                         method: "POST",
                         body: toBody(batch),
-                    }),
-                ),
+                    }).catch((error) => {
+                        batchedReadCache.delete(cacheKey);
+                        throw error;
+                    });
+                    batchedReadCache.set(cacheKey, {
+                        path,
+                        items: batch,
+                        response,
+                    });
+                    while (
+                        batchedReadCache.size > MAX_BATCHED_READ_CACHE_ENTRIES
+                    ) {
+                        const oldestKey = batchedReadCache.keys().next().value;
+                        if (oldestKey === undefined) break;
+                        batchedReadCache.delete(oldestKey);
+                    }
+                    return response;
+                }),
             );
 
             return merge(responses);

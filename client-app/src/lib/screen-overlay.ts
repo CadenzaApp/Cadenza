@@ -68,6 +68,9 @@ const PLAYER_OVERLAY_SEGMENTS = new Set([
     "query-results",
 ]);
 
+/** Routes whose player is still hosted outside their screen content. */
+const ROOT_PLAYER_OVERLAY_SEGMENTS = new Set(["query-results"]);
+
 type BottomBarVisibility = {
     suppressed: boolean;
     setSuppressed: (token: string, suppressed: boolean) => void;
@@ -231,6 +234,18 @@ export function useShowsPushedPlayerOverlay() {
         !insideSheet &&
         rootSegment !== undefined &&
         PLAYER_OVERLAY_SEGMENTS.has(rootSegment)
+    );
+}
+
+/** Root screens that need the app-level player instead of card-owned chrome. */
+export function useShowsRootPlayerOverlay() {
+    const segments = useSegments();
+    const rootSegment: string | undefined = segments[0];
+    const insideSheet = useContext(InsideSheetContext);
+    return (
+        !insideSheet &&
+        rootSegment !== undefined &&
+        ROOT_PLAYER_OVERLAY_SEGMENTS.has(rootSegment)
     );
 }
 

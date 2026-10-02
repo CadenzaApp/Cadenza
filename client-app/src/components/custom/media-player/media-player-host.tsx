@@ -1,13 +1,14 @@
 import { NativeTabs } from "expo-router/unstable-native-tabs";
 import { Platform, StyleSheet, View } from "react-native";
 import { useEffect, useState } from "react";
+import { FullWindowOverlay } from "react-native-screens";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { usePlaybackTrackState } from "@/lib/playback";
 import {
     supportsNativeTabBottomAccessory,
     useBottomBarsHidden,
-    useShowsPushedPlayerOverlay,
+    useShowsRootPlayerOverlay,
 } from "@/lib/screen-overlay";
 
 import { MediaPlayer } from "./media-player";
@@ -128,17 +129,41 @@ export function MediaPlayerFallbackOverlay({
     );
 }
 
-/** Compact player over a root detail screen, where native tabs sit underneath. */
+/** Compact player owned by one zoom-dismiss card. */
+export function MediaPlayerZoomOverlay() {
+    return <StandalonePlayerOverlay />;
+}
+
+/** Compact player for pushed screens that do not own a zoom-dismiss card. */
 export function MediaPlayerPushedScreenOverlay() {
+    const visible = useShowsRootPlayerOverlay();
+
+    if (!visible) return null;
+
+    const player = <StandalonePlayerOverlay />;
+
+    // A native screen sits above ordinary React siblings on iOS, regardless
+    // of z-index. Query results do not own a zoom card, so their player stays
+    // at the root and moves to the window layer.
+    if (Platform.OS !== "ios") return player;
+
+    return (
+        <FullWindowOverlay unstable_accessibilityContainerViewIsModal={false}>
+            {player}
+        </FullWindowOverlay>
+    );
+}
+
+/** The shared standalone-player surface used by both kinds of host. */
+function StandalonePlayerOverlay() {
     const { activeTrack, isPlayerDismissed } = usePlaybackTrackState();
-    const visible = useShowsPushedPlayerOverlay();
     const hidden = useBottomBarsHidden();
     const insets = useSafeAreaInsets();
     const [failedArtworkUrl, setFailedArtworkUrl] = useState<string | null>(
         null,
     );
 
-    if (hidden || !visible || !activeTrack || isPlayerDismissed) return null;
+    if (hidden || !activeTrack || isPlayerDismissed) return null;
 
     return (
         <View

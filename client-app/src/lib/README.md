@@ -35,6 +35,7 @@ native module directly.
 | `artwork-color.ts`           | `useArtworkTint`, the color a surface paints itself with, plus alpha, darkening, and multi-artwork averaging helpers.                                                                                                                                                                             |
 | `artwork-color-utils.ts`     | Native-free channel averaging for multi-artwork tints.                                                                                                                                                                                                                                            |
 | `music-routes.ts`            | `collectionRoute` / `albumRouteForTrack`. Hrefs into the resource screens, params and all.                                                                                                                                                                                                        |
+| `music-list-preferences.tsx` | `MusicListPreferencesProvider` / `useMusicListPreferences`. The persisted device-local preference for suggested tag pills in music-list rows.                                                                                                                                                     |
 | `share-track.ts`             | `shareTrack` / `shareCollection`. Builds and fires the native share sheet for a song, album, or playlist's canonical Apple Music link.                                                                                                                                                            |
 | `screen-overlay.ts`          | `useScreenOverlayInsets`, native tab/accessory visibility, extra overlay clearance, focused-screen and keyboard suppression, and pushed-screen detection.                                                                                                                                         |
 | `screen-overlay-geometry.ts` | Pure, tested bottom-inset arithmetic shared by tab-hosted and pushed-screen compact players.                                                                                                                                                                                                      |
@@ -81,9 +82,11 @@ otherwise drop to undefined between responses. `useDefaultTags` is the caller.
 
 `useAPIPostDataBatched` exists for reads whose request is a list too long for a query string. It
 splits the list into parallel requests and merges the responses, but stays **one** `api-data`
-key so invalidation works like every other read. `useTagsOnSongs` and `useDefaultTagsOnSongs`
-are the callers: a list screen reads both, so each row can show the user's tags and the song's
-shared defaults.
+key so invalidation works like every other read. Completed transport chunks also have a small
+bounded read-through cache. Keep list chunk boundaries stable: when paging appends ids, old chunks
+must be reused and only new chunks should reach the network. Invalidation clears matching chunks
+before SWR revalidates the merged read. `useTagsOnSongs` and `useDefaultTagsOnSongs` are the main
+callers.
 
 Do not reach for `useSWRInfinite` here. `mutate(filterFn)` skips `$inf$` keys outright, and the
 per-page keys it does visit have no subscribed revalidator, so a filtered `mutate` silently
@@ -96,6 +99,10 @@ depends on what was just written. After a successful request it matches every `a
 whose `path` is equal and whose `params` are a **superset** of the listed ones. So a bare
 `{ path: "/songs/local-tags" }` invalidates the local tags of every song, while
 `{ path: "/songs/local-tags", params: { song_id } }` invalidates just the one that changed.
+Set `exactParams: true` when an endpoint uses the same path for a collection and one item and the
+mutation must distinguish them.
+For a batched key, `item` narrows invalidation to merged reads and transport chunks containing
+that song id. Use it for single-song writes so changing one row does not discard every list chunk.
 
 ```ts
 // invalidate only this song's tag list, plus the tag counts
@@ -111,6 +118,19 @@ useAPIMutation<ApplyTagPayload, void>(
 
 `invalidatedEndpoints` defaults to `[]`. A mutation that lists nothing leaves every cached
 `useAPIData` entry alone and the UI showing stale data, including caches in other route files.
+
+User-triggered writes should normally use background invalidation. Do not make a tag tap await
+every mounted list, tag detail, and query result that happens to share an endpoint. The initiating
+surface owns an optimistic state with rollback, while SWR refreshes other surfaces after the write.
+That optimistic state must remain authoritative until a refreshed read agrees with the newest
+user choice, or an older cache snapshot will cause a visible solid-outline-solid flicker.
+
+`useSongInfo` resolves ids as cached 25-song pages and exposes completed pages immediately. Do not
+collapse it back into one all-or-nothing `getSongInfo` key: tag and query screens may contain
+hundreds of ids, and their first rows should not wait for the final Apple Music request.
+Likewise, query-result resolution starts missing-id pages during a cold library scan. It may do
+some duplicate Apple reads, but waiting for the complete library walk makes deep links appear
+stuck and is not an acceptable tradeoff.
 
 ## `routes/` mirrors `backend-api/src/routes/`
 

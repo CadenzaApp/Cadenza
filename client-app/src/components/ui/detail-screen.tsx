@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { GlassIconButton } from "@/components/ui/glass-icon-button";
 import { Text } from "@/components/ui/text";
 import { TintBackdrop } from "@/components/ui/tint-backdrop";
+import { MediaPlayerZoomOverlay } from "@/components/custom/media-player";
 import { InsideSheetContext } from "@/lib/screen-overlay";
 import { useCloseScreen, ZoomDismissScreen } from "@/lib/zoom-dismiss";
 
@@ -80,7 +81,7 @@ export function DetailScreen({
     }
 
     return (
-        <ZoomDismissScreen>
+        <ZoomDismissScreen overlay={<MediaPlayerZoomOverlay />}>
             <DetailScreenBody
                 title={title}
                 onClose={onClose}

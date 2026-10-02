@@ -23,8 +23,13 @@ import { useUserTags } from "@/lib/routes/tags";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { useScreenScroll } from "@/lib/screen-scroll";
 import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
+import { useMusicListPreferences } from "@/lib/music-list-preferences";
 
-import { MusicListItem, MusicListItemSkeleton } from "./music-list-item";
+import {
+    MusicListItem,
+    MusicListItemSkeleton,
+    MUSIC_LIST_ITEM_HEIGHT,
+} from "./music-list-item";
 import { MusicListSelectionToolbar } from "./music-list-selection-toolbar";
 import { MusicListSortButton } from "./music-list-sort-button";
 import { sortTracks } from "./sort-tracks";
@@ -33,6 +38,7 @@ import {
     DEFAULT_MUSIC_LIST_SORT_OPTIONS,
     type MusicListProps,
     type MusicListSort,
+    type MusicListTrackAction,
 } from "./types";
 
 const DEFAULT_SORT: MusicListSort = {
@@ -40,33 +46,38 @@ const DEFAULT_SORT: MusicListSort = {
     direction: "ascending",
 };
 const EMPTY_TAG_NAMES: readonly string[] = [];
-const EMPTY_TAG_IDS: readonly number[] = [];
+const EMPTY_TRACK_ACTIONS: readonly MusicListTrackAction[] = [];
 const EMPTY_SONG_IDS: readonly string[] = [];
+const MAX_INITIAL_SKELETON_ROWS = 10;
+const EMPTY_ACTIVITY_TAG_IDS: readonly number[] = [];
 const MUSIC_LIST_WINDOW_SIZE = 3;
 const MUSIC_LIST_RENDER_BATCH_SIZE = 8;
-// for multiselects, if you have a really long music list
-// the animation can get laggy.
-const MAX_ANIMATED_SELECTION_TRACKS = 100;
+// Masked tag rails are substantially more expensive to move than a plain row.
+// Keep the transition for light lists and snap directly into selection mode
+// once the visible content would require too many simultaneous composites.
+const MAX_ANIMATED_SELECTION_COST = 80;
+const TAG_SELECTION_ANIMATION_COST = 2;
 const DENSITY_FADE_OUT_MS = 140;
 const DENSITY_ROW_FADE_IN_MS = 220;
 const DENSITY_ROW_STAGGER_MS = 32;
 const DENSITY_MAX_STAGGER_MS = 560;
+const MUSIC_LIST_BOTTOM_SPACER_ROWS = 2;
 
 export function MusicList({
     tracks,
     isLoading,
     onTrackPressOverride = null,
-    trackMenuActions = [],
+    trackMenuActions = EMPTY_TRACK_ACTIONS,
     multiSelect = null,
     fullBleedRows = false,
-    fullBleedRowHorizontalPadding = 24,
+    fullBleedRowHorizontalPadding = 18,
     rowSurfaceColor = "background",
     embedded = false,
     compact,
     onCompactChange,
     showTags = true,
     mostRelevantTags = EMPTY_TAG_NAMES,
-    activityTagIds = EMPTY_TAG_IDS,
+    activityTagIds = EMPTY_ACTIVITY_TAG_IDS,
     anticipatedTrackCount = 8,
     header: headerProp,
     listHeader,
@@ -79,6 +90,7 @@ export function MusicList({
 }: MusicListProps) {
     const header = headerProp ?? listHeader;
     const { togglePlayback } = usePlaybackCommands();
+    const { showSuggestedTags } = useMusicListPreferences();
     const [internalCompact, setInternalCompact] = useState(false);
     const isCompact = compact ?? internalCompact;
     const [densityTransitionRevision, setDensityTransitionRevision] =
@@ -116,19 +128,6 @@ export function MusicList({
     }));
     const { floatingActionBottom, listBottomInset, playerBottomInset } =
         useScreenOverlayInsets();
-    const taggableIds = useMemo(
-        () =>
-            showTags ? tracks.map((track) => track.catalogId ?? track.id) : [],
-        [showTags, tracks],
-    );
-    const { tagsBySong } = useTagsOnSongs(taggableIds);
-    const { defaultTagsBySong } = useDefaultTagsOnSongs(taggableIds);
-    const { userTagsMeta } = useUserTags(showTags);
-    // only fetched when a caller asks for activity tags, which only query
-    // results do
-    const { activityTagsBySong } = useActivityTagsOnSongs(
-        activityTagIds.length > 0 ? taggableIds : EMPTY_SONG_IDS,
-    );
     const displayedTracks = useMemo(
         () =>
             sortingEnabled && sortStrategy === "local"
@@ -138,17 +137,71 @@ export function MusicList({
     );
     const selection = useMusicListSelection(displayedTracks, multiSelect);
     const { isSelecting, toggleSelection } = selection;
-    const isSelectingRef = useRef(isSelecting);
+    const selectionCanApplyTags =
+        multiSelect != null &&
+        (multiSelect.actions == null ||
+            multiSelect.actions.some((action) => action.kind === "apply-tags"));
+    const localTagsEnabled = showTags || selection.isSelecting;
+    const showSuggestedTagsInRows = showTags && showSuggestedTags;
+    const defaultTagsEnabled =
+        showSuggestedTagsInRows ||
+        (selection.isSelecting &&
+            selection.selectedTracks.length === 1 &&
+            selectionCanApplyTags);
+    const tagsEnabled =
+        localTagsEnabled || defaultTagsEnabled || activityTagIds.length > 0;
+    const taggableIds = useMemo(
+        () =>
+            tagsEnabled
+                ? tracks.map((track) => track.catalogId ?? track.id)
+                : [],
+        [tagsEnabled, tracks],
+    );
+    const { tagsBySong, tagsBySongLoading } = useTagsOnSongs(
+        localTagsEnabled ? taggableIds : EMPTY_SONG_IDS,
+    );
+    const { defaultTagsBySong, defaultTagsBySongLoading } =
+        useDefaultTagsOnSongs(
+            defaultTagsEnabled ? taggableIds : EMPTY_SONG_IDS,
+        );
+    const {
+        userTags = [],
+        userTagsMeta,
+        userTagsLoading,
+    } = useUserTags(localTagsEnabled);
+    // only fetched when a caller asks for activity tags, which only query
+    // results do
+    const { activityTagsBySong } = useActivityTagsOnSongs(
+        activityTagIds.length > 0 ? taggableIds : EMPTY_SONG_IDS,
+    );
+    const selectionAnimationCost = useMemo(() => {
+        let cost = displayedTracks.length;
+        if (!showTags) return cost;
+
+        for (const track of displayedTracks) {
+            const songId = track.catalogId ?? track.id;
+            cost +=
+                TAG_SELECTION_ANIMATION_COST *
+                ((tagsBySong[songId]?.length ?? 0) +
+                    (defaultTagsBySong[songId]?.length ?? 0));
+            if (cost > MAX_ANIMATED_SELECTION_COST) break;
+        }
+        return cost;
+    }, [defaultTagsBySong, displayedTracks, showTags, tagsBySong]);
     const animateSelectionTransition =
-        displayedTracks.length <= MAX_ANIMATED_SELECTION_TRACKS;
+        selectionAnimationCost <= MAX_ANIMATED_SELECTION_COST;
     const selectionToolbarBottom = floatingActionBottom;
-    const contentBottomInset = embedded
+    const bottomRowSpacer =
+        MUSIC_LIST_ITEM_HEIGHT[isCompact ? "compact" : "regular"] *
+        MUSIC_LIST_BOTTOM_SPACER_ROWS;
+    const bottomOverlayInset = embedded
         ? 0
         : selection.isSelecting
           ? selectionToolbarBottom + selectionToolbarHeight + 12
           : sortingEnabled
             ? listBottomInset
             : Math.max(40, playerBottomInset + 12);
+    const contentBottomInset = bottomOverlayInset + bottomRowSpacer;
     const listExtraData = useMemo(
         () => ({
             isCompact,
@@ -241,14 +294,6 @@ export function MusicList({
         return () => clearTimeout(revealWindow);
     }, [densityTransitionRevision, listOpacity, scroll.ref]);
 
-    useEffect(() => {
-        isLoadingMoreRef.current = isLoadingNextPage;
-    }, [isLoadingNextPage]);
-
-    useEffect(() => {
-        isSelectingRef.current = isSelecting;
-    }, [isSelecting]);
-
     function densityFadeDelay(index: number) {
         return Math.min(
             (index % 18) * DENSITY_ROW_STAGGER_MS,
@@ -284,7 +329,7 @@ export function MusicList({
 
     const handleTrackPress = useCallback(
         (track: (typeof tracks)[number]) => {
-            if (isSelectingRef.current) {
+            if (isSelecting) {
                 toggleSelection(track);
                 return;
             }
@@ -300,8 +345,9 @@ export function MusicList({
 
             void togglePlayback(track);
         },
-        [onTrackPressOverride, togglePlayback, toggleSelection],
+        [isSelecting, onTrackPressOverride, togglePlayback, toggleSelection],
     );
+    const closeTrackMenu = useCallback(() => setMenuTrack(null), []);
 
     return (
         <View style={{ flex: 1, position: "relative" }}>
@@ -313,19 +359,22 @@ export function MusicList({
                             style={{ paddingBottom: contentBottomInset }}
                         >
                             {header}
-                            {Array.from({ length: anticipatedTrackCount }).map(
-                                (_, index) => (
-                                    <View key={index}>
-                                        <MusicListItemSkeleton
-                                            fullBleed={fullBleedRows}
-                                            fullBleedHorizontalPadding={
-                                                fullBleedRowHorizontalPadding
-                                            }
-                                            compact={isCompact}
-                                        />
-                                    </View>
+                            {Array.from({
+                                length: Math.min(
+                                    anticipatedTrackCount,
+                                    MAX_INITIAL_SKELETON_ROWS,
                                 ),
-                            )}
+                            }).map((_, index) => (
+                                <View key={index}>
+                                    <MusicListItemSkeleton
+                                        fullBleed={fullBleedRows}
+                                        fullBleedHorizontalPadding={
+                                            fullBleedRowHorizontalPadding
+                                        }
+                                        compact={isCompact}
+                                    />
+                                </View>
+                            ))}
                             {footer}
                         </View>
                     ) : (
@@ -390,7 +439,7 @@ export function MusicList({
                                                     : undefined
                                             }
                                             defaultTags={
-                                                showTags
+                                                showSuggestedTagsInRows
                                                     ? defaultTagsBySong[
                                                           item.catalogId ??
                                                               item.id
@@ -473,12 +522,18 @@ export function MusicList({
                     bottom={selectionToolbarBottom}
                     onClear={selection.clearSelection}
                     onHeightChange={setSelectionToolbarHeight}
+                    userTags={userTags}
+                    userTagsMeta={userTagsMeta}
+                    tagsBySong={tagsBySong}
+                    defaultTagsBySong={defaultTagsBySong}
+                    tagsLoading={tagsBySongLoading || userTagsLoading}
+                    suggestedTagsLoading={defaultTagsBySongLoading}
                 />
             ) : null}
 
             <SongOptionsMenu
                 track={menuTrack}
-                onClose={() => setMenuTrack(null)}
+                onClose={closeTrackMenu}
                 extraActions={trackMenuActions}
             />
         </View>

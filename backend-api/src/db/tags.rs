@@ -13,7 +13,10 @@ use serde::Serialize;
 
 use crate::db::entity::sea_orm_active_enums::{TagGenStatus, TagType};
 use crate::db::entity::*;
-use crate::db::tag_activity::{count_tag_applied, count_tag_removed, count_tag_unapplied};
+use crate::db::tag_activity::{
+    count_tag_applied, count_tag_removed, count_tag_unapplied, count_tags_applied,
+    count_tags_unapplied,
+};
 use crate::err::CadenzaError;
 use crate::services::tag_generation::TagSpecs;
 use crate::services::tag_values::canonicalize_tag_value;
@@ -500,6 +503,148 @@ pub async fn unapply_user_tag(
     // log the count only once it is committed
     if let Some(recorded) = recorded {
         recorded.log();
+    }
+    Ok(())
+}
+
+/// Applies every requested user tag to every requested song in one transaction.
+/// Existing relations are left alone, including any attribute values they hold.
+pub async fn apply_user_tags_to_songs(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+    song_ids: &[String],
+    tag_ids: &[i64],
+) -> Result<(), CadenzaError> {
+    if song_ids.is_empty() || tag_ids.is_empty() {
+        return Ok(());
+    }
+
+    // Keep lock acquisition and generated SQL deterministic. Apart from making
+    // this easier to inspect, a stable order lowers the chance that two large
+    // overlapping edits deadlock each other.
+    let mut song_ids: Vec<String> = song_ids
+        .iter()
+        .cloned()
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+    song_ids.sort_unstable();
+    let mut tag_ids: Vec<i64> = tag_ids
+        .iter()
+        .copied()
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+    tag_ids.sort_unstable();
+    let txn = db.begin().await?;
+    let owned_tags = tags::Entity::find()
+        .filter(tags::Column::UserId.eq(user_id))
+        .filter(tags::Column::TagId.is_in(tag_ids.iter().copied()))
+        .all(&txn)
+        .await?;
+    if owned_tags.len() != tag_ids.len() {
+        return Err(CadenzaError::NotFound);
+    }
+    let tags_by_id: HashMap<i64, tags::Model> = owned_tags
+        .into_iter()
+        .map(|tag| (tag.tag_id, tag))
+        .collect();
+    let relations = song_ids.iter().flat_map(|song_id| {
+        tag_ids.iter().map(|tag_id| user_tags_applied::ActiveModel {
+            user_id: Set(user_id),
+            song_id: Set(song_id.clone()),
+            tag_id: Set(*tag_id),
+            value: Set(None),
+        })
+    });
+    // The unique relation is the source of truth. ON CONFLICT makes concurrent
+    // requests idempotent, and RETURNING tells us exactly which applies this
+    // transaction owns and should count.
+    let inserted = user_tags_applied::Entity::insert_many(relations)
+        .on_conflict(
+            OnConflict::columns([
+                user_tags_applied::Column::SongId,
+                user_tags_applied::Column::UserId,
+                user_tags_applied::Column::TagId,
+            ])
+            .do_nothing()
+            .to_owned(),
+        )
+        .exec_with_returning(&txn)
+        .await?;
+    let activity_changes = inserted
+        .into_iter()
+        .map(|relation| {
+            let tag = &tags_by_id[&relation.tag_id];
+            (relation.song_id, tag.name.clone(), tag.color.clone())
+        })
+        .collect();
+    let recorded = count_tags_applied(&txn, user_id, activity_changes).await?;
+
+    txn.commit().await?;
+    for activity in recorded {
+        activity.log();
+    }
+    Ok(())
+}
+
+/// Removes every requested user tag from every requested song in one transaction.
+/// Missing relations are no-ops.
+pub async fn unapply_user_tags_from_songs(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+    song_ids: &[String],
+    tag_ids: &[i64],
+) -> Result<(), CadenzaError> {
+    if song_ids.is_empty() || tag_ids.is_empty() {
+        return Ok(());
+    }
+
+    let mut song_ids: Vec<String> = song_ids
+        .iter()
+        .cloned()
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+    song_ids.sort_unstable();
+    let mut tag_ids: Vec<i64> = tag_ids
+        .iter()
+        .copied()
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+    tag_ids.sort_unstable();
+    let txn = db.begin().await?;
+    let owned_tags = tags::Entity::find()
+        .filter(tags::Column::UserId.eq(user_id))
+        .filter(tags::Column::TagId.is_in(tag_ids.iter().copied()))
+        .all(&txn)
+        .await?;
+    if owned_tags.len() != tag_ids.len() {
+        return Err(CadenzaError::NotFound);
+    }
+    let tags_by_id: HashMap<i64, tags::Model> = owned_tags
+        .into_iter()
+        .map(|tag| (tag.tag_id, tag))
+        .collect();
+    // DELETE ... RETURNING avoids the read/delete race and turns one query per
+    // relation into one statement. Only rows removed by this transaction are
+    // counted below.
+    let removed = user_tags_applied::Entity::delete_many()
+        .filter(user_tags_applied::Column::UserId.eq(user_id))
+        .filter(user_tags_applied::Column::SongId.is_in(song_ids.iter().cloned()))
+        .filter(user_tags_applied::Column::TagId.is_in(tag_ids.iter().copied()))
+        .exec_with_returning(&txn)
+        .await?;
+    let activity_changes = removed
+        .into_iter()
+        .map(|relation| (relation.song_id, tags_by_id[&relation.tag_id].name.clone()))
+        .collect();
+    let recorded = count_tags_unapplied(&txn, user_id, activity_changes).await?;
+
+    txn.commit().await?;
+    for activity in recorded {
+        activity.log();
     }
     Ok(())
 }

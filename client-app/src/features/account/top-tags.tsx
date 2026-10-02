@@ -50,7 +50,7 @@ export function TopTagsPanel() {
                                     tag={tag}
                                     height={14}
                                     count={score}
-                                    inverted={source === "global"}
+                                    suggested={source === "global"}
                                 />
                             ))}
                         </View>

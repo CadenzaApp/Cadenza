@@ -6,7 +6,10 @@ use crate::{
     db::{
         self,
         activity_tags::{get_activity_tags_on_songs, record_play},
-        tags::{get_default_tags_on_songs, get_user_tags_on_song, get_user_tags_on_songs},
+        tags::{
+            apply_user_tags_to_songs, get_default_tags_on_songs, get_user_tags_on_song,
+            get_user_tags_on_songs, unapply_user_tags_from_songs,
+        },
     },
     err::CadenzaError,
     routes::json::{
@@ -78,6 +81,7 @@ async fn get_default_tags_on_song_handler(
 /// A list screen asks for a page of songs at a time, so cap it well above the
 /// client's batch size but short of something that would blow up the query.
 const MAX_BATCH_SONG_IDS: usize = 200;
+const MAX_BATCH_TAG_EDITS: usize = 4_000;
 
 /// Returns a `QueryFormatError` if a request names more than [`MAX_BATCH_SONG_IDS`] songs.
 fn check_batch_size(song_count: usize) -> Result<(), CadenzaError> {
@@ -92,6 +96,23 @@ fn check_batch_size(song_count: usize) -> Result<(), CadenzaError> {
 #[derive(Deserialize)]
 pub struct SongIdsPayload {
     song_ids: Vec<String>,
+}
+
+#[derive(Deserialize)]
+pub struct BatchEditTagsPayload {
+    song_ids: Vec<String>,
+    tag_ids: Vec<i64>,
+}
+
+fn check_tag_edit_batch_size(payload: &BatchEditTagsPayload) -> Result<(), CadenzaError> {
+    check_batch_size(payload.song_ids.len())?;
+    let edit_count = payload.song_ids.len().saturating_mul(payload.tag_ids.len());
+    if edit_count > MAX_BATCH_TAG_EDITS {
+        return Err(CadenzaError::QueryFormatError(format!(
+            "requests are limited to {MAX_BATCH_TAG_EDITS} song/tag edits"
+        )));
+    }
+    Ok(())
 }
 
 /// Returns the user's tags on each requested song, keyed by song id. Default
@@ -304,6 +325,28 @@ async fn unapply_user_tag_handler(
     db::tags::unapply_user_tag(db, claims.user_id, payload.song_id, payload.tag_id).await
 }
 
+/// Applies every requested tag to every requested song. Existing applications
+/// are preserved, including attribute values. Returns an empty body.
+async fn apply_user_tags_to_songs_handler(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Json(payload): Json<BatchEditTagsPayload>,
+) -> Result<(), CadenzaError> {
+    check_tag_edit_batch_size(&payload)?;
+    apply_user_tags_to_songs(&db, claims.user_id, &payload.song_ids, &payload.tag_ids).await
+}
+
+/// Removes every requested tag from every requested song. Missing applications
+/// are ignored. Returns an empty body.
+async fn unapply_user_tags_from_songs_handler(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Json(payload): Json<BatchEditTagsPayload>,
+) -> Result<(), CadenzaError> {
+    check_tag_edit_batch_size(&payload)?;
+    unapply_user_tags_from_songs(&db, claims.user_id, &payload.song_ids, &payload.tag_ids).await
+}
+
 #[derive(Deserialize)]
 pub struct EditUserSongsPayload {
     #[serde(default)]
@@ -347,7 +390,12 @@ pub fn get_songs_router() -> Router<AppState> {
                 .patch(set_user_tag_value_handler)
                 .delete(unapply_user_tag_handler),
         )
-        .route("/local-tags/batch", post(get_local_tags_on_songs_handler))
+        .route(
+            "/local-tags/batch",
+            post(get_local_tags_on_songs_handler)
+                .patch(apply_user_tags_to_songs_handler)
+                .delete(unapply_user_tags_from_songs_handler),
+        )
         .route("/activity-tags", get(get_activity_tags_on_song_handler))
         .route(
             "/activity-tags/batch",

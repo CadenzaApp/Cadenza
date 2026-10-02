@@ -3,10 +3,14 @@ import { applyCommentVote } from "../comment-votes";
 import type { Comment, CommentThread, CommentVote } from "@/lib/types";
 
 /** Every user's comments on a song: newest first, each with its replies oldest first. */
-export function useSongComments(songId?: string) {
-    const x = useAPIData<CommentThread[]>("/comments", {
-        song_id: songId,
-    });
+export function useSongComments(songId?: string, enabled = true) {
+    const x = useAPIData<CommentThread[]>(
+        "/comments",
+        {
+            song_id: songId,
+        },
+        { enabled },
+    );
 
     return {
         songComments: x.data,
@@ -62,10 +66,14 @@ type VotePayload = {
  * vote in that song's cached comments straight away, rolls it back if the
  * request fails, and revalidates the comments either way.
  */
-export function useVoteOnComment(songId?: string) {
-    const comments = useAPIData<CommentThread[]>("/comments", {
-        song_id: songId,
-    });
+export function useVoteOnComment(songId?: string, enabled = true) {
+    const comments = useAPIData<CommentThread[]>(
+        "/comments",
+        {
+            song_id: songId,
+        },
+        { enabled },
+    );
     // lists nothing to invalidate, since the mutate below revalidates the comments
     const x = useAPIMutation<VotePayload, void>("POST", "/comments/votes");
 

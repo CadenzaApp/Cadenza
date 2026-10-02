@@ -1,5 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { RepeatMode, ShuffleMode, type MusicItem } from "@apple-musickit";
+import { RepeatMode, ShuffleMode } from "@apple-musickit";
 import { useRouter } from "expo-router";
 import { useTheme } from "expo-router/react-navigation";
 import { useEffect, useRef, useState } from "react";
@@ -46,16 +46,10 @@ type PlayerView = "artwork" | "queue";
  * and its scrubber, and the transport. It is the only page of the three that
  * touches playback - Comments and Tags both only ever read `focusedSong`.
  *
- * `onModifyTags` selects the sheet's native Tags tab for the playing song.
- *
  * The queue opens in place rather than as another page. Playback controls
  * stay on screen either way, which is the whole point of the layout.
  */
-export function PlayerPage({
-    onModifyTags,
-}: {
-    onModifyTags: (track: MusicItem) => void;
-}) {
+export function PlayerPage() {
     const {
         activeTrack,
         isPlaying,
@@ -435,10 +429,6 @@ export function PlayerPage({
                     track={track}
                     onClose={() => setMenuOpen(false)}
                     navigate={leaveFor}
-                    onModifyTags={() => {
-                        setMenuOpen(false);
-                        onModifyTags(track);
-                    }}
                 />
             ) : null}
         </View>

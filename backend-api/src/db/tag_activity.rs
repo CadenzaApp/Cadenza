@@ -1,8 +1,9 @@
-use std::fmt;
+use std::{collections::BTreeMap, fmt};
 
 use sea_orm::{
     ActiveValue::Set,
-    ColumnTrait, ConnectionTrait, EntityTrait, Insert, QueryFilter, UpdateMany,
+    ColumnTrait, ConnectionTrait, DbBackend, EntityTrait, FromQueryResult, Insert, QueryFilter,
+    Statement, UpdateMany,
     prelude::Uuid,
     sea_query::{Expr, ExprTrait, OnConflict},
 };
@@ -134,6 +135,71 @@ pub async fn count_tag_applied(
     Ok(recorded)
 }
 
+/// Counts a completed batch of newly inserted user-tag relations in one
+/// upsert. Changes with the same song and normalized tag name are folded into
+/// one delta, which preserves the scalar counter's meaning without making one
+/// database round trip per relation.
+pub async fn count_tags_applied(
+    db: &impl ConnectionTrait,
+    user_id: Uuid,
+    changes: Vec<(String, String, String)>,
+) -> Result<Vec<RecordedActivity>, CadenzaError> {
+    let mut grouped = BTreeMap::<(String, String), (i32, String)>::new();
+    for (song_id, tag_name, color) in changes {
+        let (delta, retained_color) = grouped.entry((song_id, tag_name)).or_insert((0, color));
+        *delta += 1;
+        let _ = retained_color;
+    }
+    if grouped.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let rows =
+        grouped.iter().map(
+            |((song_id, tag_name), (delta, _))| default_tag_activity::ActiveModel {
+                song_id: Set(song_id.clone()),
+                tag_name: Set(tag_name.clone()),
+                apply_count: Set(*delta),
+                remove_count: Set(0),
+            },
+        );
+    let count = Expr::col((
+        default_tag_activity::Entity,
+        default_tag_activity::Column::ApplyCount,
+    ));
+    let mut on_conflict = OnConflict::columns([
+        default_tag_activity::Column::SongId,
+        default_tag_activity::Column::TagName,
+    ]);
+    on_conflict.value(
+        default_tag_activity::Column::ApplyCount,
+        count.add(Expr::cust("EXCLUDED.apply_count")),
+    );
+    let counts = default_tag_activity::Entity::insert_many(rows)
+        .on_conflict(on_conflict)
+        .exec_with_returning(db)
+        .await?;
+
+    let mut recorded = Vec::with_capacity(counts.len());
+    for counts in counts {
+        let (delta, color) = &grouped[&(counts.song_id.clone(), counts.tag_name.clone())];
+        let promoted = batch_apply_promotes_tag(counts.apply_count, counts.remove_count, *delta);
+        if promoted {
+            add_default_tag_to_song(db, &counts.song_id, &counts.tag_name, color).await?;
+        }
+        recorded.push(RecordedActivity {
+            user_id,
+            song_id: counts.song_id,
+            tag_name: counts.tag_name,
+            activity: TagActivity::Applied,
+            counts: Some((counts.apply_count, counts.remove_count)),
+            promoted,
+        });
+    }
+
+    Ok(recorded)
+}
+
 /// Takes one back off the tag name's `apply_count` on the song. The caller counts
 /// only when it really took the tag off the song.
 ///
@@ -164,6 +230,66 @@ pub async fn count_tag_unapplied(
             .map(|row| (row.apply_count, row.remove_count)),
         promoted: false,
     })
+}
+
+/// Counts a completed batch of deleted user-tag relations in one statement.
+/// Missing historical activity rows remain no-ops, and counts never go below
+/// zero, matching [`count_tag_unapplied`].
+pub async fn count_tags_unapplied(
+    db: &impl ConnectionTrait,
+    user_id: Uuid,
+    changes: Vec<(String, String)>,
+) -> Result<Vec<RecordedActivity>, CadenzaError> {
+    let mut grouped = BTreeMap::<(String, String), i32>::new();
+    for change in changes {
+        *grouped.entry(change).or_default() += 1;
+    }
+    if grouped.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let mut values = Vec::with_capacity(grouped.len() * 3);
+    let rows = grouped
+        .iter()
+        .enumerate()
+        .map(|(index, ((song_id, tag_name), delta))| {
+            let offset = index * 3;
+            values.push(song_id.clone().into());
+            values.push(tag_name.clone().into());
+            values.push((*delta).into());
+            format!("(${}, ${}, ${})", offset + 1, offset + 2, offset + 3)
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let statement = Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        format!(
+            "WITH changes(song_id, tag_name, delta) AS (VALUES {rows}) \
+             UPDATE default_tag_activity AS activity \
+             SET apply_count = GREATEST(0, activity.apply_count - changes.delta) \
+             FROM changes \
+             WHERE activity.song_id = changes.song_id \
+               AND activity.tag_name = changes.tag_name \
+             RETURNING activity.song_id, activity.tag_name, \
+                       activity.apply_count, activity.remove_count"
+        ),
+        values,
+    );
+    let counts = default_tag_activity::Model::find_by_statement(statement)
+        .all(db)
+        .await?;
+
+    Ok(counts
+        .into_iter()
+        .map(|counts| RecordedActivity {
+            user_id,
+            song_id: counts.song_id,
+            tag_name: counts.tag_name,
+            activity: TagActivity::Unapplied,
+            counts: Some((counts.apply_count, counts.remove_count)),
+            promoted: false,
+        })
+        .collect())
 }
 
 /// Adds one to the tag name's `remove_count` on the song in
@@ -214,6 +340,13 @@ fn counts_promote_tag(apply_count: i32, remove_count: i32) -> bool {
 fn apply_promotes_tag(apply_count: i32, remove_count: i32) -> bool {
     counts_promote_tag(apply_count, remove_count)
         && !counts_promote_tag(apply_count - 1, remove_count)
+}
+
+/// The batch equivalent of [`apply_promotes_tag`]. A folded delta promotes if
+/// the final counts qualify and the counts before the batch did not.
+fn batch_apply_promotes_tag(apply_count: i32, remove_count: i32, delta: i32) -> bool {
+    counts_promote_tag(apply_count, remove_count)
+        && !counts_promote_tag(apply_count - delta, remove_count)
 }
 
 /// Returns the upsert that adds one to the tag name's `apply_count` on the song.
@@ -303,6 +436,13 @@ mod tests {
         // exactly 1.5 times is not more than it
         assert!(!counts_promote_tag(6, 4));
         assert!(!counts_promote_tag(3, 7));
+    }
+
+    #[test]
+    fn a_batch_promotes_only_when_its_delta_crosses_the_line() {
+        assert!(batch_apply_promotes_tag(10, 0, 3));
+        assert!(!batch_apply_promotes_tag(12, 0, 2));
+        assert!(!batch_apply_promotes_tag(9, 0, 3));
     }
 
     #[test]

@@ -8,7 +8,7 @@ previews only.
 
 | file                            | role                                                                                                                                               |
 | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `account-settings.tsx`          | Account cards, authentication actions, top tags, content toggle, privacy, and sync stub.                                                           |
+| `account-settings.tsx`          | Account cards, authentication actions, top tags, suggested-tag display setting, content toggle, privacy, and sync stub.                            |
 | `top-tags.tsx`                  | `TopTagsPanel`: the user's 10 highest scored tags as tag pills with their scores.                                                                  |
 | `appearance-settings.tsx`       | Session-only color controls and preview.                                                                                                           |
 | `settings-ui.tsx`               | Shared glass panels, rows, icons, and the TODO badge.                                                                                              |
@@ -34,13 +34,16 @@ a solid pill in the user's tag color, a `global` one an outlined pill in the def
 the same split the player's Tags page uses. Names come back lowercased, so a tag named `Road Trip`
 shows as `road trip`.
 
-The explicit-content toggle and all Appearance selections live only in component state. Sync
-shows local unavailable feedback and does not call MusicKit or the backend.
+The suggested-tag display setting is device-local and persists across launches. It controls only
+suggested pills in music-list rows, not the suggested section of a tag selector. The
+explicit-content toggle and all Appearance selections live only in component state. Sync shows
+local unavailable feedback and does not call MusicKit or the backend.
 
 ## Connects to
 
 - `@/lib/account` for the Cadenza session.
 - `@/lib/apple-music-auth` for Apple Music authorization.
+- `@/lib/music-list-preferences` for the persisted suggested-tag display setting.
 - `@/lib/routes/tags::useTopTagScores` and `@/components/custom/tag-pill` for the top tags.
 - `@/components/ui/glass-*` for every visible surface and action, including `GlassToggle`.
 

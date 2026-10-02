@@ -89,7 +89,7 @@ export default function QueryResults({
                         size={HERO_BUTTON_SIZE}
                     />
                 }
-                multiSelect={{ includeAddToQueue: true }}
+                multiSelect={{}}
                 showTags
                 mostRelevantTags={mostRelevantTags}
                 activityTagIds={activityTagIds}

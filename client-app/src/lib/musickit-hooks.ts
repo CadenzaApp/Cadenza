@@ -10,7 +10,7 @@ import {
     type SearchResult,
     type SongFavoriteStatus,
 } from "@apple-musickit";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import useSWRInfinite from "swr/infinite";
 import { isAppleMusicAuthError } from "./app-error";
@@ -80,9 +80,6 @@ const EMPTY_ARTISTS: ArtistItem[] = [];
 /** The same, for the song reads that other hooks index and re-derive from. */
 const EMPTY_SONGS: MusicItem[] = [];
 
-/** The same again, for an id list that resolved without a request. */
-const EMPTY_SONG_IDS: string[] = [];
-
 type LibraryArtistPageKey = readonly [
     "MusicKit.getLibraryArtists",
     number,
@@ -133,6 +130,11 @@ type LibrarySearchPageKey = readonly [
     number,
     number,
 ];
+type SongInfoPageKey = readonly [
+    "MusicKit.getSongInfo",
+    number,
+    readonly string[],
+];
 
 /** Returns cached Apple Music metadata for the supplied song IDs. */
 export function useSongInfo(songIds?: readonly string[] | null) {
@@ -141,22 +143,45 @@ export function useSongInfo(songIds?: readonly string[] | null) {
         () => [...new Set(songIds?.filter(Boolean) ?? [])],
         [songIds],
     );
-    const key =
-        isConnected && normalizedIds.length
-            ? ([
-                  "MusicKit.getSongInfo",
-                  sessionRevision,
-                  normalizedIds,
-              ] as const)
-            : null;
-    const x = useSWR(key, ([, , ids]) =>
-        read(() => MusicKit.getSongInfo([...ids])),
+    const idChunks = useMemo(
+        () => chunkValues(normalizedIds, MUSIC_LIST_PAGE_SIZE),
+        [normalizedIds],
     );
+    const x = useSWRInfinite<MusicItem[]>(
+        (pageIndex) => {
+            const ids = idChunks[pageIndex];
+            return isConnected && ids
+                ? (["MusicKit.getSongInfo", sessionRevision, ids] as const)
+                : null;
+        },
+        ([, , ids]: SongInfoPageKey) =>
+            read(() => MusicKit.getSongInfo([...ids])),
+    );
+    const { data, error, setSize, size } = x;
+    useEffect(() => {
+        if (idChunks.length > 0 && size !== idChunks.length) {
+            void setSize(idChunks.length);
+        }
+    }, [idChunks.length, setSize, size]);
+    const resolvedPageCount = data?.length ?? 0;
     return {
-        songInfo: x.data ?? EMPTY_SONGS,
-        songInfoLoading: x.isLoading || isInitializing,
-        songInfoErr: x.error,
+        songInfo:
+            idChunks.length > 0 ? (data?.flat() ?? EMPTY_SONGS) : EMPTY_SONGS,
+        songInfoLoading:
+            isInitializing ||
+            (isConnected &&
+                idChunks.length > resolvedPageCount &&
+                error == null),
+        songInfoErr: error,
     };
+}
+
+function chunkValues<T>(values: readonly T[], size: number): T[][] {
+    const chunks: T[][] = [];
+    for (let index = 0; index < values.length; index += size) {
+        chunks.push(values.slice(index, index + size));
+    }
+    return chunks;
 }
 
 /**
@@ -446,14 +471,9 @@ export function useTracksForSongIds(songIds: readonly string[]) {
         () => indexTracksById(allLibraryTracks),
         [allLibraryTracks],
     );
-    // waiting for the library keeps a cold start from asking Apple for every id
-    // it is about to be handed for free a moment later
     const unresolvedIds = useMemo(
-        () =>
-            allLibraryTracksLoading
-                ? EMPTY_SONG_IDS
-                : songIds.filter((id) => !libraryTracksById.has(id)),
-        [allLibraryTracksLoading, libraryTracksById, songIds],
+        () => songIds.filter((id) => !libraryTracksById.has(id)),
+        [libraryTracksById, songIds],
     );
     const { songInfo, songInfoLoading, songInfoErr } =
         useSongInfo(unresolvedIds);
@@ -474,8 +494,9 @@ export function useTracksForSongIds(songIds: readonly string[]) {
     return {
         tracks,
         tracksLoading:
-            allLibraryTracksLoading ||
-            (unresolvedIds.length > 0 && songInfoLoading),
+            tracks.length < songIds.length &&
+            (allLibraryTracksLoading ||
+                (unresolvedIds.length > 0 && songInfoLoading)),
         tracksErr: allLibraryTracksErr ?? songInfoErr,
         isLibraryConnected,
     };

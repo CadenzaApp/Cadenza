@@ -55,17 +55,23 @@ type HeldOrder = { songId: string; ids: number[] };
 export function CommentsPage({
     focusedSong,
     active,
+    enabled,
 }: {
     focusedSong: FocusedSong;
     /** whether the pager is on this page */
     active: boolean;
+    /** becomes true after this page is first visited */
+    enabled: boolean;
 }) {
     const insets = useSafeAreaInsets();
     const { account } = useAccount();
-    const { songComments, songCommentsErr } = useSongComments(focusedSong.id);
+    const { songComments, songCommentsErr } = useSongComments(
+        focusedSong.id,
+        enabled,
+    );
     const { createComment, createCommentLoading } = useCreateComment();
     const { deleteComment } = useDeleteComment();
-    const { voteOnComment } = useVoteOnComment(focusedSong.id);
+    const { voteOnComment } = useVoteOnComment(focusedSong.id, enabled);
     // The order the threads were sorted in when the page came into view, held
     // so a vote does not move a comment out from under the user. Sorted again
     // when the page comes back into view or the song changes. Out of view the

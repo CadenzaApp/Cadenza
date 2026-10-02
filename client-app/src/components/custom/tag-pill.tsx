@@ -2,7 +2,7 @@ import { Badge } from "@/components/ui/badge";
 import { Text } from "@/components/ui/text";
 import { THEME } from "@/lib/theme";
 import { useColorScheme } from "nativewind";
-import type { ReactNode } from "react";
+import { memo, type ComponentProps, type ReactNode } from "react";
 import { Pressable, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type { Tag } from "../../lib/types";
@@ -79,20 +79,21 @@ export function useTagScreenColor(tagColor: string) {
  * @param count     - If provided, renders a count badge on the right side.
  * @param leadingIcon - Replaces the leading dot when provided.
  * @param showIcon  - Whether to render the leading dot or icon.
- * @param inverted  - Swaps the pill's text and background colors, so the tag
- *                    color becomes the content over a screen-colored interior
- *                    with a tag-colored outline.
+ * @param appearance - Solid for chosen tags, outline for available tags.
+ * @param suggested - Italicizes the label to identify a shared suggestion.
  * @param onRemove  - If provided, renders an × button inside the pill.
  *                   Called when the user taps it and caller decides what to do.
  */
-export function TagPill({
+export const TagPill = memo(function TagPill({
     tag,
     height,
     value,
     count,
     leadingIcon,
+    leadingIconName,
     showIcon = true,
-    inverted = false,
+    appearance = "solid",
+    suggested = false,
     onRemove,
 }: {
     tag: Tag;
@@ -100,12 +101,22 @@ export function TagPill({
     value?: string | null;
     count?: number;
     leadingIcon?: ReactNode;
+    leadingIconName?: ComponentProps<typeof Ionicons>["name"];
     showIcon?: boolean;
-    inverted?: boolean;
+    appearance?: "solid" | "outline";
+    suggested?: boolean;
     onRemove?: () => void;
 }) {
-    const screenColor = useTagScreenColor(tag.color);
-    const contentColor = inverted ? tag.color : screenColor;
+    const { colorScheme = "light" } = useColorScheme();
+    const backgroundColor = THEME[colorScheme].background;
+    const screenColor = screenColorFor(backgroundColor, tag.color);
+    const outlined = appearance === "outline";
+    const outlineColor =
+        luminance(backgroundColor) <= LIGHT_LUMINANCE &&
+        luminance(tag.color) <= LIGHT_LUMINANCE
+            ? screenColor
+            : tag.color;
+    const contentColor = outlined ? outlineColor : screenColor;
     const iconSize = 1.15 * height;
     const fontSize = 1 * height;
     const countFontSize = 0.9 * height;
@@ -118,8 +129,8 @@ export function TagPill({
             variant="outline"
             pointerEvents={onRemove ? "box-none" : "none"}
             style={{
-                backgroundColor: inverted ? screenColor : tag.color,
-                borderColor: inverted ? tag.color : "transparent",
+                backgroundColor: outlined ? "transparent" : tag.color,
+                borderColor: outlined ? outlineColor : "transparent",
                 paddingHorizontal: 0.7 * height,
                 paddingVertical: 0.2 * height,
                 gap: 0.5 * height,
@@ -129,6 +140,15 @@ export function TagPill({
         >
             {showIcon
                 ? (leadingIcon ??
+                  (leadingIconName ? (
+                      <Ionicons
+                          name={leadingIconName}
+                          size={iconSize}
+                          color={contentColor}
+                          accessibilityElementsHidden
+                          importantForAccessibility="no"
+                      />
+                  ) : null) ??
                   (tag.type === "basic" ? (
                       <Ionicons
                           name="pricetag"
@@ -153,6 +173,7 @@ export function TagPill({
                     color: contentColor,
                     fontSize,
                     fontWeight: "600",
+                    fontStyle: suggested ? "italic" : "normal",
                     lineHeight: fontSize * 1.25,
                     textAlign: "center",
                     textAlignVertical: "center",
@@ -169,6 +190,7 @@ export function TagPill({
                         color: contentColor,
                         fontSize,
                         fontWeight: "400",
+                        fontStyle: suggested ? "italic" : "normal",
                         lineHeight: fontSize * 1.4,
                         opacity: 0.75,
                         maxWidth: 14 * height,
@@ -226,7 +248,7 @@ export function TagPill({
             )}
         </Badge>
     );
-}
+});
 
 /** Black or white, whichever has better contrast against the supplied color. */
 export function readableTextColor(hex: string) {

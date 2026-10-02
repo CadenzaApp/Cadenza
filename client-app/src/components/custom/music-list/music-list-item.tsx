@@ -26,13 +26,13 @@ import { TagFadeRail } from "./tag-fade-rail";
 
 type MusicListItemProps = {
     item: MusicItem;
-    tags?: AppliedTag[];
+    tags?: readonly AppliedTag[];
     /** Shared default tags on the song, rendered unfilled after the user's own. */
-    defaultTags?: Tag[];
+    defaultTags?: readonly Tag[];
     mostRelevantTags?: readonly string[];
     tagMetadata?: Readonly<Record<number, TagMetadata>>;
     /** Every activity tag on the song for this user, as the backend returns them. */
-    activityTags?: AppliedTag[];
+    activityTags?: readonly AppliedTag[];
     /** Which of `activityTags` to show, and in what order. */
     activityTagIds?: readonly number[];
     selected: boolean;
@@ -49,21 +49,34 @@ type MusicListItemProps = {
 };
 
 const ARTWORK_SIZE = 58;
+const COMPACT_ARTWORK_SIZE = 48;
+const REGULAR_ROW_VERTICAL_PADDING = 7.5;
+const COMPACT_ROW_VERTICAL_PADDING = 5.5;
+const MENU_CONTROL_SHIFT = 8;
+const TAG_RAIL_END_MARGIN = -4;
+const EMPTY_APPLIED_TAGS: readonly AppliedTag[] = [];
+const EMPTY_DEFAULT_TAGS: readonly Tag[] = [];
+
+/** The fixed artwork and vertical padding determine the height of every row. */
+export const MUSIC_LIST_ITEM_HEIGHT = {
+    regular: ARTWORK_SIZE + 2 * REGULAR_ROW_VERTICAL_PADDING,
+    compact: COMPACT_ARTWORK_SIZE + 2 * COMPACT_ROW_VERTICAL_PADDING,
+} as const;
 
 export const MusicListItem = memo(function MusicListItem({
     item,
     tags,
     defaultTags,
+    activityTags,
     mostRelevantTags,
     tagMetadata,
-    activityTags,
     activityTagIds,
     selected,
     selectionMode,
     multiSelectEnabled,
     animateSelectionTransition,
     fullBleed = false,
-    fullBleedHorizontalPadding = 24,
+    fullBleedHorizontalPadding = 18,
     compact = false,
     onPress,
     onLongPress,
@@ -72,26 +85,15 @@ export const MusicListItem = memo(function MusicListItem({
     const { colors } = useTheme();
     const { colorScheme = "light" } = useColorScheme();
     const theme = THEME[colorScheme];
-    const [artworkFailed, setArtworkFailed] = useState(false);
     const [rowPressed, setRowPressed] = useState(false);
     const longPressConsumedRef = useRef(false);
-    const itemTags = tags ?? [];
-    const itemDefaultTags = defaultTags ?? [];
+    const itemTags = tags ?? EMPTY_APPLIED_TAGS;
+    const itemDefaultTags = defaultTags ?? EMPTY_DEFAULT_TAGS;
     const shownActivityTags = useMemo(
         () => pickActivityTags(activityTags, activityTagIds),
         [activityTags, activityTagIds],
     );
-    const hasTags =
-        itemTags.length > 0 ||
-        itemDefaultTags.length > 0 ||
-        shownActivityTags.length > 0;
-    const artworkUrl = item.artworkUrl?.trim();
-    const canRenderArtwork =
-        !artworkFailed &&
-        typeof artworkUrl === "string" &&
-        /^https?:\/\//i.test(artworkUrl);
     const selectionColor = hexWithAlpha(theme.foreground, 0.12);
-    const artworkSize = compact ? 48 : ARTWORK_SIZE;
     const animatedRowStyle = useAnimatedStyle(
         () => ({
             backgroundColor: withTiming(
@@ -126,7 +128,9 @@ export const MusicListItem = memo(function MusicListItem({
             style={[
                 animatedRowStyle,
                 {
-                    paddingVertical: compact ? 5.5 : 7.5,
+                    paddingVertical: compact
+                        ? COMPACT_ROW_VERTICAL_PADDING
+                        : REGULAR_ROW_VERTICAL_PADDING,
                     paddingHorizontal: fullBleed
                         ? fullBleedHorizontalPadding
                         : 0,
@@ -188,8 +192,15 @@ export const MusicListItem = memo(function MusicListItem({
             <Animated.View className="flex-1" style={animatedContentStyle}>
                 <View
                     pointerEvents="box-none"
-                    className="mr-3 flex-1 flex-row items-center"
-                    style={rowPressed ? { opacity: 0.85 } : undefined}
+                    className="flex-1 flex-row items-center"
+                    style={[
+                        {
+                            marginRight: selectionMode
+                                ? 12
+                                : TAG_RAIL_END_MARGIN,
+                        },
+                        rowPressed ? { opacity: 0.85 } : undefined,
+                    ]}
                 >
                     <Pressable
                         style={StyleSheet.absoluteFill}
@@ -218,88 +229,25 @@ export const MusicListItem = memo(function MusicListItem({
                         accessibilityLabel={`${item.title} by ${item.artistName}`}
                         accessibilityState={{ selected }}
                     />
-                    {canRenderArtwork ? (
-                        <View
-                            pointerEvents="none"
-                            className="mr-2 shrink-0"
-                            style={{
-                                width: artworkSize,
-                                aspectRatio: 1,
-                                transform: [{ translateY: compact ? 2 : 4 }],
-                            }}
-                        >
-                            <Image
-                                source={{ uri: artworkUrl }}
-                                className="h-full w-full rounded bg-muted"
-                                resizeMode="cover"
-                                style={{ borderRadius: 4 }}
-                                onError={() => setArtworkFailed(true)}
-                            />
-                        </View>
-                    ) : (
-                        <View
-                            pointerEvents="none"
-                            className="mr-2 shrink-0 items-center justify-center rounded bg-muted"
-                            style={{
-                                width: artworkSize,
-                                aspectRatio: 1,
-                                transform: [{ translateY: compact ? 2 : 4 }],
-                            }}
-                        >
-                            <Text className="text-xs text-muted-foreground text-center">
-                                No Art
-                            </Text>
-                        </View>
-                    )}
-
-                    <View
-                        pointerEvents="box-none"
-                        className="flex-1 flex-col justify-center overflow-hidden"
-                        style={
-                            !hasTags
-                                ? {
-                                      rowGap: 1,
-                                      transform: [{ translateY: 5 }],
-                                  }
-                                : {
-                                      rowGap: 3,
-                                      transform: [{ translateY: 1 }],
-                                  }
-                        }
-                    >
-                        <View pointerEvents="none">
-                            <Text
-                                className="text-base font-bold leading-tight text-foreground"
-                                numberOfLines={1}
-                            >
-                                {item.title}
-                            </Text>
-                            <Text
-                                className="text-sm leading-tight text-muted-foreground"
-                                style={{ transform: [{ translateY: -1 }] }}
-                                numberOfLines={1}
-                            >
-                                {item.artistName}
-                            </Text>
-                        </View>
-
-                        {hasTags ? (
-                            <TagFadeRail
-                                tags={itemTags}
-                                defaultTags={itemDefaultTags}
-                                mostRelevantTags={mostRelevantTags}
-                                tagMetadata={tagMetadata}
-                                activityTags={shownActivityTags}
-                                compact={compact}
-                            />
-                        ) : null}
-                    </View>
+                    <MusicListItemVisuals
+                        item={item}
+                        tags={itemTags}
+                        defaultTags={itemDefaultTags}
+                        activityTags={shownActivityTags}
+                        mostRelevantTags={mostRelevantTags}
+                        tagMetadata={tagMetadata}
+                        compact={compact}
+                    />
                 </View>
             </Animated.View>
 
             {!selectionMode ? (
                 <Animated.View
                     key="menu-control"
+                    style={{
+                        zIndex: 1,
+                        transform: [{ translateX: MENU_CONTROL_SHIFT }],
+                    }}
                     entering={
                         animateSelectionTransition
                             ? FadeIn.duration(140)
@@ -330,25 +278,140 @@ export const MusicListItem = memo(function MusicListItem({
     );
 });
 
+/** The expensive, selection-independent part of a row. */
+const MusicListItemVisuals = memo(function MusicListItemVisuals({
+    item,
+    tags,
+    defaultTags,
+    activityTags,
+    mostRelevantTags,
+    tagMetadata,
+    compact,
+}: {
+    item: MusicItem;
+    tags: readonly AppliedTag[];
+    defaultTags: readonly Tag[];
+    activityTags: readonly AppliedTag[];
+    mostRelevantTags?: readonly string[];
+    tagMetadata?: Readonly<Record<number, TagMetadata>>;
+    compact: boolean;
+}) {
+    const [artworkFailed, setArtworkFailed] = useState(false);
+    const hasTags =
+        tags.length > 0 || defaultTags.length > 0 || activityTags.length > 0;
+    const artworkUrl = item.artworkUrl?.trim();
+    const canRenderArtwork =
+        !artworkFailed &&
+        typeof artworkUrl === "string" &&
+        /^https?:\/\//i.test(artworkUrl);
+    const artworkSize = compact ? COMPACT_ARTWORK_SIZE : ARTWORK_SIZE;
+
+    return (
+        <>
+            {canRenderArtwork ? (
+                <View
+                    pointerEvents="none"
+                    className="mr-2 shrink-0"
+                    style={{
+                        width: artworkSize,
+                        aspectRatio: 1,
+                        transform: [{ translateY: compact ? 2 : 4 }],
+                    }}
+                >
+                    <Image
+                        source={{ uri: artworkUrl }}
+                        className="h-full w-full rounded bg-muted"
+                        resizeMode="cover"
+                        style={{ borderRadius: 4 }}
+                        onError={() => setArtworkFailed(true)}
+                    />
+                </View>
+            ) : (
+                <View
+                    pointerEvents="none"
+                    className="mr-2 shrink-0 items-center justify-center rounded bg-muted"
+                    style={{
+                        width: artworkSize,
+                        aspectRatio: 1,
+                        transform: [{ translateY: compact ? 2 : 4 }],
+                    }}
+                >
+                    <Text className="text-xs text-muted-foreground text-center">
+                        No Art
+                    </Text>
+                </View>
+            )}
+
+            <View
+                pointerEvents="box-none"
+                className="flex-1 flex-col justify-center overflow-hidden"
+                style={
+                    !hasTags
+                        ? {
+                              rowGap: 1,
+                              transform: [{ translateY: 5 }],
+                          }
+                        : {
+                              rowGap: 3,
+                              transform: [{ translateY: 1 }],
+                          }
+                }
+            >
+                <View pointerEvents="none">
+                    <Text
+                        className="text-base font-bold leading-tight text-foreground"
+                        numberOfLines={1}
+                    >
+                        {item.title}
+                    </Text>
+                    <Text
+                        className="text-sm leading-tight text-muted-foreground"
+                        style={{ transform: [{ translateY: -1 }] }}
+                        numberOfLines={1}
+                    >
+                        {item.artistName}
+                    </Text>
+                </View>
+
+                {hasTags ? (
+                    <TagFadeRail
+                        tags={tags}
+                        defaultTags={defaultTags}
+                        activityTags={activityTags}
+                        mostRelevantTags={mostRelevantTags}
+                        tagMetadata={tagMetadata}
+                        compact={compact}
+                    />
+                ) : null}
+            </View>
+        </>
+    );
+});
+
 export function MusicListItemSkeleton({
     fullBleed = false,
-    fullBleedHorizontalPadding = 24,
+    fullBleedHorizontalPadding = 18,
     compact = false,
 }: {
     fullBleed?: boolean;
     fullBleedHorizontalPadding?: number;
     compact?: boolean;
 }) {
-    const artworkSize = compact ? 48 : ARTWORK_SIZE;
+    const artworkSize = compact ? COMPACT_ARTWORK_SIZE : ARTWORK_SIZE;
     return (
         <View
             className="relative flex-row items-center justify-between"
             style={{
-                paddingVertical: compact ? 5.5 : 7.5,
+                paddingVertical: compact
+                    ? COMPACT_ROW_VERTICAL_PADDING
+                    : REGULAR_ROW_VERTICAL_PADDING,
                 paddingHorizontal: fullBleed ? fullBleedHorizontalPadding : 0,
             }}
         >
-            <View className="mr-3 flex-1 flex-row items-center overflow-hidden">
+            <View
+                className="flex-1 flex-row items-center overflow-hidden"
+                style={{ marginRight: TAG_RAIL_END_MARGIN }}
+            >
                 <Skeleton
                     className="mr-2 shrink-0 rounded"
                     style={{
@@ -366,7 +429,10 @@ export function MusicListItemSkeleton({
                     </View>
                 </View>
             </View>
-            <Skeleton className="h-10 w-10 shrink-0 rounded-full" />
+            <Skeleton
+                className="h-10 w-10 shrink-0 rounded-full"
+                style={{ transform: [{ translateX: MENU_CONTROL_SHIFT }] }}
+            />
         </View>
     );
 }
@@ -379,13 +445,13 @@ function hexWithAlpha(hex: string, alpha: number) {
     return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 }
 
-const NO_ACTIVITY_TAGS: AppliedTag[] = [];
+const NO_ACTIVITY_TAGS: readonly AppliedTag[] = [];
 
 /** The activity tags named by `ids`, in that order, out of the song's. */
 function pickActivityTags(
-    activityTags: AppliedTag[] | undefined,
+    activityTags: readonly AppliedTag[] | undefined,
     ids: readonly number[] | undefined,
-): AppliedTag[] {
+): readonly AppliedTag[] {
     if (!activityTags?.length || !ids?.length) return NO_ACTIVITY_TAGS;
     const byId = new Map(activityTags.map((tag) => [tag.id, tag]));
     return ids.flatMap((id) => {
