@@ -275,5 +275,6 @@ export function useScreenOverlayInsets() {
         bottomBarsVisible,
         compactPlayerVisible,
         nativePlayerAccessory,
+        tabContentAboveTabBar: inNativeTabs && Platform.OS === "android",
     });
 }

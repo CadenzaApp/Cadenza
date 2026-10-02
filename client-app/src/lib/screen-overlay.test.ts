@@ -10,6 +10,7 @@ test("pushed screens reserve space only when they host the compact player", () =
         bottomBarsVisible: false,
         compactPlayerVisible: false,
         nativePlayerAccessory: false,
+        tabContentAboveTabBar: false,
     });
     const withHost = calculateScreenOverlayInsets({
         safeAreaBottom: 20,
@@ -17,6 +18,7 @@ test("pushed screens reserve space only when they host the compact player", () =
         bottomBarsVisible: false,
         compactPlayerVisible: true,
         nativePlayerAccessory: false,
+        tabContentAboveTabBar: false,
     });
 
     assert.equal(withoutHost.playerBottomInset, 20);
@@ -31,8 +33,31 @@ test("native tab accessories do not get counted twice for floating actions", () 
         bottomBarsVisible: true,
         compactPlayerVisible: true,
         nativePlayerAccessory: true,
+        tabContentAboveTabBar: false,
     });
 
     assert.equal(insets.playerBottomInset, 155);
     assert.equal(insets.floatingActionBottom, 46);
+});
+
+test("android tab screens do not count the tab bar for floating actions", () => {
+    const withPlayer = calculateScreenOverlayInsets({
+        safeAreaBottom: 24,
+        nativeTabBarHeight: 80,
+        bottomBarsVisible: true,
+        compactPlayerVisible: true,
+        nativePlayerAccessory: false,
+        tabContentAboveTabBar: true,
+    });
+    const withoutPlayer = calculateScreenOverlayInsets({
+        safeAreaBottom: 24,
+        nativeTabBarHeight: 80,
+        bottomBarsVisible: true,
+        compactPlayerVisible: false,
+        nativePlayerAccessory: false,
+        tabContentAboveTabBar: true,
+    });
+
+    assert.equal(withPlayer.floatingActionBottom, 84);
+    assert.equal(withoutPlayer.floatingActionBottom, 12);
 });

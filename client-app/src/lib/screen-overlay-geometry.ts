@@ -9,12 +9,18 @@ export function calculateScreenOverlayInsets({
     bottomBarsVisible,
     compactPlayerVisible,
     nativePlayerAccessory,
+    tabContentAboveTabBar,
 }: {
     safeAreaBottom: number;
     nativeTabBarHeight: number;
     bottomBarsVisible: boolean;
     compactPlayerVisible: boolean;
     nativePlayerAccessory: boolean;
+    /**
+     * Android wraps each native tab screen in a bottom safe area as tall as
+     * the tab bar, so the screen already ends at the tab bar's top edge.
+     */
+    tabContentAboveTabBar: boolean;
 }) {
     const playerBottomInset = bottomBarsVisible
         ? safeAreaBottom +
@@ -26,10 +32,14 @@ export function calculateScreenOverlayInsets({
     // UIKit already shortens a native-tab screen's usable overlay area above
     // its bottom accessory. Adding the tab and player heights again puts an
     // absolute bubble roughly a second player-height too high.
-    const floatingActionBottom =
-        bottomBarsVisible && nativePlayerAccessory
-            ? safeAreaBottom + OVERLAY_GAP
-            : playerBottomInset + OVERLAY_GAP;
+    // On Android the tab screen already sits above the tab bar and the system
+    // inset, so only the floating player is left to clear.
+    const floatingActionBottom = tabContentAboveTabBar
+        ? (compactPlayerVisible ? ACCESSORY_GAP + COMPACT_PLAYER_HEIGHT : 0) +
+          OVERLAY_GAP
+        : bottomBarsVisible && nativePlayerAccessory
+          ? safeAreaBottom + OVERLAY_GAP
+          : playerBottomInset + OVERLAY_GAP;
     const contentBottomInset = bottomBarsVisible
         ? compactPlayerVisible && !nativePlayerAccessory
             ? COMPACT_PLAYER_HEIGHT + ACCESSORY_GAP + OVERLAY_GAP
