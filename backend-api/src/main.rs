@@ -22,6 +22,7 @@ use crate::{
     },
     services::{
         default_tags::{BackfillConfig, spawn_default_tag_backfill},
+        social_feed::SocialFeedService,
         song_metadata::SongMetadataService,
         tag_generation::{TagGenerationService, openai_tag_generator::OpenAiTagGenerator},
         tag_score_decay::spawn_tag_score_decay,
@@ -34,7 +35,7 @@ struct AppState {
     jwt_decoder: Decoder<SupabaseClaims>,
     tag_gen_service: TagGenerationService,
     song_meta_service: SongMetadataService,
-    http_client: reqwest::Client,
+    social_feed_service: SocialFeedService,
 }
 
 /// The pool we are allowed to open against Supabase's pooler.
@@ -83,6 +84,8 @@ async fn main() {
 
     let song_meta_service = SongMetadataService::new();
 
+    let social_feed_service = SocialFeedService::new();
+
     // fills in default tags for songs nothing has read yet. off unless the
     // environment turns it on, since every pass can spend Apple Music and
     // OpenAI calls that no request asked for
@@ -113,7 +116,7 @@ async fn main() {
         jwt_decoder,
         tag_gen_service,
         song_meta_service,
-        http_client: reqwest::Client::new(),
+        social_feed_service,
     };
 
     // route paths
