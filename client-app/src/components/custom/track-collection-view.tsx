@@ -1,7 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type { MusicItem } from "@apple-musickit";
 import { useTheme } from "expo-router/react-navigation";
-import { useColorScheme } from "nativewind";
 import type { ComponentProps, ReactNode } from "react";
 import { useMemo, useState } from "react";
 import {
@@ -36,8 +35,8 @@ import {
     TintBackdrop,
     TintOverscrollBackdrop,
 } from "@/components/ui/tint-backdrop";
-import { createTrackCollectionGradientColors } from "@/lib/artwork-color-utils";
 import { usePlaybackCommands } from "@/lib/playback";
+import { useTintGradient } from "@/lib/use-tint-gradient";
 
 import {
     collectionArtworkGrid,
@@ -145,7 +144,6 @@ export function TrackCollectionView({
     respectTopSafeArea = false,
 }: Props) {
     const { colors } = useTheme();
-    const { colorScheme = "light" } = useColorScheme();
     const { height: windowHeight } = useWindowDimensions();
     const insets = useSafeAreaInsets();
     const { playQueue } = usePlaybackCommands();
@@ -162,17 +160,7 @@ export function TrackCollectionView({
         () => summaryOverride ?? formatTrackCollectionSummary(tracks),
         [summaryOverride, tracks],
     );
-    const gradientColors = useMemo(
-        () =>
-            backgroundColor
-                ? createTrackCollectionGradientColors(
-                      backgroundColor,
-                      colorScheme,
-                  )
-                : null,
-        [backgroundColor, colorScheme],
-    );
-    const gradientTint = gradientColors?.[0] ?? null;
+    const gradient = useTintGradient(backgroundColor);
     const actionsDisabled = tracks.length === 0 || isLoading;
     const onScroll = useAnimatedScrollHandler((event) => {
         scrollY.set(Math.max(0, event.contentOffset.y));
@@ -343,11 +331,8 @@ export function TrackCollectionView({
 
     return (
         <View className="flex-1 bg-background" style={containerStyle}>
-            <TintOverscrollBackdrop
-                tint={gradientTint}
-                colors={gradientColors ?? undefined}
-            />
-            {gradientTint ? (
+            <TintOverscrollBackdrop gradient={gradient} />
+            {gradient ? (
                 <Animated.View
                     pointerEvents="none"
                     style={[
@@ -361,10 +346,7 @@ export function TrackCollectionView({
                         backdropStyle,
                     ]}
                 >
-                    <TintBackdrop
-                        tint={gradientTint}
-                        colors={gradientColors ?? undefined}
-                    />
+                    <TintBackdrop gradient={gradient} />
                 </Animated.View>
             ) : null}
             <MusicList

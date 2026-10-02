@@ -3,8 +3,8 @@ import test from "node:test";
 
 import {
     averageArtworkColors,
-    createTrackCollectionGradientColors,
-    sampleTrackCollectionGradientColor,
+    createTintGradient,
+    sampleTintGradientColor,
 } from "./artwork-color-utils.ts";
 
 test("averages the available artwork colors in Oklab", () => {
@@ -16,31 +16,28 @@ test("averages the available artwork colors in Oklab", () => {
     assert.equal(averageArtworkColors([null, "invalid"]), null);
 });
 
-test("samples dark and light collection gradients in Oklch", () => {
-    assert.deepEqual(createTrackCollectionGradientColors("#8c5939", "dark"), [
-        "#7b6152",
-        "#685144",
-        "#574236",
-        "#453329",
-        "#35261c",
-        "#251810",
-        "#160c06",
+test("samples shared dark and light tint gradients in Oklch", () => {
+    assert.deepEqual(createTintGradient("#8c5939", "dark").colors, [
+        "#7e5f4d",
+        "#6b5040",
+        "#594133",
+        "#473326",
+        "#37251a",
+        "#26180f",
+        "#170c05",
         "#090301",
         "#010000",
     ]);
-    assert.deepEqual(createTrackCollectionGradientColors("#8c5939", "light"), [
-        "#7b6152",
-        "#897163",
-        "#998274",
-        "#a89386",
-        "#b8a498",
-        "#c8b6ab",
-        "#d8c7be",
-        "#e8dad1",
+    assert.deepEqual(createTintGradient("#8c5939", "light").colors, [
+        "#cca289",
+        "#d2ab94",
+        "#d8b4a0",
+        "#ddbdab",
+        "#e3c7b6",
+        "#e8d0c2",
+        "#eed9ce",
+        "#f3e3d9",
         "#f8ece5",
     ]);
-    assert.equal(
-        sampleTrackCollectionGradientColor("#8c5939", "dark", 0.5),
-        "#35261c",
-    );
+    assert.equal(sampleTintGradientColor("#8c5939", "dark", 0.5), "#37251a");
 });

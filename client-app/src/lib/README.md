@@ -33,7 +33,8 @@ native module directly.
 | `theme.ts`                   | `NAV_THEME`, light and dark palettes for react-navigation, `sheetScreenOptions` for sheet routes, and `pushedScreenOptions` for the pushed detail routes.                                                                                                                                         |
 | `error-utils.ts`             | `getErrorDetails` / `getErrorMessage`, for unwrapping native and backend errors.                                                                                                                                                                                                                  |
 | `artwork-color.ts`           | `useArtworkTint`, the color a surface paints itself with, plus alpha, darkening, and multi-artwork averaging helpers.                                                                                                                                                                             |
-| `artwork-color-utils.ts`     | Native-free Oklab averaging for multi-artwork colors and Oklch gradient sampling for track collections.                                                                                                                                                                                           |
+| `artwork-color-utils.ts`     | Native-free Oklab averaging for multi-artwork colors and shared Oklch tint-gradient sampling.                                                                                                                                                                                                     |
+| `use-tint-gradient.ts`       | Theme-aware hook that turns one source color into the shared light/dark Oklch gradient stops.                                                                                                                                                                                                     |
 | `tag-color-palette.ts`       | Curated RGB tag palette sorted by hue, followed by brown and gray. Every swatch has tested contrast against black and white.                                                                                                                                                                      |
 | `music-routes.ts`            | `collectionRoute` / `albumRouteForTrack`. Hrefs into the resource screens, params and all.                                                                                                                                                                                                        |
 | `music-list-preferences.tsx` | `MusicListPreferencesProvider` / `useMusicListPreferences`. The persisted device-local preference for suggested tag pills in music-list rows.                                                                                                                                                     |
@@ -287,9 +288,12 @@ artwork. Two sources, in order:
 Library artwork usually has no color of its own, which is the only reason the second path
 exists. Expo Go has no native module for it and returns null, and a null tint renders untinted.
 
-`@/components/ui/tint-backdrop::TintBackdrop` paints legacy detail-screen tints. Track collection
-routes instead hand one source color to `TrackCollectionView`, which reduces its chroma and samples
-a mode-aware full-height gradient in Oklch. Query results use the shared collection-artwork hook to
+`use-tint-gradient.ts::useTintGradient` returns one mode-aware Oklch gradient object: its dark-mode
+top preserves lightness and retains 60% chroma; its light-mode top moves 47.5% toward white and
+retains 75% chroma. Both endpoints retain 20% chroma, with the bottom moving toward the relevant
+page background. `DetailScreen` uses it for the full-screen player, and track collection routes
+hand their source color to `TrackCollectionView`, which uses the same object over its full content
+height. Query results use the shared collection-artwork hook to
 rank one four-cell sample, convert those colors to Oklab, average their channels, and convert the
 result back to RGB for that source color. Fixed endpoint colors beneath the list keep elastic
 overscroll seamless.

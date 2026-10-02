@@ -34,12 +34,17 @@ export function averageArtworkColors(
     );
 }
 
-const TRACK_COLLECTION_GRADIENT_STOP_COUNT = 9;
+const TINT_GRADIENT_STOP_COUNT = 9;
 
 type ColorScheme = "dark" | "light";
 
-/** One sampled point along the mode-aware TrackCollectionView Oklch gradient. */
-export function sampleTrackCollectionGradientColor(
+export type TintGradient = {
+    /** Ordered native-renderer stops, from the surface's top to its bottom. */
+    readonly colors: readonly [string, string, ...string[]];
+};
+
+/** One sampled point along the shared mode-aware Oklch tint gradient. */
+export function sampleTintGradientColor(
     hex: string,
     colorScheme: ColorScheme,
     progress: number,
@@ -48,7 +53,10 @@ export function sampleTrackCollectionGradientColor(
     if (!color) return hex;
 
     const boundedProgress = Math.max(0, Math.min(1, progress));
-    const start = { l: color.l, c: color.c * 0.5 };
+    const start = {
+        l: colorScheme === "light" ? color.l + (1 - color.l) * 0.475 : color.l,
+        c: colorScheme === "light" ? color.c * 0.75 : color.c * 0.6,
+    };
     const end = {
         l:
             colorScheme === "dark"
@@ -69,21 +77,23 @@ export function sampleTrackCollectionGradientColor(
 }
 
 /**
- * Samples a collection background gradient in Oklch, then returns RGB stops
- * for the native renderer. The top retains half the source chroma. The bottom
- * retains one fifth and moves toward the current mode's page background.
+ * Samples a tinted surface gradient in Oklch, then returns RGB stops
+ * for the native renderer. In dark mode, the top preserves its lightness and
+ * retains 60% of its chroma. In light mode, it moves 47.5% toward white and
+ * retains 75% of its chroma. The bottom retains 20% of its chroma and moves
+ * toward the current mode's page background.
  */
-export function createTrackCollectionGradientColors(
+export function createTintGradient(
     hex: string,
     colorScheme: ColorScheme,
-): readonly [string, string, ...string[]] {
-    return Array.from(
-        { length: TRACK_COLLECTION_GRADIENT_STOP_COUNT },
-        (_, index) =>
-            sampleTrackCollectionGradientColor(
+): TintGradient {
+    return {
+        colors: Array.from({ length: TINT_GRADIENT_STOP_COUNT }, (_, index) =>
+            sampleTintGradientColor(
                 hex,
                 colorScheme,
-                index / (TRACK_COLLECTION_GRADIENT_STOP_COUNT - 1),
+                index / (TINT_GRADIENT_STOP_COUNT - 1),
             ),
-    ) as unknown as readonly [string, string, ...string[]];
+        ) as unknown as TintGradient["colors"],
+    };
 }

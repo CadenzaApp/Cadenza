@@ -9,6 +9,7 @@ import { Text } from "@/components/ui/text";
 import { TintBackdrop } from "@/components/ui/tint-backdrop";
 import { MediaPlayerZoomOverlay } from "@/components/custom/media-player";
 import { InsideSheetContext } from "@/lib/screen-overlay";
+import { useTintGradient } from "@/lib/use-tint-gradient";
 import { useCloseScreen, ZoomDismissScreen } from "@/lib/zoom-dismiss";
 
 /**
@@ -118,12 +119,13 @@ function DetailScreenBody({
     children: ReactNode;
 }) {
     const close = useCloseScreen();
+    const gradient = useTintGradient(tint);
 
     return (
         <View className="flex-1 bg-card">
             {/* Behind the header as well as the body, so the color runs to the
                 top edge of the sheet rather than starting under the title. */}
-            <TintBackdrop tint={tint} />
+            <TintBackdrop gradient={gradient} />
 
             <View
                 style={{

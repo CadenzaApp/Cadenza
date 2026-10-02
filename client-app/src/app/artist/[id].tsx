@@ -20,7 +20,7 @@ import { FloatingCloseButton } from "@/components/ui/floating-close-button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
 import { useArtworkTint, withAlpha } from "@/lib/artwork-color";
-import { sampleTrackCollectionGradientColor } from "@/lib/artwork-color-utils";
+import { sampleTintGradientColor } from "@/lib/artwork-color-utils";
 import { useZoomSource, ZoomDismissScreen } from "@/lib/zoom-dismiss";
 import { MediaPlayerZoomOverlay } from "@/components/custom/media-player";
 import { collectionRoute } from "@/lib/music-routes";
@@ -124,7 +124,7 @@ export default function ArtistScreen() {
                                 // page rather than into a brighter band.
                                 fadeTo={
                                     tint
-                                        ? sampleTrackCollectionGradientColor(
+                                        ? sampleTintGradientColor(
                                               tint,
                                               colorScheme,
                                               heroHeight / contentHeight,

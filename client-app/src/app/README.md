@@ -195,8 +195,8 @@ and offers rename, recolor, and delete actions. Query results use the standard
 weighted mosaic and an edge-to-edge tint, but use a normal opaque stack presentation rather than
 the collection's zoom transition. Each gradient-backed `TrackCollectionView` also paints fixed
 start and end colors beneath the list, so either elastic overscroll edge meets the scrolling
-gradient without a seam. `TrackCollectionView` owns the mode-aware Oklch chroma reduction and
-gradient sampling for every one of these routes; callers provide only a source color.
+gradient without a seam. `TrackCollectionView` turns every route's source color into the shared
+mode-aware Oklch gradient object; callers provide only that source color.
 Under the last row it prints the song count and running time, but only once every page is in,
 since a count off a half-loaded list is a wrong number. Everything the collection draws over its
 tint stays inside the same scroll surface. Either way the hero is the `MusicList` header inside
