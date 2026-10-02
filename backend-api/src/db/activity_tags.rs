@@ -166,7 +166,24 @@ pub async fn record_play(
     played_at: DateTime<Utc>,
 ) -> Result<(), CadenzaError> {
     let txn = db.begin().await?;
-    let tag_ids: HashMap<ActivityTag, i64> = get_activity_tags(&txn)
+    record_play_within(&txn, user_id, song_id, played_at).await?;
+    txn.commit().await?;
+    Ok(())
+}
+
+/// [`record_play`] without the transaction, for a caller that already has one.
+///
+/// The three upserts have to land together, so this must never be called on a
+/// bare connection. `record_play` is that caller for anything with one play to
+/// record; `routes::events` uses this to count a play in the same transaction
+/// that stores the event it came from.
+pub async fn record_play_within(
+    db: &impl ConnectionTrait,
+    user_id: Uuid,
+    song_id: &str,
+    played_at: DateTime<Utc>,
+) -> Result<(), CadenzaError> {
+    let tag_ids: HashMap<ActivityTag, i64> = get_activity_tags(db)
         .await?
         .into_iter()
         .map(|(tag, model)| (tag, model.tag_id))
@@ -195,7 +212,7 @@ pub async fn record_play(
             ),
         };
 
-        txn.execute_raw(Statement::from_sql_and_values(
+        db.execute_raw(Statement::from_sql_and_values(
             DbBackend::Postgres,
             format!(
                 "INSERT INTO user_tags_applied (song_id, user_id, tag_id, value)
@@ -212,7 +229,6 @@ pub async fn record_play(
         .await?;
     }
 
-    txn.commit().await?;
     Ok(())
 }
 
