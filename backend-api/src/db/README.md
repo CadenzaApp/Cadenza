@@ -7,7 +7,9 @@ The data access layer. Everything that touches postgres lives here, so handlers 
 
 | file | role |
 | --- | --- |
-| `mod.rs` | Declares `activity_tags`, `comment_votes`, `comments`, `entity`, `queries`, `tag_activity`, `tag_scores`, `tag_scores_metadata`, `tags`, `user_songs`. |
+| `mod.rs` | Declares `activity_tags`, `analytics`, `comment_votes`, `comments`, `entity`, `events`, `queries`, `tag_activity`, `tag_scores`, `tag_scores_metadata`, `tags`, `user_songs`. |
+| `events.rs` | The write path for `listening_events`: `NewEvent` and `insert_events`, which is idempotent on `client_event_id` and reports which rows were new. |
+| `analytics.rs` | The read path for `listening_events`: the metric summary, dense time bucketed trends, top songs, replays, top tags, plays by hour, active days, and the event bounds. Integration tested against a real database (`--ignored`). |
 | `activity_tags.rs` | `ActivityTag` (My Plays, First Played, Last Played), finding their rows by `is_activity` and name and creating missing ones, `record_play`, and reading their values per song with defaults filled in. Unit tested. |
 | `tags.rs` | User tag CRUD and applied values, plus searching, reading, and applying default tags, and claiming, finishing, and dropping a song's default tag generation. `get_tags_named` reads the user's and the default tags by normalized name, never activity tags. User tag reads never copy or return defaults. |
 | `tag_activity.rs` | Not activity tags. Counts applies and removes of a tag name on a song in `default_tag_activity`, and promotes popular names to default tags. |
@@ -70,6 +72,17 @@ keyed by tag name and user, and `tag_scores_metadata` by user alone.
   of songs a query runs over. Tag reads still work off `user_tags_applied` and do not check it, so a song can
   carry tags without a row here, and then no query will return it. This table was called
   `song_meta` before.
+- `listening_events` - the append only log of what a user did while listening. `event_id`
+  (bigserial pk), `user_id` (uuid, references `auth.users`, cascades), `event_type` (text),
+  nullable `song_id` (text), `occurred_at` (timestamptz, the client's clock), `created_at`
+  (timestamptz, defaults to `now()`, ours), `client_tz` (text, an IANA name, defaults to `UTC`),
+  nullable `session_id` (uuid), `client_event_id` (text), and `payload` (jsonb, defaults to
+  `{}`). A unique index on `(user_id, client_event_id)` is what makes ingest idempotent. Three
+  more indexes cover the reads: `(user_id, occurred_at desc)`, `(user_id, event_type,
+  occurred_at desc)`, and a partial `(user_id, song_id, occurred_at desc)` where `song_id` is
+  not null, plus a partial `(user_id, session_id)` for the replay rollup. Rows are never updated
+  or deleted outside of deleting the user. The DDL is `backend-api/sql/listening_events.sql`.
+  See Listening events below.
 - `comment` - a comment a user left on a song. `id` (identity pk), `content`, `song_id`, `user_id`,
   and `created_at`, a `timestamp` with no time zone that defaults to `now()`. A reply sets `parent`
   to the comment it answers, a self fk that cascades, so deleting a comment deletes its replies.
@@ -139,6 +152,32 @@ with `ON CONFLICT DO NOTHING` or deletes with `RETURNING`, so concurrent request
 they actually changed. `count_tags_applied` folds those rows by song and tag name into one bulk
 upsert; `count_tags_unapplied` uses a `VALUES` CTE and one update. Inputs are deduplicated and sorted
 before either relation write, keeping SQL and lock acquisition deterministic.
+
+## Listening events
+
+`listening_events` is the source of truth for everything in `analytics.rs`. Activity tags are a
+derived view of it: a `play_counted` event is what moves My Plays, First Played, and Last Played,
+and `routes::events` does both in one transaction so the two cannot drift.
+
+Event types live in `services::analytics::EventType`, not in the database. The column is plain
+text and nothing constrains it, so adding a type is a Rust variant rather than an `ALTER TYPE`.
+The tradeoff is that a typo in a hand-written insert will be stored; everything that goes through
+the api is validated first.
+
+Every listen ends in exactly one of `play_complete` or `skip`, and only those two carry
+`payload.listened_ms`. That is what lets listening time be a plain `sum` with no double counting,
+even though a single listen also emits `play_start` and `play_counted`.
+
+`insert_events` returns `inserted` and `accepted` separately. `accepted` is everything now stored,
+which is what the client clears from its queue; `inserted` is only the rows this call wrote.
+Anything that reacts to an event has to key off `inserted`, or a retried batch counts twice.
+
+Aggregation is SQL. `Metric` in `services::analytics::metrics` pairs a name with one aggregate
+expression, and both the summary and the trends interpolate it into their own query, so adding a
+metric needs no change in `analytics.rs` and no new handler. Those expressions are interpolated
+rather than bound, so they have to stay literals written in that file and must come back as
+`bigint`: postgres sums a bigint into numeric, so any `sum` needs a `::bigint`. Reads that group
+by something other than the window (top songs, replays, top tags) are each their own function.
 
 ## Activity tags
 

@@ -24,6 +24,13 @@ Kinds of tags, all rows in the one `tags` table:
 Anything that reads tags with a null `user_id` has to decide whether it means default tags,
 activity tags, or both, and filter `is_activity` to match.
 
+Listening itself is logged separately, in `listening_events`: one append only row per play, skip,
+replay, query run, or tag change. That log is what the Analytics tab is computed from, and activity
+tags are a derived view of it, written in the same transaction that stores the event. A question
+about *when* or *how often* is answered from the log, never from a tag value. See the Listening
+events sections of [backend-api/src/db/README.md](backend-api/src/db/README.md) and
+[client-app/src/lib/README.md](client-app/src/lib/README.md).
+
 Two halves:
 
 - `client-app/` - Expo / React Native app, expo-router, nativewind. Runs on iOS and Android.
@@ -45,7 +52,8 @@ backend-api/            rust api
   src/err.rs            CadenzaError, every handler returns Result<_, CadenzaError>
   src/routes/           http handlers, one module per resource
   src/db/               query layer, src/db/entity/ is generated
-  src/services/         tag generation, tag normalization, social feed proxy
+  src/services/         tag generation, tag normalization, social feed proxy, analytics defs
+  sql/                  DDL for tables applied by hand, so a fresh db can be stood up
   social-feed/          python recommendation service, run separately from the api
 client-app/             expo app
   src/app/              expo-router routes (tabs, auth, splash, tag detail)
@@ -79,6 +87,7 @@ directories with only a few straightforward files do not need documentation.
 | [client-app/src/components/custom/media-player/README.md](client-app/src/components/custom/media-player/README.md) | The global player surface                                       |
 | [client-app/src/features/cadenza/README.md](client-app/src/features/cadenza/README.md)                             | Combined tag management and query workspace                     |
 | [client-app/src/features/account/README.md](client-app/src/features/account/README.md)                             | Account, Apple Music, and Appearance settings                    |
+| [client-app/src/features/analytics/README.md](client-app/src/features/analytics/README.md)                         | The Analytics tab, its charts, and how it reads                  |
 | [client-app/src/features/library/README.md](client-app/src/features/library/README.md)                             | The library type filter in the top rail                         |
 | [client-app/src/features/query-builder/README.md](client-app/src/features/query-builder/README.md)                 | The drag and drop boolean query tree                            |
 | [client-app/src/features/advanced-query-builder/README.md](client-app/src/features/advanced-query-builder/README.md) | The Obsidian-style filter builder for attribute tag queries   |

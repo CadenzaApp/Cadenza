@@ -8,13 +8,16 @@ call into `src/db/` or `src/services/`, and shape the response.
 
 | file | role |
 | --- | --- |
-| `mod.rs` | Declares `json`, `comments`, `queries`, `social`, `tags`, `songs`. |
+| `mod.rs` | Declares `json`, `analytics`, `comments`, `events`, `queries`, `social`, `tags`, `songs`. |
 | `tags.rs` | Tag CRUD for the signed-in user, tag score edits, default tag search, listing the activity tags, plus LLM tag suggestion. Mounted at `/tags`. |
 | `songs.rs` | Adding and removing the user's songs, reading and changing user tags, reading default tags, reading activity tags, and recording plays. Mounted at `/songs`. |
 | `queries.rs` | Runs a tag query and returns song ids by relevance. Mounted at `/queries`. |
 | `comments.rs` | Reading, leaving, deleting, and voting on comments on songs. Mounted at `/comments`. |
+| `events.rs` | Ingests a batch of listening events, and counts the `play_counted` ones towards the activity tags in the same transaction. Mounted at `/events`. |
+| `analytics.rs` | Summary counts, time bucketed trends, and the metric list. Mounted at `/analytics`. |
 | `social.rs` | One catch-all handler that proxies `/social/*` to the social feed service with the caller's user id attached. No endpoint list of its own. Mounted at `/social`. |
-| `json/mod.rs` | `vec_into`, a small `Vec<A> -> Vec<B>` helper. Declares `comment`, `query`, `tag`, and `tag_score`. |
+| `json/mod.rs` | `vec_into`, a small `Vec<A> -> Vec<B>` helper. Declares `analytics`, `comment`, `query`, `tag`, and `tag_score`. |
+| `json/analytics.rs` | The `/events` request and response shapes, and the `/analytics` response shapes. |
 | `json/tag.rs` | `TagType`, `Tag`, and `AppliedTag`, the wire shapes of a tag. `From<tags::Model>` drops `user_id` and keeps `is_activity`. |
 | `json/tag_score.rs` | `ScoredTag`, one top tag as a `[score, color, source]` array, and `TagSource`, `"local"` or `"global"`. |
 | `json/comment.rs` | `Comment` and `CommentThread`, the wire shapes of a comment and of a top level comment with its replies. Both take the reading user's id, to turn `user_id` into `mine`, and each comment's vote tally. |
@@ -49,7 +52,11 @@ Every route below requires `Authorization: Bearer <supabase jwt>`.
 | DELETE | `/songs/local-tags` | `{song_id, tag_id}` | empty. Takes that vote back when it removes the tag |
 | GET | `/songs/activity-tags` | `?song_id=...` | `[AppliedTag]`, every activity tag with this user's value on that song. Never played: My Plays is `"0"`, the dates `null` |
 | POST | `/songs/activity-tags/batch` | `{song_ids: [...]}` | `{song_id: [AppliedTag]}`, the same read for a list of songs, an entry per requested song |
-| POST | `/songs/plays` | `{song_id}` | empty. Counts one play at the server's clock: My Plays +1, First Played and Last Played moved as needed |
+| POST | `/songs/plays` | `{song_id}` | empty. Counts one play at the server's clock: My Plays +1, First Played and Last Played moved as needed. Superseded by `POST /events` with a `play_counted` event, which does the same thing and also records the event. Kept for app builds already in the field; the current client does not call it |
+| POST | `/events` | `{events: [{type, song_id?, occurred_at, client_tz?, session_id?, client_event_id, payload?}]}` | `{accepted: [client_event_id]}`, the ids now stored. Idempotent per `client_event_id`, so a retry stores nothing and still reports them. At most 500 events. 422 if any event has an unknown type, a bad payload, or an `occurred_at` over 10 minutes ahead |
+| GET | `/analytics/summary` | `?since=&until=&tz=` | one flat object of counts, rates, `active_days`, `plays_by_hour`, `top_songs`, `top_tags`, `most_replayed`, and the resolved `window`. Zeros and empty lists for a user with no events |
+| GET | `/analytics/trends` | `?metric=&bucket=day\|week\|month\|year&since=&until=&tz=` | `{metric, description, bucket, points: [{bucket, value}]}`. Dense: an empty bucket is a zero. `bucket` defaults to `week`, the window to the user's whole history. 422 on an unknown metric or a window with too many buckets |
+| GET | `/analytics/metrics` | none | `[{name, description}]`, every metric `/analytics/trends` accepts |
 | POST | `/queries/results` | `{query, consider_default_tags?}` | `["songid", ...]`, most relevant first |
 | GET | `/comments` | `?song_id=...` | `[CommentThread]`, every user's comments on the song, newest first, each with its `replies` oldest first |
 | POST | `/comments` | `{song_id, content, parent_id?}` | the new `Comment`. `parent_id` makes it a reply to a top level comment on that song. `content` is trimmed and must then be 1 to 2000 characters |
@@ -291,6 +298,32 @@ api as JSON should have a type here rather than serializing an entity model dire
   violation mapping in `err.rs`. That mapping keys off the table name `applied_tags`, but the
   entity declares `user_tags_applied`, so it falls through to a generic `DatabaseError` instead
   of `TagAlreadyApplied`. See the table naming note in `../db/README.md`.
+- `POST /events` validates the whole batch before storing any of it, so one bad event rejects the
+  request rather than leaving half the batch in. The response is the ids the client may drop.
+- A retried batch is free, but only the events actually inserted move the activity tags. That is
+  why `db::events::insert_events` reports `inserted` and `accepted` separately: keying the play
+  count off `accepted` would double count every retry.
+- Event types are validated in Rust, not by the database. `event_type` is a plain text column, so
+  adding a type is a variant in `services::analytics::EventType` and a deploy, never a migration.
+- `/analytics/*` cuts day, week, month, and hour boundaries in the `tz` query param, defaulting to
+  UTC. The client should always send the device zone; a UTC week is the wrong week for most users.
+- Trend buckets use the request's `tz` for the whole series, not each event's stored `client_tz`,
+  so the buckets stay contiguous for a user who travelled mid-window.
+- `skip_rate` and the other rates are computed in the handler from the counts, not in SQL, because
+  the average of per-bucket ratios is not the ratio over the window. A client wanting a skip rate
+  trend asks for `skips` and `completions` and divides per bucket.
+- `unique_songs` counts distinct per bucket, so its trend buckets do not sum to the summary figure.
+- The window's upper bound is exclusive. When `until` is left out, `/analytics/trends` resolves it
+  to one millisecond past the user's last event, so the newest event is in the series and a user
+  with exactly one event does not read as a backwards window.
+- Not every event type has a metric. `query_run`, `query_play`, `tag_applied` and `tag_removed`
+  are accepted and stored, but nothing emits them yet, so they are deliberately left out of
+  `Metric::ALL`: the client builds its chart picker off that list and an entry with no emitter is
+  a chart that only ever shows zeros.
+- Payload numbers must be whole and fit in an `i64`. The aggregates cast the stored text straight
+  to `bigint` and the log is append only, so one row holding `1.5` would make the summary raise
+  for that user with no way to delete it through the api.
+
 - `GET /comments` returns every comment on the song in one response. There is no paging.
 - Replies go one level deep. `POST /comments` answers `QueryFormatError` when `parent_id` names a
   reply or a comment on another song, and `NotFound` when it names no comment.

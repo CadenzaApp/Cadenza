@@ -29,8 +29,10 @@ native module directly.
 | `account.tsx`                | `AccountProvider` / `useAccount`. Who is signed in (id and email), and sign in / sign up / sign out.                                                                                                                                                                                              |
 | `apple-music-auth.tsx`       | `AppleMusicProvider` / `useAppleMusic`. Apple Music tokens, persisted in secure store.                                                                                                                                                                                                            |
 | `playback.tsx`               | `PlaybackProvider`, broad `usePlayback`, lightweight `usePlaybackTrackState`, and stable `usePlaybackCommands`. Queue, native playback snapshot, and compact-player dismissal state.                                                                                                              |
-| `play-tracker.ts`            | Pure: what counts as a play (15 seconds, or the whole of a shorter song, once per listen). Tested in `play-tracker.test.ts`.                                                                                                                                                                      |
-| `play-recorder.ts`           | `usePlayRecorder`, called by `PlaybackProvider`. Feeds each snapshot to `play-tracker.ts` and posts each play to `/songs/plays`.                                                                                                                                                                  |
+| `play-tracker.ts`            | Pure: folds playback snapshots into listening events. What counts as a play (15 seconds, or the whole of a shorter song, once per listen), and the `play_start` / `play_counted` / `play_complete` / `skip` / `seek` each listen emits. Tested in `play-tracker.test.ts`.                         |
+| `play-recorder.ts`           | `usePlayRecorder`, called by `PlaybackProvider`. Feeds each snapshot to `play-tracker.ts`, queues the events it produces, and flushes them to `POST /events`. Owns the listening session id and the background flush.                                                                             |
+| `event-queue.ts`             | Pure: the listening event queue and the wire shape it sends. Enqueue with an oldest-first cap, batch, and drop only what the backend confirmed. Tested in `event-queue.test.ts`.                                                                                                                  |
+| `event-queue-store.ts`       | The AsyncStorage half of that queue, split out so `event-queue.ts` stays import-free and testable.                                                                                                                                                                                                |
 | `queue-order.ts`             | Pure index math for the queue mirror. Tested in `queue-order.test.ts`.                                                                                                                                                                                                                            |
 | `supabase.ts`                | The Supabase client, backed by AsyncStorage, plus `getAccessToken()`, the fresh access token every backend request uses.                                                                                                                                                                          |
 | `theme.ts`                   | `NAV_THEME`, light and dark palettes for react-navigation, `sheetScreenOptions` for sheet routes, and `pushedScreenOptions` for the pushed detail routes.                                                                                                                                         |
@@ -141,35 +143,38 @@ stuck and is not an acceptable tradeoff.
 
 One file per backend router, and every backend endpoint has at least one hook.
 
-| backend              | endpoint                          | hook                                            |
-| -------------------- | --------------------------------- | ----------------------------------------------- |
-| `routes/tags.rs`     | `GET /tags`                       | `tags.ts` -> `useUserTags()`, `useTag(tagId)`   |
-|                      | `POST /tags`                      | `tags.ts` -> `useCreateTag()`                   |
-|                      | `DELETE /tags`                    | `tags.ts` -> `useDeleteTag()`                   |
-|                      | `GET /tags/default-tags`          | `tags.ts` -> `useDefaultTags(search)`           |
-|                      | `GET /tags/activity`              | `tags.ts` -> `useActivityTags()`                |
-|                      | `GET /tags/suggest`               | `tags.ts` -> `useSuggestTags()`                 |
-|                      | `GET /tags/scores`                | `tags.ts` -> `useTopTagScores(k)`               |
-|                      | `PATCH /tags/scores`              | `tags.ts` -> `useEditTagScores()`               |
-| `routes/songs.rs`    | `GET /songs/local-tags`           | `songs.ts` -> `useTagsOnSong(songId)`           |
-|                      | `POST /songs/local-tags/batch`    | `songs.ts` -> `useTagsOnSongs(songIds)`         |
-|                      | `GET /songs/default-tags`         | `songs.ts` -> `useDefaultTagsOnSong(songId)`    |
-|                      | `POST /songs/default-tags/batch`  | `songs.ts` -> `useDefaultTagsOnSongs(songIds)`  |
-|                      | `DELETE /songs/default-tags`      | `songs.ts` -> `useRemoveDefaultTag()`           |
-|                      | `POST /songs/local-tags`          | `songs.ts` -> `useApplyTag()`                   |
-|                      | `PATCH /songs/local-tags`         | `songs.ts` -> `useSetTagValue()`                |
-|                      | `DELETE /songs/local-tags`        | `songs.ts` -> `useUnapplyTag()`                 |
-|                      | `PATCH /songs`                    | `songs.ts` -> `useEditUserSongs()`              |
-|                      | `GET /songs/activity-tags`        | `songs.ts` -> `useActivityTagsOnSong(songId)`   |
-|                      | `POST /songs/activity-tags/batch` | `songs.ts` -> `useActivityTagsOnSongs(songIds)` |
-|                      | `POST /songs/plays`               | `songs.ts` -> `useRecordPlay()`                 |
-| `routes/queries.rs`  | `POST /queries/results`           | `queries.ts` -> `useQueryResults()`             |
-| `routes/comments.rs` | `GET /comments`                   | `comments.ts` -> `useSongComments(songId)`      |
-|                      | `POST /comments`                  | `comments.ts` -> `useCreateComment()`           |
-|                      | `DELETE /comments`                | `comments.ts` -> `useDeleteComment()`           |
-|                      | `POST /comments/votes`            | `comments.ts` -> `useVoteOnComment(songId)`     |
-| `routes/social.rs`   | `PATCH /social/interests/decay`   | `social.ts` -> `useDecayInterests()`            |
-|                      | `PATCH /social/interests/update`  | `social.ts` -> `useEditInterestScores()`        |
+| backend               | endpoint                          | hook                                            |
+| --------------------- | --------------------------------- | ----------------------------------------------- |
+| `routes/tags.rs`      | `GET /tags`                       | `tags.ts` -> `useUserTags()`, `useTag(tagId)`   |
+|                       | `POST /tags`                      | `tags.ts` -> `useCreateTag()`                   |
+|                       | `DELETE /tags`                    | `tags.ts` -> `useDeleteTag()`                   |
+|                       | `GET /tags/default-tags`          | `tags.ts` -> `useDefaultTags(search)`           |
+|                       | `GET /tags/activity`              | `tags.ts` -> `useActivityTags()`                |
+|                       | `GET /tags/suggest`               | `tags.ts` -> `useSuggestTags()`                 |
+|                       | `GET /tags/scores`                | `tags.ts` -> `useTopTagScores(k)`               |
+|                       | `PATCH /tags/scores`              | `tags.ts` -> `useEditTagScores()`               |
+| `routes/songs.rs`     | `GET /songs/local-tags`           | `songs.ts` -> `useTagsOnSong(songId)`           |
+|                       | `POST /songs/local-tags/batch`    | `songs.ts` -> `useTagsOnSongs(songIds)`         |
+|                       | `GET /songs/default-tags`         | `songs.ts` -> `useDefaultTagsOnSong(songId)`    |
+|                       | `POST /songs/default-tags/batch`  | `songs.ts` -> `useDefaultTagsOnSongs(songIds)`  |
+|                       | `DELETE /songs/default-tags`      | `songs.ts` -> `useRemoveDefaultTag()`           |
+|                       | `POST /songs/local-tags`          | `songs.ts` -> `useApplyTag()`                   |
+|                       | `PATCH /songs/local-tags`         | `songs.ts` -> `useSetTagValue()`                |
+|                       | `DELETE /songs/local-tags`        | `songs.ts` -> `useUnapplyTag()`                 |
+|                       | `PATCH /songs`                    | `songs.ts` -> `useEditUserSongs()`              |
+|                       | `GET /songs/activity-tags`        | `songs.ts` -> `useActivityTagsOnSong(songId)`   |
+|                       | `POST /songs/activity-tags/batch` | `songs.ts` -> `useActivityTagsOnSongs(songIds)` |
+| `routes/events.rs`    | `POST /events`                    | `events.ts` -> `useRecordEvents()`              |
+| `routes/analytics.rs` | `GET /analytics/summary`          | `analytics.ts` -> `useAnalyticsSummary()`       |
+|                       | `GET /analytics/trends`           | `analytics.ts` -> `useAnalyticsTrend()`         |
+|                       | `GET /analytics/metrics`          | `analytics.ts` -> `useAnalyticsMetrics()`       |
+| `routes/queries.rs`   | `POST /queries/results`           | `queries.ts` -> `useQueryResults()`             |
+| `routes/comments.rs`  | `GET /comments`                   | `comments.ts` -> `useSongComments(songId)`      |
+|                       | `POST /comments`                  | `comments.ts` -> `useCreateComment()`           |
+|                       | `DELETE /comments`                | `comments.ts` -> `useDeleteComment()`           |
+|                       | `POST /comments/votes`            | `comments.ts` -> `useVoteOnComment(songId)`     |
+| `routes/social.rs`    | `PATCH /social/interests/decay`   | `social.ts` -> `useDecayInterests()`            |
+|                       | `PATCH /social/interests/update`  | `social.ts` -> `useEditInterestScores()`        |
 
 `routes/social.rs` forwards any `/social/*` path to the social feed service and adds the
 user id, so it has no fixed endpoint list. Only the paths the app calls get a hook.
@@ -214,8 +219,11 @@ sets from listening. `useUserTags` never returns them, so they stay off the Tags
 `useActivityTags` lists them for the advanced query builder, and `useActivityTagsOnSong` /
 `useActivityTagsOnSongs` read their values, with every tag present for every song.
 `useActivityTagIdsInQuery` picks the activity tags a query filters on, which the query result
-rows show. The only write is `useRecordPlay`, which `play-recorder.ts` calls, and it invalidates
-both activity reads and `/queries/results`.
+rows show. Nothing writes them directly any more: `play-recorder.ts` posts a `play_counted`
+event to `POST /events`, and the backend moves the three tags in the same transaction that stores
+the event. `useRecordEvents` always invalidates the analytics reads, and invalidates the activity
+reads and `/queries/results` only when the batch held a `play_counted`, since nothing else moves
+those values.
 
 `musickit-hooks.ts` does the same job for the native module, using plain `useSWR` with tuple
 keys like `["MusicKit.getSongInfo", ids]`. `useSongFavoriteStatus` and `useCollectionFavoriteStatus`
@@ -523,6 +531,52 @@ no one tag and score nothing. Tag ids resolve to names through the tag list the 
 - `@image-color`, from `artwork-color.ts` and nowhere else.
 - Consumed by everything in `src/app`, `src/features`, and `src/components/custom`.
 
+## Listening events
+
+Everything the analytics page shows comes from `POST /events`. `play-recorder.ts` is the only
+writer, mounted once by `PlaybackProvider`, so listening is recorded in one place rather than from
+whatever screen happens to be up.
+
+`play-tracker.ts` folds the polled snapshot into events. One listen runs from a song becoming
+active until a different one does, or until the same one jumps back to its start, which is what
+repeat-one and skipping back look like. Each listen emits `play_start`, then `play_counted` once it
+passes the 15 second threshold, then exactly one of `play_complete` or `skip` when it ends. Only those last two carry `listened_ms`, which is why the backend can sum listening
+time without double counting a single play.
+
+Listened time is accumulated per sample and only credits ordinary forward playback: a pause adds
+nothing, and a jump of more than two seconds is treated as a seek or a background gap and adds
+nothing either. So listened time under-reports rather than inventing time the app did not watch.
+
+Only backward jumps are reported as a `seek`. A forward jump is ambiguous, because the provider
+stops polling in the background and coming back looks exactly like a jump forward.
+
+Exactly one terminal event per listen is what the backend's skip rate and listening time rest on,
+so nothing synthesizes one early. Leaving the foreground does not end the listen or reset the
+tracker: iOS reports `inactive` for things as small as notification centre, and ending the listen
+there would make the next sample look like a new one and count the same play twice. A listen
+spanning a background gap is one listen; if the app is killed mid-listen, that listen keeps its
+`play_counted` and loses only its terminal event.
+
+Events are written to AsyncStorage before they are sent and dropped only once the backend confirms
+each `client_event_id`. A failed request keeps them queued, a timer retries every 15 seconds, and a
+restart picks the queue back up. The backend dedupes on `client_event_id`, so a retry after a
+response the client never saw costs nothing. The queue holds 2000 events and drops its oldest past
+that.
+
+A batch the backend _refuses_ is dropped rather than kept. Flushing always sends from the front
+and the backend validates a batch as a unit, so keeping a batch it will never accept would wedge
+the queue and every play behind it. `isPermanentRejection` is that line: an `InvalidRequestBody`,
+or a 4xx that is not a 401. Anything else, including a timeout or a 5xx, says nothing about the
+batch and is kept.
+
+`session_id` is a uuid that resets after 30 minutes of nothing, which is what makes "played it six
+times in one sitting" answerable. Going to the background ends the listen in flight with
+`flushListen` rather than losing it.
+
+Note that there are now two separate things watching playback: this, and
+`tag-scores.tsx::TagScoreTracker`, which scores tags and interests off its own 5 second rule. They
+do not share a definition of a play. Worth unifying.
+
 ## Gotchas
 
 - **`BACKEND_URL` comes from `EXPO_PUBLIC_BACKEND_API_URL`**, falling back to
@@ -561,7 +615,11 @@ no one tag and score nothing. Tag ids resolve to names through the tag list the 
   `getAccessToken()`, which refreshes an expired one, so nothing holds a token. A component
   rendered before the session is restored sends no `Authorization` header at all.
 - Plays are only counted while `PlaybackProvider` is polling, which is only in the foreground. A
-  song that plays start to finish with the app in the background is never counted.
+  song that plays start to finish with the app in the background is never counted, and the gap
+  shows up in the analytics trends as well as in the play count.
+- `TagScoreTracker` counts a play at 5 seconds and `play-tracker.ts` at 15, so tag scores and the
+  analytics play count will not agree. Both are deliberate for their own purpose; neither is the
+  other's definition.
 - A comment vote is absolute (`"up"`, `"down"`, or `null`), and the server keeps whichever request
   it handles last. Two quick taps on one comment send two requests that can land out of order.
 - Opening the app while Apple Music is already playing scores that song. The first snapshot looks

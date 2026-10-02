@@ -17,8 +17,9 @@ nothing that comes back is persisted.
 | `src/err.rs` | `CadenzaError` and its status code / JSON body mapping. |
 | `src/routes/` | HTTP handlers. See [src/routes/README.md](src/routes/README.md). |
 | `src/db/` | Query layer and generated entities. See [src/db/README.md](src/db/README.md). |
-| `src/services/` | Tag generation, normalization, Apple Music song metadata, default tag generation, and the weekly tag score decay. See [src/services/README.md](src/services/README.md). |
+| `src/services/` | Tag generation, normalization, Apple Music song metadata, default tag generation, the weekly tag score decay, the social feed proxy, and the listening analytics definitions. See [src/services/README.md](src/services/README.md). |
 | `src/test_utils.rs` | Test helpers. Currently just `string_of_length`. |
+| `sql/` | The DDL for tables added by hand, so a fresh database can be stood up. Not a migration runner; see Schema changes. |
 | `certs/readme.md` | Leftover self-signed cert steps. No longer needed, the server is plain HTTP. |
 
 ## How it works
@@ -33,15 +34,17 @@ State(db): State<DatabaseConnection>
 State(tag_gen_service): State<TagGenerationService>
 ```
 
-Five routers get nested, plus a health route:
+Seven routers get nested, plus a health route:
 
 ```
-/tags      get_tags_router()
-/songs     get_songs_router()
-/queries   get_queries_router()
-/comments  get_comments_router()
-/social    get_social_router()
-/test      returns "server is reachable"
+/tags       get_tags_router()
+/songs      get_songs_router()
+/queries    get_queries_router()
+/comments   get_comments_router()
+/social     get_social_router()
+/events     get_events_router()
+/analytics  get_analytics_router()
+/test       returns "server is reachable"
 ```
 
 `/social` is a proxy, not a resource. It forwards whatever path follows to the social feed
@@ -133,6 +136,28 @@ sea-orm-cli generate entity -o ./src/db/entity --entity-format compact
 Keep the CLI version equal to the `sea-orm` version in `Cargo.lock`. The stable 2.0.0 CLI writes
 code this crate cannot compile: `rs_type = "Enum"` on Postgres enums, and `BelongsTo` relation
 fields in the dense format.
+
+## Schema changes
+
+There is no migration runner. SeaORM entities are generated **from** the live database, so the
+schema has to change first and the entities are regenerated after.
+
+The schema was built by applying SQL to Supabase by hand. Keep doing that, but leave the SQL in
+`sql/` so it is reviewable and a fresh database can be stood up:
+
+```sh
+psql "$(grep ^DATABASE_URL .env | cut -d= -f2-)" -v ON_ERROR_STOP=1 -f sql/your_change.sql
+sea-orm-cli generate entity -o ./src/db/entity --entity-format compact
+```
+
+Write the DDL so it can be run twice (`create table if not exists`, `create index if not exists`),
+and keep it additive. Supabase turns row level security **on** for every new table, and nothing
+else in this schema has it on, so a new table needs
+`alter table x disable row level security` or any role that is not the owner silently reads
+nothing. `sql/listening_events.sql` is the worked example.
+
+Not everything in the database is in `sql/` yet: tables and columns added before this directory
+existed, `tags.is_activity` among them, live only in Supabase.
 
 ## Connects to
 
