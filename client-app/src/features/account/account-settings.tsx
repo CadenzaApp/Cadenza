@@ -18,7 +18,6 @@ import { useAppleMusic } from "@/lib/apple-music-auth";
 import { useMusicListPreferences } from "@/lib/music-list-preferences";
 
 import { GlassSettingsPanel, SettingsIcon, SettingsRow } from "./settings-ui";
-import { TopTagsPanel } from "./top-tags";
 
 type ConfirmationTarget = "cadenza" | "apple-music";
 
@@ -243,8 +242,6 @@ export function AccountSettingsScreen() {
                         )}
                     </View>
                 </GlassSettingsPanel>
-
-                <TopTagsPanel />
 
                 <GlassSettingsPanel>
                     <SettingsRow

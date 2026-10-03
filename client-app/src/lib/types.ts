@@ -42,17 +42,10 @@ export type TagScoreDeltas = Record<string, number>;
 /** What each named tag's score is now, keyed by the lowercased tag name. */
 export type TagScores = Record<string, number>;
 
-/**
- * Where a top tag's color came from: `local` if the user has a tag of that
- * name, `global` if only a default tag does.
- */
-export type TagSource = "local" | "global";
-
-/** One of the user's top tags as `GET /tags/scores` sends it. */
-export type ScoredTag = [score: number, color: string, source: TagSource];
-
-/** The user's top tags, keyed by the lowercased tag name, in no order. */
-export type TopTagScores = Record<string, ScoredTag>;
+// `GET /tags/scores` has no client caller any more. The Analytics tab reads tags
+// by plays in a window instead, which tag_scores cannot answer because it has no
+// timestamp. Scores are still written and still decay, as the input for
+// recommendations; its response shape lives in backend-api/src/routes/README.md.
 
 /** What kind of thing the social feed tracks the user's interest in. */
 export type InterestType = "artist" | "genre";
