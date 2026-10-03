@@ -24,9 +24,23 @@ export const MAX_QUEUED_EVENTS = 2_000;
 /** How many events one request sends, matching the backend's batch cap. */
 export const FLUSH_BATCH_SIZE = 500;
 
+/**
+ * Every event type `POST /events` accepts, mirroring the backend's `EventType`.
+ *
+ * Wider than `TrackedEvent["type"]` on purpose: the playback tracker only
+ * produces the five it can observe, and the rest are recorded by whichever
+ * screen knows about them. See `listening-events.tsx`.
+ */
+export type ListeningEventType =
+    | TrackedEvent["type"]
+    | "query_run"
+    | "query_play"
+    | "tag_applied"
+    | "tag_removed";
+
 /** One event as `POST /events` takes it. */
 export type QueuedEvent = {
-    type: TrackedEvent["type"];
+    type: ListeningEventType;
     song_id: string | null;
     occurred_at: string;
     client_tz: string;
@@ -145,11 +159,26 @@ export function makeClientEventId(
     occurredAt: Date,
     random: () => string,
 ): string {
-    return [
+    return makeEventId(
         event.type,
         event.songId,
-        occurredAt.getTime(),
+        occurredAt,
         Math.round(event.positionSeconds * 1000),
-        random(),
-    ].join(":");
+        random,
+    );
+}
+
+/**
+ * The same, for an event that has no playback position: one a screen records
+ * because it knows something the tracker cannot see, like a play starting from
+ * a query's results.
+ */
+export function makeEventId(
+    type: ListeningEventType,
+    songId: string | null,
+    occurredAt: Date,
+    positionMs: number,
+    random: () => string,
+): string {
+    return [type, songId, occurredAt.getTime(), positionMs, random()].join(":");
 }
