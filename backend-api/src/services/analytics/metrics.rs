@@ -165,6 +165,26 @@ impl Bucket {
         }
     }
 
+    /// Bars a chart should carry at most, for picking a bucket off a span.
+    const TARGET_BUCKETS: i64 = 60;
+
+    /// The finest bucket that keeps `days` under [`Self::TARGET_BUCKETS`] bars.
+    /// What `bucket=auto` resolves to.
+    ///
+    /// The client cannot pick this itself for an all-time window without first
+    /// asking how much history there is, and chaining those two requests is a
+    /// visible extra round trip, so the server decides.
+    ///
+    /// [`Self::ALL`] is ordered finest first, so this is the first that fits.
+    /// Year is the floor: nothing is coarser, so a long enough span just gets
+    /// more year bars.
+    pub fn fit(days: i64) -> Self {
+        Self::ALL
+            .into_iter()
+            .find(|bucket| bucket.buckets_in(days) <= Self::TARGET_BUCKETS)
+            .unwrap_or(Self::Year)
+    }
+
     /// How many buckets a window of `days` covers, rounded up, never negative.
     pub fn buckets_in(self, days: i64) -> i64 {
         if days <= 0 {
@@ -234,6 +254,50 @@ mod tests {
         // have to fit one, since that is the span of a real history
         assert!(Bucket::Month.buckets_in(DECADE_DAYS) <= Bucket::Month.max_buckets());
         assert!(Bucket::Year.buckets_in(DECADE_DAYS) <= Bucket::Year.max_buckets());
+    }
+
+    #[test]
+    fn fit_picks_the_finest_bucket_that_is_not_too_many_bars() {
+        assert_eq!(Bucket::fit(1), Bucket::Day);
+        assert_eq!(Bucket::fit(60), Bucket::Day);
+        // 61 days of days is over the target, so it steps out to weeks
+        assert_eq!(Bucket::fit(61), Bucket::Week);
+        assert_eq!(Bucket::fit(365), Bucket::Week);
+        assert_eq!(Bucket::fit(3 * 365), Bucket::Month);
+        assert_eq!(Bucket::fit(20 * 365), Bucket::Year);
+    }
+
+    #[test]
+    fn fit_never_returns_a_bucket_that_blows_the_target() {
+        // except at the very top, where year is the floor and there is nothing
+        // coarser to escape to
+        for days in [1, 7, 30, 61, 200, 400, 1000, 3652, 20 * 365] {
+            let bucket = Bucket::fit(days);
+            let bars = bucket.buckets_in(days);
+            assert!(
+                bars <= Bucket::TARGET_BUCKETS || bucket == Bucket::Year,
+                "{days} days gave {bars} {bucket} bars"
+            );
+        }
+    }
+
+    #[test]
+    fn fit_handles_an_empty_span_without_panicking() {
+        assert_eq!(Bucket::fit(0), Bucket::Day);
+        assert_eq!(Bucket::fit(-5), Bucket::Day);
+    }
+
+    #[test]
+    fn fit_always_stays_inside_the_buckets_cap() {
+        // a chart the backend chose the bucket for must never be refused by the
+        // bucket count guard
+        for days in [1, 61, 400, 3652, 50 * 365] {
+            let bucket = Bucket::fit(days);
+            assert!(
+                bucket.buckets_in(days) <= bucket.max_buckets(),
+                "{days} days as {bucket} exceeds its own cap"
+            );
+        }
     }
 
     #[test]

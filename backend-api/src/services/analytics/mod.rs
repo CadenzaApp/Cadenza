@@ -3,14 +3,17 @@
 //!
 //! Three stages, each replaceable on its own:
 //!
-//! 1. This module defines the event types and the metrics. No SQL runs here.
+//! 1. This module defines the event types, the metrics, and the dimensions a
+//!    ranking groups by. No SQL runs here.
 //! 2. `db::events` writes events. `db::analytics` reads them, running the
 //!    aggregates this module names.
 //! 3. `routes::events` and `routes::analytics` are thin wrappers over those.
 
+pub mod dimension;
 pub mod event_type;
 pub mod metrics;
 
+pub use dimension::Dimension;
 pub use event_type::EventType;
 pub use metrics::{Bucket, Metric};
 
