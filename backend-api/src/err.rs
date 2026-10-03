@@ -29,6 +29,8 @@ pub enum CadenzaError {
         retry_after: Option<Duration>,
     },
     SongMetadataErr(String),
+    /// Apple Music turned a catalog request away for rate limiting.
+    SongMetadataRateLimited,
     InvalidTagValue(String),
     /// An activity tag was named in a write. Their values come from listening.
     ActivityTagReadOnly,
@@ -51,6 +53,7 @@ impl CadenzaError {
             Self::TagGenerationErr(_) => 500,
             Self::TagGenerationRateLimited { .. } => 429,
             Self::SongMetadataErr(_) => 500,
+            Self::SongMetadataRateLimited => 429,
             Self::InvalidTagValue(_) => 422,
             Self::ActivityTagReadOnly => 403,
             Self::SocialFeedErr(_) => 502,
@@ -100,6 +103,10 @@ impl CadenzaError {
             Self::SongMetadataErr(msg) => json!({
                 "error_type": "SongMetadataErr",
                 "message": msg
+            }),
+            Self::SongMetadataRateLimited => json!({
+                "error_type": "SongMetadataRateLimited",
+                "message": "apple music is rate limiting catalog requests"
             }),
             Self::InvalidTagValue(msg) => json!({
                 "error_type": "InvalidTagValue",
