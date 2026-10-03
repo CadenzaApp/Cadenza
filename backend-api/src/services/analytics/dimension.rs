@@ -93,6 +93,7 @@ impl Dimension {
     }
 
     /// Every expression, for the checks that apply to all of them.
+    #[cfg(test)]
     fn expressions(&self) -> [&'static str; 4] {
         [
             self.key_expr,

@@ -26,7 +26,8 @@ pub struct Metric {
     /// Interpolated into the query, so it must stay a literal written here and
     /// never come from a request.
     pub aggregate: &'static str,
-    /// One line for the client to label a chart with.
+    /// What a chart of this metric is titled. A short noun phrase, not a
+    /// sentence: it is read as a heading and on a filter chip, not as prose.
     pub description: &'static str,
 }
 
@@ -43,22 +44,22 @@ impl Metric {
         Metric {
             name: "plays",
             aggregate: "count(*) filter (where event_type = 'play_counted')",
-            description: "Songs played long enough to count",
+            description: "Plays",
         },
         Metric {
             name: "starts",
             aggregate: "count(*) filter (where event_type = 'play_start')",
-            description: "Songs started, counted or not",
+            description: "Songs started",
         },
         Metric {
             name: "completions",
             aggregate: "count(*) filter (where event_type = 'play_complete')",
-            description: "Songs played to the end",
+            description: "Finished",
         },
         Metric {
             name: "skips",
             aggregate: "count(*) filter (where event_type = 'skip')",
-            description: "Songs left before the end",
+            description: "Skips",
         },
         // an early skip is a rejection, a late one is almost a full play. the
         // split is what makes skips usable as a signal rather than a tally
@@ -66,25 +67,25 @@ impl Metric {
             name: "early_skips",
             aggregate: "count(*) filter (where event_type = 'skip' \
                         and (payload->>'position_ms')::bigint < 10000)",
-            description: "Songs skipped in the first 10 seconds",
+            description: "Early skips",
         },
         Metric {
             name: "unique_songs",
             aggregate: "count(distinct song_id) filter (where event_type = 'play_counted')",
-            description: "Different songs played",
+            description: "Different songs",
         },
         // only the two events that end a listen carry listened_ms, so these
         // cannot double count one play
         Metric {
             name: "query_plays",
             aggregate: "count(*) filter (where event_type = 'query_play')",
-            description: "Plays started from a query",
+            description: "From a query",
         },
         Metric {
             name: "listening_ms",
             aggregate: "coalesce(sum((payload->>'listened_ms')::bigint) \
                         filter (where event_type in ('play_complete', 'skip')), 0)::bigint",
-            description: "Time spent listening, in milliseconds",
+            description: "Listening time",
         },
     ];
 
