@@ -12,6 +12,7 @@
  */
 
 import type { TrackedEvent } from "./play-tracker";
+import type { TrackMetadata } from "./track-metadata";
 
 /**
  * How many events the queue holds. A user offline for a long time stops
@@ -40,6 +41,10 @@ export type QueuedEvent = {
  *
  * `occurredAt` is passed in rather than read from the clock here so the caller
  * can keep it pure and so a test can pin it.
+ *
+ * `metadata` is the artist and album, which is what lets the backend rank them.
+ * It is optional because the caller only has it for the song that is playing;
+ * see the song id guard in `play-recorder.ts`.
  */
 export function toQueuedEvent(
     event: TrackedEvent,
@@ -48,11 +53,13 @@ export function toQueuedEvent(
         clientTz,
         sessionId,
         clientEventId,
+        metadata,
     }: {
         occurredAt: Date;
         clientTz: string;
         sessionId: string | null;
         clientEventId: string;
+        metadata?: TrackMetadata | null;
     },
 ): QueuedEvent {
     const payload: Record<string, number | string> = {};
@@ -71,6 +78,14 @@ export function toQueuedEvent(
         payload.from_ms = Math.round(event.fromSeconds * 1000);
         payload.to_ms = Math.round(event.positionSeconds * 1000);
     }
+
+    // what the backend groups the artist and album rankings by. the names are
+    // the group key and the ids only decorate it, so a track with a name and no
+    // id still ranks
+    if (metadata?.artistName) payload.artist_name = metadata.artistName;
+    if (metadata?.artistId) payload.artist_id = metadata.artistId;
+    if (metadata?.albumName) payload.album_name = metadata.albumName;
+    if (metadata?.albumId) payload.album_id = metadata.albumId;
 
     return {
         type: event.type,

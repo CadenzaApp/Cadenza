@@ -12,6 +12,7 @@ import {
     type QueuedEvent,
 } from "./event-queue.ts";
 import type { TrackedEvent } from "./play-tracker.ts";
+import type { TrackMetadata } from "./track-metadata.ts";
 
 const AT = new Date("2026-09-28T18:03:11.000Z");
 
@@ -27,14 +28,22 @@ function queued(id: string): QueuedEvent {
     };
 }
 
-function convert(event: TrackedEvent) {
+function convert(event: TrackedEvent, metadata?: TrackMetadata | null) {
     return toQueuedEvent(event, {
         occurredAt: AT,
         clientTz: "America/Denver",
         sessionId: "s1",
         clientEventId: "id1",
+        metadata,
     });
 }
+
+const COUNTED: TrackedEvent = {
+    type: "play_counted",
+    songId: "a",
+    positionSeconds: 15,
+    durationSeconds: 200,
+};
 
 // ----- the wire shape -----
 
@@ -190,4 +199,49 @@ test("dropping does not mutate the queue it was given", () => {
     const queue = [queued("a")];
     dropAccepted(queue, ["a"]);
     assert.equal(queue.length, 1);
+});
+
+// ----- artist and album metadata -----
+
+test("metadata lands as the four keys the backend groups by", () => {
+    const wire = convert(COUNTED, {
+        artistName: "Phoebe Bridgers",
+        artistId: "966309175",
+        albumName: "Punisher",
+        albumId: "1504438806",
+    });
+    assert.equal(wire.payload.artist_name, "Phoebe Bridgers");
+    assert.equal(wire.payload.artist_id, "966309175");
+    assert.equal(wire.payload.album_name, "Punisher");
+    assert.equal(wire.payload.album_id, "1504438806");
+});
+
+test("no metadata means no metadata keys", () => {
+    for (const metadata of [undefined, null, {}]) {
+        const wire = convert(COUNTED, metadata);
+        assert.deepEqual(wire.payload, { duration_ms: 200_000 }, `${metadata}`);
+    }
+});
+
+test("a name with no id still ships, since the name is the group key", () => {
+    const wire = convert(COUNTED, { artistName: "black midi" });
+    assert.equal(wire.payload.artist_name, "black midi");
+    assert.equal("artist_id" in wire.payload, false);
+});
+
+test("metadata does not disturb the timing keys", () => {
+    const wire = convert(
+        {
+            type: "skip",
+            songId: "a",
+            positionSeconds: 4,
+            durationSeconds: 200,
+            listenedSeconds: 4,
+        },
+        { artistName: "Fontaines D.C." },
+    );
+    assert.equal(wire.payload.position_ms, 4_000);
+    assert.equal(wire.payload.listened_ms, 4_000);
+    assert.equal(wire.payload.duration_ms, 200_000);
+    assert.equal(wire.payload.artist_name, "Fontaines D.C.");
 });

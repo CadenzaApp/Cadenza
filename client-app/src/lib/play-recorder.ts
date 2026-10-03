@@ -19,6 +19,7 @@ import {
     type TrackedEvent,
 } from "./play-tracker";
 import { deviceTimezone } from "./routes/analytics";
+import { trackMetadata, type TrackMetadata } from "./track-metadata";
 import { useRecordEvents } from "./routes/events";
 
 /**
@@ -110,9 +111,26 @@ export function usePlayRecorder(
         }
     }, [recordEvents, signedIn]);
 
-    /** Writes events down, then tries to send. */
+    /**
+     * Writes events down, then tries to send.
+     *
+     * `metadata` describes `forSongId` and nothing else, so it is attached only
+     * to the events about that song. This is the whole guard against
+     * mis-attribution: the event that ends a listen is emitted on the sample
+     * where the *next* song is already active (see the song-change tests in
+     * `play-tracker.test.ts`), so taking the metadata from whatever is playing
+     * would file the previous song's skip under the next song's artist.
+     *
+     * The upshot is that terminal events ship without artist and album. Nothing
+     * groups off them, and `play_counted` always describes the current song, so
+     * every ranking still has what it needs.
+     */
     const record = useCallback(
-        async (events: TrackedEvent[]) => {
+        async (
+            events: TrackedEvent[],
+            forSongId: string | null,
+            metadata: TrackMetadata | null,
+        ) => {
             if (events.length === 0) return;
 
             const now = new Date();
@@ -124,6 +142,7 @@ export function usePlayRecorder(
                     clientTz: tz,
                     sessionId,
                     clientEventId: makeClientEventId(event, now, randomSuffix),
+                    metadata: event.songId === forSongId ? metadata : null,
                 }),
             );
 
@@ -162,8 +181,13 @@ export function usePlayRecorder(
             duration: snapshot.duration,
         });
         trackerRef.current = state;
-        void record(events);
+        void record(
+            events,
+            songId,
+            activeTrack ? trackMetadata(activeTrack) : null,
+        );
     }, [
+        activeTrack,
         record,
         songId,
         snapshot.isPlaying,
