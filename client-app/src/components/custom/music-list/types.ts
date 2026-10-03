@@ -95,6 +95,12 @@ export type MusicListProps = {
      * track uses the shared playback controller.
      */
     onTrackPressOverride?: ((track: MusicItem) => void | Promise<void>) | null;
+    /**
+     * Something to show on each row between the song and its options button,
+     * like a play count on a ranked list. Opt in: without it every row is laid
+     * out exactly as it was before this existed.
+     */
+    renderAccessory?: ((track: MusicItem) => ReactNode) | null;
     /** Actions appended after the built-in per-track actions. */
     trackMenuActions?: readonly MusicListTrackAction[];
     /**

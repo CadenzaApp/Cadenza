@@ -67,6 +67,7 @@ export function MusicList({
     tracks,
     isLoading,
     onTrackPressOverride = null,
+    renderAccessory = null,
     trackMenuActions = EMPTY_TRACK_ACTIONS,
     multiSelect = null,
     fullBleedRows = false,
@@ -457,6 +458,7 @@ export function MusicList({
                                                     : undefined
                                             }
                                             activityTagIds={activityTagIds}
+                                            accessory={renderAccessory?.(item)}
                                             onPress={handleTrackPress}
                                             onLongPress={
                                                 selection.beginSelection
