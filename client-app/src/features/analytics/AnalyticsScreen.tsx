@@ -173,7 +173,7 @@ export function AnalyticsScreen() {
                         <CardTitle>Most played</CardTitle>
                         <SongPlayList
                             rows={summary.top_songs.map((song) => ({
-                                songId: song.song_id,
+                                songId: song.sample_song_id,
                                 value: formatCount(song.plays),
                             }))}
                             emptyLabel="No plays in this window yet."
