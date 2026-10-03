@@ -1,3 +1,3 @@
-import { AnalyticsScreen } from "@/features/analytics/AnalyticsScreen";
+import { AnalyticsOverviewScreen } from "@/features/analytics/AnalyticsOverviewScreen";
 
-export default AnalyticsScreen;
+export default AnalyticsOverviewScreen;

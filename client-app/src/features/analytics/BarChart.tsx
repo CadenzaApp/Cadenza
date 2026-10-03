@@ -20,6 +20,12 @@ type Props = {
     maxLabels?: number;
     /** Plot height in pixels. */
     height?: number;
+    /**
+     * How wide one bar may get. Without a cap a short series stretches to fill
+     * the plot, so a month of history under the All range draws as one slab
+     * across the screen rather than as one bar.
+     */
+    maxBarWidth?: number;
     className?: string;
 };
 
@@ -34,11 +40,16 @@ type Props = {
  * Tapping a bar shows its value, which is this platform's version of a hover
  * tooltip. The touch target is the full column height, not just the filled part,
  * so a near-zero bar is still reachable.
+ *
+ * Bars are capped in width and the row is start aligned, so a short series reads
+ * as a few bars on the left rather than stretching to fill the plot. A full
+ * width slab is what a one-bucket chart used to look like.
  */
 export function BarChart({
     bars,
     maxLabels = 5,
     height = 140,
+    maxBarWidth = 28,
     className,
 }: Props) {
     const [selected, setSelected] = useState<number | null>(null);
@@ -68,7 +79,7 @@ export function BarChart({
                                 setSelected(isSelected ? null : index)
                             }
                             className="flex-1 justify-end"
-                            style={{ height }}
+                            style={{ height, maxWidth: maxBarWidth }}
                             accessibilityRole="button"
                             accessibilityLabel={bar.readout}
                         >
