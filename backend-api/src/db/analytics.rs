@@ -609,11 +609,20 @@ mod tests {
                 Some(other_session),
                 json!({"result_count": 12}),
             ),
+            // song B again, this time started from a query's results
+            event(
+                EventType::QueryPlay,
+                Some("B"),
+                "2026-09-14T21:06:00Z",
+                "e10",
+                Some(other_session),
+                json!({"result_count": 12}),
+            ),
         ];
 
         let stored = insert_events(txn, user_id, &events).await.expect("insert");
-        assert_eq!(stored.inserted.len(), 9, "every seeded event is new");
-        assert_eq!(stored.accepted.len(), 9);
+        assert_eq!(stored.inserted.len(), 10, "every seeded event is new");
+        assert_eq!(stored.accepted.len(), 10);
     }
 
     fn window() -> TimeWindow {
@@ -660,6 +669,7 @@ mod tests {
         assert_eq!(stats["early_skips"], 1, "skipped at 4s, under the 10s line");
         assert_eq!(stats["unique_songs"], 2, "A and B");
         assert_eq!(stats["listening_ms"], 364_000, "180k + 180k + 4k");
+        assert_eq!(stats["query_plays"], 1, "e10");
         // every metric answers, so a new one cannot quietly go missing
         assert_eq!(stats.len(), Metric::ALL.len());
     }
@@ -873,7 +883,7 @@ mod tests {
 
         let (first, last) = get_event_bounds(&txn, user_id).await.unwrap().unwrap();
         assert_eq!(first, Utc.with_ymd_and_hms(2026, 9, 7, 20, 0, 0).unwrap());
-        assert_eq!(last, Utc.with_ymd_and_hms(2026, 9, 14, 21, 5, 0).unwrap());
+        assert_eq!(last, Utc.with_ymd_and_hms(2026, 9, 14, 21, 6, 0).unwrap());
     }
 
     #[tokio::test]

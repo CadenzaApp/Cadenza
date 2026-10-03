@@ -1,5 +1,5 @@
 import type { MusicItem } from "@apple-musickit";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useWindowDimensions, View } from "react-native";
 
 import { TrackCollectionView } from "@/components/custom/track-collection-view";
@@ -10,6 +10,8 @@ import { GlassButton } from "@/components/ui/glass-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Text } from "@/components/ui/text";
+import { useListeningEvents } from "@/lib/listening-events";
+import { usePlaybackCommands } from "@/lib/playback";
 
 const HERO_BUTTON_SIZE = 52;
 
@@ -35,7 +37,43 @@ export default function QueryResults({
     const [saveOpen, setSaveOpen] = useState(false);
     const [saveName, setSaveName] = useState("");
     const { tint, artworkUrls } = useCollectionArtworkTint(songs);
+    const { recordEvent } = useListeningEvents();
+    const { playQueue, togglePlayback } = usePlaybackCommands();
     const saveDialogWidth = Math.round(screenWidth * 0.75);
+
+    /**
+     * Notes that a song was played out of this query, which is what the query
+     * play rate is built from. Only the song that starts playing is recorded:
+     * the rest of the queue is also from the query, but nothing tracks where a
+     * running queue came from, so counting them would be a guess.
+     */
+    const recordQueryPlay = useCallback(
+        (track: MusicItem) => {
+            // the id tags cross the api under, the same key the rest of the app
+            // reads a song's tags with
+            const songId = track.catalogId ?? track.id;
+            void recordEvent("query_play", songId, {
+                result_count: songs.length,
+            }).catch(() => {
+                // a lost event is not worth interrupting playback over
+            });
+        },
+        [recordEvent, songs.length],
+    );
+
+    const playFromTop = useCallback(async () => {
+        if (songs.length === 0) return;
+        recordQueryPlay(songs[0]);
+        await playQueue({ tracks: songs });
+    }, [playQueue, recordQueryPlay, songs]);
+
+    const playOneSong = useCallback(
+        async (track: MusicItem) => {
+            recordQueryPlay(track);
+            await togglePlayback(track);
+        },
+        [recordQueryPlay, togglePlayback],
+    );
     function closeSaveDialog() {
         setSaveOpen(false);
         setSaveName("");
@@ -71,6 +109,8 @@ export default function QueryResults({
                 activityTagIds={activityTagIds}
                 backgroundColor={tint}
                 artworkUrls={artworkUrls}
+                onPlay={playFromTop}
+                onTrackPressOverride={playOneSong}
                 options={[
                     {
                         id: "save-query",

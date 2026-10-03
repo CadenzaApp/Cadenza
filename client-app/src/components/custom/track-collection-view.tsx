@@ -103,6 +103,8 @@ type Props = {
     removeClippedSubviews?: boolean;
     onPlay?: () => void | Promise<void>;
     onShuffle?: () => void | Promise<void>;
+    /** Passed straight to the track list, for a host that needs to know a row was played. */
+    onTrackPressOverride?: ((track: MusicItem) => void | Promise<void>) | null;
     isPlaying?: boolean;
     respectTopSafeArea?: boolean;
 };
@@ -139,6 +141,7 @@ export function TrackCollectionView({
     removeClippedSubviews,
     onPlay,
     onShuffle,
+    onTrackPressOverride,
     isPlaying = false,
     closeControl,
     respectTopSafeArea = false,
@@ -365,6 +368,7 @@ export function TrackCollectionView({
                 showTags={showTags}
                 mostRelevantTags={mostRelevantTags}
                 activityTagIds={activityTagIds}
+                onTrackPressOverride={onTrackPressOverride}
                 fullBleedRows
             />
 

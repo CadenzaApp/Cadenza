@@ -141,6 +141,10 @@ fn derive_rates(stats: &HashMap<String, i64>) -> HashMap<String, f64> {
             "plays_per_song".to_owned(),
             ratio(get("plays"), get("unique_songs")),
         ),
+        (
+            "query_play_rate".to_owned(),
+            ratio(get("query_plays"), get("plays")),
+        ),
     ])
 }
 

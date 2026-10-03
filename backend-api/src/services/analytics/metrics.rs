@@ -36,10 +36,10 @@ impl Metric {
     /// Only metrics something actually emits events for belong here. The client
     /// builds its chart picker straight off this list, so an entry with no
     /// emitter is a chart the user can select and only ever see zeros in.
-    /// `query_run`, `query_play`, `tag_applied` and `tag_removed` are valid event
-    /// types that nothing emits yet; each becomes a metric by adding one entry
-    /// below, once it does.
-    pub const ALL: [Metric; 7] = [
+    /// `query_run`, `tag_applied` and `tag_removed` are valid event types that
+    /// nothing emits yet; each becomes a metric by adding one entry below, once
+    /// it does.
+    pub const ALL: [Metric; 8] = [
         Metric {
             name: "plays",
             aggregate: "count(*) filter (where event_type = 'play_counted')",
@@ -75,6 +75,11 @@ impl Metric {
         },
         // only the two events that end a listen carry listened_ms, so these
         // cannot double count one play
+        Metric {
+            name: "query_plays",
+            aggregate: "count(*) filter (where event_type = 'query_play')",
+            description: "Plays started from a query",
+        },
         Metric {
             name: "listening_ms",
             aggregate: "coalesce(sum((payload->>'listened_ms')::bigint) \
