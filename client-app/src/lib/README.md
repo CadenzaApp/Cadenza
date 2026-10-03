@@ -12,7 +12,7 @@ native module directly.
 | `api-actions.ts`             | The generic SWR wrappers: `useAPIData`, `useAPIPostData`, `useAPIPostDataBatched`, `useAPIFetch`, `useAPIMutation`.                                                                                                                                                                               |
 | `api-endpoints.ts`           | `matchesEndpoint`, the cache-key matcher behind invalidation. Import-free so it can be unit tested.                                                                                                                                                                                               |
 | `swr-utils.ts`               | `clearCache` and `useSimpleMutation`, for things that are not plain backend calls.                                                                                                                                                                                                                |
-| `routes/tags.ts`             | Hooks for `/tags`: `useUserTags`, `useTag`, `useCreateTag`, `useUpdateTag`, `useDeleteTag`, `useDefaultTags`, `useActivityTags`, `useActivityTagIdsInQuery`, `useSuggestTags`, `useEditTagScores`, `useTopTagScores`.                                                                             |
+| `routes/tags.ts`             | Hooks for `/tags`: `useUserTags`, `useTag`, `useCreateTag`, `useUpdateTag`, `useDeleteTag`, `useDefaultTags`, `useActivityTags`, `useActivityTagIdsInQuery`, `useSuggestTags`, `useEditTagScores`.                                                                                                |
 | `routes/songs.ts`            | Hooks for local, default, and activity tag reads (one song and batched), local tag writes, removing a suggested tag, recording a play, missing-default checks, generation, and editing the user's library.                                                                                        |
 | `routes/queries.ts`          | `useQueryResults`, the one cached hook for `/queries/results`. Both builders go through it, and it carries the suggested-tag flag. It sends no song ids: the backend queries the library it already has.                                                                                          |
 | `routes/comments.ts`         | Hooks for `/comments`: `useSongComments`, `useCreateComment`, `useDeleteComment`, `useVoteOnComment`.                                                                                                                                                                                             |
@@ -30,7 +30,9 @@ native module directly.
 | `apple-music-auth.tsx`       | `AppleMusicProvider` / `useAppleMusic`. Apple Music tokens, persisted in secure store.                                                                                                                                                                                                            |
 | `playback.tsx`               | `PlaybackProvider`, broad `usePlayback`, lightweight `usePlaybackTrackState`, and stable `usePlaybackCommands`. Queue, native playback snapshot, and compact-player dismissal state.                                                                                                              |
 | `play-tracker.ts`            | Pure: folds playback snapshots into listening events. What counts as a play (15 seconds, or the whole of a shorter song, once per listen), and the `play_start` / `play_counted` / `play_complete` / `skip` / `seek` each listen emits. Tested in `play-tracker.test.ts`.                         |
-| `play-recorder.ts`           | `usePlayRecorder`, called by `PlaybackProvider`. Feeds each snapshot to `play-tracker.ts`, queues the events it produces, and flushes them to `POST /events`. Owns the listening session id and the background flush.                                                                             |
+| `play-recorder.ts`           | `usePlayRecorder`, called by `PlaybackProvider`. Feeds each snapshot to `play-tracker.ts` and hands the events to `listening-events.tsx`.                                                                                                                                                         |
+| `listening-events.tsx`       | `ListeningEventProvider` and `useListeningEvents`. Owns the event queue, the session id, the flush and the retry. The one thing that sends events, so more than one screen can record them without racing on storage.                                                                             |
+| `track-metadata.ts`          | Pure: the artist and album off a track, which is what the backend ranks by. Tested in `track-metadata.test.ts`.                                                                                                                                                                                   |
 | `event-queue.ts`             | Pure: the listening event queue and the wire shape it sends. Enqueue with an oldest-first cap, batch, and drop only what the backend confirmed. Tested in `event-queue.test.ts`.                                                                                                                  |
 | `event-queue-store.ts`       | The AsyncStorage half of that queue, split out so `event-queue.ts` stays import-free and testable.                                                                                                                                                                                                |
 | `queue-order.ts`             | Pure index math for the queue mirror. Tested in `queue-order.test.ts`.                                                                                                                                                                                                                            |
@@ -151,7 +153,6 @@ One file per backend router, and every backend endpoint has at least one hook.
 |                       | `GET /tags/default-tags`          | `tags.ts` -> `useDefaultTags(search)`           |
 |                       | `GET /tags/activity`              | `tags.ts` -> `useActivityTags()`                |
 |                       | `GET /tags/suggest`               | `tags.ts` -> `useSuggestTags()`                 |
-|                       | `GET /tags/scores`                | `tags.ts` -> `useTopTagScores(k)`               |
 |                       | `PATCH /tags/scores`              | `tags.ts` -> `useEditTagScores()`               |
 | `routes/songs.rs`     | `GET /songs/local-tags`           | `songs.ts` -> `useTagsOnSong(songId)`           |
 |                       | `POST /songs/local-tags/batch`    | `songs.ts` -> `useTagsOnSongs(songIds)`         |
@@ -189,12 +190,10 @@ as the optimistic data and `rollbackOnError`, then revalidates the read whether 
 not. So its `useAPIMutation` lists nothing to invalidate. `useDeleteComment` invalidates every
 song's comments, because its payload carries no song id.
 
-`useTopTagScores(k)` reads the user's top tags as `{name: [score, color, source]}`, where `source`
-is `local` when the color is the user's own tag's and `global` when it is a default tag's. The map
-has no order, so callers sort it. `useEditTagScores` invalidates it, since any score edit can move
-the top tags. Its callers are both in `tag-scores.tsx`, below, so a play or a query refreshes an
-open top tags read. `useCreateTag` and `useDeleteTag` invalidate it too, because a tag of a scored
-name decides whether that name is local, what color it has, and whether it shows up at all.
+`GET /tags/scores` has no hook any more. The Analytics tab reads tags by plays over a window
+instead, through `useAnalyticsTopTags`, which `tag_scores` cannot answer because it has no
+timestamp. `useEditTagScores` still writes them and the backend still decays them weekly, as the
+input for recommendations.
 
 Adding an endpoint: add the route in `backend-api/src/routes/*.rs`, then add a hook in the
 matching `routes/*.ts` built on the shared wrappers. For writes, list the endpoints the

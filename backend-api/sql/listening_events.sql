@@ -27,6 +27,16 @@ create table if not exists listening_events (
     session_id      uuid,
     -- per user idempotency key, so a retried batch inserts nothing
     client_event_id text not null,
+    -- per event type, and read by the aggregates, so not just decoration:
+    --   play_counted   artist_name, artist_id, album_name, album_id
+    --   play_complete  listened_ms, duration_ms
+    --   skip           listened_ms, position_ms, duration_ms
+    --   seek           from_ms, to_ms, position_ms
+    --   query_run      result_count
+    --   query_play     result_count
+    --   tag_applied    tag_name
+    -- artist_name and album_name are the group keys for the artist and album
+    -- rankings. Numbers must be whole: the aggregates cast them to bigint.
     payload         jsonb not null default '{}'::jsonb
 );
 

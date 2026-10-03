@@ -12,6 +12,7 @@ are computed from.
 | file | role |
 | --- | --- |
 | `mod.rs` | Declares `analytics`, `default_tags`, `social_feed`, `song_metadata`, `tag_generation`, `tag_normalizer`, `tag_score_decay`, and `tag_values`. |
+| `analytics/dimension.rs` | `Dimension`, what a ranking can be grouped by (song, artist, album) and the SQL that pulls each one's key, label and id out of a play. Unit tested. |
 | `analytics/mod.rs` | `TimeWindow`, the future-clock guard, and `sanitize_timezone`. Unit tested. |
 | `analytics/event_type.rs` | `EventType`, the nine listening event types, and the payload validation each one requires. Unit tested. |
 | `analytics/metrics.rs` | `Metric`, the registry pairing a metric name with one SQL aggregate, and `Bucket` (day, week, month, year) with its `date_trunc` unit, series step, and size caps. Unit tested. |
@@ -36,6 +37,11 @@ read that list, so neither needs a code change to pick it up. The `aggregate` st
 interpolated into SQL rather than bound, so it has to stay a literal written in that file, and it
 has to come back as `bigint` (postgres sums a bigint into numeric, so a `sum` needs `::bigint`). A
 unit test checks no aggregate contains a statement break.
+
+Adding a dimension is one entry in `Dimension::ALL`. `db::analytics::get_top_entities` serves all
+three rankings from one query, so a new dimension needs no handler. Tags are deliberately not a
+dimension: they group through a join to `user_tags_applied` rather than a payload key, so they
+keep their own query, the same split replays already have.
 
 Adding an event type is one variant in `EventType`. The database stores `event_type` as plain text
 and constrains nothing, so this is a deploy and not a schema change, which is the whole reason it

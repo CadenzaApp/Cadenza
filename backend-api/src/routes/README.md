@@ -14,7 +14,7 @@ call into `src/db/` or `src/services/`, and shape the response.
 | `queries.rs` | Runs a tag query and returns song ids by relevance. Mounted at `/queries`. |
 | `comments.rs` | Reading, leaving, deleting, and voting on comments on songs. Mounted at `/comments`. |
 | `events.rs` | Ingests a batch of listening events, and counts the `play_counted` ones towards the activity tags in the same transaction. Mounted at `/events`. |
-| `analytics.rs` | Summary counts, time bucketed trends, and the metric list. Mounted at `/analytics`. |
+| `analytics.rs` | Summary counts, time bucketed trends, the metric list, and the song, artist and album rankings. Mounted at `/analytics`. |
 | `social.rs` | One catch-all handler that proxies `/social/*` to the social feed service with the caller's user id attached. No endpoint list of its own. Mounted at `/social`. |
 | `json/mod.rs` | `vec_into`, a small `Vec<A> -> Vec<B>` helper. Declares `analytics`, `comment`, `query`, `tag`, and `tag_score`. |
 | `json/analytics.rs` | The `/events` request and response shapes, and the `/analytics` response shapes. |
@@ -55,8 +55,10 @@ Every route below requires `Authorization: Bearer <supabase jwt>`.
 | POST | `/songs/plays` | `{song_id}` | empty. Counts one play at the server's clock: My Plays +1, First Played and Last Played moved as needed. Superseded by `POST /events` with a `play_counted` event, which does the same thing and also records the event. Kept for app builds already in the field; the current client does not call it |
 | POST | `/events` | `{events: [{type, song_id?, occurred_at, client_tz?, session_id?, client_event_id, payload?}]}` | `{accepted: [client_event_id]}`, the ids now stored. Idempotent per `client_event_id`, so a retry stores nothing and still reports them. At most 500 events. 422 if any event has an unknown type, a bad payload, or an `occurred_at` over 10 minutes ahead |
 | GET | `/analytics/summary` | `?since=&until=&tz=` | one flat object of counts, rates, `active_days`, `plays_by_hour`, `top_songs`, `top_tags`, `most_replayed`, and the resolved `window`. Zeros and empty lists for a user with no events |
-| GET | `/analytics/trends` | `?metric=&bucket=day\|week\|month\|year&since=&until=&tz=` | `{metric, description, bucket, points: [{bucket, value}]}`. Dense: an empty bucket is a zero. `bucket` defaults to `week`, the window to the user's whole history. 422 on an unknown metric or a window with too many buckets |
+| GET | `/analytics/trends` | `?metric=&bucket=day\|week\|month\|year\|auto&since=&until=&tz=` | `{metric, description, bucket, points: [{bucket, value}]}`. Dense: an empty bucket is a zero. `bucket` defaults to `week`, the window to the user's whole history. 422 on an unknown metric or a window with too many buckets |
 | GET | `/analytics/metrics` | none | `[{name, description}]`, every metric `/analytics/trends` accepts |
+| GET | `/analytics/top` | `?dimension=song\|artist\|album&since=&until=&limit=` | `{dimension, description, entries: [{key, label, sub_label, entity_id, sample_song_id, plays}]}`, most played first. `label` is null for songs, whose titles live in Apple Music. `limit` defaults to 20, clamped to 1..=100. 422 on an unknown dimension |
+| GET | `/analytics/top-tags` | `?since=&until=&limit=` | `{entries: [{id, name, color, type, plays}]}`, the user's own tags by plays of the songs carrying them. Activity tags are left out |
 | POST | `/queries/results` | `{query, consider_default_tags?}` | `["songid", ...]`, most relevant first |
 | GET | `/comments` | `?song_id=...` | `[CommentThread]`, every user's comments on the song, newest first, each with its `replies` oldest first |
 | POST | `/comments` | `{song_id, content, parent_id?}` | the new `Comment`. `parent_id` makes it a reply to a top level comment on that song. `content` is trimmed and must then be 1 to 2000 characters |
@@ -316,10 +318,22 @@ api as JSON should have a type here rather than serializing an entity model dire
 - The window's upper bound is exclusive. When `until` is left out, `/analytics/trends` resolves it
   to one millisecond past the user's last event, so the newest event is in the series and a user
   with exactly one event does not read as a backwards window.
-- Not every event type has a metric. `query_run`, `query_play`, `tag_applied` and `tag_removed`
-  are accepted and stored, but nothing emits them yet, so they are deliberately left out of
-  `Metric::ALL`: the client builds its chart picker off that list and an entry with no emitter is
-  a chart that only ever shows zeros.
+- Not every event type has a metric. `query_run`, `tag_applied` and `tag_removed` are accepted and
+  stored, but nothing emits them yet, so they are deliberately left out of `Metric::ALL`: the
+  client builds its chart picker off that list and an entry with no emitter is a chart that only
+  ever shows zeros. `query_play` has an emitter, so it has a metric.
+- `bucket=auto` lets the server pick, which is the only way to bucket an all-time window without
+  the client first asking how much history there is. The response always echoes a real bucket.
+- `/analytics/top` groups artists and albums by the **lowercased name** out of the event payload,
+  not by id. An id-first key splits one artist the moment the same artist is played once from the
+  catalog, which carries an id, and once from a library copy, which does not. The cost is that two
+  genuinely different artists sharing a name merge. The album key includes the artist, or every
+  "Greatest Hits" collapses into one row.
+- A play recorded before the client started writing `artist_name` into the payload is invisible to
+  the artist and album rankings. There is no backfill: Apple Music owns the metadata.
+- `GET /tags/scores` has no client caller any more. The Analytics tab shows tags by plays in a
+  window, which `tag_scores` cannot answer because it has no timestamp. The scores are still
+  written and still decay weekly, as the input for recommendations, so this is not dead code.
 - Payload numbers must be whole and fit in an `i64`. The aggregates cast the stored text straight
   to `bigint` and the log is append only, so one row holding `1.5` would make the summary raise
   for that user with no way to delete it through the api.

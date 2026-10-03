@@ -2,56 +2,74 @@
 
 The Analytics tab: what the user's listening looks like, from the backend's event log.
 
-`src/app/(tabs)/analytics/index.tsx` only re-exports `AnalyticsScreen`. Everything here is
-presentation. No number on this screen is computed in the client; the backend aggregates in SQL
-and this formats and lays out what comes back.
+Five screens. `src/app/(tabs)/analytics/` only re-exports them. Everything here is presentation:
+no number on this tab is computed in the client, the backend aggregates in SQL and this formats
+and lays out what comes back.
 
 ## Files
 
-| file                  | role                                                                                                                                                                          |
-| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AnalyticsScreen.tsx` | The screen. Reads `useAnalyticsSummary`, `useAnalyticsTrend`, and `useAnalyticsMetrics`, and owns the selected metric and bucket. Holds the loading, error, and empty states. |
-| `BarChart.tsx`        | A single series of counts over an ordered axis. Tap a bar for its value.                                                                                                      |
-| `StatTile.tsx`        | One number with its name, for the counts that are a headline rather than a chart.                                                                                             |
-| `SongPlayList.tsx`    | A ranked list of songs with a figure each. Resolves song ids to titles through `useTracksForSongIds`.                                                                         |
-| `format.ts`           | Durations, percents, counts, hours, bucket labels, and which bucket labels to show. Pure, tested in `format.test.ts`.                                                         |
+| file                          | role                                                                                        |
+| ----------------------------- | ------------------------------------------------------------------------------------------- |
+| `AnalyticsOverviewScreen.tsx` | Stat tiles, the chart, and a top-5 preview card per dimension with a "See all".             |
+| `TopSongsScreen.tsx`          | The full most played songs list, as a playable `MusicList`.                                 |
+| `TopEntityScreen.tsx`         | The full artists or albums ranking. One component, parameterized by dimension.              |
+| `TopTagsScreen.tsx`           | The full tag ranking.                                                                       |
+| `analytics-range.tsx`         | `AnalyticsRangeProvider` and `useAnalyticsRange`: the time range every screen shares.       |
+| `range.ts`                    | Pure: a range to its window and bucket. Tested in `range.test.ts`.                          |
+| `entity-routes.ts`            | Pure: where an artist or album row goes, or null. Tested in `entity-routes.test.ts`.        |
+| `RangeChips.tsx`              | The range filter, bound to the provider.                                                    |
+| `ChipRow.tsx`                 | One row of selectable chips. Used by the range filter and the metric picker.                |
+| `TopEntityList.tsx`           | Ranked rows with artwork and a play count, for the previews and the artist and album pages. |
+| `TopTagList.tsx`              | The tag ranking as `TagPill`s.                                                              |
+| `BarChart.tsx`                | A single series of counts over an ordered axis. Tap a bar for its value.                    |
+| `StatTile.tsx`                | One number with its name, for the counts that are a headline rather than a chart.           |
+| `format.ts`                   | Durations, percents, counts, hours, and bucket labels. Pure, tested in `format.test.ts`.    |
 
-## How it reads
+## The range owns the bucket
 
-`GET /analytics/summary` fills the tiles and the lists in one request. `GET /analytics/trends` is a
-second request per selected metric and bucket; its SWR key covers both, so switching either reads
-its own cache entry rather than showing the previous series. The metric chips come from
-`GET /analytics/metrics`, so a metric added to the backend registry shows up here with no change in
-this directory.
+This is the important idea on the tab. One filter drives every read, and each range picks the
+bucket that gives its chart a readable number of bars:
 
-Every request sends the device's IANA timezone. Day, week, and hour boundaries are cut in it, since
-a UTC week is the wrong week for most users.
+| Range | Window                       | Chart                       |
+| ----- | ---------------------------- | --------------------------- |
+| Today | local midnight to the next   | 24 hour bars                |
+| Week  | last 7 local days            | 7 day bars                  |
+| Month | last 30 local days           | 30 day bars                 |
+| Year  | last 12 months, from the 1st | 12 month bars               |
+| All   | the user's whole history     | `bucket=auto`, server picks |
 
-## Charts
+Before this, the chart ran from the first event to the last at weekly buckets, so anyone with
+under a week of history saw exactly one bar.
 
-One series per chart, so one colour and no legend: the card title names what it is. The mark is
-`chart-2` from the project's sequential ramp in `global.css`, which clears 3:1 against both the
-light and dark card surfaces.
-
-Trend buckets arrive dense from the backend, so an empty bucket is a real zero and draws a hairline
-rather than going missing. Axis labels are thinned to at most five, always including both ends, so
-they cannot collide. A tap reads the value out above the plot, which holds its height so selecting
-a bar does not shift the layout.
+`AnalyticsRangeProvider` is mounted in the tab's `_layout`, above the stack, so the range survives
+navigating into a detail page and back.
 
 ## Gotchas
 
-- A new account gets its own empty state, not a page of zeros, because a wall of zeros reads as
-  broken. The check is `stats.plays === 0`.
-- `plays_by_hour` is always 24 entries. Do not filter it to the hours with plays; the empty hours
-  are the shape.
-- `top_songs` and `most_replayed` come back as song ids. Apple Music owns the titles, so a song
-  whose metadata will not load lists by id rather than dropping out of a ranking it earned.
-- `formatBucket` parses `YYYY-MM-DD` by hand rather than with `new Date()`, which would read a bare
-  date as UTC midnight and print it a day early west of Greenwich. The bucket is already local.
-- Rates come from the backend's `rates` object, not from dividing the counts here. A ratio of sums
-  is not the average of ratios, and the backend already made that choice.
-- Bucket labels come off `trend.bucket`, the bucket the response was computed with, not the
-  selected chip. `keepPreviousData` holds the old series while a new request is in flight or has
-  failed, and labelling that with the chip would relabel a weekly series as days.
-- The metric chips come from the backend, which only lists metrics something emits events for. A
-  metric with no emitter would be a chart that only ever shows zeros.
+- **`now` in the provider is state, not a ref or a fresh `new Date()` per render.** The window is
+  part of the SWR key, so a clock that moves every render misses the cache every render. It is
+  refreshed on a range change and on `AppState` becoming active, so an app left open overnight
+  does not keep yesterday's "Today".
+- **`MusicList` owns its own list and cannot go inside a `ScrollView`.** That is why the songs page
+  is its own screen with the filter above it, and why the scrolling overview and the artist and
+  album pages use `TopEntityList` instead.
+- **Row artwork comes from `sample_song_id`.** One `useTracksForSongIds` call resolves every row on
+  a card. For an album that is exactly the album cover; for an artist it is a cover of one of
+  their songs, not a portrait. A portrait would need one `useArtist` per row, and there is no
+  batch artist fetch.
+- **`useTracksForSongIds` drops ids it cannot resolve**, so an unavailable song falls out of the
+  songs page rather than listing without a title. `TopEntityList` keeps the row and falls back to
+  the key, since it does not need a `MusicItem`.
+- **Bars are width-capped and start-aligned.** Without the cap a short series stretches to fill the
+  plot, which is the other half of the one-bar complaint.
+- **Bucket labels come off `trend.bucket`**, the bucket the response was computed with, not the
+  selected range. `keepPreviousData` holds the old series while a new request is in flight, and
+  labelling that with the new range would relabel a monthly series as days.
+- **A row with no recorded entity id renders inert.** Library-only plays carry no catalog id, so
+  there is nothing to open; `entity-routes.ts` returns null and the row does not navigate.
+- **`format.ts` parses `YYYY-MM-DD` by hand** rather than with `new Date()`, which would read a
+  bare date as UTC midnight and print it a day early west of Greenwich. The bucket is already local.
+- **A new account gets its own empty state**, keyed on `stats.plays === 0`, because a page of zeros
+  reads as broken.
+- The overview's metric picker offers three metrics, not the backend's eight. The rest are still
+  served by `GET /analytics/metrics`.

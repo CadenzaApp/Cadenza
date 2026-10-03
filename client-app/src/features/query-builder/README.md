@@ -9,21 +9,21 @@ connectors attached to visual boundaries instead of moving them with condition c
 
 ## Files
 
-| file                 | role                                                                               |
-| -------------------- | ---------------------------------------------------------------------------------- |
-| `types.ts`           | Condition, group, tag-instance (with `suggested`), drag, and drop types.           |
-| `QueryUtils.ts`      | Pure condition edits, group collapse, derived labels, and JSON compilation.        |
-| `QueryUtils.test.ts` | Reducer invariants and wire-format tests.                                          |
-| `QueryBuilder.tsx`   | Composes the suggested-tag switch, scrollable workspace, and resizable palette.    |
-| `ResultsSummary.tsx` | Shared live count and compact-inset tagged preview used by both builders.          |
-| `ConditionList.tsx`  | Single conditions, groups, connectors, mode slider, and insertion targets.         |
-| `QueryTagPill.tsx`   | Shared tag-pill rendering for palette, suggested, query, and drag states.          |
-| `TagPalette.tsx`     | Usage-sorted palette, suggested-tag section, and query-tag delete target.          |
-| `DragContext.tsx`    | Drag payload state, shared-value coordinates, drop-zone registry, and hit testing. |
-| `DraggablePill.tsx`  | Tag pans, condition-card taps, and handle-only condition pans.                     |
-| `DropSlot.tsx`       | Registers and highlights a typed drop target.                                      |
-| `DragGhost.tsx`      | Floating tag shown during an active drag.                                          |
-| `QueryResults.tsx`   | Configures the full-screen query-match view, gradient, and save dialog.            |
+| file                 | role                                                                                                                         |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `types.ts`           | Condition, group, tag-instance (with `suggested`), drag, and drop types.                                                     |
+| `QueryUtils.ts`      | Pure condition edits, group collapse, derived labels, and JSON compilation.                                                  |
+| `QueryUtils.test.ts` | Reducer invariants and wire-format tests.                                                                                    |
+| `QueryBuilder.tsx`   | Composes the suggested-tag switch, scrollable workspace, and resizable palette.                                              |
+| `ResultsSummary.tsx` | Shared live count and compact-inset tagged preview used by both builders.                                                    |
+| `ConditionList.tsx`  | Single conditions, groups, connectors, mode slider, and insertion targets.                                                   |
+| `QueryTagPill.tsx`   | Shared tag-pill rendering for palette, suggested, query, and drag states.                                                    |
+| `TagPalette.tsx`     | Usage-sorted palette, suggested-tag section, and query-tag delete target.                                                    |
+| `DragContext.tsx`    | Drag payload state, shared-value coordinates, drop-zone registry, and hit testing.                                           |
+| `DraggablePill.tsx`  | Tag pans, condition-card taps, and handle-only condition pans.                                                               |
+| `DropSlot.tsx`       | Registers and highlights a typed drop target.                                                                                |
+| `DragGhost.tsx`      | Floating tag shown during an active drag.                                                                                    |
+| `QueryResults.tsx`   | Configures the full-screen query-match view, gradient, and save dialog. Records a `query_play` when a song starts from here. |
 
 ## The model
 
@@ -201,6 +201,9 @@ renders the same full-screen hero. See
 - `src/features/cadenza/CadenzaScreen.tsx` for session state, the suggested-tag switch value, and
   full-library result wiring.
 - `@/lib/routes/queries::useQueryResults` for live query evaluation.
+- `@/lib/listening-events::useListeningEvents` to record a `query_play`, which is what the
+  analytics query play rate is built from. Only the song that starts playing is recorded: the rest
+  of the queue is also from the query, but nothing tracks where a running queue came from.
 - `@/lib/routes/tags::useDefaultTags` for the suggested-tag section.
 - `@/lib/musickit-hooks::useTracksForSongIds` for turning matched ids back into tracks.
 - `@/components/custom/music-list` for preview and full results.

@@ -31,6 +31,10 @@ about *when* or *how often* is answered from the log, never from a tag value. Se
 events sections of [backend-api/src/db/README.md](backend-api/src/db/README.md) and
 [client-app/src/lib/README.md](client-app/src/lib/README.md).
 
+A play event also carries the artist and album off the track, because the backend never learns
+them any other way. That is what the most listened artist and album rankings group by, so an
+event written without them is invisible to those rankings and cannot be backfilled.
+
 Two halves:
 
 - `client-app/` - Expo / React Native app, expo-router, nativewind. Runs on iOS and Android.

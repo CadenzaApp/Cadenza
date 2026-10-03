@@ -222,6 +222,13 @@ takes a `header` for the same reason. The artist screen uses both at once: the a
 the header, the albums rail as the footer. The footer sits below the pagination skeleton, so a
 paging list keeps loading into it.
 
+`renderAccessory` puts something on each row between the song and its options button, which is how
+the Analytics tab shows a play count on a ranked list. It is opt in: without it a row renders
+exactly as it did before the prop existed, so library, search and the collection screens are
+unaffected. The row is memoized on shallow props, so a new accessory updates on its own. Note the
+row's right side also carries the shifted options button next to a masked tag rail whose fade is
+sized from the space left over, so a wide accessory eats into the tags.
+
 Top-level `MusicList`, `CollectionList`, `ArtistList`, and coming-soon scrollers fill and sit
 directly inside `@/lib/screen-scroll-marker`. This lets the native tab stack locate a full-height
 scroll view for inset, scroll-to-top, and tab-bar/accessory minimization.
