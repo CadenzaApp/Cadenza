@@ -7,7 +7,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
-use crate::db::analytics::{SongPlays, SongReplays, TagPlays, TrendPoint};
+use crate::db::analytics::{EntityPlays, SongReplays, TagPlays, TrendPoint};
+use crate::routes::json::tag::TagType;
 
 /// One event as the client sends it. The user id is never in here; it comes from
 /// the JWT.
@@ -59,7 +60,9 @@ pub struct AnalyticsSummary {
     pub active_days: i64,
     /// Plays in each hour of the local day, 24 entries, index 0 is midnight.
     pub plays_by_hour: Vec<i64>,
-    pub top_songs: Vec<SongPlayCount>,
+    pub top_songs: Vec<EntityPlayCount>,
+    pub top_artists: Vec<EntityPlayCount>,
+    pub top_albums: Vec<EntityPlayCount>,
     pub top_tags: Vec<TagPlayCount>,
     pub most_replayed: Vec<SongReplayCount>,
     /// The window actually used, resolved. Null on both ends means the user has
@@ -73,33 +76,53 @@ pub struct ResolvedWindow {
     pub until: Option<DateTime<Utc>>,
 }
 
+/// One row of a ranking, whatever it is a ranking of.
+///
+/// `label` is null for songs: Apple Music owns song titles and the api never
+/// stores one, so the client resolves those from `sample_song_id`. It resolves
+/// every row's artwork from that same id in one batch.
 #[derive(Serialize)]
-pub struct SongPlayCount {
-    pub song_id: String,
+pub struct EntityPlayCount {
+    pub key: String,
+    pub label: Option<String>,
+    pub sub_label: Option<String>,
+    pub entity_id: Option<String>,
+    pub sample_song_id: String,
     pub plays: i64,
 }
 
-impl From<SongPlays> for SongPlayCount {
-    fn from(value: SongPlays) -> Self {
+impl From<EntityPlays> for EntityPlayCount {
+    fn from(value: EntityPlays) -> Self {
         Self {
-            song_id: value.song_id,
+            key: value.key,
+            label: value.label,
+            sub_label: value.sub_label,
+            entity_id: value.entity_id,
+            sample_song_id: value.sample_song_id,
             plays: value.plays,
         }
     }
 }
 
+/// A tag and its plays, flat, so the client can draw it with the same tag
+/// component as everywhere else.
 #[derive(Serialize)]
 pub struct TagPlayCount {
+    pub id: i64,
     pub name: String,
     pub color: String,
+    #[serde(rename = "type")]
+    pub tag_type: TagType,
     pub plays: i64,
 }
 
 impl From<TagPlays> for TagPlayCount {
     fn from(value: TagPlays) -> Self {
         Self {
+            id: value.tag_id,
             name: value.name,
             color: value.color,
+            tag_type: value.tag_type.into(),
             plays: value.plays,
         }
     }
@@ -154,4 +177,18 @@ impl From<TrendPoint> for TrendBucket {
 pub struct MetricInfo {
     pub name: String,
     pub description: String,
+}
+
+/// What `GET /analytics/top` answers with.
+#[derive(Serialize)]
+pub struct AnalyticsTopList {
+    pub dimension: String,
+    pub description: String,
+    pub entries: Vec<EntityPlayCount>,
+}
+
+/// What `GET /analytics/top-tags` answers with.
+#[derive(Serialize)]
+pub struct AnalyticsTopTags {
+    pub entries: Vec<TagPlayCount>,
 }

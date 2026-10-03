@@ -53,7 +53,9 @@ impl Dimension {
         },
         Dimension {
             name: "artist",
-            key_expr: "lower(btrim(nullif(payload->>'artist_name', '')))",
+            // nullif comes after the trim, or a name of only spaces keys as an
+            // empty string instead of null and survives the filter
+            key_expr: "nullif(lower(btrim(payload->>'artist_name')), '')",
             label_expr: "payload->>'artist_name'",
             sub_label_expr: "null::text",
             entity_id_expr: "nullif(payload->>'artist_id', '')",
@@ -63,7 +65,9 @@ impl Dimension {
             name: "album",
             // the artist is part of the key, or every "Greatest Hits" in the
             // library collapses into one row
-            key_expr: "lower(btrim(nullif(payload->>'album_name', ''))) || '|' \
+            // a blank album name nulls the first half, and null || anything is
+            // null in postgres, so the whole key nulls and the row is filtered
+            key_expr: "nullif(lower(btrim(payload->>'album_name')), '') || '|' \
                        || lower(btrim(coalesce(payload->>'artist_name', '')))",
             label_expr: "payload->>'album_name'",
             sub_label_expr: "payload->>'artist_name'",

@@ -16,10 +16,13 @@ use crate::{
     db::analytics,
     err::CadenzaError,
     routes::json::{
-        analytics::{AnalyticsSummary, AnalyticsTrend, MetricInfo, ResolvedWindow},
+        analytics::{
+            AnalyticsSummary, AnalyticsTopList, AnalyticsTopTags, AnalyticsTrend, MetricInfo,
+            ResolvedWindow,
+        },
         vec_into,
     },
-    services::analytics::{Bucket, Metric, TimeWindow},
+    services::analytics::{Bucket, Dimension, Metric, TimeWindow},
 };
 
 /// How many entries the top songs, top tags, and replay lists carry.
@@ -80,7 +83,9 @@ async fn get_summary_handler(
     let stats = analytics::get_summary(&db, user_id, window).await?;
     let active_days = analytics::get_active_days(&db, user_id, window, tz).await?;
     let plays_by_hour = analytics::get_plays_by_hour(&db, user_id, window, tz).await?;
-    let top_songs = analytics::get_top_songs(&db, user_id, window, TOP_LIST_LIMIT).await?;
+    let top_songs = top_entities(&db, user_id, "song", window).await?;
+    let top_artists = top_entities(&db, user_id, "artist", window).await?;
+    let top_albums = top_entities(&db, user_id, "album", window).await?;
     let top_tags = analytics::get_top_tags_by_play(&db, user_id, window, TOP_LIST_LIMIT).await?;
     let most_replayed = analytics::get_most_replayed(&db, user_id, window, TOP_LIST_LIMIT).await?;
 
@@ -98,10 +103,25 @@ async fn get_summary_handler(
         active_days,
         plays_by_hour,
         top_songs: vec_into(top_songs),
+        top_artists: vec_into(top_artists),
+        top_albums: vec_into(top_albums),
         top_tags: vec_into(top_tags),
         most_replayed: vec_into(most_replayed),
         window: resolved,
     }))
+}
+
+/// One dimension's ranking for the summary. The name is a literal from this
+/// file, so the lookup cannot fail at runtime.
+async fn top_entities(
+    db: &DatabaseConnection,
+    user_id: uuid::Uuid,
+    dimension: &str,
+    window: TimeWindow,
+) -> Result<Vec<analytics::EntityPlays>, CadenzaError> {
+    let dimension = Dimension::from_name(dimension)
+        .unwrap_or_else(|| unreachable!("'{dimension}' is not a dimension"));
+    analytics::get_top_entities(db, user_id, dimension, window, TOP_LIST_LIMIT).await
 }
 
 /// The ratios, from the counts.
@@ -195,11 +215,17 @@ async fn get_trend_handler(
     })?;
 
     let bucket_name = params.bucket.as_deref().unwrap_or("week");
-    let bucket = Bucket::from_name(bucket_name).ok_or_else(|| {
-        CadenzaError::InvalidRequestBody(format!(
-            "unknown bucket '{bucket_name}'. known buckets: day, week, month, year"
-        ))
-    })?;
+    // `auto` is resolved below, once the window is known, since the right bucket
+    // depends on how long a span it has to cover
+    let requested_bucket = if bucket_name == "auto" {
+        None
+    } else {
+        Some(Bucket::from_name(bucket_name).ok_or_else(|| {
+            CadenzaError::InvalidRequestBody(format!(
+                "unknown bucket '{bucket_name}'. known buckets: day, week, month, year, auto"
+            ))
+        })?)
+    };
 
     // the series needs both ends, so an open window resolves against the user's
     // own history rather than defaulting to some arbitrary range
@@ -208,7 +234,7 @@ async fn get_trend_handler(
         return Ok(Json(AnalyticsTrend {
             metric: metric.name.to_owned(),
             description: metric.description.to_owned(),
-            bucket: bucket.to_string(),
+            bucket: requested_bucket.unwrap_or(Bucket::Week).to_string(),
             points: Vec::new(),
         }));
     };
@@ -226,7 +252,16 @@ async fn get_trend_handler(
             "since must be before until".to_owned(),
         ));
     }
-    check_bucket_count(since, until, bucket)?;
+
+    // an explicit bucket is still checked against its cap; one the server picked
+    // is inside it by construction
+    let bucket = match requested_bucket {
+        Some(bucket) => {
+            check_bucket_count(since, until, bucket)?;
+            bucket
+        }
+        None => Bucket::fit((until - since).num_days()),
+    };
 
     let points = analytics::get_trend(
         &db,
@@ -288,11 +323,124 @@ async fn list_metrics_handler(
     )
 }
 
+#[derive(Deserialize)]
+pub struct TopParams {
+    /// A name from [`Dimension::ALL`].
+    dimension: String,
+    since: Option<DateTime<Utc>>,
+    until: Option<DateTime<Utc>>,
+    limit: Option<u64>,
+}
+
+/// The user's most played songs, artists, or albums over a window, most played
+/// first.
+///
+/// One path for every dimension, so adding one to the registry makes it
+/// available here with no new handler. A user with no events gets an empty list,
+/// not an error.
+///
+/// `label` is null for songs, whose titles live in Apple Music. Every row
+/// carries a `sample_song_id` the client resolves artwork from, in one batch.
+///
+/// JSON return value format:
+/// ```json
+/// {
+///   "dimension": "artist",
+///   "description": "Most listened artists",
+///   "entries": [
+///     {
+///       "key": "phoebe bridgers",
+///       "label": "Phoebe Bridgers",
+///       "sub_label": null,
+///       "entity_id": "966309175",
+///       "sample_song_id": "1504438807",
+///       "plays": 61
+///     }
+///   ]
+/// }
+/// ```
+async fn get_top_handler(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Query(params): Query<TopParams>,
+) -> Result<Json<AnalyticsTopList>, CadenzaError> {
+    let dimension = Dimension::from_name(&params.dimension).ok_or_else(|| {
+        CadenzaError::InvalidRequestBody(format!(
+            "unknown dimension '{}'. known dimensions: {}",
+            params.dimension,
+            Dimension::known_names()
+        ))
+    })?;
+
+    let window = TimeWindow::new(params.since, params.until)?;
+    let entries = analytics::get_top_entities(
+        &db,
+        claims.user_id,
+        dimension,
+        window,
+        clamp_limit(params.limit),
+    )
+    .await?;
+
+    Ok(Json(AnalyticsTopList {
+        dimension: dimension.name.to_owned(),
+        description: dimension.description.to_owned(),
+        entries: vec_into(entries),
+    }))
+}
+
+#[derive(Deserialize)]
+pub struct TopTagsParams {
+    since: Option<DateTime<Utc>>,
+    until: Option<DateTime<Utc>>,
+    limit: Option<u64>,
+}
+
+/// The tags the user actually listens to over a window, by plays of the songs
+/// carrying them.
+///
+/// The user's own tags only. Activity tags are left out because every played
+/// song has My Plays on it by construction, so they would take every slot and
+/// say nothing.
+///
+/// JSON return value format:
+/// ```json
+/// {"entries": [{"id": 41, "name": "GYM", "color": "#f97316", "type": "basic", "plays": 61}]}
+/// ```
+async fn get_top_tags_handler(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Query(params): Query<TopTagsParams>,
+) -> Result<Json<AnalyticsTopTags>, CadenzaError> {
+    let window = TimeWindow::new(params.since, params.until)?;
+    let entries =
+        analytics::get_top_tags_by_play(&db, claims.user_id, window, clamp_limit(params.limit))
+            .await?;
+
+    Ok(Json(AnalyticsTopTags {
+        entries: vec_into(entries),
+    }))
+}
+
+/// How many rows a ranking returns: the caller's `limit`, or 20, bounded so one
+/// request cannot ask for the whole history.
+fn clamp_limit(limit: Option<u64>) -> u64 {
+    limit.unwrap_or(DEFAULT_TOP_LIMIT).clamp(1, MAX_TOP_LIMIT)
+}
+
+/// What a ranking returns when the caller does not say.
+const DEFAULT_TOP_LIMIT: u64 = 20;
+
+/// The most any one ranking will return.
+const MAX_TOP_LIMIT: u64 = 100;
+
 pub fn get_analytics_router() -> Router<AppState> {
     Router::new()
         .route("/summary", get(get_summary_handler))
         .route("/trends", get(get_trend_handler))
         .route("/metrics", get(list_metrics_handler))
+        .route("/top", get(get_top_handler))
+        .route("/top-tags", get(get_top_tags_handler))
 }
 
 #[cfg(test)]
@@ -372,6 +520,36 @@ mod tests {
         let since = at("2026-06-01T00:00:00Z");
         let until = at("2026-01-01T00:00:00Z");
         assert!(check_bucket_count(since, until, Bucket::Day).is_ok());
+    }
+
+    #[test]
+    fn a_limit_is_bounded_in_both_directions() {
+        assert_eq!(clamp_limit(None), DEFAULT_TOP_LIMIT);
+        assert_eq!(clamp_limit(Some(5)), 5);
+        assert_eq!(clamp_limit(Some(0)), 1, "zero rows is never what was meant");
+        assert_eq!(clamp_limit(Some(10_000)), MAX_TOP_LIMIT);
+        assert_eq!(clamp_limit(Some(MAX_TOP_LIMIT)), MAX_TOP_LIMIT);
+    }
+
+    #[test]
+    fn auto_is_not_a_bucket_name() {
+        // the handler resolves it once the window is known, so it must not parse
+        // as an ordinary bucket
+        assert_eq!(Bucket::from_name("auto"), None);
+    }
+
+    #[test]
+    fn every_dimension_is_reachable_by_name() {
+        for dimension in Dimension::ALL {
+            assert_eq!(
+                Dimension::from_name(dimension.name).map(|d| d.name),
+                Some(dimension.name)
+            );
+        }
+        // what the summary handler relies on when it looks these up by literal
+        for name in ["song", "artist", "album"] {
+            assert!(Dimension::from_name(name).is_some(), "{name}");
+        }
     }
 
     #[test]

@@ -7,16 +7,19 @@
 //! Two shapes of read live here. The ones driven by
 //! [`crate::services::analytics::Metric`] interpolate that metric's aggregate
 //! into one query, so adding a metric needs no change in this file. The rest
-//! (top songs, replays, top tags, the clock) group by something other than the
-//! window and so are each their own function.
+//! (replays, top tags, the clock) group by something other than the window and
+//! so are each their own function. Rankings are the same idea one level up:
+//! [`crate::services::analytics::Dimension`] supplies the group key, so
+//! `get_top_entities` serves songs, artists and albums from one query.
 
 use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
 use sea_orm::{ConnectionTrait, DbBackend, Statement, Value as DbValue, prelude::Uuid};
 
+use crate::db::entity::sea_orm_active_enums::TagType;
 use crate::err::CadenzaError;
-use crate::services::analytics::{Bucket, Metric, TimeWindow, sanitize_timezone};
+use crate::services::analytics::{Bucket, Dimension, Metric, TimeWindow, sanitize_timezone};
 
 /// A `where` fragment restricting rows to one user and a window, plus the values
 /// it binds, starting at `$1`.
@@ -238,31 +241,76 @@ pub async fn get_event_bounds(
     Ok(first.zip(last))
 }
 
-/// A song and how many times it was played, most played first.
+/// One row of a "most played" ranking: whatever it is, how often, and enough to
+/// draw and open it.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SongPlays {
-    pub song_id: String,
+pub struct EntityPlays {
+    /// The group key. Opaque to the client; it only needs it as a list key.
+    pub key: String,
+    /// What to show. `None` for songs, whose titles live in Apple Music.
+    pub label: Option<String>,
+    /// A second line, or `None` when there is nothing to add.
+    pub sub_label: Option<String>,
+    /// The id needed to open the thing, when any play recorded one.
+    pub entity_id: Option<String>,
+    /// A song in the group. Its artwork is the album's, and a fair stand-in for
+    /// an artist, so the client resolves every row's art in one batch of these.
+    pub sample_song_id: String,
     pub plays: i64,
 }
 
-/// The user's most played songs over a window.
-pub async fn get_top_songs(
+/// The user's most played songs, artists, or albums over a window, most played
+/// first.
+///
+/// One query whatever the dimension: [`Dimension`] supplies the group key and
+/// the label, so a new dimension needs no change here.
+///
+/// Artist and album read the names out of the event payload, which means a play
+/// recorded before the client started writing them is invisible to those two
+/// dimensions. Nothing is affected today because the log was empty when the
+/// payload gained them, which is why that change went first.
+pub async fn get_top_entities(
     db: &impl ConnectionTrait,
     user_id: Uuid,
+    dimension: Dimension,
     window: TimeWindow,
     limit: u64,
-) -> Result<Vec<SongPlays>, CadenzaError> {
+) -> Result<Vec<EntityPlays>, CadenzaError> {
     let mut scope = Scope::new(user_id, window, None);
     let limit_param = scope.bind(limit as i64);
 
     let sql = format!(
-        "select song_id, count(*)::bigint as plays
-         from listening_events
-         where {} and event_type = 'play_counted' and song_id is not null
-         group by song_id
-         order by plays desc, song_id
+        "with plays as (
+             select {key} as group_key,
+                    {label} as label,
+                    {sub_label} as sub_label,
+                    {entity_id} as entity_id,
+                    song_id,
+                    occurred_at
+             from listening_events
+             where {scope} and event_type = 'play_counted' and song_id is not null
+         )
+         select group_key,
+                -- the newest spelling wins, so a renamed album reads as its new name
+                (array_agg(label     order by occurred_at desc))[1] as label,
+                (array_agg(sub_label order by occurred_at desc))[1] as sub_label,
+                -- nulls sort last, so the group keeps an id even when one play
+                -- was a library copy that had none
+                (array_agg(entity_id order by (entity_id is null), occurred_at desc))[1]
+                    as entity_id,
+                -- the group's most played song, so the artwork is representative
+                mode() within group (order by song_id) as sample_song_id,
+                count(*)::bigint as plays
+         from plays
+         where group_key is not null
+         group by group_key
+         order by plays desc, label nulls last, group_key
          limit {limit_param}",
-        scope.clause
+        key = dimension.key_expr,
+        label = dimension.label_expr,
+        sub_label = dimension.sub_label_expr,
+        entity_id = dimension.entity_id_expr,
+        scope = scope.clause,
     );
 
     let rows = db
@@ -275,9 +323,13 @@ pub async fn get_top_songs(
 
     rows.into_iter()
         .map(|row| {
-            Ok(SongPlays {
-                song_id: row.try_get_by_index(0)?,
-                plays: row.try_get_by_index(1)?,
+            Ok(EntityPlays {
+                key: row.try_get_by_index(0)?,
+                label: row.try_get_by_index(1)?,
+                sub_label: row.try_get_by_index(2)?,
+                entity_id: row.try_get_by_index(3)?,
+                sample_song_id: row.try_get_by_index(4)?,
+                plays: row.try_get_by_index(5)?,
             })
         })
         .collect()
@@ -346,11 +398,19 @@ pub async fn get_most_replayed(
         .collect()
 }
 
-/// A tag name and how many plays landed on songs carrying it.
+/// A tag and how many plays landed on songs carrying it.
+///
+/// Carries the whole tag, not just its name, so the client can draw it with the
+/// same tag component as everywhere else rather than inventing a stand-in.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TagPlays {
+    pub tag_id: i64,
     pub name: String,
     pub color: String,
+    /// The `tag_type` enum, by name. Read as text and matched in Rust, the same
+    /// way `queries.rs` reads it, rather than decoding a postgres enum out of a
+    /// raw statement.
+    pub tag_type: TagType,
     pub plays: i64,
 }
 
@@ -370,13 +430,13 @@ pub async fn get_top_tags_by_play(
 
     // the scope's user_id is $1, which is also the tag owner we want
     let sql = format!(
-        "select t.name, t.color, count(*)::bigint as plays
+        "select t.tag_id, t.name, t.color, t.type::text, count(*)::bigint as plays
          from listening_events e
          join user_tags_applied uta
              on uta.song_id = e.song_id and uta.user_id = e.user_id
          join tags t on t.tag_id = uta.tag_id
          where {} and e.event_type = 'play_counted' and t.is_activity = false
-         group by t.name, t.color
+         group by t.tag_id, t.name, t.color, t.type
          order by plays desc, t.name
          limit {limit_param}",
         scope.clause
@@ -392,13 +452,32 @@ pub async fn get_top_tags_by_play(
 
     rows.into_iter()
         .map(|row| {
+            let type_name: String = row.try_get_by_index(3)?;
             Ok(TagPlays {
-                name: row.try_get_by_index(0)?,
-                color: row.try_get_by_index(1)?,
-                plays: row.try_get_by_index(2)?,
+                tag_id: row.try_get_by_index(0)?,
+                name: row.try_get_by_index(1)?,
+                color: row.try_get_by_index(2)?,
+                tag_type: tag_type_from_name(&type_name)?,
+                plays: row.try_get_by_index(4)?,
             })
         })
         .collect()
+}
+
+/// A `tag_type` read back as text. The forward direction lives in
+/// `activity_tags::tag_type_name`.
+fn tag_type_from_name(name: &str) -> Result<TagType, CadenzaError> {
+    match name {
+        "basic" => Ok(TagType::Basic),
+        "text" => Ok(TagType::Text),
+        "datetime" => Ok(TagType::Datetime),
+        "number" => Ok(TagType::Number),
+        "checkbox" => Ok(TagType::Checkbox),
+        "date" => Ok(TagType::Date),
+        other => Err(CadenzaError::DatabaseError(format!(
+            "unknown tag type '{other}'"
+        ))),
+    }
 }
 
 /// Plays in each hour of the user's local day, always 24 entries, index 0 being
@@ -485,6 +564,27 @@ mod tests {
             .with_timezone(&Utc)
     }
 
+    /// A `play_counted` payload carrying the artist and album the client writes,
+    /// which is what the artist and album rankings group by.
+    fn counted(artist: &str, album: &str) -> serde_json::Value {
+        json!({ "artist_name": artist, "album_name": album })
+    }
+
+    /// The same, with the catalog ids a library-only copy would not have.
+    fn counted_with_ids(
+        artist: &str,
+        artist_id: &str,
+        album: &str,
+        album_id: &str,
+    ) -> serde_json::Value {
+        json!({
+            "artist_name": artist,
+            "artist_id": artist_id,
+            "album_name": album,
+            "album_id": album_id,
+        })
+    }
+
     fn event(
         event_type: EventType,
         song_id: Option<&str>,
@@ -529,7 +629,11 @@ mod tests {
     /// assertions below.
     ///
     /// Three plays of song A, two of them in one session (a replay), one play and
-    /// one skip of song B, and a query run.
+    /// one skip of song B, a query run, and a query play.
+    ///
+    /// Song A is played twice as a catalog copy, with artist and album ids, and
+    /// once as a library copy without them. The artist and album rankings have to
+    /// read that as one artist and one album.
     async fn seed(txn: &DatabaseTransaction, user_id: Uuid) {
         let session = Uuid::from_u128(1);
         let other_session = Uuid::from_u128(2);
@@ -548,7 +652,7 @@ mod tests {
                 "2026-09-07T20:00:20Z",
                 "e2",
                 Some(session),
-                json!({}),
+                counted_with_ids("Phoebe Bridgers", "966309175", "Punisher", "1504438806"),
             ),
             event(
                 EventType::PlayComplete,
@@ -565,7 +669,7 @@ mod tests {
                 "2026-09-07T20:06:00Z",
                 "e4",
                 Some(session),
-                json!({}),
+                counted_with_ids("Phoebe Bridgers", "966309175", "Punisher", "1504438806"),
             ),
             event(
                 EventType::PlayComplete,
@@ -582,7 +686,9 @@ mod tests {
                 "2026-09-14T20:00:00Z",
                 "e6",
                 Some(other_session),
-                json!({}),
+                // the library copy of the same song: same names, no catalog ids.
+                // this is what the name-keyed grouping has to merge with e2/e4
+                counted("Phoebe Bridgers", "Punisher"),
             ),
             event(
                 EventType::PlayCounted,
@@ -590,7 +696,7 @@ mod tests {
                 "2026-09-14T21:00:00Z",
                 "e7",
                 Some(other_session),
-                json!({}),
+                counted("Fontaines D.C.", "Romance"),
             ),
             // skipped early, so it counts as an early skip too
             event(
@@ -688,12 +794,16 @@ mod tests {
         assert!(stats.values().all(|&v| v == 0), "{stats:?}");
 
         assert_eq!(get_event_bounds(&txn, nobody).await.unwrap(), None);
-        assert!(
-            get_top_songs(&txn, nobody, TimeWindow::ALL_TIME, 10)
-                .await
-                .unwrap()
-                .is_empty()
-        );
+        for dimension in Dimension::ALL {
+            assert!(
+                get_top_entities(&txn, nobody, dimension, TimeWindow::ALL_TIME, 10)
+                    .await
+                    .unwrap()
+                    .is_empty(),
+                "{} should be empty",
+                dimension.name
+            );
+        }
         assert!(
             get_most_replayed(&txn, nobody, TimeWindow::ALL_TIME, 10)
                 .await
@@ -800,27 +910,27 @@ mod tests {
         assert_eq!(play_day(utc).as_deref(), Some("2026-09-08"));
     }
 
+    /// Looks a dimension up by name the way the routes do.
+    fn dimension(name: &str) -> Dimension {
+        Dimension::from_name(name).expect(name)
+    }
+
     #[tokio::test]
     #[ignore]
     async fn top_songs_and_replays_read_the_sessions() {
         let (txn, user_id) = scratch().await;
         seed(&txn, user_id).await;
 
-        let top = get_top_songs(&txn, user_id, window(), 10).await.unwrap();
-        assert_eq!(
-            top[0],
-            SongPlays {
-                song_id: "A".to_owned(),
-                plays: 3
-            }
-        );
-        assert_eq!(
-            top[1],
-            SongPlays {
-                song_id: "B".to_owned(),
-                plays: 1
-            }
-        );
+        let top = get_top_entities(&txn, user_id, dimension("song"), window(), 10)
+            .await
+            .unwrap();
+        assert_eq!(top[0].key, "A");
+        assert_eq!(top[0].plays, 3);
+        // a song carries no label: Apple Music owns the title
+        assert_eq!(top[0].label, None);
+        assert_eq!(top[0].sample_song_id, "A");
+        assert_eq!(top[1].key, "B");
+        assert_eq!(top[1].plays, 1);
 
         let replayed = get_most_replayed(&txn, user_id, window(), 10)
             .await
@@ -832,9 +942,267 @@ mod tests {
             vec![SongReplays {
                 song_id: "A".to_owned(),
                 most_in_one_session: 2,
-                plays: 3
+                plays: 3,
             }]
         );
+    }
+
+    /// The reason the key is the name and not the id. Song A was played twice as
+    /// a catalog copy, which carries ids, and once as a library copy, which does
+    /// not. An id-first key would make that two artists.
+    #[tokio::test]
+    #[ignore]
+    async fn a_library_copy_and_a_catalog_copy_are_one_artist() {
+        let (txn, user_id) = scratch().await;
+        seed(&txn, user_id).await;
+
+        let top = get_top_entities(&txn, user_id, dimension("artist"), window(), 10)
+            .await
+            .unwrap();
+
+        let phoebe: Vec<_> = top
+            .iter()
+            .filter(|row| row.label.as_deref() == Some("Phoebe Bridgers"))
+            .collect();
+        assert_eq!(phoebe.len(), 1, "one artist, not one per copy: {top:?}");
+        assert_eq!(phoebe[0].plays, 3, "all three plays counted");
+        assert_eq!(
+            phoebe[0].entity_id.as_deref(),
+            Some("966309175"),
+            "the id survives the play that had none"
+        );
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn albums_merge_the_same_way_and_name_their_artist() {
+        let (txn, user_id) = scratch().await;
+        seed(&txn, user_id).await;
+
+        let top = get_top_entities(&txn, user_id, dimension("album"), window(), 10)
+            .await
+            .unwrap();
+
+        assert_eq!(top[0].label.as_deref(), Some("Punisher"));
+        assert_eq!(top[0].sub_label.as_deref(), Some("Phoebe Bridgers"));
+        assert_eq!(top[0].plays, 3);
+        assert_eq!(top[0].entity_id.as_deref(), Some("1504438806"));
+    }
+
+    /// The reason the album key carries the artist. Two unrelated albums that
+    /// share a title are two albums.
+    #[tokio::test]
+    #[ignore]
+    async fn two_albums_sharing_a_title_stay_apart() {
+        let (txn, user_id) = scratch().await;
+        let events = vec![
+            event(
+                EventType::PlayCounted,
+                Some("x"),
+                "2026-09-10T10:00:00Z",
+                "g1",
+                None,
+                counted("Queen", "Greatest Hits"),
+            ),
+            event(
+                EventType::PlayCounted,
+                Some("y"),
+                "2026-09-10T11:00:00Z",
+                "g2",
+                None,
+                counted("ABBA", "Greatest Hits"),
+            ),
+        ];
+        insert_events(&txn, user_id, &events).await.unwrap();
+
+        let top = get_top_entities(&txn, user_id, dimension("album"), window(), 10)
+            .await
+            .unwrap();
+        assert_eq!(top.len(), 2, "{top:?}");
+        assert_eq!(top[0].plays, 1);
+        assert_eq!(top[1].plays, 1);
+    }
+
+    /// Two different artists who really do share a name merge. Stated as a test
+    /// so the trade is on the record rather than a surprise.
+    #[tokio::test]
+    #[ignore]
+    async fn two_artists_sharing_a_name_merge() {
+        let (txn, user_id) = scratch().await;
+        let events = vec![
+            event(
+                EventType::PlayCounted,
+                Some("x"),
+                "2026-09-10T10:00:00Z",
+                "n1",
+                None,
+                counted_with_ids("Nirvana", "111", "Nevermind", "a1"),
+            ),
+            event(
+                EventType::PlayCounted,
+                Some("y"),
+                "2026-09-10T11:00:00Z",
+                "n2",
+                None,
+                counted_with_ids("nirvana", "222", "Me, Us, All", "a2"),
+            ),
+        ];
+        insert_events(&txn, user_id, &events).await.unwrap();
+
+        let top = get_top_entities(&txn, user_id, dimension("artist"), window(), 10)
+            .await
+            .unwrap();
+        assert_eq!(top.len(), 1, "case folds, so these merge: {top:?}");
+        assert_eq!(top[0].plays, 2);
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn a_play_with_no_artist_name_is_left_out_of_the_artist_ranking() {
+        let (txn, user_id) = scratch().await;
+        let events = vec![
+            event(
+                EventType::PlayCounted,
+                Some("x"),
+                "2026-09-10T10:00:00Z",
+                "b1",
+                None,
+                json!({}),
+            ),
+            event(
+                EventType::PlayCounted,
+                Some("y"),
+                "2026-09-10T11:00:00Z",
+                "b2",
+                None,
+                json!({ "artist_name": "   " }),
+            ),
+            event(
+                EventType::PlayCounted,
+                Some("z"),
+                "2026-09-10T12:00:00Z",
+                "b3",
+                None,
+                counted("black midi", "Hellfire"),
+            ),
+        ];
+        insert_events(&txn, user_id, &events).await.unwrap();
+
+        let top = get_top_entities(&txn, user_id, dimension("artist"), window(), 10)
+            .await
+            .unwrap();
+        assert_eq!(top.len(), 1, "only the one with a name: {top:?}");
+        assert_eq!(top[0].label.as_deref(), Some("black midi"));
+
+        // the songs ranking still counts all three, since it needs no payload
+        let songs = get_top_entities(&txn, user_id, dimension("song"), window(), 10)
+            .await
+            .unwrap();
+        assert_eq!(songs.len(), 3);
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn a_play_with_no_album_name_is_left_out_of_the_album_ranking() {
+        let (txn, user_id) = scratch().await;
+        let events = vec![
+            event(
+                EventType::PlayCounted,
+                Some("x"),
+                "2026-09-10T10:00:00Z",
+                "c1",
+                None,
+                // an artist but no album, which a single often has
+                json!({ "artist_name": "Caroline Polachek" }),
+            ),
+            event(
+                EventType::PlayCounted,
+                Some("y"),
+                "2026-09-10T11:00:00Z",
+                "c2",
+                None,
+                json!({ "artist_name": "black midi", "album_name": "  " }),
+            ),
+        ];
+        insert_events(&txn, user_id, &events).await.unwrap();
+
+        let albums = get_top_entities(&txn, user_id, dimension("album"), window(), 10)
+            .await
+            .unwrap();
+        assert!(albums.is_empty(), "no album name, no album row: {albums:?}");
+
+        // but both still count as artists
+        let artists = get_top_entities(&txn, user_id, dimension("artist"), window(), 10)
+            .await
+            .unwrap();
+        assert_eq!(artists.len(), 2);
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn the_sample_song_is_one_the_group_was_played_from() {
+        let (txn, user_id) = scratch().await;
+        seed(&txn, user_id).await;
+
+        let top = get_top_entities(&txn, user_id, dimension("artist"), window(), 10)
+            .await
+            .unwrap();
+        let phoebe = top
+            .iter()
+            .find(|row| row.label.as_deref() == Some("Phoebe Bridgers"))
+            .unwrap();
+        // mode() breaks a tie arbitrarily, so assert membership, not identity
+        assert_eq!(phoebe.sample_song_id, "A");
+
+        let fontaines = top
+            .iter()
+            .find(|row| row.label.as_deref() == Some("Fontaines D.C."))
+            .unwrap();
+        assert_eq!(fontaines.sample_song_id, "B");
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn a_limit_cuts_the_ranking() {
+        let (txn, user_id) = scratch().await;
+        seed(&txn, user_id).await;
+
+        let top = get_top_entities(&txn, user_id, dimension("song"), window(), 1)
+            .await
+            .unwrap();
+        assert_eq!(top.len(), 1);
+        assert_eq!(top[0].key, "A", "the most played survives the cut");
+    }
+
+    /// The registry's point: a dimension needs no query of its own.
+    #[tokio::test]
+    #[ignore]
+    async fn every_dimension_answers_over_every_window() {
+        let (txn, user_id) = scratch().await;
+        seed(&txn, user_id).await;
+
+        for dimension in Dimension::ALL {
+            for window in [window(), TimeWindow::ALL_TIME] {
+                let top = get_top_entities(&txn, user_id, dimension, window, 10)
+                    .await
+                    .unwrap_or_else(|e| panic!("{} failed: {e}", dimension.name));
+                assert!(!top.is_empty(), "{} came back empty", dimension.name);
+            }
+        }
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn a_tag_ranking_carries_the_whole_tag() {
+        let (txn, user_id) = scratch().await;
+        seed(&txn, user_id).await;
+
+        // the seed applies no tags, so this is the empty case; what matters is
+        // that the widened select and the enum decode both run
+        let tags = get_top_tags_by_play(&txn, user_id, window(), 10)
+            .await
+            .unwrap();
+        assert!(tags.is_empty(), "{tags:?}");
     }
 
     #[tokio::test]
