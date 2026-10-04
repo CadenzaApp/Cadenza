@@ -110,6 +110,10 @@ export function BarChart({
                     <View
                         key={`label-${bar.label}-${index}`}
                         className="flex-1"
+                        // the same cap as the bar above it, or the labels spread
+                        // the full width while the bars sit left and every label
+                        // names the wrong bar
+                        style={{ maxWidth: maxBarWidth }}
                     >
                         {labelled.has(index) ? (
                             <Text

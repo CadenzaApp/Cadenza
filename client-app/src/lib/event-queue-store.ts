@@ -9,16 +9,28 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import type { QueuedEvent } from "./event-queue";
 
-const STORAGE_KEY = "cadenza.listening-events.v1";
+const STORAGE_PREFIX = "cadenza.listening-events.v1";
 
 /**
- * The queue as it was left. An unreadable or corrupt store reads as empty
+ * Where one user's queue lives.
+ *
+ * Keyed by user, because a queue is a list of things *this* user listened to and
+ * it is sent under whoever's token is current. One shared key meant a user whose
+ * events failed to send could have them flushed under the next user to sign in
+ * on the device, landing in their history and moving their My Plays.
+ */
+function storageKey(userId: string): string {
+    return `${STORAGE_PREFIX}.${userId}`;
+}
+
+/**
+ * The queue as this user left it. An unreadable or corrupt store reads as empty
  * rather than throwing: losing the queue is bad, but failing every play from
  * then on is worse.
  */
-export async function loadQueue(): Promise<QueuedEvent[]> {
+export async function loadQueue(userId: string): Promise<QueuedEvent[]> {
     try {
-        const raw = await AsyncStorage.getItem(STORAGE_KEY);
+        const raw = await AsyncStorage.getItem(storageKey(userId));
         if (!raw) return [];
         const parsed: unknown = JSON.parse(raw);
         if (!Array.isArray(parsed)) return [];
@@ -29,9 +41,12 @@ export async function loadQueue(): Promise<QueuedEvent[]> {
     }
 }
 
-export async function saveQueue(queue: readonly QueuedEvent[]): Promise<void> {
+export async function saveQueue(
+    userId: string,
+    queue: readonly QueuedEvent[],
+): Promise<void> {
     try {
-        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(queue));
+        await AsyncStorage.setItem(storageKey(userId), JSON.stringify(queue));
     } catch (error) {
         console.warn("Could not write the listening event queue:", error);
     }

@@ -4,8 +4,57 @@ import test from "node:test";
 import {
     albumRouteFor,
     artistRouteFor,
+    DIMENSIONS,
+    dimensionByName,
     type RankedEntity,
-} from "./entity-routes.ts";
+} from "./dimensions.ts";
+
+// ----- the registry -----
+
+test("every dimension is complete enough to draw and title", () => {
+    for (const dimension of DIMENSIONS) {
+        assert.ok(dimension.previewTitle.length > 0, dimension.name);
+        assert.ok(dimension.pageTitle.length > 0, dimension.name);
+        assert.ok(dimension.emptyLabel.length > 0, dimension.name);
+    }
+});
+
+test("names are unique, since they key the summary and the route", () => {
+    const names = DIMENSIONS.map((dimension) => dimension.name);
+    assert.equal(new Set(names).size, names.length);
+});
+
+test("every dimension is reachable by name", () => {
+    for (const dimension of DIMENSIONS) {
+        assert.equal(dimensionByName(dimension.name), dimension);
+    }
+});
+
+test("an unknown name resolves to nothing rather than a default", () => {
+    // the dynamic route passes whatever is in the url, so this has to be safe
+    assert.equal(dimensionByName("playlist"), undefined);
+    assert.equal(dimensionByName(""), undefined);
+    assert.equal(dimensionByName("../../etc"), undefined);
+});
+
+test("songs do not navigate, artists and albums do", () => {
+    // a song row plays instead, which is why its href builder is null
+    assert.equal(dimensionByName("song")?.hrefFor, null);
+    assert.ok(dimensionByName("artist")?.hrefFor);
+    assert.ok(dimensionByName("album")?.hrefFor);
+});
+
+test("only artists are drawn round", () => {
+    for (const dimension of DIMENSIONS) {
+        assert.equal(
+            dimension.roundArtwork,
+            dimension.name === "artist",
+            dimension.name,
+        );
+    }
+});
+
+// ----- where a row goes -----
 
 function entity(fields: Partial<RankedEntity> = {}): RankedEntity {
     return {

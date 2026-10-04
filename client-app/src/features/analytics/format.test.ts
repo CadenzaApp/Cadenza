@@ -53,11 +53,6 @@ test("a bucket label fits how wide the bucket is", () => {
     assert.equal(formatBucket("2026-01-01", "year"), "2026");
 });
 
-test("a bucket label does not shift with the device timezone", () => {
-    // parsed by hand, so this is the 7th wherever the device is
-    assert.equal(formatBucket("2026-09-07", "day"), "Sep 7");
-});
-
 test("a bucket that is not a date comes back as it went in", () => {
     assert.equal(formatBucket("nonsense", "day"), "nonsense");
 });

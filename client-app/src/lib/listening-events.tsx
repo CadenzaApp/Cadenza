@@ -21,18 +21,16 @@ import {
     type QueuedEvent,
 } from "./event-queue";
 import { loadQueue, saveQueue } from "./event-queue-store";
+import {
+    isPermanentRejection,
+    nextSession,
+    onRejectedBatch,
+    type Session,
+} from "./listening-session";
 import type { TrackedEvent } from "./play-tracker";
 import { deviceTimezone } from "./routes/analytics";
 import { useRecordEvents } from "./routes/events";
 import type { TrackMetadata } from "./track-metadata";
-
-/**
- * A gap this long between events ends the listening session, so the next play
- * counts as a new sitting. Session ids are what make "played it six times in a
- * row" answerable, and without a reset every play for the life of the install
- * would be one session.
- */
-const SESSION_IDLE_MS = 30 * 60 * 1000;
 
 /** How often a queue with something in it tries again. */
 const FLUSH_INTERVAL_MS = 15_000;
@@ -80,37 +78,58 @@ const ListeningEventsContext = createContext<ListeningEventsApi | null>(null);
 export function ListeningEventProvider({ children }: { children: ReactNode }) {
     const { account } = useAccount();
     const { recordEvents } = useRecordEvents();
+    // a queue belongs to whoever listened, and is sent under their token, so
+    // everything here is scoped to this id. nothing is recorded without one
+    const userId = account?.id ?? null;
     const queueRef = useRef<QueuedEvent[]>([]);
-    const loadedRef = useRef(false);
+    const loadedRef = useRef<string | null>(null);
     const flushingRef = useRef(false);
-    const sessionRef = useRef<{ id: string; lastSeenMs: number } | null>(null);
-    const signedIn = account != null;
+    // how many events the next flush may send, after a refusal narrowed it
+    const retryLimitRef = useRef<number | null>(null);
+    const sessionRef = useRef<Session | null>(null);
+    const signedIn = userId != null;
 
     /** Sends what it can, and keeps whatever the backend did not confirm. */
     const flush = useCallback(async () => {
-        if (flushingRef.current || !signedIn) return;
-        const batch = nextBatch(queueRef.current);
+        if (flushingRef.current || !userId) return;
+        // narrowed by a previous refusal, so the next attempt isolates the
+        // event the backend will not take
+        const batch = nextBatch(queueRef.current).slice(
+            0,
+            retryLimitRef.current ?? undefined,
+        );
         if (batch.length === 0) return;
 
         flushingRef.current = true;
         try {
             const { accepted } = await recordEvents({ events: batch });
+            // it went through, so stop narrowing
+            retryLimitRef.current = null;
             queueRef.current = dropAccepted(queueRef.current, accepted);
-            await saveQueue(queueRef.current);
+            await saveQueue(userId, queueRef.current);
         } catch (error) {
             if (isPermanentRejection(error)) {
-                // the backend validated the batch and will refuse it every time.
-                // keeping it would wedge the queue, which always sends from the
-                // front, so one bad event would block every play behind it
-                console.warn(
-                    "Dropping listening events the backend refused:",
-                    error,
-                );
-                queueRef.current = dropAccepted(
-                    queueRef.current,
-                    batch.map((event) => event.client_event_id),
-                );
-                await saveQueue(queueRef.current);
+                // the backend validated the batch and will refuse it every time,
+                // so keeping it whole would wedge the queue: a flush always
+                // sends from the front. but dropping it whole loses every good
+                // event with it, and a device whose clock is fast fails
+                // validation on all of them. so narrow instead, and only ever
+                // discard a batch of one
+                const { drop, keep } = onRejectedBatch(batch);
+                if (drop.length > 0) {
+                    console.warn(
+                        "Dropping a listening event the backend refused:",
+                        error,
+                    );
+                    queueRef.current = dropAccepted(
+                        queueRef.current,
+                        drop.map((event) => event.client_event_id),
+                    );
+                    await saveQueue(userId, queueRef.current);
+                } else {
+                    // retry just the front of it next time
+                    retryLimitRef.current = keep.length;
+                }
             } else {
                 // a network or server failure says nothing about the batch, so
                 // keep it. the next flush re-sends it, and the backend's
@@ -123,17 +142,19 @@ export function ListeningEventProvider({ children }: { children: ReactNode }) {
         } finally {
             flushingRef.current = false;
         }
-    }, [recordEvents, signedIn]);
+    }, [recordEvents, userId]);
 
     /** Writes events down, then tries to send. */
     const enqueueAll = useCallback(
         async (queued: QueuedEvent[]) => {
-            if (queued.length === 0) return;
+            // a listen with nobody signed in cannot be attributed to anyone, so
+            // it is dropped rather than queued for whoever signs in next
+            if (queued.length === 0 || !userId) return;
             queueRef.current = enqueue(queueRef.current, queued);
-            await saveQueue(queueRef.current);
+            await saveQueue(userId, queueRef.current);
             await flush();
         },
-        [flush],
+        [flush, userId],
     );
 
     /**
@@ -158,7 +179,12 @@ export function ListeningEventProvider({ children }: { children: ReactNode }) {
 
             const now = new Date();
             const tz = deviceTimezone();
-            const sessionId = currentSession(sessionRef, now.getTime());
+            sessionRef.current = nextSession(
+                sessionRef.current,
+                now.getTime(),
+                randomUuid,
+            );
+            const sessionId = sessionRef.current.id;
 
             await enqueueAll(
                 events.map((event) =>
@@ -186,13 +212,18 @@ export function ListeningEventProvider({ children }: { children: ReactNode }) {
             payload: Record<string, number | string> = {},
         ) => {
             const now = new Date();
+            sessionRef.current = nextSession(
+                sessionRef.current,
+                now.getTime(),
+                randomUuid,
+            );
             await enqueueAll([
                 {
                     type,
                     song_id: songId,
                     occurred_at: now.toISOString(),
                     client_tz: deviceTimezone(),
-                    session_id: currentSession(sessionRef, now.getTime()),
+                    session_id: sessionRef.current.id,
                     client_event_id: makeEventId(
                         type,
                         songId,
@@ -207,17 +238,23 @@ export function ListeningEventProvider({ children }: { children: ReactNode }) {
         [enqueueAll],
     );
 
-    // pick up anything an earlier run could not send
+    // pick up anything an earlier run could not send, for this user
     useEffect(() => {
-        if (loadedRef.current) return;
-        loadedRef.current = true;
+        if (!userId) {
+            // a different user's queue must not be flushed under this session
+            queueRef.current = [];
+            loadedRef.current = null;
+            return;
+        }
+        if (loadedRef.current === userId) return;
+        loadedRef.current = userId;
         void (async () => {
-            const stored = await loadQueue();
+            const stored = await loadQueue(userId);
             // anything recorded since the load started stays at the back
             queueRef.current = enqueue(stored, queueRef.current);
             await flush();
         })();
-    }, [flush]);
+    }, [flush, userId]);
 
     // a queue that could not be sent keeps trying, so a play recorded offline
     // lands once the network is back without waiting for the next song
@@ -259,24 +296,6 @@ export function useListeningEvents(): ListeningEventsApi {
     return api;
 }
 
-/**
- * The session id for an event happening now, starting a new one after
- * `SESSION_IDLE_MS` of nothing.
- */
-function currentSession(
-    ref: { current: { id: string; lastSeenMs: number } | null },
-    nowMs: number,
-): string {
-    const session = ref.current;
-    if (session && nowMs - session.lastSeenMs < SESSION_IDLE_MS) {
-        ref.current = { id: session.id, lastSeenMs: nowMs };
-        return session.id;
-    }
-    const id = randomUuid();
-    ref.current = { id, lastSeenMs: nowMs };
-    return id;
-}
-
 /** Enough entropy to keep two events in the same millisecond apart. */
 function randomSuffix(): string {
     return Math.random().toString(36).slice(2, 10);
@@ -300,31 +319,4 @@ function randomUuid(): string {
     hex[14] = "4";
     hex[19] = chars[(Math.floor(Math.random() * 16) & 0x3) | 0x8];
     return hex.join("");
-}
-
-/**
- * Whether the backend refused this batch for what is in it, rather than failing
- * to answer. A refusal is permanent, so re-sending it forever would wedge the
- * queue; anything else is worth retrying.
- *
- * `api-actions.ts` throws the backend's `{ error_type, message }` body straight
- * through on a non-2xx, so there is no status to read for those, and `/events`
- * rejects a malformed batch as `InvalidRequestBody`. A plain-text failure does
- * carry a status, and 401 is excluded because it only means the token is not
- * ready yet.
- */
-function isPermanentRejection(error: unknown): boolean {
-    if (typeof error !== "object" || error === null) return false;
-    const { error_type: errorType, status } = error as {
-        error_type?: string;
-        status?: number;
-    };
-
-    if (errorType === "InvalidRequestBody") return true;
-    return (
-        typeof status === "number" &&
-        status >= 400 &&
-        status < 500 &&
-        status !== 401
-    );
 }

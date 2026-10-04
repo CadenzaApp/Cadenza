@@ -1,23 +1,18 @@
-import type { MusicItem } from "@apple-musickit";
 import { useRouter } from "expo-router";
 import { useMemo } from "react";
 import { Image, Pressable, View } from "react-native";
 
 import { Text } from "@/components/ui/text";
-import { useTracksForSongIds } from "@/lib/musickit-hooks";
-import type { EntityPlayCount, TopDimension } from "@/lib/routes/analytics";
-import { cn } from "@/lib/utils";
+import { indexTracksById, useTracksForSongIds } from "@/lib/musickit-hooks";
+import type { EntityPlayCount } from "@/lib/routes/analytics";
+import { cn, isUsableArtworkUrl } from "@/lib/utils";
 
-import { albumRouteFor, artistRouteFor } from "./entity-routes";
+import type { DimensionDescriptor } from "./dimensions";
 import { formatCount } from "./format";
 
 type Props = {
-    dimension: TopDimension;
+    dimension: DimensionDescriptor;
     entries: readonly EntityPlayCount[];
-    /** Shown when there is nothing to list. */
-    emptyLabel: string;
-    /** Round artwork, which is how the app draws an artist elsewhere. */
-    roundArtwork?: boolean;
 };
 
 /**
@@ -30,12 +25,7 @@ type Props = {
  * Used for the overview's preview cards and for the artist and album pages. The
  * songs page uses `MusicList` instead, since a song row should play.
  */
-export function TopEntityList({
-    dimension,
-    entries,
-    emptyLabel,
-    roundArtwork,
-}: Props) {
+export function TopEntityList({ dimension, entries }: Props) {
     const router = useRouter();
     const songIds = useMemo(
         () => entries.map((entry) => entry.sample_song_id),
@@ -45,19 +35,13 @@ export function TopEntityList({
 
     // tracks come back without the ones that did not resolve, so index rather
     // than zip: the nth row is not the nth track
-    const tracksById = useMemo(() => {
-        const byId = new Map<string, MusicItem>();
-        for (const track of tracks) {
-            for (const id of [track.id, track.catalogId, track.libraryId]) {
-                if (id) byId.set(id, track);
-            }
-        }
-        return byId;
-    }, [tracks]);
+    const tracksById = useMemo(() => indexTracksById(tracks), [tracks]);
 
     if (entries.length === 0) {
         return (
-            <Text className="text-muted-foreground text-sm">{emptyLabel}</Text>
+            <Text className="text-muted-foreground text-sm">
+                {dimension.emptyLabel}
+            </Text>
         );
     }
 
@@ -65,12 +49,9 @@ export function TopEntityList({
         <View className="gap-3">
             {entries.map((entry, index) => {
                 const track = tracksById.get(entry.sample_song_id);
-                const href =
-                    dimension === "artist"
-                        ? artistRouteFor(entry, track)
-                        : dimension === "album"
-                          ? albumRouteFor(entry, track)
-                          : null;
+                // the descriptor says where a row goes, so there is no branch
+                // on the dimension here
+                const href = dimension.hrefFor?.(entry, track) ?? null;
                 // a song's title lives in Apple Music, so fall back to the id
                 // rather than dropping a row that earned its place
                 const title = entry.label ?? track?.title ?? entry.key;
@@ -81,7 +62,10 @@ export function TopEntityList({
                         <Text className="text-muted-foreground w-4 text-xs">
                             {index + 1}
                         </Text>
-                        <Artwork url={track?.artworkUrl} round={roundArtwork} />
+                        <Artwork
+                            url={track?.artworkUrl}
+                            round={dimension.roundArtwork}
+                        />
                         <View className="flex-1">
                             <Text className="text-sm" numberOfLines={1}>
                                 {title}
@@ -122,14 +106,11 @@ export function TopEntityList({
 
 const ARTWORK_SIZE = 40;
 
-/** The same validity check and placeholder the music list rows use. */
+/** The same placeholder the music list rows use. */
 function Artwork({ url, round }: { url?: string; round?: boolean }) {
-    const trimmed = url?.trim();
-    const usable = typeof trimmed === "string" && /^https?:\/\//i.test(trimmed);
-
-    return usable ? (
+    return isUsableArtworkUrl(url) ? (
         <Image
-            source={{ uri: trimmed }}
+            source={{ uri: url?.trim() }}
             style={{
                 width: ARTWORK_SIZE,
                 height: ARTWORK_SIZE,

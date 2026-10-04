@@ -30,9 +30,12 @@ export function useRecordEvents() {
         "POST",
         "/events",
         ({ events }) => {
+            // every analytics read, or a play leaves the detail pages stale
             const analytics = [
                 { path: "/analytics/summary" },
                 { path: "/analytics/trends" },
+                { path: "/analytics/top" },
+                { path: "/analytics/top-tags" },
             ];
             const movedActivityTags = events.some(
                 (event) => event.type === "play_counted",

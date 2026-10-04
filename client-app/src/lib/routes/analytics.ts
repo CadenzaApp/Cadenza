@@ -38,12 +38,10 @@ export type AnalyticsSummary = {
     active_days: number;
     /** 24 entries, index 0 is midnight in the requested timezone. */
     plays_by_hour: number[];
-    top_songs: EntityPlayCount[];
-    top_artists: EntityPlayCount[];
-    top_albums: EntityPlayCount[];
+    /** A ranking per dimension, keyed by its name. Built from the registry. */
+    top: Record<string, EntityPlayCount[]>;
     top_tags: TagPlayCount[];
     most_replayed: SongReplayCount[];
-    window: { since: string | null; until: string | null };
 };
 
 /** What a ranking can be grouped by. */
@@ -57,18 +55,25 @@ export type AnalyticsTopList = {
 
 export type AnalyticsTopTags = { entries: TagPlayCount[] };
 
-/** What the trends endpoint answers with. Never `auto`: the server resolved it. */
+/**
+ * What the trends endpoint answers with. Never `auto`: the server resolved it.
+ *
+ * `TrendBucket` in `features/analytics/range.ts` is this plus `auto`, which is a
+ * request-only value.
+ */
 export type TrendBucketSize = "day" | "week" | "month" | "year";
+
+/** What a metric's number means, so it can be formatted without a lookup table. */
+export type MetricUnit = "count" | "milliseconds";
 
 export type AnalyticsTrend = {
     metric: string;
     description: string;
+    unit: MetricUnit;
     bucket: TrendBucketSize;
     /** Dense: one point per bucket, zero where nothing happened. */
     points: { bucket: string; value: number }[];
 };
-
-export type MetricInfo = { name: string; description: string };
 
 /** The window every read on this page shares. */
 export type AnalyticsWindow = { since?: string; until?: string };
@@ -143,7 +148,7 @@ export function useAnalyticsTrend(
 
 /** `GET /analytics/top`. A full ranking for one dimension. */
 export function useAnalyticsTop(
-    dimension: TopDimension,
+    dimension: TopDimension | undefined,
     window?: AnalyticsWindow,
     limit?: number,
 ) {
@@ -174,15 +179,5 @@ export function useAnalyticsTopTags(window?: AnalyticsWindow, limit?: number) {
         topTags: x.data,
         topTagsLoading: x.isLoading,
         topTagsErr: x.error,
-    };
-}
-
-/** `GET /analytics/metrics`. What the trends endpoint can chart. */
-export function useAnalyticsMetrics() {
-    const x = useAPIData<MetricInfo[]>("/analytics/metrics");
-    return {
-        metrics: x.data,
-        metricsLoading: x.isLoading,
-        metricsErr: x.error,
     };
 }

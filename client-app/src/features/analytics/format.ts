@@ -30,6 +30,20 @@ export function formatCount(value: number): string {
 }
 
 /**
+ * A metric's value, formatted by what it means.
+ *
+ * The unit comes from the backend with the metric, so this works for any metric
+ * without a lookup table here. Without it every value renders as a count, and a
+ * listening time reads as 71,280,000 rather than 19h 48m.
+ */
+export function formatMetric(
+    value: number,
+    unit: "count" | "milliseconds",
+): string {
+    return unit === "milliseconds" ? formatDuration(value) : formatCount(value);
+}
+
+/**
  * An hour of the day as `2 PM`. Index 0 is midnight, matching the backend's
  * `plays_by_hour` array.
  */

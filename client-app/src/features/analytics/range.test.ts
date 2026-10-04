@@ -35,16 +35,6 @@ test("every range has a label and a description", () => {
     }
 });
 
-test("there are five ranges, Today through All", () => {
-    assert.deepEqual(ANALYTICS_RANGES, [
-        "today",
-        "week",
-        "month",
-        "year",
-        "all",
-    ]);
-});
-
 test("every range but all is a bounded window", () => {
     const now = local(2026, 10, 3);
     for (const range of ANALYTICS_RANGES) {

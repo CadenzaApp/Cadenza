@@ -9,46 +9,29 @@ import { Text } from "@/components/ui/text";
 import {
     useAnalyticsSummary,
     useAnalyticsTrend,
+    type AnalyticsSummary,
     type EntityPlayCount,
-    type TopDimension,
 } from "@/lib/routes/analytics";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { useScreenScroll } from "@/lib/screen-scroll";
 import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
 
 import { useAnalyticsRange } from "./analytics-range";
-import { BarChart, type Bar } from "./BarChart";
-import { ChipRow } from "./ChipRow";
 import {
-    formatBucket,
-    formatCount,
-    formatDuration,
-    formatHour,
-    formatPercent,
-} from "./format";
+    DIMENSIONS,
+    dimensionByName,
+    type DimensionDescriptor,
+} from "./dimensions";
+import { formatCount, formatDuration, formatPercent } from "./format";
+import { HoursChart } from "./HoursChart";
 import { RangeChips } from "./RangeChips";
+import { StatTile } from "./StatTile";
 import { TopEntityList } from "./TopEntityList";
 import { TopTagList } from "./TopTagList";
-import { StatTile } from "./StatTile";
+import { TrendChart, type HeadlineMetric } from "./TrendChart";
 
 /** How many rows a preview card shows before "See all". */
 const PREVIEW_COUNT = 5;
-
-/**
- * The three metrics the overview chart offers.
- *
- * Deliberately not the whole registry: it is eight entries and the chip row sits
- * above the fold. The others are still served by `/analytics/metrics` for
- * anything that wants them.
- */
-const HEADLINE_METRICS = ["plays", "listening_ms", "skips"] as const;
-type HeadlineMetric = (typeof HEADLINE_METRICS)[number];
-
-const METRIC_LABELS: Record<HeadlineMetric, string> = {
-    plays: "Plays",
-    listening_ms: "Time",
-    skips: "Skips",
-};
 
 /**
  * What the user's listening looks like, from the backend's event log.
@@ -56,9 +39,6 @@ const METRIC_LABELS: Record<HeadlineMetric, string> = {
  * Every number here is computed in SQL; this screen formats and lays out. The
  * time range comes from `AnalyticsRangeProvider`, which lives in the tab's
  * layout so it survives navigating into a detail page.
- *
- * A new account gets its own empty state rather than a page of zeros, because a
- * wall of zeros reads as broken.
  */
 export function AnalyticsOverviewScreen() {
     const { contentBottomInset } = useScreenOverlayInsets();
@@ -77,130 +57,6 @@ export function AnalyticsOverviewScreen() {
         resolved.chart === "trend",
     );
 
-    const body = () => {
-        if (summaryErr) {
-            return (
-                <Message
-                    title="Could not load your listening"
-                    detail="Pull down to try again once you are back online."
-                />
-            );
-        }
-        if (summaryLoading && !summary) return <LoadingState />;
-        if (!summary) return null;
-
-        const { stats, rates } = summary;
-        if ((stats.plays ?? 0) === 0) {
-            return (
-                <Message
-                    title={`Nothing played ${resolved.label.toLowerCase()}`}
-                    detail="Play some music and it will show up here. A song counts once it has played for 15 seconds."
-                />
-            );
-        }
-
-        return (
-            <>
-                <View className="flex-row gap-3">
-                    <StatTile
-                        label="Plays"
-                        value={formatCount(stats.plays ?? 0)}
-                    />
-                    <StatTile
-                        label="Listening time"
-                        value={formatDuration(stats.listening_ms ?? 0)}
-                    />
-                </View>
-                <View className="flex-row gap-3">
-                    <StatTile
-                        label="Skips"
-                        value={formatCount(stats.skips ?? 0)}
-                        hint={`${formatPercent(rates.skip_rate ?? 0)} of finished listens`}
-                    />
-                    <StatTile
-                        label="Songs"
-                        value={formatCount(stats.unique_songs ?? 0)}
-                        hint={`over ${formatCount(summary.active_days)} days`}
-                    />
-                </View>
-
-                <ChartCard
-                    chart={resolved.chart}
-                    playsByHour={summary.plays_by_hour}
-                    trend={trend}
-                    trendLoading={trendLoading}
-                    trendErr={trendErr}
-                    metric={metric}
-                    onMetricChange={setMetric}
-                />
-
-                <PreviewCard
-                    title="Most played"
-                    dimension="song"
-                    entries={summary.top_songs}
-                    emptyLabel="No plays in this window yet."
-                    href="/analytics/songs"
-                />
-                <PreviewCard
-                    title="Most listened artists"
-                    dimension="artist"
-                    entries={summary.top_artists}
-                    emptyLabel="No artists recorded in this window yet."
-                    href="/analytics/artists"
-                    roundArtwork
-                />
-                <PreviewCard
-                    title="Most listened albums"
-                    dimension="album"
-                    entries={summary.top_albums}
-                    emptyLabel="No albums recorded in this window yet."
-                    href="/analytics/albums"
-                />
-
-                <Card>
-                    <CardContent className="gap-4">
-                        <CardHeading
-                            title="Tags you listen to"
-                            detail="Plays of songs carrying each tag."
-                            href="/analytics/tags"
-                        />
-                        <TopTagList
-                            tags={summary.top_tags.slice(0, PREVIEW_COUNT)}
-                            emptyLabel="Tag some songs and play them to see this."
-                        />
-                    </CardContent>
-                </Card>
-
-                {summary.most_replayed.length > 0 ? (
-                    <Card>
-                        <CardContent className="gap-4">
-                            <View className="gap-1">
-                                <CardTitle>On repeat</CardTitle>
-                                <Text className="text-muted-foreground text-xs">
-                                    Most plays in one sitting.
-                                </Text>
-                            </View>
-                            <TopEntityList
-                                dimension="song"
-                                entries={summary.most_replayed.map(
-                                    (song): EntityPlayCount => ({
-                                        key: song.song_id,
-                                        label: null,
-                                        sub_label: null,
-                                        entity_id: song.song_id,
-                                        sample_song_id: song.song_id,
-                                        plays: song.most_in_one_session,
-                                    }),
-                                )}
-                                emptyLabel="Nothing played twice in a row yet."
-                            />
-                        </CardContent>
-                    </Card>
-                ) : null}
-            </>
-        );
-    };
-
     return (
         <ScreenScrollMarker>
             <View className="flex-1 bg-background">
@@ -218,133 +74,187 @@ export function AnalyticsOverviewScreen() {
                     }}
                     showsVerticalScrollIndicator={false}
                 >
-                    {body()}
+                    {summaryErr ? (
+                        <Message
+                            title="Could not load your listening"
+                            detail="Pull down to try again once you are back online."
+                        />
+                    ) : summaryLoading && !summary ? (
+                        <LoadingState />
+                    ) : summary ? (
+                        <OverviewBody
+                            summary={summary}
+                            rangeLabel={resolved.label}
+                            chart={resolved.chart}
+                            trend={trend}
+                            trendLoading={trendLoading}
+                            trendErr={trendErr}
+                            metric={metric}
+                            onMetricChange={setMetric}
+                        />
+                    ) : null}
                 </Animated.ScrollView>
             </View>
         </ScreenScrollMarker>
     );
 }
 
-/** The chart, and the metric picker when there is a trend to pick for. */
-function ChartCard({
+/**
+ * The page itself, once there is something to show.
+ *
+ * A new account gets its own empty state rather than a page of zeros, because a
+ * wall of zeros reads as broken.
+ */
+function OverviewBody({
+    summary,
+    rangeLabel,
     chart,
-    playsByHour,
     trend,
     trendLoading,
     trendErr,
     metric,
     onMetricChange,
 }: {
+    summary: AnalyticsSummary;
+    rangeLabel: string;
     chart: "hours" | "trend";
-    playsByHour: number[];
-    trend?: {
-        bucket: string;
-        description: string;
-        points: { bucket: string; value: number }[];
-    };
+    trend?: Parameters<typeof TrendChart>[0]["trend"];
     trendLoading: boolean;
     trendErr?: unknown;
     metric: HeadlineMetric;
     onMetricChange: (metric: HeadlineMetric) => void;
 }) {
-    if (chart === "hours") {
-        const bars: Bar[] = playsByHour.map((plays, hour) => ({
-            label: formatHour(hour),
-            value: plays,
-            readout: `${formatHour(hour)}: ${formatCount(plays)} plays`,
-        }));
+    const { stats, rates } = summary;
+
+    if ((stats.plays ?? 0) === 0) {
         return (
-            <Card>
-                <CardContent className="gap-4">
-                    <View className="gap-1">
-                        <CardTitle>By hour</CardTitle>
-                        <Text className="text-muted-foreground text-xs">
-                            Tap a bar for its value.
-                        </Text>
-                    </View>
-                    <BarChart bars={bars} maxLabels={5} height={110} />
-                </CardContent>
-            </Card>
+            <Message
+                title={`Nothing played ${rangeLabel.toLowerCase()}`}
+                detail="Play some music and it will show up here. A song counts once it has played for 15 seconds."
+            />
         );
     }
 
-    // labelled off the bucket the response was computed with, not the range that
-    // is selected: keepPreviousData holds the old series while a new request is
-    // in flight or has failed, and labelling that with the new range would
-    // relabel a monthly series as days
-    const shownBucket = (trend?.bucket ?? "day") as
-        | "day"
-        | "week"
-        | "month"
-        | "year";
-    const bars: Bar[] =
-        trend?.points.map((point) => ({
-            label: formatBucket(point.bucket, shownBucket),
-            value: point.value,
-            readout: `${formatBucket(point.bucket, shownBucket)}: ${formatCount(point.value)}`,
-        })) ?? [];
-
     return (
-        <Card>
-            <CardContent className="gap-4">
-                <View className="gap-1">
-                    <CardTitle>{trend?.description ?? "Over time"}</CardTitle>
-                    <Text className="text-muted-foreground text-xs">
-                        Tap a bar for its value.
-                    </Text>
-                </View>
-
-                <ChipRow
-                    options={HEADLINE_METRICS}
-                    selected={metric}
-                    onSelect={onMetricChange}
-                    labelOf={(name) => METRIC_LABELS[name]}
+        <>
+            <View className="flex-row gap-3">
+                <StatTile label="Plays" value={formatCount(stats.plays ?? 0)} />
+                <StatTile
+                    label="Listening time"
+                    value={formatDuration(stats.listening_ms ?? 0)}
                 />
+            </View>
+            <View className="flex-row gap-3">
+                <StatTile
+                    label="Skips"
+                    value={formatCount(stats.skips ?? 0)}
+                    hint={`${formatPercent(rates.skip_rate ?? 0)} of finished listens`}
+                />
+                <StatTile
+                    label="Songs"
+                    value={formatCount(stats.unique_songs ?? 0)}
+                    hint={`over ${formatCount(summary.active_days)} days`}
+                />
+            </View>
+            <View className="flex-row gap-3">
+                <StatTile
+                    label="Finished"
+                    value={formatCount(stats.completions ?? 0)}
+                    hint={`${formatPercent(rates.completion_rate ?? 0)} of listens`}
+                />
+                <StatTile
+                    label="From a query"
+                    value={formatCount(stats.query_plays ?? 0)}
+                    hint={`${formatPercent(rates.query_play_rate ?? 0)} of plays`}
+                />
+            </View>
 
-                {trendLoading && bars.length === 0 ? (
-                    <Skeleton className="h-36 w-full" />
-                ) : (
-                    <BarChart
-                        bars={bars}
-                        maxLabels={shownBucket === "day" ? 4 : 5}
+            {chart === "hours" ? (
+                <HoursChart playsByHour={summary.plays_by_hour} />
+            ) : (
+                <TrendChart
+                    trend={trend}
+                    loading={trendLoading}
+                    error={trendErr}
+                    metric={metric}
+                    onMetricChange={onMetricChange}
+                />
+            )}
+
+            {DIMENSIONS.map((dimension) => (
+                <PreviewCard
+                    key={dimension.name}
+                    dimension={dimension}
+                    entries={summary.top[dimension.name] ?? NO_ENTRIES}
+                />
+            ))}
+
+            <Card>
+                <CardContent className="gap-4">
+                    <CardHeading
+                        title="Tags you listen to"
+                        detail="Plays of songs carrying each tag."
+                        href="/analytics/tags"
                     />
-                )}
+                    <TopTagList
+                        tags={summary.top_tags.slice(0, PREVIEW_COUNT)}
+                        emptyLabel="Tag some songs and play them to see this."
+                    />
+                </CardContent>
+            </Card>
 
-                {trendErr ? (
-                    <Text className="text-muted-foreground text-xs">
-                        Could not load that view.
-                    </Text>
-                ) : null}
-            </CardContent>
-        </Card>
+            {summary.most_replayed.length > 0 ? (
+                <Card>
+                    <CardContent className="gap-4">
+                        <View className="gap-1">
+                            <CardTitle>On repeat</CardTitle>
+                            <Text className="text-muted-foreground text-xs">
+                                Most plays in one sitting.
+                            </Text>
+                        </View>
+                        <TopEntityList
+                            dimension={REPLAY_DIMENSION}
+                            entries={summary.most_replayed.map(
+                                (song): EntityPlayCount => ({
+                                    key: song.song_id,
+                                    label: null,
+                                    sub_label: null,
+                                    entity_id: song.song_id,
+                                    sample_song_id: song.song_id,
+                                    // the figure on the row is the sitting, not
+                                    // a total; the card's subtitle says so
+                                    plays: song.most_in_one_session,
+                                }),
+                            )}
+                        />
+                    </CardContent>
+                </Card>
+            ) : null}
+        </>
     );
 }
 
 /** A top-5 preview with a link to the full list. */
 function PreviewCard({
-    title,
     dimension,
     entries,
-    emptyLabel,
-    href,
-    roundArtwork,
 }: {
-    title: string;
-    dimension: TopDimension;
-    entries: EntityPlayCount[];
-    emptyLabel: string;
-    href: Href;
-    roundArtwork?: boolean;
+    dimension: DimensionDescriptor;
+    entries: readonly EntityPlayCount[];
 }) {
     return (
         <Card>
             <CardContent className="gap-4">
-                <CardHeading title={title} href={href} />
+                <CardHeading
+                    title={dimension.previewTitle}
+                    href={{
+                        pathname: "/analytics/[dimension]",
+                        params: { dimension: dimension.name },
+                    }}
+                />
                 <TopEntityList
                     dimension={dimension}
                     entries={entries.slice(0, PREVIEW_COUNT)}
-                    emptyLabel={emptyLabel}
-                    roundArtwork={roundArtwork}
                 />
             </CardContent>
         </Card>
@@ -409,3 +319,15 @@ function LoadingState() {
         </>
     );
 }
+
+/** Stable, so a pending read does not give the list a new array each render. */
+const NO_ENTRIES: EntityPlayCount[] = [];
+
+/**
+ * On repeat is a ranking of songs, so it borrows the song descriptor's drawing
+ * rules. Its figure is the most plays in one sitting, not a total.
+ */
+const REPLAY_DIMENSION: DimensionDescriptor = {
+    ...(dimensionByName("song") as DimensionDescriptor),
+    emptyLabel: "Nothing played twice in a row yet.",
+};

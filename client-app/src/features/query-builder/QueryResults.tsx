@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Text } from "@/components/ui/text";
 import { useListeningEvents } from "@/lib/listening-events";
-import { usePlaybackCommands } from "@/lib/playback";
+import { usePlaybackCommands, usePlaybackTrackState } from "@/lib/playback";
 
 const HERO_BUTTON_SIZE = 52;
 
@@ -39,6 +39,7 @@ export default function QueryResults({
     const { tint, artworkUrls } = useCollectionArtworkTint(songs);
     const { recordEvent } = useListeningEvents();
     const { playQueue, togglePlayback } = usePlaybackCommands();
+    const { activeTrackId, isPlaying } = usePlaybackTrackState();
     const saveDialogWidth = Math.round(screenWidth * 0.75);
 
     /**
@@ -69,10 +70,13 @@ export default function QueryResults({
 
     const playOneSong = useCallback(
         async (track: MusicItem) => {
-            recordQueryPlay(track);
+            // togglePlayback pauses when the row is already the active track, so
+            // recording unconditionally would count a pause as a play
+            const isPausing = activeTrackId === track.id && isPlaying;
+            if (!isPausing) recordQueryPlay(track);
             await togglePlayback(track);
         },
-        [recordQueryPlay, togglePlayback],
+        [activeTrackId, isPlaying, recordQueryPlay, togglePlayback],
     );
     function closeSaveDialog() {
         setSaveOpen(false);
