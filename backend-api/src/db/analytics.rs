@@ -152,6 +152,9 @@ pub struct TrendPoint {
 /// Both ends of the window are required here. The caller resolves "all time"
 /// against [`get_event_bounds`] first, since a series needs somewhere to start.
 ///
+/// `until` is exclusive and the series respects that: a seven day window returns
+/// seven buckets, not eight with an empty one on the end.
+///
 /// Buckets are cut in `tz`, not UTC, because a week boundary in UTC is the wrong
 /// week for most of the world. Each event's own `client_tz` is stored but not
 /// used for this: one zone for the whole series keeps the buckets contiguous,
@@ -183,7 +186,16 @@ pub async fn get_trend(
     let sql = format!(
         "with bounds as (
              select date_trunc({unit}, {since_p}::timestamptz at time zone {tz_param}::text) as lo,
-                    date_trunc({unit}, {until_p}::timestamptz at time zone {tz_param}::text) as hi
+                    -- until is exclusive, so the last bucket wanted is the one
+                    -- holding the final instant inside the window. truncating
+                    -- until itself lands on the first bucket *outside* it, and
+                    -- since the client's windows end on a local midnight that is
+                    -- always a whole extra bar that can never hold an event
+                    date_trunc(
+                        {unit},
+                        ({until_p}::timestamptz - interval '1 microsecond')
+                            at time zone {tz_param}::text
+                    ) as hi
          ),
          buckets as (
              select generate_series(lo, hi, '{step}'::interval) as bucket from bounds
@@ -828,6 +840,91 @@ mod tests {
                 .unwrap(),
             vec![0i64; 24]
         );
+    }
+
+    /// `until` is exclusive, so a seven day window is seven bars.
+    ///
+    /// The window here is exactly what the client sends for its Week range:
+    /// local midnight to local midnight seven days later. That boundary is the
+    /// case that regressed, and the older trend test missed it because its
+    /// `until` was not on a Denver bucket boundary.
+    #[tokio::test]
+    #[ignore]
+    async fn a_window_ending_on_a_bucket_boundary_has_no_trailing_bucket() {
+        let (txn, user_id) = scratch().await;
+        seed(&txn, user_id).await;
+
+        let plays = Metric::from_name("plays").unwrap();
+        // 2026-09-27 00:00 and 2026-10-04 00:00, Denver
+        let points = get_trend(
+            &txn,
+            user_id,
+            plays,
+            Bucket::Day,
+            at("2026-09-27T06:00:00Z"),
+            at("2026-10-04T06:00:00Z"),
+            "America/Denver",
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(points.len(), 7, "seven days is seven bars: {points:?}");
+        assert_eq!(points[0].bucket, "2026-09-27");
+        assert_eq!(
+            points[6].bucket, "2026-10-03",
+            "the last bar is the last day inside the window, not the day after"
+        );
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn a_twelve_month_window_has_twelve_buckets() {
+        let (txn, user_id) = scratch().await;
+        seed(&txn, user_id).await;
+
+        let plays = Metric::from_name("plays").unwrap();
+        // the client's Year range: the 1st, eleven months back, to the 1st of
+        // next month
+        let points = get_trend(
+            &txn,
+            user_id,
+            plays,
+            Bucket::Month,
+            at("2025-11-01T06:00:00Z"),
+            at("2026-11-01T06:00:00Z"),
+            "America/Denver",
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(points.len(), 12, "{points:?}");
+        assert_eq!(points[0].bucket, "2025-11-01");
+        assert_eq!(points[11].bucket, "2026-10-01");
+    }
+
+    /// A window that stops mid-bucket still shows the bucket it stops inside.
+    #[tokio::test]
+    #[ignore]
+    async fn a_partial_last_bucket_is_still_a_bucket() {
+        let (txn, user_id) = scratch().await;
+        seed(&txn, user_id).await;
+
+        let plays = Metric::from_name("plays").unwrap();
+        let points = get_trend(
+            &txn,
+            user_id,
+            plays,
+            Bucket::Day,
+            at("2026-09-27T06:00:00Z"),
+            // midday on the 3rd, not a boundary
+            at("2026-10-03T18:00:00Z"),
+            "America/Denver",
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(points.len(), 7, "{points:?}");
+        assert_eq!(points[6].bucket, "2026-10-03");
     }
 
     #[tokio::test]
