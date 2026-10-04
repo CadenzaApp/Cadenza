@@ -131,12 +131,16 @@ impl Metric {
 
 /// How wide one bucket of a trend is.
 ///
-/// Both the `date_trunc` unit and the `generate_series` step come from here, so
-/// they can never disagree, and neither is ever a string off a request. Crosses
+/// Both the truncation and the `generate_series` step come from here, so they
+/// can never disagree, and neither is ever a string off a request. Crosses
 /// the wire as a plain string through `from_name` and `Display`, so it needs no
 /// serde of its own.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Bucket {
+    Hour,
+    /// Two hours from an even hour, local midnight first. Lets a week heatmap
+    /// draw 12 columns a day instead of 24.
+    TwoHours,
     Day,
     Week,
     Month,
@@ -144,11 +148,24 @@ pub enum Bucket {
 }
 
 impl Bucket {
-    pub const ALL: &[Bucket] = &[Self::Day, Self::Week, Self::Month, Self::Year];
+    pub const ALL: &[Bucket] = &[
+        Self::Hour,
+        Self::TwoHours,
+        Self::Day,
+        Self::Week,
+        Self::Month,
+        Self::Year,
+    ];
 
-    /// The `date_trunc` unit.
-    pub fn trunc_unit(self) -> &'static str {
+    /// What `bucket=auto` picks from, finest first. No hours: a trend is a
+    /// calendar view, and hours are asked for by name, for a heatmap or a day.
+    const AUTO: &[Bucket] = &[Self::Day, Self::Week, Self::Month, Self::Year];
+
+    /// What a request names it by.
+    pub fn name(self) -> &'static str {
         match self {
+            Self::Hour => "hour",
+            Self::TwoHours => "two_hour",
             Self::Day => "day",
             Self::Week => "week",
             Self::Month => "month",
@@ -156,9 +173,29 @@ impl Bucket {
         }
     }
 
+    /// SQL truncating the local `timestamp` expression `ts` to the start of its
+    /// bucket. Built from literals only, never from a request.
+    ///
+    /// `date_trunc` has no two hour unit, so that one bins from a midnight
+    /// origin instead; `ts` is local, so the bins start on local even hours.
+    pub fn truncate(self, ts: &str) -> String {
+        match self {
+            Self::TwoHours => {
+                format!("date_bin('2 hours', {ts}, timestamp '2000-01-01')")
+            }
+            Self::Hour => format!("date_trunc('hour', {ts})"),
+            Self::Day => format!("date_trunc('day', {ts})"),
+            Self::Week => format!("date_trunc('week', {ts})"),
+            Self::Month => format!("date_trunc('month', {ts})"),
+            Self::Year => format!("date_trunc('year', {ts})"),
+        }
+    }
+
     /// The `generate_series` step, one bucket wide.
     pub fn step(self) -> &'static str {
         match self {
+            Self::Hour => "1 hour",
+            Self::TwoHours => "2 hours",
             Self::Day => "1 day",
             Self::Week => "1 week",
             Self::Month => "1 month",
@@ -170,7 +207,7 @@ impl Bucket {
         Self::ALL
             .iter()
             .copied()
-            .find(|bucket| bucket.trunc_unit() == name)
+            .find(|bucket| bucket.name() == name)
     }
 
     /// How many buckets a window is allowed to produce, so a request for daily
@@ -181,6 +218,9 @@ impl Bucket {
     /// to second guess a reasonable one.
     pub fn max_buckets(self) -> i64 {
         match self {
+            // a month of hours, the widest a heatmap cuts in hours
+            Self::Hour => 800,
+            Self::TwoHours => 400,
             Self::Day => 400,
             Self::Week => 260,
             Self::Month => 180,
@@ -195,6 +235,8 @@ impl Bucket {
     /// years is 120 months, but at 28 days a month it estimates 130.
     pub fn average_days(self) -> f64 {
         match self {
+            Self::Hour => 1.0 / 24.0,
+            Self::TwoHours => 1.0 / 12.0,
             Self::Day => 1.0,
             Self::Week => 7.0,
             // the gregorian averages, so a decade estimates as a decade
@@ -213,15 +255,25 @@ impl Bucket {
     /// asking how much history there is, and chaining those two requests is a
     /// visible extra round trip, so the server decides.
     ///
-    /// [`Self::ALL`] is ordered finest first, so this is the first that fits.
+    /// [`Self::AUTO`] is ordered finest first, so this is the first that fits.
     /// Year is the floor: nothing is coarser, so a long enough span just gets
     /// more year bars.
     pub fn fit(days: i64) -> Self {
-        Self::ALL
+        Self::AUTO
             .iter()
             .copied()
             .find(|bucket| bucket.buckets_in(days) <= Self::TARGET_BUCKETS)
             .unwrap_or(Self::Year)
+    }
+
+    /// How a bucket's start is printed, as a `to_char` pattern in local time.
+    /// Coarser than an hour is a bare date; an hour carries its time, or every
+    /// hour of a day would print the same.
+    pub fn label_format(self) -> &'static str {
+        match self {
+            Self::Hour | Self::TwoHours => "YYYY-MM-DD\"T\"HH24:MI",
+            _ => "YYYY-MM-DD",
+        }
     }
 
     /// How many buckets a window of `days` covers, rounded up, never negative.
@@ -235,7 +287,7 @@ impl Bucket {
 
 impl fmt::Display for Bucket {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.trunc_unit())
+        f.write_str(self.name())
     }
 }
 
@@ -264,7 +316,7 @@ mod tests {
     #[test]
     fn bucket_names_round_trip() {
         for &bucket in Bucket::ALL {
-            assert_eq!(Bucket::from_name(bucket.trunc_unit()), Some(bucket));
+            assert_eq!(Bucket::from_name(bucket.name()), Some(bucket));
         }
         assert_eq!(Bucket::from_name("fortnight"), None);
     }
@@ -318,6 +370,29 @@ mod tests {
                 bars <= Bucket::TARGET_BUCKETS || bucket == Bucket::Year,
                 "{days} days gave {bars} {bucket} bars"
             );
+        }
+    }
+
+    #[test]
+    fn fit_never_picks_hours() {
+        // a trend is a calendar view; hours are only ever asked for by name
+        for days in [0, 1, 2] {
+            assert_ne!(Bucket::fit(days), Bucket::Hour);
+        }
+    }
+
+    #[test]
+    fn a_month_of_hours_fits_the_hour_cap() {
+        assert_eq!(Bucket::Hour.buckets_in(7), 168);
+        assert!(Bucket::Hour.buckets_in(31) <= Bucket::Hour.max_buckets());
+    }
+
+    #[test]
+    fn only_hours_print_a_time() {
+        for &bucket in Bucket::ALL {
+            let has_time = bucket.label_format().contains("HH24");
+            let hourly = matches!(bucket, Bucket::Hour | Bucket::TwoHours);
+            assert_eq!(has_time, hourly, "{bucket}");
         }
     }
 

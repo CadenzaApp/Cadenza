@@ -9,7 +9,7 @@ The data access layer. Everything that touches postgres lives here, so handlers 
 | --- | --- |
 | `mod.rs` | Declares `activity_tags`, `analytics`, `comment_votes`, `comments`, `entity`, `events`, `queries`, `tag_activity`, `tag_scores`, `tag_scores_metadata`, `tags`, `user_songs`. |
 | `events.rs` | The write path for `listening_events`: `NewEvent` and `insert_events`, which is idempotent on `client_event_id` and reports which rows were new. |
-| `analytics.rs` | The read path for `listening_events`: the metric summary, dense time bucketed trends, the song, artist and album rankings, replays, top tags, plays by hour, active days, and the event bounds. Integration tested against a real database (`--ignored`). |
+| `analytics.rs` | The read path for `listening_events`: the metric summary, dense time bucketed trends, the song, artist, album, playlist and query rankings, replays, top tags with a cover song, tags played, the tag-colored heatmap, plays by hour, active days, and the event bounds. Integration tested against a real database (`--ignored`). |
 | `activity_tags.rs` | `ActivityTag` (My Plays, First Played, Last Played), finding their rows by `is_activity` and name and creating missing ones, `record_play`, and reading their values per song with defaults filled in. Unit tested. |
 | `tags.rs` | User tag CRUD and applied values, plus searching, reading, and applying default tags, and claiming, finishing, and dropping a song's default tag generation. `get_tags_named` reads the user's and the default tags by normalized name, never activity tags. User tag reads never copy or return defaults. |
 | `tag_activity.rs` | Not activity tags. Counts applies and removes of a tag name on a song in `default_tag_activity`, and promotes popular names to default tags. |
@@ -175,11 +175,13 @@ Anything that reacts to an event has to key off `inserted`, or a retried batch c
 Aggregation is SQL. `Metric` in `services::analytics::metrics` pairs a name with one aggregate
 expression, and both the summary and the trends interpolate it into their own query, so adding a
 metric needs no change in `analytics.rs` and no new handler. `Dimension` does the same one level
-up: `get_top_entities` serves the song, artist and album rankings from one query, grouping by the
+up: `get_top_entities` serves every ranking from one query, grouping by the
 key that dimension supplies. Those expressions are interpolated
 rather than bound, so they have to stay literals written in that file and must come back as
 `bigint`: postgres sums a bigint into numeric, so any `sum` needs a `::bigint`. Reads that group
-by something other than the window (top songs, replays, top tags) are each their own function.
+by something other than the window (top songs, replays, top tags, the heatmap) are each their own
+function. Every read of "tags the user listened to" starts from `tagged_plays`, one shared join, so
+the tag ranking, the tag count, and each heatmap cell's tag cannot disagree on what counts.
 
 ## Activity tags
 

@@ -6,64 +6,65 @@ call into `src/db/` or `src/services/`, and shape the response.
 
 ## Files
 
-| file | role |
-| --- | --- |
-| `mod.rs` | Declares `json`, `analytics`, `comments`, `events`, `queries`, `social`, `tags`, `songs`. |
-| `tags.rs` | Tag CRUD for the signed-in user, tag score edits, default tag search, listing the activity tags, plus LLM tag suggestion. Mounted at `/tags`. |
-| `songs.rs` | Adding and removing the user's songs, reading and changing user tags, reading default tags, reading activity tags, and recording plays. Mounted at `/songs`. |
-| `queries.rs` | Runs a tag query and returns song ids by relevance. Mounted at `/queries`. |
-| `comments.rs` | Reading, leaving, deleting, and voting on comments on songs. Mounted at `/comments`. |
-| `events.rs` | Ingests a batch of listening events, and counts the `play_counted` ones towards the activity tags in the same transaction. Mounted at `/events`. |
-| `analytics.rs` | Summary counts, time bucketed trends, the metric list, and the song, artist and album rankings. Mounted at `/analytics`. |
-| `social.rs` | One catch-all handler that proxies `/social/*` to the social feed service with the caller's user id attached. No endpoint list of its own. Mounted at `/social`. |
-| `json/mod.rs` | `vec_into`, a small `Vec<A> -> Vec<B>` helper. Declares `analytics`, `comment`, `query`, `tag`, and `tag_score`. |
-| `json/analytics.rs` | The `/events` request and response shapes, and the `/analytics` response shapes. |
-| `json/tag.rs` | `TagType`, `Tag`, and `AppliedTag`, the wire shapes of a tag. `From<tags::Model>` drops `user_id` and keeps `is_activity`. |
-| `json/tag_score.rs` | `ScoredTag`, one top tag as a `[score, color, source]` array, and `TagSource`, `"local"` or `"global"`. |
-| `json/comment.rs` | `Comment` and `CommentThread`, the wire shapes of a comment and of a top level comment with its replies. Both take the reading user's id, to turn `user_id` into `mine`, and each comment's vote tally. |
-| `json/query.rs` | `Query`, `QueryNode`, `Filter`, `FilterOp`: the input schema of a tag query. Both client builders produce it. |
+| file                | role                                                                                                                                                                                                    |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `mod.rs`            | Declares `json`, `analytics`, `comments`, `events`, `queries`, `social`, `tags`, `songs`.                                                                                                               |
+| `tags.rs`           | Tag CRUD for the signed-in user, tag score edits, default tag search, listing the activity tags, plus LLM tag suggestion. Mounted at `/tags`.                                                           |
+| `songs.rs`          | Adding and removing the user's songs, reading and changing user tags, reading default tags, reading activity tags, and recording plays. Mounted at `/songs`.                                            |
+| `queries.rs`        | Runs a tag query and returns song ids by relevance. Mounted at `/queries`.                                                                                                                              |
+| `comments.rs`       | Reading, leaving, deleting, and voting on comments on songs. Mounted at `/comments`.                                                                                                                    |
+| `events.rs`         | Ingests a batch of listening events, and counts the `play_counted` ones towards the activity tags in the same transaction. Mounted at `/events`.                                                        |
+| `analytics.rs`      | Summary counts, time bucketed trends, the metric list, and the rankings (song, artist, album, playlist, query). Mounted at `/analytics`.                                                                                |
+| `social.rs`         | One catch-all handler that proxies `/social/*` to the social feed service with the caller's user id attached. No endpoint list of its own. Mounted at `/social`.                                        |
+| `json/mod.rs`       | `vec_into`, a small `Vec<A> -> Vec<B>` helper. Declares `analytics`, `comment`, `query`, `tag`, and `tag_score`.                                                                                        |
+| `json/analytics.rs` | The `/events` request and response shapes, and the `/analytics` response shapes.                                                                                                                        |
+| `json/tag.rs`       | `TagType`, `Tag`, and `AppliedTag`, the wire shapes of a tag. `From<tags::Model>` drops `user_id` and keeps `is_activity`.                                                                              |
+| `json/tag_score.rs` | `ScoredTag`, one top tag as a `[score, color, source]` array, and `TagSource`, `"local"` or `"global"`.                                                                                                 |
+| `json/comment.rs`   | `Comment` and `CommentThread`, the wire shapes of a comment and of a top level comment with its replies. Both take the reading user's id, to turn `user_id` into `mine`, and each comment's vote tally. |
+| `json/query.rs`     | `Query`, `QueryNode`, `Filter`, `FilterOp`: the input schema of a tag query. Both client builders produce it.                                                                                           |
 
 ## Endpoints
 
 Every route below requires `Authorization: Bearer <supabase jwt>`.
 
-| method | path | input | output |
-| --- | --- | --- | --- |
-| GET | `/tags` | none | `{"All": {tags: [Tag], metadata: {tag_id: {count}}}}` |
-| GET | `/tags?tag_id=N` | query param | `{"One": {tag, song_ids}}`, 404 if the tag does not belong to the signed-in user |
-| POST | `/tags` | `{name, color, type?}` | the new tag id, as a bare number in the body; 409 when the user already owns that normalized name |
-| PATCH | `/tags` | `{tag_id, name?, color?}` | the updated tag. 404 if the tag is not yours; 409 when its new name matches another tag you own |
-| DELETE | `/tags` | `{tag_id}` | empty. Silently no-ops if the tag is not yours |
-| GET | `/tags/scores` | `?k=N` | `{tag_name: [score, color, "local" \| "global"]}`, the user's `k` highest scores, 0 and below and names with no tag left out. `k` is at most 200 |
-| PATCH | `/tags/scores` | `{"pop": 5, "rock": 10, "jazz": -2}` | `{tag_name: score}`, the score every named tag is left at |
-| GET | `/tags/default-tags` | `?search=...` | `[Tag]`, at most 5 default tags matching the search, most used first |
-| GET | `/tags/activity` | none | `[Tag]`, every activity tag in display order. The same for every user |
-| GET | `/tags/suggest` | `?song_desc=...&requested_tag_count=N` | `[{name, color}, ...]` |
-| PATCH | `/songs` | `{add: [...], remove: [...]}` | empty. Adds and removes the user's songs |
-| GET | `/songs/local-tags` | `?song_id=...` | `[AppliedTag]`, the user's tags on that song |
-| POST | `/songs/local-tags/batch` | `{song_ids: [...]}` | `{song_id: [AppliedTag]}`, an entry per requested song |
-| PATCH | `/songs/local-tags/batch` | `{song_ids: [...], tag_ids: [...]}` | empty. Applies every tag to every song, preserving existing applications and values |
-| DELETE | `/songs/local-tags/batch` | `{song_ids: [...], tag_ids: [...]}` | empty. Removes every tag from every song; missing applications are ignored |
-| GET | `/songs/default-tags` | `?song_id=...` | `[Tag]`, the shared default tags on that song, minus the ones this user removed. Generates them first if the song has never had them |
-| POST | `/songs/default-tags/batch` | `{song_ids: [...]}` | `{song_id: [Tag]}`, the same read for a list of songs, an entry per requested song. Generates for any that have never had defaults |
-| DELETE | `/songs/default-tags` | `{song_id, tag_id}` | empty. Records that this user removed the suggested tag and counts it. 404 if the tag is not a default tag on the song |
-| POST | `/songs/local-tags` | `{song_id, tag_id, value?}` | empty. Also votes for the tag name |
-| PATCH | `/songs/local-tags` | `{song_id, tag_id, value}` | empty. A null value clears it |
-| DELETE | `/songs/local-tags` | `{song_id, tag_id}` | empty. Takes that vote back when it removes the tag |
-| GET | `/songs/activity-tags` | `?song_id=...` | `[AppliedTag]`, every activity tag with this user's value on that song. Never played: My Plays is `"0"`, the dates `null` |
-| POST | `/songs/activity-tags/batch` | `{song_ids: [...]}` | `{song_id: [AppliedTag]}`, the same read for a list of songs, an entry per requested song |
-| POST | `/songs/plays` | `{song_id}` | empty. Counts one play at the server's clock: My Plays +1, First Played and Last Played moved as needed. Superseded by `POST /events` with a `play_counted` event, which does the same thing and also records the event. Kept for app builds already in the field; the current client does not call it |
-| POST | `/events` | `{events: [{type, song_id?, occurred_at, client_tz?, session_id?, client_event_id, payload?}]}` | `{accepted: [client_event_id]}`, the ids now stored. Idempotent per `client_event_id`, so a retry stores nothing and still reports them. At most 500 events. 422 if any event has an unknown type, a bad payload, or an `occurred_at` over 10 minutes ahead |
-| GET | `/analytics/summary` | `?since=&until=&tz=` | one flat object of counts, rates, `active_days`, `plays_by_hour`, `top_tags`, `most_replayed`, and `top`: a ranking per dimension keyed by its name, the same way `stats` is keyed by metric. Zeros and empty lists for a user with no events |
-| GET | `/analytics/trends` | `?metric=&bucket=day\|week\|month\|year\|auto&since=&until=&tz=` | `{metric, description, unit, bucket, points: [{bucket, value}]}`. Dense: an empty bucket is a zero, and `until` is exclusive so a seven day window is seven buckets. `unit` is `count` or `milliseconds`, so a client can format any metric without knowing it by name. `bucket` defaults to `week`, `auto` lets the server pick, and the window defaults to the user's whole history |
-| GET | `/analytics/top` | `?dimension=song\|artist\|album&since=&until=&limit=` | `{dimension, description, entries: [{key, label, sub_label, entity_id, sample_song_id, plays}]}`, most played first. `label` is null for songs, whose titles live in Apple Music. `limit` defaults to 20, clamped to 1..=100. 422 on an unknown dimension |
-| GET | `/analytics/top-tags` | `?since=&until=&limit=` | `{entries: [{id, name, color, type, plays}]}`, the user's own tags by plays of the songs carrying them. Activity tags are left out |
-| POST | `/queries/results` | `{query, consider_default_tags?}` | `["songid", ...]`, most relevant first |
-| GET | `/comments` | `?song_id=...` | `[CommentThread]`, every user's comments on the song, newest first, each with its `replies` oldest first |
-| POST | `/comments` | `{song_id, content, parent_id?}` | the new `Comment`. `parent_id` makes it a reply to a top level comment on that song. `content` is trimmed and must then be 1 to 2000 characters |
-| DELETE | `/comments` | `{comment_id}` | empty. Also deletes every reply to it. 404 if the user has no comment with that id |
-| POST | `/comments/votes` | `{comment_id, vote}` | empty. `vote` is `"up"` or `"down"`, replacing the user's earlier vote, or `null` to take it back. 404 if an up or down vote names no comment |
-| GET | `/test` | none | `server is reachable`. Defined inline in `main.rs`, not here |
+| method | path                         | input                                                                                           | output                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ------ | ---------------------------- | ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/tags`                      | none                                                                                            | `{"All": {tags: [Tag], metadata: {tag_id: {count}}}}`                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| GET    | `/tags?tag_id=N`             | query param                                                                                     | `{"One": {tag, song_ids}}`, 404 if the tag does not belong to the signed-in user                                                                                                                                                                                                                                                                                                                                                                                      |
+| POST   | `/tags`                      | `{name, color, type?}`                                                                          | the new tag id, as a bare number in the body; 409 when the user already owns that normalized name                                                                                                                                                                                                                                                                                                                                                                     |
+| PATCH  | `/tags`                      | `{tag_id, name?, color?}`                                                                       | the updated tag. 404 if the tag is not yours; 409 when its new name matches another tag you own                                                                                                                                                                                                                                                                                                                                                                       |
+| DELETE | `/tags`                      | `{tag_id}`                                                                                      | empty. Silently no-ops if the tag is not yours                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| GET    | `/tags/scores`               | `?k=N`                                                                                          | `{tag_name: [score, color, "local" \| "global"]}`, the user's `k` highest scores, 0 and below and names with no tag left out. `k` is at most 200                                                                                                                                                                                                                                                                                                                      |
+| PATCH  | `/tags/scores`               | `{"pop": 5, "rock": 10, "jazz": -2}`                                                            | `{tag_name: score}`, the score every named tag is left at                                                                                                                                                                                                                                                                                                                                                                                                             |
+| GET    | `/tags/default-tags`         | `?search=...`                                                                                   | `[Tag]`, at most 5 default tags matching the search, most used first                                                                                                                                                                                                                                                                                                                                                                                                  |
+| GET    | `/tags/activity`             | none                                                                                            | `[Tag]`, every activity tag in display order. The same for every user                                                                                                                                                                                                                                                                                                                                                                                                 |
+| GET    | `/tags/suggest`              | `?song_desc=...&requested_tag_count=N`                                                          | `[{name, color}, ...]`                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| PATCH  | `/songs`                     | `{add: [...], remove: [...]}`                                                                   | empty. Adds and removes the user's songs                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| GET    | `/songs/local-tags`          | `?song_id=...`                                                                                  | `[AppliedTag]`, the user's tags on that song                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| POST   | `/songs/local-tags/batch`    | `{song_ids: [...]}`                                                                             | `{song_id: [AppliedTag]}`, an entry per requested song                                                                                                                                                                                                                                                                                                                                                                                                                |
+| PATCH  | `/songs/local-tags/batch`    | `{song_ids: [...], tag_ids: [...]}`                                                             | empty. Applies every tag to every song, preserving existing applications and values                                                                                                                                                                                                                                                                                                                                                                                   |
+| DELETE | `/songs/local-tags/batch`    | `{song_ids: [...], tag_ids: [...]}`                                                             | empty. Removes every tag from every song; missing applications are ignored                                                                                                                                                                                                                                                                                                                                                                                            |
+| GET    | `/songs/default-tags`        | `?song_id=...`                                                                                  | `[Tag]`, the shared default tags on that song, minus the ones this user removed. Generates them first if the song has never had them                                                                                                                                                                                                                                                                                                                                  |
+| POST   | `/songs/default-tags/batch`  | `{song_ids: [...]}`                                                                             | `{song_id: [Tag]}`, the same read for a list of songs, an entry per requested song. Generates for any that have never had defaults                                                                                                                                                                                                                                                                                                                                    |
+| DELETE | `/songs/default-tags`        | `{song_id, tag_id}`                                                                             | empty. Records that this user removed the suggested tag and counts it. 404 if the tag is not a default tag on the song                                                                                                                                                                                                                                                                                                                                                |
+| POST   | `/songs/local-tags`          | `{song_id, tag_id, value?}`                                                                     | empty. Also votes for the tag name                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| PATCH  | `/songs/local-tags`          | `{song_id, tag_id, value}`                                                                      | empty. A null value clears it                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| DELETE | `/songs/local-tags`          | `{song_id, tag_id}`                                                                             | empty. Takes that vote back when it removes the tag                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| GET    | `/songs/activity-tags`       | `?song_id=...`                                                                                  | `[AppliedTag]`, every activity tag with this user's value on that song. Never played: My Plays is `"0"`, the dates `null`                                                                                                                                                                                                                                                                                                                                             |
+| POST   | `/songs/activity-tags/batch` | `{song_ids: [...]}`                                                                             | `{song_id: [AppliedTag]}`, the same read for a list of songs, an entry per requested song                                                                                                                                                                                                                                                                                                                                                                             |
+| POST   | `/songs/plays`               | `{song_id}`                                                                                     | empty. Counts one play at the server's clock: My Plays +1, First Played and Last Played moved as needed. Superseded by `POST /events` with a `play_counted` event, which does the same thing and also records the event. Kept for app builds already in the field; the current client does not call it                                                                                                                                                                |
+| POST   | `/events`                    | `{events: [{type, song_id?, occurred_at, client_tz?, session_id?, client_event_id, payload?}]}` | `{accepted: [client_event_id]}`, the ids now stored. Idempotent per `client_event_id`, so a retry stores nothing and still reports them. At most 500 events. 422 if any event has an unknown type, a bad payload, or an `occurred_at` over 10 minutes ahead                                                                                                                                                                                                           |
+| GET    | `/analytics/summary`         | `?since=&until=&tz=`                                                                            | one flat object of counts, rates, `active_days`, `tags_played`, `plays_by_hour`, `top_tags` (up to 50), `most_replayed`, and `top`: a ranking per dimension keyed by its name, the same way `stats` is keyed by metric. Zeros and empty lists for a user with no events                                                                                                                                                                                               |
+| GET    | `/analytics/trends`          | `?metric=&bucket=hour\|two_hour\|day\|week\|month\|year\|auto&since=&until=&tz=`                | `{metric, description, unit, bucket, points: [{bucket, value}]}`. `bucket` on a point is a local `YYYY-MM-DD`, or `YYYY-MM-DDTHH:MI` for an hour. Dense: an empty bucket is a zero, and `until` is exclusive so a seven day window is seven buckets. `unit` is `count` or `milliseconds`, so a client can format any metric without knowing it by name. `bucket` defaults to `week`, `auto` lets the server pick, and the window defaults to the user's whole history |
+| GET    | `/analytics/top`             | `?dimension=song\|artist\|album\|playlist\|query&since=&until=&limit=`                                           | `{dimension, description, entries: [{key, label, sub_label, entity_id, sample_song_id, plays}]}`, most played first. `label` is null for songs, whose titles live in Apple Music. `limit` defaults to 20, clamped to 1..=100. 422 on an unknown dimension                                                                                                                                                                                                             |
+| GET    | `/analytics/top-tags`        | `?since=&until=&limit=`                                                                         | `{entries: [{id, name, color, type, plays, sample_song_id}]}`, the user's own tags by plays of the songs carrying them. `sample_song_id` is the tag's most played song in the window, for a cover. Activity tags are left out                                                                                                                                                                                                                                         |
+| GET    | `/analytics/heatmap`         | `?bucket=hour\|two_hour\|day\|week\|month\|year&since=&until=&tz=`                              | `{bucket, cells: [{start, plays, tag_id}], tags: [{id, name, color}]}`. Sparse: only buckets with a play. `two_hour` starts on even local hours and prints like an hour. `tag_id` is the tag played most in that bucket, ties to the name, null when nothing played carried one. `tags` lists each named tag once. `bucket` defaults to `day`, and the window is checked against the bucket cap like a trend                                                          |
+| POST   | `/queries/results`           | `{query, consider_default_tags?}`                                                               | `["songid", ...]`, most relevant first                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| GET    | `/comments`                  | `?song_id=...`                                                                                  | `[CommentThread]`, every user's comments on the song, newest first, each with its `replies` oldest first                                                                                                                                                                                                                                                                                                                                                              |
+| POST   | `/comments`                  | `{song_id, content, parent_id?}`                                                                | the new `Comment`. `parent_id` makes it a reply to a top level comment on that song. `content` is trimmed and must then be 1 to 2000 characters                                                                                                                                                                                                                                                                                                                       |
+| DELETE | `/comments`                  | `{comment_id}`                                                                                  | empty. Also deletes every reply to it. 404 if the user has no comment with that id                                                                                                                                                                                                                                                                                                                                                                                    |
+| POST   | `/comments/votes`            | `{comment_id, vote}`                                                                            | empty. `vote` is `"up"` or `"down"`, replacing the user's earlier vote, or `null` to take it back. 404 if an up or down vote names no comment                                                                                                                                                                                                                                                                                                                         |
+| GET    | `/test`                      | none                                                                                            | `server is reachable`. Defined inline in `main.rs`, not here                                                                                                                                                                                                                                                                                                                                                                                                          |
 
 `GET /tags` returns a serde-tagged enum, so the two shapes come back wrapped in `"One"` or
 `"All"`. The client mirrors that in `client-app/src/lib/routes/tags.ts`.
@@ -106,14 +107,42 @@ and drop builder is the subset of it that only uses `is_applied` and
 
 ```json
 {
-  "where": { "and": [
-    { "filter": { "field": "tag", "tag_id": 4, "op": "on_or_after", "value": "1950-01-01" } },
-    { "filter": { "field": "tag", "tag_id": 7, "op": "before", "value": "2024-06-01T18:30:00Z" } },
-    { "not": { "or": [
-      { "filter": { "field": "tag_name", "op": "contains", "value": "live" } },
-      { "filter": { "field": "tag_type", "op": "is", "value": "checkbox" } }
-    ] } }
-  ] }
+  "where": {
+    "and": [
+      {
+        "filter": {
+          "field": "tag",
+          "tag_id": 4,
+          "op": "on_or_after",
+          "value": "1950-01-01"
+        }
+      },
+      {
+        "filter": {
+          "field": "tag",
+          "tag_id": 7,
+          "op": "before",
+          "value": "2024-06-01T18:30:00Z"
+        }
+      },
+      {
+        "not": {
+          "or": [
+            {
+              "filter": {
+                "field": "tag_name",
+                "op": "contains",
+                "value": "live"
+              }
+            },
+            {
+              "filter": { "field": "tag_type", "op": "is", "value": "checkbox" }
+            }
+          ]
+        }
+      }
+    ]
+  }
 }
 ```
 
@@ -124,15 +153,15 @@ and drop builder is the subset of it that only uses `is_applied` and
 - A filter is tagged by `field`: `tag` (with `tag_id`), `tag_name`, `tag_value`, or `tag_type`.
   `value` is always a string, and is omitted (or null) for operators that take none.
 
-| field | ops | value |
-| --- | --- | --- |
-| `tag`, any tag type | `is_applied`, `is_not_applied` | none |
-| `tag`, text tag; `tag_name`; `tag_value` | `is`, `is_not`, `starts_with`, `ends_with`, `contains` / `is_empty` | text / none |
-| `tag`, datetime tag | `on`, `not_on`, `before`, `after`, `on_or_before`, `on_or_after` / `is_empty`, `is_not_empty` | RFC 3339, compared to the minute / none |
-| `tag`, date tag | same as datetime | `YYYY-MM-DD` / none |
-| `tag`, number tag | `eq`, `ne`, `lt`, `le`, `gt`, `ge` / `is_empty`, `is_not_empty` | a number as a string / none |
-| `tag`, checkbox tag | `is_true`, `is_false`, `is_null` | none |
-| `tag_type` | `is`, `is_not` | a tag type |
+| field                                    | ops                                                                                           | value                                   |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------- | --------------------------------------- |
+| `tag`, any tag type                      | `is_applied`, `is_not_applied`                                                                | none                                    |
+| `tag`, text tag; `tag_name`; `tag_value` | `is`, `is_not`, `starts_with`, `ends_with`, `contains` / `is_empty`                           | text / none                             |
+| `tag`, datetime tag                      | `on`, `not_on`, `before`, `after`, `on_or_before`, `on_or_after` / `is_empty`, `is_not_empty` | RFC 3339, compared to the minute / none |
+| `tag`, date tag                          | same as datetime                                                                              | `YYYY-MM-DD` / none                     |
+| `tag`, number tag                        | `eq`, `ne`, `lt`, `le`, `gt`, `ge` / `is_empty`, `is_not_empty`                               | a number as a string / none             |
+| `tag`, checkbox tag                      | `is_true`, `is_false`, `is_null`                                                              | none                                    |
+| `tag_type`                               | `is`, `is_not`                                                                                | a tag type                              |
 
 Basic tags only take `is_applied` / `is_not_applied`. Every other type takes them too, on top of
 its own operators, and they ignore the value: an attribute tag applied without one still counts
@@ -321,6 +350,8 @@ api as JSON should have a type here rather than serializing an entity model dire
   stored, but nothing emits them yet, so they are deliberately left out of `Metric::ALL`: the
   client builds its chart picker off that list and an entry with no emitter is a chart that only
   ever shows zeros. `query_play` has an emitter, so it has a metric.
+- `hour` is a real bucket, capped at about a month of hours, but `bucket=auto` never picks it. A
+  trend is a calendar view; hours are asked for by name, for a heatmap or a single day.
 - `bucket=auto` lets the server pick, which is the only way to bucket an all-time window without
   the client first asking how much history there is. The response always echoes a real bucket.
 - `/analytics/top` groups artists and albums by the **lowercased name** out of the event payload,
@@ -330,6 +361,10 @@ api as JSON should have a type here rather than serializing an entity model dire
   "Greatest Hits" collapses into one row.
 - A play recorded before the client started writing `artist_name` into the payload is invisible to
   the artist and album rankings. There is no backfill: Apple Music owns the metadata.
+- Playlist and query rankings read `source_kind`, `source_id` and `source_name` off `play_counted`.
+  The client sets them when a queue starts from a playlist or a query. A query's `source_id` is the
+  query itself, JSON encoded with its suggested flag, so the same query ranks as one row and the
+  client can run it again. Plays logged before the client wrote a source rank under neither.
 - `GET /tags/scores` has no client caller any more. The Analytics tab shows tags by plays in a
   window, which `tag_scores` cannot answer because it has no timestamp. The scores are still
   written and still decay weekly, as the input for recommendations, so this is not dead code.
@@ -348,5 +383,6 @@ api as JSON should have a type here rather than serializing an entity model dire
   them can come back with a stale tally until the next read.
 
 ---
+
 Touching files in this directory? Update this README in the same change.
 See [../../../AGENT_GUIDE.md](../../../AGENT_GUIDE.md).

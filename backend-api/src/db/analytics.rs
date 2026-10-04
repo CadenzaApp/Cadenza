@@ -10,7 +10,7 @@
 //! (replays, top tags, the clock) group by something other than the window and
 //! so are each their own function. Rankings are the same idea one level up:
 //! [`crate::services::analytics::Dimension`] supplies the group key, so
-//! `get_top_entities` serves songs, artists and albums from one query.
+//! `get_top_entities` serves every ranking from one query.
 
 use std::collections::HashMap;
 
@@ -137,7 +137,8 @@ pub async fn get_summary(
 /// One point of a trend: the bucket it covers and the metric's value in it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TrendPoint {
-    /// The bucket's first day in the user's timezone, as `YYYY-MM-DD`.
+    /// The bucket's first day in the user's timezone, as `YYYY-MM-DD`, or
+    /// `YYYY-MM-DDTHH:MI` for an hour bucket.
     ///
     /// A local date rather than an instant, because that is what it is: a
     /// timestamp here would invite the client to re-shift it into some other
@@ -180,35 +181,36 @@ pub async fn get_trend(
         _ => unreachable!("a trend window always has both ends"),
     };
     let tz_param = scope.bind(sanitize_timezone(tz).to_owned());
-    let unit = scope.bind(bucket.trunc_unit().to_owned());
+    let label = scope.bind(bucket.label_format().to_owned());
     // from the Bucket enum, never from a request
     let step = bucket.step();
+    let lo = bucket.truncate(&format!(
+        "{since_p}::timestamptz at time zone {tz_param}::text"
+    ));
+    // until is exclusive, so the last bucket wanted is the one holding the
+    // final instant inside the window. truncating until itself lands on the
+    // first bucket *outside* it, and since the client's windows end on a local
+    // midnight that is always a whole extra bar that can never hold an event
+    let hi = bucket.truncate(&format!(
+        "({until_p}::timestamptz - interval '1 microsecond') at time zone {tz_param}::text"
+    ));
+    let event_bucket = bucket.truncate(&format!("occurred_at at time zone {tz_param}::text"));
 
     let sql = format!(
         "with bounds as (
-             select date_trunc({unit}, {since_p}::timestamptz at time zone {tz_param}::text) as lo,
-                    -- until is exclusive, so the last bucket wanted is the one
-                    -- holding the final instant inside the window. truncating
-                    -- until itself lands on the first bucket *outside* it, and
-                    -- since the client's windows end on a local midnight that is
-                    -- always a whole extra bar that can never hold an event
-                    date_trunc(
-                        {unit},
-                        ({until_p}::timestamptz - interval '1 microsecond')
-                            at time zone {tz_param}::text
-                    ) as hi
+             select {lo} as lo, {hi} as hi
          ),
          buckets as (
              select generate_series(lo, hi, '{step}'::interval) as bucket from bounds
          ),
          agg as (
-             select date_trunc({unit}, occurred_at at time zone {tz_param}::text) as bucket,
+             select {event_bucket} as bucket,
                     {aggregate} as value
              from listening_events
              where {scope}
              group by 1
          )
-         select to_char(buckets.bucket, 'YYYY-MM-DD') as bucket,
+         select to_char(buckets.bucket, {label}) as bucket,
                 coalesce(agg.value, 0)::bigint as value
          from buckets left join agg using (bucket)
          order by buckets.bucket",
@@ -272,8 +274,8 @@ pub struct EntityPlays {
     pub plays: i64,
 }
 
-/// The user's most played songs, artists, or albums over a window, most played
-/// first.
+/// The user's most played songs, artists, albums, playlists, or queries over a
+/// window, most played first.
 ///
 /// One query whatever the dimension: [`Dimension`] supplies the group key and
 /// the label, so a new dimension needs no change here.
@@ -425,13 +427,30 @@ pub struct TagPlays {
     /// raw statement.
     pub tag_type: TagType,
     pub plays: i64,
+    /// The tag's most played song in the window, for a cover to draw it with.
+    /// Ties go to the lowest song id, so it holds still between reads.
+    pub sample_song_id: String,
+}
+
+/// The user's own, non activity tags joined onto counted plays in `scope`,
+/// aliased `e` for the event and `t` for the tag. Every read of "tags the user
+/// listened to" starts from this, so they cannot disagree on what counts.
+///
+/// Activity tags are excluded because every played song has My Plays on it by
+/// construction, so they would take every top slot and say nothing. The scope's
+/// `$1` is the user id, which is also the tag owner wanted.
+fn tagged_plays(scope: &Scope) -> String {
+    format!(
+        "listening_events e
+         join user_tags_applied uta
+             on uta.song_id = e.song_id and uta.user_id = e.user_id
+         join tags t on t.tag_id = uta.tag_id
+         where {} and e.event_type = 'play_counted' and t.is_activity = false",
+        scope.clause
+    )
 }
 
 /// The tags the user actually listens to, by plays of the songs they are on.
-///
-/// Counts the user's own tags only. Activity tags are excluded because every
-/// played song has My Plays on it by construction, so they would take every top
-/// slot and say nothing.
 pub async fn get_top_tags_by_play(
     db: &impl ConnectionTrait,
     user_id: Uuid,
@@ -441,18 +460,23 @@ pub async fn get_top_tags_by_play(
     let mut scope = Scope::new(user_id, window, Some("e"));
     let limit_param = scope.bind(limit as i64);
 
-    // the scope's user_id is $1, which is also the tag owner we want
+    // counted per song first, so the cover can be the tag's most played song
+    // without a second pass
     let sql = format!(
-        "select t.tag_id, t.name, t.color, t.type::text, count(*)::bigint as plays
-         from listening_events e
-         join user_tags_applied uta
-             on uta.song_id = e.song_id and uta.user_id = e.user_id
-         join tags t on t.tag_id = uta.tag_id
-         where {} and e.event_type = 'play_counted' and t.is_activity = false
-         group by t.tag_id, t.name, t.color, t.type
-         order by plays desc, t.name
+        "with per_song as (
+             select t.tag_id, t.name, t.color, t.type::text as type_name, e.song_id,
+                    count(*)::bigint as song_plays
+             from {from}
+             group by t.tag_id, t.name, t.color, t.type, e.song_id
+         )
+         select tag_id, name, color, type_name,
+                sum(song_plays)::bigint as plays,
+                (array_agg(song_id order by song_plays desc, song_id))[1] as sample_song_id
+         from per_song
+         group by tag_id, name, color, type_name
+         order by plays desc, name
          limit {limit_param}",
-        scope.clause
+        from = tagged_plays(&scope),
     );
 
     let rows = db
@@ -472,6 +496,123 @@ pub async fn get_top_tags_by_play(
                 color: row.try_get_by_index(2)?,
                 tag_type: tag_type_from_name(&type_name)?,
                 plays: row.try_get_by_index(4)?,
+                sample_song_id: row.try_get_by_index(5)?,
+            })
+        })
+        .collect()
+}
+
+/// How many different tags the user listened to in the window: distinct tags
+/// on songs with a counted play, on the same terms as [`get_top_tags_by_play`].
+pub async fn get_tags_played(
+    db: &impl ConnectionTrait,
+    user_id: Uuid,
+    window: TimeWindow,
+) -> Result<i64, CadenzaError> {
+    let scope = Scope::new(user_id, window, Some("e"));
+    let sql = format!(
+        "select count(distinct t.tag_id)::bigint from {}",
+        tagged_plays(&scope)
+    );
+
+    let row = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            sql,
+            scope.values,
+        ))
+        .await?
+        .ok_or_else(|| CadenzaError::DatabaseError("tags played returned no row".to_owned()))?;
+
+    Ok(row.try_get_by_index(0)?)
+}
+
+/// The tag a heatmap cell is colored by: just enough to draw it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CellTag {
+    pub tag_id: i64,
+    pub name: String,
+    pub color: String,
+}
+
+/// One cell of a heatmap: a bucket that had plays, how many, and its most
+/// played tag.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HeatmapCell {
+    /// The bucket's start in the user's timezone, printed by
+    /// [`Bucket::label_format`].
+    pub start: String,
+    pub plays: i64,
+    /// The tag with the most plays in the cell, ties to the name. `None` when
+    /// nothing played in it carried one of the user's tags.
+    pub tag: Option<CellTag>,
+}
+
+/// Counted plays cut into `bucket`s in `tz`, each with its most played tag.
+///
+/// Sparse: only buckets with a play come back. The grid a heatmap draws is the
+/// client's to lay out, so an empty cell has nothing to say here. Tags are
+/// counted on the same terms as [`get_top_tags_by_play`], so a cell's tag and
+/// the tag ranking cannot disagree.
+pub async fn get_heatmap(
+    db: &impl ConnectionTrait,
+    user_id: Uuid,
+    window: TimeWindow,
+    bucket: Bucket,
+    tz: &str,
+) -> Result<Vec<HeatmapCell>, CadenzaError> {
+    let mut scope = Scope::new(user_id, window, Some("e"));
+    let tz_param = scope.bind(sanitize_timezone(tz).to_owned());
+    let label = scope.bind(bucket.label_format().to_owned());
+    let cell = bucket.truncate(&format!("e.occurred_at at time zone {tz_param}::text"));
+
+    let sql = format!(
+        "with cells as (
+             select {cell} as cell, count(*)::bigint as plays
+             from listening_events e
+             where {scope} and e.event_type = 'play_counted'
+             group by 1
+         ),
+         cell_tags as (
+             select {cell} as cell, t.tag_id, t.name, t.color,
+                    row_number() over (
+                        partition by {cell} order by count(*) desc, t.name
+                    ) as rank
+             from {from}
+             group by 1, t.tag_id, t.name, t.color
+         )
+         select to_char(cells.cell, {label}), cells.plays,
+                cell_tags.tag_id, cell_tags.name, cell_tags.color
+         from cells
+         left join cell_tags on cell_tags.cell = cells.cell and cell_tags.rank = 1
+         order by cells.cell",
+        scope = scope.clause,
+        from = tagged_plays(&scope),
+    );
+
+    let rows = db
+        .query_all_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            sql,
+            scope.values,
+        ))
+        .await?;
+
+    rows.into_iter()
+        .map(|row| {
+            let tag_id: Option<i64> = row.try_get_by_index(2)?;
+            let tag = match tag_id {
+                Some(tag_id) => Some(CellTag {
+                    tag_id,
+                    name: row.try_get_by_index(3)?,
+                    color: row.try_get_by_index(4)?,
+                }),
+                None => None,
+            };
+            Ok(HeatmapCell {
+                start: row.try_get_by_index(0)?,
+                plays: row.try_get_by_index(1)?,
+                tag,
             })
         })
         .collect()
@@ -601,6 +742,17 @@ mod tests {
         })
     }
 
+    /// A counted play started from a playlist or a query.
+    fn counted_from(kind: &str, id: &str, name: &str) -> serde_json::Value {
+        json!({
+            "artist_name": "Fontaines D.C.",
+            "album_name": "Romance",
+            "source_kind": kind,
+            "source_id": id,
+            "source_name": name,
+        })
+    }
+
     fn event(
         event_type: EventType,
         song_id: Option<&str>,
@@ -678,14 +830,24 @@ mod tests {
                 Some(session),
                 json!({"listened_ms": 180_000}),
             ),
-            // same song again in the same session: that is the replay
+            // same song again in the same session: that is the replay. this
+            // one was started from a query
             event(
                 EventType::PlayCounted,
                 Some("A"),
                 "2026-09-07T20:06:00Z",
                 "e4",
                 Some(session),
-                counted_with_ids("Phoebe Bridgers", "966309175", "Punisher", "1504438806"),
+                {
+                    let mut payload =
+                        counted_with_ids("Phoebe Bridgers", "966309175", "Punisher", "1504438806");
+                    payload["source_kind"] = json!("query");
+                    payload["source_id"] = json!(
+                        r#"{"query":{"where":{"filter":{"field":"tag","tag_id":1,"op":"is_applied"}}},"suggested":false}"#
+                    );
+                    payload["source_name"] = json!("Chill");
+                    payload
+                },
             ),
             event(
                 EventType::PlayComplete,
@@ -712,7 +874,7 @@ mod tests {
                 "2026-09-14T21:00:00Z",
                 "e7",
                 Some(other_session),
-                counted("Fontaines D.C.", "Romance"),
+                counted_from("playlist", "p.abc", "Late Night"),
             ),
             // skipped early, so it counts as an early skip too
             event(
@@ -1169,6 +1331,30 @@ mod tests {
         assert_eq!(top[0].entity_id.as_deref(), Some("1504438806"));
     }
 
+    /// Only plays that carry a source of the dimension's own kind rank there.
+    #[tokio::test]
+    #[ignore]
+    async fn a_source_ranks_only_under_its_own_kind() {
+        let (txn, user_id) = scratch().await;
+        seed(&txn, user_id).await;
+
+        let playlists = get_top_entities(&txn, user_id, dimension("playlist"), window(), 10)
+            .await
+            .unwrap();
+        assert_eq!(playlists.len(), 1, "{playlists:?}");
+        assert_eq!(playlists[0].label.as_deref(), Some("Late Night"));
+        assert_eq!(playlists[0].entity_id.as_deref(), Some("p.abc"));
+        assert_eq!(playlists[0].plays, 1);
+
+        let queries = get_top_entities(&txn, user_id, dimension("query"), window(), 10)
+            .await
+            .unwrap();
+        assert_eq!(queries.len(), 1, "{queries:?}");
+        assert_eq!(queries[0].label.as_deref(), Some("Chill"));
+        assert_eq!(queries[0].plays, 1);
+        assert_eq!(queries[0].entity_id, Some(queries[0].key.clone()));
+    }
+
     /// The reason the album key carries the artist. Two unrelated albums that
     /// share a title are two albums.
     #[tokio::test]
@@ -1383,6 +1569,91 @@ mod tests {
             .await
             .unwrap();
         assert!(tags.is_empty(), "{tags:?}");
+    }
+
+    /// Makes one of the user's own tags and puts it on `song_id`.
+    async fn tag_song(txn: &DatabaseTransaction, user_id: Uuid, name: &str, song_id: &str) -> i64 {
+        let row = txn
+            .query_one_raw(Statement::from_sql_and_values(
+                DbBackend::Postgres,
+                "insert into tags (user_id, name, color, type, is_activity)
+                 values ($1, $2, '#ef4444', 'basic'::tag_type, false)
+                 returning tag_id",
+                [user_id.into(), name.into()],
+            ))
+            .await
+            .expect("insert tag")
+            .expect("returning row");
+        let tag_id: i64 = row.try_get_by_index(0).expect("tag id");
+
+        txn.execute_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            "insert into user_tags_applied (song_id, user_id, tag_id) values ($1, $2, $3)",
+            [song_id.into(), user_id.into(), tag_id.into()],
+        ))
+        .await
+        .expect("apply tag");
+        tag_id
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn a_tagged_ranking_carries_its_most_played_song() {
+        let (txn, user_id) = scratch().await;
+        seed(&txn, user_id).await;
+        let tag_id = tag_song(&txn, user_id, "zz analytics test", "A").await;
+
+        let tags = get_top_tags_by_play(&txn, user_id, window(), 10)
+            .await
+            .unwrap();
+        let tag = tags.iter().find(|t| t.tag_id == tag_id).unwrap();
+        assert_eq!(tag.plays, 3, "e2, e4, e6");
+        assert_eq!(tag.sample_song_id, "A");
+
+        let played = get_tags_played(&txn, user_id, window()).await.unwrap();
+        assert_eq!(played, 1);
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn heatmap_cells_sum_to_the_plays_and_name_their_tag() {
+        let (txn, user_id) = scratch().await;
+        seed(&txn, user_id).await;
+        let tag_id = tag_song(&txn, user_id, "zz analytics test", "A").await;
+
+        let cells = get_heatmap(&txn, user_id, window(), Bucket::Day, "America/Denver")
+            .await
+            .unwrap();
+        assert_eq!(cells.iter().map(|c| c.plays).sum::<i64>(), 4);
+        assert_eq!(
+            cells.iter().map(|c| c.start.as_str()).collect::<Vec<_>>(),
+            ["2026-09-07", "2026-09-14"],
+            "sparse, and cut in Denver"
+        );
+        for cell in &cells {
+            assert_eq!(cell.tag.as_ref().map(|t| t.tag_id), Some(tag_id));
+        }
+
+        let hours = get_heatmap(&txn, user_id, window(), Bucket::Hour, "America/Denver")
+            .await
+            .unwrap();
+        assert_eq!(hours[0].start, "2026-09-07T14:00");
+        assert_eq!(hours[0].plays, 2);
+        // B carries no tag, so its hour has none
+        let b_hour = hours
+            .iter()
+            .find(|c| c.start == "2026-09-14T15:00")
+            .unwrap();
+        assert_eq!(b_hour.tag, None);
+
+        // two hour bins start on even local hours, so 14:00 and 15:00 both
+        // land in their own 14:00 bin
+        let pairs = get_heatmap(&txn, user_id, window(), Bucket::TwoHours, "America/Denver")
+            .await
+            .unwrap();
+        assert_eq!(pairs.iter().map(|c| c.plays).sum::<i64>(), 4);
+        assert_eq!(pairs[0].start, "2026-09-07T14:00");
+        assert!(pairs.iter().any(|c| c.start == "2026-09-14T14:00"));
     }
 
     #[tokio::test]

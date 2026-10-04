@@ -5,9 +5,10 @@
 //! this to build one query, so adding a dimension is adding an entry to
 //! [`Dimension::ALL`], not writing a handler.
 //!
-//! Playlists are not here yet. A playlist is not a property of a song, it is
-//! where the play started, and nothing records that; see the `source` key
-//! reserved in the `play_start` payload.
+//! Playlists and queries are not properties of a song, they are where the play
+//! started. The client records that on `play_counted` as `source_kind`,
+//! `source_id` and `source_name`, and those two dimensions key on it. A play
+//! with no source, or a source of the other kind, keys as null and is dropped.
 //!
 //! Tags are deliberately not here either. They group through a join to
 //! `user_tags_applied` rather than a payload key, so they get their own query,
@@ -74,6 +75,28 @@ impl Dimension {
             entity_id_expr: "nullif(payload->>'album_id', '')",
             description: "Most listened albums",
         },
+        Dimension {
+            name: "playlist",
+            key_expr: "case when payload->>'source_kind' = 'playlist' \
+                       then nullif(btrim(payload->>'source_id'), '') end",
+            label_expr: "payload->>'source_name'",
+            sub_label_expr: "null::text",
+            entity_id_expr: "case when payload->>'source_kind' = 'playlist' \
+                             then nullif(btrim(payload->>'source_id'), '') end",
+            description: "Most played playlists",
+        },
+        Dimension {
+            name: "query",
+            // the id is the query itself, encoded by the client, so the same
+            // query run twice is one row and the row can run it again
+            key_expr: "case when payload->>'source_kind' = 'query' \
+                       then nullif(btrim(payload->>'source_id'), '') end",
+            label_expr: "payload->>'source_name'",
+            sub_label_expr: "null::text",
+            entity_id_expr: "case when payload->>'source_kind' = 'query' \
+                             then nullif(btrim(payload->>'source_id'), '') end",
+            description: "Most played queries",
+        },
     ];
 
     pub fn from_name(name: &str) -> Option<Self> {
@@ -123,7 +146,7 @@ mod tests {
         for &dimension in Dimension::ALL {
             assert_eq!(Dimension::from_name(dimension.name), Some(dimension));
         }
-        assert_eq!(Dimension::from_name("playlist"), None);
+        assert_eq!(Dimension::from_name("genre"), None);
         assert_eq!(Dimension::from_name(""), None);
     }
 
@@ -182,6 +205,18 @@ mod tests {
             album.key_expr.contains("artist_name"),
             "the album key needs the artist in it"
         );
+    }
+
+    /// A source dimension has to check the kind, or a playlist's id would
+    /// rank as a query too.
+    #[test]
+    fn source_dimensions_key_on_their_own_kind() {
+        for name in ["playlist", "query"] {
+            let dimension = Dimension::from_name(name).unwrap();
+            let kind = format!("'source_kind' = '{name}'");
+            assert!(dimension.key_expr.contains(&kind), "{name}");
+            assert!(dimension.entity_id_expr.contains(&kind), "{name}");
+        }
     }
 
     #[test]

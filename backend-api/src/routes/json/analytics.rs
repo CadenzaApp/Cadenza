@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
-use crate::db::analytics::{EntityPlays, SongReplays, TagPlays, TrendPoint};
+use crate::db::analytics::{CellTag, EntityPlays, HeatmapCell, SongReplays, TagPlays, TrendPoint};
 use crate::routes::json::tag::TagType;
 use crate::services::analytics::metrics::MetricUnit;
 
@@ -59,6 +59,8 @@ pub struct AnalyticsSummary {
     pub rates: HashMap<String, f64>,
     /// Distinct local days with at least one counted play.
     pub active_days: i64,
+    /// Distinct tags on songs with a counted play. Not capped like `top_tags`.
+    pub tags_played: i64,
     /// Plays in each hour of the local day, 24 entries, index 0 is midnight.
     pub plays_by_hour: Vec<i64>,
     /// A ranking per dimension, keyed by its name, the same way `stats` is keyed
@@ -107,6 +109,8 @@ pub struct TagPlayCount {
     #[serde(rename = "type")]
     pub tag_type: TagType,
     pub plays: i64,
+    /// The tag's most played song in the window, to draw a cover from.
+    pub sample_song_id: String,
 }
 
 impl From<TagPlays> for TagPlayCount {
@@ -117,6 +121,7 @@ impl From<TagPlays> for TagPlayCount {
             color: value.color,
             tag_type: value.tag_type.into(),
             plays: value.plays,
+            sample_song_id: value.sample_song_id,
         }
     }
 }
@@ -153,7 +158,8 @@ pub struct AnalyticsTrend {
 
 #[derive(Serialize)]
 pub struct TrendBucket {
-    /// The bucket's first local day, `YYYY-MM-DD`.
+    /// The bucket's first local day, `YYYY-MM-DD`, or `YYYY-MM-DDTHH:MI` for
+    /// an hour bucket.
     pub bucket: String,
     pub value: i64,
 }
@@ -179,4 +185,68 @@ pub struct AnalyticsTopList {
 #[derive(Serialize)]
 pub struct AnalyticsTopTags {
     pub entries: Vec<TagPlayCount>,
+}
+
+/// What `GET /analytics/heatmap` answers with.
+#[derive(Serialize)]
+pub struct AnalyticsHeatmap {
+    pub bucket: String,
+    /// Sparse: only buckets with a play.
+    pub cells: Vec<HeatmapEntry>,
+    /// Every tag a cell names, once each, so a cell carries only the id.
+    pub tags: Vec<HeatmapTag>,
+}
+
+#[derive(Serialize)]
+pub struct HeatmapEntry {
+    /// Local bucket start, `YYYY-MM-DD` or `YYYY-MM-DDTHH:MI`.
+    pub start: String,
+    pub plays: i64,
+    pub tag_id: Option<i64>,
+}
+
+#[derive(Serialize)]
+pub struct HeatmapTag {
+    pub id: i64,
+    pub name: String,
+    pub color: String,
+}
+
+impl From<CellTag> for HeatmapTag {
+    fn from(value: CellTag) -> Self {
+        Self {
+            id: value.tag_id,
+            name: value.name,
+            color: value.color,
+        }
+    }
+}
+
+impl AnalyticsHeatmap {
+    /// Splits each cell's tag out into the shared list, first seen first.
+    pub fn new(bucket: String, cells: Vec<HeatmapCell>) -> Self {
+        let mut tags: Vec<HeatmapTag> = Vec::new();
+        let cells = cells
+            .into_iter()
+            .map(|cell| {
+                let tag_id = cell.tag.map(|tag| {
+                    let id = tag.tag_id;
+                    if !tags.iter().any(|seen| seen.id == id) {
+                        tags.push(tag.into());
+                    }
+                    id
+                });
+                HeatmapEntry {
+                    start: cell.start,
+                    plays: cell.plays,
+                    tag_id,
+                }
+            })
+            .collect();
+        Self {
+            bucket,
+            cells,
+            tags,
+        }
+    }
 }

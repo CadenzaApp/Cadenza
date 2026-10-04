@@ -4,6 +4,8 @@ use axum::{body::Body, http::Response, response::IntoResponse};
 use sea_orm::{DbErr, RuntimeErr};
 use serde_json::{Value, json};
 
+use crate::request_log::LoggedError;
+
 // besides 401 and 422, all other errors will respond with JSON:
 // {
 //  "error_type": ...
@@ -127,15 +129,32 @@ impl fmt::Display for CadenzaError {
 
 impl Error for CadenzaError {}
 
+impl CadenzaError {
+    /// `Variant: message`, or just the variant, for the request log.
+    fn log_reason(&self) -> String {
+        let json = self.get_json();
+        let kind = json["error_type"].as_str().unwrap_or("Error");
+        match json["message"].as_str() {
+            Some(message) => format!("{kind}: {message}"),
+            None => kind.to_owned(),
+        }
+    }
+}
+
 impl IntoResponse for CadenzaError {
     fn into_response(self) -> Response<Body> {
         let body = Into::<Body>::into(serde_json::to_vec(&self.get_json()).unwrap());
 
-        Response::builder()
+        let mut response = Response::builder()
             .status(self.get_status())
             .header("Content-Type", "application/json")
             .body(body)
-            .unwrap()
+            .unwrap();
+        // what the request log prints as the reason this request failed
+        response
+            .extensions_mut()
+            .insert(LoggedError(self.log_reason()));
+        response
     }
 }
 

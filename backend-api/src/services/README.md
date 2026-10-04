@@ -12,10 +12,10 @@ are computed from.
 | file | role |
 | --- | --- |
 | `mod.rs` | Declares `analytics`, `default_tags`, `social_feed`, `song_metadata`, `tag_generation`, `tag_normalizer`, `tag_score_decay`, and `tag_values`. |
-| `analytics/dimension.rs` | `Dimension`, what a ranking can be grouped by (song, artist, album) and the SQL that pulls each one's key, label and id out of a play. Unit tested. |
+| `analytics/dimension.rs` | `Dimension`, what a ranking can be grouped by (song, artist, album, playlist, query) and the SQL that pulls each one's key, label and id out of a play. Unit tested. |
 | `analytics/mod.rs` | `TimeWindow`, the future-clock guard, and `sanitize_timezone`. Unit tested. |
 | `analytics/event_type.rs` | `EventType`, the nine listening event types, and the payload validation each one requires. Unit tested. |
-| `analytics/metrics.rs` | `Metric`, the registry pairing a metric name with one SQL aggregate and a `MetricUnit`, and `Bucket` (day, week, month, year) with its `date_trunc` unit, series step, size caps, and `fit`, which is what `bucket=auto` resolves to. Unit tested. |
+| `analytics/metrics.rs` | `Metric`, the registry pairing a metric name with one SQL aggregate and a `MetricUnit`, and `Bucket` (hour, day, week, month, year) with its `date_trunc` unit, series step, label format, size caps, and `fit`, which is what `bucket=auto` resolves to. `fit` never picks hours. Unit tested. |
 | `tag_normalizer.rs` | `normalize_tag_name`: trim, collapse whitespace, truncate to 50 bytes on a character boundary, lowercase. Unit tested. |
 | `tag_generation/mod.rs` | The `TagGenerator` trait, its `TagGenerationError`, and the `TagGenerationService` wrapper. |
 | `tag_generation/openai_tag_generator.rs` | The OpenAI implementation, including rate limit detection off the response headers. Unit tested, plus ignored integration tests. |
@@ -38,8 +38,8 @@ interpolated into SQL rather than bound, so it has to stay a literal written in 
 has to come back as `bigint` (postgres sums a bigint into numeric, so a `sum` needs `::bigint`). A
 unit test checks no aggregate contains a statement break.
 
-Adding a dimension is one entry in `Dimension::ALL`. `db::analytics::get_top_entities` serves all
-three rankings from one query, so a new dimension needs no handler. Tags are deliberately not a
+Adding a dimension is one entry in `Dimension::ALL`. `db::analytics::get_top_entities` serves every
+ranking from one query, so a new dimension needs no handler. Tags are deliberately not a
 dimension: they group through a join to `user_tags_applied` rather than a payload key, so they
 keep their own query, the same split replays already have.
 

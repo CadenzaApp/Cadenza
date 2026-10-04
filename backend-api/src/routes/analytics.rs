@@ -16,14 +16,20 @@ use crate::{
     db::analytics,
     err::CadenzaError,
     routes::json::{
-        analytics::{AnalyticsSummary, AnalyticsTopList, AnalyticsTopTags, AnalyticsTrend},
+        analytics::{
+            AnalyticsHeatmap, AnalyticsSummary, AnalyticsTopList, AnalyticsTopTags, AnalyticsTrend,
+        },
         vec_into,
     },
     services::analytics::{Bucket, Dimension, Metric, TimeWindow},
 };
 
-/// How many entries the top songs, top tags, and replay lists carry.
+/// How many entries the top songs and replay lists carry.
 const TOP_LIST_LIMIT: u64 = 10;
+
+/// How many tags the summary carries. Higher than the other lists, because the
+/// client shows them as a scrolling rail rather than a top ten.
+const TOP_TAGS_LIMIT: u64 = 50;
 
 #[derive(Deserialize)]
 pub struct WindowParams {
@@ -61,9 +67,10 @@ impl WindowParams {
 ///   "stats": {"plays": 412, "skips": 88, "listening_ms": 71280000, "...": 0},
 ///   "rates": {"skip_rate": 0.176, "completion_rate": 0.824},
 ///   "active_days": 37,
+///   "tags_played": 9,
 ///   "plays_by_hour": [0, 0, 1, 0, 0, 0, 4, 19, 22, 8, 3, 2, 6, 9, 11, 14, 28, 41, 33, 20, 12, 7, 2, 1],
 ///   "top_songs": [{"song_id": "1234567", "plays": 23}],
-///   "top_tags": [{"name": "GYM", "color": "#f97316", "plays": 61}],
+///   "top_tags": [{"id": 41, "name": "GYM", "color": "#f97316", "type": "basic", "plays": 61, "sample_song_id": "1504438807"}],
 ///   "most_replayed": [{"song_id": "7654321", "most_in_one_session": 6, "plays": 14}],
 ///   "window": {"since": "2026-08-01T00:00:00Z", "until": "2026-09-28T00:00:00Z"}
 /// }
@@ -77,12 +84,13 @@ async fn get_summary_handler(
     let tz = params.tz();
     let user_id = claims.user_id;
 
-    // the five independent reads go together rather than one after another
-    let (stats, active_days, plays_by_hour, top_tags, most_replayed) = tokio::try_join!(
+    // the independent reads go together rather than one after another
+    let (stats, active_days, tags_played, plays_by_hour, top_tags, most_replayed) = tokio::try_join!(
         analytics::get_summary(&db, user_id, window),
         analytics::get_active_days(&db, user_id, window, tz),
+        analytics::get_tags_played(&db, user_id, window),
         analytics::get_plays_by_hour(&db, user_id, window, tz),
-        analytics::get_top_tags_by_play(&db, user_id, window, TOP_LIST_LIMIT),
+        analytics::get_top_tags_by_play(&db, user_id, window, TOP_TAGS_LIMIT),
         analytics::get_most_replayed(&db, user_id, window, TOP_LIST_LIMIT),
     )?;
 
@@ -100,6 +108,7 @@ async fn get_summary_handler(
         rates: derive_rates(&stats),
         stats,
         active_days,
+        tags_played,
         plays_by_hour,
         top,
         top_tags: vec_into(top_tags),
@@ -203,11 +212,7 @@ async fn get_trend_handler(
     let requested_bucket = if bucket_name == "auto" {
         None
     } else {
-        Some(Bucket::from_name(bucket_name).ok_or_else(|| {
-            CadenzaError::InvalidRequestBody(format!(
-                "unknown bucket '{bucket_name}'. known buckets: day, week, month, year, auto"
-            ))
-        })?)
+        Some(parse_bucket(bucket_name)?)
     };
 
     // the series needs both ends, so an open window resolves against the user's
@@ -267,6 +272,77 @@ async fn get_trend_handler(
     }))
 }
 
+/// A bucket off a request, or a 422 naming the ones that exist.
+fn parse_bucket(name: &str) -> Result<Bucket, CadenzaError> {
+    Bucket::from_name(name).ok_or_else(|| {
+        let known = Bucket::ALL
+            .iter()
+            .map(|bucket| bucket.name())
+            .collect::<Vec<_>>()
+            .join(", ");
+        CadenzaError::InvalidRequestBody(format!(
+            "unknown bucket '{name}'. known buckets: {known}, auto"
+        ))
+    })
+}
+
+#[derive(Deserialize)]
+pub struct HeatmapParams {
+    /// `hour`, `day`, `week`, `month`, or `year`. Defaults to `day`.
+    bucket: Option<String>,
+    since: Option<DateTime<Utc>>,
+    until: Option<DateTime<Utc>>,
+    tz: Option<String>,
+}
+
+/// Counted plays per bucket, each with the tag played most in it, for a
+/// heatmap. Sparse: a bucket with no plays is left out, since laying out the
+/// grid is the client's job.
+///
+/// The window is checked against the bucket's cap like a trend's. An open
+/// window is measured against the user's own history for that check.
+///
+/// JSON return value format:
+/// ```json
+/// {
+///   "bucket": "hour",
+///   "cells": [
+///     {"start": "2026-09-28T21:00", "plays": 6, "tag_id": 41},
+///     {"start": "2026-09-28T22:00", "plays": 2, "tag_id": null}
+///   ],
+///   "tags": [{"id": 41, "name": "Angry", "color": "#ef4444"}]
+/// }
+/// ```
+async fn get_heatmap_handler(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Query(params): Query<HeatmapParams>,
+) -> Result<Json<AnalyticsHeatmap>, CadenzaError> {
+    let bucket = parse_bucket(params.bucket.as_deref().unwrap_or("day"))?;
+    let window = TimeWindow::new(params.since, params.until)?;
+
+    let span = match (params.since, params.until) {
+        (Some(since), Some(until)) => Some((since, until)),
+        _ => analytics::get_event_bounds(&db, claims.user_id)
+            .await?
+            .map(|(first, last)| (params.since.unwrap_or(first), params.until.unwrap_or(last))),
+    };
+    if let Some((since, until)) = span {
+        check_bucket_count(since, until, bucket)?;
+    }
+
+    let cells = analytics::get_heatmap(
+        &db,
+        claims.user_id,
+        window,
+        bucket,
+        params.tz.as_deref().unwrap_or("UTC"),
+    )
+    .await?;
+
+    Ok(Json(AnalyticsHeatmap::new(bucket.to_string(), cells)))
+}
+
 /// Refuses a window that would generate more buckets than the bucket size is
 /// meant for, rather than quietly truncating it. Asking for daily buckets over
 /// ten years is a mistake worth hearing about.
@@ -296,8 +372,8 @@ pub struct TopParams {
     limit: Option<u64>,
 }
 
-/// The user's most played songs, artists, or albums over a window, most played
-/// first.
+/// The user's most played songs, artists, albums, playlists, or queries over a
+/// window, most played first.
 ///
 /// One path for every dimension, so adding one to the registry makes it
 /// available here with no new handler. A user with no events gets an empty list,
@@ -404,6 +480,7 @@ pub fn get_analytics_router() -> Router<AppState> {
         .route("/trends", get(get_trend_handler))
         .route("/top", get(get_top_handler))
         .route("/top-tags", get(get_top_tags_handler))
+        .route("/heatmap", get(get_heatmap_handler))
 }
 
 #[cfg(test)]
@@ -453,11 +530,12 @@ mod tests {
     #[test]
     fn a_sensible_window_passes_every_bucket() {
         let since = at("2026-01-01T00:00:00Z");
-        let until = at("2026-03-01T00:00:00Z");
+        // a month, since that is the widest an hour bucket is meant for
+        let until = at("2026-02-01T00:00:00Z");
         for &bucket in Bucket::ALL {
             assert!(
                 check_bucket_count(since, until, bucket).is_ok(),
-                "two months by {bucket}"
+                "a month by {bucket}"
             );
         }
     }
