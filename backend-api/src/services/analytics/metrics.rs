@@ -65,8 +65,14 @@ impl Metric {
         // split is what makes skips usable as a signal rather than a tally
         Metric {
             name: "early_skips",
+            // the cast is guarded: ingest only type-checks a payload key for the
+            // event type that requires it, so another type could have stored a
+            // non-numeric position_ms, and postgres is free to evaluate the cast
+            // on rows the filter would otherwise exclude. the log is append only,
+            // so one such row would break this metric for that user forever
             aggregate: "count(*) filter (where event_type = 'skip' \
-                        and (payload->>'position_ms')::bigint < 10000)",
+                        and case when payload->>'position_ms' ~ '^-?[0-9]{1,18}$' \
+                                 then (payload->>'position_ms')::bigint end < 10000)",
             description: "Early skips",
         },
         Metric {
@@ -83,7 +89,11 @@ impl Metric {
         },
         Metric {
             name: "listening_ms",
-            aggregate: "coalesce(sum((payload->>'listened_ms')::bigint) \
+            // guarded for the same reason as early_skips. at most 18 digits, so
+            // the value always fits a bigint and no row can overflow the sum
+            aggregate: "coalesce(sum(case \
+                            when payload->>'listened_ms' ~ '^-?[0-9]{1,18}$' \
+                            then (payload->>'listened_ms')::bigint end) \
                         filter (where event_type in ('play_complete', 'skip')), 0)::bigint",
             description: "Listening time",
         },
@@ -204,6 +214,7 @@ impl fmt::Display for Bucket {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::services::analytics::EventType;
 
     #[test]
     fn metric_names_are_unique() {
@@ -307,6 +318,98 @@ mod tests {
             assert_eq!(bucket.buckets_in(0), 0);
             assert_eq!(bucket.buckets_in(-5), 0);
         }
+    }
+
+    /// Every event type an aggregate filters on, pulled out of the SQL.
+    ///
+    /// Reads quoted tokens directly rather than splitting on punctuation: an
+    /// aggregate also contains payload keys and a digit guard whose `{1,18}`
+    /// holds a comma and whose casts hold parentheses.
+    fn event_types_named_in(aggregate: &str) -> Vec<String> {
+        let mut found = Vec::new();
+
+        for marker in ["event_type = ", "event_type in "] {
+            let mut rest = aggregate;
+            while let Some(at) = rest.find(marker) {
+                rest = &rest[at + marker.len()..];
+                // `= 'x'` names one, `in ('x', 'y')` names everything in the list
+                let (mut scan, limit) = match rest.as_bytes().first() {
+                    Some(b'(') => match rest.find(')') {
+                        Some(close) => (&rest[1..close], close),
+                        None => break,
+                    },
+                    _ => (rest, rest.len()),
+                };
+
+                let mut taken = 0;
+                while let Some(open) = scan.find('\'') {
+                    let after = &scan[open + 1..];
+                    let Some(close) = after.find('\'') else { break };
+                    found.push(after[..close].to_owned());
+                    scan = &after[close + 1..];
+                    taken += 1;
+                    // `= 'x'` takes exactly one token; a list takes all of them
+                    if limit == rest.len() && taken == 1 {
+                        break;
+                    }
+                }
+
+                rest = &rest[limit.min(rest.len())..];
+            }
+        }
+
+        found
+    }
+
+    /// The aggregates spell event types as SQL literals, because Rust cannot
+    /// build a `&'static str` out of a `const fn` call. So this pins the two
+    /// together: rename a variant and this fails rather than silently orphaning
+    /// every row written under the old name.
+    #[test]
+    fn every_event_type_named_in_an_aggregate_is_a_real_one() {
+        let known: Vec<&str> = EventType::ALL.iter().map(|e| e.name()).collect();
+        let mut seen = 0;
+
+        for metric in Metric::ALL {
+            for named in event_types_named_in(metric.aggregate) {
+                seen += 1;
+                assert!(
+                    known.contains(&named.as_str()),
+                    "{} filters on '{named}', which is not an EventType. known: {known:?}",
+                    metric.name
+                );
+            }
+        }
+
+        assert!(
+            seen >= Metric::ALL.len(),
+            "found only {seen} filters, so the scan is broken"
+        );
+    }
+
+    #[test]
+    fn the_event_type_scan_actually_finds_things() {
+        // guards the test above: a scan that finds nothing would pass vacuously
+        assert_eq!(
+            event_types_named_in("count(*) filter (where event_type = 'skip')"),
+            vec!["skip".to_owned()]
+        );
+        assert_eq!(
+            event_types_named_in("filter (where event_type in ('play_complete', 'skip'))"),
+            vec!["play_complete".to_owned(), "skip".to_owned()]
+        );
+        // the shapes that broke an earlier scan: a comma inside a regex, and
+        // parentheses inside a cast, both after the event type
+        assert_eq!(
+            event_types_named_in(
+                "count(*) filter (where event_type = 'skip' and case when \
+                 payload->>'position_ms' ~ '^-?[0-9]{1,18}$' then \
+                 (payload->>'position_ms')::bigint end < 10000)"
+            ),
+            vec!["skip".to_owned()]
+        );
+        // a payload key on its own is not an event type
+        assert!(event_types_named_in("sum((payload->>'listened_ms')::bigint)").is_empty());
     }
 
     /// Aggregates are interpolated into SQL, so nothing in one may end the

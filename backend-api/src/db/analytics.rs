@@ -792,6 +792,65 @@ mod tests {
         assert_eq!(stats.len(), Metric::ALL.len());
     }
 
+    /// Ingest only type-checks a payload key for the event type that requires it,
+    /// so a key can be stored unchecked under another type. The aggregates have
+    /// to survive that, because the log is append only and there is no delete
+    /// path through the api: one bad row would otherwise break this user's
+    /// summary permanently.
+    #[tokio::test]
+    #[ignore]
+    async fn a_junk_payload_value_cannot_break_the_summary() {
+        let (txn, user_id) = scratch().await;
+        let events = vec![
+            // play_start requires neither key, so neither is checked
+            event(
+                EventType::PlayStart,
+                Some("x"),
+                "2026-09-10T10:00:00Z",
+                "j1",
+                None,
+                json!({ "position_ms": "abc", "listened_ms": "not a number" }),
+            ),
+            event(
+                EventType::PlayStart,
+                Some("y"),
+                "2026-09-10T10:01:00Z",
+                "j2",
+                None,
+                json!({ "position_ms": 1.5, "listened_ms": 1e30 }),
+            ),
+            // a real listen, so the metrics have something to find
+            event(
+                EventType::Skip,
+                Some("z"),
+                "2026-09-10T11:00:00Z",
+                "j3",
+                None,
+                json!({ "listened_ms": 4_000, "position_ms": 4_000 }),
+            ),
+        ];
+        insert_events(&txn, user_id, &events).await.unwrap();
+
+        let stats = get_summary(&txn, user_id, window()).await.unwrap();
+        assert_eq!(stats["early_skips"], 1, "only the real skip counts");
+        assert_eq!(stats["listening_ms"], 4_000, "the junk rows add nothing");
+
+        // and every trend still answers rather than raising
+        for metric in Metric::ALL {
+            get_trend(
+                &txn,
+                user_id,
+                metric,
+                Bucket::Day,
+                at("2026-09-10T06:00:00Z"),
+                at("2026-09-11T06:00:00Z"),
+                "America/Denver",
+            )
+            .await
+            .unwrap_or_else(|e| panic!("{} raised on a junk payload: {e}", metric.name));
+        }
+    }
+
     #[tokio::test]
     #[ignore]
     async fn a_user_with_no_events_gets_zeros_not_an_error() {
