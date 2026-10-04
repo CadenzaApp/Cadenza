@@ -30,6 +30,15 @@ const IOS_UNSELECTED_TAB_COLOR =
         : THEME.light.mutedForeground;
 
 /**
+ * Every tab owns its scroll insets. Left on, UIKit adds its own to whichever
+ * scroller it finds first in a tab's view tree: the status bar on top of the
+ * floating rail's inset, and a bottom inset that changes as the player
+ * shrinks into the tab bar, which jolts the page. `useScreenScroll` and
+ * `useScreenOverlayInsets` supply the insets instead.
+ */
+const TRIGGER_PROPS = { disableAutomaticContentInsets: true } as const;
+
+/**
  * The five primary routes, rendered by the platform's native tab controller.
  * On iOS 26 the mini player is the controller's bottom accessory, so UIKit
  * moves it inline when the tab bar minimizes.
@@ -89,7 +98,7 @@ export default function TabLayout() {
                     </NativeTabs.BottomAccessory>
                 ) : null}
 
-                <NativeTabs.Trigger name="social">
+                <NativeTabs.Trigger name="social" {...TRIGGER_PROPS}>
                     <NativeTabs.Trigger.Icon
                         sf={{
                             default: "person.2",
@@ -100,7 +109,7 @@ export default function TabLayout() {
                     <NativeTabs.Trigger.Label>Social</NativeTabs.Trigger.Label>
                 </NativeTabs.Trigger>
 
-                <NativeTabs.Trigger name="analytics">
+                <NativeTabs.Trigger name="analytics" {...TRIGGER_PROPS}>
                     <NativeTabs.Trigger.Icon
                         sf={{
                             default: "chart.bar",
@@ -113,7 +122,7 @@ export default function TabLayout() {
                     </NativeTabs.Trigger.Label>
                 </NativeTabs.Trigger>
 
-                <NativeTabs.Trigger name="cadenza">
+                <NativeTabs.Trigger name="cadenza" {...TRIGGER_PROPS}>
                     <NativeTabs.Trigger.Icon
                         sf="music.note.list"
                         md={{
@@ -124,7 +133,7 @@ export default function TabLayout() {
                     <NativeTabs.Trigger.Label>Cadenza</NativeTabs.Trigger.Label>
                 </NativeTabs.Trigger>
 
-                <NativeTabs.Trigger name="library">
+                <NativeTabs.Trigger name="library" {...TRIGGER_PROPS}>
                     <NativeTabs.Trigger.Icon
                         sf={{
                             default: "rectangle.stack",
@@ -138,7 +147,11 @@ export default function TabLayout() {
                     <NativeTabs.Trigger.Label>Library</NativeTabs.Trigger.Label>
                 </NativeTabs.Trigger>
 
-                <NativeTabs.Trigger name="search" role="search">
+                <NativeTabs.Trigger
+                    name="search"
+                    role="search"
+                    {...TRIGGER_PROPS}
+                >
                     <NativeTabs.Trigger.Icon sf="magnifyingglass" md="search" />
                     <NativeTabs.Trigger.Label>Search</NativeTabs.Trigger.Label>
                 </NativeTabs.Trigger>

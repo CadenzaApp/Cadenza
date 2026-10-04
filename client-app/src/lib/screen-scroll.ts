@@ -2,30 +2,43 @@ import { useRouter } from "expo-router";
 import { useIsFocused, useScrollToTop } from "expo-router/react-navigation";
 import { useCallback } from "react";
 import {
+    Easing,
     useAnimatedRef,
     useAnimatedStyle,
     useAnimatedScrollHandler,
     runOnJS,
     useSharedValue,
+    withTiming,
     type AnimatedStyle,
     type AnimatedRef,
 } from "react-native-reanimated";
 import type Animated from "react-native-reanimated";
 import type { Component } from "react";
-import type { ViewStyle } from "react-native";
+import type { StyleProp, ViewStyle } from "react-native";
 
 import { useIsPushedDetailScreen } from "./screen-overlay";
+import { useScreenFloatingRail, useTopRailInset } from "./top-rail";
+import { nextRailShown } from "./top-rail-geometry";
 import { resetZoomProgress, useZoomDismiss } from "./zoom-dismiss";
 import {
     shouldDismissZoom,
     zoomProgressForScrollOffset,
 } from "./zoom-dismiss-geometry";
 
+/** Short and eased out, so the rail settles in rather than snapping. */
+const RAIL_TIMING = { duration: 200, easing: Easing.out(Easing.cubic) };
+
 type ScreenScrollProps<T extends Component> = {
     ref: AnimatedRef<T>;
     onScroll: ReturnType<typeof useAnimatedScrollHandler>;
     scrollEventThrottle: number;
     style: AnimatedStyle<ViewStyle>;
+    /**
+     * The top padding a floating rail needs, undefined with none. A scroller
+     * with its own content style lists this last in it, so it wins over the
+     * page's own top padding.
+     */
+    contentContainerStyle: StyleProp<ViewStyle>;
 };
 
 /**
@@ -34,11 +47,17 @@ type ScreenScrollProps<T extends Component> = {
  *
  * ```tsx
  * const scroll = useScreenScroll();
- * <Animated.FlatList {...scroll} ... />
+ * <Animated.FlatList
+ *     {...scroll}
+ *     contentContainerStyle={[{ paddingBottom }, scroll.contentContainerStyle]}
+ * />
  * ```
  *
- * It handles active-tab scroll-to-top and, on pushed detail screens, the
- * pull-down close. Place the scroller inside `ScreenScrollMarker` so nested
+ * It handles active-tab scroll-to-top, the floating `TopRail`, and, on pushed
+ * detail screens, the pull-down close. Under a floating rail it sets the
+ * content's top padding to the rail's height plus the shared gap, the same on
+ * every page, then hides the rail on a scroll down and brings it back at the
+ * top (see `@/lib/top-rail`). Place the scroller inside `ScreenScrollMarker` so nested
  * stacks and virtualized lists register that native scroll view with UIKit for
  * native insets, scroll-to-top, and tab-bar/accessory minimization.
  */
@@ -52,10 +71,19 @@ export function useScreenScroll<
     const zoom = useZoomDismiss();
     // A screen with no zoom card still needs somewhere to write the pull, so
     // the handler can stay one shape rather than two.
-    const spareProgress = useSharedValue(0);
+    const spareZoomProgress = useSharedValue(0);
     const spareClosing = useSharedValue(false);
     const pullOffset = useSharedValue(0);
-    const progress = zoom?.progress ?? spareProgress;
+    // a screen without a floating rail still gets one shape of handler
+    const spareProgress = useSharedValue(1);
+    const spareTarget = useSharedValue(1);
+    const rail = useScreenFloatingRail();
+    const railProgress = rail?.reveal.progress ?? spareProgress;
+    const railTarget = rail?.reveal.target ?? spareTarget;
+    const hasRail = rail != null;
+    const railInset = useTopRailInset();
+    const lastOffset = useSharedValue(0);
+    const progress = zoom?.progress ?? spareZoomProgress;
     const closing = zoom?.closing ?? spareClosing;
     const compensatesZoomPull = canPullToDismiss && zoom != null;
 
@@ -78,6 +106,19 @@ export function useScreenScroll<
         {
             onScroll: (event) => {
                 const offset = event.contentOffset.y;
+
+                if (hasRail) {
+                    const shown = nextRailShown(
+                        railTarget.get(),
+                        lastOffset.get(),
+                        offset,
+                    );
+                    lastOffset.set(offset);
+                    if (shown !== railTarget.get()) {
+                        railTarget.set(shown);
+                        railProgress.set(withTiming(shown, RAIL_TIMING));
+                    }
+                }
                 // iOS moves the scroll content down while overscrolling. Move
                 // the scroll view up by the same amount so the hero stays
                 // anchored inside the shrinking card instead of growing a
@@ -107,6 +148,10 @@ export function useScreenScroll<
             closing,
             progress,
             pullOffset,
+            hasRail,
+            railProgress,
+            railTarget,
+            lastOffset,
         ],
     );
 
@@ -119,5 +164,9 @@ export function useScreenScroll<
         onScroll,
         scrollEventThrottle: 16,
         style: pullCompensationStyle,
+        // padding rather than a native content inset: 0 stays the top, so
+        // scroll-to-top and the first frame need nothing special
+        contentContainerStyle:
+            railInset === null ? undefined : { paddingTop: railInset },
     };
 }

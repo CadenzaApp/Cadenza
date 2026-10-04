@@ -27,10 +27,14 @@ export default function LibraryCategoriesScreen() {
                 <Animated.ScrollView
                     {...scroll}
                     className="flex-1"
-                    contentContainerClassName="px-5 pt-2"
-                    contentContainerStyle={{
-                        paddingBottom: Math.max(insets.bottom, 16) + 16,
-                    }}
+                    contentContainerClassName="px-5"
+                    contentContainerStyle={[
+                        {
+                            paddingTop: 8,
+                            paddingBottom: Math.max(insets.bottom, 16) + 16,
+                        },
+                        scroll.contentContainerStyle,
+                    ]}
                     showsVerticalScrollIndicator={false}
                 >
                     <Text className="mb-4 text-muted-foreground">

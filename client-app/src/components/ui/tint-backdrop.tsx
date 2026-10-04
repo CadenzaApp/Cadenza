@@ -7,39 +7,47 @@ type TintBackdropProps = {
     /** Shared mode-aware gradient. Renders nothing when null. */
     gradient: TintGradient | null;
     /**
-     * Height to run the gradient over, for a surface whose content is taller
-     * than the screen. Omit to fill the surface it sits in.
+     * Runs the gradient over only this much from the top and holds its end
+     * color below. For a long scrolling page: a gradient layer as tall as
+     * the whole page is expensive to composite, and the tab bar's glass
+     * resamples it every frame it animates. A flat color costs nothing.
      */
-    height?: number;
+    span?: number;
 };
 
 /**
  * The shared colored wash behind a page. Its Oklch stops are calculated before
  * rendering so every gradient-backed surface uses the same color treatment.
  *
- * Absolutely positioned, so it takes no part in the layout it is dropped into.
- * Renders null for a null gradient, so every caller can mount it
+ * Absolutely positioned to fill its parent, so it takes no part in the layout
+ * it is dropped into. Inside a scroller's content it runs the whole content
+ * height and scrolls with it, with nothing measured. Renders null for a null gradient, so every caller can mount it
  * unconditionally and let the color decide.
  */
-export function TintBackdrop({ gradient, height }: TintBackdropProps) {
+export function TintBackdrop({ gradient, span }: TintBackdropProps) {
     if (!gradient) return null;
 
+    if (span === undefined) {
+        return (
+            <LinearGradient
+                pointerEvents="none"
+                style={StyleSheet.absoluteFill}
+                colors={gradient.colors}
+            />
+        );
+    }
+
     return (
-        <LinearGradient
-            pointerEvents="none"
-            style={
-                height === undefined
-                    ? StyleSheet.absoluteFill
-                    : {
-                          position: "absolute",
-                          top: 0,
-                          left: 0,
-                          right: 0,
-                          height,
-                      }
-            }
-            colors={gradient.colors}
-        />
+        <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+            <LinearGradient style={{ height: span }} colors={gradient.colors} />
+            <View
+                className="flex-1"
+                style={{
+                    backgroundColor:
+                        gradient.colors[gradient.colors.length - 1],
+                }}
+            />
+        </View>
     );
 }
 

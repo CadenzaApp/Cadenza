@@ -35,7 +35,10 @@ export function SearchLanding() {
             <Animated.ScrollView
                 {...scroll}
                 className="flex-1"
-                contentContainerStyle={{ paddingBottom: listBottomInset }}
+                contentContainerStyle={[
+                    { paddingBottom: listBottomInset },
+                    scroll.contentContainerStyle,
+                ]}
                 showsVerticalScrollIndicator={false}
             >
                 <TagShelf />

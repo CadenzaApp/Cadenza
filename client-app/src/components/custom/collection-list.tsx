@@ -8,6 +8,7 @@ import { MusicListItemSkeleton } from "@/components/custom/music-list/music-list
 import { Text } from "@/components/ui/text";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { useScreenScroll } from "@/lib/screen-scroll";
+import { useTopRailInset } from "@/lib/top-rail";
 import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
 import { useZoomSource } from "@/lib/zoom-dismiss";
 import { cn } from "@/lib/utils";
@@ -42,10 +43,15 @@ export function CollectionList({
 }: CollectionListProps) {
     const { listBottomInset } = useScreenOverlayInsets();
     const scroll = useScreenScroll<FlatList<MusicItem>>();
+    // the skeleton is not in the scroller, so the scroller's inset misses it
+    const railInset = useTopRailInset();
 
     if (isLoading && collections.length === 0) {
         return (
-            <View className="flex-1">
+            <View
+                className="flex-1"
+                style={{ paddingTop: railInset ?? undefined }}
+            >
                 {Array.from({ length: SKELETON_ROW_COUNT }, (_, index) => (
                     <MusicListItemSkeleton key={index} fullBleed />
                 ))}
@@ -63,7 +69,10 @@ export function CollectionList({
                 renderItem={({ item }) => (
                     <CollectionListItem collection={item} onPress={onSelect} />
                 )}
-                contentContainerStyle={{ paddingBottom: listBottomInset }}
+                contentContainerStyle={[
+                    { paddingBottom: listBottomInset },
+                    scroll.contentContainerStyle,
+                ]}
                 ListEmptyComponent={
                     <Text className="px-6 py-10 text-center text-muted-foreground">
                         {emptyLabel}

@@ -75,7 +75,10 @@ export function RecentlyAddedGrid({
                     paddingHorizontal: 24,
                     justifyContent: "space-between",
                 }}
-                contentContainerStyle={{ paddingBottom: listBottomInset }}
+                contentContainerStyle={[
+                    { paddingTop: 8, paddingBottom: listBottomInset },
+                    scroll.contentContainerStyle,
+                ]}
                 ListHeaderComponent={
                     <View>
                         {header}
