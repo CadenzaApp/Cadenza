@@ -6,14 +6,17 @@ import {
     artistRouteFor,
     DIMENSIONS,
     dimensionByName,
+    playlistRouteFor,
+    queryRouteFor,
     type RankedEntity,
 } from "./dimensions.ts";
+import { encodeQuerySource } from "../../lib/play-source.ts";
 
 // ----- the registry -----
 
 test("every dimension is complete enough to draw and title", () => {
     for (const dimension of DIMENSIONS) {
-        assert.ok(dimension.previewTitle.length > 0, dimension.name);
+        assert.ok(dimension.label.length > 0, dimension.name);
         assert.ok(dimension.pageTitle.length > 0, dimension.name);
         assert.ok(dimension.emptyLabel.length > 0, dimension.name);
     }
@@ -32,16 +35,33 @@ test("every dimension is reachable by name", () => {
 
 test("an unknown name resolves to nothing rather than a default", () => {
     // the dynamic route passes whatever is in the url, so this has to be safe
-    assert.equal(dimensionByName("playlist"), undefined);
+    assert.equal(dimensionByName("genre"), undefined);
     assert.equal(dimensionByName(""), undefined);
     assert.equal(dimensionByName("../../etc"), undefined);
 });
 
-test("songs do not navigate, artists and albums do", () => {
+test("songs play, every other dimension navigates", () => {
     // a song row plays instead, which is why its href builder is null
-    assert.equal(dimensionByName("song")?.hrefFor, null);
-    assert.ok(dimensionByName("artist")?.hrefFor);
-    assert.ok(dimensionByName("album")?.hrefFor);
+    for (const dimension of DIMENSIONS) {
+        assert.equal(
+            dimension.hrefFor === null,
+            dimension.name === "song",
+            dimension.name,
+        );
+    }
+});
+
+test("songs see all on the playable page, the rest on the shared route", () => {
+    assert.deepEqual(dimensionByName("song")?.seeAllHref, {
+        pathname: "/analytics/songs",
+    });
+    for (const dimension of DIMENSIONS) {
+        if (dimension.name === "song") continue;
+        assert.deepEqual(dimension.seeAllHref, {
+            pathname: "/analytics/[dimension]",
+            params: { dimension: dimension.name },
+        });
+    }
 });
 
 test("only artists are drawn round", () => {
@@ -156,4 +176,49 @@ test("only the large artwork still fills the small slot", () => {
         sample({ artworkUrlLarge: "https://example.test/large.jpg" }),
     );
     assert.equal(route?.params.artworkUrl, "https://example.test/large.jpg");
+});
+
+// ----- playlists -----
+
+test("a playlist opens its page by its recorded id", () => {
+    const route = playlistRouteFor(
+        entity({ label: "Late Night", entity_id: "p.abc" }),
+    );
+    assert.deepEqual(route, {
+        pathname: "/collection/[kind]/[id]",
+        params: { kind: "playlist", id: "p.abc", title: "Late Night" },
+    });
+});
+
+test("a playlist with no id is inert", () => {
+    assert.equal(playlistRouteFor(entity({ label: "Late Night" })), null);
+});
+
+// ----- queries -----
+
+test("a query reruns with its tree and its suggested flag", () => {
+    const query = {
+        where: {
+            filter: {
+                field: "tag" as const,
+                tag_id: 1,
+                op: "is_applied" as const,
+            },
+        },
+    };
+    const route = queryRouteFor(
+        entity({
+            label: "Chill",
+            entity_id: encodeQuerySource({ query, suggested: true }),
+        }),
+    );
+    assert.equal(route?.pathname, "/query-results");
+    assert.deepEqual(JSON.parse(route?.params.query ?? ""), query);
+    assert.equal(route?.params.suggested, "1");
+    assert.equal(route?.params.name, "Chill");
+});
+
+test("a query whose id is not a query is inert", () => {
+    assert.equal(queryRouteFor(entity({ entity_id: "p.abc" })), null);
+    assert.equal(queryRouteFor(entity()), null);
 });

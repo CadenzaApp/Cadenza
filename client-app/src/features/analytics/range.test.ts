@@ -2,10 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-    ANALYTICS_RANGES,
-    rangeDescription,
-    rangeLabel,
-    resolveRange,
+    PERIOD_GRAINS,
+    canStepBack,
+    canStepForward,
+    grainLabel,
+    resolvePeriod,
 } from "./range.ts";
 
 /** A local-time moment, so the boundaries are the device's own. */
@@ -26,134 +27,196 @@ function localDay(iso?: string) {
     return [date.getFullYear(), date.getMonth() + 1, date.getDate()] as const;
 }
 
-// ----- every range -----
+// Saturday 2026-10-03
+const NOW = local(2026, 10, 3);
 
-test("every range has a label and a description", () => {
-    for (const range of ANALYTICS_RANGES) {
-        assert.ok(rangeLabel(range).length > 0, range);
-        assert.ok(rangeDescription(range).length > 0, range);
+// ----- every grain -----
+
+test("every grain has a label", () => {
+    for (const grain of PERIOD_GRAINS) {
+        assert.ok(grainLabel(grain).length > 0, grain);
     }
 });
 
-test("every range but all is a bounded window", () => {
-    const now = local(2026, 10, 3);
-    for (const range of ANALYTICS_RANGES) {
-        const resolved = resolveRange(range, now);
-        if (range === "all") {
-            assert.equal(resolved.since, undefined);
-            assert.equal(resolved.until, undefined);
+test("every grain but all is a bounded window", () => {
+    for (const grain of PERIOD_GRAINS) {
+        const { since, until } = resolvePeriod(grain, 0, NOW);
+        if (grain === "all") {
+            assert.equal(since, undefined);
+            assert.equal(until, undefined);
         } else {
-            assert.ok(resolved.since, range);
-            assert.ok(resolved.until, range);
-            assert.ok(
-                new Date(resolved.since) < new Date(resolved.until),
-                `${range} window is backwards`,
-            );
+            assert.ok(since && until, grain);
+            assert.ok(new Date(since) < new Date(until), `${grain} backwards`);
         }
     }
 });
 
-test("a play one minute ago is inside every bounded window", () => {
+test("a play one minute ago is inside every current window", () => {
     const now = local(2026, 10, 3, 23, 59);
-    for (const range of ANALYTICS_RANGES) {
-        const { since, until } = resolveRange(range, now);
+    for (const grain of PERIOD_GRAINS) {
+        const { since, until } = resolvePeriod(grain, 0, now);
         if (!since || !until) continue;
-        assert.ok(new Date(since) <= now, `${range} starts after now`);
-        assert.ok(new Date(until) > now, `${range} ends before now`);
+        assert.ok(new Date(since) <= now, `${grain} starts after now`);
+        assert.ok(new Date(until) > now, `${grain} ends before now`);
     }
 });
 
-// ----- the bucket each range picks -----
-
-test("each range picks the bucket that gives it a readable number of bars", () => {
-    const now = local(2026, 10, 3);
-    assert.equal(resolveRange("week", now).bucket, "day");
-    assert.equal(resolveRange("month", now).bucket, "day");
-    assert.equal(resolveRange("year", now).bucket, "month");
-    assert.equal(resolveRange("all", now).bucket, "auto");
-});
-
-test("today uses the hours chart, everything else a trend", () => {
-    const now = local(2026, 10, 3);
-    assert.equal(resolveRange("today", now).chart, "hours");
-    for (const range of ["week", "month", "year", "all"] as const) {
-        assert.equal(resolveRange(range, now).chart, "trend", range);
-    }
+test("each grain picks its chart and buckets", () => {
+    assert.equal(resolvePeriod("day", 0, NOW).chart, "hours");
+    assert.equal(resolvePeriod("day", 0, NOW).heatmapBucket, "hour");
+    assert.equal(resolvePeriod("week", 0, NOW).trendBucket, "day");
+    assert.equal(resolvePeriod("week", 0, NOW).heatmapBucket, "two_hour");
+    assert.equal(resolvePeriod("month", 0, NOW).trendBucket, "day");
+    assert.equal(resolvePeriod("month", 0, NOW).heatmapBucket, "day");
+    assert.equal(resolvePeriod("year", 0, NOW).trendBucket, "month");
+    assert.equal(resolvePeriod("year", 0, NOW).heatmapBucket, "day");
+    assert.equal(resolvePeriod("all", 0, NOW).trendBucket, "auto");
+    assert.equal(resolvePeriod("all", 0, NOW).heatmapBucket, "month");
 });
 
 // ----- the boundaries -----
 
-test("today runs from local midnight to the next", () => {
-    const { since, until } = resolveRange("today", local(2026, 10, 3, 14, 30));
+test("a day runs from local midnight to the next", () => {
+    const { since, until } = resolvePeriod("day", 0, local(2026, 10, 3, 14));
     assert.deepEqual(localDay(since), [2026, 10, 3]);
     assert.deepEqual(localDay(until), [2026, 10, 4]);
     assert.equal(new Date(since!).getHours(), 0);
 });
 
-test("week covers seven local days, today included", () => {
-    const { since, until } = resolveRange("week", local(2026, 10, 3));
-    assert.deepEqual(localDay(since), [2026, 9, 27]);
-    assert.deepEqual(localDay(until), [2026, 10, 4]);
+test("a week runs Monday to Monday", () => {
+    const { since, until } = resolvePeriod("week", 0, NOW);
+    assert.deepEqual(localDay(since), [2026, 9, 28]);
+    assert.deepEqual(localDay(until), [2026, 10, 5]);
+    assert.equal(new Date(since!).getDay(), 1, "a Monday");
 });
 
-test("month covers thirty local days", () => {
-    const { since, until } = resolveRange("month", local(2026, 10, 3));
-    assert.deepEqual(localDay(since), [2026, 9, 4]);
-    assert.deepEqual(localDay(until), [2026, 10, 4]);
+test("a Sunday belongs to the week before it", () => {
+    const { since } = resolvePeriod("week", 0, local(2026, 10, 4));
+    assert.deepEqual(localDay(since), [2026, 9, 28]);
 });
 
-test("year covers twelve months, from the 1st", () => {
-    const { since, until } = resolveRange("year", local(2026, 10, 3));
-    assert.deepEqual(localDay(since), [2025, 11, 1]);
+test("a Monday starts its own week", () => {
+    const { since } = resolvePeriod("week", 0, local(2026, 10, 5));
+    assert.deepEqual(localDay(since), [2026, 10, 5]);
+});
+
+test("a month runs from the 1st to the next 1st", () => {
+    const { since, until } = resolvePeriod("month", 0, NOW);
+    assert.deepEqual(localDay(since), [2026, 10, 1]);
     assert.deepEqual(localDay(until), [2026, 11, 1]);
 });
 
-// ----- the edges that break naive date maths -----
-
-test("a week spanning a month end still covers seven days", () => {
-    const { since, until } = resolveRange("week", local(2026, 3, 2));
-    assert.deepEqual(localDay(since), [2026, 2, 24]);
-    assert.deepEqual(localDay(until), [2026, 3, 3]);
-});
-
-test("a year range on the 31st of December rolls over cleanly", () => {
-    const { since, until } = resolveRange("year", local(2026, 12, 31));
+test("a year runs from January 1st", () => {
+    const { since, until } = resolvePeriod("year", 0, NOW);
     assert.deepEqual(localDay(since), [2026, 1, 1]);
     assert.deepEqual(localDay(until), [2027, 1, 1]);
 });
 
-test("a year range on the 1st of January looks back across the year", () => {
-    const { since, until } = resolveRange("year", local(2026, 1, 1));
-    assert.deepEqual(localDay(since), [2025, 2, 1]);
-    assert.deepEqual(localDay(until), [2026, 2, 1]);
+// ----- stepping -----
+
+test("an offset steps back whole periods", () => {
+    assert.deepEqual(
+        localDay(resolvePeriod("day", -1, NOW).since),
+        [2026, 10, 2],
+    );
+    assert.deepEqual(
+        localDay(resolvePeriod("week", -1, NOW).since),
+        [2026, 9, 21],
+    );
+    assert.deepEqual(
+        localDay(resolvePeriod("month", -10, NOW).since),
+        [2025, 12, 1],
+    );
+    assert.deepEqual(
+        localDay(resolvePeriod("year", -2, NOW).since),
+        [2024, 1, 1],
+    );
 });
 
-test("today on the 31st rolls into the next month", () => {
-    const { until } = resolveRange("today", local(2026, 1, 31));
-    assert.deepEqual(localDay(until), [2026, 2, 1]);
+test("a positive offset is clamped to now", () => {
+    const period = resolvePeriod("week", 3, NOW);
+    assert.equal(period.offset, 0);
+    assert.deepEqual(localDay(period.since), [2026, 9, 28]);
+});
+
+test("only a past period can step forward", () => {
+    assert.equal(canStepForward(resolvePeriod("week", 0, NOW)), false);
+    assert.equal(canStepForward(resolvePeriod("week", -1, NOW)), true);
+    assert.equal(canStepForward(resolvePeriod("all", 0, NOW)), false);
+    assert.equal(canStepBack(resolvePeriod("all", 0, NOW)), false);
+    assert.equal(canStepBack(resolvePeriod("day", 0, NOW)), true);
+});
+
+test("the current period says this, a past one says that", () => {
+    assert.equal(resolvePeriod("week", 0, NOW).phrase, "this week");
+    assert.equal(resolvePeriod("week", -1, NOW).phrase, "that week");
+    assert.equal(resolvePeriod("day", 0, NOW).phrase, "today");
+    assert.equal(resolvePeriod("all", 0, NOW).phrase, "all time");
+});
+
+// ----- labels -----
+
+test("a week inside one month names the month once", () => {
+    assert.equal(
+        resolvePeriod("week", 0, local(2026, 10, 7)).dateLabel,
+        "Oct 5 - 11, 2026",
+    );
+});
+
+test("a week across two months names both", () => {
+    assert.equal(
+        resolvePeriod("week", 0, NOW).dateLabel,
+        "Sep 28 - Oct 4, 2026",
+    );
+});
+
+test("a week across two years names both years", () => {
+    assert.equal(
+        resolvePeriod("week", 0, local(2026, 12, 31)).dateLabel,
+        "Dec 28, 2026 - Jan 3, 2027",
+    );
+});
+
+test("a day in this year leaves the year off", () => {
+    assert.equal(resolvePeriod("day", -1, NOW).dateLabel, "Friday, Oct 2");
+    assert.equal(
+        resolvePeriod("day", -365, NOW).dateLabel,
+        "Friday, Oct 3, 2025",
+    );
+});
+
+test("months and years read plainly", () => {
+    assert.equal(resolvePeriod("month", 0, NOW).dateLabel, "October 2026");
+    assert.equal(resolvePeriod("year", 0, NOW).dateLabel, "2026");
+});
+
+// ----- the edges that break naive date maths -----
+
+test("a month step from the 31st lands on the right month", () => {
+    const { since } = resolvePeriod("month", -1, local(2026, 3, 31));
+    assert.deepEqual(localDay(since), [2026, 2, 1]);
 });
 
 test("a leap day is an ordinary day", () => {
-    const { since, until } = resolveRange("today", local(2028, 2, 29));
+    const { since, until } = resolvePeriod("day", 0, local(2028, 2, 29));
     assert.deepEqual(localDay(since), [2028, 2, 29]);
     assert.deepEqual(localDay(until), [2028, 3, 1]);
 });
 
-test("a week across a DST change is still seven local midnights", () => {
-    // US DST ends 2026-11-01, so this week contains the extra hour
-    const { since, until } = resolveRange("week", local(2026, 11, 4));
-    assert.deepEqual(localDay(since), [2026, 10, 29]);
-    assert.deepEqual(localDay(until), [2026, 11, 5]);
-    // every bound is local midnight, whatever the offset did in between
+test("a week across a DST change is still local midnight to midnight", () => {
+    // US DST ends 2026-11-01, a Sunday, so this week holds the extra hour
+    const { since, until } = resolvePeriod("week", 0, local(2026, 10, 29));
+    assert.deepEqual(localDay(since), [2026, 10, 26]);
+    assert.deepEqual(localDay(until), [2026, 11, 2]);
     assert.equal(new Date(since!).getHours(), 0);
     assert.equal(new Date(until!).getHours(), 0);
 });
 
-test("a week across the spring DST change is also seven local midnights", () => {
-    // US DST starts 2026-03-08
-    const { since, until } = resolveRange("week", local(2026, 3, 11));
-    assert.deepEqual(localDay(since), [2026, 3, 5]);
-    assert.deepEqual(localDay(until), [2026, 3, 12]);
+test("the spring DST week is also local midnight to midnight", () => {
+    // US DST starts 2026-03-08, a Sunday
+    const { since, until } = resolvePeriod("week", 0, local(2026, 3, 5));
+    assert.deepEqual(localDay(since), [2026, 3, 2]);
+    assert.deepEqual(localDay(until), [2026, 3, 9]);
     assert.equal(new Date(since!).getHours(), 0);
     assert.equal(new Date(until!).getHours(), 0);
 });

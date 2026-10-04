@@ -55,7 +55,7 @@ export function formatHour(hour: number): string {
 }
 
 /**
- * A `YYYY-MM-DD` bucket as a short axis label, by how wide the bucket is.
+ * A `YYYY-MM-DD` bucket (or `YYYY-MM-DDTHH:MI` for an hour) as a short axis label, by how wide the bucket is.
  *
  * Parsed by hand rather than with `new Date()`, because that reads a bare date as
  * UTC midnight and then prints it in the device's zone, which moves the label a
@@ -63,9 +63,15 @@ export function formatHour(hour: number): string {
  */
 export function formatBucket(
     bucket: string,
-    size: "day" | "week" | "month" | "year",
+    size: "hour" | "day" | "week" | "month" | "year",
 ): string {
-    const [year, month, day] = bucket.split("-").map(Number);
+    const [date, time] = bucket.split("T");
+    if (size === "hour") {
+        const hour = Number(time?.split(":")[0]);
+        return Number.isFinite(hour) && time ? formatHour(hour) : bucket;
+    }
+
+    const [year, month, day] = date.split("-").map(Number);
     if (!year || !month || !day) return bucket;
 
     const monthName = MONTHS[month - 1] ?? "";
@@ -107,4 +113,14 @@ export function labelledIndices(count: number, max = 5): Set<number> {
     const picked = new Set<number>();
     for (let i = 0; i < max; i++) picked.add(Math.round(i * step));
     return picked;
+}
+
+/** How long ago `then` was, for an "Updated" line: `just now`, `5m ago`, `2h ago`. */
+export function formatUpdatedAgo(then: Date, now: Date): string {
+    const minutes = Math.floor((now.getTime() - then.getTime()) / 60_000);
+    if (minutes < 1) return "just now";
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    return `${Math.floor(hours / 24)}d ago`;
 }

@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
     formatBucket,
+    formatUpdatedAgo,
     formatCount,
     formatDuration,
     formatHour,
@@ -51,6 +52,7 @@ test("a bucket label fits how wide the bucket is", () => {
     assert.equal(formatBucket("2026-09-07", "week"), "Sep 7");
     assert.equal(formatBucket("2026-09-01", "month"), "Sep");
     assert.equal(formatBucket("2026-01-01", "year"), "2026");
+    assert.equal(formatBucket("2026-09-07T21:00", "hour"), "9 PM");
 });
 
 test("a bucket that is not a date comes back as it went in", () => {
@@ -71,4 +73,14 @@ test("a long axis labels at most five, including both ends", () => {
 
 test("an empty axis labels nothing", () => {
     assert.equal(labelledIndices(0).size, 0);
+});
+
+test("updated ago reads in the biggest whole unit", () => {
+    const now = new Date(2026, 9, 3, 12, 0);
+    const ago = (ms: number) =>
+        formatUpdatedAgo(new Date(now.getTime() - ms), now);
+    assert.equal(ago(20_000), "just now");
+    assert.equal(ago(5 * 60_000), "5m ago");
+    assert.equal(ago(3 * 3_600_000), "3h ago");
+    assert.equal(ago(50 * 3_600_000), "2d ago");
 });

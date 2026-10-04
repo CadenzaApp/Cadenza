@@ -9,40 +9,55 @@ import {
 } from "react";
 import { AppState, type AppStateStatus } from "react-native";
 
-import { resolveRange, type AnalyticsRange, type ResolvedRange } from "./range";
+import { resolvePeriod, type PeriodGrain, type ResolvedPeriod } from "./range";
 
-type AnalyticsRangeApi = {
-    range: AnalyticsRange;
-    setRange: (range: AnalyticsRange) => void;
-    /** The window and bucket `range` means, stable between range changes. */
-    resolved: ResolvedRange;
+type AnalyticsPeriodApi = {
+    /** The window, buckets and labels on screen, stable between changes. */
+    period: ResolvedPeriod;
+    /** Switches grain and jumps back to the current period. */
+    setGrain: (grain: PeriodGrain) => void;
+    /** Moves `delta` periods. Never past the current one. */
+    step: (delta: number) => void;
 };
 
-const AnalyticsRangeContext = createContext<AnalyticsRangeApi | null>(null);
+const AnalyticsPeriodContext = createContext<AnalyticsPeriodApi | null>(null);
 
 /**
- * The time range every read on the Analytics tab shares.
+ * The calendar period every read on the Analytics tab shares.
  *
- * Mounted in the tab's `_layout`, above the stack, so the range survives
+ * Mounted in the tab's `_layout`, above the stack, so the period survives
  * navigating into a detail page and back.
  *
+ * Holds a grain and an offset back from now, not a date, so offset 0 always
+ * means the current period.
+ *
  * `now` is state, not something read on each render. Resolving the clock per
- * render would give Today a new `since` every time, and the window is part of
- * the SWR key, so every render would be a cache miss and a fresh request. As
- * state it holds still until something moves it: a range change, or the app
- * coming back to the foreground, so an app left open overnight does not keep
- * yesterday's "Today".
+ * render would move the window every time, and the window is part of the SWR
+ * key, so every render would be a cache miss and a fresh request. As state it
+ * holds still until something moves it: a change of period, or the app coming
+ * back to the foreground, so an app left open overnight does not keep
+ * yesterday as "today".
  */
-export function AnalyticsRangeProvider({ children }: { children: ReactNode }) {
-    const [range, setRangeState] = useState<AnalyticsRange>("week");
+export function AnalyticsPeriodProvider({ children }: { children: ReactNode }) {
+    const [grain, setGrainState] = useState<PeriodGrain>("week");
+    const [offset, setOffset] = useState(0);
     const [now, setNow] = useState(() => new Date());
 
     const refreshClock = useCallback(() => setNow(new Date()), []);
 
-    const setRange = useCallback(
-        (next: AnalyticsRange) => {
+    const setGrain = useCallback(
+        (next: PeriodGrain) => {
             refreshClock();
-            setRangeState(next);
+            setGrainState(next);
+            setOffset(0);
+        },
+        [refreshClock],
+    );
+
+    const step = useCallback(
+        (delta: number) => {
+            refreshClock();
+            setOffset((current) => Math.min(0, current + delta));
         },
         [refreshClock],
     );
@@ -55,25 +70,28 @@ export function AnalyticsRangeProvider({ children }: { children: ReactNode }) {
         return () => subscription.remove();
     }, [refreshClock]);
 
-    const resolved = useMemo(() => resolveRange(range, now), [now, range]);
+    const period = useMemo(
+        () => resolvePeriod(grain, offset, now),
+        [grain, now, offset],
+    );
 
     const api = useMemo(
-        () => ({ range, setRange, resolved }),
-        [range, resolved, setRange],
+        () => ({ period, setGrain, step }),
+        [period, setGrain, step],
     );
 
     return (
-        <AnalyticsRangeContext.Provider value={api}>
+        <AnalyticsPeriodContext.Provider value={api}>
             {children}
-        </AnalyticsRangeContext.Provider>
+        </AnalyticsPeriodContext.Provider>
     );
 }
 
-export function useAnalyticsRange(): AnalyticsRangeApi {
-    const api = useContext(AnalyticsRangeContext);
+export function useAnalyticsPeriod(): AnalyticsPeriodApi {
+    const api = useContext(AnalyticsPeriodContext);
     if (!api) {
         throw new Error(
-            "useAnalyticsRange must be used inside an AnalyticsRangeProvider",
+            "useAnalyticsPeriod must be used inside an AnalyticsPeriodProvider",
         );
     }
     return api;

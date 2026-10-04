@@ -21,8 +21,11 @@ export type EntityPlayCount = {
     plays: number;
 };
 
-/** A tag and its plays. The whole tag, so `TagPill` can draw it directly. */
-export type TagPlayCount = Tag & { plays: number };
+/**
+ * A tag and its plays. The whole tag, so `TagPill` can draw it directly.
+ * `sample_song_id` is its most played song in the window, for a cover.
+ */
+export type TagPlayCount = Tag & { plays: number; sample_song_id: string };
 
 /** A song the user put on repeat, and how hard. */
 export type SongReplayCount = {
@@ -36,6 +39,8 @@ export type AnalyticsSummary = {
     stats: AnalyticsStats;
     rates: Record<string, number>;
     active_days: number;
+    /** Distinct tags on songs played in the window. Not capped like `top_tags`. */
+    tags_played: number;
     /** 24 entries, index 0 is midnight in the requested timezone. */
     plays_by_hour: number[];
     /** A ranking per dimension, keyed by its name. Built from the registry. */
@@ -45,7 +50,7 @@ export type AnalyticsSummary = {
 };
 
 /** What a ranking can be grouped by. */
-export type TopDimension = "song" | "artist" | "album";
+export type TopDimension = "song" | "playlist" | "album" | "artist" | "query";
 
 export type AnalyticsTopList = {
     dimension: TopDimension;
@@ -61,7 +66,7 @@ export type AnalyticsTopTags = { entries: TagPlayCount[] };
  * `TrendBucket` in `features/analytics/range.ts` is this plus `auto`, which is a
  * request-only value.
  */
-export type TrendBucketSize = "day" | "week" | "month" | "year";
+export type TrendBucketSize = "hour" | "day" | "week" | "month" | "year";
 
 /** What a metric's number means, so it can be formatted without a lookup table. */
 export type MetricUnit = "count" | "milliseconds";
@@ -106,13 +111,17 @@ function windowParams(window?: AnalyticsWindow) {
 /**
  * `GET /analytics/summary`. Every count the overview shows, in one request.
  *
- * A user with no events gets zeros and empty lists, not an error.
+ * A user with no events gets zeros and empty lists, not an error. `onSuccess`
+ * runs after each fetch that lands, for a caller showing when it last updated.
  */
-export function useAnalyticsSummary(window?: AnalyticsWindow) {
+export function useAnalyticsSummary(
+    window?: AnalyticsWindow,
+    onSuccess?: (summary: AnalyticsSummary) => void,
+) {
     const x = useAPIData<AnalyticsSummary>(
         "/analytics/summary",
         windowParams(window),
-        { keepPreviousData: true },
+        { keepPreviousData: true, onSuccess },
     );
     return {
         summary: x.data,
@@ -165,6 +174,38 @@ export function useAnalyticsTop(
         top: x.data,
         topLoading: x.isLoading,
         topErr: x.error,
+    };
+}
+
+/** What a heatmap cell's tag carries: enough to color it and name it. */
+export type HeatmapTag = { id: number; name: string; color: string };
+
+export type AnalyticsHeatmap = {
+    /** `two_hour` is heatmap only: two hours from an even local hour. */
+    bucket: TrendBucketSize | "two_hour";
+    /**
+     * Sparse: only buckets with a play. `start` is the local bucket start,
+     * `YYYY-MM-DD`, or `YYYY-MM-DDTHH:MI` for an hour.
+     */
+    cells: { start: string; plays: number; tag_id: number | null }[];
+    /** Every tag a cell names, once. */
+    tags: HeatmapTag[];
+};
+
+/**
+ * `GET /analytics/heatmap`. Plays per bucket, each with its most played tag.
+ * The key covers the bucket and the window.
+ */
+export function useAnalyticsHeatmap(bucket: string, window?: AnalyticsWindow) {
+    const x = useAPIData<AnalyticsHeatmap>(
+        "/analytics/heatmap",
+        { bucket, ...windowParams(window) },
+        { keepPreviousData: true },
+    );
+    return {
+        heatmap: x.data,
+        heatmapLoading: x.isLoading,
+        heatmapErr: x.error,
     };
 }
 

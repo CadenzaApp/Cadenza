@@ -26,6 +26,8 @@ type Props = {
      * across the screen rather than as one bar.
      */
     maxBarWidth?: number;
+    /** Bar color. The theme's chart color when absent. */
+    color?: string | null;
     className?: string;
 };
 
@@ -50,6 +52,7 @@ export function BarChart({
     maxLabels = 5,
     height = 140,
     maxBarWidth = 28,
+    color,
     className,
 }: Props) {
     const [selected, setSelected] = useState<number | null>(null);
@@ -85,8 +88,9 @@ export function BarChart({
                         >
                             <View
                                 className={cn(
-                                    "bg-chart-2 rounded-t",
-                                    isSelected && "bg-chart-4",
+                                    "rounded-t",
+                                    !color && "bg-chart-2",
+                                    !color && isSelected && "bg-chart-4",
                                     // a zero still draws a hairline, so an empty
                                     // bucket reads as measured rather than absent
                                     fraction === 0 && "bg-border",
@@ -96,6 +100,12 @@ export function BarChart({
                                         2,
                                         Math.round(fraction * height),
                                     ),
+                                    ...(color && fraction > 0
+                                        ? {
+                                              backgroundColor: color,
+                                              opacity: isSelected ? 1 : 0.7,
+                                          }
+                                        : null),
                                 }}
                             />
                         </Pressable>

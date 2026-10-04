@@ -1,23 +1,23 @@
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAnalyticsTopTags, type TagPlayCount } from "@/lib/routes/analytics";
 
-import { useAnalyticsRange } from "./analytics-range";
+import { useAnalyticsPeriod } from "./analytics-period";
 import { AnalyticsScrollScreen } from "./AnalyticsScrollScreen";
 import { TopTagList } from "./TopTagList";
 
 /**
- * The tags the user listens to over the selected range, by plays of the songs
+ * The tags the user listens to over the selected period, by plays of the songs
  * carrying them.
  *
  * A play count, not the decaying interest score that used to sit in Account
  * settings, so it answers "what did I listen to this month" and moves with the
- * range filter.
+ * period.
  */
 export function TopTagsScreen() {
-    const { resolved } = useAnalyticsRange();
+    const { period } = useAnalyticsPeriod();
     const { topTags, topTagsLoading, topTagsErr } = useAnalyticsTopTags({
-        since: resolved.since,
-        until: resolved.until,
+        since: period.since,
+        until: period.until,
     });
 
     return (

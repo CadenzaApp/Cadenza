@@ -9,16 +9,16 @@ import { useTracksForSongIds } from "@/lib/musickit-hooks";
 import { usePlaybackCommands } from "@/lib/playback";
 import { useAnalyticsTop, type EntityPlayCount } from "@/lib/routes/analytics";
 
-import { useAnalyticsRange } from "./analytics-range";
+import { useAnalyticsPeriod } from "./analytics-period";
 import { formatCount } from "./format";
-import { RangeChips } from "./RangeChips";
+import { PeriodBar } from "./PeriodControls";
 
 /**
  * The full most played songs list, as a real music list: tapping a row plays the
  * whole ranking from there, and every row has its options menu and tag rail.
  *
- * `MusicList` owns its own list and must be a flex-filling child, so the range
- * filter sits above it rather than scrolling with it.
+ * `MusicList` owns its own list and must be a flex-filling child, so the period
+ * bar sits above it rather than scrolling with it.
  *
  * `useTracksForSongIds` drops ids Apple Music cannot resolve, so an unavailable
  * song falls out of the list rather than appearing without a title. It returns
@@ -26,11 +26,11 @@ import { RangeChips } from "./RangeChips";
  */
 export function TopSongsScreen() {
     const navigation = useNavigation();
-    const { resolved } = useAnalyticsRange();
+    const { period } = useAnalyticsPeriod();
     const { playQueue } = usePlaybackCommands();
     const { top, topLoading } = useAnalyticsTop("song", {
-        since: resolved.since,
-        until: resolved.until,
+        since: period.since,
+        until: period.until,
     });
 
     useLayoutEffect(() => {
@@ -82,7 +82,7 @@ export function TopSongsScreen() {
     return (
         <View className="flex-1 bg-background">
             <View className="px-5 pb-3 pt-5">
-                <RangeChips />
+                <PeriodBar />
             </View>
             <MusicList
                 tracks={tracks}

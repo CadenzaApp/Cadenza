@@ -5,7 +5,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
 import { useAnalyticsTop, type EntityPlayCount } from "@/lib/routes/analytics";
 
-import { useAnalyticsRange } from "./analytics-range";
+import { useAnalyticsPeriod } from "./analytics-period";
 import { AnalyticsScrollScreen } from "./AnalyticsScrollScreen";
 import { dimensionByName } from "./dimensions";
 import { TopEntityList } from "./TopEntityList";
@@ -20,10 +20,10 @@ import { TopEntityList } from "./TopEntityList";
 export function TopEntityScreen() {
     const { dimension: name } = useLocalSearchParams<{ dimension: string }>();
     const descriptor = dimensionByName(name ?? "");
-    const { resolved } = useAnalyticsRange();
+    const { period } = useAnalyticsPeriod();
     const { top, topLoading, topErr } = useAnalyticsTop(descriptor?.name, {
-        since: resolved.since,
-        until: resolved.until,
+        since: period.since,
+        until: period.until,
     });
 
     // an unknown dimension in the url, rather than a blank screen
