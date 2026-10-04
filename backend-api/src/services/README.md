@@ -15,7 +15,7 @@ are computed from.
 | `analytics/dimension.rs` | `Dimension`, what a ranking can be grouped by (song, artist, album) and the SQL that pulls each one's key, label and id out of a play. Unit tested. |
 | `analytics/mod.rs` | `TimeWindow`, the future-clock guard, and `sanitize_timezone`. Unit tested. |
 | `analytics/event_type.rs` | `EventType`, the nine listening event types, and the payload validation each one requires. Unit tested. |
-| `analytics/metrics.rs` | `Metric`, the registry pairing a metric name with one SQL aggregate, and `Bucket` (day, week, month, year) with its `date_trunc` unit, series step, and size caps. Unit tested. |
+| `analytics/metrics.rs` | `Metric`, the registry pairing a metric name with one SQL aggregate and a `MetricUnit`, and `Bucket` (day, week, month, year) with its `date_trunc` unit, series step, size caps, and `fit`, which is what `bucket=auto` resolves to. Unit tested. |
 | `tag_normalizer.rs` | `normalize_tag_name`: trim, collapse whitespace, truncate to 50 bytes on a character boundary, lowercase. Unit tested. |
 | `tag_generation/mod.rs` | The `TagGenerator` trait, its `TagGenerationError`, and the `TagGenerationService` wrapper. |
 | `tag_generation/openai_tag_generator.rs` | The OpenAI implementation, including rate limit detection off the response headers. Unit tested, plus ignored integration tests. |
