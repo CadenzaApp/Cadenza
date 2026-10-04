@@ -142,7 +142,11 @@ async fn find_activity_tags(
         .collect())
 }
 
-fn tag_type_name(tag_type: TagType) -> &'static str {
+/// The enum's name as the `tag_type` column spells it.
+///
+/// Public because `db::analytics` needs the inverse, and two hand-written
+/// mappings over a generated enum are free to drift.
+pub fn tag_type_name(tag_type: TagType) -> &'static str {
     match tag_type {
         TagType::Basic => "basic",
         TagType::Text => "text",

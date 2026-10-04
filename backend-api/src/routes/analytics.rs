@@ -16,10 +16,7 @@ use crate::{
     db::analytics,
     err::CadenzaError,
     routes::json::{
-        analytics::{
-            AnalyticsSummary, AnalyticsTopList, AnalyticsTopTags, AnalyticsTrend, MetricInfo,
-            ResolvedWindow,
-        },
+        analytics::{AnalyticsSummary, AnalyticsTopList, AnalyticsTopTags, AnalyticsTrend},
         vec_into,
     },
     services::analytics::{Bucket, Dimension, Metric, TimeWindow},
@@ -80,48 +77,34 @@ async fn get_summary_handler(
     let tz = params.tz();
     let user_id = claims.user_id;
 
-    let stats = analytics::get_summary(&db, user_id, window).await?;
-    let active_days = analytics::get_active_days(&db, user_id, window, tz).await?;
-    let plays_by_hour = analytics::get_plays_by_hour(&db, user_id, window, tz).await?;
-    let top_songs = top_entities(&db, user_id, "song", window).await?;
-    let top_artists = top_entities(&db, user_id, "artist", window).await?;
-    let top_albums = top_entities(&db, user_id, "album", window).await?;
-    let top_tags = analytics::get_top_tags_by_play(&db, user_id, window, TOP_LIST_LIMIT).await?;
-    let most_replayed = analytics::get_most_replayed(&db, user_id, window, TOP_LIST_LIMIT).await?;
+    // the five independent reads go together rather than one after another
+    let (stats, active_days, plays_by_hour, top_tags, most_replayed) = tokio::try_join!(
+        analytics::get_summary(&db, user_id, window),
+        analytics::get_active_days(&db, user_id, window, tz),
+        analytics::get_plays_by_hour(&db, user_id, window, tz),
+        analytics::get_top_tags_by_play(&db, user_id, window, TOP_LIST_LIMIT),
+        analytics::get_most_replayed(&db, user_id, window, TOP_LIST_LIMIT),
+    )?;
 
-    // resolve an open window against the user's own history, so the client can
-    // label the chart with what it actually covers
-    let bounds = analytics::get_event_bounds(&db, user_id).await?;
-    let resolved = ResolvedWindow {
-        since: window.since.or(bounds.map(|(first, _)| first)),
-        until: window.until.or(bounds.map(|(_, last)| last)),
-    };
+    // one ranking per dimension, straight off the registry, so a new dimension
+    // needs no field here and no branch. sequential because joining a variable
+    // number of futures would mean a new dependency for three queries
+    let mut top = HashMap::with_capacity(Dimension::ALL.len());
+    for &dimension in Dimension::ALL {
+        let entries =
+            analytics::get_top_entities(&db, user_id, dimension, window, TOP_LIST_LIMIT).await?;
+        top.insert(dimension.name.to_owned(), vec_into(entries));
+    }
 
     Ok(Json(AnalyticsSummary {
         rates: derive_rates(&stats),
         stats,
         active_days,
         plays_by_hour,
-        top_songs: vec_into(top_songs),
-        top_artists: vec_into(top_artists),
-        top_albums: vec_into(top_albums),
+        top,
         top_tags: vec_into(top_tags),
         most_replayed: vec_into(most_replayed),
-        window: resolved,
     }))
-}
-
-/// One dimension's ranking for the summary. The name is a literal from this
-/// file, so the lookup cannot fail at runtime.
-async fn top_entities(
-    db: &DatabaseConnection,
-    user_id: uuid::Uuid,
-    dimension: &str,
-    window: TimeWindow,
-) -> Result<Vec<analytics::EntityPlays>, CadenzaError> {
-    let dimension = Dimension::from_name(dimension)
-        .unwrap_or_else(|| unreachable!("'{dimension}' is not a dimension"));
-    analytics::get_top_entities(db, user_id, dimension, window, TOP_LIST_LIMIT).await
 }
 
 /// The ratios, from the counts.
@@ -234,6 +217,7 @@ async fn get_trend_handler(
         return Ok(Json(AnalyticsTrend {
             metric: metric.name.to_owned(),
             description: metric.description.to_owned(),
+            unit: metric.unit,
             bucket: requested_bucket.unwrap_or(Bucket::Week).to_string(),
             points: Vec::new(),
         }));
@@ -277,6 +261,7 @@ async fn get_trend_handler(
     Ok(Json(AnalyticsTrend {
         metric: metric.name.to_owned(),
         description: metric.description.to_owned(),
+        unit: metric.unit,
         bucket: bucket.to_string(),
         points: vec_into(points),
     }))
@@ -300,27 +285,6 @@ fn check_bucket_count(
         )));
     }
     Ok(())
-}
-
-/// Every metric the trends endpoint knows, so a client can offer them without
-/// hardcoding the list.
-///
-/// JSON return value format:
-/// ```json
-/// [{"name": "plays", "description": "Songs played long enough to count"}]
-/// ```
-async fn list_metrics_handler(
-    _: Claims<SupabaseClaims>, // must have credentials to use this route
-) -> Json<Vec<MetricInfo>> {
-    Json(
-        Metric::ALL
-            .iter()
-            .map(|metric| MetricInfo {
-                name: metric.name.to_owned(),
-                description: metric.description.to_owned(),
-            })
-            .collect(),
-    )
 }
 
 #[derive(Deserialize)]
@@ -438,7 +402,6 @@ pub fn get_analytics_router() -> Router<AppState> {
     Router::new()
         .route("/summary", get(get_summary_handler))
         .route("/trends", get(get_trend_handler))
-        .route("/metrics", get(list_metrics_handler))
         .route("/top", get(get_top_handler))
         .route("/top-tags", get(get_top_tags_handler))
 }
@@ -491,7 +454,7 @@ mod tests {
     fn a_sensible_window_passes_every_bucket() {
         let since = at("2026-01-01T00:00:00Z");
         let until = at("2026-03-01T00:00:00Z");
-        for bucket in Bucket::ALL {
+        for &bucket in Bucket::ALL {
             assert!(
                 check_bucket_count(since, until, bucket).is_ok(),
                 "two months by {bucket}"
@@ -536,33 +499,5 @@ mod tests {
         // the handler resolves it once the window is known, so it must not parse
         // as an ordinary bucket
         assert_eq!(Bucket::from_name("auto"), None);
-    }
-
-    #[test]
-    fn every_dimension_is_reachable_by_name() {
-        for dimension in Dimension::ALL {
-            assert_eq!(
-                Dimension::from_name(dimension.name).map(|d| d.name),
-                Some(dimension.name)
-            );
-        }
-        // what the summary handler relies on when it looks these up by literal
-        for name in ["song", "artist", "album"] {
-            assert!(Dimension::from_name(name).is_some(), "{name}");
-        }
-    }
-
-    #[test]
-    fn every_metric_is_also_offered_by_the_metrics_endpoint() {
-        // the client builds its picker from that list, so a metric missing from it
-        // is a metric nobody can chart
-        for metric in Metric::ALL {
-            assert!(Metric::from_name(metric.name).is_some(), "{}", metric.name);
-            assert!(
-                !metric.description.is_empty(),
-                "{} has no label",
-                metric.name
-            );
-        }
     }
 }

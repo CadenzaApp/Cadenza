@@ -41,7 +41,7 @@ impl Dimension {
     /// where it does not. Grouping on the lowercased name merges them. The cost
     /// is that two genuinely different artists who share a name merge too,
     /// which on a page about one person's listening is the better trade.
-    pub const ALL: [Dimension; 3] = [
+    pub const ALL: &[Dimension] = &[
         Dimension {
             name: "song",
             key_expr: "song_id",
@@ -78,7 +78,8 @@ impl Dimension {
 
     pub fn from_name(name: &str) -> Option<Self> {
         Self::ALL
-            .into_iter()
+            .iter()
+            .copied()
             .find(|dimension| dimension.name == name)
     }
 
@@ -119,7 +120,7 @@ mod tests {
 
     #[test]
     fn names_round_trip() {
-        for dimension in Dimension::ALL {
+        for &dimension in Dimension::ALL {
             assert_eq!(Dimension::from_name(dimension.name), Some(dimension));
         }
         assert_eq!(Dimension::from_name("playlist"), None);
@@ -131,7 +132,7 @@ mod tests {
     /// these never pass through a bound parameter.
     #[test]
     fn expressions_carry_no_statement_breaks() {
-        for dimension in Dimension::ALL {
+        for &dimension in Dimension::ALL {
             for expression in dimension.expressions() {
                 assert!(
                     !expression.contains(';'),
@@ -149,7 +150,7 @@ mod tests {
 
     #[test]
     fn every_dimension_is_described_and_complete() {
-        for dimension in Dimension::ALL {
+        for &dimension in Dimension::ALL {
             assert!(!dimension.description.is_empty(), "{}", dimension.name);
             for expression in dimension.expressions() {
                 assert!(!expression.is_empty(), "{}", dimension.name);
@@ -186,7 +187,7 @@ mod tests {
     #[test]
     fn known_names_lists_every_dimension() {
         let listed = Dimension::known_names();
-        for dimension in Dimension::ALL {
+        for &dimension in Dimension::ALL {
             assert!(listed.contains(dimension.name), "{listed}");
         }
     }

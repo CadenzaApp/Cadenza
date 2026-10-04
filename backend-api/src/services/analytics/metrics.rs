@@ -15,6 +15,20 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+/// What a metric's number means, so a reader can format it.
+///
+/// Without this the client cannot render an arbitrary metric: every value is
+/// just an integer, and a listening time in milliseconds formatted as a count
+/// reads as 71,280,000 rather than 19h 48m.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MetricUnit {
+    /// A tally of events. Rendered with thousands separators.
+    Count,
+    /// A duration. Rendered as hours and minutes.
+    Milliseconds,
+}
+
 /// A number computed from a user's events over a window.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Metric {
@@ -29,6 +43,9 @@ pub struct Metric {
     /// What a chart of this metric is titled. A short noun phrase, not a
     /// sentence: it is read as a heading and on a filter chip, not as prose.
     pub description: &'static str,
+    /// What the number means, so the client can format it without knowing the
+    /// metric by name.
+    pub unit: MetricUnit,
 }
 
 impl Metric {
@@ -40,26 +57,30 @@ impl Metric {
     /// `query_run`, `tag_applied` and `tag_removed` are valid event types that
     /// nothing emits yet; each becomes a metric by adding one entry below, once
     /// it does.
-    pub const ALL: [Metric; 8] = [
+    pub const ALL: &[Metric] = &[
         Metric {
             name: "plays",
             aggregate: "count(*) filter (where event_type = 'play_counted')",
             description: "Plays",
+            unit: MetricUnit::Count,
         },
         Metric {
             name: "starts",
             aggregate: "count(*) filter (where event_type = 'play_start')",
             description: "Songs started",
+            unit: MetricUnit::Count,
         },
         Metric {
             name: "completions",
             aggregate: "count(*) filter (where event_type = 'play_complete')",
             description: "Finished",
+            unit: MetricUnit::Count,
         },
         Metric {
             name: "skips",
             aggregate: "count(*) filter (where event_type = 'skip')",
             description: "Skips",
+            unit: MetricUnit::Count,
         },
         // an early skip is a rejection, a late one is almost a full play. the
         // split is what makes skips usable as a signal rather than a tally
@@ -74,11 +95,13 @@ impl Metric {
                         and case when payload->>'position_ms' ~ '^-?[0-9]{1,18}$' \
                                  then (payload->>'position_ms')::bigint end < 10000)",
             description: "Early skips",
+            unit: MetricUnit::Count,
         },
         Metric {
             name: "unique_songs",
             aggregate: "count(distinct song_id) filter (where event_type = 'play_counted')",
             description: "Different songs",
+            unit: MetricUnit::Count,
         },
         // only the two events that end a listen carry listened_ms, so these
         // cannot double count one play
@@ -86,6 +109,7 @@ impl Metric {
             name: "query_plays",
             aggregate: "count(*) filter (where event_type = 'query_play')",
             description: "From a query",
+            unit: MetricUnit::Count,
         },
         Metric {
             name: "listening_ms",
@@ -96,20 +120,22 @@ impl Metric {
                             then (payload->>'listened_ms')::bigint end) \
                         filter (where event_type in ('play_complete', 'skip')), 0)::bigint",
             description: "Listening time",
+            unit: MetricUnit::Milliseconds,
         },
     ];
 
     pub fn from_name(name: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|metric| metric.name == name)
+        Self::ALL.iter().copied().find(|metric| metric.name == name)
     }
 }
 
 /// How wide one bucket of a trend is.
 ///
 /// Both the `date_trunc` unit and the `generate_series` step come from here, so
-/// they can never disagree, and neither is ever a string off a request.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+/// they can never disagree, and neither is ever a string off a request. Crosses
+/// the wire as a plain string through `from_name` and `Display`, so it needs no
+/// serde of its own.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Bucket {
     Day,
     Week,
@@ -118,7 +144,7 @@ pub enum Bucket {
 }
 
 impl Bucket {
-    pub const ALL: [Bucket; 4] = [Self::Day, Self::Week, Self::Month, Self::Year];
+    pub const ALL: &[Bucket] = &[Self::Day, Self::Week, Self::Month, Self::Year];
 
     /// The `date_trunc` unit.
     pub fn trunc_unit(self) -> &'static str {
@@ -142,7 +168,8 @@ impl Bucket {
 
     pub fn from_name(name: &str) -> Option<Self> {
         Self::ALL
-            .into_iter()
+            .iter()
+            .copied()
             .find(|bucket| bucket.trunc_unit() == name)
     }
 
@@ -191,7 +218,8 @@ impl Bucket {
     /// more year bars.
     pub fn fit(days: i64) -> Self {
         Self::ALL
-            .into_iter()
+            .iter()
+            .copied()
             .find(|bucket| bucket.buckets_in(days) <= Self::TARGET_BUCKETS)
             .unwrap_or(Self::Year)
     }
@@ -227,7 +255,7 @@ mod tests {
 
     #[test]
     fn metric_names_round_trip() {
-        for metric in Metric::ALL {
+        for &metric in Metric::ALL {
             assert_eq!(Metric::from_name(metric.name), Some(metric));
         }
         assert_eq!(Metric::from_name("nope"), None);
@@ -235,7 +263,7 @@ mod tests {
 
     #[test]
     fn bucket_names_round_trip() {
-        for bucket in Bucket::ALL {
+        for &bucket in Bucket::ALL {
             assert_eq!(Bucket::from_name(bucket.trunc_unit()), Some(bucket));
         }
         assert_eq!(Bucket::from_name("fortnight"), None);
@@ -314,7 +342,7 @@ mod tests {
 
     #[test]
     fn an_empty_or_backwards_window_is_no_buckets() {
-        for bucket in Bucket::ALL {
+        for &bucket in Bucket::ALL {
             assert_eq!(bucket.buckets_in(0), 0);
             assert_eq!(bucket.buckets_in(-5), 0);
         }
@@ -370,7 +398,7 @@ mod tests {
         let known: Vec<&str> = EventType::ALL.iter().map(|e| e.name()).collect();
         let mut seen = 0;
 
-        for metric in Metric::ALL {
+        for &metric in Metric::ALL {
             for named in event_types_named_in(metric.aggregate) {
                 seen += 1;
                 assert!(
@@ -416,7 +444,7 @@ mod tests {
     /// expression or start another statement.
     #[test]
     fn aggregates_carry_no_statement_breaks() {
-        for metric in Metric::ALL {
+        for &metric in Metric::ALL {
             assert!(
                 !metric.aggregate.contains(';'),
                 "{} has a semicolon",

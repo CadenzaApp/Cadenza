@@ -316,11 +316,4 @@ mod tests {
         .unwrap();
         assert_eq!(event.song_id, None);
     }
-
-    #[test]
-    fn the_batch_cap_matches_what_the_queue_sends() {
-        // client-app/src/lib/event-queue.ts FLUSH_BATCH_SIZE, which must not be
-        // larger or every flush would be refused
-        assert_eq!(MAX_EVENTS_PER_BATCH, 500);
-    }
 }

@@ -37,6 +37,9 @@ pub struct TimeWindow {
 }
 
 impl TimeWindow {
+    /// Only the tests need this: every caller in the api builds a window from
+    /// request params, and an absent bound already means all time.
+    #[cfg(test)]
     pub const ALL_TIME: Self = Self {
         since: None,
         until: None,

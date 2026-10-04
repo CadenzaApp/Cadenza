@@ -9,6 +9,7 @@ use uuid::Uuid;
 
 use crate::db::analytics::{EntityPlays, SongReplays, TagPlays, TrendPoint};
 use crate::routes::json::tag::TagType;
+use crate::services::analytics::metrics::MetricUnit;
 
 /// One event as the client sends it. The user id is never in here; it comes from
 /// the JWT.
@@ -60,20 +61,12 @@ pub struct AnalyticsSummary {
     pub active_days: i64,
     /// Plays in each hour of the local day, 24 entries, index 0 is midnight.
     pub plays_by_hour: Vec<i64>,
-    pub top_songs: Vec<EntityPlayCount>,
-    pub top_artists: Vec<EntityPlayCount>,
-    pub top_albums: Vec<EntityPlayCount>,
+    /// A ranking per dimension, keyed by its name, the same way `stats` is keyed
+    /// by metric name. Built from the registry, so a new dimension appears here
+    /// without a new field.
+    pub top: HashMap<String, Vec<EntityPlayCount>>,
     pub top_tags: Vec<TagPlayCount>,
     pub most_replayed: Vec<SongReplayCount>,
-    /// The window actually used, resolved. Null on both ends means the user has
-    /// no events at all.
-    pub window: ResolvedWindow,
-}
-
-#[derive(Serialize)]
-pub struct ResolvedWindow {
-    pub since: Option<DateTime<Utc>>,
-    pub until: Option<DateTime<Utc>>,
 }
 
 /// One row of a ranking, whatever it is a ranking of.
@@ -150,6 +143,9 @@ impl From<SongReplays> for SongReplayCount {
 pub struct AnalyticsTrend {
     pub metric: String,
     pub description: String,
+    /// What the values mean, so the client can format them without knowing the
+    /// metric by name.
+    pub unit: MetricUnit,
     pub bucket: String,
     /// Dense: one point per bucket in the window, zero where nothing happened.
     pub points: Vec<TrendBucket>,
@@ -169,14 +165,6 @@ impl From<TrendPoint> for TrendBucket {
             value: value.value,
         }
     }
-}
-
-/// What `GET /analytics/metrics` answers with: the registry, so a client can
-/// build its own metric picker without hardcoding the list.
-#[derive(Serialize)]
-pub struct MetricInfo {
-    pub name: String,
-    pub description: String,
 }
 
 /// What `GET /analytics/top` answers with.

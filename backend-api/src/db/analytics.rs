@@ -17,6 +17,7 @@ use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 use sea_orm::{ConnectionTrait, DbBackend, Statement, Value as DbValue, prelude::Uuid};
 
+use crate::db::activity_tags::tag_type_name;
 use crate::db::entity::sea_orm_active_enums::TagType;
 use crate::err::CadenzaError;
 use crate::services::analytics::{Bucket, Dimension, Metric, TimeWindow, sanitize_timezone};
@@ -476,20 +477,23 @@ pub async fn get_top_tags_by_play(
         .collect()
 }
 
-/// A `tag_type` read back as text. The forward direction lives in
-/// `activity_tags::tag_type_name`.
+/// A `tag_type` read back as text.
+///
+/// Derived from `activity_tags::tag_type_name` rather than restating the
+/// spellings, so the two directions cannot drift. The list is six variants, so
+/// the scan costs nothing.
 fn tag_type_from_name(name: &str) -> Result<TagType, CadenzaError> {
-    match name {
-        "basic" => Ok(TagType::Basic),
-        "text" => Ok(TagType::Text),
-        "datetime" => Ok(TagType::Datetime),
-        "number" => Ok(TagType::Number),
-        "checkbox" => Ok(TagType::Checkbox),
-        "date" => Ok(TagType::Date),
-        other => Err(CadenzaError::DatabaseError(format!(
-            "unknown tag type '{other}'"
-        ))),
-    }
+    [
+        TagType::Basic,
+        TagType::Text,
+        TagType::Datetime,
+        TagType::Number,
+        TagType::Checkbox,
+        TagType::Date,
+    ]
+    .into_iter()
+    .find(|tag_type| tag_type_name(tag_type.clone()) == name)
+    .ok_or_else(|| CadenzaError::DatabaseError(format!("unknown tag type '{name}'")))
 }
 
 /// Plays in each hour of the user's local day, always 24 entries, index 0 being
@@ -797,6 +801,26 @@ mod tests {
     /// to survive that, because the log is append only and there is no delete
     /// path through the api: one bad row would otherwise break this user's
     /// summary permanently.
+    #[test]
+    fn every_tag_type_round_trips_through_its_column_name() {
+        for tag_type in [
+            TagType::Basic,
+            TagType::Text,
+            TagType::Datetime,
+            TagType::Number,
+            TagType::Checkbox,
+            TagType::Date,
+        ] {
+            let name = tag_type_name(tag_type.clone());
+            assert_eq!(
+                tag_type_from_name(name).unwrap(),
+                tag_type,
+                "{name} did not round trip"
+            );
+        }
+        assert!(tag_type_from_name("nonsense").is_err());
+    }
+
     #[tokio::test]
     #[ignore]
     async fn a_junk_payload_value_cannot_break_the_summary() {
@@ -836,7 +860,7 @@ mod tests {
         assert_eq!(stats["listening_ms"], 4_000, "the junk rows add nothing");
 
         // and every trend still answers rather than raising
-        for metric in Metric::ALL {
+        for &metric in Metric::ALL {
             get_trend(
                 &txn,
                 user_id,
@@ -865,7 +889,7 @@ mod tests {
         assert!(stats.values().all(|&v| v == 0), "{stats:?}");
 
         assert_eq!(get_event_bounds(&txn, nobody).await.unwrap(), None);
-        for dimension in Dimension::ALL {
+        for &dimension in Dimension::ALL {
             assert!(
                 get_top_entities(&txn, nobody, dimension, TimeWindow::ALL_TIME, 10)
                     .await
@@ -1337,7 +1361,7 @@ mod tests {
         let (txn, user_id) = scratch().await;
         seed(&txn, user_id).await;
 
-        for dimension in Dimension::ALL {
+        for &dimension in Dimension::ALL {
             for window in [window(), TimeWindow::ALL_TIME] {
                 let top = get_top_entities(&txn, user_id, dimension, window, 10)
                     .await
@@ -1417,8 +1441,8 @@ mod tests {
         seed(&txn, user_id).await;
 
         // the point of the registry: no metric needs its own trend handler
-        for metric in Metric::ALL {
-            for bucket in Bucket::ALL {
+        for &metric in Metric::ALL {
+            for &bucket in Bucket::ALL {
                 let points = get_trend(
                     &txn,
                     user_id,
