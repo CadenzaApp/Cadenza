@@ -59,6 +59,7 @@ pub enum QueryNode {
 /// { "field": "tag_name", "op": "starts_with", "value": "gym" }
 /// { "field": "tag_value", "op": "is", "value": "Live at Budokan" }
 /// { "field": "tag_type", "op": "is_not", "value": "datetime" }
+/// { "field": "metadata", "key": "artist", "op": "starts_with", "value": "p" }
 /// ```
 ///
 /// `value` is always a string, the same as tag values everywhere else in the
@@ -89,6 +90,39 @@ pub enum Filter {
         op: FilterOp,
         value: TagType,
     },
+    /// A song's Apple Music catalog metadata rather than a tag. See [`MetadataKey`].
+    Metadata {
+        key: MetadataKey,
+        op: FilterOp,
+        #[serde(default)]
+        value: Option<String>,
+    },
+}
+
+/// Which piece of a song's Apple Music metadata a `metadata` filter looks at, and so which
+/// operators it takes.
+///
+/// - `title`, `artist`, `album`: text operators
+/// - `genre`: text operators, true when any one of the song's genres matches (`is_not` and
+///   `is_empty` when none does)
+/// - `release_date`: date operators, against a `YYYY-MM-DD` day
+/// - `duration`: number operators, in milliseconds, so `"210000"` is three and a half
+///   minutes
+/// - `explicit`: `is_true` and `is_false`. False covers songs rated clean and songs with no
+///   rating at all
+///
+/// A song with no stored metadata counts as having every one of these empty, the same as a
+/// song without a tag.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum MetadataKey {
+    Title,
+    Artist,
+    Album,
+    Genre,
+    ReleaseDate,
+    Duration,
+    Explicit,
 }
 
 /// Every filter operator, across all field and tag types.
