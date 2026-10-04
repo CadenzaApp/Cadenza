@@ -4,6 +4,7 @@ pub mod comment_votes;
 pub mod comments;
 pub mod entity;
 pub mod events;
+pub mod metadata_tags;
 pub mod queries;
 pub mod tag_activity;
 pub mod tag_scores;
