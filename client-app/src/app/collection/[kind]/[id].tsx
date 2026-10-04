@@ -1,6 +1,6 @@
 import { ShuffleMode, type MusicItem } from "@apple-musickit";
 import { useLocalSearchParams } from "expo-router";
-import { useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { View } from "react-native";
 
 import { CollectionOptionsMenu } from "@/components/custom/options-menu/collection-options-menu";
@@ -10,6 +10,7 @@ import { Text } from "@/components/ui/text";
 import { useArtworkTint } from "@/lib/artwork-color";
 import { useCollectionSongs } from "@/lib/musickit-hooks";
 import { isTrackInCollection } from "@/lib/playable-item";
+import type { PlaySource } from "@/lib/play-source";
 import { usePlaybackCommands, usePlaybackTrackState } from "@/lib/playback";
 import { ZoomDismissScreen } from "@/lib/zoom-dismiss";
 import { MediaPlayerZoomOverlay } from "@/components/custom/media-player";
@@ -58,6 +59,15 @@ export default function CollectionDetailScreen() {
         tracksErr,
     } = useCollectionSongs(kind, id);
     const firstTrack = tracks[0];
+    // a playlist is somewhere a play can come from, so its plays are credited
+    // to it. an album already ranks off the track itself
+    const playSource = useMemo<PlaySource | undefined>(
+        () =>
+            kind === "playlist"
+                ? { kind: "playlist", id, name: title ?? "Playlist" }
+                : undefined,
+        [id, kind, title],
+    );
     const isCurrentCollection =
         activeTrack != null &&
         isTrackInCollection(activeTrack, id, kind, tracks);
@@ -86,7 +96,7 @@ export default function CollectionDetailScreen() {
                 return;
             }
             await setShuffleMode(ShuffleMode.Off);
-            await playQueue({ tracks });
+            await playQueue({ tracks, source: playSource });
         } finally {
             setPlaybackCommandPending(false);
         }
@@ -101,11 +111,18 @@ export default function CollectionDetailScreen() {
             await playQueue({
                 tracks,
                 startIndex: Math.floor(Math.random() * tracks.length),
+                source: playSource,
             });
         } finally {
             setPlaybackCommandPending(false);
         }
     }
+
+    /** A row plays just that song, the same as anywhere else, but credited. */
+    const playRow = useCallback(
+        (track: MusicItem) => togglePlayback(track, playSource),
+        [playSource, togglePlayback],
+    );
 
     return (
         <ZoomDismissScreen overlay={<MediaPlayerZoomOverlay />}>
@@ -138,6 +155,7 @@ export default function CollectionDetailScreen() {
                     respectTopSafeArea
                     onPlay={play}
                     onShuffle={shuffle}
+                    onTrackPressOverride={playRow}
                     options={[
                         {
                             id: "collection-options",

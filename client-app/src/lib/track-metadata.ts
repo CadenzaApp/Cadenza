@@ -1,5 +1,6 @@
 /**
- * The artist and album a listening event is about.
+ * The artist and album a listening event is about, and where it was started
+ * from.
  *
  * The backend only ever stores a song id, so a ranking of artists or albums has
  * to read these off the event payload. Apple Music owns the metadata and the
@@ -12,7 +13,12 @@
 
 import type { MusicItem } from "@apple-musickit";
 
-/** What `play_counted` carries so the backend can group by artist and album. */
+import type { PlaySource } from "./play-source";
+
+/**
+ * What `play_counted` carries so the backend can group by artist, album,
+ * playlist and query.
+ */
 export type TrackMetadata = {
     artistName?: string;
     /** Apple Music catalog artist id. Absent for a library-only song. */
@@ -20,6 +26,8 @@ export type TrackMetadata = {
     albumName?: string;
     /** Apple Music album id. Absent for a library-only song. */
     albumId?: string;
+    /** The playlist or query the play came out of, when it came out of one. */
+    source?: PlaySource;
 };
 
 /** A trimmed value, or undefined when there is nothing worth storing. */
@@ -35,8 +43,15 @@ function text(value?: string): string | undefined {
  *
  * Note `albumID`, which is how `MusicItem` spells it, becomes `albumId` here so
  * both ids read the same way.
+ *
+ * `source` is passed in, since a track does not know where it was queued from.
+ * A source with a blank id or name is dropped for the same reason as a blank
+ * name.
  */
-export function trackMetadata(track: MusicItem): TrackMetadata {
+export function trackMetadata(
+    track: MusicItem,
+    source?: PlaySource | null,
+): TrackMetadata {
     const metadata: TrackMetadata = {};
 
     const artistName = text(track.artistName);
@@ -50,6 +65,12 @@ export function trackMetadata(track: MusicItem): TrackMetadata {
 
     const albumId = text(track.albumID);
     if (albumId) metadata.albumId = albumId;
+
+    const sourceId = text(source?.id);
+    const sourceName = text(source?.name);
+    if (source && sourceId && sourceName) {
+        metadata.source = { kind: source.kind, id: sourceId, name: sourceName };
+    }
 
     return metadata;
 }

@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import type { MusicItem, PlaybackSnapshot } from "@apple-musickit";
 
 import { useListeningEvents } from "./listening-events";
+import type { PlaySource } from "./play-source";
 import {
     INITIAL_PLAY_TRACKER_STATE,
     trackPlay,
@@ -19,6 +20,9 @@ import { trackMetadata } from "./track-metadata";
  * Last Played activity tags; the backend does that in the same transaction that
  * stores the event.
  *
+ * `source` is the playlist or query the active track was queued from, or null.
+ * The provider decides it, since only it knows what each queue started with.
+ *
  * Only sees what the provider samples, and the provider only polls in the
  * foreground. A song that starts and finishes entirely in the background is not
  * counted, and a listen spanning a background gap is one listen: the tracker
@@ -27,6 +31,7 @@ import { trackMetadata } from "./track-metadata";
 export function usePlayRecorder(
     snapshot: PlaybackSnapshot,
     activeTrack: MusicItem | null,
+    source: PlaySource | null,
 ) {
     const { recordPlayback } = useListeningEvents();
     const trackerRef = useRef<PlayTrackerState>(INITIAL_PLAY_TRACKER_STATE);
@@ -48,11 +53,12 @@ export function usePlayRecorder(
         void recordPlayback(
             events,
             songId,
-            activeTrack ? trackMetadata(activeTrack) : null,
+            activeTrack ? trackMetadata(activeTrack, source) : null,
         );
     }, [
         activeTrack,
         recordPlayback,
+        source,
         songId,
         snapshot.isPlaying,
         snapshot.progress,

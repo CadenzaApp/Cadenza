@@ -70,3 +70,23 @@ test("a blank value is dropped, since a blank name is not a group", () => {
         {},
     );
 });
+
+test("a source rides along, trimmed", () => {
+    assert.deepEqual(
+        trackMetadata(track({}), {
+            kind: "playlist",
+            id: " p.abc ",
+            name: " Late Night ",
+        }),
+        { source: { kind: "playlist", id: "p.abc", name: "Late Night" } },
+    );
+});
+
+test("a source with no id or no name is dropped", () => {
+    for (const source of [
+        { kind: "playlist" as const, id: "", name: "Late Night" },
+        { kind: "query" as const, id: "{}", name: "  " },
+    ]) {
+        assert.deepEqual(trackMetadata(track({}), source), {});
+    }
+});

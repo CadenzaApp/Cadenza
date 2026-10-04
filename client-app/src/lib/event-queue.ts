@@ -56,7 +56,8 @@ export type QueuedEvent = {
  * `occurredAt` is passed in rather than read from the clock here so the caller
  * can keep it pure and so a test can pin it.
  *
- * `metadata` is the artist and album, which is what lets the backend rank them.
+ * `metadata` is the artist, album and source, which is what lets the backend
+ * rank them.
  * It is optional because the caller only has it for the song that is playing;
  * see the song id guard in `play-recorder.ts`.
  */
@@ -100,6 +101,12 @@ export function toQueuedEvent(
     if (metadata?.artistId) payload.artist_id = metadata.artistId;
     if (metadata?.albumName) payload.album_name = metadata.albumName;
     if (metadata?.albumId) payload.album_id = metadata.albumId;
+    // what the playlist and query rankings group by
+    if (metadata?.source) {
+        payload.source_kind = metadata.source.kind;
+        payload.source_id = metadata.source.id;
+        payload.source_name = metadata.source.name;
+    }
 
     return {
         type: event.type,

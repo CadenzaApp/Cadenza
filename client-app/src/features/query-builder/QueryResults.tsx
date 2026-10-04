@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Text } from "@/components/ui/text";
 import { useListeningEvents } from "@/lib/listening-events";
+import type { PlaySource } from "@/lib/play-source";
 import { usePlaybackCommands, usePlaybackTrackState } from "@/lib/playback";
 
 const HERO_BUTTON_SIZE = 52;
@@ -23,6 +24,8 @@ type Props = {
     mostRelevantTags?: readonly string[];
     /** The activity tags the query filters on, shown on every row. */
     activityTagIds?: readonly number[];
+    /** What a play from here is credited to in the analytics rankings. */
+    playSource?: PlaySource;
 };
 
 export default function QueryResults({
@@ -32,6 +35,7 @@ export default function QueryResults({
     anticipatedTrackCount,
     mostRelevantTags,
     activityTagIds,
+    playSource,
 }: Props) {
     const { width: screenWidth } = useWindowDimensions();
     const [saveOpen, setSaveOpen] = useState(false);
@@ -44,9 +48,9 @@ export default function QueryResults({
 
     /**
      * Notes that a song was played out of this query, which is what the query
-     * play rate is built from. Only the song that starts playing is recorded:
-     * the rest of the queue is also from the query, but nothing tracks where a
-     * running queue came from, so counting them would be a guess.
+     * play rate is built from. Only the song that starts playing is recorded,
+     * so the rate counts starts. Every counted play in the queue is credited to
+     * the query separately, through `playSource`, for the query ranking.
      */
     const recordQueryPlay = useCallback(
         (track: MusicItem) => {
@@ -65,8 +69,8 @@ export default function QueryResults({
     const playFromTop = useCallback(async () => {
         if (songs.length === 0) return;
         recordQueryPlay(songs[0]);
-        await playQueue({ tracks: songs });
-    }, [playQueue, recordQueryPlay, songs]);
+        await playQueue({ tracks: songs, source: playSource });
+    }, [playQueue, playSource, recordQueryPlay, songs]);
 
     const playOneSong = useCallback(
         async (track: MusicItem) => {
@@ -74,9 +78,9 @@ export default function QueryResults({
             // recording unconditionally would count a pause as a play
             const isPausing = activeTrackId === track.id && isPlaying;
             if (!isPausing) recordQueryPlay(track);
-            await togglePlayback(track);
+            await togglePlayback(track, playSource);
         },
-        [activeTrackId, isPlaying, recordQueryPlay, togglePlayback],
+        [activeTrackId, isPlaying, playSource, recordQueryPlay, togglePlayback],
     );
     function closeSaveDialog() {
         setSaveOpen(false);

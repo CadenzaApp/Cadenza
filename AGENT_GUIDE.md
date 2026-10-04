@@ -33,7 +33,8 @@ events sections of [backend-api/src/db/README.md](backend-api/src/db/README.md) 
 
 A play event also carries the artist and album off the track, because the backend never learns
 them any other way. That is what the most listened artist and album rankings group by, so an
-event written without them is invisible to those rankings and cannot be backfilled.
+event written without them is invisible to those rankings and cannot be backfilled. A play started
+from a playlist or a query carries that source the same way, for the playlist and query rankings.
 
 Two halves:
 

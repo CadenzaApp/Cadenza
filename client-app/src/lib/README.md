@@ -32,7 +32,8 @@ native module directly.
 | `play-tracker.ts`            | Pure: folds playback snapshots into listening events. What counts as a play (15 seconds, or the whole of a shorter song, once per listen), and the `play_start` / `play_counted` / `play_complete` / `skip` / `seek` each listen emits. Tested in `play-tracker.test.ts`.                         |
 | `play-recorder.ts`           | `usePlayRecorder`, called by `PlaybackProvider`. Feeds each snapshot to `play-tracker.ts` and hands the events to `listening-events.tsx`.                                                                                                                                                         |
 | `listening-events.tsx`       | `ListeningEventProvider` and `useListeningEvents`. Owns the event queue, the session id, the flush and the retry. The one thing that sends events, so more than one screen can record them without racing on storage.                                                                             |
-| `track-metadata.ts`          | Pure: the artist and album off a track, which is what the backend ranks by. Tested in `track-metadata.test.ts`.                                                                                                                                                                                   |
+| `track-metadata.ts`          | Pure: the artist and album off a track, plus the play source, which is what the backend ranks by. Tested in `track-metadata.test.ts`.                                                                                                                                                             |
+| `play-source.ts`             | Pure: `PlaySource`, the playlist or query a queue started from, and `encodeQuerySource` / `decodeQuerySource`. Tested in `play-source.test.ts`.                                                                                                                                                   |
 | `event-queue.ts`             | Pure: the listening event queue and the wire shape it sends. Enqueue with an oldest-first cap, batch, and drop only what the backend confirmed. Tested in `event-queue.test.ts`.                                                                                                                  |
 | `event-queue-store.ts`       | The AsyncStorage half of that queue. Keyed by user: a queue is sent under whoever's token is current, so one shared key could flush one user's plays into another's history.                                                                                                                      |
 | `listening-session.ts`       | Pure: when a listening session ends, and what to do with a batch the backend refused. The two decisions that can lose a play, so they live where they can be tested. Tested in `listening-session.test.ts`.                                                                                       |
@@ -55,7 +56,7 @@ native module directly.
 | `zoom-dismiss.tsx`           | `ZoomOriginProvider`, `useZoomSource`, `ZoomDismissScreen`, `useCloseScreen`. Closing a pushed screen by shrinking it back into the artwork that opened it.                                                                                                                                       |
 | `zoom-dismiss-geometry.ts`   | Pure pull, transform, timing, and corner math for `zoom-dismiss`, tested without React Native.                                                                                                                                                                                                    |
 | `types.ts`                   | Shared wire types: `TagType`, `Tag`, `AppliedTag` and `TagMetadata`.                                                                                                                                                                                                                              |
-| `query-json.ts`              | The tag query wire format: `QueryJSON`, `QueryJSONNode`, `FilterJSON`, `FilterOp`, plus the pure `positiveQueryTagNames` and `queryTagIds`. Import-free apart from types, so it stays testable under `node --test`.                                                                               |
+| `query-json.ts`              | The tag query wire format: `QueryJSON`, `QueryJSONNode`, `FilterJSON`, `FilterOp`, plus the pure `positiveQueryTagNames`, `queryTagIds` and `describeQuery`. Import-free apart from types, so it stays testable under `node --test`.                                                              |
 | `tag-values.ts`              | Per-type tag helpers: `TAG_TYPES`, labels, descriptions, `TAG_TYPE_ICONS`, value validation, canonicalization, formatting, the date-only helpers, `unownedDefaultTags`, and the activity tag helper `activityTagDisplayValue`.                                                                    |
 | `app-error.ts`               | `classifyError`, turning any thrown value into an `AppError` with a title, a sentence, and an optional way out. Tested in `app-error.test.ts`.                                                                                                                                                    |
 | `utils.ts`                   | `cn()`, the clsx + tailwind-merge helper.                                                                                                                                                                                                                                                         |
@@ -169,6 +170,9 @@ One file per backend router, and every backend endpoint has at least one hook.
 | `routes/events.rs`    | `POST /events`                    | `events.ts` -> `useRecordEvents()`              |
 | `routes/analytics.rs` | `GET /analytics/summary`          | `analytics.ts` -> `useAnalyticsSummary()`       |
 |                       | `GET /analytics/trends`           | `analytics.ts` -> `useAnalyticsTrend()`         |
+|                       | `GET /analytics/top`              | `analytics.ts` -> `useAnalyticsTop()`           |
+|                       | `GET /analytics/top-tags`         | `analytics.ts` -> `useAnalyticsTopTags()`       |
+|                       | `GET /analytics/heatmap`          | `analytics.ts` -> `useAnalyticsHeatmap()`       |
 | `routes/queries.rs`   | `POST /queries/results`           | `queries.ts` -> `useQueryResults()`             |
 | `routes/comments.rs`  | `GET /comments`                   | `comments.ts` -> `useSongComments(songId)`      |
 |                       | `POST /comments`                  | `comments.ts` -> `useCreateComment()`           |
@@ -339,9 +343,19 @@ insets, scroll-to-top, and tab-bar minimization. The wrapper is a fragment elsew
 ```tsx
 const scroll = useScreenScroll();
 <ScreenScrollMarker>
-    <Animated.FlatList {...scroll} ... />
-</ScreenScrollMarker>
+    <Animated.FlatList
+        {...scroll}
+        contentContainerStyle={[
+            { paddingBottom },
+            scroll.contentContainerStyle,
+        ]}
+    />
+</ScreenScrollMarker>;
 ```
+
+A scroller with its own content style lists `scroll.contentContainerStyle` last in it. Under a
+floating top rail that is the shared top padding (see the top rail in `src/app/README.md`), and it
+has to win over the page's own.
 
 It has to be an `Animated.FlatList` / `Animated.ScrollView`, because the pull-dismiss offset is
 read on the UI thread. `ScreenScrollMarker` must have that scroller as its single direct child;
@@ -561,6 +575,11 @@ each `client_event_id`. A failed request keeps them queued, a timer retries ever
 restart picks the queue back up. The backend dedupes on `client_event_id`, so a retry after a
 response the client never saw costs nothing. The queue holds 2000 events and drops its oldest past
 that.
+
+A play credits a playlist or a query through `PlaybackQueue.source`. The screen starting the queue
+passes it; `PlaybackProvider` keeps it with the tracks that queue started with, and the recorder
+writes it on `play_counted` only while one of those tracks is active. A song added with play next
+or add to queue is not credited, and any new queue without a source clears it.
 
 A batch the backend _refuses_ is dropped rather than kept. Flushing always sends from the front
 and the backend validates a batch as a unit, so keeping a batch it will never accept would wedge

@@ -245,3 +245,12 @@ test("metadata does not disturb the timing keys", () => {
     assert.equal(wire.payload.duration_ms, 200_000);
     assert.equal(wire.payload.artist_name, "Fontaines D.C.");
 });
+
+test("a source lands as the three keys the playlist and query rankings read", () => {
+    const wire = convert(COUNTED, {
+        source: { kind: "query", id: '{"query":{}}', name: "Chill" },
+    });
+    assert.equal(wire.payload.source_kind, "query");
+    assert.equal(wire.payload.source_id, '{"query":{}}');
+    assert.equal(wire.payload.source_name, "Chill");
+});
