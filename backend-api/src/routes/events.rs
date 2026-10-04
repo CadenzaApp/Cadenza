@@ -9,7 +9,7 @@ use crate::{
     AppState,
     auth::SupabaseClaims,
     db::{
-        activity_tags::record_play_within,
+        activity_tags::record_plays_within,
         events::{NewEvent, insert_events},
     },
     err::CadenzaError,
@@ -90,8 +90,11 @@ async fn record_events_handler(
 /// retried batch moves nothing. This is why `insert_events` reports the two
 /// separately.
 ///
-/// Uses the event's own `occurred_at`, so a play flushed from an offline queue
+/// Uses each event's own `occurred_at`, so a play flushed from an offline queue
 /// days later still lands on the day it happened.
+///
+/// Handed to the db layer as one batch: a long offline flush can carry hundreds
+/// of plays, and a round trip each would be hundreds inside this transaction.
 async fn count_plays(
     db: &impl sea_orm::ConnectionTrait,
     user_id: uuid::Uuid,
@@ -100,20 +103,19 @@ async fn count_plays(
 ) -> Result<(), CadenzaError> {
     let inserted: HashSet<&str> = inserted.iter().map(String::as_str).collect();
 
-    for event in events {
-        if event.event_type != EventType::PlayCounted {
-            continue;
-        }
-        if !inserted.contains(event.client_event_id.as_str()) {
-            continue;
-        }
-        let Some(song_id) = event.song_id.as_deref() else {
-            continue;
-        };
-        record_play_within(db, user_id, song_id, event.occurred_at).await?;
-    }
+    let plays: Vec<(String, chrono::DateTime<Utc>)> = events
+        .iter()
+        .filter(|event| event.event_type == EventType::PlayCounted)
+        .filter(|event| inserted.contains(event.client_event_id.as_str()))
+        .filter_map(|event| {
+            event
+                .song_id
+                .clone()
+                .map(|song_id| (song_id, event.occurred_at))
+        })
+        .collect();
 
-    Ok(())
+    record_plays_within(db, user_id, &plays).await
 }
 
 /// Turns one event off the wire into a storable one, or says why it cannot be
