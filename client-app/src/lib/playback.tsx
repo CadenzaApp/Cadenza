@@ -11,6 +11,7 @@ import { Alert, AppState } from "react-native";
 import { MusicItem, Playback, RepeatMode, ShuffleMode } from "@apple-musickit";
 
 import { useAppleMusic } from "./apple-music-auth";
+import type { PlaySource } from "./play-source";
 import { usePlayRecorder } from "./play-recorder";
 import {
     insertQueueEntriesNext,
@@ -25,7 +26,12 @@ import { samePlayableItem } from "./playable-item";
 export type PlaybackQueue = {
     tracks: MusicItem[];
     startIndex?: number;
+    /** The playlist or query these tracks came from, for the play log. */
+    source?: PlaySource;
 };
+
+/** A queue's source, and the tracks it started with. */
+type QueueSource = { source: PlaySource; tracks: MusicItem[] };
 
 type PlaybackInfo = {
     activeTrackId: string | null;
@@ -51,7 +57,8 @@ type PlaybackInfo = {
     playQueueItem: (index: number) => Promise<void>;
     setShuffleMode: (mode: ShuffleMode) => Promise<void>;
     setRepeatMode: (mode: RepeatMode) => Promise<void>;
-    togglePlayback: (track: MusicItem) => Promise<void>;
+    /** `source` is recorded only when this starts a new track. */
+    togglePlayback: (track: MusicItem, source?: PlaySource) => Promise<void>;
     seekTo: (time: number) => Promise<void>;
     skipToNext: () => Promise<void>;
     skipToPrevious: () => Promise<void>;
@@ -115,6 +122,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     const snapshot = Playback.usePlaybackSnapshot();
     const [queue, setQueue] = useState<MusicItem[]>([]);
     const [queueIndex, setQueueIndex] = useState(-1);
+    const [queueSource, setQueueSource] = useState<QueueSource | null>(null);
     const [isPlayerDismissed, setIsPlayerDismissed] = useState(false);
     const isPlayerDismissedRef = useRef(false);
     const dismissalAwaitingPauseRef = useRef(false);
@@ -138,8 +146,22 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
             ? queuedTrack
             : snapshotTrack;
     const activeTrackId = activeTrack?.id ?? null;
+    // only a track the source queued is credited to it. one added with play
+    // next or add to queue plays inside the same queue but did not come from
+    // that playlist or query
+    const activeSource = useMemo(
+        () =>
+            queueSource &&
+            activeTrack &&
+            queueSource.tracks.some((track) =>
+                samePlayableItem(track, activeTrack),
+            )
+                ? queueSource.source
+                : null,
+        [activeTrack, queueSource],
+    );
     // counts plays for the activity tags, off the snapshot polled below
-    usePlayRecorder(snapshot, activeTrack);
+    usePlayRecorder(snapshot, activeTrack, activeSource);
 
     function showPlayer() {
         isPlayerDismissedRef.current = false;
@@ -200,7 +222,11 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     }
 
     /** Starts a queue and throws on failure. Callers own the user-facing alert. */
-    async function startQueue({ tracks, startIndex = 0 }: PlaybackQueue) {
+    async function startQueue({
+        tracks,
+        startIndex = 0,
+        source,
+    }: PlaybackQueue) {
         const playableTracks = tracks.filter((track) =>
             Boolean(track.playbackId ?? track.id),
         );
@@ -213,14 +239,18 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
         );
         const previousQueue = queue;
         const previousQueueIndex = queueIndex;
+        const previousQueueSource = queueSource;
         showPlayer();
         setQueue(playableTracks);
         setQueueIndex(boundedIndex);
+        // a new queue replaces the old source, even with none of its own
+        setQueueSource(source ? { source, tracks: playableTracks } : null);
         try {
             await Playback.playSongQueue(playableTracks, boundedIndex);
         } catch (error) {
             setQueue(previousQueue);
             setQueueIndex(previousQueueIndex);
+            setQueueSource(previousQueueSource);
             throw error;
         }
     }
@@ -237,7 +267,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
         }
     }
 
-    async function togglePlayback(track: MusicItem) {
+    async function togglePlayback(track: MusicItem, source?: PlaySource) {
         const trackId = track.id;
         const isNewTrack = activeTrackId !== trackId;
 
@@ -254,7 +284,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
                 // Song lookup/list playback intentionally creates a one-song
                 // queue today. Playlist and shuffle surfaces can pass a larger
                 // track array through playQueue without changing this provider.
-                await playQueue({ tracks: [track] });
+                await playQueue({ tracks: [track], source });
             }
         } catch (e) {
             console.error("Failed to toggle playback:", e);
@@ -495,8 +525,11 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
                 commandImplementationsRef.current!.setShuffleMode(mode),
             setRepeatMode: (mode) =>
                 commandImplementationsRef.current!.setRepeatMode(mode),
-            togglePlayback: (track) =>
-                commandImplementationsRef.current!.togglePlayback(track),
+            togglePlayback: (track, source) =>
+                commandImplementationsRef.current!.togglePlayback(
+                    track,
+                    source,
+                ),
             seekTo: (time) => commandImplementationsRef.current!.seekTo(time),
             skipToNext: () => commandImplementationsRef.current!.skipToNext(),
             skipToPrevious: () =>

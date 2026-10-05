@@ -142,7 +142,11 @@ async fn find_activity_tags(
         .collect())
 }
 
-fn tag_type_name(tag_type: TagType) -> &'static str {
+/// The enum's name as the `tag_type` column spells it.
+///
+/// Public because `db::analytics` needs the inverse, and two hand-written
+/// mappings over a generated enum are free to drift.
+pub fn tag_type_name(tag_type: TagType) -> &'static str {
     match tag_type {
         TagType::Basic => "basic",
         TagType::Text => "text",
@@ -156,9 +160,6 @@ fn tag_type_name(tag_type: TagType) -> &'static str {
 /// Counts one play of the song for the user at `played_at`: adds 1 to My
 /// Plays, sets First Played if this is earlier than what is there (or nothing
 /// is), and sets Last Played if this is later.
-///
-/// All three are upserts in one transaction, so two plays landing at once both
-/// count and neither date goes backwards.
 pub async fn record_play(
     db: &DatabaseConnection,
     user_id: Uuid,
@@ -166,53 +167,113 @@ pub async fn record_play(
     played_at: DateTime<Utc>,
 ) -> Result<(), CadenzaError> {
     let txn = db.begin().await?;
-    let tag_ids: HashMap<ActivityTag, i64> = get_activity_tags(&txn)
+    record_plays_within(&txn, user_id, &[(song_id.to_owned(), played_at)]).await?;
+    txn.commit().await?;
+    Ok(())
+}
+
+/// Counts many plays at once, for a caller that already has a transaction.
+///
+/// Three statements whatever the batch size, not three per play. A client coming
+/// back from a long offline stretch can flush hundreds of plays in one request,
+/// and a select plus three upserts each would be hundreds of round trips inside
+/// one transaction, which is how a statement timeout rolls the whole batch back
+/// and sends the client round to retry exactly the same work.
+///
+/// Plays of the same song are folded first: My Plays adds the number of plays,
+/// First Played takes the earliest and Last Played the latest. Folding also
+/// keeps one song to one row per statement, which `ON CONFLICT DO UPDATE`
+/// requires: it refuses to touch the same row twice in one command.
+///
+/// The three upserts have to land together, so this must never be called on a
+/// bare connection.
+pub async fn record_plays_within(
+    db: &impl ConnectionTrait,
+    user_id: Uuid,
+    plays: &[(String, DateTime<Utc>)],
+) -> Result<(), CadenzaError> {
+    if plays.is_empty() {
+        return Ok(());
+    }
+
+    // song id -> how many plays, and the earliest and latest of them
+    let mut folded: HashMap<&str, (i64, DateTime<Utc>, DateTime<Utc>)> = HashMap::new();
+    for (song_id, played_at) in plays {
+        folded
+            .entry(song_id.as_str())
+            .and_modify(|(count, first, last)| {
+                *count += 1;
+                *first = (*first).min(*played_at);
+                *last = (*last).max(*played_at);
+            })
+            .or_insert((1, *played_at, *played_at));
+    }
+
+    let tag_ids: HashMap<ActivityTag, i64> = get_activity_tags(db)
         .await?
         .into_iter()
         .map(|(tag, model)| (tag, model.tag_id))
         .collect();
 
-    // same canonical form `services::tag_values` stores datetimes in
-    let played_at = played_at.to_rfc3339();
-
     for tag in ActivityTag::ALL {
-        let (initial, on_conflict) = match tag {
-            ActivityTag::MyPlays => (
-                "1".to_owned(),
-                "(COALESCE(NULLIF(user_tags_applied.value, '')::numeric, 0) + 1)::bigint::text",
-            ),
-            ActivityTag::FirstPlayed => (
-                played_at.clone(),
+        // EXCLUDED.value is the incoming text, so My Plays adds the batch's
+        // count rather than a hardcoded 1
+        let on_conflict = match tag {
+            ActivityTag::MyPlays => {
+                "(COALESCE(NULLIF(user_tags_applied.value, '')::numeric, 0) \
+                 + EXCLUDED.value::numeric)::bigint::text"
+            }
+            ActivityTag::FirstPlayed => {
                 "CASE WHEN user_tags_applied.value IS NULL
                         OR EXCLUDED.value::timestamptz < user_tags_applied.value::timestamptz
-                    THEN EXCLUDED.value ELSE user_tags_applied.value END",
-            ),
-            ActivityTag::LastPlayed => (
-                played_at.clone(),
+                    THEN EXCLUDED.value ELSE user_tags_applied.value END"
+            }
+            ActivityTag::LastPlayed => {
                 "CASE WHEN user_tags_applied.value IS NULL
                         OR EXCLUDED.value::timestamptz > user_tags_applied.value::timestamptz
-                    THEN EXCLUDED.value ELSE user_tags_applied.value END",
-            ),
+                    THEN EXCLUDED.value ELSE user_tags_applied.value END"
+            }
         };
 
-        txn.execute_raw(Statement::from_sql_and_values(
+        let mut values: Vec<sea_orm::Value> = Vec::with_capacity(folded.len() * 4);
+        let mut rows = Vec::with_capacity(folded.len());
+        for (song_id, (count, first, last)) in &folded {
+            let base = rows.len() * 4;
+            rows.push(format!(
+                "(${}, ${}, ${}, ${})",
+                base + 1,
+                base + 2,
+                base + 3,
+                base + 4
+            ));
+            values.push((*song_id).into());
+            values.push(user_id.into());
+            values.push(tag_ids[&tag].into());
+            values.push(
+                match tag {
+                    ActivityTag::MyPlays => count.to_string(),
+                    // the same canonical form `services::tag_values` stores
+                    // datetimes in
+                    ActivityTag::FirstPlayed => first.to_rfc3339(),
+                    ActivityTag::LastPlayed => last.to_rfc3339(),
+                }
+                .into(),
+            );
+        }
+
+        db.execute_raw(Statement::from_sql_and_values(
             DbBackend::Postgres,
             format!(
                 "INSERT INTO user_tags_applied (song_id, user_id, tag_id, value)
-                 VALUES ($1, $2, $3, $4)
-                 ON CONFLICT (song_id, user_id, tag_id) DO UPDATE SET value = {on_conflict}"
+                 VALUES {}
+                 ON CONFLICT (song_id, user_id, tag_id) DO UPDATE SET value = {on_conflict}",
+                rows.join(", ")
             ),
-            [
-                song_id.into(),
-                user_id.into(),
-                tag_ids[&tag].into(),
-                initial.into(),
-            ],
+            values,
         ))
         .await?;
     }
 
-    txn.commit().await?;
     Ok(())
 }
 
@@ -282,5 +343,154 @@ mod tests {
         assert_eq!(ActivityTag::MyPlays.default_value(), Some("0"));
         assert_eq!(ActivityTag::FirstPlayed.default_value(), None);
         assert_eq!(ActivityTag::LastPlayed.default_value(), None);
+    }
+
+    // ----- these need the database -----
+
+    fn at(iso: &str) -> DateTime<Utc> {
+        DateTime::parse_from_rfc3339(iso)
+            .unwrap()
+            .with_timezone(&Utc)
+    }
+
+    /// A transaction that is never committed, and a user that really exists so
+    /// the foreign key holds. Dropping it undoes everything.
+    async fn scratch() -> (sea_orm::DatabaseTransaction, Uuid) {
+        dotenvy::dotenv().ok();
+        let url = std::env::var("DATABASE_URL").expect("DATABASE_URL");
+        let db = sea_orm::Database::connect(url).await.expect("connect");
+        let txn = db.begin().await.expect("begin");
+
+        let row = txn
+            .query_one_raw(Statement::from_string(
+                DbBackend::Postgres,
+                "select id from auth.users limit 1",
+            ))
+            .await
+            .expect("query users")
+            .expect("the database needs at least one user for this test");
+        let user_id: Uuid = row.try_get_by_index(0).expect("user id");
+
+        (txn, user_id)
+    }
+
+    /// The value of one activity tag on one song, as the api would read it.
+    async fn value_of(
+        db: &impl ConnectionTrait,
+        user_id: Uuid,
+        song_id: &str,
+        tag: ActivityTag,
+    ) -> Option<String> {
+        get_activity_tags_on_songs(db, user_id, &[song_id.to_owned()])
+            .await
+            .expect("read")
+            .remove(song_id)
+            .expect("the song is always present")
+            .into_iter()
+            .find(|(model, _)| ActivityTag::from_name(&model.name) == Some(tag))
+            .and_then(|(_, value)| value)
+    }
+
+    /// Folding is the part that could get the arithmetic wrong: one statement
+    /// per tag has to add up the same as one statement per play did.
+    #[tokio::test]
+    #[ignore]
+    async fn a_batch_counts_every_play_and_keeps_the_outer_dates() {
+        let (txn, user_id) = scratch().await;
+        let song = format!("batch-test-{}", Uuid::new_v4());
+
+        // three plays of one song, deliberately out of order
+        let plays = vec![
+            (song.clone(), at("2026-09-10T12:00:00Z")),
+            (song.clone(), at("2026-09-08T09:00:00Z")),
+            (song.clone(), at("2026-09-12T20:00:00Z")),
+        ];
+        record_plays_within(&txn, user_id, &plays).await.unwrap();
+
+        assert_eq!(
+            value_of(&txn, user_id, &song, ActivityTag::MyPlays).await,
+            Some("3".to_owned()),
+            "all three plays counted, not just one"
+        );
+        let first = value_of(&txn, user_id, &song, ActivityTag::FirstPlayed)
+            .await
+            .expect("first played");
+        let last = value_of(&txn, user_id, &song, ActivityTag::LastPlayed)
+            .await
+            .expect("last played");
+        assert_eq!(at(&first), at("2026-09-08T09:00:00Z"), "the earliest wins");
+        assert_eq!(at(&last), at("2026-09-12T20:00:00Z"), "the latest wins");
+    }
+
+    /// A second batch has to add to the first, not replace it, and the dates
+    /// must not go backwards.
+    #[tokio::test]
+    #[ignore]
+    async fn a_later_batch_adds_to_what_is_there() {
+        let (txn, user_id) = scratch().await;
+        let song = format!("batch-test-{}", Uuid::new_v4());
+
+        record_plays_within(&txn, user_id, &[(song.clone(), at("2026-09-10T12:00:00Z"))])
+            .await
+            .unwrap();
+        record_plays_within(
+            &txn,
+            user_id,
+            &[
+                (song.clone(), at("2026-09-11T12:00:00Z")),
+                (song.clone(), at("2026-09-09T12:00:00Z")),
+            ],
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            value_of(&txn, user_id, &song, ActivityTag::MyPlays).await,
+            Some("3".to_owned())
+        );
+        let first = value_of(&txn, user_id, &song, ActivityTag::FirstPlayed)
+            .await
+            .unwrap();
+        let last = value_of(&txn, user_id, &song, ActivityTag::LastPlayed)
+            .await
+            .unwrap();
+        assert_eq!(at(&first), at("2026-09-09T12:00:00Z"), "moved earlier");
+        assert_eq!(at(&last), at("2026-09-11T12:00:00Z"), "moved later");
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn many_songs_in_one_batch_each_get_their_own_count() {
+        let (txn, user_id) = scratch().await;
+        let a = format!("batch-a-{}", Uuid::new_v4());
+        let b = format!("batch-b-{}", Uuid::new_v4());
+
+        record_plays_within(
+            &txn,
+            user_id,
+            &[
+                (a.clone(), at("2026-09-10T12:00:00Z")),
+                (a.clone(), at("2026-09-10T13:00:00Z")),
+                (b.clone(), at("2026-09-10T14:00:00Z")),
+            ],
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            value_of(&txn, user_id, &a, ActivityTag::MyPlays).await,
+            Some("2".to_owned())
+        );
+        assert_eq!(
+            value_of(&txn, user_id, &b, ActivityTag::MyPlays).await,
+            Some("1".to_owned())
+        );
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn an_empty_batch_does_nothing() {
+        let (txn, user_id) = scratch().await;
+        record_plays_within(&txn, user_id, &[]).await.unwrap();
     }
 }

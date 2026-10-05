@@ -78,7 +78,7 @@ export default function LibraryScreen() {
                         <ErrorNotice error={recentlyAddedErr} />
                     ) : null}
 
-                    <View className="px-6 pt-2">
+                    <View className="px-6">
                         {enabled.map((category) => (
                             <CategoryRow
                                 key={category}

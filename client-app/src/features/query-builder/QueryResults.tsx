@@ -1,5 +1,5 @@
 import type { MusicItem } from "@apple-musickit";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useWindowDimensions, View } from "react-native";
 
 import { TrackCollectionView } from "@/components/custom/track-collection-view";
@@ -10,6 +10,9 @@ import { GlassButton } from "@/components/ui/glass-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Text } from "@/components/ui/text";
+import { useListeningEvents } from "@/lib/listening-events";
+import type { PlaySource } from "@/lib/play-source";
+import { usePlaybackCommands, usePlaybackTrackState } from "@/lib/playback";
 
 const HERO_BUTTON_SIZE = 52;
 
@@ -21,6 +24,8 @@ type Props = {
     mostRelevantTags?: readonly string[];
     /** The activity tags the query filters on, shown on every row. */
     activityTagIds?: readonly number[];
+    /** What a play from here is credited to in the analytics rankings. */
+    playSource?: PlaySource;
 };
 
 export default function QueryResults({
@@ -30,12 +35,53 @@ export default function QueryResults({
     anticipatedTrackCount,
     mostRelevantTags,
     activityTagIds,
+    playSource,
 }: Props) {
     const { width: screenWidth } = useWindowDimensions();
     const [saveOpen, setSaveOpen] = useState(false);
     const [saveName, setSaveName] = useState("");
     const { tint, artworkUrls } = useCollectionArtworkTint(songs);
+    const { recordEvent } = useListeningEvents();
+    const { playQueue, togglePlayback } = usePlaybackCommands();
+    const { activeTrackId, isPlaying } = usePlaybackTrackState();
     const saveDialogWidth = Math.round(screenWidth * 0.75);
+
+    /**
+     * Notes that a song was played out of this query, which is what the query
+     * play rate is built from. Only the song that starts playing is recorded,
+     * so the rate counts starts. Every counted play in the queue is credited to
+     * the query separately, through `playSource`, for the query ranking.
+     */
+    const recordQueryPlay = useCallback(
+        (track: MusicItem) => {
+            // the id tags cross the api under, the same key the rest of the app
+            // reads a song's tags with
+            const songId = track.catalogId ?? track.id;
+            void recordEvent("query_play", songId, {
+                result_count: songs.length,
+            }).catch(() => {
+                // a lost event is not worth interrupting playback over
+            });
+        },
+        [recordEvent, songs.length],
+    );
+
+    const playFromTop = useCallback(async () => {
+        if (songs.length === 0) return;
+        recordQueryPlay(songs[0]);
+        await playQueue({ tracks: songs, source: playSource });
+    }, [playQueue, playSource, recordQueryPlay, songs]);
+
+    const playOneSong = useCallback(
+        async (track: MusicItem) => {
+            // togglePlayback pauses when the row is already the active track, so
+            // recording unconditionally would count a pause as a play
+            const isPausing = activeTrackId === track.id && isPlaying;
+            if (!isPausing) recordQueryPlay(track);
+            await togglePlayback(track, playSource);
+        },
+        [activeTrackId, isPlaying, playSource, recordQueryPlay, togglePlayback],
+    );
     function closeSaveDialog() {
         setSaveOpen(false);
         setSaveName("");
@@ -71,6 +117,8 @@ export default function QueryResults({
                 activityTagIds={activityTagIds}
                 backgroundColor={tint}
                 artworkUrls={artworkUrls}
+                onPlay={playFromTop}
+                onTrackPressOverride={playOneSong}
                 options={[
                     {
                         id: "save-query",

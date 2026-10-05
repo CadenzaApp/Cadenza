@@ -17,8 +17,9 @@ pub struct Model {
         nullable
     )]
     pub embedding: Option<String>,
-    pub views: i64,
+    pub likes: i64,
     pub created_at: DateTimeWithTimeZone,
+    pub hot_score: i64,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

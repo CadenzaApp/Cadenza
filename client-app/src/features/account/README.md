@@ -1,15 +1,13 @@
 # account
 
 The Account and Appearance sheets. Account owns the working Cadenza and Apple Music session
-actions and shows the user's top tags. Appearance and the other marked settings are local
-previews only.
+actions. Appearance and the other marked settings are local previews only.
 
 ## Files
 
 | file                            | role                                                                                                                                               |
 | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `account-settings.tsx`          | Account cards, authentication actions, top tags, suggested-tag display setting, content toggle, privacy, and sync stub.                            |
-| `top-tags.tsx`                  | `TopTagsPanel`: the user's 10 highest scored tags as tag pills with their scores.                                                                  |
+| `account-settings.tsx`          | Account cards, authentication actions, suggested-tag display setting, content toggle, privacy, and sync stub.                                      |
 | `appearance-settings.tsx`       | Session-only color controls and preview.                                                                                                           |
 | `settings-ui.tsx`               | Shared glass panels, rows, icons, and the TODO badge.                                                                                              |
 | `apple-music-session-guard.tsx` | `AppleMusicSessionGuard`: renders nothing, opens this sheet once when Apple rejects the stored music-user token. Mounted in `src/app/_layout.tsx`. |
@@ -27,12 +25,8 @@ taken a 403 twice, and `AppleMusicSessionGuard` is what brings the person here t
 The account avatar and action surfaces use neutral glass. Destructive button labels and icons
 carry the red treatment without tinting the entire surface.
 
-`TopTagsPanel` sits between the Apple Music card and the explicit-content toggle. It reads
-`useTopTagScores(10)` from `@/lib/routes/tags`, turns the name keyed map into a list sorted by score
-and then name, and draws each name with `TagPill`, its score as the pill's count. A `local` name is
-a solid pill in the user's tag color, a `global` one an outlined pill in the default tag's color,
-the same split the player's Tags page uses. Names come back lowercased, so a tag named `Road Trip`
-shows as `road trip`.
+The top tags panel used to sit here. It moved to the Analytics tab, which shows tags by plays over
+the selected time range instead of the all-time decaying score this read.
 
 The suggested-tag display setting is device-local and persists across launches. It controls only
 suggested pills in music-list rows, not the suggested section of a tag selector. The
@@ -44,7 +38,6 @@ local unavailable feedback and does not call MusicKit or the backend.
 - `@/lib/account` for the Cadenza session.
 - `@/lib/apple-music-auth` for Apple Music authorization.
 - `@/lib/music-list-preferences` for the persisted suggested-tag display setting.
-- `@/lib/routes/tags::useTopTagScores` and `@/components/custom/tag-pill` for the top tags.
 - `@/components/ui/glass-*` for every visible surface and action, including `GlassToggle`.
 
 ## Gotchas

@@ -56,8 +56,10 @@ nav theme's notification color while on. Account settings and the query builder 
 
 `tint-backdrop.tsx` exports `TintBackdrop`, the colored wash behind a page. It requires the single
 gradient object returned by `useTintGradient`, which reduces the source chroma and interpolates the
-light/dark-mode endpoints in Oklch before the native RGB renderer sees them. Pass `height` to run
-it over content taller than the screen. It renders nothing for a null gradient, so callers mount it
+light/dark-mode endpoints in Oklch before the native RGB renderer sees them. Dropped into a
+scroller's content it fills and scrolls with it. On a long page pass `span` (a screen height) so
+the gradient covers only that much and its end color fills the rest: a page tall gradient is costly
+to composite under the tab bar's glass. It renders nothing for a null gradient, so callers mount it
 unconditionally. `TintOverscrollBackdrop` paints the exact start color above the exact end color
 under a scrolling gradient. Its center boundary stays covered by content, while elastic scrolling
 reveals a matching solid endpoint. `DetailScreen` and `TrackCollectionView` share that same hook.
@@ -221,6 +223,13 @@ beside it. The search tab's Artists section is the header's current user; `Recen
 takes a `header` for the same reason. The artist screen uses both at once: the artist image as
 the header, the albums rail as the footer. The footer sits below the pagination skeleton, so a
 paging list keeps loading into it.
+
+`renderAccessory` puts something on each row between the song and its options button, which is how
+the Analytics tab shows a play count on a ranked list. It is opt in: without it a row renders
+exactly as it did before the prop existed, so library, search and the collection screens are
+unaffected. The row is memoized on shallow props, so a new accessory updates on its own. Note the
+row's right side also carries the shifted options button next to a masked tag rail whose fade is
+sized from the space left over, so a wide accessory eats into the tags.
 
 Top-level `MusicList`, `CollectionList`, `ArtistList`, and coming-soon scrollers fill and sit
 directly inside `@/lib/screen-scroll-marker`. This lets the native tab stack locate a full-height

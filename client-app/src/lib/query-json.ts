@@ -115,3 +115,75 @@ function collectPositiveTagIds(
         if (negated === excludes) out.add(node.filter.tag_id);
     }
 }
+
+/** How an operator reads inside a query's name. */
+const OP_TEXT: Record<FilterOp, string> = {
+    is: "is",
+    is_not: "is not",
+    starts_with: "starts with",
+    ends_with: "ends with",
+    contains: "contains",
+    is_empty: "is empty",
+    is_not_empty: "is not empty",
+    on: "on",
+    not_on: "not on",
+    before: "before",
+    after: "after",
+    on_or_before: "on or before",
+    on_or_after: "on or after",
+    eq: "=",
+    ne: "!=",
+    lt: "<",
+    le: "<=",
+    gt: ">",
+    ge: ">=",
+    is_true: "is checked",
+    is_false: "is unchecked",
+    is_null: "is unset",
+    is_applied: "is applied",
+    is_not_applied: "is not applied",
+};
+
+/**
+ * A query as one line a person can read, like `Chill and not (Sad or Loud)`.
+ *
+ * `tags` names the tag filters. A tag missing from it reads as `a tag`, rather
+ * than leaking an id. A group of one is drawn as its child, and a nested group
+ * of more than one gets parentheses.
+ */
+export function describeQuery(
+    query: QueryJSON,
+    tags: readonly { id: number; name: string }[],
+): string {
+    const namesById = new Map(tags.map((tag) => [tag.id, tag.name]));
+
+    const filterText = (filter: FilterJSON): string => {
+        const subject =
+            filter.field === "tag"
+                ? (namesById.get(filter.tag_id) ?? "a tag")
+                : filter.field === "tag_name"
+                  ? "tag name"
+                  : filter.field === "tag_value"
+                    ? "tag value"
+                    : "tag type";
+        if (filter.field === "tag" && filter.op === "is_applied")
+            return subject;
+        if (filter.field === "tag" && filter.op === "is_not_applied") {
+            return `not ${subject}`;
+        }
+        const value = filter.value ? ` ${filter.value}` : "";
+        return `${subject} ${OP_TEXT[filter.op]}${value}`;
+    };
+
+    const visit = (node: QueryJSONNode, nested: boolean): string => {
+        if ("filter" in node) return filterText(node.filter);
+        if ("not" in node) return `not ${visit(node.not, true)}`;
+        const [joiner, children] =
+            "and" in node ? [" and ", node.and] : [" or ", node.or];
+        if (children.length === 1) return visit(children[0], nested);
+        const text = children.map((child) => visit(child, true)).join(joiner);
+        return nested ? `(${text})` : text;
+    };
+
+    return visit(query.where, false);
+}

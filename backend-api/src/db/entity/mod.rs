@@ -11,6 +11,7 @@ pub mod default_tags_removed;
 pub mod interest_scores;
 pub mod interest_scores_metadata;
 pub mod interests;
+pub mod listening_events;
 pub mod posts;
 pub mod sea_orm_active_enums;
 pub mod tag_scores;

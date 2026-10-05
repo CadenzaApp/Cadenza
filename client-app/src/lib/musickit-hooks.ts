@@ -503,7 +503,7 @@ export function useTracksForSongIds(songIds: readonly string[]) {
 }
 
 /** Indexes tracks under every id they carry, so either keyspace finds them. */
-function indexTracksById(tracks: readonly MusicItem[]) {
+export function indexTracksById(tracks: readonly MusicItem[]) {
     const tracksById = new Map<string, MusicItem>();
     for (const track of tracks) {
         for (const id of [track.id, track.catalogId, track.libraryId]) {

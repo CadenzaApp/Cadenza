@@ -8,7 +8,6 @@ import {
     TagScoreDeltas,
     TagScores,
     TagType,
-    TopTagScores,
 } from "@/lib/types";
 
 type UserTagsResponse = {
@@ -218,8 +217,10 @@ export function useSuggestTags() {
  * lowercased and whitespace-collapsed by the backend, and it returns the score
  * each one is left at.
  *
- * Invalidates every `useTopTagScores` read, since any edit can move the top
- * tags.
+ * Nothing reads the scores back any more: the Analytics tab shows tags by plays
+ * in a window instead, which `tag_scores` cannot answer since it has no
+ * timestamp. The scores are still written and still decay weekly, as the input
+ * for recommendations. The invalidation is kept for whatever reads them next.
  */
 export function useEditTagScores() {
     const x = useAPIMutation<TagScoreDeltas, TagScores>(
@@ -232,22 +233,5 @@ export function useEditTagScores() {
         editTagScoresLoading: x.isMutating,
         resetEditTagScores: x.reset,
         editTagScores: x.trigger,
-    };
-}
-
-/**
- * The signed in user's `k` highest tag scores, keyed by the lowercased tag
- * name. Each is `[score, color, source]`: the color is the user's own tag's
- * when they have one of that name (`local`), otherwise the default tag's
- * (`global`). Names with no tag at all are left out, and so are scores of 0 and
- * below. The map has no order, so sort it by score to rank it.
- */
-export function useTopTagScores(k: number) {
-    const x = useAPIData<TopTagScores>("/tags/scores", { k });
-
-    return {
-        topTagScores: x.data,
-        topTagScoresLoading: x.isLoading,
-        topTagScoresErr: x.error,
     };
 }

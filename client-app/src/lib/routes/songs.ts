@@ -354,28 +354,6 @@ export function useActivityTagsOnSongs(songIds: readonly string[]) {
     };
 }
 
-/**
- * Counts one play of a song: My Plays goes up by one and the First Played /
- * Last Played dates move. `play-recorder.ts` is the one caller and decides what
- * counts as a play.
- */
-export function useRecordPlay() {
-    const x = useAPIMutation<{ song_id: string }, void>(
-        "POST",
-        "/songs/plays",
-        ({ song_id }) => [
-            { path: "/songs/activity-tags", params: { song_id } },
-            { path: "/songs/activity-tags/batch" },
-            { path: "/queries/results" },
-        ],
-    );
-    return {
-        recordPlayErr: x.error,
-        recordPlayLoading: x.isMutating,
-        recordPlay: x.trigger,
-    };
-}
-
 export type EditUserSongsPayload = {
     /** Song ids to put in the user's library. Ones already there are ignored. */
     add: string[];

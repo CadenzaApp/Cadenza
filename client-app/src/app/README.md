@@ -14,7 +14,8 @@ logic out.
 | `(tabs)/_layout.tsx`                 |                           | Protected native tab group, its five triggers, and the media-player bottom accessory.                         |
 | `(tabs)/*/_layout.tsx`               |                           | One native `Stack` per tab, using `TabStack` for the shared top rail.                                         |
 | `(tabs)/social/index.tsx`            | `/social`                 | Static previews of planned social features.                                                                   |
-| `(tabs)/analytics/index.tsx`         | `/analytics`              | Static previews of planned listening analytics.                                                               |
+| `(tabs)/analytics/index.tsx`         | `/analytics`              | The overview: header, #1 hero, stats, heatmap, tag rail, the chart, and one card for every ranking.           |
+| `(tabs)/analytics/[dimension].tsx`   | `/analytics/[dimension]`  | One full ranking. `dimension` is a name from the client's dimension registry.                                 |
 | `(tabs)/cadenza/index.tsx`           | `/cadenza`                | The simple / advanced query workspace and shared result preview.                                              |
 | `(tabs)/library/index.tsx`           | `/library`                | Library index: a row per category, then Recently Added.                                                       |
 | `(tabs)/library/category/[kind].tsx` | `/library/category/:kind` | One category's normal Library-stack view; preserves the tab bar and bottom player.                            |
@@ -151,6 +152,20 @@ already.
 Every tab is a directory with a native `Stack` from `TabStack`. `TopRail` is that stack's
 header. The page title sits on the left, the account
 initials button sits on the right, and the button opens `/account`.
+
+The rail floats over the page; it is not part of it. The screen's scroller pads its content's top
+by the rail's measured height plus `RAIL_CONTENT_GAP`, the same on every page, replacing the page's
+own top padding. At rest the page sits that gap under the rail. Scrolling down fades the rail away
+and the page runs up under the status bar; it only fades back in once the page is at the top. The
+page never moves to make room. `TabStack` wraps its stack in `TopRailProvider` (`@/lib/top-rail`),
+and `useScreenScroll` supplies the padding and drives the fade, so any screen whose scroller spreads
+that hook gets this. The rule is `nextRailShown` in `@/lib/top-rail-geometry`, tested. Content
+drawn outside the scroller, like a loading skeleton, pads itself with `useTopRailInset()`, which is
+null with no floating rail so the content keeps its own.
+
+A screen with a fixed bar above its scroller is listed in `TabStack`'s `pinnedRail`, which keeps
+its rail as a plain bar above the screen that never hides: Cadenza, Search, and the Analytics
+detail pages. Android always pins, since its scroll views have no content inset.
 
 A screen adds its own controls to the rail with `navigation.setOptions({ headerRight })`; the
 `header` render prop in `(tabs)/_layout.tsx` passes them through as `actions`. The library screen

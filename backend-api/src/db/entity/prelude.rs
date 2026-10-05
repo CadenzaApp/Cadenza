@@ -9,6 +9,7 @@ pub use super::default_tags_removed::Entity as DefaultTagsRemoved;
 pub use super::interest_scores::Entity as InterestScores;
 pub use super::interest_scores_metadata::Entity as InterestScoresMetadata;
 pub use super::interests::Entity as Interests;
+pub use super::listening_events::Entity as ListeningEvents;
 pub use super::posts::Entity as Posts;
 pub use super::tag_scores::Entity as TagScores;
 pub use super::tag_scores_metadata::Entity as TagScoresMetadata;

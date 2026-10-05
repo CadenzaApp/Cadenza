@@ -1,4 +1,4 @@
-import { memo, useMemo, useRef, useState } from "react";
+import { memo, useMemo, useRef, useState, type ReactNode } from "react";
 import { Image, Pressable, StyleSheet, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTheme } from "expo-router/react-navigation";
@@ -46,6 +46,12 @@ type MusicListItemProps = {
     onPress: (item: MusicItem) => void;
     onLongPress?: (item: MusicItem) => void;
     onOpenMenu: (item: MusicItem) => void;
+    /**
+     * Something to show between the song and the options button, like a play
+     * count on a ranked list. Opt in: without it the row is laid out exactly as
+     * it was before this existed.
+     */
+    accessory?: ReactNode;
 };
 
 const ARTWORK_SIZE = 58;
@@ -81,6 +87,7 @@ export const MusicListItem = memo(function MusicListItem({
     onPress,
     onLongPress,
     onOpenMenu,
+    accessory,
 }: MusicListItemProps) {
     const { colors } = useTheme();
     const { colorScheme = "light" } = useColorScheme();
@@ -240,6 +247,25 @@ export const MusicListItem = memo(function MusicListItem({
                     />
                 </View>
             </Animated.View>
+
+            {!selectionMode && accessory ? (
+                <Animated.View
+                    key="accessory"
+                    style={{ zIndex: 1 }}
+                    entering={
+                        animateSelectionTransition
+                            ? FadeIn.duration(140)
+                            : undefined
+                    }
+                    exiting={
+                        animateSelectionTransition
+                            ? FadeOut.duration(80)
+                            : undefined
+                    }
+                >
+                    {accessory}
+                </Animated.View>
+            ) : null}
 
             {!selectionMode ? (
                 <Animated.View

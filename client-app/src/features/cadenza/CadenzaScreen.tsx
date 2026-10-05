@@ -17,7 +17,7 @@ import {
 import { ResultsSummary } from "@/features/query-builder/ResultsSummary";
 import type { QueryCondition } from "@/features/query-builder/types";
 import { useTracksForSongIds } from "@/lib/musickit-hooks";
-import { positiveQueryTagNames } from "@/lib/query-json";
+import { describeQuery, positiveQueryTagNames } from "@/lib/query-json";
 import { useQueryResults } from "@/lib/routes/queries";
 import {
     useActivityTagIdsInQuery,
@@ -149,6 +149,13 @@ export function CadenzaScreen() {
                             query: JSON.stringify(query),
                             suggested: includeSuggestedTags ? "1" : "",
                             relevantTags: JSON.stringify(relevantTagNames),
+                            // what the query is called in the analytics
+                            // ranking once a song plays from it
+                            name: describeQuery(query, [
+                                ...(userTags ?? []),
+                                ...(activityTags ?? []),
+                                ...conditionTags(conditions),
+                            ]),
                         },
                     });
                 }}

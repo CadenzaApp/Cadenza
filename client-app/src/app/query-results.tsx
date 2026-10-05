@@ -3,6 +3,7 @@ import { useMemo } from "react";
 
 import QueryResults from "@/features/query-builder/QueryResults";
 import { useTracksForSongIds } from "@/lib/musickit-hooks";
+import { encodeQuerySource, type PlaySource } from "@/lib/play-source";
 import type { QueryJSON } from "@/lib/query-json";
 import { useQueryResults } from "@/lib/routes/queries";
 import { useActivityTagIdsInQuery } from "@/lib/routes/tags";
@@ -13,13 +14,31 @@ export default function QueryResultsScreen() {
         query: encodedQuery,
         suggested,
         relevantTags,
+        name,
     } = useLocalSearchParams<{
         query?: string;
         /** "1" when the builder had Include suggested tags on. */
         suggested?: string;
         relevantTags?: string;
+        /** The query as one readable line, for the analytics ranking. */
+        name?: string;
     }>();
     const query = useMemo(() => parseQuery(encodedQuery), [encodedQuery]);
+    // what a play from here is credited to
+    const playSource = useMemo<PlaySource | undefined>(
+        () =>
+            query
+                ? {
+                      kind: "query",
+                      id: encodeQuerySource({
+                          query,
+                          suggested: suggested === "1",
+                      }),
+                      name: name || "Query",
+                  }
+                : undefined,
+        [name, query, suggested],
+    );
     const mostRelevantTags = useMemo(
         () => parseRelevantTags(relevantTags),
         [relevantTags],
@@ -38,6 +57,7 @@ export default function QueryResultsScreen() {
             anticipatedTrackCount={matchedSongIds.length}
             mostRelevantTags={mostRelevantTags}
             activityTagIds={activityTagIds}
+            playSource={playSource}
         />
     );
 }

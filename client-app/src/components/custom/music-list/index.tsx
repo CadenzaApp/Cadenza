@@ -22,6 +22,7 @@ import {
 import { useUserTags } from "@/lib/routes/tags";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { useScreenScroll } from "@/lib/screen-scroll";
+import { useTopRailInset } from "@/lib/top-rail";
 import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
 import { useMusicListPreferences } from "@/lib/music-list-preferences";
 
@@ -67,6 +68,7 @@ export function MusicList({
     tracks,
     isLoading,
     onTrackPressOverride = null,
+    renderAccessory = null,
     trackMenuActions = EMPTY_TRACK_ACTIONS,
     multiSelect = null,
     fullBleedRows = false,
@@ -115,6 +117,8 @@ export function MusicList({
     const onLoadNextPage = pagination?.onLoadNextPage;
     const isLoadingMoreRef = useRef(false);
     const scroll = useScreenScroll<FlatList<(typeof tracks)[number]>>();
+    // the skeleton is not in the scroller, so the scroller's inset misses it
+    const railInset = useTopRailInset();
     const composedOnScroll = useComposedEventHandler([
         scroll.onScroll,
         onScroll ?? null,
@@ -356,7 +360,10 @@ export function MusicList({
                     {isLoading && tracks.length === 0 ? (
                         <View
                             className={fullBleedRows ? undefined : "px-6"}
-                            style={{ paddingBottom: contentBottomInset }}
+                            style={{
+                                paddingTop: railInset ?? undefined,
+                                paddingBottom: contentBottomInset,
+                            }}
                         >
                             {header}
                             {Array.from({
@@ -457,6 +464,7 @@ export function MusicList({
                                                     : undefined
                                             }
                                             activityTagIds={activityTagIds}
+                                            accessory={renderAccessory?.(item)}
                                             onPress={handleTrackPress}
                                             onLongPress={
                                                 selection.beginSelection
@@ -468,9 +476,10 @@ export function MusicList({
                                 contentContainerClassName={
                                     fullBleedRows ? undefined : "px-6"
                                 }
-                                contentContainerStyle={{
-                                    paddingBottom: contentBottomInset,
-                                }}
+                                contentContainerStyle={[
+                                    { paddingBottom: contentBottomInset },
+                                    scroll.contentContainerStyle,
+                                ]}
                                 ListHeaderComponent={
                                     header ? <>{header}</> : null
                                 }

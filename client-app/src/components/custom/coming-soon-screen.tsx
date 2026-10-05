@@ -48,8 +48,11 @@ export function ComingSoonScreen({
             <Animated.ScrollView
                 {...scroll}
                 className="flex-1 bg-background"
-                contentContainerClassName="gap-4 px-5 pt-5"
-                contentContainerStyle={{ paddingBottom: contentBottomInset }}
+                contentContainerClassName="gap-4 px-5"
+                contentContainerStyle={[
+                    { paddingTop: 20, paddingBottom: contentBottomInset },
+                    scroll.contentContainerStyle,
+                ]}
                 showsVerticalScrollIndicator={false}
             >
                 <Card className="gap-0 overflow-hidden border-0 bg-foreground py-0">

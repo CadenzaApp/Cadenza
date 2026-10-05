@@ -1,61 +1,67 @@
 import { useEffect, useRef } from "react";
 import type { MusicItem, PlaybackSnapshot } from "@apple-musickit";
 
-import { useAccount } from "./account";
+import { useListeningEvents } from "./listening-events";
+import type { PlaySource } from "./play-source";
 import {
     INITIAL_PLAY_TRACKER_STATE,
     trackPlay,
     type PlayTrackerState,
 } from "./play-tracker";
-import { useRecordPlay } from "./routes/songs";
+import { trackMetadata } from "./track-metadata";
 
 /**
- * Watches playback and tells the backend about each play, which is what fills
- * in the My Plays, First Played and Last Played activity tags. What counts as a
- * play is `play-tracker.ts`. Called once, from `PlaybackProvider`, with the
+ * Turns playback into listening events. What counts as what is
+ * `play-tracker.ts`; writing them down and sending them is
+ * `listening-events.tsx`. Called once, from `PlaybackProvider`, with the
  * snapshot it already polls.
  *
- * Only sees what the provider samples, and the provider only polls while the
- * app is in the foreground. A song that starts and finishes entirely in the
- * background is not counted.
+ * `play_counted` events are also what fill in the My Plays, First Played, and
+ * Last Played activity tags; the backend does that in the same transaction that
+ * stores the event.
+ *
+ * `source` is the playlist or query the active track was queued from, or null.
+ * The provider decides it, since only it knows what each queue started with.
+ *
+ * Only sees what the provider samples, and the provider only polls in the
+ * foreground. A song that starts and finishes entirely in the background is not
+ * counted, and a listen spanning a background gap is one listen: the tracker
+ * keeps its state, so it is neither re-counted nor ended twice.
  */
 export function usePlayRecorder(
     snapshot: PlaybackSnapshot,
     activeTrack: MusicItem | null,
+    source: PlaySource | null,
 ) {
-    const { account } = useAccount();
-    const { recordPlay } = useRecordPlay();
-    const stateRef = useRef<PlayTrackerState>(INITIAL_PLAY_TRACKER_STATE);
-    // tags key on the catalog id, so a library copy and a catalog copy of a
-    // song count as the same song
+    const { recordPlayback } = useListeningEvents();
+    const trackerRef = useRef<PlayTrackerState>(INITIAL_PLAY_TRACKER_STATE);
+
+    // tags key on the catalog id, so a library copy and a catalog copy of a song
+    // count as the same song
     const songId = activeTrack
         ? (activeTrack.catalogId ?? activeTrack.id)
         : null;
-    const signedIn = account != null;
 
     useEffect(() => {
-        const { state, countedSongId } = trackPlay(stateRef.current, {
+        const { state, events } = trackPlay(trackerRef.current, {
             songId,
             isPlaying: snapshot.isPlaying,
             progress: snapshot.progress,
             duration: snapshot.duration,
         });
-        stateRef.current = state;
-
-        if (!countedSongId || !signedIn) return;
-        void (async () => {
-            try {
-                await recordPlay({ song_id: countedSongId });
-            } catch (error) {
-                console.warn("Failed to record a play:", error);
-            }
-        })();
+        trackerRef.current = state;
+        void recordPlayback(
+            events,
+            songId,
+            activeTrack ? trackMetadata(activeTrack, source) : null,
+        );
     }, [
+        activeTrack,
+        recordPlayback,
+        source,
         songId,
-        signedIn,
         snapshot.isPlaying,
         snapshot.progress,
         snapshot.duration,
-        recordPlay,
     ]);
 }

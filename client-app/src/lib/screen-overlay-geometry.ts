@@ -40,10 +40,15 @@ export function calculateScreenOverlayInsets({
         : bottomBarsVisible && nativePlayerAccessory
           ? safeAreaBottom + OVERLAY_GAP
           : playerBottomInset + OVERLAY_GAP;
+    // The tab screens turn off UIKit's automatic content insets (see
+    // `(tabs)/_layout.tsx`), so on iOS a scroller clears the tab bar and the
+    // player itself. Android's tab screen already ends above its tab bar.
     const contentBottomInset = bottomBarsVisible
-        ? compactPlayerVisible && !nativePlayerAccessory
-            ? COMPACT_PLAYER_HEIGHT + ACCESSORY_GAP + OVERLAY_GAP
-            : OVERLAY_GAP
+        ? tabContentAboveTabBar
+            ? compactPlayerVisible && !nativePlayerAccessory
+                ? COMPACT_PLAYER_HEIGHT + ACCESSORY_GAP + OVERLAY_GAP
+                : OVERLAY_GAP
+            : playerBottomInset + OVERLAY_GAP
         : compactPlayerVisible
           ? COMPACT_PLAYER_HEIGHT + ACCESSORY_GAP + safeAreaBottom + OVERLAY_GAP
           : Math.max(40, safeAreaBottom + OVERLAY_GAP);

@@ -4,6 +4,7 @@ import { useAccount } from "./account";
 import { BACKEND_URL } from "./backend";
 import { getAccessToken } from "./supabase";
 import { matchesEndpoint, type APIDataEndpoint } from "./api-endpoints";
+import { logAPIFailure } from "./api-log";
 
 type BatchedReadCacheEntry = {
     path: string;
@@ -40,7 +41,27 @@ export type APIRequestError = {
  */
 async function apiRequest<Output>(
     url: string,
-    { method, body }: { method?: string; body?: unknown } = {},
+    options: { method?: string; body?: unknown } = {},
+): Promise<Output> {
+    const started = Date.now();
+    try {
+        return await sendAPIRequest<Output>(url, options);
+    } catch (error) {
+        // SWR keeps a failed read's error to itself, so without this a screen
+        // that will not load leaves nothing in the Metro log
+        logAPIFailure(
+            options.method ?? "GET",
+            url,
+            error,
+            Date.now() - started,
+        );
+        throw error;
+    }
+}
+
+async function sendAPIRequest<Output>(
+    url: string,
+    { method, body }: { method?: string; body?: unknown },
 ): Promise<Output> {
     const token = await getAccessToken();
     const headers: Record<string, string> = {};
@@ -80,7 +101,12 @@ async function apiRequest<Output>(
         throw error;
     }
 
-    if (!resp.ok) throw data;
+    if (!resp.ok) {
+        // the backend's body names the error but not the status
+        throw data && typeof data === "object"
+            ? { status: resp.status, ...data }
+            : data;
+    }
 
     return data as Output;
 }
@@ -166,7 +192,12 @@ export function useAPIMutation<RequestBody, Response>(
 export function useAPIData<Output>(
     path: string,
     params?: Record<string, any>,
-    options?: { keepPreviousData?: boolean; enabled?: boolean },
+    options?: {
+        keepPreviousData?: boolean;
+        enabled?: boolean;
+        /** Called after each successful fetch, not on a cache hit. */
+        onSuccess?: (data: Output) => void;
+    },
 ) {
     const { account } = useAccount();
 
@@ -181,7 +212,12 @@ export function useAPIData<Output>(
             ? { keyType: "api-data", path, params, accountId: account?.id }
             : null,
         () => apiRequest<Output>(BACKEND_URL + path + queryParamsToStr(params)),
-        { keepPreviousData: options?.keepPreviousData },
+        {
+            keepPreviousData: options?.keepPreviousData,
+            // SWR merges config with a spread, so an explicit undefined would
+            // replace its default no-op and every fetch would throw calling it
+            ...(options?.onSuccess ? { onSuccess: options.onSuccess } : {}),
+        },
     );
 }
 

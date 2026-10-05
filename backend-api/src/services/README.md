@@ -4,13 +4,18 @@ Business logic that is not data access. Right now that means turning a song desc
 tags with an LLM, normalizing tag names, validating/canonicalizing tag values, reading catalog
 song metadata from Apple Music, the one step that puts those together (generating a song's
 default tags the first time anything asks for them), the weekly decay that halves each user's
-tag scores, and the proxy to the social feed service.
+tag scores, the proxy to the social feed service, and the definitions the listening analytics
+are computed from.
 
 ## Files
 
 | file | role |
 | --- | --- |
-| `mod.rs` | Declares `default_tags`, `social_feed`, `song_metadata`, `tag_generation`, `tag_normalizer`, `tag_score_decay`, and `tag_values`. |
+| `mod.rs` | Declares `analytics`, `default_tags`, `social_feed`, `song_metadata`, `tag_generation`, `tag_normalizer`, `tag_score_decay`, and `tag_values`. |
+| `analytics/dimension.rs` | `Dimension`, what a ranking can be grouped by (song, artist, album, playlist, query) and the SQL that pulls each one's key, label and id out of a play. Unit tested. |
+| `analytics/mod.rs` | `TimeWindow`, the future-clock guard, and `sanitize_timezone`. Unit tested. |
+| `analytics/event_type.rs` | `EventType`, the nine listening event types, and the payload validation each one requires. Unit tested. |
+| `analytics/metrics.rs` | `Metric`, the registry pairing a metric name with one SQL aggregate and a `MetricUnit`, and `Bucket` (hour, day, week, month, year) with its `date_trunc` unit, series step, label format, size caps, and `fit`, which is what `bucket=auto` resolves to. `fit` never picks hours. Unit tested. |
 | `tag_normalizer.rs` | `normalize_tag_name`: trim, collapse whitespace, truncate to 50 bytes on a character boundary, lowercase. Unit tested. |
 | `tag_generation/mod.rs` | The `TagGenerator` trait, its `TagGenerationError`, and the `TagGenerationService` wrapper. |
 | `tag_generation/openai_tag_generator.rs` | The OpenAI implementation, including rate limit detection off the response headers. Unit tested, plus ignored integration tests. |
@@ -19,6 +24,32 @@ tag scores, and the proxy to the social feed service.
 | `default_tags.rs` | `ensure_default_tags_generated`: generates a song's default tags the first time they are read, claiming the song in `default_tags_generation` first so it happens once. Also `backfill_default_tags` and the background job that runs it, which does the same for songs nothing has read yet. |
 | `social_feed.rs` | `SocialFeedService::forward`: sends a request to the social feed service with the caller's user id attached, and hands the response back for the route to relay. Unit tested. |
 | `tag_score_decay.rs` | `decay_due_users` and the background job that runs it: halves each user's tag scores once a week in one transaction per user, skipping users whose highest score is below 5, tracked by a week number per user in `tag_scores_metadata`. Unit tested. |
+
+## Listening analytics
+
+`analytics/` is definitions only. No SQL runs here and it touches no connection; `db::events` and
+`db::analytics` are what execute against the database. That split is the point: the event types
+and the metric list can change without touching a query, and a query can change without touching
+them.
+
+Adding a metric is one entry in `Metric::ALL`. Both `/analytics/summary` and `/analytics/trends`
+read that list, so neither needs a code change to pick it up. The `aggregate` string is
+interpolated into SQL rather than bound, so it has to stay a literal written in that file, and it
+has to come back as `bigint` (postgres sums a bigint into numeric, so a `sum` needs `::bigint`). A
+unit test checks no aggregate contains a statement break.
+
+Adding a dimension is one entry in `Dimension::ALL`. `db::analytics::get_top_entities` serves every
+ranking from one query, so a new dimension needs no handler. Tags are deliberately not a
+dimension: they group through a join to `user_tags_applied` rather than a payload key, so they
+keep their own query, the same split replays already have.
+
+Adding an event type is one variant in `EventType`. The database stores `event_type` as plain text
+and constrains nothing, so this is a deploy and not a schema change, which is the whole reason it
+is not a postgres enum.
+
+`sanitize_timezone` falls back to UTC rather than erroring on an unrecognized zone. Postgres
+raises on an unknown zone name, which would turn one misconfigured client into a 500; losing the
+right bucket is better than losing the event.
 
 ## How it works
 

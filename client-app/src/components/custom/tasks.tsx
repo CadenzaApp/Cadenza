@@ -9,6 +9,7 @@ import { FullWindowOverlay } from "react-native-screens";
 import { GlassSurface } from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
 import { NAV_THEME, THEME } from "@/lib/theme";
+import { TOP_RAIL_HEIGHT } from "@/lib/top-rail-geometry";
 import { cn } from "@/lib/utils";
 
 /** How a task turned out. The row draws one icon per value. */
@@ -19,9 +20,6 @@ const LINGER_MS = 1000;
 
 /** Gap between the top rail and the first row. */
 const RAIL_GAP = 8;
-
-/** Matches the `h-14` content row in `TopRail`. */
-const TOP_RAIL_HEIGHT = 56;
 
 /** Big enough to keep the pill round at any row height. */
 const ROW_RADIUS = 9999;
