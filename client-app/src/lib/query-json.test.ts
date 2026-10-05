@@ -127,3 +127,33 @@ test("describeQuery names an unknown tag without its id", () => {
     };
     assert.equal(describeQuery(query, NAMES), "a tag");
 });
+
+test("describeQuery reads metadata filters by their label", () => {
+    const query: QueryJSON = {
+        where: {
+            and: [
+                {
+                    filter: {
+                        field: "metadata",
+                        key: "artist",
+                        op: "starts_with",
+                        value: "P",
+                    },
+                },
+                {
+                    filter: {
+                        field: "metadata",
+                        key: "explicit",
+                        op: "is_true",
+                    },
+                },
+                { filter: { field: "tag", tag_id: 1, op: "is_applied" } },
+            ],
+        },
+    };
+    assert.equal(
+        describeQuery(query, NAMES),
+        "artist starts with P and explicit is checked and Chill",
+    );
+    assert.deepEqual(queryTagIds(query), [1]);
+});

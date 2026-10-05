@@ -1,3 +1,5 @@
+import type { MetadataKey } from "./query-json";
+
 /** What kind of value a tag can hold. Basic tags hold no value at all. */
 export type TagType =
     | "basic"
@@ -6,6 +8,17 @@ export type TagType =
     | "date"
     | "number"
     | "checkbox";
+
+/**
+ * One piece of a song's stored Apple Music metadata, from
+ * `GET /songs/metadata-tags`. `key` is the key a metadata query filter takes,
+ * and `type` says how to read `value`, the same as for an attribute tag.
+ */
+export type MetadataTag = {
+    key: MetadataKey;
+    type: TagType;
+    value: string;
+};
 
 export type Tag = {
     id: number;
