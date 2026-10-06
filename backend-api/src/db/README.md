@@ -7,7 +7,7 @@ The data access layer. Everything that touches postgres lives here, so handlers 
 
 | file | role |
 | --- | --- |
-| `mod.rs` | Declares `activity_tags`, `analytics`, `comment_votes`, `comments`, `entity`, `events`, `queries`, `tag_activity`, `tag_scores`, `tag_scores_metadata`, `tags`, `user_songs`. |
+| `mod.rs` | Declares `activity_tags`, `analytics`, `comment_votes`, `comments`, `entity`, `events`, `metadata_tags`, `queries`, `tag_activity`, `tag_scores`, `tag_scores_metadata`, `tags`, `user_songs`. |
 | `events.rs` | The write path for `listening_events`: `NewEvent` and `insert_events`, which is idempotent on `client_event_id` and reports which rows were new. |
 | `analytics.rs` | The read path for `listening_events`: the metric summary, dense time bucketed trends, the song, artist, album, playlist and query rankings, replays, top tags with a cover song, tags played, the tag-colored heatmap, plays by hour, active days, and the event bounds. Integration tested against a real database (`--ignored`). |
 | `activity_tags.rs` | `ActivityTag` (My Plays, First Played, Last Played), finding their rows by `is_activity` and name and creating missing ones, `record_play`, and reading their values per song with defaults filled in. Unit tested. |
@@ -15,7 +15,8 @@ The data access layer. Everything that touches postgres lives here, so handlers 
 | `tag_activity.rs` | Not activity tags. Counts applies and removes of a tag name on a song in `default_tag_activity`, and promotes popular names to default tags. |
 | `tag_scores.rs` | `add_to_tag_scores`: moves the user's score for each named tag by a delta, in one upsert. `get_top_tag_scores`: the user's `k` highest scores, each with the color of the tag it is drawn as. `get_users_due_for_decay`, `get_max_score`, and `halve_user_tag_scores`: what the weekly halving reads and writes. Unit tested. |
 | `tag_scores_metadata.rs` | Each user's last decay week: `insert_decay_week_if_missing`, `lock_decay_week` (`FOR UPDATE SKIP LOCKED`), and `set_decay_week`. Unit tested. |
-| `queries.rs` | Compiles a tag query to SQL, runs it, and ranks the matches. Unit tested. |
+| `queries.rs` | Compiles a tag query to SQL, runs it, and ranks the matches. Unit tested, plus metadata filters run against a real database (`--ignored`). |
+| `metadata_tags.rs` | The copy of Apple Music song metadata that queries and metadata tags read in `metadata_song_tags_applied`, and the album crawl queue in `metadata_albums`: storing songs, finding ones with no row, and queueing, claiming, finishing, and releasing albums. Unit tested, plus integration tests against a real database (`--ignored`). |
 | `comments.rs` | Comment reads and writes: every comment on a song paired into threads, leaving a comment or a reply, and deleting the user's own comment. |
 | `comment_votes.rs` | `CommentVote` and `VoteTally`. `set_comment_vote`, which casts, switches, or takes back the user's vote on a comment, and `get_song_vote_tallies`, the votes on each comment of a song as the reading user sees them. |
 | `user_songs.rs` | `edit_user_songs`: adds and removes the user's songs in one transaction. `get_recent_songs_without_generated_default_tags`: the newest songs nothing has generated default tags for, which the backfill job walks. |
@@ -95,6 +96,18 @@ keyed by tag name and user, and `tag_scores_metadata` by user alone.
   `auth.users` and cascades) and `last_decay_week` (int, not null), a week number counted from
   the unix epoch. A user gets a row the first time the decay job sees them with a score. Only the
   decay job reads or writes it.
+- `metadata_song_tags_applied` - a copy of each song's Apple Music metadata, one row
+  per song, keyed by `song_id`. `found` is false for an id Apple has no catalog entry for, which
+  leaves every other column empty. `name`, `artist_name`, `album_name`, `album_id`,
+  `duration_in_millis`, `genre_names` (`text[]`, never null, without Apple's catch-all "Music"),
+  `release_date` (a year-only date is stored as January 1), `content_rating` (`explicit`, `clean`,
+  or null for unrated), and `fetched_at`. Not user scoped and not authoritative. Read by metadata
+  query filters and by `GET /songs/metadata-tags`, nothing else. Written only through
+  `metadata_tags.rs`. DDL in `sql/metadata_tags.sql`.
+- `metadata_albums` - the album crawl's state and work queue. `album_id` pk, `status`
+  (`metadata_crawl_status` enum: `pending`, `in_flight`, `done`, `failed`), `attempts`,
+  `queued_at`, and `crawled_at`. A partial index on `queued_at` where `status = 'pending'` is what
+  the crawl claims from. See [../services/README.md](../services/README.md).
 
 ## Default tags, applies, and removes
 
@@ -341,6 +354,15 @@ WHERE <compiled where clause>
   condition.
 - `is_applied` / `is_not_applied` work on every tag type and skip the value check below, so they
   are the way to tell "applied with no value" from "not applied", which `is_empty` lumps together.
+- A `metadata` filter is one correlated `EXISTS` or `NOT EXISTS` over the song's
+  `metadata_song_tags_applied` row, with `found` required. So a song with no row, or one Apple has
+  no entry for, counts as having every field empty, the same as a missing tag. `title`, `artist`
+  and `album` take the text operators, and an empty string counts as empty. `genre` compares one
+  genre at a time over `unnest(genre_names)`, so `is rock` is any genre being rock and
+  `is_not rock` is none being rock. `release_date` takes the date operators against a real
+  `date` column. `duration` takes the number operators in milliseconds. `explicit` takes `is_true`
+  (rated explicit) and `is_false` (anything else, unrated included). Metadata filters name no tag
+  ids, so they do not move a song's ranking score.
 - Values are text in the db. Numbers compare as `value::double precision`. Datetimes compare to
   the minute: `date_trunc('minute', value::timestamptz AT TIME ZONE 'UTC')` against the same
   truncation of an RFC 3339 value, so seconds never matter and there is no time zone input.

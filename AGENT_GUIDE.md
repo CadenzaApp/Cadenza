@@ -45,8 +45,13 @@ Two halves:
   application, the query engine, LLM tag generation, and comments on songs. Auth is Supabase
   JWT, verified against Supabase's JWKS.
 
-Apple Music owns song metadata and playback. We only ever store a song id (a string) and the
-tags and comments attached to it. Thus the backend never knows a song title.
+Apple Music owns song metadata and playback. We store a song id (a string) and the tags and
+comments attached to it. The one exception is `metadata_song_tags_applied`, a copy of each
+song's title, artist, album, genre, release date, length, and rating, so queries can filter on
+them (the "Song info" fields) and the Tags page can show them as Metadata Tags. Nothing else
+reads that copy: every other screen still gets titles from Apple Music, and a stale row only
+makes a query miss a song. See the Metadata
+tags section of [backend-api/src/services/README.md](backend-api/src/services/README.md).
 
 ## Repo map
 

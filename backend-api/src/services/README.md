@@ -3,7 +3,9 @@
 Business logic that is not data access. Right now that means turning a song description into
 tags with an LLM, normalizing tag names, validating/canonicalizing tag values, reading catalog
 song metadata from Apple Music, the one step that puts those together (generating a song's
-default tags the first time anything asks for them), the weekly decay that halves each user's
+default tags the first time anything asks for them), keeping a copy of that metadata for queries
+and metadata tags
+and crawling albums to fill it, the weekly decay that halves each user's
 tag scores, the proxy to the social feed service, and the definitions the listening analytics
 are computed from.
 
@@ -11,7 +13,7 @@ are computed from.
 
 | file | role |
 | --- | --- |
-| `mod.rs` | Declares `analytics`, `default_tags`, `social_feed`, `song_metadata`, `tag_generation`, `tag_normalizer`, `tag_score_decay`, and `tag_values`. |
+| `mod.rs` | Declares `analytics`, `default_tags`, `metadata_tags`, `social_feed`, `song_metadata`, `tag_generation`, `tag_normalizer`, `tag_score_decay`, and `tag_values`. |
 | `analytics/dimension.rs` | `Dimension`, what a ranking can be grouped by (song, artist, album, playlist, query) and the SQL that pulls each one's key, label and id out of a play. Unit tested. |
 | `analytics/mod.rs` | `TimeWindow`, the future-clock guard, and `sanitize_timezone`. Unit tested. |
 | `analytics/event_type.rs` | `EventType`, the nine listening event types, and the payload validation each one requires. Unit tested. |
@@ -20,7 +22,8 @@ are computed from.
 | `tag_generation/mod.rs` | The `TagGenerator` trait, its `TagGenerationError`, and the `TagGenerationService` wrapper. |
 | `tag_generation/openai_tag_generator.rs` | The OpenAI implementation, including rate limit detection off the response headers. Unit tested, plus ignored integration tests. |
 | `tag_values.rs` | `canonicalize_tag_value`: validates a tag value string against the tag's `TagType` and returns its canonical stored form (or `CadenzaError::InvalidTagValue`). Unit tested. |
-| `song_metadata.rs` | `SongMetadataService`: song ids to Apple Music catalog metadata, developer token only. Unit tested, plus ignored integration tests. |
+| `song_metadata.rs` | `SongMetadataService`: song ids to Apple Music catalog metadata, and album ids to every song on them, developer token only. Unit tested, plus ignored integration tests. |
+| `metadata_tags.rs` | Keeps the copy of song metadata for queries and metadata tags in `metadata_song_tags_applied` filled: stores listed and opened songs, queues opened songs' albums, and the background crawl that walks libraries and crawls queued albums. Unit tested. |
 | `default_tags.rs` | `ensure_default_tags_generated`: generates a song's default tags the first time they are read, claiming the song in `default_tags_generation` first so it happens once. Also `backfill_default_tags` and the background job that runs it, which does the same for songs nothing has read yet. |
 | `social_feed.rs` | `SocialFeedService::forward`: sends a request to the social feed service with the caller's user id attached, and hands the response back for the route to relay. Unit tested. |
 | `tag_score_decay.rs` | `decay_due_users` and the background job that runs it: halves each user's tag scores once a week in one transaction per user, skipping users whose highest score is below 5, tracked by a week number per user in `tag_scores_metadata`. Unit tested. |
@@ -105,14 +108,20 @@ before the next call works. Those two are written in OpenAI's own `1s` / `88ms` 
 format, which `parse_reset_duration` reads. Headers that say nothing readable still give a
 `RateLimited` with no wait; the caller decides how long to stand down.
 
-`SongMetadataService::get_songs_metadata` takes a slice of song ids and returns one
-`Option<SongMetadata>` per id, in input order. It hits
-`GET /v1/catalog/{storefront}/songs?ids=...`, which authenticates with the developer token
-alone: no Apple Music account, no `Music-User-Token`. `SongMetadata` carries title, artist,
-album, duration, artwork url, genres, release date, and ISRC, plus a `description()` helper that
-formats `"<title> by <artist>"`, the shape `TagGenerator::generate_tags` takes.
+`SongMetadataService::get_songs_metadata` takes a slice of song ids. It hits
+`GET /v1/catalog/{storefront}/songs?ids=...&include=albums`, which authenticates with the
+developer token alone: no Apple Music account, no `Music-User-Token`. `SongMetadata` carries
+title, artist, album name and id, duration, artwork url, genres, release date, ISRC, and content
+rating, plus a `description()` helper that formats `"<title> by <artist>"`, the shape
+`TagGenerator::generate_tags` takes. `include=albums` is only there to get the album id.
 
-Nothing is persisted. Cadenza still stores only a song id; this is fetched fresh per call.
+`get_albums_tracks` takes up to 100 album ids, Apple's cap, and returns every song on each one
+from `GET /v1/catalog/{storefront}/albums?ids=...`. Apple puts the first 300 tracks inline and
+the rest behind a `next` path, which it follows. Music videos are left out. A 429 from either
+call is `CadenzaError::SongMetadataRateLimited`.
+
+Every caller that needs a title still asks Apple fresh. The only copy kept is the one below,
+which metadata queries and a song's Metadata Tags read and nothing else does.
 
 It returns a `HashMap<String, SongMetadata>` keyed by the id each song was found under, never
 a positional list, so an id Apple knows nothing about is simply absent rather than shifting
@@ -143,6 +152,60 @@ is simply retried. A song Apple Music has no catalog entry for is claimed and ma
 no tags, because it has no title to generate from and leaving it unclaimed would call Apple again
 on every later read. When no song in the batch is describable there is no generator call, and the
 rows go straight to `done`.
+
+## Metadata tags
+
+`metadata_tags.rs` keeps `metadata_song_tags_applied` filled so queries can filter on a song's
+title, artist, album, genre, release date, duration, and explicit rating (see the query compiler
+in [../db/README.md](../db/README.md)), and so a song's Metadata Tags on the now-playing Tags page
+show exactly what those queries match on (`get_song_metadata_for_display`, behind
+`GET /songs/metadata-tags`, which stores a song with no row before reading it). Apple Music still
+owns the metadata, so a stale or missing row only makes a query miss a song or a pill lag behind
+Apple.
+
+How much is stored depends on what happened to the song:
+
+| what happened | stored |
+| --- | --- |
+| shown in any song list, or read by the tag editor | the song (`spawn_store_song_metadata`, from both default tag reads, on its own task so the read does not wait) |
+| opened in the player | the song, and its album is queued (`record_song_opened`, from `POST /songs/metadata/opened`) |
+| in someone's library | the song, and its album is queued (the crawl's library walk) |
+| on a queued album | every song on the album (the crawl) |
+
+`ensure_default_tags_generated` also stores what it read from Apple while it has it, so a new
+song is not read twice. That store is logged on failure, never returned, because default tags do
+not depend on it.
+
+Albums are the unit of crawling, queued in `metadata_albums`. An album is crawled once and marked
+`done`, and only goes back in the queue when one of its songs is opened and has no row, which
+means the album changed since it was crawled. Artists are never crawled: a full discography costs
+far more rows than the free database tier can hold.
+
+The crawl (`spawn_metadata_crawl`) is behind `METADATA_CRAWL_ENABLED`, a constant in
+`metadata_tags.rs` that is `true`. A pass stores up to `METADATA_CRAWL_LIBRARY_BATCH_SIZE`
+library songs with no row, newest additions first, and queues their albums, then crawls up to
+`METADATA_CRAWL_ALBUM_BATCH_SIZE` queued albums in one Apple request. A pass runs at startup,
+every `METADATA_CRAWL_INTERVAL_SECS`, and whenever `MetadataCrawler::wake` is called, which
+`record_song_opened` does after queueing an album, so an opened song's album is stored within
+seconds. After a pass that did anything the crawl goes again a second later, until the queue is
+empty.
+
+A claim counts an attempt. A failed album goes back to `pending` until its fifth try and is then
+marked `failed` for good. A rate limit hands every claimed album back without counting the
+attempt and stands the crawl down for 300 seconds.
+
+Recovering from the server or the database going down:
+
+- The queue is rows in `metadata_albums`, so nothing queued is lost when the server stops.
+- An album is only `in_flight` while a pass is running. Before the first pass, and before any
+  pass after a failure, a panic, or a rate limit, the crawl hands every `in_flight` album back
+  to `pending`. That covers a server killed mid pass and a pass whose own release failed
+  because the database was down. A handback that fails is retried before the next pass.
+- Each pass runs on its own task, so a panic ends that pass and not the crawl.
+- A failed pass waits 10 seconds before the crawl tries again, so an outage is not retried in a
+  tight loop.
+- Songs being stored for a list or an open are not queued anywhere. If the server stops first,
+  they are stored the next time they are listed or opened.
 
 It is called by the default tag read handlers in `src/routes/songs.rs` and by the backfill job
 below, not by any write. Nothing generates default tags when a song is added to a library.
@@ -236,8 +299,12 @@ accepts `"true"`/`"false"` case-insensitively and stores lowercase. Anything els
   bounded column, so this is harmless.
 - `canonicalize_tag_value` is called from `src/db/tags.rs::apply_user_tag` and
   `set_user_tag_value`, which both look up the tag's type through `get_owned_tag` first.
-- `SongMetadataService` is built in `src/main.rs` and lives in `AppState`. Its only caller is
-  `default_tags::ensure_default_tags_generated`.
+- `SongMetadataService` is built in `src/main.rs` and lives in `AppState`. Its callers are
+  `default_tags::ensure_default_tags_generated` and `metadata_tags`.
+- `metadata_tags` is called by `src/routes/songs.rs`: both default tag reads spawn
+  `spawn_store_song_metadata` after they finish, and `POST /songs/metadata/opened` runs
+  `record_song_opened`. It reads and writes the tables through `db::metadata_tags`, and its crawl
+  is spawned from `src/main.rs` when `MetadataCrawlConfig::from_env` says it is on.
 - `ensure_default_tags_generated` is called by `src/routes/songs.rs::get_default_tags_on_song_handler`,
   `get_default_tags_on_songs_handler`, and `backfill_default_tags`. It owns the whole
   `default_tags_generation` lifecycle through `db::tags`: `start_`, `finish_`, and
@@ -291,7 +358,11 @@ response, so the service can add endpoints without touching rust.
 - `TagType::Text` has no length cap, unlike tag names (`normalize_tag_name` truncates to 50
   bytes). A client can store an arbitrarily long string as a text attribute value.
 - `SongMetadataService` is catalog only. A library-only song id has no catalog entry and is
-  absent from the map, indistinguishable from a bad id.
+  absent from the map, indistinguishable from a bad id. `metadata_tags` stores those with
+  `found` false, so they are never asked about again, even if Apple later adds them.
+- The crawl's in-flight handback at startup assumes one server runs the crawl. A second server
+  starting up hands back the first one's live claims, which costs a duplicate crawl of those
+  albums and nothing worse.
 - The storefront comes from `APPLE_MUSIC_STOREFRONT` and defaults to `us`. The backend has no
   user token, so it cannot ask Apple for the user's real storefront (`/v1/me/storefront` needs
   one). A song not released in the configured storefront is absent from the map.

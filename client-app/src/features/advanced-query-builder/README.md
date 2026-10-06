@@ -2,8 +2,8 @@
 
 Obsidian-style filter builder for attribute tags. Instead of dragging tags into a boolean tree,
 the user builds nested groups of `where <tag> <operator> <value>` lines, so a query can look at
-a tag's value ("created_at on or after 1950-01-01"), or at tag names, values, and types across
-every tag on a song. Rendered inside `features/cadenza/CadenzaScreen.tsx`, which owns the tree,
+a tag's value ("created_at on or after 1950-01-01"), at tag names, values, and types across
+every tag on a song, or at the song's own Apple Music metadata ("Artist starts with P"). Rendered inside `features/cadenza/CadenzaScreen.tsx`, which owns the tree,
 submitted query, shared preview, and the Simple / Advanced mode toggle.
 
 ## Files
@@ -14,10 +14,10 @@ submitted query, shared preview, and the Simple / Advanced mode toggle.
 | `AdvancedQueryUtils.ts`    | Pure: operator tables and labels, immutable tree ops, date helpers, and `buildAdvancedQuery`, which compiles the tree to `QueryJSON`. Unit tested in `AdvancedQueryUtils.test.ts`.                 |
 | `AdvancedQueryBuilder.tsx` | Scrollable root group. Binds the tree ops into a `BuilderActions` object; the shared result-summary arrow owns navigation.                                                                         |
 | `FilterGroup.tsx`          | One group: the all / any / none selector, its children, and the "Add filter" / "Add filter group" buttons. Recursive. Exports `BuilderTags` and `BuilderActions`.                                  |
-| `FilterRow.tsx`            | One filter line: connector word, field picker (Properties, Your tags, Activity tags), operator picker, value input, and the remove button. Exports `RemoveButton`.                                 |
+| `FilterRow.tsx`            | One filter line: connector word, field picker (Properties, Song info, Your tags, Activity tags), operator picker, value input, and the remove button. Exports `RemoveButton`.                      |
 | `FilterValueInput.tsx`     | The value input for a line: text, number, a calendar day, a date and time, or a tag type.                                                                                                          |
 | `OptionPicker.tsx`         | Liquid-glass popup list with optional sections and search. Its own `Modal`, sized for a phone: near full width, up to 80% of the screen tall, 56pt rows. Scrolls vertically and wraps long labels. |
-| `field-icons.ts`           | `TYPE_ICONS` (an alias of `@/lib/tag-values::TAG_TYPE_ICONS`, shared with `TagPill`), and the three "property" fields (tag name, tag value, tag type).                                             |
+| `field-icons.ts`           | `TYPE_ICONS` (an alias of `@/lib/tag-values::TAG_TYPE_ICONS`, shared with `TagPill`), the three "property" fields (tag name, tag value, tag type), and the seven "song info" fields.               |
 
 ## The model
 
@@ -39,8 +39,17 @@ type FilterField =
     | { kind: "tag"; tagId }
     | { kind: "tag_name" }
     | { kind: "tag_value" }
-    | { kind: "tag_type" };
+    | { kind: "tag_type" }
+    | { kind: "metadata"; key: MetadataKey };
 ```
+
+A `metadata` field is one of the "Song info" fields: title, artist, album, genre, release date,
+duration in milliseconds, or explicit. `METADATA_FIELD_KINDS` maps each key to a field kind
+(`metadata_text`, `metadata_date`, `metadata_number`, `metadata_explicit`), which picks its
+operators and value input the same way a tag type does, minus "is applied" / "is not applied":
+every song has metadata or none, so there is nothing to apply. Explicit offers only "is true" and
+"is false". These filters only see songs whose metadata the backend has stored; see the
+metadata filter notes in `backend-api/src/routes/README.md`.
 
 The root is always a group and cannot be removed. New groups start with one empty filter. A
 filter's operator list comes from its `FieldKind`: the tag's type for a `tag` field, otherwise
@@ -61,7 +70,7 @@ then "and" in an all group and "or" in an any or none group.
 `{ ok: false, error }`. It drops groups with no filters in them, and errors on an unfinished
 filter, a deleted tag, a non-numeric number, or a query with no filters at all. Groups become
 `{and: [...]}`, `{or: [...]}`, and none becomes `{not: {or: [...]}}`. Each line becomes
-`{filter: {field, tag_id?, op, value?}}`, and the whole thing is sent as `{where: ...}`. That is
+`{filter: {field, tag_id?, key?, op, value?}}`, and the whole thing is sent as `{where: ...}`. That is
 the same `QueryJSON` the simple builder produces; this builder just uses the whole of it rather
 than only the applied filters.
 
