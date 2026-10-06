@@ -1,6 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTheme } from "expo-router/react-navigation";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, {
@@ -19,7 +19,11 @@ import {
 } from "@/components/custom/tag-selector";
 import { TagValueDialog } from "@/components/custom/tag-value-dialog";
 import { Text } from "@/components/ui/text";
-import { useActivityTagsOnSong } from "@/lib/routes/songs";
+import {
+    useActivityTagsOnSong,
+    useMetadataTagsOnSong,
+} from "@/lib/routes/songs";
+import { metadataTagPills } from "@/lib/song-metadata-tags";
 import { activityTagDisplayValue, formatTagValue } from "@/lib/tag-values";
 import type { Tag } from "@/lib/types";
 
@@ -88,7 +92,7 @@ export function TagsPage({
                             onCreateTag={onTagCreated}
                             errorMessage={editorError}
                         />
-                        <ActivityTagSection
+                        <MetadataTagSection
                             key={focusedSong.id}
                             songId={focusedSong.id}
                         />
@@ -117,27 +121,50 @@ export function TagsPage({
     );
 }
 
-function ActivityTagSection({ songId }: { songId: string }) {
+/**
+ * Read-only tags the user never applies: the activity tags that listening sets,
+ * then the song's Apple Music metadata as the backend stores it for queries,
+ * so a pill shows exactly what a metadata query matches on. Both load only once
+ * the section is expanded.
+ */
+function MetadataTagSection({ songId }: { songId: string }) {
     const [expanded, setExpanded] = useState(false);
     const { colors } = useTheme();
     const {
-        activityTagsOnSong: tags = [],
-        activityTagsOnSongLoading: loading,
-        activityTagsOnSongErr: error,
+        activityTagsOnSong: activityTags = [],
+        activityTagsOnSongLoading: activityLoading,
+        activityTagsOnSongErr: activityError,
     } = useActivityTagsOnSong(expanded ? songId : undefined);
+    const {
+        metadataTagsOnSong: metadataTags,
+        metadataTagsOnSongLoading: metadataLoading,
+        metadataTagsOnSongErr: metadataError,
+    } = useMetadataTagsOnSong(expanded ? songId : undefined);
+
+    const loading = activityLoading || metadataLoading;
+    const tags = useMemo(
+        () => [
+            ...activityTags.map((tag) => ({
+                tag,
+                value: activityTagDisplayValue(tag),
+            })),
+            ...metadataTagPills(metadataTags ?? []),
+        ],
+        [activityTags, metadataTags],
+    );
 
     return (
         <TagSelectorPanel
             heading={
                 <Pressable
                     accessibilityRole="button"
-                    accessibilityLabel={`${expanded ? "Collapse" : "Expand"} activity tags`}
+                    accessibilityLabel={`${expanded ? "Collapse" : "Expand"} metadata tags`}
                     accessibilityState={{ expanded }}
                     className="flex-row items-center justify-between active:opacity-70"
                     onPress={() => setExpanded((current) => !current)}
                 >
                     <Text className="text-base font-semibold text-foreground">
-                        Activity Tags
+                        Metadata Tags
                     </Text>
                     <Ionicons
                         name={expanded ? "chevron-up" : "chevron-down"}
@@ -155,32 +182,32 @@ function ActivityTagSection({ songId }: { songId: string }) {
                     layout={LinearTransition.duration(160)}
                 >
                     {loading ? (
-                        <ActivityIndicator accessibilityLabel="Loading activity tags" />
-                    ) : error ? (
-                        <Text className="text-sm text-muted-foreground">
-                            Activity tags are unavailable right now.
-                        </Text>
+                        <ActivityIndicator accessibilityLabel="Loading metadata tags" />
                     ) : (
-                        <View className="flex-row flex-wrap gap-2">
-                            {tags.map((tag) => (
-                                <View
-                                    key={tag.id}
-                                    accessible
-                                    accessibilityLabel={`${tag.name}: ${formatTagValue(tag.type, activityTagDisplayValue(tag))}`}
-                                >
-                                    <TagPill
-                                        tag={tag}
-                                        height={14}
-                                        value={activityTagDisplayValue(tag)}
-                                    />
-                                </View>
-                            ))}
-                        </View>
+                        <>
+                            <View className="flex-row flex-wrap gap-2">
+                                {tags.map(({ tag, value }) => (
+                                    <View
+                                        key={tag.id}
+                                        accessible
+                                        accessibilityLabel={`${tag.name}: ${formatTagValue(tag.type, value)}`}
+                                    >
+                                        <TagPill
+                                            tag={tag}
+                                            height={14}
+                                            value={value}
+                                        />
+                                    </View>
+                                ))}
+                            </View>
+                            {activityError || metadataError ? (
+                                <Text className="text-sm text-muted-foreground">
+                                    Some metadata tags are unavailable right
+                                    now.
+                                </Text>
+                            ) : null}
+                        </>
                     )}
-                    <Text className="text-xs text-muted-foreground">
-                        Set by what you listen to. You can filter on these in
-                        the advanced query builder.
-                    </Text>
                 </Animated.View>
             ) : null}
         </TagSelectorPanel>
