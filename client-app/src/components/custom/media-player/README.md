@@ -220,11 +220,11 @@ smoothly between the 750ms native snapshot polls, and scrubbing overrides it wit
   optimistically and hold that state until the refreshed backend read arrives.
 - Below the selector, the read-only Metadata Tags card uses the same theme-aware `TagSelectorPanel`
   surface as Your Tags and Suggested and is collapsed by default. Its data is not fetched
-  until it expands. Then it shows My Plays, First Played, and Last Played from
-  `useActivityTagsOnSong`, followed by the song's metadata tags from `useMetadataTagsOnSong`
+  until it expands. Then it shows the song's metadata tags from `useMetadataTagsOnSong`
   (title, artist, album, genre, release date, duration in milliseconds, explicit, and total
-  plays, which counts every user's plays), turned into
-  pills by `@/lib/song-metadata-tags` with the query builder's field names. The metadata comes
+  plays, which counts every user's plays), turned into pills by `@/lib/song-metadata-tags` with
+  the query builder's field names, followed by My Plays, First Played, and Last Played from
+  `useActivityTagsOnSong`. The metadata comes
   from the backend's stored copy, the same rows metadata queries read, so a pill shows exactly
   what a query matches on. A never-set date reads "Never". Activity values change only as the
   user listens (`@/lib/play-recorder`), never from a tap here.

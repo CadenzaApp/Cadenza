@@ -43,7 +43,7 @@ type FilterField =
     | { kind: "metadata"; key: MetadataKey };
 ```
 
-The picker's Metadata section holds the activity tags, then the song's metadata fields. A
+The picker's Metadata section holds the song's metadata fields, then the activity tags. A
 `metadata` field is one of those: title, artist, album, genre, release date,
 duration in milliseconds, explicit, or total plays. `METADATA_FIELD_KINDS` maps each key to a
 field kind (`metadata_text`, `metadata_date`, `metadata_number`, `metadata_count`,

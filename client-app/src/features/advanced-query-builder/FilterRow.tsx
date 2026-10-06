@@ -107,23 +107,23 @@ export function FilterRow({ filter, connector, tags, actions }: Props) {
                     icon: property.icon,
                 })),
             },
-            // everything the user never tags by hand: the activity tags set by
-            // listening, then the song's Apple Music metadata. the same order
+            // everything the user never tags by hand: the song's Apple Music
+            // metadata, then the activity tags set by listening. the same order
             // as the Metadata Tags section on the Tags page
             {
                 title: "Metadata",
                 options: [
-                    ...tags.activity.map((tag) => ({
-                        key: `tag:${tag.id}`,
-                        label: tag.name,
-                        icon: TYPE_ICONS[tag.type],
-                        iconColor: tag.color,
-                    })),
                     ...METADATA_FIELDS.map((metadata) => ({
                         key: `metadata:${metadata.key}`,
                         label: metadata.label,
                         icon: metadata.icon,
                         iconColor: metadata.iconColor,
+                    })),
+                    ...tags.activity.map((tag) => ({
+                        key: `tag:${tag.id}`,
+                        label: tag.name,
+                        icon: TYPE_ICONS[tag.type],
+                        iconColor: tag.color,
                     })),
                 ],
             },

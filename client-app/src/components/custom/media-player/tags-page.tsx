@@ -122,9 +122,9 @@ export function TagsPage({
 }
 
 /**
- * Read-only tags the user never applies: the activity tags that listening sets,
- * then the song's Apple Music metadata as the backend stores it for queries,
- * so a pill shows exactly what a metadata query matches on. Both load only once
+ * Read-only tags the user never applies: the song's Apple Music metadata as the
+ * backend stores it for queries, so a pill shows exactly what a metadata query
+ * matches on, then the activity tags that listening sets. Both load only once
  * the section is expanded.
  */
 function MetadataTagSection({ songId }: { songId: string }) {
@@ -144,11 +144,11 @@ function MetadataTagSection({ songId }: { songId: string }) {
     const loading = activityLoading || metadataLoading;
     const tags = useMemo(
         () => [
+            ...metadataTagPills(metadataTags ?? []),
             ...activityTags.map((tag) => ({
                 tag,
                 value: activityTagDisplayValue(tag),
             })),
-            ...metadataTagPills(metadataTags ?? []),
         ],
         [activityTags, metadataTags],
     );
