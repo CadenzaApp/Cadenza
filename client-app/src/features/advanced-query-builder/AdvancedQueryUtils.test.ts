@@ -317,7 +317,7 @@ test("date values round trip as local days", () => {
     assert.equal(parseDateValue("1960-1-1"), null);
 });
 
-test("song info filters compile to metadata filters", () => {
+test("metadata filters compile to metadata filters", () => {
     const result = buildAdvancedQuery(
         group("and", [
             filter({
@@ -377,7 +377,7 @@ test("song info filters compile to metadata filters", () => {
     });
 });
 
-test("song info fields offer their own operators and never is applied", () => {
+test("metadata fields offer their own operators and never is applied", () => {
     for (const kind of new Set(Object.values(METADATA_FIELD_KINDS))) {
         assert.equal(OPERATORS_BY_FIELD[kind].includes("is_applied"), false);
     }
@@ -394,7 +394,7 @@ test("song info fields offer their own operators and never is applied", () => {
     assert.equal(valueKindFor("metadata_date", "is_empty"), "none");
 });
 
-test("song info values are checked like tag values", () => {
+test("metadata values are checked like tag values", () => {
     const build = (key: string, op: string, value: string) =>
         buildAdvancedQuery(
             group("and", [
@@ -408,7 +408,7 @@ test("song info values are checked like tag values", () => {
     assert.equal(build("genre", "is", "  ").ok, false);
 });
 
-test("moving between a tag and a song info field keeps what still fits", () => {
+test("moving between a tag and a metadata field keeps what still fits", () => {
     const textTag = {
         ...createFilter(),
         field: { kind: "tag", tagId: 2 } as const,

@@ -1,5 +1,7 @@
 import { METADATA_KEY_LABELS } from "@/lib/query-json";
+import { METADATA_TAG_COLOR } from "@/lib/song-metadata-tags";
 import { TAG_TYPE_ICONS } from "@/lib/tag-values";
+import type { TagType } from "@/lib/types";
 
 import type { IconName } from "./OptionPicker";
 import type { MetadataKey } from "./types";
@@ -22,18 +24,25 @@ export const PROPERTY_FIELDS = [
 }[];
 
 /**
- * The song info fields, from each song's Apple Music metadata rather than its
- * tags, in menu order.
+ * The song's metadata fields, from its Apple Music metadata rather than its
+ * tags, in menu order. Each one reads like an attribute tag of `type`, so it
+ * gets that type's icon, in the same neutral color as its pill on the Tags
+ * page.
  */
 export const METADATA_FIELDS = (
     [
-        { key: "title", icon: "musical-note-outline" },
-        { key: "artist", icon: "person-outline" },
-        { key: "album", icon: "disc-outline" },
-        { key: "genre", icon: "musical-notes-outline" },
-        { key: "release_date", icon: "calendar-outline" },
-        { key: "duration", icon: "time-outline" },
-        { key: "explicit", icon: "alert-circle-outline" },
-        { key: "total_plays", icon: "play-outline" },
-    ] as const satisfies readonly { key: MetadataKey; icon: IconName }[]
-).map((field) => ({ ...field, label: METADATA_KEY_LABELS[field.key] }));
+        { key: "title", type: "text" },
+        { key: "artist", type: "text" },
+        { key: "album", type: "text" },
+        { key: "genre", type: "text" },
+        { key: "release_date", type: "date" },
+        { key: "duration", type: "number" },
+        { key: "explicit", type: "checkbox" },
+        { key: "total_plays", type: "number" },
+    ] as const satisfies readonly { key: MetadataKey; type: TagType }[]
+).map((field) => ({
+    ...field,
+    label: METADATA_KEY_LABELS[field.key],
+    icon: TYPE_ICONS[field.type],
+    iconColor: METADATA_TAG_COLOR,
+}));

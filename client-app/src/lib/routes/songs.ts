@@ -399,7 +399,7 @@ type SongOpenedPayload = {
 };
 /**
  * `POST /songs/metadata/opened`. Tells the backend a song was opened in the
- * player, so it stores the song's Apple Music metadata for the "Song info"
+ * player, so it stores the song's Apple Music metadata for the query builder's Metadata
  * query fields and queues the rest of its album for the metadata crawl.
  *
  * Nothing on screen reads that copy, so this invalidates nothing and callers

@@ -163,7 +163,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     );
     // counts plays for the activity tags, off the snapshot polled below
     usePlayRecorder(snapshot, activeTrack, activeSource);
-    // stores each opened song's metadata for the Song info query fields
+    // stores each opened song's metadata for the query builder's Metadata fields
     useReportOpenedSongs(activeTrack);
 
     function showPlayer() {

@@ -22,7 +22,7 @@ export type FilterField =
     | { kind: "metadata"; key: MetadataKey };
 
 /**
- * The operators a song info field offers. Unlike a tag of the same type, none
+ * The operators a metadata field offers. Unlike a tag of the same type, none
  * of them offers "is applied", since every song has metadata or none.
  */
 export type MetadataFieldKind =

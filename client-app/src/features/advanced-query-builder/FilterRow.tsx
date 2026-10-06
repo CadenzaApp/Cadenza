@@ -86,6 +86,7 @@ export function FilterRow({ filter, connector, tags, actions }: Props) {
         if (metadata) {
             fieldLabel = metadata.label;
             fieldIcon = metadata.icon;
+            fieldIconColor = metadata.iconColor;
         }
     } else if (filter.field) {
         const kindOfField = filter.field.kind;
@@ -106,15 +107,25 @@ export function FilterRow({ filter, connector, tags, actions }: Props) {
                     icon: property.icon,
                 })),
             },
-            // the song's Apple Music metadata, which every song has without
-            // anyone tagging it
+            // everything the user never tags by hand: the activity tags set by
+            // listening, then the song's Apple Music metadata. the same order
+            // as the Metadata Tags section on the Tags page
             {
-                title: "Song info",
-                options: METADATA_FIELDS.map((metadata) => ({
-                    key: `metadata:${metadata.key}`,
-                    label: metadata.label,
-                    icon: metadata.icon,
-                })),
+                title: "Metadata",
+                options: [
+                    ...tags.activity.map((tag) => ({
+                        key: `tag:${tag.id}`,
+                        label: tag.name,
+                        icon: TYPE_ICONS[tag.type],
+                        iconColor: tag.color,
+                    })),
+                    ...METADATA_FIELDS.map((metadata) => ({
+                        key: `metadata:${metadata.key}`,
+                        label: metadata.label,
+                        icon: metadata.icon,
+                        iconColor: metadata.iconColor,
+                    })),
+                ],
             },
             {
                 title: "Your tags",
@@ -125,20 +136,6 @@ export function FilterRow({ filter, connector, tags, actions }: Props) {
                     iconColor: tag.color,
                 })),
             },
-            // set by listening, so kept apart from the user's own tags
-            ...(tags.activity.length > 0
-                ? [
-                      {
-                          title: "Activity tags",
-                          options: tags.activity.map((tag) => ({
-                              key: `tag:${tag.id}`,
-                              label: tag.name,
-                              icon: TYPE_ICONS[tag.type],
-                              iconColor: tag.color,
-                          })),
-                      },
-                  ]
-                : []),
         ],
         [tags.list, tags.activity],
     );

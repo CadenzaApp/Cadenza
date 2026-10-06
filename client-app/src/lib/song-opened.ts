@@ -5,7 +5,7 @@ import { useReportSongOpened } from "./routes/songs";
 
 /**
  * Reports each song the player opens to the backend, once per song, so its
- * Apple Music metadata is stored for the "Song info" query fields along with
+ * Apple Music metadata is stored for the query builder's Metadata fields along with
  * the rest of its album. Called once, from `PlaybackProvider`.
  *
  * Keyed on the catalog id, like tags, so a library copy and a catalog copy of a

@@ -61,7 +61,7 @@ const NUMBER_OPS: FilterOp[] = [
     "is_not_empty",
 ];
 
-/** Which operators each song info field takes. */
+/** Which operators each metadata field takes. */
 export const METADATA_FIELD_KINDS: Record<MetadataKey, MetadataFieldKind> = {
     title: "metadata_text",
     artist: "metadata_text",
