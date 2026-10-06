@@ -20,6 +20,7 @@ use sea_orm::{
 
 use crate::db::entity::sea_orm_active_enums::TagType;
 use crate::db::entity::{tags, user_tags_applied};
+use crate::db::metadata_tags::add_total_plays;
 use crate::err::CadenzaError;
 
 /// Every activity tag the api knows about. Adding one means adding a variant
@@ -185,8 +186,11 @@ pub async fn record_play(
 /// keeps one song to one row per statement, which `ON CONFLICT DO UPDATE`
 /// requires: it refuses to touch the same row twice in one command.
 ///
-/// The three upserts have to land together, so this must never be called on a
-/// bare connection.
+/// Each play also adds to the song's `total_plays` in `metadata_song_tags_applied`, every
+/// user's plays together, so the Total Plays metadata tag moves with My Plays.
+///
+/// The writes have to land together, so this must never be called on a bare
+/// connection.
 pub async fn record_plays_within(
     db: &impl ConnectionTrait,
     user_id: Uuid,
@@ -273,6 +277,13 @@ pub async fn record_plays_within(
         ))
         .await?;
     }
+
+    // every user's plays of the song together, for its Total Plays metadata tag
+    let total_plays: Vec<(&str, i64)> = folded
+        .iter()
+        .map(|(song_id, (count, ..))| (*song_id, *count))
+        .collect();
+    add_total_plays(db, &total_plays).await?;
 
     Ok(())
 }

@@ -457,6 +457,32 @@ impl Compiler<'_> {
                 _ => return Err(unsupported_op(op, "the duration")),
             },
 
+            MetadataKey::TotalPlays => match op {
+                FilterOp::Eq
+                | FilterOp::Ne
+                | FilterOp::Lt
+                | FilterOp::Le
+                | FilterOp::Gt
+                | FilterOp::Ge => {
+                    let param = self.bind(parse_number(required_value(op, value)?)?);
+                    let comparison = match op {
+                        FilterOp::Eq | FilterOp::Ne => "=",
+                        FilterOp::Lt => "<",
+                        FilterOp::Le => "<=",
+                        FilterOp::Gt => ">",
+                        _ => ">=",
+                    };
+                    let condition =
+                        format!("meta.total_plays::double precision {comparison} {param}");
+                    match op {
+                        FilterOp::Ne => Match::None(condition),
+                        _ => Match::Any(condition),
+                    }
+                }
+                // never null, so there is no empty to ask about
+                _ => return Err(unsupported_op(op, "total plays")),
+            },
+
             MetadataKey::Explicit => {
                 no_value(op, value)?;
                 let explicit = "meta.content_rating = 'explicit'".to_string();
@@ -1449,6 +1475,23 @@ mod tests {
     }
 
     #[test]
+    fn total_plays_compares_a_count() {
+        let (sql, values) = compile(&metadata_filter("total_plays", "ge", Some("10"))).unwrap();
+        assert!(
+            squash(&sql).contains("meta.total_plays::double precision >= $2"),
+            "{sql}"
+        );
+        assert_eq!(values[1], sea_query::Value::from(10.0));
+
+        // a count is never null, so there is no empty to ask about
+        assert!(is_format_err(compile(&metadata_filter(
+            "total_plays",
+            "is_empty",
+            None
+        ))));
+    }
+
+    #[test]
     fn explicit_is_a_yes_or_no() {
         let sql = squash(
             &compile(&metadata_filter("explicit", "is_true", None))
@@ -1541,8 +1584,8 @@ mod tests {
 
     /// A scratch library: four songs for a real user, three with stored metadata.
     ///
-    /// - `p1` "Paint It Black", The Rolling Stones, rock and pop, 1966, 3:45, explicit
-    /// - `p2` "Purple Rain", Prince, pop, 1984-06-25, 8:41, clean
+    /// - `p1` "Paint It Black", The Rolling Stones, rock and pop, 1966, 3:45, explicit, 40 plays
+    /// - `p2` "Purple Rain", Prince, pop, 1984-06-25, 8:41, clean, 3 plays
     /// - `n1` Apple has no catalog entry for it
     /// - `x1` never stored
     async fn metadata_library() -> (DatabaseTransaction, Uuid) {
@@ -1588,13 +1631,13 @@ mod tests {
             r#"
             INSERT INTO metadata_song_tags_applied
                 (song_id, found, name, artist_name, album_name, album_id, duration_in_millis,
-                 genre_names, release_date, content_rating)
+                 genre_names, release_date, content_rating, total_plays)
             VALUES
                 ('test-q-p1', true, 'Paint It Black', 'The Rolling Stones', 'Aftermath', 'a1',
-                 225000, ARRAY['Rock', 'Pop'], '1966-01-01', 'explicit'),
+                 225000, ARRAY['Rock', 'Pop'], '1966-01-01', 'explicit', 40),
                 ('test-q-p2', true, 'Purple Rain', 'Prince', 'Purple Rain', 'a2',
-                 521000, ARRAY['Pop'], '1984-06-25', 'clean'),
-                ('test-q-n1', false, NULL, NULL, NULL, NULL, NULL, '{}', NULL, NULL)
+                 521000, ARRAY['Pop'], '1984-06-25', 'clean', 3),
+                ('test-q-n1', false, NULL, NULL, NULL, NULL, NULL, '{}', NULL, NULL, 7)
             "#,
         ))
         .await
@@ -1655,6 +1698,8 @@ mod tests {
             (q("release_date", "is_not_empty", None), vec!["p1", "p2"]),
             (q("duration", "lt", Some("240000")), vec!["p1"]),
             (q("duration", "ge", Some("510000")), vec!["p2"]),
+            (q("total_plays", "gt", Some("10")), vec!["p1"]),
+            (q("total_plays", "ne", Some("40")), vec!["n1", "p2", "x1"]),
             (q("explicit", "is_true", None), vec!["p1"]),
             (q("explicit", "is_false", None), vec!["n1", "p2", "x1"]),
         ];

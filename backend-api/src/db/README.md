@@ -101,7 +101,8 @@ keyed by tag name and user, and `tag_scores_metadata` by user alone.
   leaves every other column empty. `name`, `artist_name`, `album_name`, `album_id`,
   `duration_in_millis`, `genre_names` (`text[]`, never null, without Apple's catch-all "Music"),
   `release_date` (a year-only date is stored as January 1), `content_rating` (`explicit`, `clean`,
-  or null for unrated), and `fetched_at`. Not user scoped and not authoritative. Read by metadata
+  or null for unrated), `fetched_at`, and `total_plays` (bigint, every user's counted plays of
+  the song). Not user scoped and not authoritative. Read by metadata
   query filters and by `GET /songs/metadata-tags`, nothing else. Written only through
   `metadata_tags.rs`. DDL in `sql/metadata_tags.sql`.
 - `metadata_albums` - the album crawl's state and work queue. `album_id` pk, `status`
@@ -211,6 +212,12 @@ create one both end up with the same row, and a wiped table heals on the next re
 `record_play` upserts all three in one transaction: My Plays adds 1 to what is there, First
 Played keeps the earlier of the stored and new time, and Last Played keeps the later. Values use
 the same canonical forms `services::tag_values` writes: a plain integer, and RFC 3339 in UTC.
+
+The same transaction adds the plays to the song's `total_plays` in `metadata_song_tags_applied`
+(`metadata_tags::add_total_plays`), every user's plays together, so Total Plays moves with My
+Plays and a retried event batch moves neither. A song with no metadata row is skipped, and loses
+nothing: when its row is created, `store_song_metadata` counts its `play_counted` events from
+`listening_events` in the same transaction, using `listening_events_play_counted_song_idx`.
 
 `get_activity_tags_on_songs` returns every activity tag for every requested song, filling a
 missing row with `ActivityTag::default_value`: `"0"` for My Plays, `None` for the dates. That
@@ -361,8 +368,9 @@ WHERE <compiled where clause>
   genre at a time over `unnest(genre_names)`, so `is rock` is any genre being rock and
   `is_not rock` is none being rock. `release_date` takes the date operators against a real
   `date` column. `duration` takes the number operators in milliseconds. `explicit` takes `is_true`
-  (rated explicit) and `is_false` (anything else, unrated included). Metadata filters name no tag
-  ids, so they do not move a song's ranking score.
+  (rated explicit) and `is_false` (anything else, unrated included). `total_plays` takes the number
+  operators without `is_empty` / `is_not_empty`, since a count is never null. Metadata filters
+  name no tag ids, so they do not move a song's ranking score.
 - Values are text in the db. Numbers compare as `value::double precision`. Datetimes compare to
   the minute: `date_trunc('minute', value::timestamptz AT TIME ZONE 'UTC')` against the same
   truncation of an RFC 3339 value, so seconds never matter and there is no time zone input.

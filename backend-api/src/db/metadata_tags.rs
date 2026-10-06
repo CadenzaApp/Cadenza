@@ -13,7 +13,7 @@ use sea_orm::{
     ActiveEnum,
     ActiveValue::{NotSet, Set},
     ColumnTrait, ConnectionTrait, DbBackend, EntityTrait, FromQueryResult, QueryFilter,
-    QuerySelect, Statement, UpdateMany,
+    QuerySelect, Statement, TransactionSession, TransactionTrait, UpdateMany,
     sea_query::{Expr, OnConflict},
 };
 
@@ -89,8 +89,12 @@ pub async fn get_stored_album_id(
 ///
 /// `found` are songs Apple returned. `not_found` are ids it did not, which get a row with
 /// `found` false and no metadata, so nothing asks Apple about them again.
+///
+/// Replacing a row keeps its `total_plays`. A song that had no row starts from its
+/// `play_counted` events in `listening_events`, so plays from before the row existed still
+/// count. Both happen in one transaction, so a new row is never left at zero.
 pub async fn store_song_metadata(
-    db: &impl ConnectionTrait,
+    db: &(impl ConnectionTrait + TransactionTrait),
     found: &[SongMetadata],
     not_found: &[String],
 ) -> Result<(), CadenzaError> {
@@ -104,6 +108,18 @@ pub async fn store_song_metadata(
                 .map(|song_id| not_found_row(song_id, fetched_at)),
         )
         .collect();
+
+    let song_ids: Vec<String> = found
+        .iter()
+        .map(|song| song.id.clone())
+        .chain(not_found.iter().cloned())
+        .collect();
+    if song_ids.is_empty() {
+        return Ok(());
+    }
+
+    let txn = db.begin().await?;
+    let new_song_ids = get_songs_without_metadata(&txn, &song_ids).await?;
 
     for chunk in rows.chunks(MAX_ROWS_PER_INSERT) {
         metadata_song_tags_applied::Entity::insert_many(chunk.to_vec())
@@ -123,8 +139,83 @@ pub async fn store_song_metadata(
                     ])
                     .to_owned(),
             )
-            .exec_without_returning(db)
+            .exec_without_returning(&txn)
             .await?;
+    }
+
+    count_total_plays_from_log(&txn, &new_song_ids).await?;
+    txn.commit().await?;
+    Ok(())
+}
+
+/// Sets `total_plays` on each song's row to its number of `play_counted` events, for
+/// rows that were just created. Songs with no plays keep the column's default of 0.
+async fn count_total_plays_from_log(
+    db: &impl ConnectionTrait,
+    song_ids: &[String],
+) -> Result<(), CadenzaError> {
+    for chunk in song_ids.chunks(MAX_ROWS_PER_INSERT) {
+        let params: Vec<String> = (1..=chunk.len()).map(|n| format!("${n}")).collect();
+        let values: Vec<sea_orm::Value> = chunk.iter().map(|id| id.clone().into()).collect();
+
+        db.execute_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            format!(
+                r#"
+                UPDATE metadata_song_tags_applied AS meta
+                SET total_plays = plays.count
+                FROM (
+                    SELECT song_id, count(*) AS count
+                    FROM listening_events
+                    WHERE event_type = 'play_counted' AND song_id IN ({})
+                    GROUP BY song_id
+                ) AS plays
+                WHERE meta.song_id = plays.song_id
+                "#,
+                params.join(", ")
+            ),
+            values,
+        ))
+        .await?;
+    }
+
+    Ok(())
+}
+
+/// Adds plays to each song's `total_plays`, every user's plays together. Takes each song
+/// once, with how many plays to add.
+///
+/// A song with no row yet is skipped. Its plays are not lost: they are in
+/// `listening_events`, and [`store_song_metadata`] counts them when the row is created.
+pub async fn add_total_plays(
+    db: &impl ConnectionTrait,
+    plays: &[(&str, i64)],
+) -> Result<(), CadenzaError> {
+    for chunk in plays.chunks(MAX_ROWS_PER_INSERT) {
+        let mut values: Vec<sea_orm::Value> = Vec::with_capacity(chunk.len() * 2);
+        let rows: Vec<String> = chunk
+            .iter()
+            .map(|(song_id, count)| {
+                values.push((*song_id).into());
+                values.push((*count).into());
+                format!("(${}, ${}::bigint)", values.len() - 1, values.len())
+            })
+            .collect();
+
+        db.execute_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            format!(
+                r#"
+                UPDATE metadata_song_tags_applied AS meta
+                SET total_plays = meta.total_plays + plays.count
+                FROM (VALUES {}) AS plays(song_id, count)
+                WHERE meta.song_id = plays.song_id
+                "#,
+                rows.join(", ")
+            ),
+            values,
+        ))
+        .await?;
     }
 
     Ok(())
@@ -150,6 +241,8 @@ fn found_row(
         release_date: Set(song.release_date.as_deref().and_then(parse_release_date)),
         content_rating: Set(song.content_rating.clone()),
         fetched_at: Set(fetched_at),
+        // the column default on insert, and left out of the update on conflict
+        total_plays: NotSet,
     }
 }
 
@@ -169,6 +262,7 @@ fn not_found_row(
         release_date: Set(None),
         content_rating: Set(None),
         fetched_at: Set(fetched_at),
+        total_plays: NotSet,
     }
 }
 
@@ -847,5 +941,109 @@ mod tests {
 
         let walk = get_library_songs_without_metadata(&txn, 1).await.unwrap();
         assert_eq!(walk, vec![unstored]);
+    }
+
+    async fn a_user(txn: &DatabaseTransaction) -> sea_orm::prelude::Uuid {
+        txn.query_one_raw(Statement::from_string(
+            DbBackend::Postgres,
+            "select id from auth.users limit 1",
+        ))
+        .await
+        .unwrap()
+        .expect("the database needs at least one user for this test")
+        .try_get_by_index(0)
+        .unwrap()
+    }
+
+    async fn total_plays(txn: &DatabaseTransaction, song_id: &str) -> i64 {
+        get_song_metadata(txn, song_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .total_plays
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn a_new_row_counts_its_plays_from_the_log_and_a_restore_keeps_them() {
+        let txn = scratch().await;
+        let user_id = a_user(&txn).await;
+        let (played, unplayed) = (test_id("plays-played"), test_id("plays-unplayed"));
+
+        // two counted plays and a skip, logged before the song had a row
+        txn.execute_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            r#"
+            INSERT INTO listening_events (user_id, event_type, song_id, occurred_at, client_event_id)
+            VALUES ($1, 'play_counted', $2, now(), 'test-plays-1'),
+                   ($1, 'play_counted', $2, now(), 'test-plays-2'),
+                   ($1, 'skip', $2, now(), 'test-plays-3')
+            "#,
+            [user_id.into(), played.clone().into()],
+        ))
+        .await
+        .unwrap();
+
+        store_song_metadata(&txn, &[song(&played, None), song(&unplayed, None)], &[])
+            .await
+            .unwrap();
+        assert_eq!(total_plays(&txn, &played).await, 2, "skips do not count");
+        assert_eq!(total_plays(&txn, &unplayed).await, 0);
+
+        add_total_plays(&txn, &[(played.as_str(), 3)])
+            .await
+            .unwrap();
+        store_song_metadata(&txn, &[song(&played, Some("10"))], &[])
+            .await
+            .unwrap();
+        assert_eq!(
+            total_plays(&txn, &played).await,
+            5,
+            "storing again keeps the count rather than recounting or resetting it"
+        );
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn added_plays_land_on_existing_rows_and_skip_missing_ones() {
+        let txn = scratch().await;
+        let (a, b, missing) = (test_id("add-a"), test_id("add-b"), test_id("add-missing"));
+        store_song_metadata(&txn, &[song(&a, None), song(&b, None)], &[])
+            .await
+            .unwrap();
+
+        add_total_plays(
+            &txn,
+            &[(a.as_str(), 2), (b.as_str(), 1), (missing.as_str(), 4)],
+        )
+        .await
+        .unwrap();
+        add_total_plays(&txn, &[(a.as_str(), 1)]).await.unwrap();
+
+        assert_eq!(total_plays(&txn, &a).await, 3);
+        assert_eq!(total_plays(&txn, &b).await, 1);
+        assert!(get_song_metadata(&txn, &missing).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn counting_a_play_moves_total_plays_too() {
+        let txn = scratch().await;
+        let user_id = a_user(&txn).await;
+        let song_id = test_id("record-play");
+        store_song_metadata(&txn, &[song(&song_id, None)], &[])
+            .await
+            .unwrap();
+
+        let at = Utc::now();
+        crate::db::activity_tags::record_plays_within(
+            &txn,
+            user_id,
+            &[(song_id.clone(), at), (song_id.clone(), at)],
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(total_plays(&txn, &song_id).await, 2);
     }
 }

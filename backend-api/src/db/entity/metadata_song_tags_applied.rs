@@ -22,6 +22,7 @@ pub struct Model {
     pub fetched_at: DateTimeWithTimeZone,
     #[sea_orm(column_type = "Text", nullable)]
     pub album_name: Option<String>,
+    pub total_plays: i64,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
