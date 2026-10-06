@@ -93,11 +93,15 @@ pub async fn get_stored_album_id(
 /// Replacing a row keeps its `total_plays`. A song that had no row starts from its
 /// `play_counted` events in `listening_events`, so plays from before the row existed still
 /// count. Both happen in one transaction, so a new row is never left at zero.
+///
+/// Each song is written once however often it is passed, which [`one_per_song`] explains.
 pub async fn store_song_metadata(
     db: &(impl ConnectionTrait + TransactionTrait),
     found: &[SongMetadata],
     not_found: &[String],
 ) -> Result<(), CadenzaError> {
+    let (found, not_found) = one_per_song(found, not_found);
+
     let fetched_at = Utc::now().fixed_offset();
     let rows: Vec<metadata_song_tags_applied::ActiveModel> = found
         .iter()
@@ -112,7 +116,7 @@ pub async fn store_song_metadata(
     let song_ids: Vec<String> = found
         .iter()
         .map(|song| song.id.clone())
-        .chain(not_found.iter().cloned())
+        .chain(not_found.iter().map(|song_id| (*song_id).clone()))
         .collect();
     if song_ids.is_empty() {
         return Ok(());
@@ -146,6 +150,35 @@ pub async fn store_song_metadata(
     count_total_plays_from_log(&txn, &new_song_ids).await?;
     txn.commit().await?;
     Ok(())
+}
+
+/// Each song once: the found songs, then the not found ids, with every id in one or the
+/// other and never twice.
+///
+/// One insert with the same song twice fails outright: `ON CONFLICT DO UPDATE` refuses to
+/// touch the same row twice in one command. The album crawl can hand over the same song
+/// twice, since a song can be on two of the albums it crawls in one pass, like a standard
+/// and a deluxe edition. The last copy of a found song wins, so its `album_id` is the last
+/// album it was read off; either album is right. A song both found and not found counts as
+/// found. Input order is kept otherwise.
+fn one_per_song<'a>(
+    found: &'a [SongMetadata],
+    not_found: &'a [String],
+) -> (Vec<&'a SongMetadata>, Vec<&'a String>) {
+    let mut seen = HashSet::new();
+    let mut found: Vec<&SongMetadata> = found
+        .iter()
+        .rev()
+        .filter(|song| seen.insert(song.id.as_str()))
+        .collect();
+    found.reverse();
+
+    let not_found = not_found
+        .iter()
+        .filter(|song_id| seen.insert(song_id.as_str()))
+        .collect();
+
+    (found, not_found)
 }
 
 /// Sets `total_plays` on each song's row to its number of `play_counted` events, for
@@ -672,6 +705,49 @@ mod tests {
         );
     }
 
+    fn metadata(id: &str, album_id: &str) -> SongMetadata {
+        SongMetadata {
+            id: id.into(),
+            title: id.into(),
+            artist_name: "artist".into(),
+            album_name: None,
+            album_id: Some(album_id.into()),
+            duration_ms: None,
+            artwork_url: None,
+            genre_names: Vec::new(),
+            release_date: None,
+            isrc: None,
+            content_rating: None,
+        }
+    }
+
+    #[test]
+    fn one_per_song_keeps_the_last_copy_of_a_found_song() {
+        let found = vec![
+            metadata("a", "standard"),
+            metadata("b", "standard"),
+            metadata("a", "deluxe"),
+        ];
+        let (found, not_found) = one_per_song(&found, &[]);
+
+        let kept: Vec<(&str, &str)> = found
+            .iter()
+            .map(|song| (song.id.as_str(), song.album_id.as_deref().unwrap()))
+            .collect();
+        assert_eq!(kept, vec![("b", "standard"), ("a", "deluxe")]);
+        assert!(not_found.is_empty());
+    }
+
+    #[test]
+    fn one_per_song_counts_a_song_found_and_not_found_as_found() {
+        let found = vec![metadata("a", "x")];
+        let not_found = strings(&["a", "b", "b", "c"]);
+        let (found, not_found) = one_per_song(&found, &not_found);
+
+        assert_eq!(found.len(), 1);
+        assert_eq!(not_found, vec!["b", "c"]);
+    }
+
     #[test]
     fn distinct_keeps_input_order() {
         assert_eq!(
@@ -776,6 +852,31 @@ mod tests {
             get_stored_album_id(&txn, &a).await.unwrap().as_deref(),
             Some("11")
         );
+    }
+
+    /// The album crawl can pass the same song twice in one call, when it is on two of the
+    /// albums one pass crawls. A single insert with it twice is refused by postgres, which
+    /// used to fail the whole pass.
+    #[tokio::test]
+    #[ignore]
+    async fn a_song_passed_twice_in_one_call_is_stored_once() {
+        let txn = scratch().await;
+        let shared = test_id("shared-track");
+
+        store_song_metadata(
+            &txn,
+            &[
+                song(&shared, Some("standard")),
+                song(&shared, Some("deluxe")),
+            ],
+            std::slice::from_ref(&shared),
+        )
+        .await
+        .unwrap();
+
+        let row = get_song_metadata(&txn, &shared).await.unwrap().unwrap();
+        assert!(row.found);
+        assert_eq!(row.album_id.as_deref(), Some("deluxe"));
     }
 
     #[tokio::test]

@@ -296,26 +296,27 @@ impl CrawlPass {
     }
 }
 
-/// One pass of the crawl. First stores library songs that have no row and queues their
-/// albums, newest additions first. Then crawls the oldest queued albums and stores every
-/// song on them.
+/// One pass of the crawl. With `walk_library`, first stores library songs that have no row
+/// and queues their albums, newest additions first. Then crawls the oldest queued albums and
+/// stores every song on them.
+///
+/// The two steps fail apart. A library walk that fails is logged and the albums are crawled
+/// anyway, so a batch of library songs Apple keeps refusing cannot hold up the albums of
+/// songs people opened. Only a rate limit skips the albums, since they would hit it too.
 pub async fn crawl_metadata(
     db: &DatabaseConnection,
     song_meta_service: &SongMetadataService,
     config: &MetadataCrawlConfig,
+    walk_library: bool,
 ) -> Result<CrawlPass, CadenzaError> {
     let mut pass = CrawlPass::default();
 
-    if config.library_batch_size > 0 {
-        let library_song_ids =
-            get_library_songs_without_metadata(db, config.library_batch_size as u64).await?;
-        let stored = ensure_song_metadata_stored(db, song_meta_service, &library_song_ids).await?;
-        let album_ids: Vec<String> = stored
-            .iter()
-            .filter_map(|song| song.album_id.clone())
-            .collect();
-        queue_albums(db, &album_ids).await?;
-        pass.library_songs = library_song_ids.len();
+    if walk_library && config.library_batch_size > 0 {
+        match walk_library_once(db, song_meta_service, config.library_batch_size).await {
+            Ok(library_songs) => pass.library_songs = library_songs,
+            Err(err @ CadenzaError::SongMetadataRateLimited) => return Err(err),
+            Err(err) => eprintln!("{LOG_TAG} library walk failed, crawling albums anyway: {err}"),
+        }
     }
 
     let claimed = claim_pending_albums(db, config.album_batch_size as u64).await?;
@@ -343,6 +344,23 @@ pub async fn crawl_metadata(
             Err(err)
         }
     }
+}
+
+/// Stores up to `batch_size` library songs that have no row, newest additions first, and
+/// queues their albums. Returns how many songs it covered.
+async fn walk_library_once(
+    db: &DatabaseConnection,
+    song_meta_service: &SongMetadataService,
+    batch_size: usize,
+) -> Result<usize, CadenzaError> {
+    let library_song_ids = get_library_songs_without_metadata(db, batch_size as u64).await?;
+    let stored = ensure_song_metadata_stored(db, song_meta_service, &library_song_ids).await?;
+    let album_ids: Vec<String> = stored
+        .iter()
+        .filter_map(|song| song.album_id.clone())
+        .collect();
+    queue_albums(db, &album_ids).await?;
+    Ok(library_song_ids.len())
 }
 
 /// Reads every song on the claimed albums and stores them all. An album Apple no longer
@@ -378,11 +396,14 @@ async fn run_pass(
     db: &DatabaseConnection,
     song_meta_service: &SongMetadataService,
     config: &Arc<MetadataCrawlConfig>,
+    walk_library: bool,
 ) -> PassOutcome {
     let pass = {
         let (db, song_meta_service, config) =
             (db.clone(), song_meta_service.clone(), config.clone());
-        tokio::spawn(async move { crawl_metadata(&db, &song_meta_service, &config).await })
+        tokio::spawn(
+            async move { crawl_metadata(&db, &song_meta_service, &config, walk_library).await },
+        )
     };
 
     match pass.await {
@@ -412,12 +433,17 @@ async fn run_pass(
 /// called. After a pass that did something it goes again, a second later, until a pass
 /// finds nothing, so a queued album is stored within seconds rather than at the next tick.
 ///
+/// Only the first pass after an interval tick walks the library. Its query scans
+/// `user_songs` for songs with no row, which costs more as libraries grow, and a wake comes
+/// with every song opened in the player. Wakes, and the passes that drain the queue after
+/// any pass, only crawl albums, so the walk runs at most once an interval: up to
+/// `METADATA_CRAWL_LIBRARY_BATCH_SIZE` library songs a minute by default.
+///
 /// Recovering is built in:
 ///
 /// - Albums are only ever `in_flight` while this loop is in a pass. Before the first pass,
 ///   and before any pass that follows a failure, a panic, or a rate limit, it hands every
-///   `in_flight` album
-///   back to `pending`. That covers a server that died mid pass, and a pass whose own
+///   `in_flight` album back to `pending`. That covers a server that died mid pass, and a pass whose own
 ///   release failed because the database was down. If the handback itself fails it is tried
 ///   again before the next pass.
 /// - A pass that panics is caught by [`run_pass`]; the loop carries on.
@@ -441,10 +467,11 @@ pub fn spawn_metadata_crawl(
         let mut hand_back_in_flight = true;
 
         loop {
-            tokio::select! {
-                _ = ticker.tick() => {}
-                _ = crawler.wake.notified() => {}
-            }
+            // a tick walks the library on its first pass; a wake only crawls albums
+            let mut walk_library = tokio::select! {
+                _ = ticker.tick() => true,
+                _ = crawler.wake.notified() => false,
+            };
 
             loop {
                 if hand_back_in_flight {
@@ -463,7 +490,10 @@ pub fn spawn_metadata_crawl(
                     }
                 }
 
-                match run_pass(&db, &song_meta_service, &config).await {
+                let outcome = run_pass(&db, &song_meta_service, &config, walk_library).await;
+                walk_library = false;
+
+                match outcome {
                     PassOutcome::Worked => sleep(DRAIN_PAUSE).await,
                     PassOutcome::Idle => break,
                     PassOutcome::RateLimited => {

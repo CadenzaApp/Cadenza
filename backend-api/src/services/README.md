@@ -182,13 +182,22 @@ means the album changed since it was crawled. Artists are never crawled: a full 
 far more rows than the free database tier can hold.
 
 The crawl (`spawn_metadata_crawl`) is behind `METADATA_CRAWL_ENABLED`, a constant in
-`metadata_tags.rs` that is `true`. A pass stores up to `METADATA_CRAWL_LIBRARY_BATCH_SIZE`
-library songs with no row, newest additions first, and queues their albums, then crawls up to
-`METADATA_CRAWL_ALBUM_BATCH_SIZE` queued albums in one Apple request. A pass runs at startup,
-every `METADATA_CRAWL_INTERVAL_SECS`, and whenever `MetadataCrawler::wake` is called, which
-`record_song_opened` does after queueing an album, so an opened song's album is stored within
-seconds. After a pass that did anything the crawl goes again a second later, until the queue is
-empty.
+`metadata_tags.rs` that is `true`. A pass crawls up to `METADATA_CRAWL_ALBUM_BATCH_SIZE` queued
+albums in one Apple request. A pass runs at startup, every `METADATA_CRAWL_INTERVAL_SECS`, and
+whenever `MetadataCrawler::wake` is called, which `record_song_opened` does after queueing an
+album, so an opened song's album is stored within seconds. After a pass that did anything the
+crawl goes again a second later, until the queue is empty.
+
+The library walk stores up to `METADATA_CRAWL_LIBRARY_BATCH_SIZE` library songs with no row,
+newest additions first, and queues their albums. It runs only on the first pass after an
+interval tick, never on a wake or a draining pass, because its query scans `user_songs` and a
+wake comes with every song opened. So a large library backfills a batch a minute rather than
+all at once. A walk that fails is logged and the pass crawls albums anyway, so library songs
+Apple keeps refusing cannot hold up the albums of opened songs; only a rate limit skips them.
+
+The crawl can hand `store_song_metadata` the same song twice, when it is on two albums in one
+pass, like a standard and a deluxe edition. That function keeps one copy of each song, since
+postgres refuses an insert that would update the same row twice.
 
 A claim counts an attempt. A failed album goes back to `pending` until its fifth try and is then
 marked `failed` for good. A rate limit hands every claimed album back without counting the
