@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+    METADATA_FIELD_KINDS,
     OPERATORS_BY_FIELD,
     addChild,
     buildAdvancedQuery,
@@ -17,6 +18,7 @@ import {
     updateFilter,
     withField,
     withOp,
+    valueKindFor,
 } from "./AdvancedQueryUtils.ts";
 
 const tagTypes = new Map([
@@ -313,4 +315,123 @@ test("date values round trip as local days", () => {
     assert.equal(toDateValue(parseDateValue("1960-12-31")!), "1960-12-31");
     assert.equal(parseDateValue("1960-13-01"), null);
     assert.equal(parseDateValue("1960-1-1"), null);
+});
+
+test("song info filters compile to metadata filters", () => {
+    const result = buildAdvancedQuery(
+        group("and", [
+            filter({
+                field: { kind: "metadata", key: "artist" },
+                op: "starts_with",
+                value: " P ",
+            }),
+            filter({
+                field: { kind: "metadata", key: "duration" },
+                op: "lt",
+                value: "210000.0",
+            }),
+            filter({
+                field: { kind: "metadata", key: "release_date" },
+                op: "before",
+                value: "2000-01-01",
+            }),
+            filter({
+                field: { kind: "metadata", key: "explicit" },
+                op: "is_true",
+                value: "leftover",
+            }),
+            filter({ field: { kind: "tag", tagId: 1 }, op: "is_applied" }),
+        ]),
+        tagTypes,
+    );
+
+    assert.deepEqual(result.ok && result.query.where, {
+        and: [
+            {
+                filter: {
+                    field: "metadata",
+                    key: "artist",
+                    op: "starts_with",
+                    value: "P",
+                },
+            },
+            {
+                filter: {
+                    field: "metadata",
+                    key: "duration",
+                    op: "lt",
+                    value: "210000",
+                },
+            },
+            {
+                filter: {
+                    field: "metadata",
+                    key: "release_date",
+                    op: "before",
+                    value: "2000-01-01",
+                },
+            },
+            { filter: { field: "metadata", key: "explicit", op: "is_true" } },
+            { filter: { field: "tag", tag_id: 1, op: "is_applied" } },
+        ],
+    });
+});
+
+test("song info fields offer their own operators and never is applied", () => {
+    for (const kind of new Set(Object.values(METADATA_FIELD_KINDS))) {
+        assert.equal(OPERATORS_BY_FIELD[kind].includes("is_applied"), false);
+    }
+    assert.deepEqual(OPERATORS_BY_FIELD.metadata_explicit, [
+        "is_true",
+        "is_false",
+    ]);
+    assert.equal(valueKindFor("metadata_number", "gt"), "number");
+    assert.equal(valueKindFor("metadata_date", "on"), "date");
+    assert.equal(valueKindFor("metadata_text", "contains"), "text");
+    assert.equal(valueKindFor("metadata_date", "is_empty"), "none");
+});
+
+test("song info values are checked like tag values", () => {
+    const build = (key: string, op: string, value: string) =>
+        buildAdvancedQuery(
+            group("and", [
+                filter({ field: { kind: "metadata", key }, op, value }),
+            ]),
+            tagTypes,
+        );
+
+    assert.equal(build("duration", "gt", "long").ok, false);
+    assert.equal(build("release_date", "on", "2000-13-01").ok, false);
+    assert.equal(build("genre", "is", "  ").ok, false);
+});
+
+test("moving between a tag and a song info field keeps what still fits", () => {
+    const textTag = {
+        ...createFilter(),
+        field: { kind: "tag", tagId: 2 } as const,
+        op: "contains" as const,
+        value: "live",
+    };
+    const toAlbum = withField(
+        textTag,
+        { kind: "metadata", key: "album" },
+        tagTypes,
+    );
+    assert.equal(toAlbum.op, "contains");
+    assert.equal(toAlbum.value, "live");
+
+    const toExplicit = withField(
+        toAlbum,
+        { kind: "metadata", key: "explicit" },
+        tagTypes,
+    );
+    assert.equal(toExplicit.op, "is_true");
+    assert.equal(toExplicit.value, "");
+
+    // a tag-only operator falls back to the field's first one
+    const appliedTag = { ...textTag, op: "is_applied" as const, value: "" };
+    assert.equal(
+        withField(appliedTag, { kind: "metadata", key: "title" }, tagTypes).op,
+        "is",
+    );
 });

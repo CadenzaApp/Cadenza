@@ -2,10 +2,10 @@
 // Advanced query builder types
 /////////////////////////
 
-import type { FilterOp } from "@/lib/query-json";
+import type { FilterOp, MetadataKey } from "@/lib/query-json";
 import type { TagType } from "@/lib/types";
 
-export type { FilterOp };
+export type { FilterOp, MetadataKey };
 
 /**
  * How a group combines its children. "none" means none of the children may
@@ -18,13 +18,29 @@ export type FilterField =
     | { kind: "tag"; tagId: number }
     | { kind: "tag_name" }
     | { kind: "tag_value" }
-    | { kind: "tag_type" };
+    | { kind: "tag_type" }
+    | { kind: "metadata"; key: MetadataKey };
+
+/**
+ * The operators a song info field offers. Unlike a tag of the same type, none
+ * of them offers "is applied", since every song has metadata or none.
+ */
+export type MetadataFieldKind =
+    | "metadata_text"
+    | "metadata_date"
+    | "metadata_number"
+    | "metadata_explicit";
 
 /**
  * Decides which operators a filter offers: the tag's type for a "tag" field,
- * otherwise the field itself.
+ * the key's kind for a "metadata" field, otherwise the field itself.
  */
-export type FieldKind = TagType | "tag_name" | "tag_value" | "tag_type";
+export type FieldKind =
+    | TagType
+    | "tag_name"
+    | "tag_value"
+    | "tag_type"
+    | MetadataFieldKind;
 
 /** Which input a filter shows for its value. */
 export type ValueKind =

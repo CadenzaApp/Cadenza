@@ -1,6 +1,8 @@
+import { METADATA_KEY_LABELS } from "@/lib/query-json";
 import { TAG_TYPE_ICONS } from "@/lib/tag-values";
 
 import type { IconName } from "./OptionPicker";
+import type { MetadataKey } from "./types";
 
 /**
  * The icon shown next to a tag of each type. Lives in `@/lib/tag-values` so
@@ -18,3 +20,19 @@ export const PROPERTY_FIELDS = [
     label: string;
     icon: IconName;
 }[];
+
+/**
+ * The song info fields, from each song's Apple Music metadata rather than its
+ * tags, in menu order.
+ */
+export const METADATA_FIELDS = (
+    [
+        { key: "title", icon: "musical-note-outline" },
+        { key: "artist", icon: "person-outline" },
+        { key: "album", icon: "disc-outline" },
+        { key: "genre", icon: "musical-notes-outline" },
+        { key: "release_date", icon: "calendar-outline" },
+        { key: "duration", icon: "time-outline" },
+        { key: "explicit", icon: "alert-circle-outline" },
+    ] as const satisfies readonly { key: MetadataKey; icon: IconName }[]
+).map((field) => ({ ...field, label: METADATA_KEY_LABELS[field.key] }));
