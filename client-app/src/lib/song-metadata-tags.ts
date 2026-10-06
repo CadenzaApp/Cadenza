@@ -19,6 +19,7 @@ const KEY_ORDER: MetadataKey[] = [
     "release_date",
     "duration",
     "explicit",
+    "total_plays",
 ];
 
 /** A metadata pill: a tag that exists only on screen, and the song's value. */

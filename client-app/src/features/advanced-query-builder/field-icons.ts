@@ -34,5 +34,6 @@ export const METADATA_FIELDS = (
         { key: "release_date", icon: "calendar-outline" },
         { key: "duration", icon: "time-outline" },
         { key: "explicit", icon: "alert-circle-outline" },
+        { key: "total_plays", icon: "play-outline" },
     ] as const satisfies readonly { key: MetadataKey; icon: IconName }[]
 ).map((field) => ({ ...field, label: METADATA_KEY_LABELS[field.key] }));

@@ -110,6 +110,7 @@ pub enum Filter {
 ///   minutes
 /// - `explicit`: `is_true` and `is_false`. False covers songs rated clean and songs with no
 ///   rating at all
+/// - `total_plays`: number operators, against every user's counted plays of the song
 ///
 /// A song with no stored metadata counts as having every one of these empty, the same as a
 /// song without a tag.
@@ -123,6 +124,7 @@ pub enum MetadataKey {
     ReleaseDate,
     Duration,
     Explicit,
+    TotalPlays,
 }
 
 /// Every filter operator, across all field and tag types.

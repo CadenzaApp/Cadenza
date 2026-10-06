@@ -57,7 +57,9 @@ export type QueryJSONNode =
  * Which piece of a song's Apple Music metadata a `metadata` filter looks at.
  * Text operators for title, artist, album, and genre (any one of the song's
  * genres), date operators for the release date, number operators in
- * milliseconds for the duration, and `is_true` / `is_false` for explicit.
+ * milliseconds for the duration, `is_true` / `is_false` for explicit, and
+ * number operators without the empty ones for total plays, every user's counted
+ * plays of the song.
  */
 export type MetadataKey =
     | "title"
@@ -66,7 +68,8 @@ export type MetadataKey =
     | "genre"
     | "release_date"
     | "duration"
-    | "explicit";
+    | "explicit"
+    | "total_plays";
 
 export type FilterJSON =
     | { field: "tag"; tag_id: number; op: FilterOp; value?: string }
@@ -87,6 +90,7 @@ export const METADATA_KEY_LABELS: Record<MetadataKey, string> = {
     release_date: "Release date",
     duration: "Duration (ms)",
     explicit: "Explicit",
+    total_plays: "Total Plays",
 };
 
 /** Names of tags a query requires to be present, in query traversal order. */

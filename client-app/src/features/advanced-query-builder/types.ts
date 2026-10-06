@@ -29,6 +29,7 @@ export type MetadataFieldKind =
     | "metadata_text"
     | "metadata_date"
     | "metadata_number"
+    | "metadata_count"
     | "metadata_explicit";
 
 /**

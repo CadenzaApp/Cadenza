@@ -28,6 +28,7 @@ pub struct MetadataTag {
 /// - `duration`: number, in milliseconds
 /// - `explicit`: checkbox. True when Apple rates the song explicit, false otherwise, which
 ///   is what a query's `is_false` matches too
+/// - `total_plays`: number, every user's counted plays of the song
 pub fn metadata_tags_of(row: &metadata_song_tags_applied::Model) -> Vec<MetadataTag> {
     if !row.found {
         return Vec::new();
@@ -64,6 +65,11 @@ pub fn metadata_tags_of(row: &metadata_song_tags_applied::Model) -> Vec<Metadata
             TagType::Checkbox,
             Some(explicit.to_string()),
         ),
+        (
+            MetadataKey::TotalPlays,
+            TagType::Number,
+            Some(row.total_plays.to_string()),
+        ),
     ]
     .into_iter()
     .filter_map(|(key, tag_type, value)| {
@@ -95,6 +101,7 @@ mod tests {
             release_date: NaiveDate::from_ymd_opt(1984, 6, 25),
             content_rating: Some("clean".into()),
             fetched_at: Utc::now().fixed_offset(),
+            total_plays: 12,
         }
     }
 
@@ -117,6 +124,7 @@ mod tests {
                 (MetadataKey::ReleaseDate, TagType::Date, "1984-06-25".into()),
                 (MetadataKey::Duration, TagType::Number, "521000".into()),
                 (MetadataKey::Explicit, TagType::Checkbox, "false".into()),
+                (MetadataKey::TotalPlays, TagType::Number, "12".into()),
             ]
         );
     }
@@ -153,7 +161,8 @@ mod tests {
             vec![
                 MetadataKey::Title,
                 MetadataKey::Artist,
-                MetadataKey::Explicit
+                MetadataKey::Explicit,
+                MetadataKey::TotalPlays
             ]
         );
     }

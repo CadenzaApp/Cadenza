@@ -38,8 +38,15 @@ create table if not exists metadata_song_tags_applied (
     release_date       date,
     -- 'explicit', 'clean', or null when Apple gave no rating
     content_rating     text,
-    fetched_at         timestamptz not null default now()
+    fetched_at         timestamptz not null default now(),
+    -- every user's counted plays of the song. moved in the same transaction that stores
+    -- each play_counted event, and counted from listening_events when the row is created
+    total_plays        bigint not null default 0
 );
+
+-- for a database that has the table from before total_plays existed
+alter table metadata_song_tags_applied
+    add column if not exists total_plays bigint not null default 0;
 
 -- "starts with" on the text fields, for when queries run over more than one library
 create index if not exists metadata_song_tags_applied_name_idx
@@ -56,6 +63,25 @@ create index if not exists metadata_song_tags_applied_duration_idx
     on metadata_song_tags_applied (duration_in_millis);
 create index if not exists metadata_song_tags_applied_genre_names_idx
     on metadata_song_tags_applied using gin (genre_names);
+
+-- counting a new row's plays from the log. listening_events' own indexes all lead with
+-- user_id, so without this every new song would scan the whole log
+create index if not exists listening_events_play_counted_song_idx
+    on listening_events (song_id)
+    where event_type = 'play_counted';
+
+-- sets every row's total_plays from the log. needed once, for rows stored before the column
+-- existed; new rows are counted when they are created. it sets rather than adds, so running
+-- it again is harmless
+update metadata_song_tags_applied as meta
+set total_plays = plays.count
+from (
+    select song_id, count(*) as count
+    from listening_events
+    where event_type = 'play_counted' and song_id is not null
+    group by song_id
+) as plays
+where meta.song_id = plays.song_id;
 
 -- the album crawl's state, which is also its work queue
 create table if not exists metadata_albums (

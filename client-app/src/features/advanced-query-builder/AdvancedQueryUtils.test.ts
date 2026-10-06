@@ -386,6 +386,9 @@ test("song info fields offer their own operators and never is applied", () => {
         "is_false",
     ]);
     assert.equal(valueKindFor("metadata_number", "gt"), "number");
+    assert.equal(valueKindFor("metadata_count", "ge"), "number");
+    assert.equal(OPERATORS_BY_FIELD.metadata_count.includes("is_empty"), false);
+    assert.equal(METADATA_FIELD_KINDS.total_plays, "metadata_count");
     assert.equal(valueKindFor("metadata_date", "on"), "date");
     assert.equal(valueKindFor("metadata_text", "contains"), "text");
     assert.equal(valueKindFor("metadata_date", "is_empty"), "none");

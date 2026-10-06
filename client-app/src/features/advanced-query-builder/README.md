@@ -44,8 +44,9 @@ type FilterField =
 ```
 
 A `metadata` field is one of the "Song info" fields: title, artist, album, genre, release date,
-duration in milliseconds, or explicit. `METADATA_FIELD_KINDS` maps each key to a field kind
-(`metadata_text`, `metadata_date`, `metadata_number`, `metadata_explicit`), which picks its
+duration in milliseconds, explicit, or total plays. `METADATA_FIELD_KINDS` maps each key to a
+field kind (`metadata_text`, `metadata_date`, `metadata_number`, `metadata_count`,
+`metadata_explicit`), which picks its
 operators and value input the same way a tag type does, minus "is applied" / "is not applied":
 every song has metadata or none, so there is nothing to apply. Explicit offers only "is true" and
 "is false". These filters only see songs whose metadata the backend has stored; see the

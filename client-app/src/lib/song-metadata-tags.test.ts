@@ -9,6 +9,7 @@ test("metadata tags become pills named like the query builder's fields", () => {
         { key: "release_date", type: "date", value: "1984-06-25" },
         { key: "duration", type: "number", value: "521000" },
         { key: "explicit", type: "checkbox", value: "false" },
+        { key: "total_plays", type: "number", value: "12" },
     ]);
 
     assert.deepEqual(
@@ -18,6 +19,7 @@ test("metadata tags become pills named like the query builder's fields", () => {
             ["Release date", "date", "1984-06-25"],
             ["Duration (ms)", "number", "521000"],
             ["Explicit", "checkbox", "false"],
+            ["Total Plays", "number", "12"],
         ],
     );
     for (const { tag } of pills) {

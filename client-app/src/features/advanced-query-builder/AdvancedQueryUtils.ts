@@ -70,6 +70,7 @@ export const METADATA_FIELD_KINDS: Record<MetadataKey, MetadataFieldKind> = {
     release_date: "metadata_date",
     duration: "metadata_number",
     explicit: "metadata_explicit",
+    total_plays: "metadata_count",
 };
 
 /** The operators offered for each kind of field, in menu order. */
@@ -86,6 +87,10 @@ export const OPERATORS_BY_FIELD: Record<FieldKind, FilterOp[]> = {
     metadata_text: TEXT_OPS,
     metadata_date: MOMENT_OPS,
     metadata_number: NUMBER_OPS,
+    // a count is never empty, so it has no is empty / is not empty
+    metadata_count: NUMBER_OPS.filter(
+        (op) => op !== "is_empty" && op !== "is_not_empty",
+    ),
     metadata_explicit: ["is_true", "is_false"],
 };
 
@@ -132,6 +137,7 @@ export function valueKindFor(fieldKind: FieldKind, op: FilterOp): ValueKind {
     switch (fieldKind) {
         case "number":
         case "metadata_number":
+        case "metadata_count":
             return "number";
         case "datetime":
             return "datetime";

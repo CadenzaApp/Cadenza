@@ -47,7 +47,8 @@ Two halves:
 
 Apple Music owns song metadata and playback. We store a song id (a string) and the tags and
 comments attached to it. The one exception is `metadata_song_tags_applied`, a copy of each
-song's title, artist, album, genre, release date, length, and rating, so queries can filter on
+song's title, artist, album, genre, release date, length, rating, and total plays across every
+user, so queries can filter on
 them (the "Song info" fields) and the Tags page can show them as Metadata Tags. Nothing else
 reads that copy: every other screen still gets titles from Apple Music, and a stale row only
 makes a query miss a song. See the Metadata
