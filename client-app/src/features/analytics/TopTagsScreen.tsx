@@ -23,7 +23,7 @@ export function TopTagsScreen() {
     return (
         <AnalyticsScrollScreen
             title="Tags"
-            error={topTagsErr}
+            error={topTags ? undefined : topTagsErr}
             errorLabel="Could not load your tags."
             loading={topTagsLoading && !topTags}
             skeleton={<Skeleton className="h-24 w-full rounded" />}

@@ -10,6 +10,8 @@ type Props = {
     accent: string | null;
     /** "just now", "5m ago", or null before the first read lands. */
     updatedAgo: string | null;
+    /** The last read failed, so the page is showing what it had before. */
+    offline: boolean;
 };
 
 /**
@@ -17,7 +19,7 @@ type Props = {
  * controls that move it. Scrolls with the page rather than pinning, so nothing
  * floating over the top of the screen can cover a fixed filter row.
  */
-export function AnalyticsHeader({ accent, updatedAgo }: Props) {
+export function AnalyticsHeader({ accent, updatedAgo, offline }: Props) {
     const { period } = useAnalyticsPeriod();
 
     return (
@@ -39,7 +41,17 @@ export function AnalyticsHeader({ accent, updatedAgo }: Props) {
                 <PeriodStepper />
             </View>
 
-            {updatedAgo ? (
+            {offline ? (
+                <View className="flex-row items-center gap-2">
+                    <View className="h-2 w-2 rounded-full bg-amber-500" />
+                    <Text className="text-muted-foreground text-xs">
+                        Offline
+                        {updatedAgo
+                            ? `, updated ${updatedAgo}`
+                            : ", showing saved"}
+                    </Text>
+                </View>
+            ) : updatedAgo ? (
                 <View className="flex-row items-center gap-2">
                     <View className="h-2 w-2 rounded-full bg-green-500" />
                     <Text className="text-muted-foreground text-xs">

@@ -93,16 +93,15 @@ export function AnalyticsOverviewScreen() {
                     ]}
                     showsVerticalScrollIndicator={false}
                 >
-                    <AnalyticsHeader accent={accent} updatedAgo={updatedAgo} />
+                    <AnalyticsHeader
+                        accent={accent}
+                        updatedAgo={updatedAgo}
+                        offline={Boolean(summaryErr)}
+                    />
 
-                    {summaryErr ? (
-                        <Message
-                            title="Could not load your listening"
-                            detail="Pull down to try again once you are back online."
-                        />
-                    ) : summaryLoading && !summary ? (
-                        <LoadingState />
-                    ) : summary ? (
+                    {/* data wins over an error, so a dropped connection
+                        keeps the last page rather than blanking it */}
+                    {summary ? (
                         <OverviewBody
                             summary={summary}
                             period={period}
@@ -115,6 +114,13 @@ export function AnalyticsOverviewScreen() {
                             metric={metric}
                             onMetricChange={setMetric}
                         />
+                    ) : summaryErr ? (
+                        <Message
+                            title="Could not load your listening"
+                            detail="Pull down to try again once you are back online."
+                        />
+                    ) : summaryLoading ? (
+                        <LoadingState />
                     ) : null}
                 </Animated.ScrollView>
             </ScreenScrollMarker>
@@ -219,7 +225,7 @@ function OverviewBody({
                 <TrendChart
                     trend={trend}
                     loading={trendLoading}
-                    error={trendErr}
+                    error={trend ? undefined : trendErr}
                     metric={metric}
                     onMetricChange={onMetricChange}
                     color={accent}

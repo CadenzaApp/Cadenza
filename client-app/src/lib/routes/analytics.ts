@@ -121,7 +121,7 @@ export function useAnalyticsSummary(
     const x = useAPIData<AnalyticsSummary>(
         "/analytics/summary",
         windowParams(window),
-        { keepPreviousData: true, onSuccess },
+        { keepPreviousData: true, onSuccess, save: true },
     );
     return {
         summary: x.data,
@@ -146,7 +146,7 @@ export function useAnalyticsTrend(
     const x = useAPIData<AnalyticsTrend>(
         "/analytics/trends",
         { metric, bucket, ...windowParams(window) },
-        { keepPreviousData: true, enabled },
+        { keepPreviousData: true, enabled, save: true },
     );
     return {
         trend: x.data,
@@ -168,7 +168,7 @@ export function useAnalyticsTop(
             ...windowParams(window),
             ...(limit ? { limit } : {}),
         },
-        { keepPreviousData: true },
+        { keepPreviousData: true, save: true },
     );
     return {
         top: x.data,
@@ -200,7 +200,7 @@ export function useAnalyticsHeatmap(bucket: string, window?: AnalyticsWindow) {
     const x = useAPIData<AnalyticsHeatmap>(
         "/analytics/heatmap",
         { bucket, ...windowParams(window) },
-        { keepPreviousData: true },
+        { keepPreviousData: true, save: true },
     );
     return {
         heatmap: x.data,
@@ -214,7 +214,7 @@ export function useAnalyticsTopTags(window?: AnalyticsWindow, limit?: number) {
     const x = useAPIData<AnalyticsTopTags>(
         "/analytics/top-tags",
         { ...windowParams(window), ...(limit ? { limit } : {}) },
-        { keepPreviousData: true },
+        { keepPreviousData: true, save: true },
     );
     return {
         topTags: x.data,
