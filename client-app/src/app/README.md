@@ -235,6 +235,10 @@ and the now playing sheet's `...` menu. `/collection/:kind/:id` is reached throu
 artist, both artwork sizes, and the artwork color so the hero and the tint are there before the
 song fetch lands.
 
+Go to Album opens the full catalog album through `useAlbumRouteForTrack`, since a library album
+holds only the songs the user added. Its `highlight` param names the song it came from, and that
+row shimmers once, the first time it is on screen.
+
 These root routes render above the native tab controller, so its bottom accessory cannot appear
 over them. Every zoom-dismiss card owns a compact player layer, which makes the player transform
 with that card and lets a nested close reveal the parent card's already-mounted player. Query

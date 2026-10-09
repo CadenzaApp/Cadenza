@@ -10,7 +10,7 @@ import type {
     MusicListTrackAction,
 } from "@/components/custom/music-list/types";
 import { SongTagSelectorPopup } from "@/components/custom/tag-selector/song-popup";
-import { albumRouteForTrack } from "@/lib/music-routes";
+import { useAlbumRouteForTrack } from "@/lib/album-route";
 import { useSongArtists, useSongFavoriteStatus } from "@/lib/musickit-hooks";
 import { useOpenScreen } from "@/lib/open-screen";
 import { usePlaybackCommands } from "@/lib/playback";
@@ -54,6 +54,7 @@ export const SongOptionsMenu = memo(function SongOptionsMenu({
         setSongFavoriteStatus,
     } = useSongFavoriteStatus(favoriteId);
     const { artistIds, artistIdsLoading } = useSongArtists(favoriteId);
+    const { albumRoute, albumRouteLoading } = useAlbumRouteForTrack(track);
     const [isUpdatingFavorite, setIsUpdatingFavorite] = useState(false);
     const [editingTags, setEditingTags] = useState(false);
     const { addToQueue, playNext } = usePlaybackCommands();
@@ -90,10 +91,9 @@ export const SongOptionsMenu = memo(function SongOptionsMenu({
     }
 
     function openAlbum() {
-        const route = albumRouteForTrack(selectedTrack);
-        if (!route) return;
+        if (!albumRoute) return;
         onClose();
-        go(route);
+        go(albumRoute);
     }
 
     function openArtist() {
@@ -184,10 +184,13 @@ export const SongOptionsMenu = memo(function SongOptionsMenu({
                             key={action.id}
                             action={action}
                             target={selectedTrack}
-                            busy={isArtist && artistIdsLoading}
+                            busy={
+                                (isArtist && artistIdsLoading) ||
+                                (isAlbum && albumRouteLoading)
+                            }
                             disabled={
                                 (isArtist && !artistId) ||
-                                (isAlbum && !selectedTrack.albumID)
+                                (isAlbum && !albumRoute)
                             }
                         />
                     );

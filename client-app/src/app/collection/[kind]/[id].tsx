@@ -37,6 +37,7 @@ export default function CollectionDetailScreen() {
         artworkColor,
         artworkUrl,
         artworkUrlLarge,
+        highlight,
     } = useLocalSearchParams<{
         kind: LibraryCollectionKind;
         id: string;
@@ -45,6 +46,7 @@ export default function CollectionDetailScreen() {
         artworkColor?: string;
         artworkUrl?: string;
         artworkUrlLarge?: string;
+        highlight?: string;
     }>();
     const { activeTrack, isPlaying } = usePlaybackTrackState();
     const { playQueue, setShuffleMode, togglePlayback } = usePlaybackCommands();
@@ -133,6 +135,7 @@ export default function CollectionDetailScreen() {
                     }
                     tracks={tracks}
                     isLoading={tracksLoading}
+                    highlightTrackId={highlight}
                     error={tracksErr}
                     pagination={{
                         hasNextPage: hasNextCollectionPage,

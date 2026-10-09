@@ -19,6 +19,8 @@ type CollectionRoute = {
         artworkColor?: string;
         artworkUrl?: string;
         artworkUrlLarge?: string;
+        /** A song on it to point out once it scrolls into view. */
+        highlight?: string;
     };
 };
 
@@ -45,21 +47,32 @@ export function collectionRoute(collection: MusicItem): CollectionRoute {
 }
 
 /**
- * The same screen for an album we only know through a song on it. A song's
- * artwork is the album cover, so its color is the album's color.
+ * The same screen for an album we only know through a song on it, with that
+ * song highlighted. A song's artwork is the album cover, so its color is the
+ * album's color. `albumId` defaults to the track's own, which for a library
+ * song is the library album; `useAlbumRouteForTrack` finds the full one.
  */
-export function albumRouteForTrack(track: MusicItem): CollectionRoute | null {
-    if (!track.albumID) return null;
+export function albumRouteForTrack(
+    track: MusicItem,
+    albumId = track.albumID,
+): CollectionRoute | null {
+    if (!albumId) return null;
     return {
         pathname: "/collection/[kind]/[id]",
         params: {
             kind: "album",
-            id: track.albumID,
+            id: albumId,
             title: track.albumName ?? "Album",
             artistName: track.artistName,
             artworkColor: track.artworkColor,
             artworkUrl: track.artworkUrl ?? track.artworkUrlLarge,
             artworkUrlLarge: track.artworkUrlLarge,
+            highlight: track.catalogId ?? track.id,
         },
     };
+}
+
+/** Library ids carry a type prefix (`l.`, `i.`, `p.`), catalog ids are bare. */
+export function isLibraryId(id: string) {
+    return id.includes(".");
 }

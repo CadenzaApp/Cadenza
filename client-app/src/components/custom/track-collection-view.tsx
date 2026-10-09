@@ -78,6 +78,8 @@ type Props = {
     titleContent?: ReactNode;
     tracks: MusicItem[];
     isLoading: boolean;
+    /** A song to point out; see `MusicListProps`. */
+    highlightTrackId?: string;
     error?: unknown;
     anticipatedTrackCount?: number;
     onBackPress?: () => void;
@@ -116,6 +118,7 @@ export function TrackCollectionView({
     titleContent,
     tracks,
     isLoading,
+    highlightTrackId,
     error,
     anticipatedTrackCount,
     onBackPress,
@@ -355,6 +358,7 @@ export function TrackCollectionView({
             <MusicList
                 tracks={tracks}
                 isLoading={isLoading}
+                highlightTrackId={highlightTrackId}
                 pagination={pagination}
                 sorting={sorting}
                 anticipatedTrackCount={anticipatedTrackCount}

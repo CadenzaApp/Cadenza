@@ -91,6 +91,11 @@ export type MusicListProps = {
     tracks: MusicItem[];
     isLoading: boolean;
     /**
+     * A song id (catalog, library, or plain) whose row shimmers the first time
+     * it is on screen, then never again.
+     */
+    highlightTrackId?: string;
+    /**
      * Replaces normal tap-to-play behavior. When null or omitted, tapping a
      * track uses the shared playback controller.
      */

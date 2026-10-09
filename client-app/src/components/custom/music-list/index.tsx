@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FlatList, View } from "react-native";
+import { FlatList, View, type ViewToken } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
     Easing,
@@ -31,6 +31,7 @@ import {
     MusicListItemSkeleton,
     MUSIC_LIST_ITEM_HEIGHT,
 } from "./music-list-item";
+import { MusicListRowShimmer } from "./music-list-row-shimmer";
 import { MusicListSelectionToolbar } from "./music-list-selection-toolbar";
 import { MusicListSortButton } from "./music-list-sort-button";
 import { sortTracks } from "./sort-tracks";
@@ -63,10 +64,18 @@ const DENSITY_ROW_FADE_IN_MS = 220;
 const DENSITY_ROW_STAGGER_MS = 32;
 const DENSITY_MAX_STAGGER_MS = 560;
 const MUSIC_LIST_BOTTOM_SPACER_ROWS = 2;
+// mostly on screen and held there, so a row flung past does not use it up
+const HIGHLIGHT_VIEWABILITY = {
+    itemVisiblePercentThreshold: 80,
+    minimumViewTime: 250,
+};
+
+type HighlightPhase = "waiting" | "playing" | "done";
 
 export function MusicList({
     tracks,
     isLoading,
+    highlightTrackId,
     onTrackPressOverride = null,
     renderAccessory = null,
     trackMenuActions = EMPTY_TRACK_ACTIONS,
@@ -206,15 +215,47 @@ export function MusicList({
             ? listBottomInset
             : Math.max(40, playerBottomInset + 12);
     const contentBottomInset = bottomOverlayInset + bottomRowSpacer;
+    // the highlighted row plays once it is really on screen, which may be
+    // after a scroll, and once it has played it is done for good
+    const [highlightPhase, setHighlightPhase] = useState<HighlightPhase>(
+        highlightTrackId ? "waiting" : "done",
+    );
+    const isHighlighted = useCallback(
+        (track: (typeof tracks)[number]) =>
+            highlightTrackId != null &&
+            [track.id, track.catalogId, track.libraryId].includes(
+                highlightTrackId,
+            ),
+        [highlightTrackId],
+    );
+    // FlatList errors if this changes after mount. it only follows the
+    // highlight, which is fixed for a screen
+    const onViewableItemsChanged = useCallback(
+        ({ viewableItems }: { viewableItems: ViewToken[] }) => {
+            const seen = viewableItems.some(
+                (token) =>
+                    token.isViewable &&
+                    isHighlighted(token.item as (typeof tracks)[number]),
+            );
+            if (!seen) return;
+            setHighlightPhase((phase) =>
+                phase === "waiting" ? "playing" : phase,
+            );
+        },
+        [isHighlighted],
+    );
+    const finishHighlight = useCallback(() => setHighlightPhase("done"), []);
     const listExtraData = useMemo(
         () => ({
             isCompact,
             densityTransitionRevision,
             densityRevealActive,
             selectedIds: selection.selectedIds,
+            highlightPhase,
         }),
         [
             densityRevealActive,
+            highlightPhase,
             densityTransitionRevision,
             isCompact,
             selection.selectedIds,
@@ -471,6 +512,12 @@ export function MusicList({
                                             }
                                             onOpenMenu={setMenuTrack}
                                         />
+                                        {highlightPhase === "playing" &&
+                                        isHighlighted(item) ? (
+                                            <MusicListRowShimmer
+                                                onDone={finishHighlight}
+                                            />
+                                        ) : null}
                                     </Animated.View>
                                 )}
                                 contentContainerClassName={
@@ -510,6 +557,8 @@ export function MusicList({
                                 onScroll={composedOnScroll}
                                 onEndReached={handleEndReached}
                                 onEndReachedThreshold={0.1}
+                                viewabilityConfig={HIGHLIGHT_VIEWABILITY}
+                                onViewableItemsChanged={onViewableItemsChanged}
                             />
                         </ScreenScrollMarker>
                     )}
