@@ -24,6 +24,7 @@ use crate::{
     },
     services::{
         default_tags::{BackfillConfig, spawn_default_tag_backfill},
+        metadata_tags::{MetadataCrawlConfig, MetadataCrawler, spawn_metadata_crawl},
         social_feed::SocialFeedService,
         song_metadata::SongMetadataService,
         tag_generation::{TagGenerationService, openai_tag_generator::OpenAiTagGenerator},
@@ -37,6 +38,7 @@ struct AppState {
     jwt_decoder: Decoder<SupabaseClaims>,
     tag_gen_service: TagGenerationService,
     song_meta_service: SongMetadataService,
+    metadata_crawler: MetadataCrawler,
     social_feed_service: SocialFeedService,
 }
 
@@ -108,6 +110,28 @@ async fn main() {
         None => println!("default tag backfill: off"),
     }
 
+    // stores Apple Music metadata for library songs and crawls queued albums, so queries can
+    // filter on it. behind METADATA_CRAWL_ENABLED in services::metadata_tags. requests that
+    // queue an album wake it through metadata_crawler, so it does not wait for its interval
+    let metadata_crawler = MetadataCrawler::new();
+    match MetadataCrawlConfig::from_env() {
+        Some(config) => {
+            println!(
+                "metadata crawl: on, up to {} library songs and {} albums a pass, every {}s or when woken",
+                config.library_batch_size,
+                config.album_batch_size,
+                config.interval.as_secs()
+            );
+            spawn_metadata_crawl(
+                db.clone(),
+                song_meta_service.clone(),
+                config,
+                metadata_crawler.clone(),
+            );
+        }
+        None => println!("metadata crawl: off"),
+    }
+
     // halves each user's tag scores once a week, so a name the user stopped using
     // falls back behind the ones they still do. always on: it costs one short
     // transaction per user a week and nothing outside the database
@@ -118,6 +142,7 @@ async fn main() {
         jwt_decoder,
         tag_gen_service,
         song_meta_service,
+        metadata_crawler,
         social_feed_service,
     };
 

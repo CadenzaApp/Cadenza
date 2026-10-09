@@ -12,6 +12,7 @@ use crate::db::tags::{
 };
 use crate::db::user_songs::get_recent_songs_without_generated_default_tags;
 use crate::err::CadenzaError;
+use crate::services::metadata_tags::store_fetched_song_metadata;
 use crate::services::song_metadata::SongMetadataService;
 use crate::services::tag_generation::{TagGenerationService, TagSpecs};
 
@@ -73,6 +74,13 @@ pub async fn ensure_default_tags_generated(
             describable_song_ids.push(song_id.clone());
             descriptions.push(meta.description());
         }
+    }
+
+    // keep a copy for metadata queries while it is in hand, so these songs are not read
+    // from Apple a second time for that. only a side effect of this call, so a failure is
+    // logged rather than failing default tags
+    if let Err(err) = store_fetched_song_metadata(db, &ungenerated, metadata).await {
+        eprintln!("could not store song metadata read for default tags: {err}");
     }
 
     // claimed before the generator call, not after, so anything else reading these songs

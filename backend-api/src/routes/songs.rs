@@ -13,11 +13,17 @@ use crate::{
     },
     err::CadenzaError,
     routes::json::{
+        metadata_tag::{MetadataTag, metadata_tags_of},
         tag::{AppliedTag, Tag},
         vec_into,
     },
     services::{
-        default_tags::ensure_default_tags_generated, song_metadata::SongMetadataService,
+        default_tags::ensure_default_tags_generated,
+        metadata_tags::{
+            MetadataCrawler, get_song_metadata_for_display, record_song_opened,
+            spawn_store_song_metadata,
+        },
+        song_metadata::SongMetadataService,
         tag_generation::TagGenerationService,
     },
 };
@@ -54,7 +60,8 @@ async fn get_local_tags_on_song_handler(
 /// ```
 ///
 /// A song that has never had default tags generated gets them generated first, so the
-/// first read of a song is slow and every later one is not.
+/// first read of a song is slow and every later one is not. Afterwards the song's Apple Music
+/// metadata is stored for queries, on its own task, if it was not already.
 async fn get_default_tags_on_song_handler(
     State(db): State<DatabaseConnection>,
     State(song_meta_service): State<SongMetadataService>,
@@ -69,6 +76,7 @@ async fn get_default_tags_on_song_handler(
         std::slice::from_ref(&params.song_id),
     )
     .await?;
+    spawn_store_song_metadata(db.clone(), song_meta_service, vec![params.song_id.clone()]);
 
     let mut tags_by_song =
         get_default_tags_on_songs(&db, claims.user_id, std::slice::from_ref(&params.song_id))
@@ -143,7 +151,10 @@ async fn get_local_tags_on_songs_handler(
 /// ```
 ///
 /// Any requested song that has never had default tags generated gets them generated
-/// first, in one batch, so the first read of a page of new songs is slow.
+/// first, in one batch, so the first read of a page of new songs is slow. Afterwards their
+/// Apple Music metadata is stored for queries, on its own task, for the ones that had none.
+/// Every song list in the app reads through here, which is what makes any song a user has
+/// seen queryable by its metadata.
 async fn get_default_tags_on_songs_handler(
     State(db): State<DatabaseConnection>,
     State(song_meta_service): State<SongMetadataService>,
@@ -155,6 +166,7 @@ async fn get_default_tags_on_songs_handler(
 
     ensure_default_tags_generated(&db, &song_meta_service, &tag_gen_service, &payload.song_ids)
         .await?;
+    spawn_store_song_metadata(db.clone(), song_meta_service, payload.song_ids.clone());
 
     let mut tags_by_song =
         get_default_tags_on_songs(&db, claims.user_id, &payload.song_ids).await?;
@@ -266,6 +278,33 @@ async fn get_activity_tags_on_song_handler(
     )))
 }
 
+/// Returns one song's metadata tags: its Apple Music metadata as stored for queries, typed
+/// the way a query reads it, in a fixed order. A song with no stored metadata is stored
+/// first. A song Apple has no catalog entry for returns an empty list.
+///
+/// ```json
+/// [
+///   {"key": "title", "type": "text", "value": "Purple Rain"},
+///   {"key": "artist", "type": "text", "value": "Prince"},
+///   {"key": "album", "type": "text", "value": "Purple Rain"},
+///   {"key": "genre", "type": "text", "value": "Pop, R&B/Soul"},
+///   {"key": "release_date", "type": "date", "value": "1984-06-25"},
+///   {"key": "duration", "type": "number", "value": "521000"},
+///   {"key": "explicit", "type": "checkbox", "value": "false"}
+/// ]
+/// ```
+///
+/// Not user scoped: the metadata belongs to the song, but it still takes a signed in caller.
+async fn get_metadata_tags_on_song_handler(
+    State(db): State<DatabaseConnection>,
+    State(song_meta_service): State<SongMetadataService>,
+    _: Claims<SupabaseClaims>, // must have credentials to use this route
+    Query(params): Query<SongIdQueryParams>,
+) -> Result<Json<Vec<MetadataTag>>, CadenzaError> {
+    let row = get_song_metadata_for_display(&db, &song_meta_service, &params.song_id).await?;
+    Ok(Json(row.as_ref().map(metadata_tags_of).unwrap_or_default()))
+}
+
 /// Same as `GET /songs/activity-tags` for many songs at once, keyed by song id.
 /// Every requested song gets an entry, with every activity tag.
 ///
@@ -348,6 +387,31 @@ async fn unapply_user_tags_from_songs_handler(
 }
 
 #[derive(Deserialize)]
+pub struct SongOpenedPayload {
+    song_id: String,
+}
+
+/// Tells the backend a song was opened in the player. Returns an empty body.
+///
+/// ```json
+/// {"song_id": "1440857781"}
+/// ```
+///
+/// Stores the song's Apple Music metadata for queries if it has none, queues the song's
+/// album, and wakes the metadata crawl so the rest of the album is stored within seconds.
+/// Nothing the client shows depends on this, so the client fires it and does not wait. Not user scoped: the metadata belongs to
+/// the song, but it still takes a signed in caller.
+async fn song_opened_handler(
+    State(db): State<DatabaseConnection>,
+    State(song_meta_service): State<SongMetadataService>,
+    State(metadata_crawler): State<MetadataCrawler>,
+    _: Claims<SupabaseClaims>, // must have credentials to use this route
+    Json(payload): Json<SongOpenedPayload>,
+) -> Result<(), CadenzaError> {
+    record_song_opened(&db, &song_meta_service, &metadata_crawler, &payload.song_id).await
+}
+
+#[derive(Deserialize)]
 pub struct EditUserSongsPayload {
     #[serde(default)]
     add: Vec<String>,
@@ -402,4 +466,6 @@ pub fn get_songs_router() -> Router<AppState> {
             post(get_activity_tags_on_songs_handler),
         )
         .route("/plays", post(record_play_handler))
+        .route("/metadata/opened", post(song_opened_handler))
+        .route("/metadata-tags", get(get_metadata_tags_on_song_handler))
 }

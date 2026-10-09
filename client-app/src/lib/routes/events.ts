@@ -19,10 +19,10 @@ export type RecordEventsResponse = {
  * Idempotent on `client_event_id`, so a retry after a timeout is free and the
  * caller never has to decide whether a failed request got through.
  *
- * Only a batch holding a `play_counted` invalidates the activity tag reads and
- * the query results, because that is the only event that moves My Plays, First
- * Played, or Last Played. Every event changes the analytics, so those reads are
- * always invalidated. Without that split a scrub through one song would refetch
+ * Only a batch holding a `play_counted` invalidates the activity tag reads, the
+ * metadata tag reads, and the query results, because that is the only event
+ * that moves My Plays, First Played, Last Played, or Total Plays. Every event
+ * changes the analytics, so those reads are always invalidated. Without that split a scrub through one song would refetch
  * the activity tags for the whole visible library once per seek.
  */
 export function useRecordEvents() {
@@ -45,6 +45,8 @@ export function useRecordEvents() {
                 ...analytics,
                 { path: "/songs/activity-tags" },
                 { path: "/songs/activity-tags/batch" },
+                // Total Plays moves in the same transaction as My Plays
+                { path: "/songs/metadata-tags" },
                 { path: "/queries/results" },
             ];
         },

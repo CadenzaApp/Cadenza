@@ -11,6 +11,22 @@ pub enum Interest {
     Artist,
 }
 #[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
+#[sea_orm(
+    rs_type = "String",
+    db_type = "Enum",
+    enum_name = "metadata_crawl_status"
+)]
+pub enum MetadataCrawlStatus {
+    #[sea_orm(string_value = "pending")]
+    Pending,
+    #[sea_orm(string_value = "in_flight")]
+    InFlight,
+    #[sea_orm(string_value = "done")]
+    Done,
+    #[sea_orm(string_value = "failed")]
+    Failed,
+}
+#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "tag_gen_status")]
 pub enum TagGenStatus {
     #[sea_orm(string_value = "in_flight")]

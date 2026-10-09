@@ -14,6 +14,8 @@ import type {
     FilterField,
     FilterOp,
     GroupConjunction,
+    MetadataFieldKind,
+    MetadataKey,
     ValueKind,
 } from "./types";
 
@@ -48,6 +50,29 @@ const TEXT_OPS: FilterOp[] = [
  */
 const APPLIED_OPS: FilterOp[] = ["is_applied", "is_not_applied"];
 
+const NUMBER_OPS: FilterOp[] = [
+    "eq",
+    "ne",
+    "lt",
+    "le",
+    "gt",
+    "ge",
+    "is_empty",
+    "is_not_empty",
+];
+
+/** Which operators each metadata field takes. */
+export const METADATA_FIELD_KINDS: Record<MetadataKey, MetadataFieldKind> = {
+    title: "metadata_text",
+    artist: "metadata_text",
+    album: "metadata_text",
+    genre: "metadata_text",
+    release_date: "metadata_date",
+    duration: "metadata_number",
+    explicit: "metadata_explicit",
+    total_plays: "metadata_count",
+};
+
 /** The operators offered for each kind of field, in menu order. */
 export const OPERATORS_BY_FIELD: Record<FieldKind, FilterOp[]> = {
     text: [...TEXT_OPS, ...APPLIED_OPS],
@@ -55,20 +80,18 @@ export const OPERATORS_BY_FIELD: Record<FieldKind, FilterOp[]> = {
     tag_value: TEXT_OPS,
     datetime: [...MOMENT_OPS, ...APPLIED_OPS],
     date: [...MOMENT_OPS, ...APPLIED_OPS],
-    number: [
-        "eq",
-        "ne",
-        "lt",
-        "le",
-        "gt",
-        "ge",
-        "is_empty",
-        "is_not_empty",
-        ...APPLIED_OPS,
-    ],
+    number: [...NUMBER_OPS, ...APPLIED_OPS],
     checkbox: ["is_true", "is_false", "is_null", ...APPLIED_OPS],
     basic: APPLIED_OPS,
     tag_type: ["is", "is_not"],
+    metadata_text: TEXT_OPS,
+    metadata_date: MOMENT_OPS,
+    metadata_number: NUMBER_OPS,
+    // a count is never empty, so it has no is empty / is not empty
+    metadata_count: NUMBER_OPS.filter(
+        (op) => op !== "is_empty" && op !== "is_not_empty",
+    ),
+    metadata_explicit: ["is_true", "is_false"],
 };
 
 export const OPERATOR_LABELS: Record<FilterOp, string> = {
@@ -113,10 +136,13 @@ export function valueKindFor(fieldKind: FieldKind, op: FilterOp): ValueKind {
     if (VALUELESS_OPS.has(op)) return "none";
     switch (fieldKind) {
         case "number":
+        case "metadata_number":
+        case "metadata_count":
             return "number";
         case "datetime":
             return "datetime";
         case "date":
+        case "metadata_date":
             return "date";
         case "tag_type":
             return "tag_type";
@@ -135,6 +161,7 @@ export function fieldKindOf(
 ): FieldKind | null {
     if (!field) return null;
     if (field.kind === "tag") return tagTypes.get(field.tagId) ?? null;
+    if (field.kind === "metadata") return METADATA_FIELD_KINDS[field.key];
     return field.kind;
 }
 
@@ -436,6 +463,8 @@ function filterToJSON(
             return withValue({ field: "tag_value", op }, value);
         case "tag_type":
             return { field: "tag_type", op, value: value as TagType };
+        case "metadata":
+            return withValue({ field: "metadata", key: field.key, op }, value);
     }
 }
 

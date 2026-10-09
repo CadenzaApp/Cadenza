@@ -55,17 +55,22 @@ Auth is per handler, not middleware. A handler that needs a user adds
 the request with a 401 before the body runs. The user id is `claims.user_id`, taken from the
 JWT `sub`. Never read a user id off the request.
 
-Two `tokio` tasks run for the life of the process, both spawned from `main.rs` before the
+Three `tokio` tasks run for the life of the process, all spawned from `main.rs` before the
 listener binds:
 
 - **default tag backfill**, off unless `DEFAULT_TAG_BACKFILL_ENABLED` is `true`, because every
   pass can spend Apple Music and OpenAI calls.
+- **metadata crawl**, behind the `METADATA_CRAWL_ENABLED` constant in
+  `src/services/metadata_tags.rs`, which is `true`. Stores Apple Music metadata for library
+  songs and for every song on a queued album, so queries can filter on it. Woken straight away
+  when a request queues an album, and hands back albums a stopped server left claimed when it
+  starts.
 - **tag score decay**, always on. Once a week it halves each user's `tag_scores` in a transaction
   of its own, skipping users whose highest score is below 5, and records each user's last decay
   week in `tag_scores_metadata`. It checks once a day, and a day with nobody due costs one query,
   so there is no env var to turn it off.
 
-Both are in `src/services/`. See [src/services/README.md](src/services/README.md).
+All three are in `src/services/`. See [src/services/README.md](src/services/README.md).
 
 Errors: every handler returns `Result<_, CadenzaError>`. `CadenzaError` implements
 `IntoResponse` and maps each variant to a status plus a JSON body of
@@ -80,12 +85,15 @@ that shape.
 | --- | --- | --- |
 | `DATABASE_URL` | yes | The Supabase **session-mode** pooler: `postgresql://postgres.PROJECT:PASSWORD@REGION.pooler.supabase.com:5432/postgres`. Panics at startup if missing. Use port 5432, not 6543; see Database connections below. |
 | `OPENAI_API_KEY` | yes | Read by `OpenAiTagGenerator::new()`, which panics at startup if missing, even if you never call tag suggestion. |
-| `APPLE_MUSIC_DEVELOPER_TOKEN` | yes | A signed MusicKit developer token, used by `SongMetadataService` to read the song titles default tag generation runs on. Read by `SongMetadataService::new()`, which panics at startup if missing. Apple caps the token at 6 months and nothing here refreshes it. |
+| `APPLE_MUSIC_DEVELOPER_TOKEN` | yes | A signed MusicKit developer token, used by `SongMetadataService` to read the song titles default tag generation runs on, and the metadata queries filter on. Read by `SongMetadataService::new()`, which panics at startup if missing. Apple caps the token at 6 months and nothing here refreshes it. |
 | `APPLE_MUSIC_STOREFRONT` | no | Two letter storefront for catalog lookups, e.g. `gb`. Defaults to `us`. A song not released in that storefront reads as missing. |
 | `BIND_ADDR` | no | Defaults to `127.0.0.1:3000`, which is loopback only. Set `0.0.0.0:3000` to accept connections from a phone or another machine on the LAN. Panics if it does not parse as `host:port`. |
 | `DEFAULT_TAG_BACKFILL_ENABLED` | no | `true` turns on the background job that generates default tags for songs nothing has read yet. Off for any other value, and off when unset, because every pass can spend Apple Music and OpenAI calls. |
 | `DEFAULT_TAG_BACKFILL_BATCH_SIZE` | no | Songs one pass covers. Defaults to 50, clamped to 1..=200 so a pass can never reach the 300 id cap `SongMetadataService` panics past. An unparseable value falls back to the default. |
 | `DEFAULT_TAG_BACKFILL_INTERVAL_SECS` | no | Seconds between passes. Defaults to 300. Zero and unparseable values fall back to the default, since a zero interval would spin the loop. A pass OpenAI rate limited waits a fixed 300 seconds instead, however short this is. |
+| `METADATA_CRAWL_ALBUM_BATCH_SIZE` | no | Albums one pass crawls, in one Apple request. Defaults to 20, clamped to 1..=100, Apple's cap on album ids per request. |
+| `METADATA_CRAWL_LIBRARY_BATCH_SIZE` | no | Library songs without metadata the library walk stores each interval, newest additions first. Defaults to 300, capped at 1500. `0` turns the library walk off and leaves only the album queue. |
+| `METADATA_CRAWL_INTERVAL_SECS` | no | Seconds between passes when nothing wakes the crawl. Defaults to 60. A queued album does not wait for it: opening a song wakes the crawl. Zero and unparseable values fall back to the default. A pass Apple rate limited waits a fixed 300 seconds instead. |
 | `SOCIAL_FEED_URL` | no | Base url of the social feed service that `/social/*` forwards to. Defaults to `http://localhost:3001`. A trailing slash is trimmed. The service has no auth, so this must stay on a private address. |
 
 ### Database connections

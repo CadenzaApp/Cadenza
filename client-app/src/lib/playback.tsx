@@ -13,6 +13,7 @@ import { MusicItem, Playback, RepeatMode, ShuffleMode } from "@apple-musickit";
 import { useAppleMusic } from "./apple-music-auth";
 import type { PlaySource } from "./play-source";
 import { usePlayRecorder } from "./play-recorder";
+import { useReportOpenedSongs } from "./song-opened";
 import {
     insertQueueEntriesNext,
     jumpToQueueEntry,
@@ -162,6 +163,8 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     );
     // counts plays for the activity tags, off the snapshot polled below
     usePlayRecorder(snapshot, activeTrack, activeSource);
+    // stores each opened song's metadata for the query builder's Metadata fields
+    useReportOpenedSongs(activeTrack);
 
     function showPlayer() {
         isPlayerDismissedRef.current = false;

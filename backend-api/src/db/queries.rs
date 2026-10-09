@@ -11,7 +11,7 @@ use crate::db::activity_tags::ActivityTag;
 use crate::db::entity::sea_orm_active_enums::TagType;
 use crate::db::entity::tags;
 use crate::err::CadenzaError;
-use crate::routes::json::query::{Filter, FilterOp, Query, QueryNode};
+use crate::routes::json::query::{Filter, FilterOp, MetadataKey, Query, QueryNode};
 use crate::routes::json::tag::TagType as JsonTagType;
 
 /// Caps on the size of a query tree, so one request cannot build a huge
@@ -368,7 +368,144 @@ impl Compiler<'_> {
                     _ => Err(unsupported_op(*op, "the tag type")),
                 }
             }
+            Filter::Metadata { key, op, value } => self.metadata_filter(*key, *op, value),
         }
+    }
+
+    /// A filter on the song's stored Apple Music metadata, one row per song in
+    /// `metadata_song_tags_applied`. See [`MetadataKey`] for what each key takes.
+    fn metadata_filter(
+        &mut self,
+        key: MetadataKey,
+        op: FilterOp,
+        value: &Option<String>,
+    ) -> Result<String, CadenzaError> {
+        let matched = match key {
+            MetadataKey::Title => self.metadata_text_match("meta.name", op, value)?,
+            MetadataKey::Artist => self.metadata_text_match("meta.artist_name", op, value)?,
+            MetadataKey::Album => self.metadata_text_match("meta.album_name", op, value)?,
+
+            // compared one genre at a time, so "is rock" means any of the song's genres is
+            // rock, and "is not rock" means none is
+            MetadataKey::Genre => match self.text_match("genre", op, value, "genre <> ''")? {
+                Match::Any(condition) => Match::Any(genre_exists(&condition)),
+                Match::None(condition) => Match::None(genre_exists(&condition)),
+            },
+
+            MetadataKey::ReleaseDate => match op {
+                FilterOp::IsEmpty => {
+                    no_value(op, value)?;
+                    Match::None("meta.release_date IS NOT NULL".to_string())
+                }
+                FilterOp::IsNotEmpty => {
+                    no_value(op, value)?;
+                    Match::Any("meta.release_date IS NOT NULL".to_string())
+                }
+                FilterOp::On
+                | FilterOp::NotOn
+                | FilterOp::Before
+                | FilterOp::After
+                | FilterOp::OnOrBefore
+                | FilterOp::OnOrAfter => {
+                    let param = self.bind(parse_date(required_value(op, value)?)?);
+                    let comparison = match op {
+                        FilterOp::On | FilterOp::NotOn => "=",
+                        FilterOp::Before => "<",
+                        FilterOp::After => ">",
+                        FilterOp::OnOrBefore => "<=",
+                        _ => ">=",
+                    };
+                    let condition = format!("meta.release_date {comparison} {param}::date");
+                    match op {
+                        FilterOp::NotOn => Match::None(condition),
+                        _ => Match::Any(condition),
+                    }
+                }
+                _ => return Err(unsupported_op(op, "the release date")),
+            },
+
+            MetadataKey::Duration => match op {
+                FilterOp::IsEmpty => {
+                    no_value(op, value)?;
+                    Match::None("meta.duration_in_millis IS NOT NULL".to_string())
+                }
+                FilterOp::IsNotEmpty => {
+                    no_value(op, value)?;
+                    Match::Any("meta.duration_in_millis IS NOT NULL".to_string())
+                }
+                FilterOp::Eq
+                | FilterOp::Ne
+                | FilterOp::Lt
+                | FilterOp::Le
+                | FilterOp::Gt
+                | FilterOp::Ge => {
+                    let param = self.bind(parse_number(required_value(op, value)?)?);
+                    let comparison = match op {
+                        FilterOp::Eq | FilterOp::Ne => "=",
+                        FilterOp::Lt => "<",
+                        FilterOp::Le => "<=",
+                        FilterOp::Gt => ">",
+                        _ => ">=",
+                    };
+                    let condition =
+                        format!("meta.duration_in_millis::double precision {comparison} {param}");
+                    match op {
+                        FilterOp::Ne => Match::None(condition),
+                        _ => Match::Any(condition),
+                    }
+                }
+                _ => return Err(unsupported_op(op, "the duration")),
+            },
+
+            MetadataKey::TotalPlays => match op {
+                FilterOp::Eq
+                | FilterOp::Ne
+                | FilterOp::Lt
+                | FilterOp::Le
+                | FilterOp::Gt
+                | FilterOp::Ge => {
+                    let param = self.bind(parse_number(required_value(op, value)?)?);
+                    let comparison = match op {
+                        FilterOp::Eq | FilterOp::Ne => "=",
+                        FilterOp::Lt => "<",
+                        FilterOp::Le => "<=",
+                        FilterOp::Gt => ">",
+                        _ => ">=",
+                    };
+                    let condition =
+                        format!("meta.total_plays::double precision {comparison} {param}");
+                    match op {
+                        FilterOp::Ne => Match::None(condition),
+                        _ => Match::Any(condition),
+                    }
+                }
+                // never null, so there is no empty to ask about
+                _ => return Err(unsupported_op(op, "total plays")),
+            },
+
+            MetadataKey::Explicit => {
+                no_value(op, value)?;
+                let explicit = "meta.content_rating = 'explicit'".to_string();
+                match op {
+                    FilterOp::IsTrue => Match::Any(explicit),
+                    FilterOp::IsFalse => Match::None(explicit),
+                    _ => return Err(unsupported_op(op, "explicit")),
+                }
+            }
+        };
+
+        Ok(metadata_exists(matched))
+    }
+
+    /// A text comparison on one of the stored metadata's text columns. An empty string
+    /// counts as empty, the same as null.
+    fn metadata_text_match(
+        &mut self,
+        column: &str,
+        op: FilterOp,
+        value: &Option<String>,
+    ) -> Result<Match, CadenzaError> {
+        self.text_match(column, op, value, &format!("{column} <> ''"))
     }
 
     /// A text comparison on `column`, shared by text tags, tag names and tag
@@ -619,6 +756,29 @@ fn tag_exists(applied_tags: &str, tag_param: &str, on_value: bool, matched: Matc
             )
         "#
     )
+}
+
+/// `EXISTS` over the song's stored metadata row. A song with no row, or one Apple has no
+/// catalog entry for, fails `Any` and passes `None`, the same as a song without a tag.
+fn metadata_exists(matched: Match) -> String {
+    let (negate, condition) = match matched {
+        Match::Any(condition) => ("", condition),
+        Match::None(condition) => ("NOT ", condition),
+    };
+
+    format!(
+        r#"
+            {negate}EXISTS (
+                SELECT 1 FROM metadata_song_tags_applied AS meta
+                WHERE meta.song_id=query_songs.song_id AND meta.found AND {condition}
+            )
+        "#
+    )
+}
+
+/// `EXISTS` over the song's genres one at a time, each as `genre`.
+fn genre_exists(condition: &str) -> String {
+    format!("EXISTS (SELECT 1 FROM unnest(meta.genre_names) AS genre WHERE {condition})")
 }
 
 /// `EXISTS` over every tag applied to the song, joined to the tag itself, for
@@ -1209,5 +1369,399 @@ mod tests {
     fn equal_scores_fall_back_to_song_id() {
         let pairs = vec![pair("b", None), pair("a", None), pair("c", None)];
         assert_eq!(rank_songs(pairs, &HashSet::new()), vec!["a", "b", "c"]);
+    }
+
+    // ----- metadata filters -----
+
+    fn metadata_filter(key: &str, op: &str, value: Option<&str>) -> String {
+        let value = value
+            .map(|value| format!(r#", "value": "{value}""#))
+            .unwrap_or_default();
+        filter(&format!(
+            r#"{{ "field": "metadata", "key": "{key}", "op": "{op}"{value} }}"#
+        ))
+    }
+
+    #[test]
+    fn a_metadata_filter_reads_the_song_s_stored_row() {
+        let (sql, values) = compile(&metadata_filter("artist", "starts_with", Some("P"))).unwrap();
+        let sql = squash(&sql);
+
+        assert!(
+            sql.contains("EXISTS ( SELECT 1 FROM metadata_song_tags_applied AS meta WHERE meta.song_id=query_songs.song_id AND meta.found AND starts_with(lower(meta.artist_name), lower($2)) )"),
+            "{sql}"
+        );
+        assert_eq!(values[1], sea_query::Value::from("P".to_string()));
+    }
+
+    #[test]
+    fn negative_metadata_filters_match_songs_without_a_row() {
+        let sql = squash(
+            &compile(&metadata_filter("title", "is_not", Some("One")))
+                .unwrap()
+                .0,
+        );
+        assert!(
+            sql.contains("NOT EXISTS ( SELECT 1 FROM metadata_song_tags_applied"),
+            "{sql}"
+        );
+
+        let sql = squash(
+            &compile(&metadata_filter("album", "is_empty", None))
+                .unwrap()
+                .0,
+        );
+        assert!(sql.contains("NOT EXISTS"), "{sql}");
+        assert!(sql.contains("meta.album_name <> ''"), "{sql}");
+    }
+
+    #[test]
+    fn genre_matches_any_one_of_the_song_s_genres() {
+        let sql = squash(
+            &compile(&metadata_filter("genre", "is", Some("rock")))
+                .unwrap()
+                .0,
+        );
+        assert!(
+            sql.contains("EXISTS (SELECT 1 FROM unnest(meta.genre_names) AS genre WHERE lower(genre) = lower($2))"),
+            "{sql}"
+        );
+
+        // "is not rock" is no genre being rock, not some genre being something else
+        let sql = squash(
+            &compile(&metadata_filter("genre", "is_not", Some("rock")))
+                .unwrap()
+                .0,
+        );
+        assert!(sql.trim_start().contains("WHERE NOT EXISTS"), "{sql}");
+    }
+
+    #[test]
+    fn release_date_compares_days() {
+        let (sql, values) = compile(&metadata_filter(
+            "release_date",
+            "before",
+            Some("2000-01-01"),
+        ))
+        .unwrap();
+        assert!(
+            squash(&sql).contains("meta.release_date < $2::date"),
+            "{sql}"
+        );
+        assert_eq!(values[1], sea_query::Value::from("2000-01-01".to_string()));
+
+        assert!(is_format_err(compile(&metadata_filter(
+            "release_date",
+            "before",
+            Some("last year")
+        ))));
+    }
+
+    #[test]
+    fn duration_compares_milliseconds() {
+        let (sql, values) = compile(&metadata_filter("duration", "lt", Some("210000"))).unwrap();
+        assert!(
+            squash(&sql).contains("meta.duration_in_millis::double precision < $2"),
+            "{sql}"
+        );
+        assert_eq!(values[1], sea_query::Value::from(210000.0));
+
+        let sql = squash(
+            &compile(&metadata_filter("duration", "ne", Some("3")))
+                .unwrap()
+                .0,
+        );
+        assert!(sql.contains("NOT EXISTS"), "{sql}");
+    }
+
+    #[test]
+    fn total_plays_compares_a_count() {
+        let (sql, values) = compile(&metadata_filter("total_plays", "ge", Some("10"))).unwrap();
+        assert!(
+            squash(&sql).contains("meta.total_plays::double precision >= $2"),
+            "{sql}"
+        );
+        assert_eq!(values[1], sea_query::Value::from(10.0));
+
+        // a count is never null, so there is no empty to ask about
+        assert!(is_format_err(compile(&metadata_filter(
+            "total_plays",
+            "is_empty",
+            None
+        ))));
+    }
+
+    #[test]
+    fn explicit_is_a_yes_or_no() {
+        let sql = squash(
+            &compile(&metadata_filter("explicit", "is_true", None))
+                .unwrap()
+                .0,
+        );
+        assert!(
+            sql.contains("AND meta.content_rating = 'explicit' )"),
+            "{sql}"
+        );
+        assert!(!sql.contains("NOT EXISTS"), "{sql}");
+
+        // false takes in clean songs, unrated songs, and songs with no row
+        let sql = squash(
+            &compile(&metadata_filter("explicit", "is_false", None))
+                .unwrap()
+                .0,
+        );
+        assert!(sql.contains("NOT EXISTS"), "{sql}");
+    }
+
+    #[test]
+    fn metadata_keys_only_take_their_own_operators() {
+        assert!(is_format_err(compile(&metadata_filter(
+            "artist",
+            "gt",
+            Some("1")
+        ))));
+        assert!(is_format_err(compile(&metadata_filter(
+            "duration",
+            "contains",
+            Some("1")
+        ))));
+        assert!(is_format_err(compile(&metadata_filter(
+            "release_date",
+            "is",
+            Some("x")
+        ))));
+        assert!(is_format_err(compile(&metadata_filter(
+            "explicit", "is_null", None
+        ))));
+        assert!(is_format_err(compile(&metadata_filter(
+            "explicit",
+            "is_true",
+            Some("x")
+        ))));
+        assert!(is_format_err(compile(&metadata_filter(
+            "title",
+            "is_applied",
+            None
+        ))));
+        assert!(is_format_err(compile(&metadata_filter(
+            "duration",
+            "gt",
+            Some("long")
+        ))));
+    }
+
+    #[test]
+    fn an_unknown_metadata_key_does_not_parse() {
+        assert!(serde_json::from_str::<Query>(&metadata_filter("bpm", "eq", Some("120"))).is_err());
+    }
+
+    #[test]
+    fn metadata_and_tag_filters_combine_and_name_only_the_tag() {
+        let json = r#"{ "where": { "and": [
+            { "filter": { "field": "metadata", "key": "duration", "op": "eq", "value": "3" } },
+            { "filter": { "field": "tag", "tag_id": 1, "op": "is_applied" } }
+        ] } }"#;
+        let (sql, _) = compile(json).unwrap();
+        let sql = squash(&sql);
+        assert!(
+            sql.contains("FROM metadata_song_tags_applied AS meta"),
+            "{sql}"
+        );
+        assert!(sql.contains("filter_check.tag_id=$3"), "{sql}");
+
+        let mut ids = HashSet::new();
+        collect_tag_ids(&parse(json).root, &mut ids);
+        assert_eq!(ids, HashSet::from([1]), "a metadata filter names no tag");
+    }
+
+    // ----- metadata filters against a real database -----
+    //
+    // Runs the compiled statements in a transaction that is never committed. Needs
+    // DATABASE_URL, a user in auth.users, and the tables from sql/metadata_tags.sql. Run
+    // with `cargo test -- --ignored`.
+
+    use sea_orm::{ConnectionTrait, Database, DatabaseTransaction, TransactionTrait};
+
+    /// A scratch library: four songs for a real user, three with stored metadata.
+    ///
+    /// - `p1` "Paint It Black", The Rolling Stones, rock and pop, 1966, 3:45, explicit, 40 plays
+    /// - `p2` "Purple Rain", Prince, pop, 1984-06-25, 8:41, clean, 3 plays
+    /// - `n1` Apple has no catalog entry for it
+    /// - `x1` never stored
+    async fn metadata_library() -> (DatabaseTransaction, Uuid) {
+        dotenvy::dotenv().ok();
+        let url = std::env::var("DATABASE_URL").expect("DATABASE_URL");
+        let db = Database::connect(url).await.expect("connect");
+        let txn = db.begin().await.expect("begin");
+
+        let user_id: Uuid = txn
+            .query_one_raw(Statement::from_string(
+                DbBackend::Postgres,
+                "select id from auth.users limit 1",
+            ))
+            .await
+            .unwrap()
+            .expect("the database needs at least one user for this test")
+            .try_get_by_index(0)
+            .unwrap();
+
+        // the user's real library would land in every result, so it goes for this test
+        txn.execute_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            "DELETE FROM user_songs WHERE user_id = $1",
+            [user_id.into()],
+        ))
+        .await
+        .unwrap();
+
+        txn.execute_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            r#"
+            INSERT INTO user_songs (song_id, user_id)
+            SELECT song_id, $1
+            FROM unnest(ARRAY['test-q-p1', 'test-q-p2', 'test-q-n1', 'test-q-x1']) AS song_id
+            "#,
+            [user_id.into()],
+        ))
+        .await
+        .unwrap();
+
+        txn.execute_raw(Statement::from_string(
+            DbBackend::Postgres,
+            r#"
+            INSERT INTO metadata_song_tags_applied
+                (song_id, found, name, artist_name, album_name, album_id, duration_in_millis,
+                 genre_names, release_date, content_rating, total_plays)
+            VALUES
+                ('test-q-p1', true, 'Paint It Black', 'The Rolling Stones', 'Aftermath', 'a1',
+                 225000, ARRAY['Rock', 'Pop'], '1966-01-01', 'explicit', 40),
+                ('test-q-p2', true, 'Purple Rain', 'Prince', 'Purple Rain', 'a2',
+                 521000, ARRAY['Pop'], '1984-06-25', 'clean', 3),
+                ('test-q-n1', false, NULL, NULL, NULL, NULL, NULL, '{}', NULL, NULL, 7)
+            "#,
+        ))
+        .await
+        .unwrap();
+
+        (txn, user_id)
+    }
+
+    async fn run_metadata_query(
+        txn: &DatabaseTransaction,
+        user_id: Uuid,
+        json: &str,
+    ) -> Vec<String> {
+        let (sql, values) =
+            compile_query(&parse(json), &tag_types(), &HashMap::new(), user_id, false).unwrap();
+        let pairs = SongTagPair::find_by_statement(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            sql,
+            values,
+        ))
+        .all(txn)
+        .await
+        .unwrap();
+
+        let mut songs: Vec<String> = rank_songs(pairs, &HashSet::new())
+            .into_iter()
+            .map(|song_id| song_id.trim_start_matches("test-q-").to_owned())
+            .collect();
+        songs.sort();
+        songs
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn metadata_filters_run_against_stored_rows() {
+        let (txn, user_id) = metadata_library().await;
+        let q = |key: &str, op: &str, value: Option<&str>| metadata_filter(key, op, value);
+
+        let cases: Vec<(String, Vec<&str>)> = vec![
+            (q("artist", "starts_with", Some("p")), vec!["p2"]),
+            (q("artist", "contains", Some("ROLLING")), vec!["p1"]),
+            (q("title", "is", Some("purple rain")), vec!["p2"]),
+            (
+                q("title", "is_not", Some("purple rain")),
+                vec!["n1", "p1", "x1"],
+            ),
+            (q("album", "ends_with", Some("math")), vec!["p1"]),
+            (q("album", "is_empty", None), vec!["n1", "x1"]),
+            (q("genre", "is", Some("pop")), vec!["p1", "p2"]),
+            (q("genre", "is_not", Some("rock")), vec!["n1", "p2", "x1"]),
+            (q("genre", "is_empty", None), vec!["n1", "x1"]),
+            (q("release_date", "before", Some("1980-01-01")), vec!["p1"]),
+            (q("release_date", "on", Some("1984-06-25")), vec!["p2"]),
+            (
+                q("release_date", "not_on", Some("1984-06-25")),
+                vec!["n1", "p1", "x1"],
+            ),
+            (q("release_date", "is_not_empty", None), vec!["p1", "p2"]),
+            (q("duration", "lt", Some("240000")), vec!["p1"]),
+            (q("duration", "ge", Some("510000")), vec!["p2"]),
+            (q("total_plays", "gt", Some("10")), vec!["p1"]),
+            (q("total_plays", "ne", Some("40")), vec!["n1", "p2", "x1"]),
+            (q("explicit", "is_true", None), vec!["p1"]),
+            (q("explicit", "is_false", None), vec!["n1", "p2", "x1"]),
+        ];
+
+        for (json, expected) in cases {
+            assert_eq!(
+                run_metadata_query(&txn, user_id, &json).await,
+                expected,
+                "{json}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn metadata_and_tag_filters_combine_in_one_query() {
+        let (txn, user_id) = metadata_library().await;
+
+        let tag_id: i64 = txn
+            .query_one_raw(Statement::from_sql_and_values(
+                DbBackend::Postgres,
+                "INSERT INTO tags (name, color, user_id) VALUES ('test-q-tag', '#000000', $1) RETURNING tag_id",
+                [user_id.into()],
+            ))
+            .await
+            .unwrap()
+            .unwrap()
+            .try_get_by_index(0)
+            .unwrap();
+        txn.execute_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            "INSERT INTO user_tags_applied (song_id, user_id, tag_id) VALUES ('test-q-p1', $1, $2), ('test-q-x1', $1, $2)",
+            [user_id.into(), tag_id.into()],
+        ))
+        .await
+        .unwrap();
+
+        let (sql, values) = compile_query(
+            &parse(&format!(
+                r#"{{ "where": {{ "and": [
+                    {{ "filter": {{ "field": "metadata", "key": "genre", "op": "is", "value": "pop" }} }},
+                    {{ "filter": {{ "field": "tag", "tag_id": {tag_id}, "op": "is_applied" }} }}
+                ] }} }}"#
+            )),
+            &HashMap::from([(tag_id, TagType::Basic)]),
+            &HashMap::new(),
+            user_id,
+            false,
+        )
+        .unwrap();
+        let pairs = SongTagPair::find_by_statement(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            sql,
+            values,
+        ))
+        .all(&txn)
+        .await
+        .unwrap();
+
+        assert_eq!(
+            rank_songs(pairs, &HashSet::from([tag_id])),
+            vec!["test-q-p1"]
+        );
     }
 }

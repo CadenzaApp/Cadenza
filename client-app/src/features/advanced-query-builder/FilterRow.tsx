@@ -15,8 +15,13 @@ import {
 import type { BuilderActions, BuilderTags } from "./FilterGroup";
 import { FilterValueInput } from "./FilterValueInput";
 import { OptionPicker, PickerSection } from "./OptionPicker";
-import { PROPERTY_FIELDS, TYPE_ICONS } from "./field-icons";
-import { AdvancedFilterNode, FilterField, FilterOp } from "./types";
+import { METADATA_FIELDS, PROPERTY_FIELDS, TYPE_ICONS } from "./field-icons";
+import {
+    AdvancedFilterNode,
+    FilterField,
+    FilterOp,
+    MetadataKey,
+} from "./types";
 
 /**
  * Just wide enough for "where", so every line's filter starts at the same
@@ -34,12 +39,20 @@ type Props = {
 
 function fieldKey(field: FilterField | null): string | null {
     if (!field) return null;
-    return field.kind === "tag" ? `tag:${field.tagId}` : field.kind;
+    if (field.kind === "tag") return `tag:${field.tagId}`;
+    if (field.kind === "metadata") return `metadata:${field.key}`;
+    return field.kind;
 }
 
 function fieldFromKey(key: string): FilterField {
     if (key.startsWith("tag:")) {
         return { kind: "tag", tagId: Number(key.slice("tag:".length)) };
+    }
+    if (key.startsWith("metadata:")) {
+        return {
+            kind: "metadata",
+            key: key.slice("metadata:".length) as MetadataKey,
+        };
     }
     return { kind: key as "tag_name" | "tag_value" | "tag_type" };
 }
@@ -67,6 +80,14 @@ export function FilterRow({ filter, connector, tags, actions }: Props) {
             fieldIcon = TYPE_ICONS[tag.type];
             fieldIconColor = tag.color;
         }
+    } else if (filter.field?.kind === "metadata") {
+        const metadataKey = filter.field.key;
+        const metadata = METADATA_FIELDS.find((m) => m.key === metadataKey);
+        if (metadata) {
+            fieldLabel = metadata.label;
+            fieldIcon = metadata.icon;
+            fieldIconColor = metadata.iconColor;
+        }
     } else if (filter.field) {
         const kindOfField = filter.field.kind;
         const property = PROPERTY_FIELDS.find((p) => p.kind === kindOfField);
@@ -86,6 +107,26 @@ export function FilterRow({ filter, connector, tags, actions }: Props) {
                     icon: property.icon,
                 })),
             },
+            // everything the user never tags by hand: the song's Apple Music
+            // metadata, then the activity tags set by listening. the same order
+            // as the Metadata Tags section on the Tags page
+            {
+                title: "Metadata",
+                options: [
+                    ...METADATA_FIELDS.map((metadata) => ({
+                        key: `metadata:${metadata.key}`,
+                        label: metadata.label,
+                        icon: metadata.icon,
+                        iconColor: metadata.iconColor,
+                    })),
+                    ...tags.activity.map((tag) => ({
+                        key: `tag:${tag.id}`,
+                        label: tag.name,
+                        icon: TYPE_ICONS[tag.type],
+                        iconColor: tag.color,
+                    })),
+                ],
+            },
             {
                 title: "Your tags",
                 options: tags.list.map((tag) => ({
@@ -95,20 +136,6 @@ export function FilterRow({ filter, connector, tags, actions }: Props) {
                     iconColor: tag.color,
                 })),
             },
-            // set by listening, so kept apart from the user's own tags
-            ...(tags.activity.length > 0
-                ? [
-                      {
-                          title: "Activity tags",
-                          options: tags.activity.map((tag) => ({
-                              key: `tag:${tag.id}`,
-                              label: tag.name,
-                              icon: TYPE_ICONS[tag.type],
-                              iconColor: tag.color,
-                          })),
-                      },
-                  ]
-                : []),
         ],
         [tags.list, tags.activity],
     );
@@ -205,7 +232,7 @@ export function FilterRow({ filter, connector, tags, actions }: Props) {
                 searchable
                 sections={fieldSections}
                 selectedKey={fieldKey(filter.field)}
-                emptyText="No matching tags"
+                emptyText="No matching fields"
                 onSelect={(key) => {
                     setPicker(null);
                     actions.setFilterField(filter.id, fieldFromKey(key));

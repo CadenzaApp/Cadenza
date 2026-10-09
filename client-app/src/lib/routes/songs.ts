@@ -5,7 +5,7 @@ import {
     useAPIMutation,
     useAPIPostDataBatched,
 } from "../api-actions";
-import { AppliedTag, Tag } from "@/lib/types";
+import { AppliedTag, MetadataTag, Tag } from "@/lib/types";
 
 // Stable 25-song read chunks match MusicKit paging, so a newly appended page reuses every
 // completed earlier chunk. The backend allows up to 200 ids per request.
@@ -330,6 +330,23 @@ export function useActivityTagsOnSong(songId?: string) {
     };
 }
 
+/**
+ * `GET /songs/metadata-tags`. The song's Apple Music metadata as stored for
+ * queries, so what a song shows is what a query matches on. The backend stores
+ * a song it has nothing for before answering. Pass no id to leave it unread.
+ */
+export function useMetadataTagsOnSong(songId?: string) {
+    const x = useAPIData<MetadataTag[]>("/songs/metadata-tags", {
+        song_id: songId,
+    });
+
+    return {
+        metadataTagsOnSong: x.data,
+        metadataTagsOnSongLoading: x.isLoading,
+        metadataTagsOnSongErr: x.error,
+    };
+}
+
 /** Activity tags for many songs at once, batched the same way as `useTagsOnSongs`. */
 export function useActivityTagsOnSongs(songIds: readonly string[]) {
     const normalizedIds = useMemo(
@@ -374,5 +391,28 @@ export function useEditUserSongs() {
         editUserSongsErr: x.error,
         editUserSongsLoading: x.isMutating,
         editUserSongs: x.trigger,
+    };
+}
+
+type SongOpenedPayload = {
+    song_id: string;
+};
+/**
+ * `POST /songs/metadata/opened`. Tells the backend a song was opened in the
+ * player, so it stores the song's Apple Music metadata for the query builder's Metadata
+ * query fields and queues the rest of its album for the metadata crawl.
+ *
+ * Nothing on screen reads that copy, so this invalidates nothing and callers
+ * fire it without waiting.
+ */
+export function useReportSongOpened() {
+    const x = useAPIMutation<SongOpenedPayload, void>(
+        "POST",
+        "/songs/metadata/opened",
+        [],
+        { invalidation: "none" },
+    );
+    return {
+        reportSongOpened: x.trigger,
     };
 }

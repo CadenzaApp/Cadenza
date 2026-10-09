@@ -10,18 +10,19 @@ call into `src/db/` or `src/services/`, and shape the response.
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `mod.rs`            | Declares `json`, `analytics`, `comments`, `events`, `queries`, `social`, `tags`, `songs`.                                                                                                               |
 | `tags.rs`           | Tag CRUD for the signed-in user, tag score edits, default tag search, listing the activity tags, plus LLM tag suggestion. Mounted at `/tags`.                                                           |
-| `songs.rs`          | Adding and removing the user's songs, reading and changing user tags, reading default tags, reading activity tags, and recording plays. Mounted at `/songs`.                                            |
+| `songs.rs`          | Adding and removing the user's songs, reading and changing user tags, reading default tags, reading activity tags, recording plays, and reporting an opened song. Mounted at `/songs`.                 |
 | `queries.rs`        | Runs a tag query and returns song ids by relevance. Mounted at `/queries`.                                                                                                                              |
 | `comments.rs`       | Reading, leaving, deleting, and voting on comments on songs. Mounted at `/comments`.                                                                                                                    |
 | `events.rs`         | Ingests a batch of listening events, and counts the `play_counted` ones towards the activity tags in the same transaction. Mounted at `/events`.                                                        |
 | `analytics.rs`      | Summary counts, time bucketed trends, the metric list, and the rankings (song, artist, album, playlist, query). Mounted at `/analytics`.                                                                                |
 | `social.rs`         | One catch-all handler that proxies `/social/*` to the social feed service with the caller's user id attached. No endpoint list of its own. Mounted at `/social`.                                        |
-| `json/mod.rs`       | `vec_into`, a small `Vec<A> -> Vec<B>` helper. Declares `analytics`, `comment`, `query`, `tag`, and `tag_score`.                                                                                        |
+| `json/mod.rs`       | `vec_into`, a small `Vec<A> -> Vec<B>` helper. Declares `analytics`, `comment`, `metadata_tag`, `query`, `tag`, and `tag_score`.                                                                                        |
 | `json/analytics.rs` | The `/events` request and response shapes, and the `/analytics` response shapes.                                                                                                                        |
 | `json/tag.rs`       | `TagType`, `Tag`, and `AppliedTag`, the wire shapes of a tag. `From<tags::Model>` drops `user_id` and keeps `is_activity`.                                                                              |
 | `json/tag_score.rs` | `ScoredTag`, one top tag as a `[score, color, source]` array, and `TagSource`, `"local"` or `"global"`.                                                                                                 |
+| `json/metadata_tag.rs`| `MetadataTag` and `metadata_tags_of`, a song's stored metadata as read-only `{key, type, value}` tags.                                                                                                  |
 | `json/comment.rs`   | `Comment` and `CommentThread`, the wire shapes of a comment and of a top level comment with its replies. Both take the reading user's id, to turn `user_id` into `mine`, and each comment's vote tally. |
-| `json/query.rs`     | `Query`, `QueryNode`, `Filter`, `FilterOp`: the input schema of a tag query. Both client builders produce it.                                                                                           |
+| `json/query.rs`     | `Query`, `QueryNode`, `Filter`, `FilterOp`, `MetadataKey`: the input schema of a tag query. Both client builders produce it.                                                                            |
 
 ## Endpoints
 
@@ -52,7 +53,9 @@ Every route below requires `Authorization: Bearer <supabase jwt>`.
 | DELETE | `/songs/local-tags`          | `{song_id, tag_id}`                                                                             | empty. Takes that vote back when it removes the tag                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | GET    | `/songs/activity-tags`       | `?song_id=...`                                                                                  | `[AppliedTag]`, every activity tag with this user's value on that song. Never played: My Plays is `"0"`, the dates `null`                                                                                                                                                                                                                                                                                                                                             |
 | POST   | `/songs/activity-tags/batch` | `{song_ids: [...]}`                                                                             | `{song_id: [AppliedTag]}`, the same read for a list of songs, an entry per requested song                                                                                                                                                                                                                                                                                                                                                                             |
-| POST   | `/songs/plays`               | `{song_id}`                                                                                     | empty. Counts one play at the server's clock: My Plays +1, First Played and Last Played moved as needed. Superseded by `POST /events` with a `play_counted` event, which does the same thing and also records the event. Kept for app builds already in the field; the current client does not call it                                                                                                                                                                |
+| POST   | `/songs/plays`               | `{song_id}`                                                                                     | empty. Counts one play at the server's clock: My Plays +1, First Played and Last Played moved as needed, and the song's Total Plays +1. Superseded by `POST /events` with a `play_counted` event, which does the same thing and also records the event. Kept for app builds already in the field; the current client does not call it                                                                                                                                                                |
+| POST   | `/songs/metadata/opened`     | `{song_id}`                                                                                     | empty. The song was opened in the player: stores its Apple Music metadata for metadata queries if it has none, queues its album, and wakes the metadata crawl so the album is stored within seconds. Nothing the client shows depends on it, so the client does not wait on it                                                                                                                                                                                                                                 |
+| GET    | `/songs/metadata-tags`       | `?song_id=...`                                                                                  | `[{key, type, value}]`, the song's Apple Music metadata as stored for queries, typed the way a query reads it: title, artist, album, genre (text), release_date (date), duration (number, milliseconds), explicit (checkbox), total_plays (number, every user's counted plays). Stores the song first if it has no row. Empty for a song Apple has no entry for                                                                                                                                                                                                  |
 | POST   | `/events`                    | `{events: [{type, song_id?, occurred_at, client_tz?, session_id?, client_event_id, payload?}]}` | `{accepted: [client_event_id]}`, the ids now stored. Idempotent per `client_event_id`, so a retry stores nothing and still reports them. At most 500 events. 422 if any event has an unknown type, a bad payload, or an `occurred_at` over 10 minutes ahead                                                                                                                                                                                                           |
 | GET    | `/analytics/summary`         | `?since=&until=&tz=`                                                                            | one flat object of counts, rates, `active_days`, `tags_played`, `plays_by_hour`, `top_tags` (up to 50), `most_replayed`, and `top`: a ranking per dimension keyed by its name, the same way `stats` is keyed by metric. Zeros and empty lists for a user with no events                                                                                                                                                                                               |
 | GET    | `/analytics/trends`          | `?metric=&bucket=hour\|two_hour\|day\|week\|month\|year\|auto&since=&until=&tz=`                | `{metric, description, unit, bucket, points: [{bucket, value}]}`. `bucket` on a point is a local `YYYY-MM-DD`, or `YYYY-MM-DDTHH:MI` for an hour. Dense: an empty bucket is a zero, and `until` is exclusive so a seven day window is seven buckets. `unit` is `count` or `milliseconds`, so a client can format any metric without knowing it by name. `bucket` defaults to `week`, `auto` lets the server pick, and the window defaults to the user's whole history |
@@ -150,8 +153,9 @@ and drop builder is the subset of it that only uses `is_applied` and
 - A node is exactly one of `{"and": [node]}`, `{"or": [node]}`, `{"not": node}`,
   `{"filter": filter}`. The advanced builder's "none of the following" group is
   `{"not": {"or": [...]}}`.
-- A filter is tagged by `field`: `tag` (with `tag_id`), `tag_name`, `tag_value`, or `tag_type`.
-  `value` is always a string, and is omitted (or null) for operators that take none.
+- A filter is tagged by `field`: `tag` (with `tag_id`), `tag_name`, `tag_value`, `tag_type`, or
+  `metadata` (with `key`). `value` is always a string, and is omitted (or null) for operators that
+  take none.
 
 | field                                    | ops                                                                                           | value                                   |
 | ---------------------------------------- | --------------------------------------------------------------------------------------------- | --------------------------------------- |
@@ -162,10 +166,23 @@ and drop builder is the subset of it that only uses `is_applied` and
 | `tag`, number tag                        | `eq`, `ne`, `lt`, `le`, `gt`, `ge` / `is_empty`, `is_not_empty`                               | a number as a string / none             |
 | `tag`, checkbox tag                      | `is_true`, `is_false`, `is_null`                                                              | none                                    |
 | `tag_type`                               | `is`, `is_not`                                                                                | a tag type                              |
+| `metadata`, a text key                   | same as a text tag, without the applied ops                                                   | text / none                             |
+| `metadata`, `release_date`               | same as a date tag, without the applied ops                                                   | `YYYY-MM-DD` / none                     |
+| `metadata`, `duration`                   | same as a number tag, without the applied ops                                                 | milliseconds as a string / none         |
+| `metadata`, `explicit`                   | `is_true`, `is_false`                                                                         | none                                    |
+| `metadata`, `total_plays`                | `eq`, `ne`, `lt`, `le`, `gt`, `ge`                                                            | a number as a string                    |
 
 Basic tags only take `is_applied` / `is_not_applied`. Every other type takes them too, on top of
 its own operators, and they ignore the value: an attribute tag applied without one still counts
-as applied. `tag_name`, `tag_value` and `tag_type` do not take them.
+as applied. `tag_name`, `tag_value`, `tag_type` and `metadata` do not take them.
+
+A `metadata` filter looks at the song's Apple Music metadata rather than its tags, for example
+`{"field": "metadata", "key": "artist", "op": "starts_with", "value": "p"}`. The text keys are
+`title`, `artist`, `album`, and `genre`, where a genre filter matches if any one of the song's
+genres does. `explicit` false covers clean and unrated songs. It only sees songs
+whose metadata the backend has stored, which is any song a user has listed, opened, or has in their
+library, plus the rest of an opened or library song's album once the crawl reaches it. A song
+with none stored counts as having every field empty.
 
 Semantics and limits are in [../db/README.md](../db/README.md). Anything malformed is a
 `QueryFormatError` (422) with a message.
@@ -221,6 +238,11 @@ to `done`. A generator or write failure deletes the rows instead, so the next re
 
 A song with a row already, `in_flight` or `done`, is skipped, so two readers of the same new song
 do not both pay for generation.
+
+Both reads then store the songs' Apple Music metadata for metadata queries, on a task of their
+own, for any song without it (`services::metadata_tags::spawn_store_song_metadata`). Every song
+list in the app reads default tags, which is what makes any song a user has seen queryable by
+its metadata. The response does not wait for it.
 
 The client never sends song descriptions. The backend resolves each id to a title itself, so a
 song Apple Music has no catalog entry for is marked `done` with no tags rather than being

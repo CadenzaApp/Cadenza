@@ -53,11 +53,45 @@ export type QueryJSONNode =
     | { not: QueryJSONNode }
     | { filter: FilterJSON };
 
+/**
+ * Which piece of a song's Apple Music metadata a `metadata` filter looks at.
+ * Text operators for title, artist, album, and genre (any one of the song's
+ * genres), date operators for the release date, number operators in
+ * milliseconds for the duration, `is_true` / `is_false` for explicit, and
+ * number operators without the empty ones for total plays, every user's counted
+ * plays of the song.
+ */
+export type MetadataKey =
+    | "title"
+    | "artist"
+    | "album"
+    | "genre"
+    | "release_date"
+    | "duration"
+    | "explicit"
+    | "total_plays";
+
 export type FilterJSON =
     | { field: "tag"; tag_id: number; op: FilterOp; value?: string }
     | { field: "tag_name"; op: FilterOp; value?: string }
     | { field: "tag_value"; op: FilterOp; value?: string }
-    | { field: "tag_type"; op: FilterOp; value: TagType };
+    | { field: "tag_type"; op: FilterOp; value: TagType }
+    | { field: "metadata"; key: MetadataKey; op: FilterOp; value?: string };
+
+/**
+ * How a metadata key reads: in a query's name, in the builder, and on the
+ * song's Metadata Tags pills.
+ */
+export const METADATA_KEY_LABELS: Record<MetadataKey, string> = {
+    title: "Title",
+    artist: "Artist",
+    album: "Album",
+    genre: "Genre",
+    release_date: "Release date",
+    duration: "Duration (ms)",
+    explicit: "Explicit",
+    total_plays: "Total Plays",
+};
 
 /** Names of tags a query requires to be present, in query traversal order. */
 export function positiveQueryTagNames(
@@ -161,11 +195,13 @@ export function describeQuery(
         const subject =
             filter.field === "tag"
                 ? (namesById.get(filter.tag_id) ?? "a tag")
-                : filter.field === "tag_name"
-                  ? "tag name"
-                  : filter.field === "tag_value"
-                    ? "tag value"
-                    : "tag type";
+                : filter.field === "metadata"
+                  ? METADATA_KEY_LABELS[filter.key].toLowerCase()
+                  : filter.field === "tag_name"
+                    ? "tag name"
+                    : filter.field === "tag_value"
+                      ? "tag value"
+                      : "tag type";
         if (filter.field === "tag" && filter.op === "is_applied")
             return subject;
         if (filter.field === "tag" && filter.op === "is_not_applied") {
