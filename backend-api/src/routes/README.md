@@ -62,7 +62,7 @@ Every route below requires `Authorization: Bearer <supabase jwt>`.
 | GET    | `/analytics/top`             | `?dimension=song\|artist\|album\|playlist\|query&since=&until=&limit=`                                           | `{dimension, description, entries: [{key, label, sub_label, entity_id, sample_song_id, plays}]}`, most played first. `label` is null for songs, whose titles live in Apple Music. `limit` defaults to 20, clamped to 1..=100. 422 on an unknown dimension                                                                                                                                                                                                             |
 | GET    | `/analytics/top-tags`        | `?since=&until=&limit=`                                                                         | `{entries: [{id, name, color, type, plays, sample_song_id}]}`, the user's own tags by plays of the songs carrying them. `sample_song_id` is the tag's most played song in the window, for a cover. Activity tags are left out                                                                                                                                                                                                                                         |
 | GET    | `/analytics/heatmap`         | `?bucket=hour\|two_hour\|day\|week\|month\|year&since=&until=&tz=`                              | `{bucket, cells: [{start, plays, tag_id}], tags: [{id, name, color}]}`. Sparse: only buckets with a play. `two_hour` starts on even local hours and prints like an hour. `tag_id` is the tag played most in that bucket, ties to the name, null when nothing played carried one. `tags` lists each named tag once. `bucket` defaults to `day`, and the window is checked against the bucket cap like a trend                                                          |
-| POST   | `/queries/results`           | `{query, consider_default_tags?}`                                                               | `["songid", ...]`, most relevant first                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| POST   | `/queries/results`           | `{query, consider_default_tags?, sort?}`                                                        | `{songs: [{song_id, certain}], capped}`, in order. `sort` is `{key, direction}`, key `title`, `artist` or `album`, direction `ascending` or `descending`; without it, most relevant first. Every match that is the caller's own (`certain`) comes back, and the first 1000 of the rest. `capped` is true when more matched                                                                                                                                            |
 | GET    | `/comments`                  | `?song_id=...`                                                                                  | `[CommentThread]`, every user's comments on the song, newest first, each with its `replies` oldest first                                                                                                                                                                                                                                                                                                                                                              |
 | POST   | `/comments`                  | `{song_id, content, parent_id?}`                                                                | the new `Comment`. `parent_id` makes it a reply to a top level comment on that song. `content` is trimmed and must then be 1 to 2000 characters                                                                                                                                                                                                                                                                                                                       |
 | DELETE | `/comments`                  | `{comment_id}`                                                                                  | empty. Also deletes every reply to it. 404 if the user has no comment with that id                                                                                                                                                                                                                                                                                                                                                                                    |
@@ -267,13 +267,20 @@ batch read their values per song. The only write is `POST /songs/plays`, which g
 
 `queries.rs` is one handler. The query arrives already typed, because serde parses the body
 straight into `Query`, so a bad shape is a `QueryFormatError` carrying serde's message. The
-handler hands it straight to `db::queries::run_query`, which does the compiling, running, and
-ranking.
+handler hands it straight to `db::queries::run_query`, which does the compiling, running,
+ranking, and sorting, and converts the result to `json::query::QueryResults`.
 
-The query runs over the caller's `user_songs` rows, which is what lets `is_not_applied` and other
-negative filters match songs with no Cadenza tag rows. The client used to send its Apple Music
-library as `song_ids`, capped at 50,000; that field is gone, and `PATCH /songs` is now how the
-backend learns what is in the library.
+The query runs over every song Cadenza knows: the caller's `user_songs` rows, every song carrying
+one of their tags, and every song stored in `metadata_song_tags_applied`. That is what lets
+`is_not_applied` and other negative filters match songs with no Cadenza tag rows, including songs
+the caller does not have. The caller's own songs come back `certain` and in full; the rest stop at
+1000, with `capped` set when more matched. See the query compiler in `../db/README.md`. The client
+used to send its Apple Music library as `song_ids`, capped at 50,000; that field is gone, and
+`PATCH /songs` is now how the backend learns what is in the library.
+
+`sort` is optional. Without it songs come back most relevant first. With it they come back by the
+stored title, artist or album, so a whole result sorts at once rather than one loaded page at a
+time. It needs the `natural_sort` collation from `sql/query_sort.sql`.
 
 `consider_default_tags` defaults to false. True widens what counts as a tag on a song to include
 the shared default tags, for matching and for ranking, and lets the query name a default tag id.
@@ -308,8 +315,10 @@ api as JSON should have a type here rather than serializing an entity model dire
 - Saved queries are gone from the route. It used to take a `query_id` param whose branch was a
   `todo!()` that panicked the handler.
 - `POST /queries/results` ignores an unknown field, so a client still sending `song_ids` gets no
-  error, just results over whatever `PATCH /songs` last put in `user_songs`. A user who has never
-  synced their library matches nothing.
+  error, just results over every song Cadenza knows. A user who has never synced their library
+  has no songs of their own, only the rest.
+- The response used to be a bare array of song ids. A client built before the `songs` / `capped`
+  object reads it as no results.
 - `social.rs` does not read the proxied response, so nothing here validates what the social feed
   service sends. A bad shape reaches the client as-is.
 - `tags.rs::get_songs_with_user_tag_handler` exists but is not routed anywhere. Dead code. The

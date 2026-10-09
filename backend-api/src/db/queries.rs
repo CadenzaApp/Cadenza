@@ -11,7 +11,9 @@ use crate::db::activity_tags::ActivityTag;
 use crate::db::entity::sea_orm_active_enums::TagType;
 use crate::db::entity::tags;
 use crate::err::CadenzaError;
-use crate::routes::json::query::{Filter, FilterOp, MetadataKey, Query, QueryNode};
+use crate::routes::json::query::{
+    Filter, FilterOp, MetadataKey, Query, QueryNode, QuerySort, QuerySortKey, SortDirection,
+};
 use crate::routes::json::tag::TagType as JsonTagType;
 
 /// Caps on the size of a query tree, so one request cannot build a huge
@@ -19,29 +21,102 @@ use crate::routes::json::tag::TagType as JsonTagType;
 const MAX_NODES: usize = 200;
 const MAX_DEPTH: usize = 20;
 
-#[derive(Debug, FromQueryResult)]
-struct SongTagPair {
-    song_id: String,
-    tag_id: Option<i64>,
+/// The most matches a query returns from outside the user's own songs. The user's own
+/// matches are never cut off.
+pub const MAX_DISCOVERED_SONGS: usize = 1000;
+
+/// The user's own songs, as a CTE body: their library, and every song carrying one of their
+/// tags (activity tags included).
+///
+/// Default tags do not make a song the user's own. They are on songs from every user's
+/// library, so counting them would make a query like "not pop" return thousands of other
+/// people's songs uncapped.
+const OWN_SONGS: &str = "
+    SELECT song_id FROM user_songs WHERE user_id=$1
+    UNION
+    SELECT song_id FROM user_tags_applied WHERE user_id=$1
+";
+
+/// The user's own songs as rows a query runs over, as a `FROM` item: every one is
+/// `certain`, with whatever metadata is stored for it. Untagged songs are in here too, which
+/// is what lets a negative filter match a song with no tag rows at all.
+///
+/// It carries the metadata a sort reads, with an empty string read as missing, the same as
+/// [`DISCOVERED_QUERY_SONGS`].
+const OWN_QUERY_SONGS: &str = "(
+    SELECT
+        own_songs.song_id,
+        TRUE AS certain,
+        NULLIF(stored.name, '') AS title,
+        NULLIF(stored.artist_name, '') AS artist,
+        NULLIF(stored.album_name, '') AS album,
+        COALESCE(stored.total_plays, 0) AS total_plays
+    FROM own_songs
+    LEFT JOIN metadata_song_tags_applied AS stored
+        ON stored.song_id=own_songs.song_id AND stored.found
+)";
+
+/// Every other song a query runs over, as a `FROM` item: the stored songs Apple has a
+/// catalog entry for that are not the user's own. Songs Cadenza found elsewhere, so none is
+/// `certain`, and only the first [`MAX_DISCOVERED_SONGS`] of them come back.
+///
+/// The stored rows are scanned once and the user's own songs hash joined off them, which
+/// stays fast with hundreds of thousands of stored songs.
+const DISCOVERED_QUERY_SONGS: &str = "(
+    SELECT
+        stored.song_id,
+        FALSE AS certain,
+        NULLIF(stored.name, '') AS title,
+        NULLIF(stored.artist_name, '') AS artist,
+        NULLIF(stored.album_name, '') AS album,
+        stored.total_plays
+    FROM metadata_song_tags_applied AS stored
+    LEFT JOIN own_songs ON own_songs.song_id=stored.song_id
+    WHERE stored.found AND own_songs.song_id IS NULL
+)";
+
+/// The collation sorted text is compared in. `sql/query_sort.sql` creates it: ICU with
+/// numeric ordering, so "Track 9" comes before "Track 10" the way the app sorts.
+const SORT_COLLATION: &str = "natural_sort";
+
+/// What a query matched, in order.
+#[derive(Debug, PartialEq, Eq)]
+pub struct QueryMatches {
+    pub songs: Vec<QueryMatch>,
+    /// More songs from outside the user's own matched than [`MAX_DISCOVERED_SONGS`].
+    pub capped: bool,
 }
 
-/// Returns the ids of every song matching the given query, most relevant first.
+#[derive(Debug, PartialEq, Eq, FromQueryResult)]
+pub struct QueryMatch {
+    pub song_id: String,
+    /// The song is the user's own: in their library, or carrying one of their tags.
+    pub certain: bool,
+}
+
+/// Returns every song matching the given query, in order.
 ///
-/// The query runs over the user's whole library, meaning their rows in
-/// `user_songs`, so a song carrying no tags at all can still satisfy a negative
-/// filter. A song the user does not have can never come back, however it is
-/// tagged.
+/// The query runs over every song Cadenza knows (see [`OWN_QUERY_SONGS`] and
+/// [`DISCOVERED_QUERY_SONGS`]), so a song carrying no tags at all can still satisfy a
+/// negative filter. Every match that is the user's own comes back, and the first
+/// [`MAX_DISCOVERED_SONGS`] of the rest.
 ///
 /// With `consider_default_tags` a song's shared default tags count as tags on it
 /// too, both for matching and for ranking, and the query may name a default tag
 /// id. Otherwise only the user's own tags exist as far as the query is
 /// concerned.
+///
+/// Without a `sort`, songs come back most relevant first: by how many of the tags the query
+/// names they carry, then the user's own before the rest, then by every user's plays. With
+/// one, by that title, artist or album, then by title, then by plays. Song id breaks every
+/// tie, so the same query over the same data comes back in the same order every time.
 pub async fn run_query(
     db: &DatabaseConnection,
     query: &Query,
     user_id: Uuid,
     consider_default_tags: bool,
-) -> Result<Vec<String>, CadenzaError> {
+    sort: Option<QuerySort>,
+) -> Result<QueryMatches, CadenzaError> {
     check_size(&query.root)?;
 
     let mut tag_ids = HashSet::new();
@@ -57,9 +132,10 @@ pub async fn run_query(
         &number_defaults,
         user_id,
         consider_default_tags,
+        sort,
     )?;
 
-    let song_tag_pairs = SongTagPair::find_by_statement(Statement::from_sql_and_values(
+    let songs = QueryMatch::find_by_statement(Statement::from_sql_and_values(
         DbBackend::Postgres,
         sql,
         values,
@@ -67,37 +143,19 @@ pub async fn run_query(
     .all(db)
     .await?;
 
-    Ok(rank_songs(song_tag_pairs, &tag_ids))
+    Ok(cap_discovered(songs))
 }
 
-/// Orders matched songs by how many of the tags the query names they carry, most
-/// first. Equal scores fall back to song id, so the same query comes back in the
-/// same order every time.
-///
-/// A query built only from `tag_name`, `tag_value` or `tag_type` filters names no
-/// tag ids, so every song scores zero and the whole list is ordered by song id.
-fn rank_songs(song_tag_pairs: Vec<SongTagPair>, mentioned_tags: &HashSet<i64>) -> Vec<String> {
-    // song id -> how many of the mentioned tags it carries
-    let mut scores: HashMap<String, usize> = HashMap::new();
-
-    for pair in song_tag_pairs {
-        let score = scores.entry(pair.song_id).or_default();
-        if pair
-            .tag_id
-            .is_some_and(|tag_id| mentioned_tags.contains(&tag_id))
-        {
-            *score += 1;
-        }
+/// The statement returns one song past [`MAX_DISCOVERED_SONGS`] from outside the user's
+/// own, so a full list can be told from a cut off one. That extra song is the last of
+/// them in order, and goes.
+fn cap_discovered(mut songs: Vec<QueryMatch>) -> QueryMatches {
+    let discovered = songs.iter().filter(|song| !song.certain).count();
+    let capped = discovered > MAX_DISCOVERED_SONGS;
+    if capped && let Some(last) = songs.iter().rposition(|song| !song.certain) {
+        songs.remove(last);
     }
-
-    let mut songs: Vec<(String, usize)> = scores.into_iter().collect();
-    songs.sort_by(|(left_id, left_score), (right_id, right_score)| {
-        right_score
-            .cmp(left_score)
-            .then_with(|| left_id.cmp(right_id))
-    });
-
-    songs.into_iter().map(|(song_id, _)| song_id).collect()
+    QueryMatches { songs, capped }
 }
 
 /// What the compiler needs to know about the tags a query names.
@@ -242,11 +300,6 @@ fn applied_tags_source(consider_default_tags: bool) -> &'static str {
     }
 }
 
-/// The songs a query runs over: the user's whole library. Untagged songs are in
-/// here too, which is what lets a negative filter match a song with no tag rows
-/// at all.
-const LIBRARY_SONGS_SOURCE: &str = "(SELECT song_id FROM user_songs WHERE user_id=$1)";
-
 /// Converts the query to a full SQL statement and its values. `tag_types` must
 /// hold the type of every tag id the query mentions. `number_defaults` holds
 /// the number tags a song without the tag counts as having a value for (see
@@ -257,16 +310,22 @@ const LIBRARY_SONGS_SOURCE: &str = "(SELECT song_id FROM user_songs WHERE user_i
 /// negative operators (`is_not`, `not_on`, `ne`, `is_empty`, `is_null`) match
 /// it.
 ///
-/// The statement selects `(song id, tag id)` pairs rather than bare song ids, so
-/// `rank_songs` can score each song by the tags it carries. Filters correlate
-/// against `query_songs`, which is a song in the user's library. Its tags come
-/// from a left join, so a song with none of them still reaches the where clause.
+/// Filters correlate against `query_songs`, one song from [`OWN_QUERY_SONGS`] or
+/// [`DISCOVERED_QUERY_SONGS`]. The statement selects `(song id, certain)` rows already in
+/// the order [`run_query`] describes: every certain song, and the first
+/// [`MAX_DISCOVERED_SONGS`] + 1 of the rest.
+///
+/// The two run as separate halves of a `UNION ALL` with the same where clause. The user's
+/// own songs are few. The rest can be hundreds of thousands, and a `LIMIT` on that half
+/// lets postgres keep only the first while it sorts, instead of sorting them all. Ranking
+/// happens in the statement rather than after it for the same reason.
 fn compile_query(
     query: &Query,
     tag_types: &HashMap<i64, TagType>,
     number_defaults: &HashMap<i64, f64>,
     user_id: Uuid,
     consider_default_tags: bool,
+    sort: Option<QuerySort>,
 ) -> Result<(String, Vec<sea_query::Value>), CadenzaError> {
     let applied_tags = applied_tags_source(consider_default_tags);
     let mut compiler = Compiler {
@@ -276,18 +335,76 @@ fn compile_query(
         applied_tags,
     };
     let where_clause = compiler.node(&query.root)?;
+    let (score, score_join) = compiler.score(&query.root);
+    let order = order_by(sort);
+    let discovered_limit = MAX_DISCOVERED_SONGS + 1;
+
+    // the same placeholders in both halves, which postgres allows
+    let matched = |query_songs: &str| {
+        format!(
+            r#"
+                SELECT
+                    query_songs.song_id,
+                    query_songs.certain,
+                    {score} AS score,
+                    query_songs.title,
+                    query_songs.artist,
+                    query_songs.album,
+                    query_songs.total_plays
+                FROM {query_songs} AS query_songs
+                {score_join}
+                WHERE {where_clause}
+            "#
+        )
+    };
+    let own = matched(OWN_QUERY_SONGS);
+    let discovered = matched(DISCOVERED_QUERY_SONGS);
 
     let sql = format!(
         r#"
-            SELECT query_songs.song_id, applied_tags.tag_id
-            FROM {LIBRARY_SONGS_SOURCE} AS query_songs
-            LEFT JOIN {applied_tags} AS applied_tags
-                ON applied_tags.song_id=query_songs.song_id
-            WHERE {where_clause}
+            WITH own_songs AS ({OWN_SONGS})
+            SELECT song_id, certain
+            FROM (
+                ({own})
+                UNION ALL
+                (
+                    SELECT * FROM ({discovered}) AS discovered
+                    ORDER BY {order}
+                    LIMIT {discovered_limit}
+                )
+            ) AS ranked
+            ORDER BY {order}
         "#
     );
 
     Ok((sql, compiler.values))
+}
+
+/// The `ORDER BY` list for `sort`, over the columns `compile_query` selects. Ends in the
+/// song id, which is unique, so the order is total and the cap's sort and the final sort
+/// agree row for row. The id compares byte by byte, so it does not depend on the
+/// database's locale.
+fn order_by(sort: Option<QuerySort>) -> String {
+    let Some(QuerySort { key, direction }) = sort else {
+        return "score DESC, certain DESC, total_plays DESC, song_id COLLATE \"C\"".to_string();
+    };
+
+    let direction = match direction {
+        SortDirection::Ascending => "ASC",
+        SortDirection::Descending => "DESC",
+    };
+    let text = |column: &str| format!("{column} COLLATE {SORT_COLLATION} {direction} NULLS LAST");
+    // songs with the same artist or album go by title, the same as the app's own sort
+    let columns = match key {
+        QuerySortKey::Title => vec![text("title")],
+        QuerySortKey::Artist => vec![text("artist"), text("title")],
+        QuerySortKey::Album => vec![text("album"), text("title")],
+    };
+
+    format!(
+        "{}, total_plays DESC, song_id COLLATE \"C\"",
+        columns.join(", ")
+    )
 }
 
 struct Compiler<'a> {
@@ -313,6 +430,42 @@ impl Compiler<'_> {
     fn bind(&mut self, value: impl Into<sea_query::Value>) -> String {
         self.values.push(value.into());
         format!("${}", self.values.len())
+    }
+
+    /// How relevant a song is: how many of the tags the query names it carries. Returns the
+    /// score's expression and the join it reads from, counted once per song in one grouped
+    /// pass rather than looked up song by song. Every song scores 0 for a query that names
+    /// no tag ids, like one built only from `tag_name` or metadata filters, and then there
+    /// is no join.
+    fn score(&mut self, root: &QueryNode) -> (String, String) {
+        let mut tag_ids: Vec<i64> = {
+            let mut tag_ids = HashSet::new();
+            collect_tag_ids(root, &mut tag_ids);
+            tag_ids.into_iter().collect()
+        };
+        if tag_ids.is_empty() {
+            return ("0".to_string(), String::new());
+        }
+        // sorted, so the same query always binds in the same order
+        tag_ids.sort_unstable();
+
+        let params = tag_ids
+            .into_iter()
+            .map(|tag_id| self.bind(sea_query::Value::BigInt(Some(tag_id))))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let join = format!(
+            r#"
+                LEFT JOIN (
+                    SELECT score_tags.song_id, count(*) AS score
+                    FROM {} AS score_tags
+                    WHERE score_tags.tag_id IN ({params})
+                    GROUP BY score_tags.song_id
+                ) AS scores ON scores.song_id=query_songs.song_id
+            "#,
+            self.applied_tags
+        );
+        ("COALESCE(scores.score, 0)".to_string(), join)
     }
 
     /// Converts a node to a SQL snippet.
@@ -900,6 +1053,7 @@ mod tests {
             &HashMap::new(),
             Uuid::nil(),
             false,
+            None,
         )
     }
 
@@ -910,6 +1064,7 @@ mod tests {
             &HashMap::new(),
             Uuid::nil(),
             true,
+            None,
         )
     }
 
@@ -922,6 +1077,7 @@ mod tests {
             &HashMap::from([(4, 0.0)]),
             Uuid::nil(),
             false,
+            None,
         )
         .unwrap()
         .0
@@ -976,13 +1132,6 @@ mod tests {
     fn number_tags_without_a_default_are_unchanged() {
         let sql = squash(&compile(&number_filter("lt", "2")).unwrap().0);
         assert!(!sql.contains("OR NOT"), "{sql}");
-    }
-
-    fn pair(song_id: &str, tag_id: Option<i64>) -> SongTagPair {
-        SongTagPair {
-            song_id: song_id.to_string(),
-            tag_id,
-        }
     }
 
     fn filter(filter: &str) -> String {
@@ -1056,12 +1205,15 @@ mod tests {
 
         assert!(sql.contains("filter_check.value::double precision > $3"));
         assert!(sql.contains("lower(filter_check.value) = lower($4)"));
+        // the ranking binds the tags it scores on after every filter
+        assert!(sql.contains("score_tags.tag_id IN ($5)"), "{sql}");
         assert_eq!(
             values[1..],
             [
                 sea_query::Value::BigInt(Some(4)),
                 sea_query::Value::Double(Some(2.5)),
                 sea_query::Value::String(Some("Rock".to_string())),
+                sea_query::Value::BigInt(Some(4)),
             ]
         );
     }
@@ -1233,37 +1385,56 @@ mod tests {
         assert!(check_size(&parse(&deep).root).is_err());
     }
 
-    /// The library, not the tagged songs, is the row source. An untagged song
-    /// has to reach the where clause or `is_not_applied` could never match it.
+    /// Every song Cadenza knows is the row source, not just the tagged ones. An untagged
+    /// song has to reach the where clause or `is_not_applied` could never match it.
     #[test]
-    fn the_query_starts_from_the_users_library() {
+    fn the_query_runs_over_the_users_own_songs_and_every_stored_one() {
         let (sql, values) = compile(&filter(
             r#"{ "field": "tag", "tag_id": 1, "op": "is_not_applied" }"#,
         ))
         .unwrap();
+        let sql = squash(&sql);
 
         assert!(
-            sql.contains("FROM (SELECT song_id FROM user_songs WHERE user_id=$1) AS query_songs"),
+            sql.contains(&format!("WITH own_songs AS ( {} )", squash(OWN_SONGS))),
             "{sql}"
         );
-        assert!(sql.contains("LEFT JOIN"), "{sql}");
-        assert!(sql.contains("AS applied_tags"), "{sql}");
         assert!(
-            sql.contains("FROM user_tags_applied WHERE user_id=$1"),
+            sql.contains("SELECT song_id FROM user_songs WHERE user_id=$1 UNION SELECT song_id FROM user_tags_applied WHERE user_id=$1"),
             "{sql}"
         );
-        assert!(sql.contains("NOT EXISTS"));
+        // the user's own songs, all certain
+        assert!(
+            sql.contains(&format!("FROM {} AS query_songs", squash(OWN_QUERY_SONGS))),
+            "{sql}"
+        );
+        assert!(sql.contains("own_songs.song_id, TRUE AS certain"), "{sql}");
+        // and every stored song Apple knows that is not one of them
+        assert!(
+            sql.contains(&format!(
+                "FROM {} AS query_songs",
+                squash(DISCOVERED_QUERY_SONGS)
+            )),
+            "{sql}"
+        );
+        assert!(sql.contains("stored.song_id, FALSE AS certain"), "{sql}");
+        assert!(
+            sql.contains("WHERE stored.found AND own_songs.song_id IS NULL"),
+            "{sql}"
+        );
+        // the filter runs over both halves
+        assert_eq!(sql.matches("NOT EXISTS").count(), 2, "{sql}");
         // the user id is the only value bound before the filters
         assert!(sql.contains("filter_check.tag_id=$2"));
-        assert_eq!(values.len(), 2);
+        assert_eq!(values.len(), 3);
     }
 
     #[test]
     fn filters_bind_in_order_after_the_user_id() {
         let (sql, values) = compile(
             r#"{ "where": { "and": [
-                { "filter": { "field": "tag", "tag_id": 1, "op": "is_applied" } },
-                { "filter": { "field": "tag", "tag_id": 2, "op": "is_applied" } }
+                { "filter": { "field": "tag", "tag_id": 2, "op": "is_applied" } },
+                { "filter": { "field": "tag", "tag_id": 1, "op": "is_applied" } }
             ] } }"#,
         )
         .unwrap();
@@ -1271,7 +1442,17 @@ mod tests {
         assert!(sql.contains("AS query_songs"), "{sql}");
         assert!(sql.contains("filter_check.tag_id=$2"));
         assert!(sql.contains("filter_check.tag_id=$3"));
-        assert_eq!(values.len(), 3);
+        // then the ranking's tags, sorted by id
+        assert!(sql.contains("score_tags.tag_id IN ($4, $5)"), "{sql}");
+        assert_eq!(
+            values[1..],
+            [
+                sea_query::Value::BigInt(Some(2)),
+                sea_query::Value::BigInt(Some(1)),
+                sea_query::Value::BigInt(Some(1)),
+                sea_query::Value::BigInt(Some(2)),
+            ]
+        );
     }
 
     /// The flag decides what a tag on a song is, so it has to reach the ranking
@@ -1288,18 +1469,19 @@ mod tests {
         assert!(!without.contains("default_tags_applied"), "{without}");
 
         let (with, _) = compile_with_defaults(query).unwrap();
-        // The ranking join, plus one per filter subquery.
+        // The ranking subquery, plus one per filter subquery, in each half of the
+        // statement.
         assert_eq!(
             with.matches("FROM default_tags_applied").count(),
-            3,
+            6,
             "{with}"
         );
-        assert_eq!(with.matches("NULL::text AS value").count(), 3, "{with}");
+        assert_eq!(with.matches("NULL::text AS value").count(), 6, "{with}");
         // The user's own tags are still in there, never replaced.
         assert_eq!(
-            with.matches("FROM user_tags_applied WHERE user_id=$1")
+            with.matches("SELECT song_id, tag_id, value FROM user_tags_applied WHERE user_id=$1")
                 .count(),
-            3,
+            6,
             "{with}"
         );
     }
@@ -1322,7 +1504,7 @@ mod tests {
             "{with}"
         );
         // the removals are the reading user's own, so they bind the same $1
-        assert_eq!(with.matches("removed.user_id=$1").count(), 3, "{with}");
+        assert_eq!(with.matches("removed.user_id=$1").count(), 6, "{with}");
 
         // nothing reads removals when defaults are out of the query
         let (without, _) = compile(query).unwrap();
@@ -1343,32 +1525,166 @@ mod tests {
     }
 
     #[test]
-    fn the_statement_selects_song_and_tag_pairs() {
+    fn the_statement_selects_songs_and_whether_they_are_certain() {
         let (sql, _) = compile(r#"{ "where": { "and": [] } }"#).unwrap();
-        assert!(sql.contains("SELECT query_songs.song_id, applied_tags.tag_id"));
-    }
-
-    #[test]
-    fn songs_are_ranked_by_how_many_mentioned_tags_they_carry() {
-        let mentioned = HashSet::from([1, 2]);
-        let pairs = vec![
-            pair("one-match", Some(1)),
-            pair("one-match", Some(9)),
-            pair("two-matches", Some(1)),
-            pair("two-matches", Some(2)),
-            pair("no-tags", None),
-        ];
-
-        assert_eq!(
-            rank_songs(pairs, &mentioned),
-            vec!["two-matches", "one-match", "no-tags"]
+        assert!(
+            squash(&sql).contains(
+                "SELECT song_id, certain FROM ( ( SELECT query_songs.song_id, query_songs.certain,"
+            ),
+            "{sql}"
         );
     }
 
     #[test]
-    fn equal_scores_fall_back_to_song_id() {
-        let pairs = vec![pair("b", None), pair("a", None), pair("c", None)];
-        assert_eq!(rank_songs(pairs, &HashSet::new()), vec!["a", "b", "c"]);
+    fn a_query_naming_no_tags_scores_every_song_zero() {
+        let (sql, values) = compile(&metadata_filter("artist", "is", Some("Prince"))).unwrap();
+        assert!(squash(&sql).contains("0 AS score"), "{sql}");
+        assert!(!sql.contains("score_tags"), "{sql}");
+        assert_eq!(values.len(), 2);
+    }
+
+    /// Only the songs from outside the user's own are cut off, and the statement keeps one
+    /// past the cap so the caller can tell.
+    #[test]
+    fn only_discovered_songs_are_capped() {
+        let (sql, _) = compile(r#"{ "where": { "and": [] } }"#).unwrap();
+        let sql = squash(&sql);
+        let order = order_by(None);
+        assert!(
+            sql.contains(&format!(
+                ") AS discovered ORDER BY {order} LIMIT {} )",
+                MAX_DISCOVERED_SONGS + 1
+            )),
+            "{sql}"
+        );
+        assert_eq!(sql.matches("LIMIT").count(), 1, "{sql}");
+    }
+
+    /// The cap's sort and the final sort have to agree, or the cap would keep songs the
+    /// list does not show first.
+    #[test]
+    fn the_cap_and_the_final_sort_use_one_order() {
+        for sort in [
+            None,
+            Some(QuerySort {
+                key: QuerySortKey::Artist,
+                direction: SortDirection::Descending,
+            }),
+        ] {
+            let (sql, _) = compile_query(
+                &parse(r#"{ "where": { "and": [] } }"#),
+                &tag_types(),
+                &HashMap::new(),
+                Uuid::nil(),
+                false,
+                sort,
+            )
+            .unwrap();
+            let order = order_by(sort);
+            assert_eq!(sql.matches(&order).count(), 2, "{sql}");
+            assert!(
+                squash(&sql).ends_with(&format!("ORDER BY {order}")),
+                "{sql}"
+            );
+        }
+    }
+
+    /// The score counts the query's tags in one grouped pass, through the same tag source
+    /// the filters read.
+    #[test]
+    fn the_score_counts_the_query_s_tags_on_each_song() {
+        let (sql, _) = compile(&filter(
+            r#"{ "field": "tag", "tag_id": 2, "op": "is_applied" }"#,
+        ))
+        .unwrap();
+        let sql = squash(&sql);
+        assert!(sql.contains("COALESCE(scores.score, 0) AS score"), "{sql}");
+        assert!(
+            sql.contains("LEFT JOIN ( SELECT score_tags.song_id, count(*) AS score FROM (SELECT song_id, tag_id, value FROM user_tags_applied WHERE user_id=$1) AS score_tags WHERE score_tags.tag_id IN ($3) GROUP BY score_tags.song_id ) AS scores ON scores.song_id=query_songs.song_id"),
+            "{sql}"
+        );
+    }
+
+    #[test]
+    fn relevance_ranks_by_score_then_the_users_own_then_plays() {
+        assert_eq!(
+            order_by(None),
+            r#"score DESC, certain DESC, total_plays DESC, song_id COLLATE "C""#
+        );
+    }
+
+    #[test]
+    fn a_sort_reads_its_metadata_column_and_falls_back_to_title() {
+        let sort = |key, direction| order_by(Some(QuerySort { key, direction }));
+
+        assert_eq!(
+            sort(QuerySortKey::Title, SortDirection::Ascending),
+            r#"title COLLATE natural_sort ASC NULLS LAST, total_plays DESC, song_id COLLATE "C""#
+        );
+        assert_eq!(
+            sort(QuerySortKey::Artist, SortDirection::Descending),
+            r#"artist COLLATE natural_sort DESC NULLS LAST, title COLLATE natural_sort DESC NULLS LAST, total_plays DESC, song_id COLLATE "C""#
+        );
+        assert_eq!(
+            sort(QuerySortKey::Album, SortDirection::Ascending),
+            r#"album COLLATE natural_sort ASC NULLS LAST, title COLLATE natural_sort ASC NULLS LAST, total_plays DESC, song_id COLLATE "C""#
+        );
+    }
+
+    #[test]
+    fn sorts_parse_from_json() {
+        let sort: QuerySort =
+            serde_json::from_str(r#"{ "key": "album", "direction": "descending" }"#).unwrap();
+        assert_eq!(
+            sort,
+            QuerySort {
+                key: QuerySortKey::Album,
+                direction: SortDirection::Descending
+            }
+        );
+        assert!(
+            serde_json::from_str::<QuerySort>(
+                r#"{ "key": "date_added", "direction": "ascending" }"#
+            )
+            .is_err()
+        );
+        assert!(serde_json::from_str::<QuerySort>(r#"{ "key": "title" }"#).is_err());
+    }
+
+    fn song(song_id: &str, certain: bool) -> QueryMatch {
+        QueryMatch {
+            song_id: song_id.to_string(),
+            certain,
+        }
+    }
+
+    #[test]
+    fn a_full_list_is_not_capped() {
+        let songs: Vec<QueryMatch> = (0..MAX_DISCOVERED_SONGS)
+            .map(|index| song(&index.to_string(), false))
+            .chain([song("mine", true)])
+            .collect();
+        let matches = cap_discovered(songs);
+        assert!(!matches.capped);
+        assert_eq!(matches.songs.len(), MAX_DISCOVERED_SONGS + 1);
+    }
+
+    #[test]
+    fn the_song_past_the_cap_is_dropped_and_the_users_own_are_kept() {
+        // the extra discovered song sorts in between two of the user's own
+        let mut songs: Vec<QueryMatch> = (0..MAX_DISCOVERED_SONGS)
+            .map(|index| song(&format!("d{index}"), false))
+            .collect();
+        songs.push(song("mine-1", true));
+        songs.push(song("extra", false));
+        songs.push(song("mine-2", true));
+
+        let matches = cap_discovered(songs);
+        assert!(matches.capped);
+        assert_eq!(matches.songs.len(), MAX_DISCOVERED_SONGS + 2);
+        assert!(!matches.songs.iter().any(|song| song.song_id == "extra"));
+        assert_eq!(matches.songs[MAX_DISCOVERED_SONGS].song_id, "mine-1");
+        assert_eq!(matches.songs[MAX_DISCOVERED_SONGS + 1].song_id, "mine-2");
     }
 
     // ----- metadata filters -----
@@ -1646,25 +1962,47 @@ mod tests {
         (txn, user_id)
     }
 
-    async fn run_metadata_query(
+    /// Runs a compiled query and returns what it matched, in order. Every stored song
+    /// Apple knows is a candidate now, so the database's real rows come back too; only the
+    /// `test-q-` songs this module inserted are kept.
+    async fn run_test_query(
         txn: &DatabaseTransaction,
         user_id: Uuid,
         json: &str,
-    ) -> Vec<String> {
-        let (sql, values) =
-            compile_query(&parse(json), &tag_types(), &HashMap::new(), user_id, false).unwrap();
-        let pairs = SongTagPair::find_by_statement(Statement::from_sql_and_values(
+        tag_types: &HashMap<i64, TagType>,
+        sort: Option<QuerySort>,
+    ) -> Vec<QueryMatch> {
+        let (sql, values) = compile_query(
+            &parse(json),
+            tag_types,
+            &HashMap::new(),
+            user_id,
+            false,
+            sort,
+        )
+        .unwrap();
+        QueryMatch::find_by_statement(Statement::from_sql_and_values(
             DbBackend::Postgres,
             sql,
             values,
         ))
         .all(txn)
         .await
-        .unwrap();
+        .unwrap()
+        .into_iter()
+        .filter(|song| song.song_id.starts_with("test-q-"))
+        .collect()
+    }
 
-        let mut songs: Vec<String> = rank_songs(pairs, &HashSet::new())
+    async fn run_metadata_query(
+        txn: &DatabaseTransaction,
+        user_id: Uuid,
+        json: &str,
+    ) -> Vec<String> {
+        let mut songs: Vec<String> = run_test_query(txn, user_id, json, &tag_types(), None)
+            .await
             .into_iter()
-            .map(|song_id| song_id.trim_start_matches("test-q-").to_owned())
+            .map(|song| song.song_id.trim_start_matches("test-q-").to_owned())
             .collect();
         songs.sort();
         songs
@@ -1737,20 +2075,255 @@ mod tests {
         .await
         .unwrap();
 
-        let (sql, values) = compile_query(
-            &parse(&format!(
+        let songs = run_test_query(
+            &txn,
+            user_id,
+            &format!(
                 r#"{{ "where": {{ "and": [
                     {{ "filter": {{ "field": "metadata", "key": "genre", "op": "is", "value": "pop" }} }},
                     {{ "filter": {{ "field": "tag", "tag_id": {tag_id}, "op": "is_applied" }} }}
                 ] }} }}"#
-            )),
+            ),
             &HashMap::from([(tag_id, TagType::Basic)]),
+            None,
+        )
+        .await;
+
+        assert_eq!(songs, vec![song("test-q-p1", true)]);
+    }
+
+    /// Stores songs the user does not have, named `test-q-<suffix>` and titled
+    /// `zz test-q <title>`, so a title filter on `zz test-q` finds only these and the
+    /// library from [`metadata_library`].
+    async fn store_discovered(txn: &DatabaseTransaction, songs: &[(&str, &str, &str, i64)]) {
+        for (suffix, title, artist, plays) in songs {
+            txn.execute_raw(Statement::from_sql_and_values(
+                DbBackend::Postgres,
+                r#"
+                INSERT INTO metadata_song_tags_applied
+                    (song_id, found, name, artist_name, album_name, total_plays)
+                VALUES ($1, true, $2, $3, 'Album', $4)
+                "#,
+                [
+                    format!("test-q-{suffix}").into(),
+                    format!("zz test-q {title}").into(),
+                    (*artist).into(),
+                    (*plays).into(),
+                ],
+            ))
+            .await
+            .unwrap();
+        }
+    }
+
+    const ZZ_TITLES: &str = r#"{ "where": { "filter": { "field": "metadata", "key": "title", "op": "starts_with", "value": "zz test-q" } } }"#;
+
+    fn ids(songs: &[QueryMatch]) -> Vec<&str> {
+        songs
+            .iter()
+            .map(|song| song.song_id.trim_start_matches("test-q-"))
+            .collect()
+    }
+
+    /// A song the user does not have matches a negative filter too, and comes back marked
+    /// as not certain. A song carrying one of their tags is certain without being in their
+    /// library.
+    #[tokio::test]
+    #[ignore]
+    async fn songs_outside_the_library_match_and_are_not_certain() {
+        let (txn, user_id) = metadata_library().await;
+        // played more than anything real, so it is first of the discovered songs and the
+        // cap never cuts it off whatever else the database holds
+        store_discovered(&txn, &[("d1", "Elsewhere", "Someone", 1_000_000_000_000)]).await;
+
+        let tag_id: i64 = txn
+            .query_one_raw(Statement::from_sql_and_values(
+                DbBackend::Postgres,
+                "INSERT INTO tags (name, color, user_id) VALUES ('test-q-pop', '#000000', $1) RETURNING tag_id",
+                [user_id.into()],
+            ))
+            .await
+            .unwrap()
+            .unwrap()
+            .try_get_by_index(0)
+            .unwrap();
+        // tagged by the user, stored, but not in their library
+        store_discovered(&txn, &[("t1", "Tagged", "Someone", 0)]).await;
+        txn.execute_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            "INSERT INTO user_tags_applied (song_id, user_id, tag_id) VALUES ('test-q-p1', $1, $2), ('test-q-t1', $1, $2)",
+            [user_id.into(), tag_id.into()],
+        ))
+        .await
+        .unwrap();
+
+        let not_pop = format!(
+            r#"{{ "where": {{ "filter": {{ "field": "tag", "tag_id": {tag_id}, "op": "is_not_applied" }} }} }}"#
+        );
+        let types = HashMap::from([(tag_id, TagType::Basic)]);
+        let mut songs = run_test_query(&txn, user_id, &not_pop, &types, None).await;
+        songs.sort_by(|left, right| left.song_id.cmp(&right.song_id));
+        assert_eq!(
+            songs,
+            vec![
+                song("test-q-d1", false),
+                song("test-q-n1", true),
+                song("test-q-p2", true),
+                song("test-q-x1", true),
+            ]
+        );
+
+        let pop = format!(
+            r#"{{ "where": {{ "filter": {{ "field": "tag", "tag_id": {tag_id}, "op": "is_applied" }} }} }}"#
+        );
+        let mut songs = run_test_query(&txn, user_id, &pop, &types, None).await;
+        songs.sort_by(|left, right| left.song_id.cmp(&right.song_id));
+        assert_eq!(
+            songs,
+            vec![song("test-q-p1", true), song("test-q-t1", true)]
+        );
+    }
+
+    /// Most relevant first: the user's own songs before the rest when the score ties, then
+    /// every user's plays, then song id.
+    #[tokio::test]
+    #[ignore]
+    async fn relevance_puts_the_users_own_first_then_plays() {
+        let (txn, user_id) = metadata_library().await;
+        store_discovered(
+            &txn,
+            &[
+                ("d-quiet", "Quiet", "Someone", 1),
+                ("d-loud", "Loud", "Someone", 900),
+                ("d-tie-b", "Tie", "Someone", 5),
+                ("d-tie-a", "Tie", "Someone", 5),
+            ],
+        )
+        .await;
+        // the library songs need the title too, or the filter leaves them out
+        txn.execute_raw(Statement::from_string(
+            DbBackend::Postgres,
+            "UPDATE metadata_song_tags_applied SET name = 'zz test-q ' || name WHERE song_id IN ('test-q-p1', 'test-q-p2')",
+        ))
+        .await
+        .unwrap();
+
+        let songs = run_test_query(&txn, user_id, ZZ_TITLES, &tag_types(), None).await;
+        assert_eq!(
+            ids(&songs),
+            vec!["p1", "p2", "d-loud", "d-tie-a", "d-tie-b", "d-quiet"]
+        );
+    }
+
+    /// Sorting reads the stored metadata in natural order, puts songs with none last both
+    /// ways, and keeps the user's own and the rest in one list.
+    #[tokio::test]
+    #[ignore]
+    async fn sorts_read_the_metadata_in_natural_order() {
+        let (txn, user_id) = metadata_library().await;
+        store_discovered(
+            &txn,
+            &[
+                ("d10", "Track 10", "beta", 0),
+                ("d9", "track 9", "Alpha", 0),
+                ("d-empty-artist", "Track 1", "", 0),
+            ],
+        )
+        .await;
+        txn.execute_raw(Statement::from_string(
+            DbBackend::Postgres,
+            "UPDATE metadata_song_tags_applied SET name = 'zz test-q ' || name WHERE song_id IN ('test-q-p1', 'test-q-p2')",
+        ))
+        .await
+        .unwrap();
+        let sort = |key, direction| Some(QuerySort { key, direction });
+
+        let songs = run_test_query(
+            &txn,
+            user_id,
+            ZZ_TITLES,
+            &tag_types(),
+            sort(QuerySortKey::Title, SortDirection::Ascending),
+        )
+        .await;
+        assert_eq!(ids(&songs), vec!["p1", "p2", "d-empty-artist", "d9", "d10"]);
+        assert_eq!(
+            songs.iter().map(|song| song.certain).collect::<Vec<_>>(),
+            vec![true, true, false, false, false]
+        );
+
+        // an empty artist sorts like a missing one, last either way
+        let songs = run_test_query(
+            &txn,
+            user_id,
+            ZZ_TITLES,
+            &tag_types(),
+            sort(QuerySortKey::Artist, SortDirection::Ascending),
+        )
+        .await;
+        assert_eq!(ids(&songs), vec!["d9", "d10", "p2", "p1", "d-empty-artist"]);
+        let songs = run_test_query(
+            &txn,
+            user_id,
+            ZZ_TITLES,
+            &tag_types(),
+            sort(QuerySortKey::Artist, SortDirection::Descending),
+        )
+        .await;
+        assert_eq!(ids(&songs), vec!["p1", "p2", "d10", "d9", "d-empty-artist"]);
+
+        // with no title to filter on, songs without metadata still come back, last
+        let every = r#"{ "where": { "and": [] } }"#;
+        let songs = run_test_query(
+            &txn,
+            user_id,
+            every,
+            &tag_types(),
+            sort(QuerySortKey::Title, SortDirection::Descending),
+        )
+        .await;
+        let titled_last = ids(&songs);
+        assert_eq!(&titled_last[titled_last.len() - 2..], ["n1", "x1"]);
+    }
+
+    /// The cap keeps the first discovered songs in the chosen order and every one of the
+    /// user's own, however far down the order they are.
+    #[tokio::test]
+    #[ignore]
+    async fn the_cap_keeps_the_first_discovered_songs_and_all_of_the_users_own() {
+        let (txn, user_id) = metadata_library().await;
+        // more discovered songs than the cap, each sorting before the library songs
+        txn.execute_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            r#"
+            INSERT INTO metadata_song_tags_applied (song_id, found, name, total_plays)
+            SELECT 'test-q-d' || lpad(n::text, 5, '0'), true, 'zz test-q a ' || lpad(n::text, 5, '0'), 0
+            FROM generate_series(1, $1) AS n
+            "#,
+            [((MAX_DISCOVERED_SONGS + 5) as i64).into()],
+        ))
+        .await
+        .unwrap();
+        txn.execute_raw(Statement::from_string(
+            DbBackend::Postgres,
+            "UPDATE metadata_song_tags_applied SET name = 'zz test-q z ' || name WHERE song_id IN ('test-q-p1', 'test-q-p2')",
+        ))
+        .await
+        .unwrap();
+
+        let (sql, values) = compile_query(
+            &parse(ZZ_TITLES),
+            &tag_types(),
             &HashMap::new(),
             user_id,
             false,
+            Some(QuerySort {
+                key: QuerySortKey::Title,
+                direction: SortDirection::Ascending,
+            }),
         )
         .unwrap();
-        let pairs = SongTagPair::find_by_statement(Statement::from_sql_and_values(
+        let rows = QueryMatch::find_by_statement(Statement::from_sql_and_values(
             DbBackend::Postgres,
             sql,
             values,
@@ -1758,10 +2331,19 @@ mod tests {
         .all(&txn)
         .await
         .unwrap();
+        let matches = cap_discovered(rows);
 
+        assert!(matches.capped);
+        assert_eq!(matches.songs.len(), MAX_DISCOVERED_SONGS + 2);
+        assert_eq!(matches.songs[0].song_id, "test-q-d00001");
         assert_eq!(
-            rank_songs(pairs, &HashSet::from([tag_id])),
-            vec!["test-q-p1"]
+            matches.songs[MAX_DISCOVERED_SONGS - 1].song_id,
+            format!("test-q-d{:05}", MAX_DISCOVERED_SONGS)
         );
+        let last_two: Vec<&str> = matches.songs[MAX_DISCOVERED_SONGS..]
+            .iter()
+            .map(|song| song.song_id.as_str())
+            .collect();
+        assert_eq!(last_two, ["test-q-p1", "test-q-p2"]);
     }
 }

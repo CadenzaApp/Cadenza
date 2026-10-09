@@ -13,6 +13,7 @@ import {
     moveQueryTagToIndex,
     queryHeading,
     hasSuggestedTag,
+    matchCountLabel,
     queryToJSON,
     removeCondition,
     removeQueryTag,
@@ -479,4 +480,13 @@ test("a suggested tag compiles to the same filter as any other tag", () => {
     assert.deepEqual(queryToJSON(appendTag([], rainy, true)), {
         where: { and: [applied(1)] },
     });
+});
+
+test("a match count reads as songs, with a plus when capped", () => {
+    assert.equal(matchCountLabel(0, false), "0 songs");
+    assert.equal(matchCountLabel(1, false), "1 song");
+    assert.equal(matchCountLabel(42, false), "42 songs");
+    assert.equal(matchCountLabel(1000, false), "1,000 songs");
+    assert.equal(matchCountLabel(1042, true), "1,042+ songs");
+    assert.equal(matchCountLabel(1234567, false), "1,234,567 songs");
 });

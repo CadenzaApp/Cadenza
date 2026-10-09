@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import useSWR, { mutate } from "swr";
 import useSWRMutation from "swr/mutation";
 import { useAccount } from "./account";
@@ -242,6 +243,85 @@ export function useAPIPostData<Body, Output>(path: string, body: Body | null) {
             }),
         { keepPreviousData: false },
     );
+}
+
+/** How long `useAPIPostSnapshot` waits before each retry of a failed read. */
+const SNAPSHOT_RETRY_DELAYS_MS = [1000, 3000] as const;
+
+/**
+ * A POST read fetched once and then held for as long as the caller stays
+ * mounted. It is never revalidated: not on focus, not on reconnect, and not when
+ * a mutation invalidates its path. For a long list the user scrolls through,
+ * where a refresh in the background would move rows out from under them. A new
+ * `body` fetches again.
+ *
+ * Deliberately not SWR. Each mounted caller needs its own answer, and SWR's
+ * shared cache would hand a newly opened screen the answer an earlier one got,
+ * and keep every screen's answer after it closed.
+ */
+export function useAPIPostSnapshot<Body, Output>(
+    path: string,
+    body: Body | null,
+) {
+    const { account } = useAccount();
+    // the body as a string, so an equal body in a new object does not refetch
+    const requestKey =
+        account && body !== null
+            ? JSON.stringify([account.id, path, body])
+            : null;
+    const [result, setResult] = useState<{
+        requestKey: string;
+        data?: Output;
+        error?: unknown;
+    } | null>(null);
+
+    useEffect(() => {
+        if (requestKey === null) return;
+        let cancelled = false;
+        const [, requestPath, requestBody] = JSON.parse(requestKey) as [
+            string,
+            string,
+            Body,
+        ];
+
+        // SWR would retry a failed read, so this does too, a few times with
+        // a growing wait, before it gives up and reports the error
+        async function load(key: string) {
+            for (let attempt = 0; ; attempt += 1) {
+                try {
+                    const data = await apiRequest<Output>(
+                        BACKEND_URL + requestPath,
+                        { method: "POST", body: requestBody },
+                    );
+                    if (!cancelled) setResult({ requestKey: key, data });
+                    return;
+                } catch (error) {
+                    if (cancelled) return;
+                    if (attempt >= SNAPSHOT_RETRY_DELAYS_MS.length) {
+                        setResult({ requestKey: key, error });
+                        return;
+                    }
+                    await new Promise((resolve) =>
+                        setTimeout(resolve, SNAPSHOT_RETRY_DELAYS_MS[attempt]),
+                    );
+                    if (cancelled) return;
+                }
+            }
+        }
+        void load(requestKey);
+
+        return () => {
+            cancelled = true;
+        };
+    }, [requestKey]);
+
+    // an answer to an earlier body is not an answer to this one
+    const current = result?.requestKey === requestKey ? result : null;
+    return {
+        data: current?.data,
+        error: current?.error,
+        isLoading: requestKey !== null && current === null,
+    };
 }
 
 /**

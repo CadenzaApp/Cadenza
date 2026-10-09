@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use crate::db::queries::QueryMatches;
 use crate::routes::json::tag::TagType;
 
 /// A tag query, as sent in the `query` field of `POST /queries/results`. Both
@@ -125,6 +126,84 @@ pub enum MetadataKey {
     Duration,
     Explicit,
     TotalPlays,
+}
+
+/// How `POST /queries/results` orders its songs, sent as its `sort` field. Leaving it out
+/// orders them most relevant first.
+///
+/// ```json
+/// { "key": "artist", "direction": "descending" }
+/// ```
+///
+/// Sorting reads the song's stored Apple Music metadata, so a song with none, or with an
+/// empty title, artist or album, comes last whichever way the sort runs.
+#[derive(Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct QuerySort {
+    pub key: QuerySortKey,
+    pub direction: SortDirection,
+}
+
+/// What a query's songs can be sorted by. The same three the app's song lists offer.
+#[derive(Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum QuerySortKey {
+    Title,
+    Artist,
+    Album,
+}
+
+#[derive(Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SortDirection {
+    Ascending,
+    Descending,
+}
+
+/// What `POST /queries/results` returns: every matching song in order, and whether the
+/// songs from outside the user's own were cut off.
+///
+/// ```json
+/// {
+///   "songs": [
+///     { "song_id": "1440857781", "certain": true },
+///     { "song_id": "1559523359", "certain": false }
+///   ],
+///   "capped": false
+/// }
+/// ```
+///
+/// `certain` is true for a song in the user's library or carrying any of their own tags,
+/// activity tags included. Those always all come back. Every other match is a song Cadenza
+/// knows from elsewhere, and only the first
+/// [`MAX_DISCOVERED_SONGS`](crate::db::queries::MAX_DISCOVERED_SONGS) of those do;
+/// `capped` is true when more matched than that.
+#[derive(Serialize, Debug)]
+pub struct QueryResults {
+    pub songs: Vec<QueryResultSong>,
+    pub capped: bool,
+}
+
+#[derive(Serialize, Debug)]
+pub struct QueryResultSong {
+    pub song_id: String,
+    pub certain: bool,
+}
+
+impl From<QueryMatches> for QueryResults {
+    fn from(value: QueryMatches) -> Self {
+        Self {
+            songs: value
+                .songs
+                .into_iter()
+                .map(|song| QueryResultSong {
+                    song_id: song.song_id,
+                    certain: song.certain,
+                })
+                .collect(),
+            capped: value.capped,
+        }
+    }
 }
 
 /// Every filter operator, across all field and tag types.

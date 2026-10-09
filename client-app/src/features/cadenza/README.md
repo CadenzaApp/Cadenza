@@ -26,13 +26,15 @@ the result-summary row switches between the tactile simple builder and the filte
 builder without discarding either tree. The simple path compiles `QueryCondition[]` with
 `queryToJSON` and the advanced path compiles its tree with `buildAdvancedQuery`, but both produce
 the same wire format, so the active mode only decides which tree is sent. One
-`useQueryResults` call handles both. Returned ids map back to the same cached library tracks and
+`useQueryResults` call handles both. Returned ids map back to tracks a page at a time and
 render the same `ResultsSummary`; its arrow opens the current mode's results.
 
-The request carries no song ids. The backend evaluates the query over the library it already
-holds in `user_songs`, which is what lets a negated query include songs with no Cadenza tags at
-all. The cached library tracks are still read here, but only to turn matched ids back into
-songs to render.
+The request carries no song ids. The backend evaluates the query over every song it knows: the
+library it holds in `user_songs`, the songs carrying the user's tags, and every song it has stored
+metadata for. That is what lets a negated query include songs with no Cadenza tags at all, and
+songs the user does not have. The preview turns matched ids into tracks with
+`usePagedTracksForSongIds`, which reads the cached library first and asks Apple Music for the
+rest, one page at a time as the preview scrolls.
 
 The conditions live on the tab screen, so they survive tab switches. Opening the full result set
 pushes `/query-results` with the serialized query and a `suggested` flag, and the route renders
@@ -49,7 +51,7 @@ plus the simple builder's own condition tags, so suggested tags in a simple quer
 - `@/features/query-builder` for the simple query and shared result presentation.
 - `@/features/advanced-query-builder` for advanced filter construction and compilation.
 - `@/lib/routes/tags` and `@/lib/routes/queries` for backend data.
-- `@/lib/musickit-hooks::useTracksForSongIds` for result metadata.
+- `@/lib/musickit-hooks::usePagedTracksForSongIds` for result metadata.
 - `@/features/library` owns tags now, including tag creation.
 
 ## Gotchas

@@ -3,7 +3,10 @@ import { useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
 import type { MusicItem } from "@apple-musickit";
 
-import { MusicList } from "@/components/custom/music-list";
+import {
+    MusicList,
+    type MusicListPagination,
+} from "@/components/custom/music-list";
 import { Button } from "@/components/ui/button";
 import { GlassButton } from "@/components/ui/glass-button";
 import { GlassSurface } from "@/components/ui/glass-surface";
@@ -11,9 +14,13 @@ import { Text } from "@/components/ui/text";
 import { THEME } from "@/lib/theme";
 import { useColorScheme } from "nativewind";
 
+import { matchCountLabel } from "./QueryUtils";
+
 export function ResultsSummary({
     songs,
     count,
+    capped,
+    pagination,
     loading,
     error,
     libraryLoading,
@@ -24,8 +31,12 @@ export function ResultsSummary({
     mostRelevantTags,
     activityTagIds,
 }: {
+    /** The matched tracks loaded so far. More arrive through `pagination`. */
     songs: MusicItem[];
     count: number;
+    /** More songs from outside the user's own matched than `count`. */
+    capped: boolean;
+    pagination: MusicListPagination;
     loading: boolean;
     error?: unknown;
     libraryLoading: boolean;
@@ -41,7 +52,7 @@ export function ResultsSummary({
     const { colorScheme = "light" } = useColorScheme();
     const theme = THEME[colorScheme];
     const canAdvance = count > 0 && !error;
-    const noun = count === 1 ? "song" : "songs";
+    const countLabel = matchCountLabel(count, capped);
     const previewRowCount = Math.max(1, Math.min(count || songs.length, 3));
     const previewHeight = previewRowCount * 68;
 
@@ -53,7 +64,7 @@ export function ResultsSummary({
                     onPress={() => setExpanded((value) => !value)}
                     accessibilityRole="button"
                     accessibilityState={{ expanded }}
-                    accessibilityLabel={`${count} ${noun} found`}
+                    accessibilityLabel={`${countLabel} found`}
                     accessibilityHint={
                         expanded ? "Collapses results" : "Expands results"
                     }
@@ -75,7 +86,7 @@ export function ResultsSummary({
                     >
                         {libraryLoading || loading
                             ? "Finding songs..."
-                            : `${count} ${noun} found`}
+                            : `${countLabel} found`}
                     </Text>
                     {libraryLoading || loading ? (
                         <ActivityIndicator color={theme.primary} />
@@ -150,7 +161,7 @@ export function ResultsSummary({
                             tracks={songs}
                             isLoading={loading || libraryLoading}
                             anticipatedTrackCount={count}
-                            pagination={null}
+                            pagination={pagination}
                             sorting={null}
                             embedded
                             showTags

@@ -9,21 +9,21 @@ connectors attached to visual boundaries instead of moving them with condition c
 
 ## Files
 
-| file                 | role                                                                                                                         |
-| -------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `types.ts`           | Condition, group, tag-instance (with `suggested`), drag, and drop types.                                                     |
-| `QueryUtils.ts`      | Pure condition edits, group collapse, derived labels, and JSON compilation.                                                  |
-| `QueryUtils.test.ts` | Reducer invariants and wire-format tests.                                                                                    |
-| `QueryBuilder.tsx`   | Composes the suggested-tag switch, scrollable workspace, and resizable palette.                                              |
-| `ResultsSummary.tsx` | Shared live count and compact-inset tagged preview used by both builders.                                                    |
-| `ConditionList.tsx`  | Single conditions, groups, connectors, mode slider, and insertion targets.                                                   |
-| `QueryTagPill.tsx`   | Shared tag-pill rendering for palette, suggested, query, and drag states.                                                    |
-| `TagPalette.tsx`     | Usage-sorted palette, suggested-tag section, and query-tag delete target.                                                    |
-| `DragContext.tsx`    | Drag payload state, shared-value coordinates, drop-zone registry, and hit testing.                                           |
-| `DraggablePill.tsx`  | Tag pans, condition-card taps, and handle-only condition pans.                                                               |
-| `DropSlot.tsx`       | Registers and highlights a typed drop target.                                                                                |
-| `DragGhost.tsx`      | Floating tag shown during an active drag.                                                                                    |
-| `QueryResults.tsx`   | Configures the full-screen query-match view, gradient, and save dialog. Records a `query_play` when a song starts from here. |
+| file                 | role                                                                                                                     |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `types.ts`           | Condition, group, tag-instance (with `suggested`), drag, and drop types.                                                 |
+| `QueryUtils.ts`      | Pure condition edits, group collapse, derived labels, and JSON compilation.                                              |
+| `QueryUtils.test.ts` | Reducer invariants and wire-format tests.                                                                                |
+| `QueryBuilder.tsx`   | Composes the suggested-tag switch, scrollable workspace, and resizable palette.                                          |
+| `ResultsSummary.tsx` | Shared live count and compact-inset tagged preview used by both builders. The preview pages tracks in as it scrolls.     |
+| `ConditionList.tsx`  | Single conditions, groups, connectors, mode slider, and insertion targets.                                               |
+| `QueryTagPill.tsx`   | Shared tag-pill rendering for palette, suggested, query, and drag states.                                                |
+| `TagPalette.tsx`     | Usage-sorted palette, suggested-tag section, and query-tag delete target.                                                |
+| `DragContext.tsx`    | Drag payload state, shared-value coordinates, drop-zone registry, and hit testing.                                       |
+| `DraggablePill.tsx`  | Tag pans, condition-card taps, and handle-only condition pans.                                                           |
+| `DropSlot.tsx`       | Registers and highlights a typed drop target.                                                                            |
+| `DragGhost.tsx`      | Floating tag shown during an active drag.                                                                                |
+| `QueryResults.tsx`   | Configures the full-screen query-match view, gradient, sort, and save dialog. Records a `query_play` when a song starts. |
 
 ## The model
 
@@ -176,7 +176,7 @@ The Cadenza tab owns conditions, so returning from the full list preserves the q
 are a normal opaque root-stack view rather than a zoom/pull-dismissed card. It keeps its own safe
 area and floating close control, and the app-level compact player renders over it. The results surface uses
 `TrackCollectionView` with a weighted artwork
-mosaic, play and shuffle queues, local Music List sorting, and a caller-supplied save option.
+mosaic, play and shuffle queues, backend sorting, and a caller-supplied save option.
 `useCollectionArtworkTint` ranks the artwork once and reuses those cells for the mosaic and color
 sampling. It averages their representative colors in Oklab, then hands that one source color to
 TrackCollectionView's mode-aware Oklch gradient. Fixed solid endpoint colors sit under the
@@ -187,6 +187,34 @@ Query action is glass too. The dialog stays at 75 percent of the screen width an
 currently logs that persistence is not implemented. Search text and preview expansion live inside
 their surfaces and reset when those surfaces unmount. Query results show row tags and enable Music
 List multi-selection with its built-in Add to Queue action.
+
+## The full result list
+
+A query runs over every song Cadenza knows, not just the library (see the query compiler in
+`backend-api/src/db/README.md`), so a negative query like "not pop" can match thousands of songs.
+The `/query-results` route therefore:
+
+- Reads the result through `useQueryResultsSnapshot`, which fetches once and holds the answer for
+  as long as the screen is open. Tagging or playing a song invalidates `/queries/results`, and a
+  list that refetched under the user would skip or repeat rows as they scrolled. Changing the sort
+  fetches a new result; a change to the data shows the next time the screen opens.
+- Turns ids into tracks with `usePagedTracksForSongIds`, 50 at a time as the list scrolls. Rows
+  only append: an id still being looked up ends the list until it resolves, and an id Apple Music
+  cannot see is left out.
+- Sorts on the backend. The list's Title, Artist and Album sort is `strategy: "remote"`, so it
+  orders the whole result rather than the loaded rows. It opens on Title, ascending, the same as
+  other song lists.
+- Shows the count as `matchCountLabel`, like `1,042+ songs` when the backend capped the songs from
+  outside the user's own at 1000. Once every row has loaded, a footer says that these are all the
+  matching songs Cadenza knows, or that the list was capped.
+- Plays every song that is certainly the user's own (`certain` in the response), even ones the
+  list has not reached, plus the other songs already loaded, in list order. `queryQueueIds` picks
+  those, and `resolveTracks` asks Apple Music for any it has not resolved yet, so Play and Shuffle
+  ignore a second tap while that runs. Shuffle starts the same queue at a random song with shuffle
+  on, and Play turns shuffle off, the same as an album or playlist.
+
+The Cadenza screen's preview uses the same paging but the live `useQueryResults`, so it refreshes
+as the query or the data changes.
 
 The Cadenza screen owns the shared result summary. Its result-count control and mode button use
 liquid glass, with the mode button sitting between the count and next arrow. Expanding the count
@@ -200,12 +228,14 @@ renders the same full-screen hero. See
 
 - `src/features/cadenza/CadenzaScreen.tsx` for session state, the suggested-tag switch value, and
   full-library result wiring.
-- `@/lib/routes/queries::useQueryResults` for live query evaluation.
+- `@/lib/routes/queries::useQueryResults` for live query evaluation, and `useQueryResultsSnapshot`
+  for the full list.
 - `@/lib/listening-events::useListeningEvents` to record a `query_play`, which is what the
   analytics query play rate is built from. Only the song that starts playing is recorded: the rest
   of the queue is also from the query, but nothing tracks where a running queue came from.
 - `@/lib/routes/tags::useDefaultTags` for the suggested-tag section.
-- `@/lib/musickit-hooks::useTracksForSongIds` for turning matched ids back into tracks.
+- `@/lib/musickit-hooks::usePagedTracksForSongIds` for turning matched ids back into tracks a
+  page at a time, and `@/lib/paged-tracks` for the paging and play queue rules.
 - `@/components/custom/music-list` for preview and full results.
 - Backend `POST /queries/results` for correct NOT behavior on completely untagged songs, and for
   `consider_default_tags`. The wire types are in `@/lib/query-json`.
@@ -220,14 +250,18 @@ renders the same full-screen hero. See
 - Do not dynamically toggle NativeWind shadow or alpha (`/…`) utilities on query-builder
   controls. In the current Expo Router/NativeWind combination that can surface as a misleading
   missing-navigation-context error; use an inline style for a stateful visual instead.
-- A query request carries no song ids. The backend runs it over the user's `user_songs` rows,
-  so results are only as current as the last library sync.
-- The ids that come back are not guaranteed to be ids the library read knows. `user_songs` also
-  holds songs that only live in a playlist, and a song can be stored under its catalog id or its
-  library id depending on which Apple Music read put it there. Resolve them with
-  `useTracksForSongIds`, never by matching `catalogId ?? id` against the cached library, which
-  silently drops every id it does not recognize.
-- A disconnected Apple Music account can edit a query, but cannot produce library results.
+- A query request carries no song ids. The backend runs it over the user's `user_songs` rows, the
+  songs carrying their tags, and every song it has stored metadata for, so which songs are the
+  user's own is only as current as the last library sync.
+- The ids that come back are not guaranteed to be ids the library read knows. Most are songs the
+  user does not have, `user_songs` also holds songs that only live in a playlist, and a song can be
+  stored under its catalog id or its library id depending on which Apple Music read put it there.
+  Resolve them with `usePagedTracksForSongIds` (or `useTracksForSongIds` for a short list), never
+  by matching `catalogId ?? id` against the cached library, which silently drops every id it does
+  not recognize. Two ids can resolve to one track; both hooks show it once.
+- Never resolve a whole result at once. It can be thousands of ids, most of them a catalog read
+  each.
+- A disconnected Apple Music account can edit a query, but cannot produce results.
 - Turning `Include suggested tags` off clears the query if it holds a suggested tag. It is the only
   thing in the builder that discards work without a drag, so it is worth knowing before changing
   the toggle's wiring.

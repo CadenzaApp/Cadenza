@@ -49,10 +49,13 @@ Apple Music owns song metadata and playback. We store a song id (a string) and t
 comments attached to it. The one exception is `metadata_song_tags_applied`, a copy of each
 song's title, artist, album, genre, release date, length, rating, and total plays across every
 user, so queries can filter on
-them (the query builder's Metadata fields) and the Tags page can show them as Metadata Tags. Nothing else
-reads that copy: every other screen still gets titles from Apple Music, and a stale row only
-makes a query miss a song. See the Metadata
-tags section of [backend-api/src/services/README.md](backend-api/src/services/README.md).
+them (the query builder's Metadata fields) and the Tags page can show them as Metadata Tags. It is
+also the pool of songs beyond the user's own that a query searches (a query runs over every song
+Cadenza knows, not just the library), and what a query result is sorted by. Nothing else reads
+that copy: every other screen still gets titles from Apple Music, and a stale row only makes a
+query miss or misplace a song. See the Metadata tags section of
+[backend-api/src/services/README.md](backend-api/src/services/README.md) and the query compiler
+in [backend-api/src/db/README.md](backend-api/src/db/README.md).
 
 ## Repo map
 

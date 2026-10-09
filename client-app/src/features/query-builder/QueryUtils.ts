@@ -541,3 +541,17 @@ function connectorForInsertion(
 function clampInsertionIndex(index: number, length: number): number {
     return Math.max(0, Math.min(Math.trunc(index), length));
 }
+
+/**
+ * How many songs a query matched, like `1 song`, `42 songs`, or `1,042+ songs`.
+ * `capped` adds the `+`: the backend stopped returning songs from outside the
+ * user's own, so more than `count` matched.
+ */
+export function matchCountLabel(count: number, capped: boolean): string {
+    const digits = String(Math.max(0, Math.trunc(count))).replace(
+        /\B(?=(\d{3})+(?!\d))/g,
+        ",",
+    );
+    const noun = count === 1 && !capped ? "song" : "songs";
+    return `${digits}${capped ? "+" : ""} ${noun}`;
+}
