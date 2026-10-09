@@ -8,6 +8,15 @@ import { useCallback } from "react";
 
 import { detailRouteFor, routesAfterOpening } from "./detail-stack";
 
+export type OpenScreenOptions = {
+    /**
+     * A root route to close on the way, by name, like the now playing sheet.
+     * Closed in the same step as the open, since a separate `router.back()`
+     * has not landed yet when the stack is read.
+     */
+    closing?: string;
+};
+
 /**
  * Opens a screen. Use it in place of `router.push` for anything that can
  * open a detail screen.
@@ -24,17 +33,21 @@ export function useOpenScreen() {
     const navigation = useNavigationContainerRef();
 
     return useCallback(
-        (href: Href) => {
+        (href: Href, { closing }: OpenScreenOptions = {}) => {
             const target = detailRouteFor(href);
             const state = navigation.isReady()
                 ? navigatorFor(navigation.getRootState(), target?.name)
                 : undefined;
             if (!target || !state) {
+                if (closing) router.back();
                 router.push(href);
                 return;
             }
 
-            const routes = routesAfterOpening(state.routes, target);
+            const routes = routesAfterOpening(
+                state.routes.filter((route) => route.name !== closing),
+                target,
+            );
             const unchanged =
                 routes.length === state.routes.length &&
                 routes.every((route, i) => route === state.routes[i]);

@@ -1,6 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { RepeatMode, ShuffleMode } from "@apple-musickit";
-import { useRouter, type Href } from "expo-router";
+import type { Href } from "expo-router";
 import { useTheme } from "expo-router/react-navigation";
 import { useEffect, useRef, useState } from "react";
 import { Alert, Image, useWindowDimensions, View } from "react-native";
@@ -73,7 +73,6 @@ export function PlayerPage() {
         canSkipToPrevious,
     } = usePlayback();
     const { colors } = useTheme();
-    const router = useRouter();
     const openScreen = useOpenScreen();
     const insets = useSafeAreaInsets();
     const { width, height } = useWindowDimensions();
@@ -271,8 +270,7 @@ export function PlayerPage() {
      * picking Go to Artist dismisses now playing first.
      */
     function leaveFor(href: Href) {
-        router.back();
-        openScreen(href);
+        openScreen(href, { closing: "player" });
     }
 
     function toggleShuffle() {
