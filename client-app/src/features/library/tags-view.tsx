@@ -1,4 +1,3 @@
-import { useRouter } from "expo-router";
 import { Pressable, View } from "react-native";
 import Animated from "react-native-reanimated";
 
@@ -9,6 +8,7 @@ import { useUserTags } from "@/lib/routes/tags";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { useScreenScroll } from "@/lib/screen-scroll";
 import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
+import { useOpenScreen } from "@/lib/open-screen";
 
 /**
  * Every tag the user has, as pills that open the tag's songs. Fetches its own
@@ -16,7 +16,7 @@ import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
  * library sheet. SWR dedupes against anyone else reading the same list.
  */
 export function TagsView() {
-    const router = useRouter();
+    const openScreen = useOpenScreen();
     const {
         userTags: tags,
         userTagsMeta: metadata,
@@ -67,7 +67,7 @@ export function TagsView() {
                                 <Pressable
                                     key={tag.id}
                                     onPress={() =>
-                                        router.push({
+                                        openScreen({
                                             pathname: "/tag/[tagId]",
                                             params: { tagId: tag.id },
                                         })

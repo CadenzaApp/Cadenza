@@ -1,5 +1,5 @@
 import type { ArtistItem, MusicItem } from "@apple-musickit";
-import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
+import { useLocalSearchParams, useNavigation } from "expo-router";
 import { useLayoutEffect, useState } from "react";
 import { Platform, View } from "react-native";
 
@@ -21,6 +21,7 @@ import {
     useTracksFromLibrary,
     useUserPlaylists,
 } from "@/lib/musickit-hooks";
+import { useOpenScreen } from "@/lib/open-screen";
 
 import { LIBRARY_CATEGORY_META, parseLibraryCategory } from "./categories";
 import { TagsView } from "./tags-view";
@@ -41,7 +42,7 @@ export function LibraryCategoryScreen({
 }) {
     const { kind } = useLocalSearchParams<{ kind: string }>();
     const category = parseLibraryCategory(kind);
-    const router = useRouter();
+    const openScreen = useOpenScreen();
     const navigation = useNavigation();
 
     const { isConnected } = useAppleMusic();
@@ -63,14 +64,14 @@ export function LibraryCategoryScreen({
 
     function openArtist(artist: ArtistItem) {
         if (!artist.catalogId) return;
-        router.push({
+        openScreen({
             pathname: "/artist/[id]",
             params: { id: artist.catalogId, name: artist.name },
         });
     }
 
     function openCollection(collection: MusicItem) {
-        router.push(collectionRoute(collection));
+        openScreen(collectionRoute(collection));
     }
 
     const error = category

@@ -2,7 +2,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import type { ArtistDetail, MusicItem } from "@apple-musickit";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams } from "expo-router";
 import { useTheme } from "expo-router/react-navigation";
 import { useColorScheme } from "nativewind";
 import { useState } from "react";
@@ -27,6 +27,7 @@ import { collectionRoute } from "@/lib/music-routes";
 import { useArtist } from "@/lib/musickit-hooks";
 import { samePlayableItem } from "@/lib/playable-item";
 import { usePlaybackCommands, usePlaybackTrackState } from "@/lib/playback";
+import { useOpenScreen } from "@/lib/open-screen";
 
 const ALBUM_TILE_WIDTH = 132;
 const ALBUM_PLACEHOLDER_COUNT = 4;
@@ -55,7 +56,7 @@ const HERO_FADE_RATIO = 0.45;
  */
 export default function ArtistScreen() {
     const { id, name } = useLocalSearchParams<{ id: string; name?: string }>();
-    const router = useRouter();
+    const openScreen = useOpenScreen();
     const { colorScheme = "light" } = useColorScheme();
     const { height: windowHeight } = useWindowDimensions();
     const { artist, artistLoading, artistErr } = useArtist(id);
@@ -77,7 +78,7 @@ export default function ArtistScreen() {
     const heroHeight = windowHeight * HERO_HEIGHT_RATIO;
 
     function openAlbum(album: MusicItem) {
-        router.push(collectionRoute(album));
+        openScreen(collectionRoute(album));
     }
 
     /** Replaces the queue with the top songs, in Apple's order. */

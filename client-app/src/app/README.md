@@ -191,6 +191,11 @@ animation**. That is what the zoom below needs, since it has to grow out of and 
 screen that is still on display underneath. The cost is the native back swipe, which a transparent
 modal has no edge for; the pull down at the top replaces it.
 
+Open a detail screen with `useOpenScreen` (`@/lib/open-screen`), not `router.push`. Opening one
+already on the stack goes back to it, so artist -> playlist -> the same artist lands on the first
+artist, and the artist you are on does nothing. Past `MAX_DETAIL_DEPTH` the oldest detail screens
+are dropped. Since each one is a transparent modal, everything under it stays mounted.
+
 ## The detail shell
 
 Both kinds render their body inside `DetailScreen` (`@/components/ui/detail-screen`), which

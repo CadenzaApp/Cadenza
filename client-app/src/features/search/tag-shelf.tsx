@@ -1,9 +1,9 @@
-import { useRouter } from "expo-router";
 import { Pressable, View } from "react-native";
 
 import { readableTextColor } from "@/components/custom/tag-pill";
 import { Text } from "@/components/ui/text";
 import { useUserTags } from "@/lib/routes/tags";
+import { useOpenScreen } from "@/lib/open-screen";
 
 const TILE_HEIGHT = 72;
 
@@ -13,7 +13,7 @@ const TILE_HEIGHT = 72;
  * the one set of collections that is actually ours.
  */
 export function TagShelf() {
-    const router = useRouter();
+    const openScreen = useOpenScreen();
     const { userTags, userTagsMeta, userTagsLoading } = useUserTags();
 
     if (userTagsLoading || !userTags || userTags.length === 0) return null;
@@ -32,7 +32,7 @@ export function TagShelf() {
                             key={tag.id}
                             accessibilityRole="button"
                             accessibilityLabel={`Open tag ${tag.name}`}
-                            onPress={() => router.push(`/tag/${tag.id}`)}
+                            onPress={() => openScreen(`/tag/${tag.id}`)}
                             // Two per row, sharing the gap between them.
                             style={{
                                 height: TILE_HEIGHT,

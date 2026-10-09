@@ -1,6 +1,5 @@
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
-import { useRouter } from "expo-router";
 import { useMemo } from "react";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 
@@ -9,6 +8,7 @@ import { darken, withAlpha } from "@/lib/artwork-color";
 import { indexTracksById, useTracksForSongIds } from "@/lib/musickit-hooks";
 import type { TagPlayCount } from "@/lib/routes/analytics";
 import { isUsableArtworkUrl } from "@/lib/utils";
+import { useOpenScreen } from "@/lib/open-screen";
 
 import { formatCount } from "./format";
 import { SectionHeading } from "./SectionHeading";
@@ -73,13 +73,13 @@ function TagTile({
     tag: TagPlayCount;
     artworkUrl?: string;
 }) {
-    const router = useRouter();
+    const openScreen = useOpenScreen();
     const hasCover = isUsableArtworkUrl(artworkUrl);
 
     return (
         <Pressable
             onPress={() =>
-                router.push({
+                openScreen({
                     pathname: "/tag/[tagId]",
                     params: { tagId: tag.id },
                 })

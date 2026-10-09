@@ -244,7 +244,7 @@ scroll view for inset, scroll-to-top, and tab-bar/accessory minimization.
 | `favorite-share-row.tsx`      | `FavoriteShareRow`, the icon row + divider both menus lead with. Generic over the target type.                                                                                                                                                                            |
 
 Both menus render through the liquid-glass default in `ModalPopup`. `SongOptionsMenu` takes an
-optional `navigate` (defaulting to a plain `router.push`), so the now-playing sheet can dismiss
+optional `navigate` (defaulting to `useOpenScreen`), so the now-playing sheet can dismiss
 itself before opening full-screen destinations. Modify Tags does not navigate. It replaces the
 options popup with a `TagSelector` popup for that song.
 

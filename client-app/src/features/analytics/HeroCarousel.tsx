@@ -1,7 +1,6 @@
 import type { MusicItem } from "@apple-musickit";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Image } from "expo-image";
-import { useRouter } from "expo-router";
 import { useTheme } from "expo-router/react-navigation";
 import { useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
@@ -21,6 +20,7 @@ import { indexTracksById, useTracksForSongIds } from "@/lib/musickit-hooks";
 import { usePlaybackCommands } from "@/lib/playback";
 import type { EntityPlayCount } from "@/lib/routes/analytics";
 import { isUsableArtworkUrl } from "@/lib/utils";
+import { useOpenScreen } from "@/lib/open-screen";
 
 import { albumRouteFor } from "./dimensions";
 import { formatCount } from "./format";
@@ -54,7 +54,7 @@ type Props = {
  * bring it forward. Play starts the top songs from the selected one.
  */
 export function HeroCarousel({ songs, phrase, accent }: Props) {
-    const router = useRouter();
+    const openScreen = useOpenScreen();
     const { colors } = useTheme();
     const { playQueue } = usePlaybackCommands();
     const entries = useMemo(() => songs.slice(0, HERO_COUNT), [songs]);
@@ -188,7 +188,7 @@ export function HeroCarousel({ songs, phrase, accent }: Props) {
                 </Pressable>
                 {album ? (
                     <Pressable
-                        onPress={() => router.push(album)}
+                        onPress={() => openScreen(album)}
                         accessibilityRole="button"
                         accessibilityLabel="View album"
                         style={({ pressed }) =>

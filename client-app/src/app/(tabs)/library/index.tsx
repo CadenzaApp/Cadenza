@@ -1,6 +1,6 @@
 import type { MusicItem } from "@apple-musickit";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useNavigation, useRouter } from "expo-router";
+import { useNavigation } from "expo-router";
 import { useTheme } from "expo-router/react-navigation";
 import { useLayoutEffect } from "react";
 import { View } from "react-native";
@@ -14,6 +14,7 @@ import { RecentlyAddedGrid } from "@/features/library/recently-added";
 import { useAppleMusic } from "@/lib/apple-music-auth";
 import { collectionRoute } from "@/lib/music-routes";
 import { useRecentlyAdded } from "@/lib/musickit-hooks";
+import { useOpenScreen } from "@/lib/open-screen";
 
 /**
  * The library index. A row per enabled category, then the recently added feed.
@@ -24,7 +25,7 @@ export default function LibraryScreen() {
     const { enabled } = useLibraryCategories();
     const { isConnected } = useAppleMusic();
     const navigation = useNavigation();
-    const router = useRouter();
+    const openScreen = useOpenScreen();
     const { colors } = useTheme();
 
     useLayoutEffect(() => {
@@ -32,7 +33,7 @@ export default function LibraryScreen() {
             headerRight: () => (
                 <GlassIconButton
                     accessibilityLabel="Choose what shows in your library"
-                    onPress={() => router.push("/library-categories")}
+                    onPress={() => openScreen("/library-categories")}
                 >
                     <Ionicons
                         name="list-outline"
@@ -42,7 +43,7 @@ export default function LibraryScreen() {
                 </GlassIconButton>
             ),
         });
-    }, [navigation, router, colors.text]);
+    }, [navigation, openScreen, colors.text]);
 
     const {
         recentlyAdded,
@@ -54,14 +55,14 @@ export default function LibraryScreen() {
     } = useRecentlyAdded(isConnected);
 
     function openCategory(category: LibraryCategory) {
-        router.push({
+        openScreen({
             pathname: "/library/category/[kind]",
             params: { kind: category },
         });
     }
 
     function openCollection(collection: MusicItem) {
-        router.push(collectionRoute(collection));
+        openScreen(collectionRoute(collection));
     }
 
     return (

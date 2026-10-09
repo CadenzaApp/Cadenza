@@ -1,5 +1,4 @@
 import type { MusicItem } from "@apple-musickit";
-import { useRouter } from "expo-router";
 import { useCallback, useMemo } from "react";
 import { Image, Pressable, View } from "react-native";
 
@@ -12,6 +11,7 @@ import {
 import { usePlaybackCommands } from "@/lib/playback";
 import type { EntityPlayCount } from "@/lib/routes/analytics";
 import { cn, isUsableArtworkUrl } from "@/lib/utils";
+import { useOpenScreen } from "@/lib/open-screen";
 
 import type { DimensionDescriptor } from "./dimensions";
 import { formatCount } from "./format";
@@ -37,7 +37,7 @@ type Props = {
  * which gets a `MusicList` with options menus and tag rails.
  */
 export function TopEntityList({ dimension, entries }: Props) {
-    const router = useRouter();
+    const openScreen = useOpenScreen();
     const { playQueue } = usePlaybackCommands();
     const songIds = useMemo(
         () => entries.map((entry) => entry.sample_song_id),
@@ -140,7 +140,7 @@ export function TopEntityList({ dimension, entries }: Props) {
                 );
 
                 const onPress = dimension.hrefFor
-                    ? href && (() => router.push(href))
+                    ? href && (() => openScreen(href))
                     : track && (() => void playFrom(track));
 
                 // a row with no id recorded anywhere, or a song Apple Music

@@ -1,7 +1,7 @@
 import type { ArtistItem } from "@apple-musickit";
 import { MusicKit } from "@apple-musickit";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useNavigation, useRouter } from "expo-router";
+import { useNavigation } from "expo-router";
 import { useIsFocused, useTheme } from "expo-router/react-navigation";
 import { useLayoutEffect, useState } from "react";
 import { Alert, Keyboard, Pressable, View } from "react-native";
@@ -27,6 +27,7 @@ import {
 } from "@/lib/musickit-hooks";
 import { usePlaybackCommands } from "@/lib/playback";
 import { useSuppressBottomBars } from "@/lib/screen-overlay";
+import { useOpenScreen } from "@/lib/open-screen";
 
 const DEFAULT_MULTI_SELECT_CONFIG = {} as const;
 
@@ -47,7 +48,7 @@ export default function SearchScreen() {
     const isFocused = useIsFocused();
     useSuppressBottomBars(focused && isFocused);
     const navigation = useNavigation();
-    const router = useRouter();
+    const openScreen = useOpenScreen();
     const insets = useSafeAreaInsets();
     const { colors } = useTheme();
     const { isConnected, ensureConnected } = useAppleMusic();
@@ -136,7 +137,7 @@ export default function SearchScreen() {
         // Catalog only; ArtistRail already disables a row without a catalog id.
         if (!artist.catalogId) return;
         Keyboard.dismiss();
-        router.push({
+        openScreen({
             pathname: "/artist/[id]",
             params: { id: artist.catalogId, name: artist.name },
         });
