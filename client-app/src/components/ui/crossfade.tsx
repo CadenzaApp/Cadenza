@@ -19,12 +19,21 @@ type CrossfadeProps<T> = {
     render: (value: T) => ReactNode;
     /** What is showing before the first value. Null fades the first one in. */
     initial?: T | null;
+    /**
+     * How opaque a layer is at its most opaque. An opaque layer hides the one
+     * under it, so the old layer stays put. A see through one would add to it
+     * and flash brighter mid fade, so the old layer fades out just fast enough
+     * that the two together stay as opaque as one.
+     */
+    alpha?: number;
 };
 
 /**
  * Fades from one value to the next instead of swapping. The new layer fades in
  * over the old one, which stays fully opaque under it, so the midpoint never
  * dips to the page behind. The old layer is dropped once the new one lands.
+ *
+ * Translucent layers pass their `alpha`, see the prop.
  *
  * Absolutely positioned to fill its parent. Opacity runs on the UI thread, so
  * the layers render once per change, not once per frame.
@@ -34,6 +43,7 @@ export function Crossfade<T>({
     keyOf,
     render,
     initial = null,
+    alpha = 1,
 }: CrossfadeProps<T>) {
     const [settled, setSettled] = useState<T | null>(initial);
     const key = value === null ? null : keyOf(value);
@@ -58,8 +68,11 @@ export function Crossfade<T>({
     const incomingStyle = useAnimatedStyle(() => ({
         opacity: progress.get(),
     }));
+    const toNothing = value === null;
     const outgoingStyle = useAnimatedStyle(() => ({
-        opacity: 1 - progress.get(),
+        opacity: toNothing
+            ? 1 - progress.get()
+            : underOpacity(progress.get(), alpha),
     }));
 
     return (
@@ -70,7 +83,9 @@ export function Crossfade<T>({
                     pointerEvents="none"
                     style={[
                         StyleSheet.absoluteFill,
-                        fading && value === null ? outgoingStyle : null,
+                        fading && (toNothing || alpha < 1)
+                            ? outgoingStyle
+                            : null,
                     ]}
                 >
                     {render(settled)}
@@ -87,4 +102,15 @@ export function Crossfade<T>({
             ) : null}
         </>
     );
+}
+
+/**
+ * Opacity of the old layer, `progress` into a fade, so that it and the new
+ * layer over it (at `progress`) together are as opaque as one layer of
+ * `alpha`. Solves 1 - (1 - o * alpha)(1 - progress * alpha) = alpha for o.
+ */
+export function underOpacity(progress: number, alpha: number) {
+    "worklet";
+    if (alpha >= 1) return 1;
+    return (1 - (1 - alpha) / (1 - progress * alpha)) / alpha;
 }

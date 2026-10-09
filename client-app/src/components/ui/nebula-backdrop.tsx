@@ -193,6 +193,7 @@ function Blob({
             <Crossfade
                 value={color}
                 initial={color}
+                alpha={peak}
                 keyOf={(shown) => shown}
                 render={(shown) => <Glow color={shown} peak={peak} />}
             />
