@@ -44,7 +44,7 @@ type Props = {
 
 /**
  * When the user listens, as a grid of squares laid out by the period: hours of
- * a day or week, days of a month or year, months of every year. Each square is
+ * a day or week, days of a month, months of a year or of every year. Each square is
  * colored by the tag played most in it and brightened by how much played.
  * Tap one for its numbers.
  */

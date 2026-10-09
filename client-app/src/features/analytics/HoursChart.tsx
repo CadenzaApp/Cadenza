@@ -18,6 +18,10 @@ export function HoursChart({
     playsByHour: number[];
     color?: string | null;
 }) {
+    const peak = playsByHour.reduce(
+        (best, plays, hour) => (plays > playsByHour[best] ? hour : best),
+        0,
+    );
     const bars: Bar[] = playsByHour.map((plays, hour) => ({
         label: formatHour(hour),
         value: plays,
@@ -34,7 +38,14 @@ export function HoursChart({
             <BarChart
                 bars={bars}
                 unit="count"
-                totalLabel="Total plays"
+                headline={
+                    playsByHour[peak] > 0
+                        ? {
+                              value: playsByHour[peak],
+                              label: `Plays in your peak hour, ${formatHour(peak)}`,
+                          }
+                        : { value: 0, label: "No plays yet" }
+                }
                 height={110}
                 color={color}
             />

@@ -15,7 +15,6 @@ import {
     WEEKDAYS_SHORT,
     addDays,
     mondayIndex,
-    startOfWeek,
     type HeatmapShape,
 } from "./range.ts";
 
@@ -85,8 +84,8 @@ export function layoutHeatmap(
             return weekBlocks(shape.start);
         case "month-days":
             return monthDays(shape.start);
-        case "year-days":
-            return yearDays(shape.start);
+        case "year-months":
+            return yearMonths(shape.start);
         case "all-months":
             return allMonths(earliestYear ?? now.getFullYear(), now);
     }
@@ -155,45 +154,22 @@ function monthDays(first: Date): HeatmapGrid {
     };
 }
 
-/**
- * A contribution grid: weekdays down, weeks across, from the week holding
- * January 1st to the one holding December 31st. Days outside the year are
- * spacers. A column is labelled with a month when its 1st falls in it.
- */
-function yearDays(janFirst: Date): HeatmapGrid {
+/** One row of the year's months, January to December. */
+function yearMonths(janFirst: Date): HeatmapGrid {
     const year = janFirst.getFullYear();
-    const firstMonday = startOfWeek(janFirst);
-    const lastDay = new Date(year, 11, 31);
-    const weeks =
-        Math.round(
-            (startOfWeek(lastDay).getTime() - firstMonday.getTime()) /
-                (7 * 24 * 60 * 60 * 1000),
-        ) + 1;
-
-    const rows: (LayoutCell | null)[][] = WEEKDAYS_SHORT.map(() => []);
-    const colLabels: (string | null)[] = [];
-
-    for (let week = 0; week < weeks; week++) {
-        let monthStart: string | null = null;
-        for (let weekday = 0; weekday < 7; weekday++) {
-            const day = addDays(firstMonday, week * 7 + weekday);
-            if (day.getFullYear() !== year) {
-                rows[weekday].push(null);
-                continue;
-            }
-            if (day.getDate() === 1) monthStart = MONTHS_SHORT[day.getMonth()];
-            rows[weekday].push({ key: dayKey(day), label: monthDay(day) });
-        }
-        colLabels.push(monthStart);
-    }
-
     return {
-        rows,
-        rowLabels: WEEKDAYS_SHORT.map((weekday, i) =>
-            i % 2 === 0 ? weekday : null,
-        ),
-        colLabels,
+        rows: [monthRow(year)],
+        rowLabels: [null],
+        colLabels: MONTHS_SHORT.map((month) => month.slice(0, 1)),
     };
+}
+
+/** January to December of `year`, each keyed by its 1st. */
+function monthRow(year: number): LayoutCell[] {
+    return MONTHS_SHORT.map((month, i) => ({
+        key: dayKey(new Date(year, i, 1)),
+        label: `${month} ${year}`,
+    }));
 }
 
 /** One row per year, oldest first, January to December across. */
@@ -204,12 +180,7 @@ function allMonths(earliestYear: number, now: Date): HeatmapGrid {
     const rowLabels: string[] = [];
 
     for (let year = firstYear; year <= lastYear; year++) {
-        rows.push(
-            MONTHS_SHORT.map((month, i) => ({
-                key: dayKey(new Date(year, i, 1)),
-                label: `${month} ${year}`,
-            })),
-        );
+        rows.push(monthRow(year));
         rowLabels.push(String(year));
     }
 

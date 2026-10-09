@@ -8,6 +8,7 @@ import { AnalyticsCard } from "./AnalyticsCard";
 import { BarChart, type Bar } from "./BarChart";
 import { ChipRow } from "./ChipRow";
 import { formatBucket, formatMetric } from "./format";
+import { averagePerMonthByYear, type TrendPoint } from "./trend-series";
 
 /**
  * The three metrics the overview chart offers.
@@ -31,6 +32,8 @@ type Props = {
     metric: HeadlineMetric;
     onMetricChange: (metric: HeadlineMetric) => void;
     color?: string | null;
+    /** Fold a month series into a bar per year, each its average per month. */
+    perYear?: boolean;
 };
 
 /** One metric over the selected range, as bars. */
@@ -41,6 +44,7 @@ export function TrendChart({
     metric,
     onMetricChange,
     color,
+    perYear = false,
 }: Props) {
     // labelled and formatted off what the response was computed with, not what
     // is selected: keepPreviousData holds the old series while a new request is
@@ -48,13 +52,26 @@ export function TrendChart({
     // monthly series as days and a duration as a count
     const shownBucket: TrendBucketSize = trend?.bucket ?? "day";
     const unit = trend?.unit ?? "count";
-    const bars: Bar[] =
-        trend?.points.map((point) => ({
-            label: formatBucket(point.bucket, shownBucket),
-            value: point.value,
-            readout: `${formatBucket(point.bucket, shownBucket)}: ${formatMetric(point.value, unit)}`,
-        })) ?? [];
     const shownMetric = HEADLINE_METRICS.find((name) => name === trend?.metric);
+    const name = shownMetric ? METRIC_LABELS[shownMetric].toLowerCase() : "";
+    const points = trend?.points ?? [];
+    const yearly = perYear && shownBucket === "month";
+
+    const { bars, headline } = yearly
+        ? yearlyBars(points, unit, name)
+        : {
+              bars: points.map(
+                  (point): Bar => ({
+                      label: formatBucket(point.bucket, shownBucket),
+                      value: point.value,
+                      readout: `${formatBucket(point.bucket, shownBucket)}: ${formatMetric(point.value, unit)}`,
+                  }),
+              ),
+              headline: {
+                  value: points.reduce((sum, point) => sum + point.value, 0),
+                  label: `Total ${name}`.trim(),
+              },
+          };
 
     return (
         <AnalyticsCard>
@@ -77,7 +94,7 @@ export function TrendChart({
                 <BarChart
                     bars={bars}
                     unit={unit}
-                    totalLabel={`Total ${shownMetric ? METRIC_LABELS[shownMetric].toLowerCase() : ""}`.trim()}
+                    headline={headline}
                     color={color}
                 />
             )}
@@ -89,4 +106,23 @@ export function TrendChart({
             ) : null}
         </AnalyticsCard>
     );
+}
+
+/** A bar per year, each its average per month, under the overall average. */
+function yearlyBars(
+    points: readonly TrendPoint[],
+    unit: "count" | "milliseconds",
+    name: string,
+): { bars: Bar[]; headline: { value: number; label: string } } {
+    const { years, overall } = averagePerMonthByYear(points);
+    const perMonth = `${name} a month`.trim();
+    return {
+        bars: years.map((year) => ({
+            label: year.bucket,
+            value: year.value,
+            caption: `Average ${perMonth} in ${year.bucket}`,
+            readout: `${year.bucket}: ${formatMetric(year.value, unit)} ${perMonth} on average`,
+        })),
+        headline: { value: overall, label: `Average ${perMonth}` },
+    };
 }

@@ -229,6 +229,7 @@ function OverviewBody({
                     metric={metric}
                     onMetricChange={onMetricChange}
                     color={accent}
+                    perYear={period.grain === "all"}
                 />
             )}
 

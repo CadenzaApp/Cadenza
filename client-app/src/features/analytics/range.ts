@@ -40,14 +40,14 @@ export type HeatmapBucket = "hour" | "two_hour" | "day" | "month";
  * - `week-two-hours`: Monday to Sunday by twelve two hour blocks, so a
  *   week's squares are not too small to read.
  * - `month-days`: a calendar, one cell per day.
- * - `year-days`: a contribution grid, weeks across, weekdays down.
+ * - `year-months`: one row of the year's twelve months.
  * - `all-months`: one row per year, one cell per month.
  */
 export type HeatmapShape =
     | { kind: "day-hours"; start: Date }
     | { kind: "week-two-hours"; start: Date }
     | { kind: "month-days"; start: Date }
-    | { kind: "year-days"; start: Date }
+    | { kind: "year-months"; start: Date }
     | { kind: "all-months"; start?: undefined };
 
 export type ResolvedPeriod = {
@@ -236,7 +236,7 @@ function heatmapFor(grain: PeriodGrain, start: Date): HeatmapShape {
         case "month":
             return { kind: "month-days", start };
         case "year":
-            return { kind: "year-days", start };
+            return { kind: "year-months", start };
         case "all":
             return { kind: "all-months" };
     }
@@ -251,8 +251,9 @@ function heatmapBucketFor(grain: Exclude<PeriodGrain, "all">): HeatmapBucket {
         case "week":
             return "two_hour";
         case "month":
-        case "year":
             return "day";
+        case "year":
+            return "month";
     }
 }
 
@@ -294,9 +295,9 @@ export function resolvePeriod(
     if (grain === "all") {
         return {
             ...shared,
-            // no bounds: the backend runs it from the user's first event, and
-            // picks the trend bucket, since it is the side that knows the span
-            trendBucket: "auto",
+            // no bounds: the backend runs it from the user's first event. In
+            // months, which the chart folds into a per month average a year
+            trendBucket: "month",
             chart: "trend",
             heatmapBucket: "month",
         };

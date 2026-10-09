@@ -7,8 +7,10 @@ import { cn } from "@/lib/utils";
 import { axisCeiling, formatMetric, labelledIndices } from "./format";
 
 export type Bar = {
-    /** The bar's name, on the axis and in the headline when tapped. */
+    /** The bar's name, on the axis. */
     label: string;
+    /** Under the headline when the bar is tapped. `label` when absent. */
+    caption?: string;
     value: number;
     /** What a screen reader says for the bar, e.g. "Sep 7: 61 plays". */
     readout: string;
@@ -18,8 +20,8 @@ type Props = {
     bars: Bar[];
     /** What the values are, for the headline and the value axis. */
     unit: "count" | "milliseconds";
-    /** Under the headline when no bar is picked, e.g. "Total plays". */
-    totalLabel: string;
+    /** What the headline shows while no bar is picked, e.g. the total. */
+    headline: { value: number; label: string };
     /** How many axis labels to show at most. */
     maxLabels?: number;
     /** Plot height in points. */
@@ -41,8 +43,8 @@ const LABEL_WIDTH = 44;
 /**
  * A single series of counts over an ordered axis, in the style of Screen Time.
  *
- * A headline on top shows the series total, or the tapped bar's value and
- * label. Bars spread over the full width whatever their count: the plot is
+ * A headline on top shows what the caller picks, like the total, or the
+ * tapped bar's value and caption. Bars spread over the full width whatever their count: the plot is
  * cut into one slot per bar and each bar is centered in its own, capped in
  * width. Gridlines at the top and middle of a rounded value axis carry their
  * values in a gutter on the right.
@@ -54,7 +56,7 @@ const LABEL_WIDTH = 44;
 export function BarChart({
     bars,
     unit,
-    totalLabel,
+    headline,
     maxLabels = 4,
     height = 140,
     maxBarWidth = 28,
@@ -68,7 +70,6 @@ export function BarChart({
 
     const max = Math.max(...bars.map((bar) => bar.value), 0);
     const ceiling = axisCeiling(max, unit);
-    const total = bars.reduce((sum, bar) => sum + bar.value, 0);
     const active = selected != null ? bars[selected] : undefined;
 
     const plotWidth = Math.max(0, width - GUTTER);
@@ -84,10 +85,10 @@ export function BarChart({
             {/* holds its height, so picking a bar does not shift the card */}
             <View>
                 <Text className="text-2xl font-semibold">
-                    {formatMetric(active ? active.value : total, unit)}
+                    {formatMetric(active ? active.value : headline.value, unit)}
                 </Text>
                 <Text className="text-muted-foreground text-xs">
-                    {active ? active.label : totalLabel}
+                    {active ? (active.caption ?? active.label) : headline.label}
                 </Text>
             </View>
 

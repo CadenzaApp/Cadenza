@@ -64,27 +64,14 @@ test("a month is a Monday-first calendar with every day once", () => {
     assert.ok(grid.rows.every((row) => row.length === 7));
 });
 
-test("a year is weekday rows covering every day once", () => {
+test("a year is one row of its twelve months", () => {
     const grid = layoutHeatmap(shapeOf("year"), NOW);
-    assert.equal(grid.rows.length, 7);
-    const days = keys(grid);
-    assert.equal(days.length, 365);
-    assert.equal(new Set(days).size, 365);
-    assert.ok(days.includes("2026-01-01"));
-    assert.ok(days.includes("2026-12-31"));
-    assert.equal(
-        grid.colLabels.filter(Boolean).length,
-        12,
-        "every month named",
-    );
-    // Jan 1 2026 is a Thursday, so Monday to Wednesday of week one are spacers
-    assert.equal(grid.rows[0][0], null);
-    assert.equal(grid.rows[3][0]?.key, "2026-01-01");
-});
-
-test("a leap year has 366 days", () => {
-    const grid = layoutHeatmap(resolvePeriod("year", -2, NOW).heatmap, NOW);
-    assert.equal(keys(grid).length, 366, "2024");
+    assert.equal(grid.rows.length, 1);
+    const months = keys(grid);
+    assert.equal(months.length, 12);
+    assert.equal(months[0], "2026-01-01");
+    assert.equal(months[11], "2026-12-01");
+    assert.equal(grid.colLabels.length, 12);
 });
 
 test("all time is a row per year from the earliest", () => {

@@ -69,8 +69,8 @@ test("each grain picks its chart and buckets", () => {
     assert.equal(resolvePeriod("month", 0, NOW).trendBucket, "day");
     assert.equal(resolvePeriod("month", 0, NOW).heatmapBucket, "day");
     assert.equal(resolvePeriod("year", 0, NOW).trendBucket, "month");
-    assert.equal(resolvePeriod("year", 0, NOW).heatmapBucket, "day");
-    assert.equal(resolvePeriod("all", 0, NOW).trendBucket, "auto");
+    assert.equal(resolvePeriod("year", 0, NOW).heatmapBucket, "month");
+    assert.equal(resolvePeriod("all", 0, NOW).trendBucket, "month");
     assert.equal(resolvePeriod("all", 0, NOW).heatmapBucket, "month");
 });
 

@@ -68,13 +68,13 @@ it, since their period bar sits fixed above the list. Every page pads the bottom
 One period drives every read on the tab. It is a grain plus how many of them back from now, so
 offset 0 always follows the clock. Weeks start Monday. Every bound is local midnight.
 
-| Grain | Window             | Chart         | Heatmap                            |
-| ----- | ------------------ | ------------- | ---------------------------------- |
-| Day   | midnight to next   | 24 hour bars  | hour cells, two rows of twelve     |
-| Week  | Monday to Monday   | 7 day bars    | two hour cells, weekdays by twelve |
-| Month | the 1st to the 1st | day bars      | day cells, as a calendar           |
-| Year  | Jan 1 to Jan 1     | 12 month bars | day cells, as a contribution grid  |
-| All   | the whole history  | `bucket=auto` | month cells, one row per year      |
+| Grain | Window             | Chart                                 | Heatmap                            |
+| ----- | ------------------ | ------------------------------------- | ---------------------------------- |
+| Day   | midnight to next   | 24 hour bars                          | hour cells, two rows of twelve     |
+| Week  | Monday to Monday   | 7 day bars                            | two hour cells, weekdays by twelve |
+| Month | the 1st to the 1st | day bars                              | day cells, as a calendar           |
+| Year  | Jan 1 to Jan 1     | 12 month bars                         | month cells, one row of twelve     |
+| All   | the whole history  | a bar per year, its average per month | month cells, one row per year      |
 
 Changing the grain jumps back to the current period. Forward is disabled on the current period,
 and All has no arrows.
