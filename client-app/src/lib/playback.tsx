@@ -23,6 +23,7 @@ import {
     type QueueState,
 } from "./queue-order";
 import { samePlayableItem } from "./playable-item";
+import { nextAction, previousAction } from "./transport";
 
 export type PlaybackQueue = {
     tracks: MusicItem[];
@@ -448,25 +449,54 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
         }
     }
 
+    /** Back to the start of the playing song, then playing or paused. */
+    async function restartCurrent(then: "play" | "pause" | "keep") {
+        await Playback.restartCurrentEntry();
+        if (then === "play") await Playback.play();
+        if (then === "pause") await Playback.pause();
+    }
+
     async function skipToNext() {
-        const nextIndex = resolvedQueueIndex + 1;
-        if (nextIndex >= queue.length) return;
+        const action = nextAction({
+            index: resolvedQueueIndex,
+            length: queue.length,
+            repeatMode: snapshot.repeatMode ?? RepeatMode.Off,
+        });
 
         try {
-            await Playback.skipToNextEntry();
-            setQueueIndex(nextIndex);
+            switch (action) {
+                case "next":
+                    await Playback.skipToNextEntry();
+                    setQueueIndex(resolvedQueueIndex + 1);
+                    break;
+                case "wrap":
+                    await playQueueItem(0);
+                    break;
+                case "replay":
+                    await restartCurrent("play");
+                    break;
+                case "rewind":
+                    await restartCurrent("pause");
+                    break;
+            }
         } catch (e) {
             console.error("Failed to skip to the next track:", e);
         }
     }
 
     async function skipToPrevious() {
-        const previousIndex = resolvedQueueIndex - 1;
-        if (previousIndex < 0) return;
+        const action = previousAction({
+            index: resolvedQueueIndex,
+            progress: snapshot.progress,
+        });
 
         try {
+            if (action === "restart") {
+                await restartCurrent("keep");
+                return;
+            }
             await Playback.skipToPreviousEntry();
-            setQueueIndex(previousIndex);
+            setQueueIndex(resolvedQueueIndex - 1);
         } catch (e) {
             console.error("Failed to skip to the previous track:", e);
         }
@@ -548,17 +578,14 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
             activeTrack,
             isPlaying: snapshot.isPlaying,
             isLoading: snapshot.isLoading,
-            canSkipToNext:
-                resolvedQueueIndex >= 0 &&
-                resolvedQueueIndex < queue.length - 1,
-            canSkipToPrevious: resolvedQueueIndex > 0,
+            // back and forward always do something once a song is loaded
+            canSkipToNext: Boolean(activeTrack),
+            canSkipToPrevious: Boolean(activeTrack),
             isPlayerDismissed,
         }),
         [
             activeTrack,
             activeTrackId,
-            queue.length,
-            resolvedQueueIndex,
             snapshot.isLoading,
             snapshot.isPlaying,
             isPlayerDismissed,
@@ -583,10 +610,8 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
                                 : [],
                         shuffleMode: snapshot.shuffleMode ?? ShuffleMode.Off,
                         repeatMode: snapshot.repeatMode ?? RepeatMode.Off,
-                        canSkipToNext:
-                            resolvedQueueIndex >= 0 &&
-                            resolvedQueueIndex < queue.length - 1,
-                        canSkipToPrevious: resolvedQueueIndex > 0,
+                        canSkipToNext: trackState.canSkipToNext,
+                        canSkipToPrevious: trackState.canSkipToPrevious,
                         isPlayerDismissed,
                         ...commands,
                     }}

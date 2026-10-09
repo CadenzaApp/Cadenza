@@ -649,6 +649,18 @@ public class AppleMusicKitModule: Module {
         return queue.entries.firstIndex(where: { $0.id == current.id })
     }
 
+    /// Runs a skip with repeat one lifted, then puts it back. A press of back or
+    /// forward should always move to another song, whatever the repeat mode.
+    private func skipIgnoringRepeatOne(_ skip: () async throws -> Void) async throws {
+        guard #available(iOS 16.0, *) else { return try await skip() }
+        let state = ApplicationMusicPlayer.shared.state
+        let mode = state.repeatMode
+        guard mode == .one else { return try await skip() }
+        state.repeatMode = MusicKit.MusicPlayer.RepeatMode.none
+        defer { state.repeatMode = mode }
+        try await skip()
+    }
+
     @available(iOS 16.0, *)
     private func replaceSongPlaybackQueue(
         ids: [String],
@@ -769,12 +781,16 @@ public class AppleMusicKitModule: Module {
 
         AsyncFunction("skipToNextEntry") { () async throws -> Void in
             guard #available(iOS 15.0, *) else { return }
-            try await ApplicationMusicPlayer.shared.skipToNextEntry()
+            try await self.skipIgnoringRepeatOne {
+                try await ApplicationMusicPlayer.shared.skipToNextEntry()
+            }
         }
 
         AsyncFunction("skipToPreviousEntry") { () async throws -> Void in
             guard #available(iOS 15.0, *) else { return }
-            try await ApplicationMusicPlayer.shared.skipToPreviousEntry()
+            try await self.skipIgnoringRepeatOne {
+                try await ApplicationMusicPlayer.shared.skipToPreviousEntry()
+            }
         }
 
         AsyncFunction("restartCurrentEntry") { () -> Void in
@@ -1250,8 +1266,10 @@ public class AppleMusicKitModule: Module {
 
             if index < current {
                 // MusicKit will not move the cursor directly, so walk it back.
-                for _ in 0..<(current - index) {
-                    try await player.skipToPreviousEntry()
+                try await self.skipIgnoringRepeatOne {
+                    for _ in 0..<(current - index) {
+                        try await player.skipToPreviousEntry()
+                    }
                 }
                 return
             }
@@ -1261,7 +1279,9 @@ public class AppleMusicKitModule: Module {
             if index > current + 1 {
                 player.queue.entries.removeSubrange((current + 1)..<index)
             }
-            try await player.skipToNextEntry()
+            try await self.skipIgnoringRepeatOne {
+                try await player.skipToNextEntry()
+            }
         }
 
         AsyncFunction("setShuffleMode") { (mode: String) throws -> Void in
