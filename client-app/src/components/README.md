@@ -73,6 +73,8 @@ from the bottom, used only by the Analytics overview. Unlike `TintBackdrop` it i
 screen: mount it behind the scroller. Each blob slowly changes size, brightness and position on the
 UI thread. Every so often a blob fades out, hands its color to the back of a shared queue
 (`src/lib/color-queue.ts`) and fades back in with the one at the front, so colors move around.
+There are always five blobs in fixed places (fewer colors repeat). A new set of colors keeps them
+mid motion and crossfades each to its new color, so stepping periods never remounts them.
 Under reduced motion it holds still and keeps its colors. `nebulaColor` clamps each color's lightness and
 chroma per mode, so dark or neon tags still read as a soft glow.
 

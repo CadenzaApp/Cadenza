@@ -7,7 +7,6 @@ import {
     useRef,
     useState,
 } from "react";
-import { View } from "react-native";
 import Animated, {
     cancelAnimation,
     Easing,
@@ -23,46 +22,27 @@ import Animated, {
 } from "react-native-reanimated";
 import Svg, { Defs, RadialGradient, Rect, Stop } from "react-native-svg";
 
-import { Crossfade } from "@/components/ui/crossfade";
+import { CROSSFADE_MS, Crossfade } from "@/components/ui/crossfade";
 import { nebulaColor } from "@/lib/artwork-color-utils";
 import { tradeColor, type ColorQueue } from "@/lib/color-queue";
 
 type NebulaBackdropProps = {
-    /** Up to five colors, the most important first. None draws nothing. */
+    /** Up to five colors, the most important first. None fades it out. */
     colors: readonly string[];
 };
 
 /**
- * Where each blob sits and how big it is, as fractions of the screen. Picked
- * by how many colors there are, so one color is one centered glow and more
- * spread across the bottom half. Ellipses run wider than the screen so no edge
- * shows.
+ * Where each blob sits and how big it is, as fractions of the screen. Fixed,
+ * whatever the colors, so a new set recolors the blobs in place. Ellipses run
+ * wider than the screen so no edge shows.
  */
 type Slot = { x: number; y: number; w: number; h: number };
-const SLOTS: readonly (readonly Slot[])[] = [
-    [{ x: 0.5, y: 0.85, w: 1.6, h: 0.6 }],
-    [
-        { x: 0.2, y: 0.8, w: 1.4, h: 0.55 },
-        { x: 0.85, y: 0.65, w: 1.3, h: 0.5 },
-    ],
-    [
-        { x: 0.15, y: 0.75, w: 1.4, h: 0.55 },
-        { x: 0.85, y: 0.6, w: 1.3, h: 0.5 },
-        { x: 0.5, y: 0.98, w: 1.6, h: 0.5 },
-    ],
-    [
-        { x: 0.15, y: 0.72, w: 1.3, h: 0.5 },
-        { x: 0.85, y: 0.6, w: 1.2, h: 0.45 },
-        { x: 0.3, y: 0.97, w: 1.4, h: 0.5 },
-        { x: 0.8, y: 0.9, w: 1.3, h: 0.5 },
-    ],
-    [
-        { x: 0.15, y: 0.72, w: 1.3, h: 0.5 },
-        { x: 0.85, y: 0.6, w: 1.2, h: 0.45 },
-        { x: 0.3, y: 0.97, w: 1.4, h: 0.5 },
-        { x: 0.8, y: 0.9, w: 1.3, h: 0.5 },
-        { x: 0.45, y: 0.5, w: 1.1, h: 0.4 },
-    ],
+const SLOTS: readonly Slot[] = [
+    { x: 0.15, y: 0.72, w: 1.3, h: 0.5 },
+    { x: 0.85, y: 0.6, w: 1.2, h: 0.45 },
+    { x: 0.3, y: 0.97, w: 1.4, h: 0.5 },
+    { x: 0.8, y: 0.9, w: 1.3, h: 0.5 },
+    { x: 0.45, y: 0.5, w: 1.1, h: 0.4 },
 ];
 
 /**
@@ -87,90 +67,106 @@ const HOLD_MS = [10_000, 22_000] as const;
 /** How long the first trades wait, spread out so they do not all go at once. */
 const FIRST_HOLD_MS = [2_000, 14_000] as const;
 
+/** One set of colors and which blob starts on which. */
+type Palette = { key: string; colors: readonly string[]; byBlob: string[] };
+
 /**
  * Soft blobs of color glowing up from the bottom of a page, in the style of
  * Apple Music's playlist backdrop. Fixed to the screen: mount it behind the
  * scroller, and the page slides over it.
  *
- * Each blob slowly grows, shrinks, brightens, dims and drifts, on the UI
- * thread. Every so often one fades out to nothing, hands its color to the back
- * of a shared queue, and fades back in with the color at the front, so colors
- * wander around the screen. The SVG is drawn once per color, so the motion
- * only moves layers. A new set of colors fades in over a second. Holds still
- * and keeps its colors under reduced motion.
+ * Always five blobs in fixed places. Fewer colors repeat around them. Each
+ * blob slowly grows, shrinks, brightens, dims and drifts, on the UI thread.
+ * Every so often one fades out to nothing, hands its color to the back of a
+ * shared queue, and fades back in with the color at the front, so colors
+ * wander around the screen.
+ *
+ * A new set of colors keeps every blob where it is, mid motion, and fades each
+ * one to its new color over a second. No colors fades the whole nebula out.
+ * Holds still and keeps its colors under reduced motion.
  */
 export function NebulaBackdrop({ colors }: NebulaBackdropProps) {
     const { colorScheme = "light" } = useColorScheme();
-    const shown = useMemo(
-        () =>
-            colors.length === 0
-                ? null
-                : colors
-                      .slice(0, SLOTS.length)
-                      .map((color) => nebulaColor(color, colorScheme)),
-        [colorScheme, colors],
-    );
+    const palette = useMemo<Palette | null>(() => {
+        if (colors.length === 0) return null;
+        const shown = colors
+            .slice(0, SLOTS.length)
+            .map((color) => nebulaColor(color, colorScheme));
+        return {
+            key: shown.join(","),
+            colors: shown,
+            byBlob: SLOTS.map((_, index) => shown[index % shown.length]),
+        };
+    }, [colorScheme, colors]);
 
-    return (
-        <View pointerEvents="none" className="absolute inset-0 overflow-hidden">
-            <Crossfade
-                value={shown}
-                keyOf={(set) => set.join(",")}
-                render={(set) => (
-                    <NebulaLayer colors={set} peak={PEAK[colorScheme]} />
-                )}
-            />
-        </View>
-    );
-}
+    // the last real palette, so fading out to no colors still has one to show
+    const [kept, setKept] = useState(palette);
+    if (palette && palette.key !== kept?.key) setKept(palette);
 
-/** One set of blobs and the queue they trade colors through. */
-function NebulaLayer({
-    colors,
-    peak,
-}: {
-    colors: readonly string[];
-    peak: number;
-}) {
-    const queue = useRef<ColorQueue>(colors);
+    const queue = useRef<ColorQueue>(kept?.colors ?? []);
+    useEffect(() => {
+        if (kept) queue.current = kept.colors;
+    }, [kept]);
     const trade = useCallback((current: string) => {
         const next = tradeColor(queue.current, current);
         queue.current = next.queue;
         return next.color;
     }, []);
 
-    return colors.map((color, index) => (
-        <Blob
-            key={index}
-            initialColor={color}
-            trade={trade}
-            slot={SLOTS[colors.length - 1][index]}
-            period={PERIODS[index]}
-            peak={peak}
-        />
-    ));
+    const shown = useSharedValue(0);
+    useEffect(() => {
+        shown.set(withTiming(palette ? 1 : 0, { duration: CROSSFADE_MS }));
+    }, [palette, shown]);
+    const fade = useAnimatedStyle(() => ({ opacity: shown.get() }));
+
+    return (
+        <Animated.View
+            pointerEvents="none"
+            className="absolute inset-0 overflow-hidden"
+            style={fade}
+        >
+            {kept
+                ? SLOTS.map((slot, index) => (
+                      <Blob
+                          key={index}
+                          paletteKey={kept.key}
+                          startColor={kept.byBlob[index]}
+                          trade={trade}
+                          slot={slot}
+                          period={PERIODS[index]}
+                          peak={PEAK[colorScheme]}
+                      />
+                  ))
+                : null}
+        </Animated.View>
+    );
 }
 
 function Blob({
-    initialColor,
+    paletteKey,
+    startColor,
     trade,
     slot,
     period,
     peak,
 }: {
-    initialColor: string;
+    paletteKey: string;
+    startColor: string;
     trade: (current: string) => string;
     slot: Slot;
     period: (typeof PERIODS)[number];
     peak: number;
 }) {
-    // svg ids go in url(#id), which the characters useId makes can break
-    const id = `nebula${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
     const still = useReducedMotion();
     const size = useBreath(period.size, still);
     const glow = useBreath(period.glow, still);
     const drift = useBreath(period.drift, still);
-    const { color, life } = useTradedColor(initialColor, trade, still);
+    const { color, life } = useTradedColor(
+        paletteKey,
+        startColor,
+        trade,
+        still,
+    );
 
     const breathe = useAnimatedStyle(() => ({
         opacity: life.get() * (0.6 + 0.4 * glow.get()),
@@ -194,32 +190,47 @@ function Blob({
                 breathe,
             ]}
         >
-            <Svg width="100%" height="100%">
-                <Defs>
-                    <RadialGradient id={id} cx="50%" cy="50%" r="50%">
-                        {/* eased falloff, so the edge has no visible rim */}
-                        <Stop offset="0" stopColor={color} stopOpacity={peak} />
-                        <Stop
-                            offset="0.3"
-                            stopColor={color}
-                            stopOpacity={peak * 0.75}
-                        />
-                        <Stop
-                            offset="0.6"
-                            stopColor={color}
-                            stopOpacity={peak * 0.3}
-                        />
-                        <Stop
-                            offset="0.85"
-                            stopColor={color}
-                            stopOpacity={peak * 0.07}
-                        />
-                        <Stop offset="1" stopColor={color} stopOpacity={0} />
-                    </RadialGradient>
-                </Defs>
-                <Rect width="100%" height="100%" fill={`url(#${id})`} />
-            </Svg>
+            <Crossfade
+                value={color}
+                initial={color}
+                keyOf={(shown) => shown}
+                render={(shown) => <Glow color={shown} peak={peak} />}
+            />
         </Animated.View>
+    );
+}
+
+/** One blob's radial glow in one color, filling its parent. */
+function Glow({ color, peak }: { color: string; peak: number }) {
+    // svg ids go in url(#id), which the characters useId makes can break
+    const id = `nebula${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
+
+    return (
+        <Svg width="100%" height="100%">
+            <Defs>
+                <RadialGradient id={id} cx="50%" cy="50%" r="50%">
+                    {/* eased falloff, so the edge has no visible rim */}
+                    <Stop offset="0" stopColor={color} stopOpacity={peak} />
+                    <Stop
+                        offset="0.3"
+                        stopColor={color}
+                        stopOpacity={peak * 0.75}
+                    />
+                    <Stop
+                        offset="0.6"
+                        stopColor={color}
+                        stopOpacity={peak * 0.3}
+                    />
+                    <Stop
+                        offset="0.85"
+                        stopColor={color}
+                        stopOpacity={peak * 0.07}
+                    />
+                    <Stop offset="1" stopColor={color} stopOpacity={0} />
+                </RadialGradient>
+            </Defs>
+            <Rect width="100%" height="100%" fill={`url(#${id})`} />
+        </Svg>
     );
 }
 
@@ -227,13 +238,21 @@ function Blob({
  * A blob's color and how much of it shows, 0 to 1. Holds a color for a while,
  * fades out, trades it for the next in the queue, and fades back in, forever.
  * Shows the first color fully from the start, and never trades when `still`.
+ * A new palette jumps straight to `startColor` without touching the cycle,
+ * and the caller fades the color across.
  */
 function useTradedColor(
-    initialColor: string,
+    paletteKey: string,
+    startColor: string,
     trade: (current: string) => string,
     still: boolean,
 ) {
-    const [color, setColor] = useState(initialColor);
+    const [color, setColor] = useState(startColor);
+    const [colorFor, setColorFor] = useState(paletteKey);
+    if (colorFor !== paletteKey) {
+        setColorFor(paletteKey);
+        setColor(startColor);
+    }
     // counts trades, so one that hands back the same color still restarts
     const [turn, setTurn] = useState(0);
     const life = useSharedValue(1);
