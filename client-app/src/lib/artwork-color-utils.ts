@@ -43,16 +43,31 @@ export type TintGradient = {
     readonly colors: readonly [string, string, ...string[]];
 };
 
-/** One sampled point along the shared mode-aware Oklch tint gradient. */
+/**
+ * How far a point has moved from the top color toward the end color, from how
+ * far down the page it is (0 at the top, 1 at the bottom).
+ *
+ * The top color keeps a 1/x share with x = 1 + depth, so 1 at the top and 1/2
+ * at the bottom. Thus a long page eases off and stops halfway to the end color,
+ * rather than running into it.
+ */
+export function tintFadeAt(depth: number) {
+    return 1 - 1 / (1 + Math.max(0, Math.min(1, depth)));
+}
+
+/**
+ * The shared mode-aware Oklch tint at `depth` down a page, 0 at the top and 1
+ * at the bottom. See `tintFadeAt` for the curve.
+ */
 export function sampleTintGradientColor(
     hex: string,
     colorScheme: ColorScheme,
-    progress: number,
+    depth: number,
 ) {
     const color = toOklch(hex);
     if (!color) return hex;
 
-    const boundedProgress = Math.max(0, Math.min(1, progress));
+    const fade = tintFadeAt(depth);
     const start = {
         l: colorScheme === "light" ? color.l + (1 - color.l) * 0.475 : color.l,
         c: colorScheme === "light" ? color.c * 0.75 : color.c * 0.6,
@@ -69,19 +84,20 @@ export function sampleTintGradientColor(
         formatHex(
             toRgb({
                 ...color,
-                l: start.l + (end.l - start.l) * boundedProgress,
-                c: start.c + (end.c - start.c) * boundedProgress,
+                l: start.l + (end.l - start.l) * fade,
+                c: start.c + (end.c - start.c) * fade,
             }),
         ) ?? hex
     );
 }
 
 /**
- * Samples a tinted surface gradient in Oklch, then returns RGB stops
- * for the native renderer. In dark mode, the top preserves its lightness and
- * retains 60% of its chroma. In light mode, it moves 47.5% toward white and
- * retains 75% of its chroma. The bottom retains 20% of its chroma and moves
- * toward the current mode's page background.
+ * Samples a tinted page gradient in Oklch, top to bottom, then returns RGB
+ * stops for the native renderer. Meant to run the whole page's length. In dark
+ * mode, the top preserves its lightness and retains 60% of its chroma. In
+ * light mode, it moves 47.5% toward white and retains 75% of its chroma. The
+ * end color retains 20% of its chroma and sits near the mode's page
+ * background; the bottom of the page gets halfway there.
  */
 export function createTintGradient(
     hex: string,

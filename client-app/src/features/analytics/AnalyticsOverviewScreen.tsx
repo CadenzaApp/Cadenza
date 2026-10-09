@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useWindowDimensions, View } from "react-native";
+import { View } from "react-native";
 import Animated from "react-native-reanimated";
 
 import { Skeleton } from "@/components/ui/skeleton";
@@ -78,7 +78,6 @@ export function AnalyticsOverviewScreen() {
 
     const accent = usePageTint(summary);
     const gradient = useTintGradient(accent);
-    const { height: screenHeight } = useWindowDimensions();
 
     return (
         <View className="flex-1 bg-background">
@@ -96,11 +95,9 @@ export function AnalyticsOverviewScreen() {
                     ]}
                     showsVerticalScrollIndicator={false}
                 >
-                    {/* scrolls with the page, so the wash fades out down it
-                        rather than sitting still behind it. One screen of
-                        gradient, then its end color: a page tall gradient
-                        lagged the tab bar's glass as the player docked */}
-                    <TintBackdrop gradient={gradient} span={screenHeight} />
+                    {/* scrolls with the page and runs its whole length, the
+                        same as every other tinted page */}
+                    <TintBackdrop gradient={gradient} />
 
                     <AnalyticsHeader accent={accent} updatedAgo={updatedAgo} />
 
