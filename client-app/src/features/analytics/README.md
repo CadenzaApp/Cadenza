@@ -97,9 +97,12 @@ survives navigating into a detail page and back.
   on #1 with nothing selected, without an effect resetting state.
 - **"Updated" is the last fetch that landed**, from the summary read's `onSuccess`. A cache hit
   does not move it.
-- **The page tint runs the whole content height** and scrolls with it, with
-  `TintOverscrollBackdrop` behind for the pull. A short tint over a fixed backdrop shows the
-  backdrop's top color through the bottom of the page.
+- **The nebula is fixed to the screen**, behind the scroller, so the page and its overscroll
+  slide over it.
+- **Offline, the page keeps what it had.** Every analytics read saves its last good response on
+  the device, and a screen shows data over an error whenever it has any. The header then says
+  "Offline" in place of "Updated". The error state is only for a period never loaded on this
+  device.
 - **`MusicList` owns its own list and cannot go inside a `ScrollView`.** That is why the songs page
   is its own screen with the period bar above it, and why the scrolling pages use `TopEntityList`.
 - **Artwork comes from `sample_song_id`.** One `useTracksForSongIds` call per section resolves

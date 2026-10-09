@@ -38,6 +38,8 @@ native module directly.
 | `play-source.ts`             | Pure: `PlaySource`, the playlist or query a queue started from, and `encodeQuerySource` / `decodeQuerySource`. Tested in `play-source.test.ts`.                                                                                                                                                   |
 | `event-queue.ts`             | Pure: the listening event queue and the wire shape it sends. Enqueue with an oldest-first cap, batch, and drop only what the backend confirmed. Tested in `event-queue.test.ts`.                                                                                                                  |
 | `event-queue-store.ts`       | The AsyncStorage half of that queue. Keyed by user: a queue is sent under whoever's token is current, so one shared key could flush one user's plays into another's history.                                                                                                                      |
+| `saved-reads.ts`             | Pure: which saved reads to keep, newest first under a cap.                                                                                                                                                                                                                                        |
+| `saved-reads-store.ts`       | The AsyncStorage half: the last good response of each read that opts in with `useAPIData`'s `save`.                                                                                                                                                                                               |
 | `listening-session.ts`       | Pure: when a listening session ends, and what to do with a batch the backend refused. The two decisions that can lose a play, so they live where they can be tested. Tested in `listening-session.test.ts`.                                                                                       |
 | `queue-order.ts`             | Pure index math for the queue mirror. Tested in `queue-order.test.ts`.                                                                                                                                                                                                                            |
 | `transport.ts`               | What back and forward do: back restarts past 4s or with nothing before, forward always moves, and at the queue end replays, wraps, or rewinds paused by repeat mode.                                                                                                                              |
@@ -97,6 +99,11 @@ dormant until an id arrives. An empty string is a real value, so a blank search 
 `useAPIData` takes an optional third argument passed straight to SWR. `keepPreviousData` is the
 one that matters for a search-as-you-type read, where each keystroke is a new key and `data` would
 otherwise drop to undefined between responses. `useDefaultTags` is the caller.
+
+`save: true` keeps the last good response of a read on the device (`saved-reads-store.ts`, newest
+40, cleared on sign out) and serves it while the request fails or is in flight, even after a cold
+start. The order is this key's live data, then its saved copy, then whatever `keepPreviousData`
+held from the last key. The analytics reads use it so the tab works offline.
 
 `useAPIPostDataBatched` exists for reads whose request is a list too long for a query string. It
 splits the list into parallel requests and merges the responses, but stays **one** `api-data`
