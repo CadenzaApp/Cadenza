@@ -103,7 +103,8 @@ survives navigating into a detail page and back.
   is its own screen with the period bar above it, and why the scrolling pages use `TopEntityList`.
 - **Artwork comes from `sample_song_id`.** One `useTracksForSongIds` call per section resolves
   every row. For an album that is the album cover; for an artist or a tag it is the cover of one
-  of its songs.
+  of its songs. A playlist row fetches its own cover by id (`artworkCollection` on the descriptor)
+  and only falls back to the song's when the playlist has none.
 - **`useTracksForSongIds` drops ids it cannot resolve**, so an unavailable song falls out of the
   songs page rather than listing without a title. `TopEntityList` keeps the row and falls back to
   the key, and a tag tile falls back to a gradient of the tag's color.

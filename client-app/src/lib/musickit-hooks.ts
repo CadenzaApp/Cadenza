@@ -830,27 +830,52 @@ export function useCollectionInfo(
     kind: LibraryCollectionKind,
     collectionId?: string,
 ) {
+    const ids = useMemo(
+        () => (collectionId ? [collectionId] : NO_IDS),
+        [collectionId],
+    );
+    const { collections, collectionsLoading, collectionsErr } =
+        useCollectionsInfo(kind, ids);
+
+    return {
+        collection: collections[0],
+        collectionLoading: collectionsLoading,
+        collectionErr: collectionsErr,
+    };
+}
+
+/**
+ * Returns metadata for many albums or playlists in one request, in the order
+ * asked, minus any Apple Music could not find. Ids may be catalog or library.
+ */
+export function useCollectionsInfo(
+    kind: LibraryCollectionKind,
+    collectionIds: readonly string[],
+) {
     const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
     const apiKind = collectionFavoriteKind(kind);
     const key =
-        isConnected && collectionId
+        isConnected && collectionIds.length > 0
             ? ([
                   "MusicKit.getCollectionInfo",
                   sessionRevision,
                   apiKind,
-                  collectionId,
+                  ...collectionIds,
               ] as const)
             : null;
     const x = useSWR<MusicItem[]>(key, () =>
-        read(() => MusicKit.getCollectionInfo(apiKind, [collectionId!])),
+        read(() => MusicKit.getCollectionInfo(apiKind, [...collectionIds])),
     );
 
     return {
-        collection: x.data?.[0],
-        collectionLoading: x.isLoading || isInitializing,
-        collectionErr: x.error,
+        collections: x.data ?? EMPTY_COLLECTIONS,
+        collectionsLoading: x.isLoading || isInitializing,
+        collectionsErr: x.error,
     };
 }
+
+const NO_IDS: readonly string[] = [];
+const EMPTY_COLLECTIONS: MusicItem[] = [];
 
 /**
  * Resolves the catalog artists credited on a song. Separate from `useArtist`

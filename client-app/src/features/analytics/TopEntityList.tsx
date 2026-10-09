@@ -4,7 +4,11 @@ import { useCallback, useMemo } from "react";
 import { Image, Pressable, View } from "react-native";
 
 import { Text } from "@/components/ui/text";
-import { indexTracksById, useTracksForSongIds } from "@/lib/musickit-hooks";
+import {
+    indexTracksById,
+    useCollectionsInfo,
+    useTracksForSongIds,
+} from "@/lib/musickit-hooks";
 import { usePlaybackCommands } from "@/lib/playback";
 import type { EntityPlayCount } from "@/lib/routes/analytics";
 import { cn, isUsableArtworkUrl } from "@/lib/utils";
@@ -21,8 +25,10 @@ type Props = {
  * A ranked list of whatever a dimension ranks, with play counts.
  *
  * Every row's artwork comes from its `sample_song_id`, all resolved in one
- * batch. For an album that is exactly the album's cover; for anything else it
- * is the cover of one of its songs, a stand-in rather than its own art.
+ * batch. For an album that is exactly the album's cover. A dimension with an
+ * `artworkCollection` fetches its rows' own covers instead, also in one batch,
+ * and falls back to the song's when one has none. Anything else shows one of
+ * its songs' covers as a stand-in.
  *
  * A row opens what the descriptor's `hrefFor` says. A dimension with no href
  * builder ranks songs, so its row plays the list from that song instead.
@@ -42,6 +48,25 @@ export function TopEntityList({ dimension, entries }: Props) {
     // tracks come back without the ones that did not resolve, so index rather
     // than zip: the nth row is not the nth track
     const tracksById = useMemo(() => indexTracksById(tracks), [tracks]);
+
+    const collectionIds = useMemo(
+        () =>
+            dimension.artworkCollection
+                ? entries.flatMap((entry) =>
+                      entry.entity_id ? [entry.entity_id] : [],
+                  )
+                : [],
+        [dimension.artworkCollection, entries],
+    );
+    // with no ids the hook makes no request, so the kind is a placeholder
+    const { collections } = useCollectionsInfo(
+        dimension.artworkCollection ?? "playlist",
+        collectionIds,
+    );
+    const collectionsById = useMemo(
+        () => indexTracksById(collections),
+        [collections],
+    );
 
     // the resolved tracks are already in rank order, so the queue is the
     // ranking from the tapped row down, with the rows above it behind
@@ -79,6 +104,12 @@ export function TopEntityList({ dimension, entries }: Props) {
                 // rather than dropping a row that earned its place
                 const title = entry.label ?? track?.title ?? entry.key;
                 const subtitle = entry.sub_label ?? track?.artistName;
+                const ownArtwork = entry.entity_id
+                    ? collectionsById.get(entry.entity_id)?.artworkUrl
+                    : undefined;
+                const artworkUrl = isUsableArtworkUrl(ownArtwork)
+                    ? ownArtwork
+                    : track?.artworkUrl;
 
                 const row = (
                     <View className="flex-row items-center gap-3">
@@ -86,7 +117,7 @@ export function TopEntityList({ dimension, entries }: Props) {
                             {index + 1}
                         </Text>
                         <Artwork
-                            url={track?.artworkUrl}
+                            url={artworkUrl}
                             round={dimension.roundArtwork}
                         />
                         <View className="flex-1">

@@ -107,10 +107,7 @@ export function albumRouteFor(
     };
 }
 
-/**
- * The playlist's own page. The row's artwork is one of its songs, not the
- * playlist cover, so none is passed and the screen reads its first track's.
- */
+/** The playlist's own page. No artwork is passed; the screen loads its own. */
 export function playlistRouteFor(entity: RankedEntity): PlaylistRoute | null {
     if (!entity.entity_id) return null;
     return {
@@ -153,6 +150,12 @@ export type DimensionDescriptor = {
     /** Artists are drawn round, the way the rest of the app draws them. */
     roundArtwork: boolean;
     /**
+     * Fetch the row's own cover by its `entity_id` as this kind of collection.
+     * Null uses the sample song's cover, which for an album already is the
+     * album's.
+     */
+    artworkCollection: "album" | "playlist" | null;
+    /**
      * Where a row goes, or null when no play of it recorded an id. A song row
      * plays rather than navigating, so songs have no href.
      */
@@ -180,6 +183,7 @@ export const DIMENSIONS: DimensionDescriptor[] = [
         pageTitle: "Most Played",
         emptyLabel: "No plays in this window yet.",
         roundArtwork: false,
+        artworkCollection: null,
         // a song row plays, it does not navigate
         hrefFor: null,
         seeAllHref: { pathname: "/analytics/songs" },
@@ -191,6 +195,7 @@ export const DIMENSIONS: DimensionDescriptor[] = [
         pageTitle: "Most Played Playlists",
         emptyLabel: "Nothing played from a playlist in this window yet.",
         roundArtwork: false,
+        artworkCollection: "playlist",
         hrefFor: playlistRouteFor,
         seeAllHref: rankingHref("playlist"),
     },
@@ -201,6 +206,7 @@ export const DIMENSIONS: DimensionDescriptor[] = [
         pageTitle: "Most Listened Albums",
         emptyLabel: "No albums recorded in this window yet.",
         roundArtwork: false,
+        artworkCollection: null,
         hrefFor: albumRouteFor,
         seeAllHref: rankingHref("album"),
     },
@@ -211,6 +217,7 @@ export const DIMENSIONS: DimensionDescriptor[] = [
         pageTitle: "Most Listened Artists",
         emptyLabel: "No artists recorded in this window yet.",
         roundArtwork: true,
+        artworkCollection: null,
         hrefFor: artistRouteFor,
         seeAllHref: rankingHref("artist"),
     },
@@ -221,6 +228,7 @@ export const DIMENSIONS: DimensionDescriptor[] = [
         pageTitle: "Most Played Queries",
         emptyLabel: "Nothing played from a query in this window yet.",
         roundArtwork: false,
+        artworkCollection: null,
         hrefFor: queryRouteFor,
         seeAllHref: rankingHref("query"),
     },
