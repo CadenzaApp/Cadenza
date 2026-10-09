@@ -864,7 +864,9 @@ public class AppleMusicKitModule: Module {
             // Fetch Catalog Songs
             if !catalogIds.isEmpty {
                 let musicItemIds = catalogIds.map { MusicItemID($0) }
-                let request = MusicCatalogResourceRequest<Song>(matching: \.id, memberOf: musicItemIds)
+                var request = MusicCatalogResourceRequest<Song>(matching: \.id, memberOf: musicItemIds)
+                // albums are not loaded by default, and albumID is read off them
+                request.properties = [.albums]
                 let response = try await request.response()
 
                 let catalogFormatted = response.items.map { self.formatSong($0, playbackType: "song") }
