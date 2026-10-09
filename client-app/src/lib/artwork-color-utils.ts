@@ -135,3 +135,40 @@ export function nebulaColor(hex: string, colorScheme: ColorScheme) {
         ) ?? hex
     );
 }
+
+/**
+ * How far apart two colors have to be in Oklab to count as different. Close
+ * to the smallest step the eye picks up, so two near identical browns from
+ * different covers count as one.
+ */
+const DISTINCT_COLOR_DISTANCE = 0.04;
+
+/**
+ * The first `count` colors in `candidates` that differ from every one picked
+ * before them, in order. Skips anything that is not six-digit hex. May return
+ * fewer than `count` when the candidates run out.
+ */
+export function distinctColors(
+    candidates: readonly (string | null | undefined)[],
+    count: number,
+    minDistance = DISTINCT_COLOR_DISTANCE,
+): string[] {
+    const picked: { hex: string; lab: { l: number; a: number; b: number } }[] =
+        [];
+    for (const hex of candidates) {
+        if (picked.length >= count) break;
+        if (typeof hex !== "string" || !/^#[0-9a-f]{6}$/i.test(hex)) continue;
+        const lab = toOklab(hex);
+        if (!lab) continue;
+        const repeat = picked.some(
+            (seen) =>
+                Math.hypot(
+                    seen.lab.l - lab.l,
+                    seen.lab.a - lab.a,
+                    seen.lab.b - lab.b,
+                ) < minDistance,
+        );
+        if (!repeat) picked.push({ hex, lab });
+    }
+    return picked.map((color) => color.hex);
+}

@@ -90,3 +90,30 @@ export function useArtworkTint(source?: ArtworkSource | null): ArtworkTint {
         isLoading: false,
     };
 }
+
+/**
+ * The color of each source, in order, null for one with none. Apple's color
+ * where there is one, else the averaged image, the same as `useArtworkTint`,
+ * but for a list in one read.
+ */
+export function useArtworkColors(
+    sources: readonly (ArtworkSource | null | undefined)[],
+): (string | null)[] {
+    const toAverage = sources.map((source) =>
+        source && !source.artworkColor
+            ? (source.artworkUrlSmall ?? source.artworkUrl ?? null)
+            : null,
+    );
+    const urls = toAverage.filter((url): url is string => url !== null);
+    const averaged = useSWR<(string | null)[]>(
+        urls.length > 0 ? ["ImageColor.getAverageColors", ...urls] : null,
+        () => Promise.all(urls.map((url) => ImageColor.getAverageColor(url))),
+    );
+
+    let next = 0;
+    return sources.map((source, index) => {
+        if (source?.artworkColor) return source.artworkColor;
+        if (toAverage[index] === null) return null;
+        return averaged.data?.[next++] ?? null;
+    });
+}

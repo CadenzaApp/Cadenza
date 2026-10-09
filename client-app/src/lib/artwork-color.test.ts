@@ -5,6 +5,7 @@ import test from "node:test";
 import {
     averageArtworkColors,
     createTintGradient,
+    distinctColors,
     nebulaColor,
     tintFadeAt,
 } from "./artwork-color-utils.ts";
@@ -50,4 +51,29 @@ test("a nebula color holds to its mode's lightness band and caps chroma", () => 
         assert.ok(color.l > minL - 0.01 && color.l < maxL + 0.01, hex);
         assert.ok(color.c < maxC + 0.01, hex);
     }
+});
+
+test("distinct colors keeps order, drops repeats and near repeats", () => {
+    assert.deepEqual(
+        distinctColors(
+            [
+                "#ff0000",
+                "#00ff00",
+                "#FF0000",
+                "#fe0101",
+                null,
+                "bad",
+                "#0000ff",
+            ],
+            5,
+        ),
+        ["#ff0000", "#00ff00", "#0000ff"],
+    );
+});
+
+test("distinct colors stops at the count", () => {
+    assert.deepEqual(distinctColors(["#ff0000", "#00ff00", "#0000ff"], 2), [
+        "#ff0000",
+        "#00ff00",
+    ]);
 });

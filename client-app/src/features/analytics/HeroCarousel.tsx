@@ -26,7 +26,7 @@ import { useOpenScreen } from "@/lib/open-screen";
 import { formatCount } from "./format";
 
 /** How many covers the carousel holds. */
-const HERO_COUNT = 3;
+export const HERO_COUNT = 3;
 const COVER_SIZE = 220;
 /** How far a side cover sits from the center, as a share of a cover. */
 const SIDE_OFFSET = 0.6;
