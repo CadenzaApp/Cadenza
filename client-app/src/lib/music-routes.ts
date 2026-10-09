@@ -21,6 +21,8 @@ type CollectionRoute = {
         artworkUrlLarge?: string;
         /** A song on it to point out once it scrolls into view. */
         highlight?: string;
+        /** The collection to show instead when `id` will not load. */
+        fallbackId?: string;
     };
 };
 
@@ -50,7 +52,8 @@ export function collectionRoute(collection: MusicItem): CollectionRoute {
  * The same screen for an album we only know through a song on it, with that
  * song highlighted. A song's artwork is the album cover, so its color is the
  * album's color. `albumId` defaults to the track's own, which for a library
- * song is the library album; `useAlbumRouteForTrack` finds the full one.
+ * song is the library album; `useAlbumRouteForTrack` finds the full one, and
+ * the library album is kept as the fallback.
  */
 export function albumRouteForTrack(
     track: MusicItem,
@@ -68,6 +71,8 @@ export function albumRouteForTrack(
             artworkUrl: track.artworkUrl ?? track.artworkUrlLarge,
             artworkUrlLarge: track.artworkUrlLarge,
             highlight: track.catalogId ?? track.id,
+            // the library copy, for when the full album will not load
+            fallbackId: albumId !== track.albumID ? track.albumID : undefined,
         },
     };
 }

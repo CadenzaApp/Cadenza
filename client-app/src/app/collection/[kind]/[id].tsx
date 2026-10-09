@@ -8,7 +8,7 @@ import { TrackCollectionView } from "@/components/custom/track-collection-view";
 import { FloatingCloseButton } from "@/components/ui/floating-close-button";
 import { Text } from "@/components/ui/text";
 import { useArtworkTint } from "@/lib/artwork-color";
-import { useCollectionSongs } from "@/lib/musickit-hooks";
+import { useCollectionSongsOrFallback } from "@/lib/musickit-hooks";
 import { isTrackInCollection } from "@/lib/playable-item";
 import type { PlaySource } from "@/lib/play-source";
 import { usePlaybackCommands, usePlaybackTrackState } from "@/lib/playback";
@@ -31,7 +31,8 @@ const HERO_BUTTON_SIZE = 52;
 export default function CollectionDetailScreen() {
     const {
         kind,
-        id,
+        id: routeId,
+        fallbackId,
         title,
         artistName,
         artworkColor,
@@ -47,19 +48,22 @@ export default function CollectionDetailScreen() {
         artworkUrl?: string;
         artworkUrlLarge?: string;
         highlight?: string;
+        fallbackId?: string;
     }>();
     const { activeTrack, isPlaying } = usePlaybackTrackState();
     const { playQueue, setShuffleMode, togglePlayback } = usePlaybackCommands();
     const [optionsOpen, setOptionsOpen] = useState(false);
     const [playbackCommandPending, setPlaybackCommandPending] = useState(false);
+    // a full album that will not load falls back to the library copy
     const {
+        collectionId: id = routeId,
         tracks,
         tracksLoading,
         tracksLoadingNextPage,
         loadNextCollectionPage,
         hasNextCollectionPage,
         tracksErr,
-    } = useCollectionSongs(kind, id);
+    } = useCollectionSongsOrFallback(kind, routeId, fallbackId);
     const firstTrack = tracks[0];
     // a playlist is somewhere a play can come from, so its plays are credited
     // to it. an album already ranks off the track itself

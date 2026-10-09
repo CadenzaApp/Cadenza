@@ -236,8 +236,9 @@ artist, both artwork sizes, and the artwork color so the hero and the tint are t
 song fetch lands.
 
 Go to Album opens the full catalog album through `useAlbumRouteForTrack`, since a library album
-holds only the songs the user added. Its `highlight` param names the song it came from, and that
-row shimmers once, the first time it is on screen.
+holds only the songs the user added. Its `fallbackId` is the library album, shown when the full one
+fails or is empty. Its `highlight` param names the song it came from, and that row shimmers once,
+the first time it is on screen.
 
 These root routes render above the native tab controller, so its bottom accessory cannot appear
 over them. Every zoom-dismiss card owns a compact player layer, which makes the player transform

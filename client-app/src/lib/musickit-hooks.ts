@@ -726,6 +726,26 @@ export function useCollectionSongs(
     };
 }
 
+/**
+ * `useCollectionSongs` for `collectionId`, or for `fallbackId` once that one
+ * fails or comes back empty. `collectionId` in the result is the one shown.
+ */
+export function useCollectionSongsOrFallback(
+    kind: LibraryCollectionKind,
+    collectionId?: string,
+    fallbackId?: string,
+) {
+    const primary = useCollectionSongs(kind, collectionId);
+    const missing =
+        fallbackId != null &&
+        !primary.tracksLoading &&
+        (primary.tracksErr != null || primary.tracks.length === 0);
+    const fallback = useCollectionSongs(kind, missing ? fallbackId : undefined);
+    return missing
+        ? { ...fallback, collectionId: fallbackId }
+        : { ...primary, collectionId };
+}
+
 /** Returns and updates the cached favorite status for one Apple Music song. */
 export function useSongFavoriteStatus(songId?: string) {
     const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
