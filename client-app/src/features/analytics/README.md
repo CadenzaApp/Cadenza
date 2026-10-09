@@ -23,7 +23,7 @@ Listening events in `src/lib/README.md`.
 
 Top to bottom: header, #1 hero, stats strip, heatmap, tag rail, then the trend chart, the
 rankings card, and on repeat. Every section sits on an `AnalyticsCard` (liquid glass), over a nebula (`NebulaBackdrop`) in
-the period's top three tag colors, or the #1 song's artwork color when nothing played was tagged.
+the period's top five tag colors, or the #1 song's artwork color when nothing played was tagged.
 The nebula is fixed to the screen and the page scrolls over it.
 
 The overview's rail floats with no background, so the nebula shows through it. The detail pages pin

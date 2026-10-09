@@ -68,10 +68,12 @@ The artist hero's bottom fade runs through it too, so it keeps pace with the pag
 under a scrolling gradient. Its center boundary stays covered by content, while elastic scrolling
 reveals a matching solid endpoint. `DetailScreen` and `TrackCollectionView` share that same hook.
 
-`nebula-backdrop.tsx` exports `NebulaBackdrop`, soft SVG blobs of up to three colors glowing up
+`nebula-backdrop.tsx` exports `NebulaBackdrop`, soft SVG blobs of up to five colors glowing up
 from the bottom, used only by the Analytics overview. Unlike `TintBackdrop` it is fixed to the
 screen: mount it behind the scroller. Each blob slowly changes size, brightness and position on the
-UI thread, and holds still under reduced motion. `nebulaColor` clamps each color's lightness and
+UI thread. Every so often a blob fades out, hands its color to the back of a shared queue
+(`src/lib/color-queue.ts`) and fades back in with the one at the front, so colors move around.
+Under reduced motion it holds still and keeps its colors. `nebulaColor` clamps each color's lightness and
 chroma per mode, so dark or neon tags still read as a soft glow.
 
 `reorderable-list.tsx` is in `custom/` rather than `ui/` only because nothing else needs it yet.

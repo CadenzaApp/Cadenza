@@ -26,7 +26,7 @@ export function usePageTint(summary?: AnalyticsSummary): string | null {
 const NO_IDS: string[] = [];
 
 /** How many colors the page's nebula glows in. */
-const NEBULA_COLORS = 3;
+const NEBULA_COLORS = 5;
 const NO_COLORS: string[] = [];
 
 /**
