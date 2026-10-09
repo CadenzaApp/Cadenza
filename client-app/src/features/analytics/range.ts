@@ -66,8 +66,6 @@ export type ResolvedPeriod = {
     chart: "hours" | "trend";
     heatmapBucket: HeatmapBucket;
     heatmap: HeatmapShape;
-    /** The page heading, "Your week". */
-    title: string;
     /** The dates it covers, "Sep 28 - Oct 4, 2026". */
     dateLabel: string;
     /** How a sentence refers to it: "this week", "that month", "all time". */
@@ -288,7 +286,6 @@ export function resolvePeriod(
         grain,
         offset: back,
         heatmap: heatmapFor(grain, start),
-        title: grain === "all" ? "All time" : `Your ${grain}`,
         dateLabel: dateLabelFor(grain, start, end, now),
         phrase: phraseFor(grain, isCurrent),
         isCurrent,

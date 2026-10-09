@@ -6,7 +6,7 @@ import { useAnalyticsPeriod } from "./analytics-period";
 import { GrainPicker, PeriodStepper } from "./PeriodControls";
 
 type Props = {
-    /** The page tint, for the eyebrow. Falls back to the muted text color. */
+    /** The page tint, for the heading. Falls back to the muted text color. */
     accent: string | null;
     /** "just now", "5m ago", or null before the first read lands. */
     updatedAgo: string | null;
@@ -24,23 +24,18 @@ export function AnalyticsHeader({ accent, updatedAgo }: Props) {
         <View className="gap-3">
             <View className="gap-1">
                 <Text
-                    className="text-muted-foreground text-xs font-semibold uppercase tracking-[3px]"
+                    className="text-3xl font-bold tracking-tight"
                     style={accent ? { color: accent } : null}
                 >
                     Listening {period.phrase}
                 </Text>
-                <Text className="text-4xl font-bold tracking-tight">
-                    {period.title}
+                <Text className="text-muted-foreground text-xl font-semibold">
+                    {period.dateLabel}
                 </Text>
             </View>
 
             <View className="flex-row items-center justify-between gap-3">
-                <View className="flex-1 flex-row flex-wrap items-center gap-x-3 gap-y-2">
-                    <Text className="text-muted-foreground text-base">
-                        {period.dateLabel}
-                    </Text>
-                    <GrainPicker />
-                </View>
+                <GrainPicker />
                 <PeriodStepper />
             </View>
 

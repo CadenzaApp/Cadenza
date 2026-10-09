@@ -41,7 +41,7 @@ it, since their period bar sits fixed above the list. Every page pads the bottom
 | `range.ts`                    | Pure: a grain and an offset to the period's window, buckets, heatmap shape and labels. Tested in `range.test.ts`.                     |
 | `analytics-period.tsx`        | `AnalyticsPeriodProvider` and `useAnalyticsPeriod`: the period every screen shares.                                                   |
 | `PeriodControls.tsx`          | `GrainPicker`, `PeriodStepper`, and `PeriodBar`, the one-row version the detail pages use.                                            |
-| `AnalyticsHeader.tsx`         | The overview's header: title, dates, grain, arrows, and when it last updated.                                                         |
+| `AnalyticsHeader.tsx`         | The overview's header: period, dates, grain, arrows, and when it last updated.                                                        |
 | `analytics-hooks.ts`          | `usePageTint` and `useUpdatedAgo`.                                                                                                    |
 | `AnalyticsCard.tsx`           | The glass card every section sits on.                                                                                                 |
 | `SectionHeading.tsx`          | A section title, an optional line under it, and an optional "See all".                                                                |
