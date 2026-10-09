@@ -33,35 +33,35 @@ it, since their period bar sits fixed above the list. Every page pads the bottom
 
 ## Files
 
-| file                          | role                                                                                                                                  |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `AnalyticsOverviewScreen.tsx` | The overview shell, the page tint, and `OverviewBody`, which lays the sections out in order.                                          |
-| `AnalyticsScrollScreen.tsx`   | The shell the detail pages share: the period bar pinned above a scroll view, plus the error and loading states.                       |
-| `TopSongsScreen.tsx`          | The full most played songs list, as a playable `MusicList`. Not the shared shell, because a `MusicList` cannot nest in a scroll view. |
-| `TopEntityScreen.tsx`         | Any full ranking but songs. Serves every dimension off its descriptor, so it is the whole of `analytics/[dimension]`.                 |
-| `TopTagsScreen.tsx`           | The full tag ranking.                                                                                                                 |
-| `range.ts`                    | Pure: a grain and an offset to the period's window, buckets, heatmap shape and labels. Tested in `range.test.ts`.                     |
-| `analytics-period.tsx`        | `AnalyticsPeriodProvider` and `useAnalyticsPeriod`: the period every screen shares.                                                   |
-| `PeriodControls.tsx`          | `GrainPicker`, `PeriodStepper`, and `PeriodBar`, the one-row version the detail pages use.                                            |
-| `AnalyticsHeader.tsx`         | The overview's header: period, dates, grain, arrows, and when it last updated.                                                        |
-| `analytics-hooks.ts`          | `usePageTint`, `useNebulaColors` and `useUpdatedAgo`.                                                                                 |
-| `AnalyticsCard.tsx`           | The glass card every section sits on.                                                                                                 |
-| `SectionHeading.tsx`          | A section title, an optional line under it, and an optional "See all".                                                                |
-| `HeroCarousel.tsx`            | The period's top three songs as a fan of covers. Swipe or tap to pick one; Play starts the top songs from it.                         |
-| `StatsStrip.tsx`              | A few headline numbers with icons on one card. Takes its stats as data.                                                               |
-| `Heatmap.tsx`                 | When the user listens, colored by tag. Draws what `heatmap-layout.ts` lays out.                                                       |
-| `heatmap-layout.ts`           | Pure: a heatmap shape to a grid of keyed cells, and `heatLevel`. Tested in `heatmap-layout.test.ts`.                                  |
-| `TagRotation.tsx`             | The tags played this period as a sideways rail of square tiles. Each opens its tag.                                                   |
-| `dimensions.ts`               | Pure: one descriptor per dimension, and where each one's rows go. Tested in `dimensions.test.ts`.                                     |
-| `ChipRow.tsx`                 | One row of selectable chips, for the trend chart's metric picker.                                                                     |
-| `TrendChart.tsx`              | One metric over the period, as bars, with the headline metric picker.                                                                 |
-| `HoursChart.tsx`              | Plays across the hours of the local day. What a day shows instead of a trend.                                                         |
-| `BarChart.tsx`                | A single series of counts over an ordered axis. Tap a bar for its value.                                                              |
-| `TopRankingsCard.tsx`         | The overview's one card for every ranking, with the dimension picker.                                                                 |
-| `SegmentedBar.tsx`            | A small tab bar of icon and label segments with a sliding pill. The rankings card's picker.                                           |
-| `TopEntityList.tsx`           | Ranked rows with artwork and a play count. A song row plays, any other opens its page.                                                |
-| `TopTagList.tsx`              | The tag ranking as `TagPill`s, for the full tags page.                                                                                |
-| `format.ts`                   | Durations, percents, counts, hours, bucket labels, "updated ago", and `formatMetric`. Pure, tested in `format.test.ts`.               |
+| file                          | role                                                                                                                                                                                                              |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AnalyticsOverviewScreen.tsx` | The overview shell, the page tint, and `OverviewBody`, which lays the sections out in order.                                                                                                                      |
+| `AnalyticsScrollScreen.tsx`   | The shell the detail pages share: the period bar pinned above a scroll view, plus the error and loading states.                                                                                                   |
+| `TopSongsScreen.tsx`          | The full most played songs list, as a playable `MusicList`. Not the shared shell, because a `MusicList` cannot nest in a scroll view.                                                                             |
+| `TopEntityScreen.tsx`         | Any full ranking but songs. Serves every dimension off its descriptor, so it is the whole of `analytics/[dimension]`.                                                                                             |
+| `TopTagsScreen.tsx`           | The full tag ranking.                                                                                                                                                                                             |
+| `range.ts`                    | Pure: a grain and an offset to the period's window, buckets, heatmap shape and labels. Tested in `range.test.ts`.                                                                                                 |
+| `analytics-period.tsx`        | `AnalyticsPeriodProvider` and `useAnalyticsPeriod`: the period every screen shares.                                                                                                                               |
+| `PeriodControls.tsx`          | `GrainPicker`, `PeriodStepper`, and `PeriodBar`, the one-row version the detail pages use.                                                                                                                        |
+| `AnalyticsHeader.tsx`         | The overview's header: period, dates, grain, arrows, and when it last updated.                                                                                                                                    |
+| `analytics-hooks.ts`          | `usePageTint`, `useNebulaColors` and `useUpdatedAgo`.                                                                                                                                                             |
+| `AnalyticsCard.tsx`           | The glass card every section sits on.                                                                                                                                                                             |
+| `SectionHeading.tsx`          | A section title, an optional line under it, and an optional "See all".                                                                                                                                            |
+| `HeroCarousel.tsx`            | The period's top three songs as a fan of covers. Swipe or tap to pick one; Play starts the top songs from it.                                                                                                     |
+| `StatsStrip.tsx`              | A few headline numbers with icons on one card. Takes its stats as data.                                                                                                                                           |
+| `Heatmap.tsx`                 | When the user listens, colored by tag. Draws what `heatmap-layout.ts` lays out.                                                                                                                                   |
+| `heatmap-layout.ts`           | Pure: a heatmap shape to a grid of keyed cells, and `heatLevel`. Tested in `heatmap-layout.test.ts`.                                                                                                              |
+| `TagRotation.tsx`             | The tags played this period as a sideways rail of square tiles. Each opens its tag.                                                                                                                               |
+| `dimensions.ts`               | Pure: one descriptor per dimension, and where each one's rows go. Tested in `dimensions.test.ts`.                                                                                                                 |
+| `ChipRow.tsx`                 | One row of selectable chips, for the trend chart's metric picker.                                                                                                                                                 |
+| `TrendChart.tsx`              | One metric over the period, as bars, with the headline metric picker.                                                                                                                                             |
+| `HoursChart.tsx`              | Plays across the hours of the local day. What a day shows instead of a trend.                                                                                                                                     |
+| `BarChart.tsx`                | One series over an ordered axis, Screen Time style: a headline with the total (or the tapped bar), bars spread across the full width in equal slots, a rounded value axis (`axisCeiling`) and free placed labels. |
+| `TopRankingsCard.tsx`         | The overview's one card for every ranking, with the dimension picker.                                                                                                                                             |
+| `SegmentedBar.tsx`            | A small tab bar of icon and label segments with a sliding pill. The rankings card's picker.                                                                                                                       |
+| `TopEntityList.tsx`           | Ranked rows with artwork and a play count. A song row plays, any other opens its page.                                                                                                                            |
+| `TopTagList.tsx`              | The tag ranking as `TagPill`s, for the full tags page.                                                                                                                                                            |
+| `format.ts`                   | Durations, percents, counts, hours, bucket labels, "updated ago", and `formatMetric`. Pure, tested in `format.test.ts`.                                                                                           |
 
 ## The period owns everything
 

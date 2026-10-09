@@ -30,11 +30,14 @@ export function HoursChart({
                 <Text role="heading" className="text-lg font-semibold">
                     By hour
                 </Text>
-                <Text className="text-muted-foreground text-xs">
-                    Tap a bar for its value.
-                </Text>
             </View>
-            <BarChart bars={bars} maxLabels={5} height={110} color={color} />
+            <BarChart
+                bars={bars}
+                unit="count"
+                totalLabel="Total plays"
+                height={110}
+                color={color}
+            />
         </AnalyticsCard>
     );
 }

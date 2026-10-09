@@ -9,6 +9,7 @@ import {
     formatHour,
     formatPercent,
     labelledIndices,
+    axisCeiling,
 } from "./format.ts";
 
 test("durations read in the largest unit that fits", () => {
@@ -64,11 +65,26 @@ test("a short axis labels every bucket", () => {
     assert.deepEqual([...labelledIndices(5)], [0, 1, 2, 3, 4]);
 });
 
-test("a long axis labels at most five, including both ends", () => {
+test("a long axis labels at most max, on an even step from the first", () => {
+    assert.deepEqual([...labelledIndices(24, 4)], [0, 6, 12, 18]);
+    assert.deepEqual([...labelledIndices(12, 4)], [0, 3, 6, 9]);
     const picked = labelledIndices(40);
     assert.ok(picked.size <= 5);
     assert.ok(picked.has(0), "the first bucket is labelled");
-    assert.ok(picked.has(39), "so is the last");
+});
+
+test("the axis ceiling is round and so is its half", () => {
+    assert.equal(axisCeiling(0, "count"), 2);
+    assert.equal(axisCeiling(1, "count"), 2);
+    assert.equal(axisCeiling(3, "count"), 4);
+    assert.equal(axisCeiling(7, "count"), 8);
+    assert.equal(axisCeiling(10, "count"), 10);
+    assert.equal(axisCeiling(61, "count"), 80);
+    assert.equal(axisCeiling(1240, "count"), 2000);
+    const minute = 60_000;
+    assert.equal(axisCeiling(3 * minute, "milliseconds"), 4 * minute);
+    assert.equal(axisCeiling(45 * minute, "milliseconds"), 60 * minute);
+    assert.equal(axisCeiling(150 * minute, "milliseconds"), 4 * 60 * minute);
 });
 
 test("an empty axis labels nothing", () => {

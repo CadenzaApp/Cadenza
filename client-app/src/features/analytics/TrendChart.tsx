@@ -54,15 +54,13 @@ export function TrendChart({
             value: point.value,
             readout: `${formatBucket(point.bucket, shownBucket)}: ${formatMetric(point.value, unit)}`,
         })) ?? [];
+    const shownMetric = HEADLINE_METRICS.find((name) => name === trend?.metric);
 
     return (
         <AnalyticsCard>
             <View className="gap-1">
                 <Text role="heading" className="text-lg font-semibold">
                     {trend?.description ?? "Over time"}
-                </Text>
-                <Text className="text-muted-foreground text-xs">
-                    Tap a bar for its value.
                 </Text>
             </View>
 
@@ -78,7 +76,8 @@ export function TrendChart({
             ) : (
                 <BarChart
                     bars={bars}
-                    maxLabels={shownBucket === "day" ? 4 : 5}
+                    unit={unit}
+                    totalLabel={`Total ${shownMetric ? METRIC_LABELS[shownMetric].toLowerCase() : ""}`.trim()}
                     color={color}
                 />
             )}

@@ -4,137 +4,209 @@ import { Pressable, View } from "react-native";
 import { Text } from "@/components/ui/text";
 import { cn } from "@/lib/utils";
 
-import { labelledIndices } from "./format";
+import { axisCeiling, formatMetric, labelledIndices } from "./format";
 
 export type Bar = {
-    /** The axis label for this bar. Not every bar shows one. */
+    /** The bar's name, on the axis and in the headline when tapped. */
     label: string;
     value: number;
-    /** What a tap reads out, e.g. "Sep 7: 61 plays". */
+    /** What a screen reader says for the bar, e.g. "Sep 7: 61 plays". */
     readout: string;
 };
 
 type Props = {
     bars: Bar[];
+    /** What the values are, for the headline and the value axis. */
+    unit: "count" | "milliseconds";
+    /** Under the headline when no bar is picked, e.g. "Total plays". */
+    totalLabel: string;
     /** How many axis labels to show at most. */
     maxLabels?: number;
-    /** Plot height in pixels. */
+    /** Plot height in points. */
     height?: number;
-    /**
-     * How wide one bar may get. Without a cap a short series stretches to fill
-     * the plot, so a month of history under the All range draws as one slab
-     * across the screen rather than as one bar.
-     */
+    /** How wide one bar may get, so a short series reads as bars, not slabs. */
     maxBarWidth?: number;
     /** Bar color. The theme's chart color when absent. */
     color?: string | null;
     className?: string;
 };
 
+/** Width kept on the right of the plot for the value labels. */
+const GUTTER = 36;
+/** How much of its slot a bar fills; the rest is the gap between bars. */
+const BAR_FILL = 0.68;
+/** Width of one axis label, wide enough for "12 AM" or "Sep 30". */
+const LABEL_WIDTH = 44;
+
 /**
- * A single series of counts over an ordered axis.
+ * A single series of counts over an ordered axis, in the style of Screen Time.
  *
- * One series, so one colour and no legend: the card title names what it is. Bars
- * are the right mark for a count per bucket, and the axis is already dense from
- * the backend, so a gap in the data reads as a zero-height bar rather than as
- * missing.
+ * A headline on top shows the series total, or the tapped bar's value and
+ * label. Bars spread over the full width whatever their count: the plot is
+ * cut into one slot per bar and each bar is centered in its own, capped in
+ * width. Gridlines at the top and middle of a rounded value axis carry their
+ * values in a gutter on the right.
  *
- * Tapping a bar shows its value, which is this platform's version of a hover
- * tooltip. The touch target is the full column height, not just the filled part,
- * so a near-zero bar is still reachable.
- *
- * Bars are capped in width and the row is start aligned, so a short series reads
- * as a few bars on the left rather than stretching to fill the plot. A full
- * width slab is what a one-bucket chart used to look like.
+ * Axis labels are placed under their bar's center rather than squeezed into
+ * its slot, so a 24 bar day still reads "12 AM" in full, and the end labels
+ * are held inside the plot.
  */
 export function BarChart({
     bars,
-    maxLabels = 5,
+    unit,
+    totalLabel,
+    maxLabels = 4,
     height = 140,
     maxBarWidth = 28,
     color,
     className,
 }: Props) {
     const [selected, setSelected] = useState<number | null>(null);
-    const max = Math.max(...bars.map((bar) => bar.value), 0);
-    const labelled = labelledIndices(bars.length, maxLabels);
+    const [width, setWidth] = useState(0);
 
     if (bars.length === 0) return null;
 
+    const max = Math.max(...bars.map((bar) => bar.value), 0);
+    const ceiling = axisCeiling(max, unit);
+    const total = bars.reduce((sum, bar) => sum + bar.value, 0);
     const active = selected != null ? bars[selected] : undefined;
 
-    return (
-        <View className={cn("gap-2", className)}>
-            {/* the readout sits above the plot so it never covers the bars, and
-                holds its space so selecting one does not shift the layout */}
-            <Text className="text-muted-foreground h-5 text-xs">
-                {active ? active.readout : " "}
-            </Text>
+    const plotWidth = Math.max(0, width - GUTTER);
+    const slot = plotWidth / bars.length;
+    const barWidth = Math.min(maxBarWidth, Math.max(2, slot * BAR_FILL));
+    const labelled = labelledIndices(bars.length, maxLabels);
 
-            <View className="flex-row items-end gap-0.5" style={{ height }}>
-                {bars.map((bar, index) => {
-                    const fraction = max > 0 ? bar.value / max : 0;
-                    const isSelected = selected === index;
-                    return (
-                        <Pressable
-                            key={`${bar.label}-${index}`}
-                            onPress={() =>
-                                setSelected(isSelected ? null : index)
-                            }
-                            className="flex-1 justify-end"
-                            style={{ height, maxWidth: maxBarWidth }}
-                            accessibilityRole="button"
-                            accessibilityLabel={bar.readout}
+    return (
+        <View
+            className={cn("gap-3", className)}
+            onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
+        >
+            {/* holds its height, so picking a bar does not shift the card */}
+            <View>
+                <Text className="text-2xl font-semibold">
+                    {formatMetric(active ? active.value : total, unit)}
+                </Text>
+                <Text className="text-muted-foreground text-xs">
+                    {active ? active.label : totalLabel}
+                </Text>
+            </View>
+
+            {/* laid out against the measured width, so drawn only once known */}
+            <View style={{ height }}>
+                {width > 0 &&
+                    [1, 0.5, 0].map((fraction) => (
+                        <View
+                            key={fraction}
+                            className="absolute left-0 right-0 flex-row items-center"
+                            // centered on the line, so the label sits beside it
+                            style={{
+                                top: (1 - fraction) * height - 7,
+                                height: 14,
+                            }}
                         >
                             <View
                                 className={cn(
-                                    "rounded-t",
-                                    !color && "bg-chart-2",
-                                    !color && isSelected && "bg-chart-4",
-                                    // a zero still draws a hairline, so an empty
-                                    // bucket reads as measured rather than absent
-                                    fraction === 0 && "bg-border",
+                                    "h-px",
+                                    fraction === 0
+                                        ? "bg-border"
+                                        : "bg-border/50",
                                 )}
-                                style={{
-                                    height: Math.max(
-                                        2,
-                                        Math.round(fraction * height),
-                                    ),
-                                    ...(color && fraction > 0
-                                        ? {
-                                              backgroundColor: color,
-                                              opacity: isSelected ? 1 : 0.7,
-                                          }
-                                        : null),
-                                }}
+                                style={{ width: plotWidth }}
                             />
-                        </Pressable>
-                    );
-                })}
+                            {fraction > 0 ? (
+                                <Text
+                                    className="text-muted-foreground pl-1.5 text-[10px]"
+                                    numberOfLines={1}
+                                    style={{ width: GUTTER }}
+                                >
+                                    {formatMetric(ceiling * fraction, unit)}
+                                </Text>
+                            ) : null}
+                        </View>
+                    ))}
+
+                {width > 0 &&
+                    bars.map((bar, index) => {
+                        const fraction = Math.min(1, bar.value / ceiling);
+                        const isSelected = selected === index;
+                        const dimmed = selected != null && !isSelected;
+                        return (
+                            // the touch target is the whole slot, so a near zero
+                            // bar is still easy to hit
+                            <Pressable
+                                key={`${bar.label}-${index}`}
+                                onPress={() =>
+                                    setSelected(isSelected ? null : index)
+                                }
+                                className="absolute bottom-0 items-center justify-end"
+                                style={{
+                                    left: index * slot,
+                                    width: slot,
+                                    height,
+                                }}
+                                accessibilityRole="button"
+                                accessibilityLabel={bar.readout}
+                            >
+                                <View
+                                    className={cn(
+                                        "rounded-t-sm",
+                                        !color && "bg-chart-2",
+                                        // a zero still draws a sliver, so an
+                                        // empty bucket reads as measured
+                                        fraction === 0 && "bg-border",
+                                    )}
+                                    style={{
+                                        width: barWidth,
+                                        height: Math.max(
+                                            2,
+                                            Math.round(fraction * height),
+                                        ),
+                                        opacity: dimmed ? 0.35 : 1,
+                                        ...(color && fraction > 0
+                                            ? { backgroundColor: color }
+                                            : null),
+                                    }}
+                                />
+                            </Pressable>
+                        );
+                    })}
             </View>
 
-            {/* recessive axis: a hairline and a few labels, never one per bar */}
-            <View className="bg-border h-px w-full" />
-            <View className="flex-row gap-0.5">
-                {bars.map((bar, index) => (
-                    <View
-                        key={`label-${bar.label}-${index}`}
-                        className="flex-1"
-                        // the same cap as the bar above it, or the labels spread
-                        // the full width while the bars sit left and every label
-                        // names the wrong bar
-                        style={{ maxWidth: maxBarWidth }}
-                    >
-                        {labelled.has(index) ? (
+            <View style={{ height: 14 }}>
+                {width > 0 &&
+                    bars.map((bar, index) => {
+                        if (!labelled.has(index)) return null;
+                        const center = index * slot + slot / 2;
+                        const left = Math.max(
+                            0,
+                            Math.min(
+                                plotWidth - LABEL_WIDTH,
+                                center - LABEL_WIDTH / 2,
+                            ),
+                        );
+                        // a label held in at an edge lines up with that edge
+                        const align =
+                            left === 0 && center < LABEL_WIDTH / 2
+                                ? "left"
+                                : left === plotWidth - LABEL_WIDTH &&
+                                    center > plotWidth - LABEL_WIDTH / 2
+                                  ? "right"
+                                  : "center";
+                        return (
                             <Text
-                                className="text-muted-foreground text-[10px]"
+                                key={`label-${bar.label}-${index}`}
+                                className="text-muted-foreground absolute text-[10px]"
                                 numberOfLines={1}
+                                style={{
+                                    left,
+                                    width: LABEL_WIDTH,
+                                    textAlign: align,
+                                }}
                             >
                                 {bar.label}
                             </Text>
-                        ) : null}
-                    </View>
-                ))}
+                        );
+                    })}
             </View>
         </View>
     );
