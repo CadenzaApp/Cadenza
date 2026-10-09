@@ -3,8 +3,10 @@ import { StyleSheet, View, type LayoutChangeEvent } from "react-native";
 import Animated, {
     useAnimatedStyle,
     useSharedValue,
+    type SharedValue,
 } from "react-native-reanimated";
 
+import { Crossfade } from "@/components/ui/crossfade";
 import type { TintGradient } from "@/lib/artwork-color-utils";
 
 type TintBackdropProps = {
@@ -25,7 +27,7 @@ const BITMAP_HEIGHT = 256;
  * Absolutely positioned to fill its parent, so it takes no part in the layout
  * it is dropped into. Inside a scroller's content it runs the whole content
  * height and scrolls with it, which is what the stops expect: they place the
- * color by how far down the page it is. Renders null for a null gradient, so
+ * color by how far down the page it is. Draws nothing for a null gradient, so
  * every caller can mount it unconditionally and let the color decide.
  *
  * On iOS expo-linear-gradient draws its colors into a bitmap the size of the
@@ -35,25 +37,16 @@ const BITMAP_HEIGHT = 256;
  * the tab bar's glass. So the gradient is drawn once at a fixed small height
  * and scaled to the page on the UI thread, and a size change only moves the
  * scale.
+ *
+ * A change of gradient, including a page's first one, fades in over a second
+ * rather than swapping. Null fades the last one out.
  */
 export function TintBackdrop({ gradient }: TintBackdropProps) {
     const height = useSharedValue(0);
-    const stretch = useAnimatedStyle(() => {
-        const scale = height.get() / BITMAP_HEIGHT;
-        return {
-            // scale runs about the center, so shift it back to the top edge
-            transform: [
-                { translateY: (height.get() - BITMAP_HEIGHT) / 2 },
-                { scaleY: scale },
-            ],
-        };
-    });
 
     function measure(event: LayoutChangeEvent) {
         height.set(event.nativeEvent.layout.height);
     }
-
-    if (!gradient) return null;
 
     return (
         <View
@@ -61,13 +54,40 @@ export function TintBackdrop({ gradient }: TintBackdropProps) {
             style={StyleSheet.absoluteFill}
             onLayout={measure}
         >
-            <Animated.View style={[{ height: BITMAP_HEIGHT }, stretch]}>
-                <LinearGradient
-                    style={StyleSheet.absoluteFill}
-                    colors={gradient.colors}
-                />
-            </Animated.View>
+            <Crossfade
+                value={gradient}
+                keyOf={tintKey}
+                render={(shown) => (
+                    <StretchedGradient gradient={shown} height={height} />
+                )}
+            />
         </View>
+    );
+}
+
+/** One gradient drawn at `BITMAP_HEIGHT` and scaled to `height`. */
+function StretchedGradient({
+    gradient,
+    height,
+}: {
+    gradient: TintGradient;
+    height: SharedValue<number>;
+}) {
+    const stretch = useAnimatedStyle(() => ({
+        // scale runs about the center, so shift it back to the top edge
+        transform: [
+            { translateY: (height.get() - BITMAP_HEIGHT) / 2 },
+            { scaleY: height.get() / BITMAP_HEIGHT },
+        ],
+    }));
+
+    return (
+        <Animated.View style={[{ height: BITMAP_HEIGHT }, stretch]}>
+            <LinearGradient
+                style={StyleSheet.absoluteFill}
+                colors={gradient.colors}
+            />
+        </Animated.View>
     );
 }
 
@@ -79,21 +99,29 @@ export function TintBackdrop({ gradient }: TintBackdropProps) {
 export function TintOverscrollBackdrop({
     gradient,
 }: Pick<TintBackdropProps, "gradient">) {
-    if (!gradient) return null;
-
     return (
-        <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-            <View
-                className="flex-1"
-                style={{ backgroundColor: gradient.colors[0] }}
-            />
-            <View
-                className="flex-1"
-                style={{
-                    backgroundColor:
-                        gradient.colors[gradient.colors.length - 1],
-                }}
-            />
-        </View>
+        <Crossfade
+            value={gradient}
+            keyOf={tintKey}
+            render={(shown) => (
+                <>
+                    <View
+                        className="flex-1"
+                        style={{ backgroundColor: shown.colors[0] }}
+                    />
+                    <View
+                        className="flex-1"
+                        style={{
+                            backgroundColor:
+                                shown.colors[shown.colors.length - 1],
+                        }}
+                    />
+                </>
+            )}
+        />
     );
+}
+
+function tintKey(gradient: TintGradient) {
+    return gradient.colors.join(",");
 }

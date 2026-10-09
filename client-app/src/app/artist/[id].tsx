@@ -10,11 +10,13 @@ import {
     Image as RNImage,
     Pressable,
     ScrollView,
+    StyleSheet,
     useWindowDimensions,
     View,
 } from "react-native";
 
 import { ErrorNotice } from "@/components/custom/error-notice";
+import { Crossfade } from "@/components/ui/crossfade";
 import { TrackCollectionView } from "@/components/custom/track-collection-view";
 import { FloatingCloseButton } from "@/components/ui/floating-close-button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -198,7 +200,14 @@ function ArtistHero({
     const artworkUrl = artist?.artworkUrl;
     // `colors.card` is a ColorValue, which is a hex string on every theme the
     // app defines. The gradient wants that string.
-    const fadeColor = fadeTo ?? String(colors.card);
+    const untintedFade = [
+        withAlpha("#000000", 0),
+        String(colors.card),
+    ] as const;
+    const fade = [
+        withAlpha(tint ?? "#000000", 0),
+        fadeTo ?? untintedFade[1],
+    ] as const;
 
     return (
         <View style={{ height }} className="justify-end">
@@ -223,9 +232,8 @@ function ArtistHero({
                 </View>
             )}
 
-            <LinearGradient
+            <View
                 pointerEvents="none"
-                colors={[withAlpha(tint ?? "#000000", 0), fadeColor]}
                 style={{
                     position: "absolute",
                     left: 0,
@@ -233,7 +241,21 @@ function ArtistHero({
                     bottom: 0,
                     height: height * HERO_FADE_RATIO,
                 }}
-            />
+            >
+                {/* fades with the page's tint, from the untinted fade the
+                    page starts at, so the two never disagree */}
+                <Crossfade
+                    value={fade}
+                    initial={untintedFade}
+                    keyOf={(stops) => stops.join(",")}
+                    render={(stops) => (
+                        <LinearGradient
+                            style={StyleSheet.absoluteFill}
+                            colors={stops}
+                        />
+                    )}
+                />
+            </View>
 
             <View className="items-center px-6 pb-5">
                 <Text

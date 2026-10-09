@@ -62,7 +62,9 @@ at a point depends on how far down the page it is: the top color keeps a 1/x sha
 to 2 down the page (`tintFadeAt`), so a long page never bottoms out in the end color. It renders
 nothing for a null gradient, so callers mount it unconditionally. On iOS expo-linear-gradient redraws a
 bitmap the size of the view on every resize, so the gradient is drawn at a fixed 256pt and scaled
-to the page. Do not swap in a page-tall `LinearGradient`: the redraw stalls the tab bar's glass. `TintOverscrollBackdrop` paints the exact start color above the exact end color
+to the page. Do not swap in a page-tall `LinearGradient`: the redraw stalls the tab bar's glass. A new gradient, a page's first one included, fades in over a second through
+`crossfade.tsx`, which fades the new layer in over the old one and drops the old one once it lands.
+The artist hero's bottom fade runs through it too, so it keeps pace with the page. `TintOverscrollBackdrop` paints the exact start color above the exact end color
 under a scrolling gradient. Its center boundary stays covered by content, while elastic scrolling
 reveals a matching solid endpoint. `DetailScreen` and `TrackCollectionView` share that same hook.
 
