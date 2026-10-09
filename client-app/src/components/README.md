@@ -60,7 +60,9 @@ light/dark-mode endpoints in Oklch before the native RGB renderer sees them. Dro
 scroller's content it fills and scrolls with it, and every page runs it the full length. The color
 at a point depends on how far down the page it is: the top color keeps a 1/x share with x going 1
 to 2 down the page (`tintFadeAt`), so a long page never bottoms out in the end color. It renders
-nothing for a null gradient, so callers mount it unconditionally. `TintOverscrollBackdrop` paints the exact start color above the exact end color
+nothing for a null gradient, so callers mount it unconditionally. On iOS expo-linear-gradient redraws a
+bitmap the size of the view on every resize, so the gradient is drawn at a fixed 256pt and scaled
+to the page. Do not swap in a page-tall `LinearGradient`: the redraw stalls the tab bar's glass. `TintOverscrollBackdrop` paints the exact start color above the exact end color
 under a scrolling gradient. Its center boundary stays covered by content, while elastic scrolling
 reveals a matching solid endpoint. `DetailScreen` and `TrackCollectionView` share that same hook.
 
