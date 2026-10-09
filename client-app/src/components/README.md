@@ -25,7 +25,7 @@ and a backend rejection is a bare `{ error_type }`. The cause still reaches the 
 `badge`, `button`, `card`, `dialog`, `glass-surface`, `glass-button`, `glass-confirm-dialog`,
 `glass-icon-button`, `glass-toggle`, `input`,
 `label`, `separator`, `skeleton`, `tabs`, `text`, `native-only-animated-view`, `detail-screen`,
-`tint-backdrop`, `floating-close-button`, plus `sign-in-form` and `sign-up-form`.
+`tint-backdrop`, `nebula-backdrop`, `crossfade`, `floating-close-button`, plus `sign-in-form` and `sign-up-form`.
 
 `floating-close-button.tsx` exports `FloatingCloseButton`, the X a screen that draws its own hero
 floats in the top right. It closes through `@/lib/zoom-dismiss::useCloseScreen`, so it plays the
@@ -67,6 +67,12 @@ to the page. Do not swap in a page-tall `LinearGradient`: the redraw stalls the 
 The artist hero's bottom fade runs through it too, so it keeps pace with the page. `TintOverscrollBackdrop` paints the exact start color above the exact end color
 under a scrolling gradient. Its center boundary stays covered by content, while elastic scrolling
 reveals a matching solid endpoint. `DetailScreen` and `TrackCollectionView` share that same hook.
+
+`nebula-backdrop.tsx` exports `NebulaBackdrop`, soft SVG blobs of up to three colors glowing up
+from the bottom, used only by the Analytics overview. Unlike `TintBackdrop` it is fixed to the
+screen: mount it behind the scroller. Each blob slowly changes size, brightness and position on the
+UI thread, and holds still under reduced motion. `nebulaColor` clamps each color's lightness and
+chroma per mode, so dark or neon tags still read as a soft glow.
 
 `reorderable-list.tsx` is in `custom/` rather than `ui/` only because nothing else needs it yet.
 It knows nothing about songs: `data`, `itemHeight`, `renderItem`, and an `onReorder(from, to)`.

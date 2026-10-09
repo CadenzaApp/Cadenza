@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
+import { converter } from "culori";
 import test from "node:test";
 
 import {
     averageArtworkColors,
     createTintGradient,
+    nebulaColor,
     tintFadeAt,
 } from "./artwork-color-utils.ts";
 
@@ -33,4 +35,19 @@ test("a page's tint starts at the top color and stops halfway to the end", () =>
     const light = createTintGradient("#8c5939", "light").colors;
     assert.equal(light[0], "#cca289");
     assert.equal(light[light.length - 1], "#e3c7b6");
+});
+
+test("a nebula color holds to its mode's lightness band and caps chroma", () => {
+    const toOklch = converter("oklch");
+    for (const [hex, scheme, minL, maxL, maxC] of [
+        ["#050510", "dark", 0.5, 0.68, 0.16],
+        ["#ff00ff", "dark", 0.5, 0.68, 0.16],
+        ["#050510", "light", 0.72, 0.86, 0.12],
+        ["#ffff00", "light", 0.72, 0.86, 0.12],
+    ] as const) {
+        const color = toOklch(nebulaColor(hex, scheme));
+        assert.ok(color);
+        assert.ok(color.l > minL - 0.01 && color.l < maxL + 0.01, hex);
+        assert.ok(color.c < maxC + 0.01, hex);
+    }
 });

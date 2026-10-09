@@ -4,10 +4,7 @@ import Animated from "react-native-reanimated";
 
 import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
-import {
-    TintBackdrop,
-    TintOverscrollBackdrop,
-} from "@/components/ui/tint-backdrop";
+import { NebulaBackdrop } from "@/components/ui/nebula-backdrop";
 import {
     useAnalyticsHeatmap,
     useAnalyticsSummary,
@@ -20,11 +17,10 @@ import {
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { useScreenScroll } from "@/lib/screen-scroll";
 import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
-import { useTintGradient } from "@/lib/use-tint-gradient";
 
 import { AnalyticsCard } from "./AnalyticsCard";
 import { AnalyticsHeader } from "./AnalyticsHeader";
-import { usePageTint, useUpdatedAgo } from "./analytics-hooks";
+import { useNebulaColors, usePageTint, useUpdatedAgo } from "./analytics-hooks";
 import { useAnalyticsPeriod } from "./analytics-period";
 import { dimensionByName, type DimensionDescriptor } from "./dimensions";
 import { formatCount, formatDuration } from "./format";
@@ -48,8 +44,8 @@ import { TrendChart, type HeadlineMetric } from "./TrendChart";
  * so it survives navigating into a detail page.
  *
  * Top to bottom: the header, the #1 hero, the stats strip, the heatmap, the tag
- * rail, then the trend chart and the rankings. The page is washed in the color
- * of the period's most played tag.
+ * rail, then the trend chart and the rankings. Behind it all glows a nebula
+ * in the period's top tag colors.
  */
 export function AnalyticsOverviewScreen() {
     const { contentBottomInset } = useScreenOverlayInsets();
@@ -77,11 +73,13 @@ export function AnalyticsOverviewScreen() {
     );
 
     const accent = usePageTint(summary);
-    const gradient = useTintGradient(accent);
+    const nebula = useNebulaColors(summary, accent);
 
     return (
         <View className="flex-1 bg-background">
-            <TintOverscrollBackdrop gradient={gradient} />
+            {/* fixed to the screen, so the page slides over it, overscroll
+                included */}
+            <NebulaBackdrop colors={nebula} />
             {/* the marker takes the scroller alone: it allows one direct child,
                 and a layout-only wrapper flattens away */}
             <ScreenScrollMarker>
@@ -95,10 +93,6 @@ export function AnalyticsOverviewScreen() {
                     ]}
                     showsVerticalScrollIndicator={false}
                 >
-                    {/* scrolls with the page and runs its whole length, the
-                        same as every other tinted page */}
-                    <TintBackdrop gradient={gradient} />
-
                     <AnalyticsHeader accent={accent} updatedAgo={updatedAgo} />
 
                     {summaryErr ? (

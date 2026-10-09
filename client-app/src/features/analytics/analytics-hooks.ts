@@ -25,6 +25,26 @@ export function usePageTint(summary?: AnalyticsSummary): string | null {
 
 const NO_IDS: string[] = [];
 
+/** How many colors the page's nebula glows in. */
+const NEBULA_COLORS = 3;
+const NO_COLORS: string[] = [];
+
+/**
+ * The colors of the page's nebula: the period's top tags, most played first,
+ * or just the page tint when nothing played was tagged.
+ */
+export function useNebulaColors(
+    summary: AnalyticsSummary | undefined,
+    tint: string | null,
+): readonly string[] {
+    const tags = summary?.top_tags;
+    return useMemo(() => {
+        if (tags && tags.length > 0)
+            return tags.slice(0, NEBULA_COLORS).map((tag) => tag.color);
+        return tint ? [tint] : NO_COLORS;
+    }, [tags, tint]);
+}
+
 /** How often the "Updated" line re-reads the clock. */
 const TICK_MS = 30_000;
 

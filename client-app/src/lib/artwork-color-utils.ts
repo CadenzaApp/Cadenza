@@ -113,3 +113,25 @@ export function createTintGradient(
         ) as unknown as TintGradient["colors"],
     };
 }
+
+/**
+ * A color evened out to glow in the nebula behind a page. Lightness is held to
+ * a band per mode and chroma is capped, so a near black tag still shows on a
+ * dark page and a neon one reads as a soft glow rather than a light.
+ */
+export function nebulaColor(hex: string, colorScheme: ColorScheme) {
+    const color = toOklch(hex);
+    if (!color) return hex;
+
+    const [minL, maxL, maxC] =
+        colorScheme === "dark" ? [0.5, 0.68, 0.16] : [0.72, 0.86, 0.12];
+    return (
+        formatHex(
+            toRgb({
+                ...color,
+                l: Math.max(minL, Math.min(maxL, color.l)),
+                c: Math.min(maxC, color.c),
+            }),
+        ) ?? hex
+    );
+}

@@ -22,10 +22,11 @@ Listening events in `src/lib/README.md`.
 ## The overview
 
 Top to bottom: header, #1 hero, stats strip, heatmap, tag rail, then the trend chart, the
-rankings card, and on repeat. Every section sits on an `AnalyticsCard` (liquid glass), over a wash in the color of the
-period's most played tag, or the #1 song's artwork when nothing played was tagged.
+rankings card, and on repeat. Every section sits on an `AnalyticsCard` (liquid glass), over a nebula (`NebulaBackdrop`) in
+the period's top three tag colors, or the #1 song's artwork color when nothing played was tagged.
+The nebula is fixed to the screen and the page scrolls over it.
 
-The overview's rail floats with no background, so the wash shows through it. The detail pages pin
+The overview's rail floats with no background, so the nebula shows through it. The detail pages pin
 it, since their period bar sits fixed above the list. Every page pads the bottom by
 `contentBottomInset`, which clears the tab bar and player itself.
 
@@ -42,7 +43,7 @@ it, since their period bar sits fixed above the list. Every page pads the bottom
 | `analytics-period.tsx`        | `AnalyticsPeriodProvider` and `useAnalyticsPeriod`: the period every screen shares.                                                   |
 | `PeriodControls.tsx`          | `GrainPicker`, `PeriodStepper`, and `PeriodBar`, the one-row version the detail pages use.                                            |
 | `AnalyticsHeader.tsx`         | The overview's header: period, dates, grain, arrows, and when it last updated.                                                        |
-| `analytics-hooks.ts`          | `usePageTint` and `useUpdatedAgo`.                                                                                                    |
+| `analytics-hooks.ts`          | `usePageTint`, `useNebulaColors` and `useUpdatedAgo`.                                                                                 |
 | `AnalyticsCard.tsx`           | The glass card every section sits on.                                                                                                 |
 | `SectionHeading.tsx`          | A section title, an optional line under it, and an optional "See all".                                                                |
 | `HeroCarousel.tsx`            | The period's top three songs as a fan of covers. Swipe or tap to pick one; Play starts the top songs from it.                         |
