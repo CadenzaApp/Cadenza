@@ -121,7 +121,8 @@ the rest behind a `next` path, which it follows. Music videos are left out. A 42
 call is `CadenzaError::SongMetadataRateLimited`.
 
 Every caller that needs a title still asks Apple fresh. The only copy kept is the one below,
-which metadata queries and a song's Metadata Tags read and nothing else does.
+which queries (to filter, to find songs beyond the user's own, and to sort) and a song's Metadata
+Tags read and nothing else does.
 
 It returns a `HashMap<String, SongMetadata>` keyed by the id each song was found under, never
 a positional list, so an id Apple knows nothing about is simply absent rather than shifting

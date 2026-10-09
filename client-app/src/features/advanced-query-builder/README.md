@@ -78,8 +78,8 @@ than only the applied filters.
 
 The Cadenza screen compiles the tree as it changes and sends every successfully built query through
 `useQueryResults(query, considerDefaultTags)` from `@/lib/routes/queries`, in the body of
-`POST /queries/results`. Song ids come back most relevant first and are mapped to the complete
-cached Apple Music library. The advanced builder has no separate submit button. It uses the same `ResultsSummary` count, preview, and next arrow as
+`POST /queries/results`. Songs come back most relevant first and are turned into tracks a page at
+a time. The advanced builder has no separate submit button. It uses the same `ResultsSummary` count, preview, and next arrow as
 the simple builder; the arrow opens the shared `/query-results` full-screen `QueryResults` route.
 
 ## Connects to
@@ -100,8 +100,9 @@ the simple builder; the arrow opens the shared `/query-results` full-screen `Que
 - Activity tags (`BuilderTags.activity`) are filtered like any other tag of their type. They come
   from `useActivityTags` by way of the screen, and the screen adds their types to the map
   `buildAdvancedQuery` checks, or a filter on one would read as a deleted tag.
-- The query is evaluated over the whole cached library, not just tagged songs, so a song with no
-  Cadenza tags at all can match `is not applied` and the other negative operators.
+- The query is evaluated over every song Cadenza knows, not just tagged songs or the library, so
+  a song with no Cadenza tags at all can match `is not applied` and the other negative operators.
+  Of the songs that are not the user's own, only the first 1000 come back.
 - An incomplete filter compiles to no request and shows its build error beneath the editor. Once
   the tree is valid, its result count refreshes automatically.
 - Node ids come from a module-level counter, not `nanoid`, so the pure utils stay import-free.

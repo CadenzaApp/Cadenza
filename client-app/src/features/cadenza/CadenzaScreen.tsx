@@ -16,7 +16,7 @@ import {
 } from "@/features/query-builder/QueryUtils";
 import { ResultsSummary } from "@/features/query-builder/ResultsSummary";
 import type { QueryCondition } from "@/features/query-builder/types";
-import { useTracksForSongIds } from "@/lib/musickit-hooks";
+import { usePagedTracksForSongIds } from "@/lib/musickit-hooks";
 import { describeQuery, positiveQueryTagNames } from "@/lib/query-json";
 import { useQueryResults } from "@/lib/routes/queries";
 import {
@@ -77,8 +77,12 @@ export function CadenzaScreen() {
                 : (userTags ?? []);
         return positiveQueryTagNames(query, tags);
     }, [conditions, mode, query, userTags]);
-    const { matchedSongIds, queryResultsLoading, queryResultsErr } =
-        useQueryResults(query, includeSuggestedTags);
+    const {
+        matchedSongIds,
+        resultsCapped,
+        queryResultsLoading,
+        queryResultsErr,
+    } = useQueryResults(query, includeSuggestedTags);
     const activityTagIds = useActivityTagIdsInQuery(query);
     // A suggested tag only matches while the request carries
     // consider_default_tags, so leaving one in the query after the toggle goes
@@ -94,12 +98,17 @@ export function CadenzaScreen() {
         },
         [],
     );
+    // a query can match thousands of songs, so the preview pages them in as it
+    // scrolls rather than resolving every one
     const {
         tracks: matchedSongs,
         tracksLoading,
+        isLoadingNextPage,
+        hasNextPage,
+        loadNextPage,
         tracksErr,
         isLibraryConnected,
-    } = useTracksForSongIds(matchedSongIds);
+    } = usePagedTracksForSongIds(matchedSongIds);
 
     if (userTagsLoading) {
         return (
@@ -124,6 +133,12 @@ export function CadenzaScreen() {
             <ResultsSummary
                 songs={matchedSongs}
                 count={matchedSongIds.length}
+                capped={resultsCapped}
+                pagination={{
+                    hasNextPage,
+                    isLoadingNextPage,
+                    onLoadNextPage: loadNextPage,
+                }}
                 loading={queryResultsLoading}
                 error={queryResultsErr ?? tracksErr}
                 libraryLoading={tracksLoading}

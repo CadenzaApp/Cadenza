@@ -9,16 +9,17 @@ native module directly.
 | file                         | role                                                                                                                                                                                                                                                                                              |
 | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `backend.ts`                 | `BACKEND_URL`. One constant, currently hardcoded.                                                                                                                                                                                                                                                 |
-| `api-actions.ts`             | The generic SWR wrappers: `useAPIData`, `useAPIPostData`, `useAPIPostDataBatched`, `useAPIFetch`, `useAPIMutation`.                                                                                                                                                                               |
+| `api-actions.ts`             | The generic SWR wrappers: `useAPIData`, `useAPIPostData`, `useAPIPostDataBatched`, `useAPIFetch`, `useAPIMutation`. Plus `useAPIPostSnapshot`, a POST read held per mounted caller and never revalidated.                                                                                         |
 | `api-endpoints.ts`           | `matchesEndpoint`, the cache-key matcher behind invalidation. Import-free so it can be unit tested.                                                                                                                                                                                               |
 | `swr-utils.ts`               | `clearCache` and `useSimpleMutation`, for things that are not plain backend calls.                                                                                                                                                                                                                |
 | `routes/tags.ts`             | Hooks for `/tags`: `useUserTags`, `useTag`, `useCreateTag`, `useUpdateTag`, `useDeleteTag`, `useDefaultTags`, `useActivityTags`, `useActivityTagIdsInQuery`, `useSuggestTags`, `useEditTagScores`.                                                                                                |
 | `routes/songs.ts`            | Hooks for local, default, and activity tag reads (one song and batched), local tag writes, removing a suggested tag, recording a play, reporting an opened song, missing-default checks, generation, and editing the user's library.                                                              |
-| `routes/queries.ts`          | `useQueryResults`, the one cached hook for `/queries/results`. Both builders go through it, and it carries the suggested-tag flag. It sends no song ids: the backend queries the library it already has.                                                                                          |
+| `routes/queries.ts`          | `useQueryResults`, the live cached hook for `/queries/results`, and `useQueryResultsSnapshot`, the same read with a sort, held while a screen is open. Both carry the suggested-tag flag. Neither sends song ids: the backend queries every song it knows.                                        |
 | `routes/comments.ts`         | Hooks for `/comments`: `useSongComments`, `useCreateComment`, `useDeleteComment`, `useVoteOnComment`.                                                                                                                                                                                             |
 | `routes/social.ts`           | `useDecayInterests` and `useEditInterestScores`, for `/social`, the proxy to the social feed service.                                                                                                                                                                                             |
 | `comment-votes.ts`           | `applyCommentVote`, the optimistic update `useVoteOnComment` makes to cached comment threads. `sortThreadsByVotes` and `orderThreadsLike`, which `CommentsPage` uses to sort threads by score and then hold that order while it is in view. Only type imports, tested in `comment-votes.test.ts`. |
-| `musickit-hooks.ts`          | SWR over the native module: song info, catalog search, paged and complete-library songs, albums, artists, playlists, collection metadata, favorites, artist search, and playlist writes.                                                                                                          |
+| `musickit-hooks.ts`          | SWR over the native module: song info, catalog search, paged and complete-library songs, albums, artists, playlists, collection metadata, favorites, artist search, playlist writes, and turning backend song ids into tracks, all at once or a page at a time.                                   |
+| `paged-tracks.ts`            | The rules `usePagedTracksForSongIds` pages by, and `queryQueueIds`, which songs of a query result Play and Shuffle queue. Import-free, tested in `paged-tracks.test.ts`.                                                                                                                          |
 | `song-init.tsx`              | `SongInitProvider`, which runs the library sync job after account and Apple Music authorization.                                                                                                                                                                                                  |
 | `song-init-job.ts`           | Import-free, tested library sync job: walks Apple Music, diffs it against the local record, and sends the difference to `PATCH /songs`.                                                                                                                                                           |
 | `initialized-songs-db.ts`    | The expo-sqlite `initialized_songs` table, the device's record of what `user_songs` holds. Opens the database and hands the job an `InitializedSongsStore`.                                                                                                                                       |
@@ -149,41 +150,41 @@ stuck and is not an acceptable tradeoff.
 
 One file per backend router, and every backend endpoint has at least one hook.
 
-| backend               | endpoint                          | hook                                            |
-| --------------------- | --------------------------------- | ----------------------------------------------- |
-| `routes/tags.rs`      | `GET /tags`                       | `tags.ts` -> `useUserTags()`, `useTag(tagId)`   |
-|                       | `POST /tags`                      | `tags.ts` -> `useCreateTag()`                   |
-|                       | `DELETE /tags`                    | `tags.ts` -> `useDeleteTag()`                   |
-|                       | `GET /tags/default-tags`          | `tags.ts` -> `useDefaultTags(search)`           |
-|                       | `GET /tags/activity`              | `tags.ts` -> `useActivityTags()`                |
-|                       | `GET /tags/suggest`               | `tags.ts` -> `useSuggestTags()`                 |
-|                       | `PATCH /tags/scores`              | `tags.ts` -> `useEditTagScores()`               |
-| `routes/songs.rs`     | `GET /songs/local-tags`           | `songs.ts` -> `useTagsOnSong(songId)`           |
-|                       | `POST /songs/local-tags/batch`    | `songs.ts` -> `useTagsOnSongs(songIds)`         |
-|                       | `GET /songs/default-tags`         | `songs.ts` -> `useDefaultTagsOnSong(songId)`    |
-|                       | `POST /songs/default-tags/batch`  | `songs.ts` -> `useDefaultTagsOnSongs(songIds)`  |
-|                       | `DELETE /songs/default-tags`      | `songs.ts` -> `useRemoveDefaultTag()`           |
-|                       | `POST /songs/local-tags`          | `songs.ts` -> `useApplyTag()`                   |
-|                       | `PATCH /songs/local-tags`         | `songs.ts` -> `useSetTagValue()`                |
-|                       | `DELETE /songs/local-tags`        | `songs.ts` -> `useUnapplyTag()`                 |
-|                       | `PATCH /songs`                    | `songs.ts` -> `useEditUserSongs()`              |
-|                       | `GET /songs/activity-tags`        | `songs.ts` -> `useActivityTagsOnSong(songId)`   |
-|                       | `POST /songs/activity-tags/batch` | `songs.ts` -> `useActivityTagsOnSongs(songIds)` |
-|                       | `POST /songs/metadata/opened`     | `songs.ts` -> `useReportSongOpened()`           |
-|                       | `GET /songs/metadata-tags`        | `songs.ts` -> `useMetadataTagsOnSong(songId)`   |
-| `routes/events.rs`    | `POST /events`                    | `events.ts` -> `useRecordEvents()`              |
-| `routes/analytics.rs` | `GET /analytics/summary`          | `analytics.ts` -> `useAnalyticsSummary()`       |
-|                       | `GET /analytics/trends`           | `analytics.ts` -> `useAnalyticsTrend()`         |
-|                       | `GET /analytics/top`              | `analytics.ts` -> `useAnalyticsTop()`           |
-|                       | `GET /analytics/top-tags`         | `analytics.ts` -> `useAnalyticsTopTags()`       |
-|                       | `GET /analytics/heatmap`          | `analytics.ts` -> `useAnalyticsHeatmap()`       |
-| `routes/queries.rs`   | `POST /queries/results`           | `queries.ts` -> `useQueryResults()`             |
-| `routes/comments.rs`  | `GET /comments`                   | `comments.ts` -> `useSongComments(songId)`      |
-|                       | `POST /comments`                  | `comments.ts` -> `useCreateComment()`           |
-|                       | `DELETE /comments`                | `comments.ts` -> `useDeleteComment()`           |
-|                       | `POST /comments/votes`            | `comments.ts` -> `useVoteOnComment(songId)`     |
-| `routes/social.rs`    | `PATCH /social/interests/decay`   | `social.ts` -> `useDecayInterests()`            |
-|                       | `PATCH /social/interests/update`  | `social.ts` -> `useEditInterestScores()`        |
+| backend               | endpoint                          | hook                                                             |
+| --------------------- | --------------------------------- | ---------------------------------------------------------------- |
+| `routes/tags.rs`      | `GET /tags`                       | `tags.ts` -> `useUserTags()`, `useTag(tagId)`                    |
+|                       | `POST /tags`                      | `tags.ts` -> `useCreateTag()`                                    |
+|                       | `DELETE /tags`                    | `tags.ts` -> `useDeleteTag()`                                    |
+|                       | `GET /tags/default-tags`          | `tags.ts` -> `useDefaultTags(search)`                            |
+|                       | `GET /tags/activity`              | `tags.ts` -> `useActivityTags()`                                 |
+|                       | `GET /tags/suggest`               | `tags.ts` -> `useSuggestTags()`                                  |
+|                       | `PATCH /tags/scores`              | `tags.ts` -> `useEditTagScores()`                                |
+| `routes/songs.rs`     | `GET /songs/local-tags`           | `songs.ts` -> `useTagsOnSong(songId)`                            |
+|                       | `POST /songs/local-tags/batch`    | `songs.ts` -> `useTagsOnSongs(songIds)`                          |
+|                       | `GET /songs/default-tags`         | `songs.ts` -> `useDefaultTagsOnSong(songId)`                     |
+|                       | `POST /songs/default-tags/batch`  | `songs.ts` -> `useDefaultTagsOnSongs(songIds)`                   |
+|                       | `DELETE /songs/default-tags`      | `songs.ts` -> `useRemoveDefaultTag()`                            |
+|                       | `POST /songs/local-tags`          | `songs.ts` -> `useApplyTag()`                                    |
+|                       | `PATCH /songs/local-tags`         | `songs.ts` -> `useSetTagValue()`                                 |
+|                       | `DELETE /songs/local-tags`        | `songs.ts` -> `useUnapplyTag()`                                  |
+|                       | `PATCH /songs`                    | `songs.ts` -> `useEditUserSongs()`                               |
+|                       | `GET /songs/activity-tags`        | `songs.ts` -> `useActivityTagsOnSong(songId)`                    |
+|                       | `POST /songs/activity-tags/batch` | `songs.ts` -> `useActivityTagsOnSongs(songIds)`                  |
+|                       | `POST /songs/metadata/opened`     | `songs.ts` -> `useReportSongOpened()`                            |
+|                       | `GET /songs/metadata-tags`        | `songs.ts` -> `useMetadataTagsOnSong(songId)`                    |
+| `routes/events.rs`    | `POST /events`                    | `events.ts` -> `useRecordEvents()`                               |
+| `routes/analytics.rs` | `GET /analytics/summary`          | `analytics.ts` -> `useAnalyticsSummary()`                        |
+|                       | `GET /analytics/trends`           | `analytics.ts` -> `useAnalyticsTrend()`                          |
+|                       | `GET /analytics/top`              | `analytics.ts` -> `useAnalyticsTop()`                            |
+|                       | `GET /analytics/top-tags`         | `analytics.ts` -> `useAnalyticsTopTags()`                        |
+|                       | `GET /analytics/heatmap`          | `analytics.ts` -> `useAnalyticsHeatmap()`                        |
+| `routes/queries.rs`   | `POST /queries/results`           | `queries.ts` -> `useQueryResults()`, `useQueryResultsSnapshot()` |
+| `routes/comments.rs`  | `GET /comments`                   | `comments.ts` -> `useSongComments(songId)`                       |
+|                       | `POST /comments`                  | `comments.ts` -> `useCreateComment()`                            |
+|                       | `DELETE /comments`                | `comments.ts` -> `useDeleteComment()`                            |
+|                       | `POST /comments/votes`            | `comments.ts` -> `useVoteOnComment(songId)`                      |
+| `routes/social.rs`    | `PATCH /social/interests/decay`   | `social.ts` -> `useDecayInterests()`                             |
+|                       | `PATCH /social/interests/update`  | `social.ts` -> `useEditInterestScores()`                         |
 
 `routes/social.rs` forwards any `/social/*` path to the social feed service and adds the
 user id, so it has no fixed endpoint list. Only the paths the app calls get a hook.
@@ -238,7 +239,10 @@ are the optimistic updates in the codebase, both with `rollbackOnError`. `useCol
 fetches an album/playlist's own metadata (title, artwork, `shareUrl`). `useCollectionSongs`
 pages a detail screen, while `useAllTracksFromLibrary` walks every song page into one cached
 copy of the library. `useTracksForSongIds` is what turns backend song ids into tracks: it
-resolves what that cached library holds and sends the rest to `getSongInfo`. `usePlaylistMutations` is the exception to the wrapper
+resolves what that cached library holds and sends the rest to `getSongInfo`.
+`usePagedTracksForSongIds` does the same for a list too long to resolve at once, like a query
+result: one page of 50 ids at a time, only ever appending rows, and a `resolveTracks` for ids the
+list has not reached yet. `usePlaylistMutations` is the exception to the wrapper
 rule: playlist writes are not backend calls, so they are plain async functions that invalidate
 every cached playlist key by predicate afterwards.
 
