@@ -114,12 +114,14 @@ export function PeriodStepper({ size = 40 }: { size?: number }) {
                 disabled={!forward}
                 accessibilityLabel={`Next ${period.grain}`}
                 accessibilityState={{ disabled: !forward }}
-                style={forward ? null : styles.disabled}
             >
+                {/* dim the icon, not the button: liquid glass ignores a
+                    parent's opacity, so a faded button still reads as live */}
                 <Ionicons
                     name="chevron-forward"
                     size={18}
                     color={colors.text}
+                    style={forward ? null : styles.disabled}
                 />
             </GlassIconButton>
         </View>
@@ -150,5 +152,5 @@ export function PeriodBar() {
 
 const styles = StyleSheet.create({
     pressed: { opacity: 0.65 },
-    disabled: { opacity: 0.35 },
+    disabled: { opacity: 0.25 },
 });
