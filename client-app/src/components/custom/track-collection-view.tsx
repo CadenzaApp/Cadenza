@@ -5,7 +5,6 @@ import type { ComponentProps, ReactNode } from "react";
 import { useMemo, useState } from "react";
 import {
     Image,
-    useWindowDimensions,
     View,
     type ColorValue,
     type StyleProp,
@@ -31,12 +30,7 @@ import { ModalPopup } from "@/components/custom/modal-popup";
 import { Button } from "@/components/ui/button";
 import { GlassIconButton } from "@/components/ui/glass-icon-button";
 import { Text } from "@/components/ui/text";
-import {
-    TintBackdrop,
-    TintOverscrollBackdrop,
-} from "@/components/ui/tint-backdrop";
 import { usePlaybackCommands } from "@/lib/playback";
-import { useTintGradient } from "@/lib/use-tint-gradient";
 
 import {
     collectionArtworkGrid,
@@ -96,7 +90,10 @@ type Props = {
     summary?: string;
     header?: ReactNode;
     footer?: ReactNode;
-    /** Source color for the mode-aware Oklch background gradient. */
+    /**
+     * Source color for the background gradient. Ignored for now: the gradient
+     * is off while page load speed is being checked without it.
+     */
     backgroundColor?: string | null;
     containerStyle?: StyleProp<ViewStyle>;
     pagination?: MusicListPagination | null;
@@ -133,7 +130,6 @@ export function TrackCollectionView({
     summary: summaryOverride,
     header,
     footer,
-    backgroundColor = null,
     containerStyle,
     pagination = null,
     sorting = {
@@ -150,11 +146,9 @@ export function TrackCollectionView({
     respectTopSafeArea = false,
 }: Props) {
     const { colors } = useTheme();
-    const { height: windowHeight } = useWindowDimensions();
     const insets = useSafeAreaInsets();
     const { playQueue } = usePlaybackCommands();
     const [optionsOpen, setOptionsOpen] = useState(false);
-    const [contentHeight, setContentHeight] = useState(windowHeight * 1.5);
     const scrollY = useSharedValue(0);
     const derivedArtworkUrls = useMemo(
         () =>
@@ -166,7 +160,6 @@ export function TrackCollectionView({
         () => summaryOverride ?? formatTrackCollectionSummary(tracks),
         [summaryOverride, tracks],
     );
-    const gradient = useTintGradient(backgroundColor);
     const actionsDisabled = tracks.length === 0 || isLoading;
     const onScroll = useAnimatedScrollHandler((event) => {
         scrollY.set(Math.max(0, event.contentOffset.y));
@@ -183,9 +176,6 @@ export function TrackCollectionView({
                 ),
             },
         ],
-    }));
-    const backdropStyle = useAnimatedStyle(() => ({
-        transform: [{ translateY: -scrollY.get() }],
     }));
 
     function playAll() {
@@ -223,11 +213,6 @@ export function TrackCollectionView({
                 optionError,
             );
         });
-    }
-
-    function handleContentSizeChange(width: number, height: number) {
-        setContentHeight(Math.max(windowHeight, height));
-        onContentSizeChange?.(width, height);
     }
 
     const defaultHeader = (
@@ -337,24 +322,6 @@ export function TrackCollectionView({
 
     return (
         <View className="flex-1 bg-background" style={containerStyle}>
-            <TintOverscrollBackdrop gradient={gradient} />
-            {gradient ? (
-                <Animated.View
-                    pointerEvents="none"
-                    style={[
-                        {
-                            position: "absolute",
-                            top: 0,
-                            left: 0,
-                            right: 0,
-                            height: contentHeight,
-                        },
-                        backdropStyle,
-                    ]}
-                >
-                    <TintBackdrop gradient={gradient} />
-                </Animated.View>
-            ) : null}
             <MusicList
                 tracks={tracks}
                 isLoading={isLoading}
@@ -364,7 +331,7 @@ export function TrackCollectionView({
                 anticipatedTrackCount={anticipatedTrackCount}
                 header={listHeader}
                 footer={footer}
-                onContentSizeChange={handleContentSizeChange}
+                onContentSizeChange={onContentSizeChange}
                 removeClippedSubviews={removeClippedSubviews}
                 onScroll={onScroll}
                 multiSelect={multiSelect}
