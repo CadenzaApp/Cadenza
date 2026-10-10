@@ -331,13 +331,7 @@ const MusicListItemVisuals = memo(function MusicListItemVisuals({
 
     return (
         <>
-            {/* keyed by its url, so a reused row slot never carries one
-                song's failed artwork over to the next */}
-            <TrackArtwork
-                key={item.artworkUrl}
-                artworkUrl={item.artworkUrl}
-                compact={compact}
-            />
+            <TrackArtwork artworkUrl={item.artworkUrl} compact={compact} />
 
             <View
                 pointerEvents="box-none"
@@ -372,10 +366,12 @@ const TrackArtwork = memo(function TrackArtwork({
     artworkUrl?: string;
     compact: boolean;
 }) {
-    const [artworkFailed, setArtworkFailed] = useState(false);
+    // the url that failed, not a flag: a list reuses this row for other
+    // songs, and a failed cover must not carry over to the next one
+    const [failedUrl, setFailedUrl] = useState<string | null>(null);
     const artworkUrl = rawUrl?.trim();
     const canRenderArtwork =
-        !artworkFailed &&
+        artworkUrl !== failedUrl &&
         typeof artworkUrl === "string" &&
         /^https?:\/\//i.test(artworkUrl);
     const artworkSize = compact ? COMPACT_ARTWORK_SIZE : ARTWORK_SIZE;
@@ -395,7 +391,7 @@ const TrackArtwork = memo(function TrackArtwork({
                 className="h-full w-full rounded bg-muted"
                 resizeMode="cover"
                 style={{ borderRadius: 4 }}
-                onError={() => setArtworkFailed(true)}
+                onError={() => setFailedUrl(artworkUrl ?? null)}
             />
         </View>
     ) : (

@@ -3,58 +3,69 @@ import test from "node:test";
 
 import {
     shouldDismissZoom,
+    ZOOM_COLLAPSE_SHARE,
     zoomCloseDuration,
-    zoomGeometry,
+    zoomFrame,
     zoomProgressForScrollOffset,
 } from "./zoom-dismiss-geometry.ts";
 
-test("zoom geometry lands the card's top-left corner on its artwork", () => {
-    const width = 400;
-    const height = 800;
-    const origin = { x: 20, y: 300, width: 160, height: 160 };
+const W = 400;
+const H = 800;
+const TILE = { x: 20, y: 300, width: 160, height: 160 };
+const ART = { x: 80, y: 100, width: 240, height: 240 };
 
-    const start = zoomGeometry(width, height, origin, 0);
+test("the card starts as the whole screen", () => {
+    const start = zoomFrame(W, H, TILE, ART, 0);
+    assert.deepEqual(start.clip, { x: 0, y: 0, width: W, height: H });
     assert.equal(start.scale, 1);
-    assertApprox(start.translateX, 0);
-    assertApprox(start.translateY, 0);
     assert.equal(start.borderRadius, 52);
-
-    const middle = zoomGeometry(width, height, origin, 0.5);
-    assertApprox(renderedLeft(width, middle), origin.x * 0.5);
-    assertApprox(renderedTop(height, middle), origin.y * 0.5);
-
-    const end = zoomGeometry(width, height, origin, 1);
-    assertApprox(renderedLeft(width, end), origin.x);
-    assertApprox(renderedTop(height, end), origin.y);
-    assertApprox(width * end.scale, origin.width);
 });
 
-test("zoom corners stay visible as the card shrinks", () => {
-    const gridEnd = zoomGeometry(
-        400,
-        800,
-        { x: 20, y: 300, width: 160, height: 160 },
-        1,
-    );
-    assertApprox(gridEnd.visibleBorderRadius, 38.4);
-    assertApprox(gridEnd.borderRadius * gridEnd.scale, 38.4);
-
-    const rowEnd = zoomGeometry(
-        400,
-        800,
-        { x: 20, y: 300, width: 56, height: 56 },
-        1,
-    );
-    assertApprox(rowEnd.visibleBorderRadius, 13.44);
-    assertApprox(rowEnd.borderRadius * rowEnd.scale, 13.44);
+test("first the bottom collapses up to the artwork, the page untouched", () => {
+    const collapsed = zoomFrame(W, H, TILE, ART, ZOOM_COLLAPSE_SHARE);
+    assert.deepEqual(collapsed.clip, {
+        x: 0,
+        y: 0,
+        width: W,
+        height: ART.y + ART.height,
+    });
+    assert.equal(collapsed.scale, 1);
+    assertApprox(collapsed.contentX, 0);
+    assertApprox(collapsed.contentY, 0);
 });
 
-test("source-less zoom keeps its centered fallback target", () => {
-    const end = zoomGeometry(400, 800, null, 1);
+test("then the artwork lands exactly on its tile", () => {
+    const end = zoomFrame(W, H, TILE, ART, 1);
+    assertApprox(end.clip.x, TILE.x);
+    assertApprox(end.clip.y, TILE.y);
+    assertApprox(end.clip.width, TILE.width);
+    assertApprox(end.clip.height, TILE.height);
+    assertApprox(end.scale, TILE.width / ART.width);
+    // the page sits so the artwork is what fills the card
+    assertApprox(end.contentX, -ART.x * end.scale);
+    assertApprox(end.contentY, -ART.y * end.scale);
+});
 
-    assert.equal(end.scale, 0.7);
-    assert.equal(renderedLeft(400, end), 60);
-    assert.equal(renderedTop(800, end), 360);
+test("artwork scrolled out of sight closes on the top of the page", () => {
+    const gone = { ...ART, y: -400 };
+    const end = zoomFrame(W, H, TILE, gone, 1);
+    assertApprox(end.scale, TILE.width / W);
+    assertApprox(end.contentY, 0);
+    assertApprox(end.clip.height, TILE.height);
+});
+
+test("a close with nothing recorded lands on a centered square", () => {
+    const end = zoomFrame(W, H, null, ART, 1);
+    assertApprox(end.clip.width, 280);
+    assertApprox(end.clip.height, 280);
+    assertApprox(end.clip.x, 60);
+    assertApprox(end.clip.y, 260);
+});
+
+test("corners ease to the tile's radius", () => {
+    assertApprox(zoomFrame(W, H, TILE, ART, 1).borderRadius, 38.4);
+    const row = { x: 20, y: 300, width: 56, height: 56 };
+    assertApprox(zoomFrame(W, H, row, ART, 1).borderRadius, 13.44);
 });
 
 test("pull progress continues beyond the dismissal threshold", () => {
@@ -74,26 +85,6 @@ test("close duration only covers the remaining progress", () => {
     assert.equal(zoomCloseDuration(0.96), 16);
     assert.equal(zoomCloseDuration(1), 16);
 });
-
-function renderedLeft(
-    viewportWidth: number,
-    geometry: ReturnType<typeof zoomGeometry>,
-) {
-    return (
-        (viewportWidth - viewportWidth * geometry.scale) / 2 +
-        geometry.translateX
-    );
-}
-
-function renderedTop(
-    viewportHeight: number,
-    geometry: ReturnType<typeof zoomGeometry>,
-) {
-    return (
-        (viewportHeight - viewportHeight * geometry.scale) / 2 +
-        geometry.translateY
-    );
-}
 
 function assertApprox(actual: number, expected: number) {
     assert.ok(

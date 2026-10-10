@@ -34,7 +34,6 @@ import { SongOptionsMenu } from "@/components/custom/options-menu/song-options-m
 import { usePlaybackCommands } from "@/lib/playback";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { useScreenScroll } from "@/lib/screen-scroll";
-import { useTopRailInset } from "@/lib/top-rail";
 import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
 import { useMusicListPreferences } from "@/lib/music-list-preferences";
 
@@ -90,6 +89,8 @@ const AnimatedFlashList = Animated.createAnimatedComponent(
 );
 
 const NO_CONTENT_POSITION = { disabled: true } as const;
+/** How far past the screen rows are rendered ahead, in points. */
+const DRAW_DISTANCE = 800;
 
 /**
  * FlashList's scroller, inside the screen's scroll marker. FlashList wraps its
@@ -194,8 +195,6 @@ export function MusicList({
     const onLoadNextPage = pagination?.onLoadNextPage;
     const isLoadingMoreRef = useRef(false);
     const scroll = useScreenScroll<typeof AnimatedFlashList>();
-    // the skeleton is not in the scroller, so the scroller's inset misses it
-    const railInset = useTopRailInset();
     const composedOnScroll = useComposedEventHandler([
         scroll.onScroll,
         onScroll ?? null,
@@ -452,155 +451,136 @@ export function MusicList({
         <View style={{ flex: 1, position: "relative" }}>
             <GestureDetector gesture={pinchGesture}>
                 <Animated.View className="flex-1" style={listTransitionStyle}>
-                    {isLoading && tracks.length === 0 ? (
-                        <View
-                            className={fullBleedRows ? undefined : "px-6"}
-                            style={{
-                                paddingTop: railInset ?? undefined,
-                                paddingBottom: contentBottomInset,
-                            }}
-                        >
-                            {header}
-                            {Array.from({
-                                length: Math.min(
-                                    anticipatedTrackCount,
-                                    MAX_INITIAL_SKELETON_ROWS,
-                                ),
-                            }).map((_, index) => (
-                                <View key={index}>
-                                    <MusicListItemSkeleton
+                    {/* always the list, loading included, so its background
+                        and header are there from the first frame and the
+                        header is never rebuilt when the rows land */}
+                    <ContentBackgroundContext.Provider
+                        value={contentBackground}
+                    >
+                        <AnimatedFlashList
+                            {...scroll}
+                            style={[{ flex: 1 }, scroll.style]}
+                            renderScrollComponent={MarkedScrollView}
+                            // about a screen ahead, so a reused row is
+                            // ready before it scrolls into view
+                            drawDistance={DRAW_DISTANCE}
+                            // for chat views that prepend; a song list only
+                            // grows at the end, and the offset nudges fought
+                            // the pull to close
+                            maintainVisibleContentPosition={NO_CONTENT_POSITION}
+                            // Overscrolling at the top is how a detail screen
+                            // closes, and an indicator flicking in over the
+                            // shrinking card is noise.
+                            showsVerticalScrollIndicator={false}
+                            data={displayedTracks}
+                            extraData={listExtraData}
+                            keyExtractor={(item) => item.id}
+                            renderItem={({ item, index }) => (
+                                <Animated.View
+                                    // only the density change remounts rows, for
+                                    // their fade in. keyed by song too, a row slot
+                                    // FlashList moved to another song was thrown
+                                    // away and rebuilt rather than reused
+                                    key={densityTransitionRevision}
+                                    entering={
+                                        densityRevealActive &&
+                                        revealTrackIds.has(item.id)
+                                            ? FadeIn.delay(
+                                                  densityFadeDelay(index),
+                                              ).duration(DENSITY_ROW_FADE_IN_MS)
+                                            : undefined
+                                    }
+                                >
+                                    <MusicListRow
+                                        store={rowTagStore}
+                                        songId={item.catalogId ?? item.id}
+                                        item={item}
+                                        selected={selection.selectedIds.has(
+                                            item.id,
+                                        )}
+                                        selectionMode={selection.isSelecting}
+                                        multiSelectEnabled={selection.enabled}
+                                        animateSelectionTransition={
+                                            animateSelectionTransition
+                                        }
                                         fullBleed={fullBleedRows}
                                         fullBleedHorizontalPadding={
                                             fullBleedRowHorizontalPadding
                                         }
+                                        rowSurfaceColor={rowSurfaceColor}
                                         compact={isCompact}
+                                        mostRelevantTags={mostRelevantTags}
+                                        activityTagIds={activityTagIds}
+                                        accessory={renderAccessory?.(item)}
+                                        onPress={handleTrackPress}
+                                        onLongPress={selection.beginSelection}
+                                        onOpenMenu={setMenuTrack}
                                     />
-                                </View>
-                            ))}
-                            {footer}
-                        </View>
-                    ) : (
-                        <ContentBackgroundContext.Provider
-                            value={contentBackground}
-                        >
-                            <AnimatedFlashList
-                                {...scroll}
-                                style={[{ flex: 1 }, scroll.style]}
-                                renderScrollComponent={MarkedScrollView}
-                                // for chat views that prepend; a song list only
-                                // grows at the end, and the offset nudges fought
-                                // the pull to close
-                                maintainVisibleContentPosition={
-                                    NO_CONTENT_POSITION
-                                }
-                                // Overscrolling at the top is how a detail screen
-                                // closes, and an indicator flicking in over the
-                                // shrinking card is noise.
-                                showsVerticalScrollIndicator={false}
-                                data={displayedTracks}
-                                extraData={listExtraData}
-                                keyExtractor={(item) => item.id}
-                                renderItem={({ item, index }) => (
-                                    <Animated.View
-                                        // only the density change remounts rows, for
-                                        // their fade in. keyed by song too, a row slot
-                                        // FlashList moved to another song was thrown
-                                        // away and rebuilt rather than reused
-                                        key={densityTransitionRevision}
-                                        entering={
-                                            densityRevealActive &&
-                                            revealTrackIds.has(item.id)
-                                                ? FadeIn.delay(
-                                                      densityFadeDelay(index),
-                                                  ).duration(
-                                                      DENSITY_ROW_FADE_IN_MS,
-                                                  )
-                                                : undefined
-                                        }
-                                    >
-                                        <MusicListRow
-                                            store={rowTagStore}
-                                            songId={item.catalogId ?? item.id}
-                                            item={item}
-                                            selected={selection.selectedIds.has(
-                                                item.id,
-                                            )}
-                                            selectionMode={
-                                                selection.isSelecting
-                                            }
-                                            multiSelectEnabled={
-                                                selection.enabled
-                                            }
-                                            animateSelectionTransition={
-                                                animateSelectionTransition
-                                            }
-                                            fullBleed={fullBleedRows}
-                                            fullBleedHorizontalPadding={
-                                                fullBleedRowHorizontalPadding
-                                            }
-                                            rowSurfaceColor={rowSurfaceColor}
-                                            compact={isCompact}
-                                            mostRelevantTags={mostRelevantTags}
-                                            activityTagIds={activityTagIds}
-                                            accessory={renderAccessory?.(item)}
-                                            onPress={handleTrackPress}
-                                            onLongPress={
-                                                selection.beginSelection
-                                            }
-                                            onOpenMenu={setMenuTrack}
+                                    {highlightPhase === "playing" &&
+                                    isHighlighted(item) ? (
+                                        <MusicListRowShimmer
+                                            onDone={finishHighlight}
                                         />
-                                        {highlightPhase === "playing" &&
-                                        isHighlighted(item) ? (
-                                            <MusicListRowShimmer
-                                                onDone={finishHighlight}
-                                            />
-                                        ) : null}
-                                    </Animated.View>
-                                )}
-                                contentContainerStyle={[
-                                    {
-                                        paddingBottom: contentBottomInset,
-                                        paddingHorizontal: fullBleedRows
-                                            ? 0
-                                            : 24,
-                                    },
-                                    scroll.contentContainerStyle,
-                                ]}
-                                ListHeaderComponent={
-                                    header ? <>{header}</> : null
-                                }
-                                ListEmptyComponent={
-                                    !isLoading ? (
-                                        <Text className="text-muted-foreground text-center mt-10">
-                                            Search for Artists, Songs, Lyrics,
-                                            and More.
-                                        </Text>
-                                    ) : null
-                                }
-                                ListFooterComponent={
-                                    <>
-                                        {isLoadingNextPage ? (
-                                            <MusicListLoadingSkeletons
+                                    ) : null}
+                                </Animated.View>
+                            )}
+                            contentContainerStyle={[
+                                {
+                                    paddingBottom: contentBottomInset,
+                                    paddingHorizontal: fullBleedRows ? 0 : 24,
+                                },
+                                scroll.contentContainerStyle,
+                            ]}
+                            ListHeaderComponent={header ? <>{header}</> : null}
+                            ListEmptyComponent={
+                                isLoading ? (
+                                    <View>
+                                        {Array.from({
+                                            length: Math.min(
+                                                anticipatedTrackCount,
+                                                MAX_INITIAL_SKELETON_ROWS,
+                                            ),
+                                        }).map((_, index) => (
+                                            <MusicListItemSkeleton
+                                                key={index}
                                                 fullBleed={fullBleedRows}
                                                 fullBleedHorizontalPadding={
                                                     fullBleedRowHorizontalPadding
                                                 }
                                                 compact={isCompact}
                                             />
-                                        ) : null}
-                                        {footer}
-                                    </>
-                                }
-                                onContentSizeChange={onContentSizeChange}
-                                removeClippedSubviews={removeClippedSubviews}
-                                onScroll={composedOnScroll}
-                                onEndReached={handleEndReached}
-                                onEndReachedThreshold={0.1}
-                                viewabilityConfig={HIGHLIGHT_VIEWABILITY}
-                                onViewableItemsChanged={onViewableItemsChanged}
-                            />
-                        </ContentBackgroundContext.Provider>
-                    )}
+                                        ))}
+                                    </View>
+                                ) : (
+                                    <Text className="text-muted-foreground text-center mt-10">
+                                        Search for Artists, Songs, Lyrics, and
+                                        More.
+                                    </Text>
+                                )
+                            }
+                            ListFooterComponent={
+                                <>
+                                    {isLoadingNextPage ? (
+                                        <MusicListLoadingSkeletons
+                                            fullBleed={fullBleedRows}
+                                            fullBleedHorizontalPadding={
+                                                fullBleedRowHorizontalPadding
+                                            }
+                                            compact={isCompact}
+                                        />
+                                    ) : null}
+                                    {footer}
+                                </>
+                            }
+                            onContentSizeChange={onContentSizeChange}
+                            removeClippedSubviews={removeClippedSubviews}
+                            onScroll={composedOnScroll}
+                            onEndReached={handleEndReached}
+                            onEndReachedThreshold={0.1}
+                            viewabilityConfig={HIGHLIGHT_VIEWABILITY}
+                            onViewableItemsChanged={onViewableItemsChanged}
+                        />
+                    </ContentBackgroundContext.Provider>
                 </Animated.View>
             </GestureDetector>
 

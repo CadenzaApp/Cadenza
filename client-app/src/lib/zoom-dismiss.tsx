@@ -29,7 +29,7 @@ import Animated, {
 
 import {
     zoomCloseDuration,
-    zoomGeometry,
+    zoomFrame,
     ZOOM_OPEN_DURATION,
     type ZoomRect,
 } from "./zoom-dismiss-geometry";
@@ -81,6 +81,12 @@ export type ZoomDismissController = {
     close: () => void;
     /** Finishes a close already committed by the UI-thread scroll handler. */
     finishGestureClose: () => void;
+    /**
+     * Where the screen's artwork is while the card is full size, set by the
+     * screen as it scrolls. The close lands this on the tile it opened from.
+     * Null closes on the top of the page instead.
+     */
+    focus: SharedValue<ZoomRect | null>;
 };
 
 const ZoomDismissContext = createContext<ZoomDismissController | null>(null);
@@ -169,6 +175,14 @@ export function useZoomDismiss() {
 }
 
 /**
+ * Where a screen reports its artwork for the close to land on its tile, or
+ * null outside a zoom card. Set it in screen points, as laid out at full size.
+ */
+export function useZoomFocus() {
+    return useContext(ZoomDismissContext)?.focus ?? null;
+}
+
+/**
  * Closes the screen: the minimize if it is wrapped in `ZoomDismissScreen`, a
  * plain pop otherwise. Every close button goes through this, so the X and the
  * pull do the same thing.
@@ -213,6 +227,7 @@ export function ZoomDismissScreen({
     const [launch] = useState(() => store?.peekLaunch({ width, height }));
     const progress = useSharedValue(1);
     const closing = useSharedValue(false);
+    const focus = useSharedValue<ZoomRect | null>(null);
     const cardVisible = useSharedValue(1);
     const animationGeneration = useSharedValue(0);
     const launchMatchesViewport =
@@ -281,34 +296,58 @@ export function ZoomDismissScreen({
     }, [runCloseAnimation]);
 
     const controller = useMemo(
-        () => ({ progress, closing, close, finishGestureClose }),
-        [progress, closing, close, finishGestureClose],
+        () => ({ progress, closing, close, finishGestureClose, focus }),
+        [progress, closing, close, finishGestureClose, focus],
     );
 
-    const cardStyle = useAnimatedStyle(() => {
-        const p = progress.get();
-        const rect = origin.get();
-        const geometry = zoomGeometry(width, height, rect, p);
-
+    // the card is a clip over the page rather than the page scaled whole, so
+    // its bottom can collapse up to the artwork before it shrinks onto the tile
+    const clipStyle = useAnimatedStyle(() => {
+        const frame = zoomFrame(
+            width,
+            height,
+            origin.get(),
+            focus.get(),
+            progress.get(),
+        );
         return {
-            opacity: cardVisible.get(),
-            borderRadius: geometry.borderRadius,
-            transform: [
-                { translateX: geometry.translateX },
-                { translateY: geometry.translateY },
-                { scale: geometry.scale },
-            ],
             // No fade. A card you can see the old screen through while it
             // shrinks reads as muddy rather than as depth.
+            opacity: cardVisible.get(),
+            left: frame.clip.x,
+            top: frame.clip.y,
+            width: frame.clip.width,
+            height: frame.clip.height,
+            borderRadius: frame.borderRadius,
+        };
+    });
+    const pageStyle = useAnimatedStyle(() => {
+        const frame = zoomFrame(
+            width,
+            height,
+            origin.get(),
+            focus.get(),
+            progress.get(),
+        );
+        return {
+            transform: [
+                { translateX: frame.contentX },
+                { translateY: frame.contentY },
+                { scale: frame.scale },
+            ],
         };
     });
 
     return (
         <ZoomDismissContext.Provider value={controller}>
             <View style={styles.root}>
-                <Animated.View style={[styles.card, cardStyle]}>
-                    {children}
-                    {overlay}
+                <Animated.View style={[styles.card, clipStyle]}>
+                    <Animated.View
+                        style={[styles.page, { width, height }, pageStyle]}
+                    >
+                        {children}
+                        {overlay}
+                    </Animated.View>
                 </Animated.View>
             </View>
         </ZoomDismissContext.Provider>
@@ -326,8 +365,16 @@ const styles = StyleSheet.create({
     // The animated radius compensates for the card's scale. `borderCurve` is
     // what makes the result a continuous squircle rather than a quarter circle.
     card: {
-        flex: 1,
+        position: "absolute",
         borderCurve: "continuous",
         overflow: "hidden",
+    },
+    // the page at full screen size, scaled from its top-left corner so the
+    // frame's offsets place it inside the card exactly
+    page: {
+        position: "absolute",
+        top: 0,
+        left: 0,
+        transformOrigin: "top left",
     },
 });

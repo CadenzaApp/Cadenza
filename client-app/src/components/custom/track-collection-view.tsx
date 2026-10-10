@@ -2,7 +2,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import type { MusicItem } from "@apple-musickit";
 import { useTheme } from "expo-router/react-navigation";
 import type { ComponentProps, ReactNode } from "react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
     Image,
     View,
@@ -13,6 +13,8 @@ import {
 import Animated, {
     Extrapolation,
     interpolate,
+    useAnimatedReaction,
+    useAnimatedRef,
     useAnimatedScrollHandler,
     useAnimatedStyle,
     useSharedValue,
@@ -20,6 +22,7 @@ import Animated, {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useIsPushedDetailScreen } from "@/lib/screen-overlay";
 import { useOpenTransitionSettled } from "@/lib/use-open-transition-settled";
+import { useZoomFocus } from "@/lib/zoom-dismiss";
 
 import {
     MusicList,
@@ -46,6 +49,29 @@ import {
 
 const ARTWORK_SIZE = 224;
 const ARTWORK_SCROLL_SCALE_DISTANCE = 120;
+
+/** How far the hero artwork has shrunk, scrolled this far down. */
+function artworkScale(scrollY: number) {
+    "worklet";
+    return interpolate(
+        scrollY,
+        [0, ARTWORK_SCROLL_SCALE_DISTANCE],
+        [1, 0.8],
+        Extrapolation.CLAMP,
+    );
+}
+
+/**
+ * The hero artwork as measured once at full size: its unshrunk size, the
+ * point it shrinks toward, and the scroll it was measured at.
+ */
+type ArtworkBase = {
+    centerX: number;
+    bottom: number;
+    width: number;
+    height: number;
+    scrollY: number;
+};
 const ARTWORK_SHADOW: ViewStyle = {
     shadowColor: "#000",
     shadowOpacity: 0.16,
@@ -171,16 +197,51 @@ export function TrackCollectionView({
     const onScroll = useAnimatedScrollHandler((event) => {
         scrollY.set(Math.max(0, event.contentOffset.y));
     });
+    // where the hero artwork is, for the close to land it on its tile
+    const artworkRef = useAnimatedRef<Animated.View>();
+    const zoomFocus = useZoomFocus();
+    const artworkBase = useSharedValue<ArtworkBase | null>(null);
+    useEffect(() => {
+        // measured once the card is full size, when screen and page agree
+        if (!settled || header) return;
+        artworkRef.current?.measureInWindow((x, y, width, height) => {
+            if (width <= 0 || height <= 0) return;
+            const scale = artworkScale(scrollY.get());
+            artworkBase.set({
+                centerX: x + width / 2,
+                bottom: y + height,
+                width: width / scale,
+                height: height / scale,
+                scrollY: scrollY.get(),
+            });
+        });
+    }, [artworkBase, artworkRef, header, scrollY, settled]);
+    useAnimatedReaction(
+        () => {
+            const base = artworkBase.get();
+            if (!base) return null;
+            const scrolled = scrollY.get();
+            const scale = artworkScale(scrolled);
+            const width = base.width * scale;
+            const height = base.height * scale;
+            const bottom = base.bottom - (scrolled - base.scrollY);
+            return {
+                x: base.centerX - width / 2,
+                y: bottom - height,
+                width,
+                height,
+            };
+        },
+        (rect) => {
+            zoomFocus?.set(rect);
+        },
+    );
+
     const artworkStyle = useAnimatedStyle(() => ({
         transformOrigin: "center bottom",
         transform: [
             {
-                scale: interpolate(
-                    scrollY.get(),
-                    [0, ARTWORK_SCROLL_SCALE_DISTANCE],
-                    [1, 0.8],
-                    Extrapolation.CLAMP,
-                ),
+                scale: artworkScale(scrollY.get()),
             },
         ],
     }));
@@ -228,7 +289,10 @@ export function TrackCollectionView({
             style={{ paddingTop: 32 + (respectTopSafeArea ? insets.top : 0) }}
         >
             <View className="items-center">
-                <Animated.View style={[artworkStyle, ARTWORK_SHADOW]}>
+                <Animated.View
+                    ref={artworkRef}
+                    style={[artworkStyle, ARTWORK_SHADOW]}
+                >
                     <ArtworkMosaic
                         artworkUrls={artworkUrls}
                         placeholderColor={colors.text}
