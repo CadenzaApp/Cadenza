@@ -3,6 +3,7 @@ import type { MusicItem } from "@apple-musickit";
 import { useTheme } from "expo-router/react-navigation";
 import { FlatList, Image, Pressable, View } from "react-native";
 import Animated from "react-native-reanimated";
+import { usePrefetchCollectionSongs } from "@/lib/musickit-hooks";
 
 import { MusicListItemSkeleton } from "@/components/custom/music-list/music-list-item";
 import { Text } from "@/components/ui/text";
@@ -22,6 +23,11 @@ type CollectionListProps = {
     hasNextPage: boolean;
     onLoadNextPage: () => void;
     onSelect: (collection: MusicItem) => void;
+    /**
+     * Start loading a collection's songs as a finger lands on it. For lists
+     * whose tap opens the collection, not ones that pick it for something.
+     */
+    prefetchSongs?: boolean;
     /** Shown when the list is loaded and empty. */
     emptyLabel: string;
 };
@@ -39,6 +45,7 @@ export function CollectionList({
     hasNextPage,
     onLoadNextPage,
     onSelect,
+    prefetchSongs = false,
     emptyLabel,
 }: CollectionListProps) {
     const { listBottomInset } = useScreenOverlayInsets();
@@ -67,7 +74,11 @@ export function CollectionList({
                 data={collections}
                 keyExtractor={(collection) => collection.id}
                 renderItem={({ item }) => (
-                    <CollectionListItem collection={item} onPress={onSelect} />
+                    <CollectionListItem
+                        collection={item}
+                        onPress={onSelect}
+                        prefetchSongs={prefetchSongs}
+                    />
                 )}
                 contentContainerStyle={[
                     { paddingBottom: listBottomInset },
@@ -96,12 +107,15 @@ export function CollectionList({
 function CollectionListItem({
     collection,
     onPress,
+    prefetchSongs,
 }: {
     collection: MusicItem;
     onPress: (collection: MusicItem) => void;
+    prefetchSongs: boolean;
 }) {
     const { colors } = useTheme();
     const { ref: zoomRef, capture: captureZoom } = useZoomSource();
+    const prefetch = usePrefetchCollectionSongs();
     const artworkUrl = collection.artworkUrl?.trim();
     const canRenderArtwork =
         typeof artworkUrl === "string" && /^https?:\/\//i.test(artworkUrl);
@@ -114,6 +128,10 @@ function CollectionListItem({
         <Pressable
             accessibilityRole="button"
             accessibilityLabel={`Open ${collection.title}`}
+            // the songs start loading as the finger lands, not after the open
+            onPressIn={() => {
+                if (prefetchSongs) prefetch(collection);
+            }}
             onPress={() => {
                 // The screen that opens minimizes back into this artwork, so
                 // the rect has to be measured before the push.

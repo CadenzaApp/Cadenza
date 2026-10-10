@@ -124,6 +124,7 @@ export function LibraryCategoryScreen({
                         hasNextPage={albums.hasNextAlbumPage}
                         onLoadNextPage={albums.loadNextAlbumPage}
                         onSelect={openCollection}
+                        prefetchSongs
                         emptyLabel="No albums in your library yet."
                     />
                 ) : (
@@ -134,6 +135,7 @@ export function LibraryCategoryScreen({
                         hasNextPage={playlists.hasNextPlaylistPage}
                         onLoadNextPage={playlists.loadNextPlaylistPage}
                         onSelect={openCollection}
+                        prefetchSongs
                         emptyLabel="No playlists in your library yet."
                     />
                 )}
