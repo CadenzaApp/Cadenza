@@ -217,9 +217,12 @@ export const TagPill = memo(function TagPill({
                         backgroundColor: hexToRgba(contentColor, 1.0),
                     }}
                 >
+                    {/* the bubble is filled with the content color, so its
+                        number takes the other one: the tag color on a solid
+                        pill, the screen color on an outline one */}
                     <Text
                         style={{
-                            color: tag.color,
+                            color: outlined ? screenColor : tag.color,
                             fontSize: countFontSize,
                             fontWeight: "500",
                             lineHeight: fontSize * 1.25,

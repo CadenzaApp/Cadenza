@@ -33,9 +33,9 @@ function wrap(x: number, width: number): number {
 }
 
 type Props = {
-    /** Every tag listened to in the displayed period, most first. */
+    /** Every tag listened to in the shown span, most first. */
     tags: TagListeningTime[];
-    /** The period's listening time, which each chip's percent is of. */
+    /** The span's listening time, which each chip's percent is of. */
     totalMs: number;
     /** False until the first read lands, so the empty state does not flash. */
     loaded: boolean;
@@ -47,10 +47,13 @@ type Props = {
 };
 
 /**
- * The tags listened to in the displayed period. The selected one is pinned
- * at the left and holds still; the rest drift past it in a row that loops
- * forever. Tapping a drifting tag pins it, tapping the pinned one lets go of
- * it and it drifts again.
+ * The tags listened to in the shown span. The selected one is pinned at the
+ * left and holds still; the rest drift past it in a row that loops forever.
+ * Tapping a drifting tag pins it, tapping the pinned one lets go of it and it
+ * drifts again.
+ *
+ * The row stays mounted through every state, empty included, so a new span
+ * swaps its chips in place and the drift carries on where it was.
  */
 export function TagCarousel({
     tags,
@@ -60,16 +63,6 @@ export function TagCarousel({
     onSelect,
     onRelease,
 }: Props) {
-    if (loaded && tags.length === 0) {
-        return (
-            <View className="justify-center" style={{ height: HEIGHT }}>
-                <Text className="text-muted-foreground text-xs">
-                    No tags listened to
-                </Text>
-            </View>
-        );
-    }
-
     const drifting = tags.filter((tag) => tag.id !== selected?.id);
     return (
         <View className="flex-row" style={{ height: HEIGHT }}>
@@ -93,6 +86,16 @@ export function TagCarousel({
                 totalMs={totalMs}
                 onSelect={onSelect}
             />
+            {loaded && tags.length === 0 && !selected ? (
+                <View
+                    pointerEvents="none"
+                    className="absolute inset-0 justify-center"
+                >
+                    <Text className="text-muted-foreground text-xs">
+                        No tags listened to
+                    </Text>
+                </View>
+            ) : null}
         </View>
     );
 }

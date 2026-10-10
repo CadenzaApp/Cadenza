@@ -186,12 +186,16 @@ export type AnalyticsTagShares = {
     tags: TagListeningTime[];
 };
 
-/** `GET /analytics/tag-shares`. Each tag's share of a window's listening time. */
+/**
+ * `GET /analytics/tag-shares`. Each tag's share of a window's listening time.
+ * Keeps the last window's tags while a new one loads, so a list that follows
+ * the user's taps swaps in place rather than emptying between them.
+ */
 export function useAnalyticsTagShares(window?: AnalyticsWindow) {
     const x = useAPIData<AnalyticsTagShares>(
         "/analytics/tag-shares",
         windowParams(window),
-        { save: true },
+        { save: true, keepPreviousData: true },
     );
     return {
         tagShares: x.data,

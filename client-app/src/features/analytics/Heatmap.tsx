@@ -106,8 +106,9 @@ export function Heatmap({ root, accent, tagChoice, onTagChoice }: Props) {
     const shown = pick
         ? { since: pick.start.toISOString(), until: pick.end.toISOString() }
         : window;
-    // the level's tags, unfiltered, so picking one never empties the row
-    const { tagShares } = useAnalyticsTagShares(window);
+    // the picked span's tags, or the level's with nothing picked. unfiltered,
+    // so pinning one never empties the row
+    const { tagShares } = useAnalyticsTagShares(shown);
     const tags = tagShares?.tags ?? [];
 
     // a picked span that has started, the only kind the button acts on

@@ -104,8 +104,10 @@ survives navigating into a detail page and back.
   listen in full toward every tag on its song, never split, so the carousel's percents can sum past
   100%. Only the user's own tags come back, never activity or suggested ones.
 - **The carousel is the tag filter.** Pinning a tag recolors the grid and legend in the tag's color.
-  It reads the unfiltered level, so pinning a tag never empties the row. The pinned tag lives above the card and survives period changes; a level without it still
-  shows it pinned, at zero, never another tag.
+  It lists the picked span's tags, or the level's with nothing picked, unfiltered, so pinning a tag
+  never empties the row. The read keeps the last span's tags while the next loads and the row stays
+  mounted, so tapping around swaps chips in place. The pinned tag lives above the card and survives
+  period changes; a span without it still shows it pinned, at zero, never another tag.
 - **Calendar and detail use `/analytics/listening`.** Its `total_ms` is unfiltered; `listening_ms`,
   plays and cells match the pinned tag, so the filtered detail shows the tag's share of all time.
 - **Songs open per hour, from a day.** The button stays disabled until an hour is picked, then
