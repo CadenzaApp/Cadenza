@@ -437,14 +437,15 @@ pub struct TagPlays {
 /// listened to" starts from this, so they cannot disagree on what counts.
 ///
 /// Activity tags are excluded because every played song has My Plays on it by
-/// construction, so they would take every top slot and say nothing. The scope's
-/// `$1` is the user id, which is also the tag owner wanted.
+/// construction, so they would take every top slot and say nothing. Suggested
+/// tags the user applied are excluded too: the tag must be owned by the event's
+/// user.
 fn tagged_plays(scope: &Scope) -> String {
     format!(
         "listening_events e
          join user_tags_applied uta
              on uta.song_id = e.song_id and uta.user_id = e.user_id
-         join tags t on t.tag_id = uta.tag_id
+         join tags t on t.tag_id = uta.tag_id and t.user_id = e.user_id
          where {} and e.event_type = 'play_counted' and t.is_activity = false",
         scope.clause
     )
