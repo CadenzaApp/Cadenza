@@ -271,7 +271,8 @@ page after it is 100, Apple's cap, so a long list pages in two or three steps.
 `usePrefetchCollectionSongs` starts a collection's first page as a finger lands on it, in the
 Library lists and the Recently Added grid. It writes the page into the cache under the key
 `useCollectionSongs` reads, and a screen that mounts while the request is in flight joins it rather
-than sending its own.
+than sending its own. `useCollectionSongs` then loads each next page as soon as the last one lands,
+not when the list nears its end, since a collection screen shows every song and a count of them.
 
 `useCatalogSongSearch` and `useLibrarySongSearch` are the two search scopes and present the
 same surface: each holds its own term and takes a submitted one, so a screen switching between
