@@ -94,3 +94,20 @@ test("heat levels run from empty to full on a square root scale", () => {
     // sqrt keeps a quarter of the peak at half brightness, not a quarter
     assert.equal(heatLevel(25, 100), 2);
 });
+
+test("every cell's date is the local day its key names", () => {
+    const shapes = [
+        { kind: "day-hours", start: new Date(2026, 9, 3) },
+        { kind: "week-two-hours", start: new Date(2026, 8, 28) },
+        { kind: "month-days", start: new Date(2026, 9, 1) },
+        { kind: "year-months", start: new Date(2026, 0, 1) },
+    ] as const;
+    for (const shape of shapes) {
+        for (const cell of layoutHeatmap(
+            shape,
+            new Date(2026, 9, 3),
+        ).rows.flat()) {
+            if (cell) assert.equal(dayKey(cell.date), cell.key.slice(0, 10));
+        }
+    }
+});

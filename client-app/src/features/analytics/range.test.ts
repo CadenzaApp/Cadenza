@@ -5,7 +5,9 @@ import {
     PERIOD_GRAINS,
     canStepBack,
     canStepForward,
+    drillGrain,
     grainLabel,
+    offsetOf,
     resolvePeriod,
 } from "./range.ts";
 
@@ -219,4 +221,35 @@ test("the spring DST week is also local midnight to midnight", () => {
     assert.deepEqual(localDay(until), [2026, 3, 9]);
     assert.equal(new Date(since!).getHours(), 0);
     assert.equal(new Date(until!).getHours(), 0);
+});
+
+// ----- offsetOf and drillGrain -----
+
+test("offsetOf inverts resolvePeriod for every bounded grain", () => {
+    for (const grain of ["day", "week", "month", "year"] as const) {
+        for (const offset of [0, -1, -5, -40]) {
+            const period = resolvePeriod(grain, offset, NOW);
+            const start = new Date(period.since as string);
+            assert.equal(offsetOf(grain, start, NOW), offset, grain);
+        }
+    }
+});
+
+test("offsetOf finds the week a day falls in", () => {
+    // Wed Sep 23 is in the week before Saturday Oct 3's
+    assert.equal(offsetOf("week", local(2026, 9, 23), NOW), -1);
+    assert.equal(offsetOf("week", local(2026, 9, 20), NOW), -2);
+    assert.equal(offsetOf("week", local(2026, 9, 28), NOW), 0);
+});
+
+test("offsetOf is positive after now", () => {
+    assert.equal(offsetOf("month", local(2026, 12, 1), NOW), 2);
+});
+
+test("drillGrain steps down one grain and stops at a day", () => {
+    assert.equal(drillGrain("all"), "month");
+    assert.equal(drillGrain("year"), "month");
+    assert.equal(drillGrain("month"), "week");
+    assert.equal(drillGrain("week"), "day");
+    assert.equal(drillGrain("day"), null);
 });

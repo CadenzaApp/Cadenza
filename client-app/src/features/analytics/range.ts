@@ -322,3 +322,53 @@ export function canStepForward(period: ResolvedPeriod): boolean {
 export function canStepBack(period: ResolvedPeriod): boolean {
     return period.grain !== "all";
 }
+
+/** Whole local days from `from` to `to`, by calendar date, so DST is no issue. */
+function daysBetween(from: Date, to: Date): number {
+    const utc = (date: Date) =>
+        Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
+    return Math.round((utc(to) - utc(from)) / 86_400_000);
+}
+
+/**
+ * The offset of the `grain` period holding `date`, counted from the one holding
+ * `now`. The inverse of `resolvePeriod`, so a date can be opened as a period.
+ * Positive for a period after now's. All has no offsets and is always 0.
+ */
+export function offsetOf(grain: PeriodGrain, date: Date, now: Date): number {
+    switch (grain) {
+        case "day":
+            return daysBetween(now, date);
+        case "week":
+            return daysBetween(startOfWeek(now), startOfWeek(date)) / 7;
+        case "month":
+            return (
+                (date.getFullYear() - now.getFullYear()) * 12 +
+                date.getMonth() -
+                now.getMonth()
+            );
+        case "year":
+            return date.getFullYear() - now.getFullYear();
+        case "all":
+            return 0;
+    }
+}
+
+/**
+ * The grain a heatmap cell of `grain` opens into, or null at the bottom.
+ * Year to month to week to day. A month opens a day's week, not the day, so
+ * every step down is one grain. All time's cells are months.
+ */
+export function drillGrain(grain: PeriodGrain): PeriodGrain | null {
+    switch (grain) {
+        case "all":
+        case "year":
+            return "month";
+        case "month":
+            return "week";
+        case "week":
+            return "day";
+        case "day":
+            return null;
+    }
+}

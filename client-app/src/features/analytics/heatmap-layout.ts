@@ -18,8 +18,11 @@ import {
     type HeatmapShape,
 } from "./range.ts";
 
-/** One square: its bucket key and what a tap reads out. */
-export type LayoutCell = { key: string; label: string };
+/**
+ * One square: its bucket key, what a tap reads out, and the local midnight of
+ * the day it falls in (a month's 1st for a month), which is what it opens into.
+ */
+export type LayoutCell = { key: string; label: string; date: Date };
 
 export type HeatmapGrid = {
     /** Null is a spacer, a slot outside the period, drawn blank. */
@@ -96,7 +99,11 @@ function dayHours(day: Date): HeatmapGrid {
     const rows = [0, 12].map((offset) =>
         Array.from({ length: 12 }, (_, i) => {
             const hour = offset + i;
-            return { key: hourKey(day, hour), label: hourName(hour) };
+            return {
+                key: hourKey(day, hour),
+                label: hourName(hour),
+                date: day,
+            };
         }),
     );
     return {
@@ -121,6 +128,7 @@ function weekBlocks(monday: Date): HeatmapGrid {
             return {
                 key: hourKey(day, hour),
                 label: `${weekday} ${monthDay(day)}, ${hourName(hour)} - ${hourName(end)}`,
+                date: day,
             };
         });
     });
@@ -137,7 +145,7 @@ function monthDays(first: Date): HeatmapGrid {
         day.getMonth() === first.getMonth();
         day = addDays(day, 1)
     ) {
-        row.push({ key: dayKey(day), label: monthDay(day) });
+        row.push({ key: dayKey(day), label: monthDay(day), date: day });
         if (row.length === 7) {
             rows.push(row);
             row = [];
@@ -166,10 +174,10 @@ function yearMonths(janFirst: Date): HeatmapGrid {
 
 /** January to December of `year`, each keyed by its 1st. */
 function monthRow(year: number): LayoutCell[] {
-    return MONTHS_SHORT.map((month, i) => ({
-        key: dayKey(new Date(year, i, 1)),
-        label: `${month} ${year}`,
-    }));
+    return MONTHS_SHORT.map((month, i) => {
+        const first = new Date(year, i, 1);
+        return { key: dayKey(first), label: `${month} ${year}`, date: first };
+    });
 }
 
 /** One row per year, oldest first, January to December across. */
