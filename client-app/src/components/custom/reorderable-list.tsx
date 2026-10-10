@@ -1,4 +1,4 @@
-import { type ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { View, type StyleProp, type ViewStyle } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
@@ -50,6 +50,11 @@ type ReorderableListProps<T> = {
  * A drag begins on a long press, which leaves short drags to the scroll view.
  * Near either edge the list scrolls itself, otherwise a queue longer than the
  * screen could only be reordered within one screenful.
+ *
+ * On drop the new order is applied on the UI thread first, through `slots`,
+ * and the dropped row springs into its slot from where it was let go. The
+ * caller's reorder lands a moment later and agrees with what is already on
+ * screen, so nothing snaps back to the old order in between.
  */
 export function ReorderableList<T>({
     data,
@@ -78,9 +83,26 @@ export function ReorderableList<T>({
     const autoScrolled = useSharedValue(0);
     /** Where the finger is inside the viewport, for the edge test. */
     const fingerViewportY = useSharedValue(0);
+    /** Each row's slot by key, ahead of `data` between a drop and its reorder. */
+    const slots = useSharedValue<Record<string, number>>({});
+    /** True from a drag's start until its drop has settled. */
+    const moving = useSharedValue(false);
+    /** The row settling into its slot after a drop, and how far it has to go. */
+    const droppedKey = useSharedValue("");
+    const dropOffset = useSharedValue(0);
 
     const rowCount = data.length;
     const contentHeight = rowCount * itemHeight;
+    const keys = data.map(keyExtractor);
+    const keyList = keys.join("\n");
+
+    // follow the caller's order. after a drop this only confirms the slots the
+    // UI thread already moved to
+    useEffect(() => {
+        slots.set(
+            Object.fromEntries(keyList.split("\n").map((key, i) => [key, i])),
+        );
+    }, [keyList, slots]);
 
     const onScroll = useAnimatedScrollHandler((event) => {
         scrollY.set(event.contentOffset.y);
@@ -142,7 +164,8 @@ export function ReorderableList<T>({
                 <View style={{ height: contentHeight }}>
                     {data.map((item, index) => (
                         <ReorderableRow
-                            key={keyExtractor(item, index)}
+                            key={keys[index]}
+                            rowKey={keys[index]}
                             index={index}
                             rowCount={rowCount}
                             itemHeight={itemHeight}
@@ -153,6 +176,10 @@ export function ReorderableList<T>({
                             autoScrolled={autoScrolled}
                             fingerViewportY={fingerViewportY}
                             scrollY={scrollY}
+                            slots={slots}
+                            moving={moving}
+                            droppedKey={droppedKey}
+                            dropOffset={dropOffset}
                             setAutoScrollActive={autoScroll.setActive}
                             onCommit={commitReorder}
                             render={renderItem}
@@ -168,6 +195,7 @@ export function ReorderableList<T>({
 
 function ReorderableRow<T>({
     item,
+    rowKey,
     index,
     rowCount,
     itemHeight,
@@ -178,11 +206,16 @@ function ReorderableRow<T>({
     autoScrolled,
     fingerViewportY,
     scrollY,
+    slots,
+    moving,
+    droppedKey,
+    dropOffset,
     setAutoScrollActive,
     onCommit,
     render,
 }: {
     item: T;
+    rowKey: string;
     index: number;
     rowCount: number;
     itemHeight: number;
@@ -193,6 +226,10 @@ function ReorderableRow<T>({
     autoScrolled: SharedValue<number>;
     fingerViewportY: SharedValue<number>;
     scrollY: SharedValue<number>;
+    slots: SharedValue<Record<string, number>>;
+    moving: SharedValue<boolean>;
+    droppedKey: SharedValue<string>;
+    dropOffset: SharedValue<number>;
     setAutoScrollActive: (active: boolean) => void;
     onCommit: (from: number, to: number) => void;
     render: (info: { item: T; index: number }) => ReactNode;
@@ -203,8 +240,13 @@ function ReorderableRow<T>({
         // row put behind it.
         .failOffsetX([-20, 20])
         .onStart(() => {
-            activeIndex.set(index);
-            targetIndex.set(index);
+            // the slot, not the render index: a drop's reorder may not have
+            // re-rendered this row yet
+            const slot = slots.get()[rowKey] ?? index;
+            moving.set(true);
+            droppedKey.set("");
+            activeIndex.set(slot);
+            targetIndex.set(slot);
             fingerOffset.set(0);
             autoScrolled.set(0);
             dragOffset.set(0);
@@ -213,7 +255,9 @@ function ReorderableRow<T>({
         .onUpdate((event) => {
             fingerOffset.set(event.translationY);
             fingerViewportY.set(
-                index * itemHeight + event.translationY - scrollY.get(),
+                activeIndex.get() * itemHeight +
+                    event.translationY -
+                    scrollY.get(),
             );
             dragOffset.set(event.translationY + autoScrolled.get());
             targetIndex.set(
@@ -221,10 +265,30 @@ function ReorderableRow<T>({
             );
         })
         .onEnd(() => {
-            runOnJS(onCommit)(index, targetIndex.get());
+            const from = activeIndex.get();
+            const to = targetIndex.get();
+            // move to the new order here, before the caller's reorder renders
+            slots.set(moveSlot(slots.get(), from, to));
+            // and settle from where the finger let go into the new slot
+            droppedKey.set(rowKey);
+            dropOffset.set((from - to) * itemHeight + dragOffset.get());
+            dropOffset.set(
+                withSpring(0, SETTLE_SPRING, (finished) => {
+                    if (!finished || droppedKey.get() !== rowKey) return;
+                    droppedKey.set("");
+                    moving.set(false);
+                }),
+            );
+            // the slot the drag held now belongs to a neighbour, so the drag
+            // ends here rather than in onFinalize
+            activeIndex.set(-1);
+            targetIndex.set(-1);
+            runOnJS(onCommit)(from, to);
         })
-        .onFinalize(() => {
+        .onFinalize((_event, success) => {
             runOnJS(setAutoScrollActive)(false);
+            // a drag that never dropped has nothing to settle
+            if (!success && droppedKey.get() === "") moving.set(false);
             activeIndex.set(-1);
             targetIndex.set(-1);
             dragOffset.set(0);
@@ -235,10 +299,15 @@ function ReorderableRow<T>({
     const rowStyle = useAnimatedStyle(() => {
         const active = activeIndex.get();
         const target = targetIndex.get();
+        // while a drag runs or settles the UI thread's slots lead; otherwise
+        // the render index is the truth
+        const inMotion = moving.get();
+        const slot = inMotion ? (slots.get()[rowKey] ?? index) : index;
+        const base = slot * itemHeight;
 
-        if (active === index) {
+        if (active >= 0 && active === slot) {
             return {
-                transform: [{ translateY: dragOffset.get() }],
+                transform: [{ translateY: base + dragOffset.get() }],
                 zIndex: 2,
                 shadowOpacity: 0.25,
                 shadowRadius: 12,
@@ -246,19 +315,35 @@ function ReorderableRow<T>({
             };
         }
 
+        if (droppedKey.get() === rowKey) {
+            return {
+                transform: [{ translateY: base + dropOffset.get() }],
+                zIndex: 2,
+                shadowOpacity: 0,
+            };
+        }
+
         // Everything the dragged row passed over steps one slot the other way,
-        // which is what makes the gap follow the finger.
+        // which is what makes the gap follow the finger. The spring aims at
+        // the absolute spot, so a drop that renumbers the slots keeps the
+        // same target and the row carries straight on.
         let shift = 0;
         if (active >= 0) {
-            if (active < target && index > active && index <= target) {
+            if (active < target && slot > active && slot <= target) {
                 shift = -itemHeight;
-            } else if (active > target && index < active && index >= target) {
+            } else if (active > target && slot < active && slot >= target) {
                 shift = itemHeight;
             }
         }
 
         return {
-            transform: [{ translateY: withSpring(shift, SETTLE_SPRING) }],
+            transform: [
+                {
+                    translateY: inMotion
+                        ? withSpring(base + shift, SETTLE_SPRING)
+                        : base,
+                },
+            ],
             zIndex: 1,
             shadowOpacity: 0,
         };
@@ -272,7 +357,7 @@ function ReorderableRow<T>({
                         position: "absolute",
                         left: 0,
                         right: 0,
-                        top: index * itemHeight,
+                        top: 0,
                         height: itemHeight,
                     },
                     rowStyle,
@@ -297,4 +382,23 @@ function landingIndex(
 
     const slots = Math.round(dragOffset.get() / itemHeight);
     return Math.max(0, Math.min(active + slots, rowCount - 1));
+}
+
+/** Slots with the row at `from` moved to `to`, and the rows between shifted. */
+function moveSlot(
+    slots: Record<string, number>,
+    from: number,
+    to: number,
+): Record<string, number> {
+    "worklet";
+    if (from === to) return slots;
+    const next: Record<string, number> = {};
+    for (const key of Object.keys(slots)) {
+        const slot = slots[key];
+        if (slot === from) next[key] = to;
+        else if (from < to && slot > from && slot <= to) next[key] = slot - 1;
+        else if (from > to && slot >= to && slot < from) next[key] = slot + 1;
+        else next[key] = slot;
+    }
+    return next;
 }
