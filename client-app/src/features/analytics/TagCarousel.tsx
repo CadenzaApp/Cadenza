@@ -1,22 +1,15 @@
-import MaskedView from "@react-native-masked-view/masked-view";
-import { LinearGradient } from "expo-linear-gradient";
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import {
-    Pressable,
-    StyleSheet,
-    View,
-    type GestureResponderEvent,
-} from "react-native";
+import { useEffect, useState } from "react";
+import { Pressable, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
-    Easing,
+    FadeIn,
+    FadeOut,
     LinearTransition,
     runOnJS,
     useAnimatedReaction,
     useAnimatedStyle,
     useFrameCallback,
     useSharedValue,
-    withTiming,
 } from "react-native-reanimated";
 
 import { TagPill } from "@/components/custom/tag-pill";
@@ -33,21 +26,10 @@ const ITEM_GAP = 8;
 const HEIGHT = 28;
 /** The pill's size unit, its font size; it fits inside `HEIGHT`. */
 const PILL_HEIGHT = 12;
-/** How far past the pinned tag the row takes to fade in from nothing. */
-const FADE = 36;
-/** A tag sliding to the pin. */
-const MOVE_MS = 560;
-/** The row closing or opening a gap: a little quicker, so it is ready first. */
+/** A chip fading out of the row or into it, and the selected tag's fade. */
+export const CHIP_FADE_MS = 300;
+/** The row closing or opening a gap. */
 const GAP_MS = 420;
-/**
- * A tag leaving the pin: how long it takes to blend away, and how far left it
- * slides when replaced. Let go, it travels with the fade zone instead.
- */
-const LEAVE_MS = 525;
-const LEAVE_DISTANCE = 40;
-/** A tag appearing at the pin without a slide. */
-const APPEAR_MS = 260;
-const EASE = Easing.inOut(Easing.cubic);
 
 /** `x` wrapped into (-width, 0], so one copy's width loops back to the start. */
 function wrap(x: number, width: number): number {
@@ -64,31 +46,26 @@ type Props = {
     totalMs: number;
     /** False until the first read lands, so the empty state does not flash. */
     loaded: boolean;
-    /** Pinned at the left, out of the drifting row. Null for none. */
-    selected: TagListeningTime | null;
+    /** The tag shown elsewhere as the filter, left out of the row. */
+    selectedId: number | null;
     onSelect: (id: number) => void;
-    /** Lets go of the pinned tag, which drops back into the row. */
-    onRelease: () => void;
 };
 
 /**
- * Tags on their way to the back of the row. `waiting` have left the pin and
- * wait for the back to be off screen; `order` is every tag sent back so far,
+ * Tags on their way to the back of the row. `waiting` were let go and wait
+ * for the back to be off screen; `order` is every tag sent back so far,
  * oldest first, drawn after the rest.
  */
 type Back = { waiting: number[]; order: number[] };
 
 /**
- * The tags listened to in the shown span. The selected one is pinned at the
- * left and holds still; the rest drift behind it in a row that loops forever,
- * fading out as they pass under it rather than cutting off at its edge.
+ * The tags listened to in the shown span, in a row that drifts left and loops
+ * forever. Tapping a tag selects it: it fades out of the row and the row
+ * closes the gap. The selected tag is drawn by the caller, not here.
  *
- * Tapping a drifting tag takes it out of the row and slides it to the pin
- * while the row, still drifting, closes the gap behind it. A tag that leaves the pin, let go or replaced, slides a little left
- * and blends away, and the fade at the left holds until nothing is left at
- * the pin. It never goes back to its old slot, which may be on screen: it
+ * A tag let go never goes back to its old slot, which may be on screen. It
  * joins the back of the row once the back has drifted out of sight, so
- * nothing visible moves. Nothing ever trades places.
+ * nothing visible moves.
  *
  * The row stays mounted through every state, empty included, so a new span
  * swaps its chips in place and the drift carries on where it was.
@@ -97,35 +74,26 @@ export function TagCarousel({
     tags,
     totalMs,
     loaded,
-    selected,
+    selectedId,
     onSelect,
-    onRelease,
 }: Props) {
-    const box = useRef<View>(null);
-    const [width, setWidth] = useState(0);
-    const [pinnedWidth, setPinnedWidth] = useState(0);
-    // where the pinned tag slides in from, while that pin is moving
-    const [pinFrom, setPinFrom] = useState<{ id: number; x: number } | null>(
-        null,
-    );
-    const [leaving, setLeaving] = useState<TagListeningTime[]>([]);
     const [back, setBack] = useState<Back>({ waiting: [], order: [] });
 
-    // a pin that changes sends the old one off. set during render, so the row
-    // and the overlays switch in the same frame
-    const [shownPin, setShownPin] = useState(selected);
-    if (selected?.id !== shownPin?.id) {
-        setShownPin(selected);
-        // a pin cut off mid slide never reports landing, so drop its start
-        // here, or a later pin of the same tag would slide in from it
-        if (pinFrom && pinFrom.id !== selected?.id) setPinFrom(null);
-        if (shownPin) {
-            setLeaving((list) => [
-                ...list.filter(
-                    (tag) => tag.id !== shownPin.id && tag.id !== selected?.id,
-                ),
-                shownPin,
-            ]);
+    // a tag let go waits for the back. set during render, so the row never
+    // draws it in its old slot even for a frame
+    const [shownId, setShownId] = useState(selectedId);
+    if (selectedId !== shownId) {
+        setShownId(selectedId);
+        if (shownId != null) {
+            setBack(({ waiting, order }) => ({
+                waiting: [
+                    ...waiting.filter(
+                        (id) => id !== shownId && id !== selectedId,
+                    ),
+                    shownId,
+                ],
+                order,
+            }));
         }
     }
 
@@ -135,28 +103,11 @@ export function TagCarousel({
         ...tags.filter((tag) => !sentBack.has(tag.id)),
         ...back.order.flatMap((id) => tags.filter((tag) => tag.id === id)),
     ];
-    // out of the row while pinned, leaving, or waiting for the back
-    const away = new Set([...leaving.map((tag) => tag.id), ...back.waiting]);
+    const waiting = new Set(back.waiting);
     const drifting = ordered.filter(
-        (tag) => tag.id !== selected?.id && !away.has(tag.id),
+        (tag) => tag.id !== selectedId && !waiting.has(tag.id),
     );
 
-    const pin = (id: number, chipPageX: number) => {
-        const view = box.current;
-        if (!view) return onSelect(id);
-        view.measureInWindow((boxX) => {
-            setPinFrom({ id, x: Math.max(0, chipPageX - boxX) });
-            onSelect(id);
-        });
-    };
-    // blended away: now it waits for the back of the row to be off screen
-    const gone = (id: number) => {
-        setLeaving((list) => list.filter((tag) => tag.id !== id));
-        setBack(({ waiting, order }) => ({
-            waiting: [...waiting.filter((each) => each !== id), id],
-            order,
-        }));
-    };
     // the back is off screen, so the waiting tags join it unseen
     const sendBack = () =>
         setBack((state) =>
@@ -173,93 +124,16 @@ export function TagCarousel({
                   },
         );
 
-    // the fade zone is a strip, clear under the pin then easing to solid,
-    // slid left by its own width when there is no pin. let go, it slides out
-    // with the tag, so the two leave together and the row shows all at once
-    const zone = pinnedWidth + FADE;
-    const releasing = selected == null && leaving.length > 0;
-    const zoneX = useSharedValue(-zone);
-    useEffect(() => {
-        if (selected) zoneX.set(0);
-        else if (releasing) {
-            zoneX.set(withTiming(-zone, { duration: LEAVE_MS, easing: EASE }));
-        } else zoneX.set(-zone);
-    }, [releasing, selected, zone, zoneX]);
-    const zoneStyle = useAnimatedStyle(() => ({
-        transform: [{ translateX: zoneX.get() }],
-    }));
-    const mask = (
-        <Animated.View
-            className="absolute bottom-0 left-0 top-0 flex-row"
-            style={[{ width: width + zone }, zoneStyle]}
-        >
-            <View style={{ width: pinnedWidth }} />
-            <LinearGradient
-                style={{ width: FADE }}
-                colors={["transparent", "black"]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-            />
-            <View className="flex-1" style={{ backgroundColor: "black" }} />
-        </Animated.View>
-    );
-
     return (
-        <View
-            ref={box}
-            className="overflow-hidden"
-            style={{ height: HEIGHT }}
-            onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
-        >
-            <MaskedView style={StyleSheet.absoluteFill} maskElement={mask}>
-                <DriftingRow
-                    tags={drifting}
-                    waiting={back.waiting.length > 0}
-                    totalMs={totalMs}
-                    onSelect={pin}
-                    onBackHidden={sendBack}
-                />
-            </MaskedView>
-
-            {/* under the new pin, so a replacement slides in over it */}
-            {leaving.map((tag) => (
-                <Moving
-                    key={`leave:${tag.id}`}
-                    mode="leave"
-                    // replaced: a short hop under the new pin. let go: the
-                    // whole way out, alongside the fade zone
-                    distance={selected ? LEAVE_DISTANCE : zone}
-                    onDone={() => gone(tag.id)}
-                >
-                    <TagChip tag={tag} totalMs={totalMs} selected />
-                </Moving>
-            ))}
-
-            {/* one component for the pin's whole life, keyed by tag: how it
-                enters is read once at mount, so landing never remounts it */}
-            {selected ? (
-                <Moving
-                    key={`pin:${selected.id}`}
-                    from={pinFrom?.id === selected.id ? pinFrom.x : 0}
-                    // pinned some other way, like a span without the tag
-                    mode={pinFrom?.id === selected.id ? "slide" : "appear"}
-                    onDone={() =>
-                        setPinFrom((from) =>
-                            from?.id === selected.id ? null : from,
-                        )
-                    }
-                    onWidth={setPinnedWidth}
-                >
-                    <TagChip
-                        tag={selected}
-                        totalMs={totalMs}
-                        selected
-                        onPress={onRelease}
-                    />
-                </Moving>
-            ) : null}
-
-            {loaded && tags.length === 0 && !selected ? (
+        <View style={{ height: HEIGHT }}>
+            <DriftingRow
+                tags={drifting}
+                waiting={back.waiting.length > 0}
+                totalMs={totalMs}
+                onSelect={onSelect}
+                onBackHidden={sendBack}
+            />
+            {loaded && tags.length === 0 ? (
                 <View
                     pointerEvents="none"
                     className="absolute inset-0 justify-center"
@@ -274,79 +148,13 @@ export function TagCarousel({
 }
 
 /**
- * A chip at the pin that got there, or is going, one of three ways: `slide`
- * in from `from` points right of it, `appear` in place, or `leave`, sliding
- * `distance` points left as it blends away. Calls `onDone` once it finishes.
- *
- * The mode is read once, at mount. Later props are ignored, so a parent can
- * drop its in-flight state on landing without a remount. Keyed by tag, so
- * each move starts fresh.
- */
-function Moving({
-    from = 0,
-    distance = LEAVE_DISTANCE,
-    mode,
-    onDone,
-    onWidth,
-    children,
-}: {
-    from?: number;
-    distance?: number;
-    mode: "slide" | "appear" | "leave";
-    onDone: () => void;
-    onWidth?: (width: number) => void;
-    children: ReactNode;
-}) {
-    const x = useSharedValue(mode === "slide" ? from : 0);
-    const opacity = useSharedValue(mode === "appear" ? 0 : 1);
-
-    useEffect(() => {
-        const finish = (finished?: boolean) => {
-            "worklet";
-            if (finished) runOnJS(onDone)();
-        };
-        if (mode === "slide") {
-            x.set(withTiming(0, { duration: MOVE_MS, easing: EASE }, finish));
-        } else if (mode === "appear") {
-            opacity.set(withTiming(1, { duration: APPEAR_MS }, finish));
-        } else {
-            const leave = { duration: LEAVE_MS, easing: EASE };
-            x.set(withTiming(-distance, leave));
-            opacity.set(withTiming(0, leave, finish));
-        }
-        // once per move: a new move is a new key, not new props
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
-
-    const style = useAnimatedStyle(() => ({
-        transform: [{ translateX: x.get() }],
-        opacity: opacity.get(),
-    }));
-
-    return (
-        <Animated.View
-            className="absolute left-0 top-0 h-full"
-            style={style}
-            pointerEvents={mode === "leave" ? "none" : "auto"}
-            onLayout={
-                onWidth
-                    ? (event) => onWidth(event.nativeEvent.layout.width)
-                    : undefined
-            }
-        >
-            {children}
-        </Animated.View>
-    );
-}
-
-/**
  * Tags in one row that drifts left forever. A swipe drags it and a fling
  * carries on, then eases back to the drift. A row that fits sits still.
  *
  * The loop is copies of the row side by side, enough to cover the box, moved
  * by one copy's width at most and wrapped, so the seam never shows. Only the
- * first copy is read by a screen reader. Chips slide when one leaves or comes
- * back, so a gap closes or opens rather than jumping.
+ * first copy is read by a screen reader. A chip fades as it leaves or joins,
+ * and the rest slide to close or open its gap.
  */
 function DriftingRow({
     tags,
@@ -359,8 +167,7 @@ function DriftingRow({
     /** A tag waits to join the back, so watch for the back to leave sight. */
     waiting: boolean;
     totalMs: number;
-    /** With the tapped chip's left edge, in window points. */
-    onSelect: (id: number, chipPageX: number) => void;
+    onSelect: (id: number) => void;
     /**
      * The end of the row is off screen, so a chip added there moves nothing
      * the user can see. Called each time it goes out of sight while waiting.
@@ -460,14 +267,13 @@ function DriftingRow({
                                 <Animated.View
                                     key={tag.id}
                                     layout={LinearTransition.duration(GAP_MS)}
+                                    entering={FadeIn.duration(CHIP_FADE_MS)}
+                                    exiting={FadeOut.duration(CHIP_FADE_MS)}
                                 >
-                                    <TagChip
+                                    <TagShareChip
                                         tag={tag}
                                         totalMs={totalMs}
-                                        selected={false}
-                                        onPress={(event) =>
-                                            onSelect(tag.id, chipLeft(event))
-                                        }
+                                        onPress={() => onSelect(tag.id)}
                                     />
                                 </Animated.View>
                             ))}
@@ -480,27 +286,25 @@ function DriftingRow({
 }
 
 /**
- * One tag, drawn as the app's tag pill with its share as the count. Pinned is
- * solid, drifting is outline, the same way chosen and available tags read
- * everywhere else. Both keep the same width, so pinning never shifts the row.
- * With no `onPress` it is only a picture of a tag, for one on its way out.
+ * One tag, drawn as the app's tag pill with its share of the span as the
+ * count. Outline in the row, solid where it is the selected filter, the same
+ * way available and chosen tags read everywhere else.
  */
-function TagChip({
+export function TagShareChip({
     tag,
     totalMs,
-    selected,
+    selected = false,
     onPress,
 }: {
     tag: TagListeningTime;
     totalMs: number;
-    selected: boolean;
-    onPress?: (event: GestureResponderEvent) => void;
+    selected?: boolean;
+    onPress: () => void;
 }) {
     const percent = sharePercent(shareOf(tag.listening_ms, totalMs));
     return (
         <Pressable
             onPress={onPress}
-            disabled={!onPress}
             accessibilityRole="button"
             accessibilityLabel={`${tag.name}, ${percent}% of listening time`}
             accessibilityHint={
@@ -508,7 +312,7 @@ function TagChip({
             }
             accessibilityState={{ selected }}
             className="h-full justify-center active:opacity-60"
-            style={{ marginRight: ITEM_GAP }}
+            style={selected ? undefined : { marginRight: ITEM_GAP }}
         >
             <TagPill
                 tag={tag}
@@ -518,9 +322,4 @@ function TagChip({
             />
         </Pressable>
     );
-}
-
-/** The left edge of the chip a touch landed in, in window points. */
-function chipLeft(event: GestureResponderEvent): number {
-    return event.nativeEvent.pageX - event.nativeEvent.locationX;
 }

@@ -49,7 +49,7 @@ it, since their period bar sits fixed above the list. Every page pads the bottom
 | `HeroCarousel.tsx`            | The period's top three songs as a fan of covers. Swipe or tap to pick one; Play starts the top songs from it.                                                                         |
 | `StatsStrip.tsx`              | A few headline numbers with icons on one card. Takes its stats as data.                                                                                                               |
 | `Heatmap.tsx`                 | When the user listens, by listening time. Tap to pick, again to let go, double tap or "Open" to go one grain down, back arrow up. At a day, the button opens the picked hour's songs. |
-| `TagCarousel.tsx`             | The level's tags as a drifting row under the grid, and the heatmap's tag filter. Tap one to pin it, again to let go.                                                                  |
+| `TagCarousel.tsx`             | The span's tags as a drifting row under the grid, and the heatmap's tag filter. A tapped tag fades out of the row; `TagShareChip` draws it.                                           |
 | `HeatmapGrid.tsx`             | Draws the fixed calendar or seven additive daily duration bars, with one accent.                                                                                                      |
 | `HeatmapDetail.tsx`           | The shown span in two lines: time listened and plays, or the tag's time and share when filtered.                                                                                      |
 | `ListeningSongs.tsx`          | The songs played in one hour, as a bottom sheet. "Show more" raises the read's limit, never pages.                                                                                    |
@@ -103,11 +103,14 @@ survives navigating into a detail page and back.
 - **A tag's share is of listening time, and shares overlap.** `/analytics/tag-shares` counts each
   listen in full toward every tag on its song, never split, so the carousel's percents can sum past
   100%. Only the user's own tags come back, never activity or suggested ones.
-- **The carousel is the tag filter.** Pinning a tag recolors the grid and legend in the tag's color.
-  It lists the picked span's tags, or the level's with nothing picked, unfiltered, so pinning a tag
-  never empties the row. The read keeps the last span's tags while the next loads and the row stays
-  mounted, so tapping around swaps chips in place. The pinned tag lives above the card and survives
-  period changes; a span without it still shows it pinned, at zero, never another tag.
+- **The carousel is the tag filter.** Selecting a tag recolors the grid and legend in the tag's
+  color, fades it out of the row, and fades it in across from the detail's date, where a tap lets it
+  go. It sits outside `HeatmapDetail`, which remounts per span, so picking a square never refades it.
+  The row lists the picked span's tags, or the level's with nothing picked, unfiltered. The read keeps
+  the last span's tags while the next loads and the row stays mounted, so tapping around swaps chips
+  in place. A tag let go joins the back of the row only once the back has drifted off screen, so
+  nothing visible shifts. The selection lives above the card and survives period changes; a span
+  without the tag still shows it, at zero, never another tag.
 - **Calendar and detail use `/analytics/listening`.** Its `total_ms` is unfiltered; `listening_ms`,
   plays and cells match the pinned tag, so the filtered detail shows the tag's share of all time.
 - **Songs open per hour, from a day.** The button stays disabled until an hour is picked, then

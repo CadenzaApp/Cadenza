@@ -3,8 +3,10 @@ import { useTheme } from "expo-router/react-navigation";
 import { useMemo, useRef, useState } from "react";
 import { Pressable, View } from "react-native";
 import Animated, {
+    FadeIn,
     FadeInLeft,
     FadeInRight,
+    FadeOut,
     ReduceMotion,
 } from "react-native-reanimated";
 
@@ -43,7 +45,7 @@ import {
     resolvePeriod,
     type ResolvedPeriod,
 } from "./range";
-import { TagCarousel } from "./TagCarousel";
+import { CHIP_FADE_MS, TagCarousel, TagShareChip } from "./TagCarousel";
 import type { TagFilter } from "./tag-share";
 
 /**
@@ -55,6 +57,8 @@ const BOX_ASPECT = 0.8;
 const MAX_BOX = 340;
 const DRILL_MS = 220;
 const DOUBLE_TAP_MS = 300;
+/** The selected tag's box, about the date line it sits across from. */
+const PINNED_HEIGHT = 24;
 
 /** One level of the drill: its period and the span picked in it, if any. */
 type Level = { period: ResolvedPeriod; pick: HeatmapPick | null };
@@ -77,9 +81,10 @@ type Props = {
  * button, opens it one grain down, in place. The back arrow walks back up,
  * never past `root`. At a day the button opens the picked hour's songs.
  *
- * The tag carousel under the grid is the filter: tapping a tag pins it, and
- * the grid, legend and detail show only listening to songs with it, in the
- * tag's color.
+ * The tag carousel under the grid is the filter: tapping a tag selects it,
+ * and the grid, legend and detail show only listening to songs with it, in
+ * the tag's color. The selected tag fades out of the row and in across from
+ * the detail's date; tapping it there lets it go.
  */
 export function Heatmap({ root, accent, tagChoice, onTagChoice }: Props) {
     const { now } = useAnalyticsPeriod();
@@ -171,7 +176,7 @@ export function Heatmap({ root, accent, tagChoice, onTagChoice }: Props) {
                 type: tag.type,
             });
     };
-    // a pinned tag this level lacks still shows, at zero
+    // a selected tag this span lacks still shows, at zero
     const pinned: TagListeningTime | null = tagChoice
         ? (tags.find((each) => each.id === tagChoice.id) ?? {
               ...tagChoice,
@@ -250,19 +255,40 @@ export function Heatmap({ root, accent, tagChoice, onTagChoice }: Props) {
                 tags={tags}
                 totalMs={tagShares?.total_ms ?? 0}
                 loaded={!!tagShares}
-                selected={pinned}
+                selectedId={tagChoice?.id ?? null}
                 onSelect={pinTag}
-                onRelease={() => onTagChoice(null)}
             />
             <View className="h-px bg-border" />
-            {/* keyed by span, so it keeps its numbers only across a tag change */}
-            <HeatmapDetail
-                key={`${shown.since}:${shown.until}`}
-                label={pick?.label ?? scope.dateLabel}
-                bucket={scope.heatmapBucket}
-                window={shown}
-                tag={tagChoice}
-            />
+            <View>
+                {/* keyed by span, so it keeps its numbers only across a tag
+                    change */}
+                <HeatmapDetail
+                    key={`${shown.since}:${shown.until}`}
+                    label={pick?.label ?? scope.dateLabel}
+                    bucket={scope.heatmapBucket}
+                    window={shown}
+                    tag={tagChoice}
+                />
+                {/* the selected tag, across from the date. outside the detail,
+                    which remounts per span, so picking a square never refades
+                    it. keyed by tag, so a new one crossfades in */}
+                {pinned ? (
+                    <Animated.View
+                        key={pinned.id}
+                        className="absolute right-0 top-0"
+                        style={{ height: PINNED_HEIGHT }}
+                        entering={FadeIn.duration(CHIP_FADE_MS)}
+                        exiting={FadeOut.duration(CHIP_FADE_MS)}
+                    >
+                        <TagShareChip
+                            tag={pinned}
+                            totalMs={tagShares?.total_ms ?? 0}
+                            selected
+                            onPress={() => onTagChoice(null)}
+                        />
+                    </Animated.View>
+                ) : null}
+            </View>
 
             {/* outside the sliding level: glass mounted mid fade stays flat
                 until something redraws it */}
