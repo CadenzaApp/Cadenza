@@ -128,7 +128,7 @@ function dayHours(day: Date): HeatmapGrid {
     };
 }
 
-/** Monday to Sunday, one tall square a day, each named with its date. */
+/** Monday to Sunday, one square a day, each named with its date. */
 function weekDays(monday: Date): HeatmapGrid {
     const row = WEEKDAYS_SHORT.map((weekday, i) => {
         const day = addDays(monday, i);
@@ -139,7 +139,7 @@ function weekDays(monday: Date): HeatmapGrid {
             date: day,
         };
     });
-    return { rows: [row], rowLabels: [null], colLabels: [] };
+    return { rows: [row], rowLabels: [null], colLabels: [], square: true };
 }
 
 /** A calendar: Monday to Sunday across, one row per week, each day numbered. */

@@ -36,6 +36,8 @@ import {
 } from "./range";
 import { SectionHeading } from "./SectionHeading";
 
+/** What is printed inside a square: a month's name, a day's date. */
+const CELL_TEXT_COLOR = "#d4d4d4";
 /** Plays that carried none of the user's tags. */
 const UNTAGGED_COLOR = "#a3a3a3";
 /** Opacity per heat level. Index 0 is never drawn with a color. */
@@ -450,10 +452,7 @@ function Square({
             />
             {slot.text ? (
                 <View style={styles.textLayer} pointerEvents="none">
-                    <RNText
-                        style={[styles.text, { color: textColor }]}
-                        numberOfLines={2}
-                    >
+                    <RNText style={styles.text} numberOfLines={2}>
                         {slot.text}
                     </RNText>
                 </View>
@@ -532,5 +531,10 @@ const styles = StyleSheet.create({
         alignItems: "center",
         justifyContent: "center",
     },
-    text: { fontSize: 11, fontWeight: "600", textAlign: "center" },
+    text: {
+        color: CELL_TEXT_COLOR,
+        fontSize: 11,
+        fontWeight: "600",
+        textAlign: "center",
+    },
 });

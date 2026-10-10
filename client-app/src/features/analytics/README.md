@@ -95,7 +95,7 @@ survives navigating into a detail page and back.
   tapped), a week's day. The card holds a stack of `ResolvedPeriod`s over the page's period and
   fetches its own heatmap for the top one, so back never goes above the page's period. A future
   square does not open. The card never changes size: every level stretches to fill one grid box
-  sized off the card's width, and the lines under it have fixed heights. All time and day keep square
+  sized off the card's width, and the lines under it have fixed heights. All time, week and day keep square
   cells and center them, so few rows do not stretch into stripes. A level that is loading shows a
   skeleton, never the last level's cells: the heatmap read does not keep previous data, since a
   month and its week share a bucket. Taps are dropped while a level slides in, so a double tap
