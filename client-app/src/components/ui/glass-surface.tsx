@@ -19,6 +19,7 @@ import {
 } from "react-native";
 
 import { cn } from "@/lib/utils";
+import { useZoomOpened } from "@/lib/zoom-dismiss";
 
 /**
  * How solid the surface reads. `regular` is the default for bars that sit over
@@ -98,6 +99,7 @@ export function GlassSurface({
     const { colorScheme } = useColorScheme();
     const scheme = colorScheme === "dark" ? "dark" : "light";
     const blurTarget = useContext(BlurTargetContext);
+    const zoomOpened = useZoomOpened();
 
     if (Platform.OS === "web") {
         return (
@@ -111,6 +113,10 @@ export function GlassSurface({
     if (isLiquidGlassAvailable()) {
         return (
             <GlassView
+                // glass created under a see through parent stays flat, and a
+                // zoom card's page fades in as it opens; built again once the
+                // card has opened, it renders as glass
+                key={zoomOpened === false ? "opening" : "settled"}
                 glassEffectStyle={variant}
                 colorScheme={scheme}
                 tintColor={tintColor}

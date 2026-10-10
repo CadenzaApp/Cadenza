@@ -1,11 +1,11 @@
 /** Pull distance that commits a pushed screen dismissal. */
-export const ZOOM_DISMISS_PULL = 110;
+export const ZOOM_DISMISS_PULL = 70;
 /** Full close duration when no interactive progress has already been made. */
 export const ZOOM_CLOSE_DURATION = 280;
 /** Open duration from the recorded artwork to the full screen. */
 export const ZOOM_OPEN_DURATION = 320;
 
-const PULL_PROGRESS_PER_POINT = 0.002;
+const PULL_PROGRESS_PER_POINT = 0.003;
 const MAX_INTERACTIVE_PROGRESS = 0.96;
 const MIN_CLOSE_DURATION = 16;
 const FALLBACK_SCALE = 0.7;
@@ -117,8 +117,10 @@ export function zoomFrame(
     progress: number,
 ): ZoomFrame {
     "worklet";
-    // eased by the timing that drives it, so linear here
-    const p = Math.min(Math.max(progress, 0), 1);
+    // most of the shrink comes early, while the page is still fading, so the
+    // close reads as the card pulling away rather than drifting
+    const linear = Math.min(Math.max(progress, 0), 1);
+    const p = 1 - (1 - linear) * (1 - linear);
     const target = origin ?? centeredSquare(viewportWidth, viewportHeight);
     const art = visibleFocus(viewportWidth, viewportHeight, focus);
 

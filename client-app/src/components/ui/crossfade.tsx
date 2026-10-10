@@ -26,6 +26,12 @@ type CrossfadeProps<T> = {
      * that the two together stay as opaque as one.
      */
     alpha?: number;
+    /**
+     * Whether the first value fades in over nothing. Off, it appears at once
+     * and only later changes fade. For a layer drawn over another that fades
+     * the same way: both half see through at once let the bottom one show.
+     */
+    fadeFromNothing?: boolean;
 };
 
 /**
@@ -44,8 +50,16 @@ export function Crossfade<T>({
     render,
     initial = null,
     alpha = 1,
+    fadeFromNothing = true,
 }: CrossfadeProps<T>) {
-    const [settled, setSettled] = useState<T | null>(initial);
+    const [settled, setSettled] = useState<T | null>(
+        initial ?? (fadeFromNothing ? null : value),
+    );
+    // the first value after nothing lands straight away, set during render so
+    // it never draws a frame faded
+    if (!fadeFromNothing && settled === null && value !== null) {
+        setSettled(value);
+    }
     const key = value === null ? null : keyOf(value);
     const settledKey = settled === null ? null : keyOf(settled);
     const fading = key !== settledKey;

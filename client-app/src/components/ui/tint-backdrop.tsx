@@ -57,6 +57,9 @@ export function TintBackdrop({ gradient }: TintBackdropProps) {
             <Crossfade
                 value={gradient}
                 keyOf={tintKey}
+                // the gradient and the overscroll color under it both appear at
+                // once; fading in together let the two tone underlay show through
+                fadeFromNothing={false}
                 render={(shown) => (
                     <StretchedGradient gradient={shown} height={height} />
                 )}
@@ -103,6 +106,9 @@ export function TintOverscrollBackdrop({
         <Crossfade
             value={gradient}
             keyOf={tintKey}
+            // the gradient and the overscroll color under it both appear at
+            // once; fading in together let the two tone underlay show through
+            fadeFromNothing={false}
             render={(shown) => (
                 <>
                     <View

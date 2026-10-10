@@ -53,6 +53,16 @@ test("corners ease to the tile's radius and survive the scale", () => {
     assertApprox(zoomFrame(W, H, row, ART, 1).visibleRadius, 13.44);
 });
 
+test("most of the shrink happens early, while the page fades", () => {
+    const end = zoomFrame(W, H, TILE, ART, 1);
+    const early = zoomFrame(W, H, TILE, ART, ZOOM_PAGE_FADE_SHARE);
+    const shrunk = (1 - early.scale) / (1 - end.scale);
+    assert.ok(
+        shrunk > 0.5,
+        `only ${shrunk} of the shrink by the end of the fade`,
+    );
+});
+
 test("the page fades out early, leaving the artwork", () => {
     assert.equal(zoomPageOpacity(0), 1);
     assertApprox(zoomPageOpacity(ZOOM_PAGE_FADE_SHARE / 2), 0.5);
@@ -62,13 +72,13 @@ test("the page fades out early, leaving the artwork", () => {
 
 test("pull progress continues beyond the dismissal threshold", () => {
     assert.equal(zoomProgressForScrollOffset(20), 0);
-    assert.equal(zoomProgressForScrollOffset(-55), 0.11);
-    assert.equal(zoomProgressForScrollOffset(-110), 0.22);
-    assert.equal(zoomProgressForScrollOffset(-220), 0.44);
+    assertApprox(zoomProgressForScrollOffset(-50), 0.15);
+    assertApprox(zoomProgressForScrollOffset(-100), 0.3);
+    assertApprox(zoomProgressForScrollOffset(-200), 0.6);
     assert.equal(zoomProgressForScrollOffset(-1000), 0.96);
 
-    assert.equal(shouldDismissZoom(-109), false);
-    assert.equal(shouldDismissZoom(-110), true);
+    assert.equal(shouldDismissZoom(-69), false);
+    assert.equal(shouldDismissZoom(-70), true);
 });
 
 test("close duration only covers the remaining progress", () => {
