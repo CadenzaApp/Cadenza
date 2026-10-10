@@ -423,10 +423,11 @@ piece so the screen's artwork lands exactly on the tile it opened from. A screen
 card a copy of that artwork (`setArtwork`), which rides the same transform behind the page (anything layered over the page, even invisible,
 makes the glass buttons on it render flat); the page fades out over
 the first third and the copy stays, so the close reads as the artwork shrinking back into its tile,
-the way Music does it. The open runs the same frames backwards. A screen reports where its artwork
-is through `focus`, as it scrolls; `TrackCollectionView` measures its hero against the page with
-`measureLayout`, which ignores transforms, so the open already grows from it. The open waits up to
-150ms for that report and starts the moment it lands; a screen with no artwork opens at once.
+the way Music does it. The open is different on purpose (`zoomOpenFrame`): the whole page grows from the tile, opaque the
+whole way, and starts at once. Glass on a page that starts see-through renders flat and stays
+flat, so the page is never faded on the way in, only on the way out. A screen reports where its
+artwork is through `focus`, as it scrolls; `TrackCollectionView` measures its hero against the page
+with `measureLayout`, which ignores transforms, and the close snapshots it as it sets off.
 `opened` says when the card has finished growing, and `useOpenTransitionSettled` waits for it, since
 these screens have no native transition to wait for. An earlier version resized a clip every frame
 to collapse the page first, and the layout work made both directions stutter.

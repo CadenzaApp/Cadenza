@@ -21,7 +21,6 @@ import Animated, {
     Easing,
     makeMutable,
     runOnJS,
-    runOnUI,
     useAnimatedReaction,
     useAnimatedStyle,
     useSharedValue,
@@ -34,6 +33,7 @@ import {
     visibleFocus,
     zoomCloseDuration,
     zoomFrame,
+    zoomOpenFrame,
     zoomPageOpacity,
     ZOOM_OPEN_DURATION,
     type ZoomRect,
@@ -55,11 +55,6 @@ import {
 export type ZoomOrigin = ZoomRect;
 
 const ZOOM_EASING = Easing.bezier(0.32, 0.72, 0, 1);
-/**
- * How long the open waits for the screen to say where its artwork is. It
- * starts as soon as it knows; this only covers a screen that never reports.
- */
-const OPEN_WAIT_MS = 150;
 /** A measured source only belongs to the navigation immediately after it. */
 const LAUNCH_TICKET_MAX_AGE = 1500;
 
@@ -264,19 +259,13 @@ export function ZoomDismissScreen({
     // this, not `focus`, which moves on every scroll frame and would restyle
     // the whole card on each of them
     const movingFocus = useSharedValue<ZoomRect | null>(null);
-    // hidden until the open starts, so the tile underneath shows meanwhile
-    const cardVisible = useSharedValue(0);
+    const cardVisible = useSharedValue(1);
     const animationGeneration = useSharedValue(0);
-    const openStarted = useSharedValue(false);
+    // true until the card first reaches full size: the open and the close
+    // move differently
+    const opening = useSharedValue(true);
     const pageRef = useRef<RNView>(null);
-    const [artwork, setArtworkState] = useState<ZoomArtwork | null>(null);
-    // read in the mount effect, which runs after the screen's own effects
-    // have registered an artwork but before that state has rendered
-    const artworkRegistered = useRef(false);
-    const setArtwork = useCallback((next: ZoomArtwork | null) => {
-        artworkRegistered.current = next != null;
-        setArtworkState(next);
-    }, []);
+    const [artwork, setArtwork] = useState<ZoomArtwork | null>(null);
     const artworkWidth = useSharedValue(1);
     const hasArtwork = useSharedValue(false);
     const [opened, setOpened] = useState(false);
@@ -294,55 +283,34 @@ export function ZoomDismissScreen({
 
     // The open waits for the screen to report its artwork, so it grows from
     // the artwork rather than from a guess, and starts the moment it can.
-    const startOpen = useCallback(() => {
-        "worklet";
-        if (openStarted.get()) return;
-        openStarted.set(true);
-        cardVisible.set(1);
+    // grows from the tile at once, the page opaque the whole way
+    useEffect(() => {
         progress.set(
             withTiming(0, {
                 duration: ZOOM_OPEN_DURATION,
                 easing: ZOOM_EASING,
             }),
         );
-    }, [cardVisible, openStarted, progress]);
+    }, [progress]);
     // opened once it reaches full size, however it got there: the timing's
-    // own callback reports unfinished whenever anything else settles it
+    // own callback reports unfinished whenever anything else settles it.
+    // from here on every move is a close, which fades and lands the artwork
     useAnimatedReaction(
-        () => openStarted.get() && progress.get() === 0,
+        () => opening.get() && progress.get() === 0,
         (atRest, wasAtRest) => {
-            if (atRest && !wasAtRest) runOnJS(setOpened)(true);
+            if (!atRest || wasAtRest) return;
+            opening.set(false);
+            runOnJS(setOpened)(true);
         },
     );
-    useAnimatedReaction(
-        () => focus.get() !== null,
-        (ready) => {
-            if (ready) startOpen();
-        },
-    );
-    // snapshot the artwork whenever the card sets off from rest, or is still
-    // opening; the page does not scroll while the card moves
+    // snapshot the artwork whenever the card sets off from rest; the page
+    // does not scroll while the card moves
     useAnimatedReaction(
         () => progress.get() > 0,
         (moving, wasMoving) => {
             if (moving && !wasMoving) movingFocus.set(focus.get());
         },
     );
-    useAnimatedReaction(
-        () => focus.get(),
-        (next) => {
-            if (progress.get() > 0) movingFocus.set(next);
-        },
-    );
-    useEffect(() => {
-        // a screen with no artwork has nothing to report, so it opens now
-        if (!artworkRegistered.current) {
-            runOnUI(startOpen)();
-            return;
-        }
-        const timer = setTimeout(() => runOnUI(startOpen)(), OPEN_WAIT_MS);
-        return () => clearTimeout(timer);
-    }, [startOpen]);
 
     const pop = useCallback(() => {
         if (router.canGoBack()) {
@@ -418,16 +386,16 @@ export function ZoomDismissScreen({
     // and the copy is what reaches the tile.
     const pageStyle = useAnimatedStyle(() => {
         const p = progress.get();
-        const frame = zoomFrame(
-            width,
-            height,
-            origin.get(),
-            movingFocus.get(),
-            p,
-        );
+        const isOpening = opening.get();
+        const frame = isOpening
+            ? zoomOpenFrame(width, height, origin.get(), p)
+            : zoomFrame(width, height, origin.get(), movingFocus.get(), p);
         return {
+            // only a close fades the page, and only with an artwork copy to
+            // leave behind. the open never does: see `zoomOpenFrame`
             opacity:
-                cardVisible.get() * (hasArtwork.get() ? zoomPageOpacity(p) : 1),
+                cardVisible.get() *
+                (!isOpening && hasArtwork.get() ? zoomPageOpacity(p) : 1),
             borderRadius: frame.borderRadius,
             transform: [
                 { translateX: frame.translateX },
@@ -448,7 +416,8 @@ export function ZoomDismissScreen({
             p,
         );
         return {
-            opacity: cardVisible.get() * (p > 0.001 ? 1 : 0),
+            // only a close shows it, and only once the card has moved
+            opacity: cardVisible.get() * (!opening.get() && p > 0.001 ? 1 : 0),
             transform: [
                 { translateX: frame.translateX },
                 { translateY: frame.translateY },

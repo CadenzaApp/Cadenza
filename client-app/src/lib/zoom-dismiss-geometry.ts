@@ -92,6 +92,36 @@ export function visibleFocus(
         : { x: 0, y: 0, width: viewportWidth, height: viewportWidth };
 }
 
+/**
+ * The card on the way in, 1 sitting on the tile and 0 the full screen. The
+ * whole page grows from the tile, fully opaque the entire way, its top-left
+ * corner on the tile's and its width the tile's width. Nothing fades: glass on
+ * a page that starts see-through renders flat, so the open never makes it so.
+ */
+export function zoomOpenFrame(
+    viewportWidth: number,
+    viewportHeight: number,
+    origin: ZoomRect | null,
+    progress: number,
+): ZoomFrame {
+    "worklet";
+    const p = Math.min(Math.max(progress, 0), 1);
+    const target = origin ?? centeredSquare(viewportWidth, viewportHeight);
+    const scale = lerp(1, target.width / viewportWidth, p);
+    const visibleRadius = lerp(
+        FULL_VISIBLE_RADIUS,
+        Math.min(MAX_TARGET_VISIBLE_RADIUS, target.width * TARGET_RADIUS_RATIO),
+        p,
+    );
+    return {
+        scale,
+        translateX: target.x * p,
+        translateY: target.y * p,
+        visibleRadius,
+        borderRadius: visibleRadius / scale,
+    };
+}
+
 /** Share of the close over which the page fades, leaving the artwork. */
 export const ZOOM_PAGE_FADE_SHARE = 0.35;
 

@@ -6,6 +6,7 @@ import {
     ZOOM_PAGE_FADE_SHARE,
     zoomCloseDuration,
     zoomFrame,
+    zoomOpenFrame,
     zoomPageOpacity,
     zoomProgressForScrollOffset,
 } from "./zoom-dismiss-geometry.ts";
@@ -68,6 +69,17 @@ test("the page fades out early, leaving the artwork", () => {
     assertApprox(zoomPageOpacity(ZOOM_PAGE_FADE_SHARE / 2), 0.5);
     assert.equal(zoomPageOpacity(ZOOM_PAGE_FADE_SHARE), 0);
     assert.equal(zoomPageOpacity(1), 0);
+});
+
+test("the open grows the whole page from the tile, top-left on its corner", () => {
+    const start = zoomOpenFrame(W, H, TILE, 1);
+    assertApprox(start.translateX, TILE.x);
+    assertApprox(start.translateY, TILE.y);
+    assertApprox(W * start.scale, TILE.width);
+    const full = zoomOpenFrame(W, H, TILE, 0);
+    assert.equal(full.scale, 1);
+    assertApprox(full.translateX, 0);
+    assertApprox(full.translateY, 0);
 });
 
 test("pull progress continues beyond the dismissal threshold", () => {
