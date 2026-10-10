@@ -17,7 +17,6 @@ import {
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
     Easing,
-    FadeInLeft,
     LinearTransition,
     runOnJS,
     useAnimatedStyle,
@@ -46,8 +45,8 @@ const FADE = 36;
 const MOVE_MS = 560;
 /** The row closing or opening a gap: a little quicker, so it is ready first. */
 const GAP_MS = 420;
-/** A tag going back with no slot in this span just fades. */
-const FADE_OUT_MS = 260;
+/** A tag appearing at the pin, or leaving with no slot in this span. */
+const FADE_MS = 260;
 const EASE = Easing.inOut(Easing.cubic);
 
 /** `x` wrapped into (-width, 0], so one copy's width loops back to the start. */
@@ -196,7 +195,7 @@ export function TagCarousel({
                         key={`back:${tag.id}`}
                         from={0}
                         to={to ?? 0}
-                        fade={!hasSlot}
+                        mode={hasSlot ? "slide" : "fadeOut"}
                         onDone={() => landed(tag.id)}
                     >
                         <TagChip tag={tag} totalMs={totalMs} selected={false} />
@@ -204,40 +203,29 @@ export function TagCarousel({
                 );
             })}
 
+            {/* one component for the pin's whole life, keyed by tag: how
+                it enters is read once at mount, so landing never remounts it */}
             {selected ? (
-                pinFrom?.id === selected.id ? (
-                    <Flying
-                        key={`pin:${selected.id}`}
-                        from={pinFrom.x}
-                        to={0}
-                        onDone={() => setPinFrom(null)}
-                        onWidth={setPinnedWidth}
-                    >
-                        <TagChip
-                            tag={selected}
-                            totalMs={totalMs}
-                            selected
-                            onPress={onRelease}
-                        />
-                    </Flying>
-                ) : (
+                <Flying
+                    key={`pin:${selected.id}`}
+                    from={pinFrom?.id === selected.id ? pinFrom.x : 0}
+                    to={0}
                     // pinned some other way, like a span without the tag
-                    <Animated.View
-                        key={`pin:${selected.id}`}
-                        className="absolute left-0 top-0 h-full"
-                        entering={FadeInLeft.duration(220)}
-                        onLayout={(event) =>
-                            setPinnedWidth(event.nativeEvent.layout.width)
-                        }
-                    >
-                        <TagChip
-                            tag={selected}
-                            totalMs={totalMs}
-                            selected
-                            onPress={onRelease}
-                        />
-                    </Animated.View>
-                )
+                    mode={pinFrom?.id === selected.id ? "slide" : "fadeIn"}
+                    onDone={() =>
+                        setPinFrom((from) =>
+                            from?.id === selected.id ? null : from,
+                        )
+                    }
+                    onWidth={setPinnedWidth}
+                >
+                    <TagChip
+                        tag={selected}
+                        totalMs={totalMs}
+                        selected
+                        onPress={onRelease}
+                    />
+                </Flying>
             ) : null}
 
             {loaded && tags.length === 0 && !selected ? (
@@ -255,37 +243,47 @@ export function TagCarousel({
 }
 
 /**
- * A chip sliding from `from` to `to`, in points from the carousel's left.
- * `fade` fades it out in place instead, for a tag with nowhere to land.
- * Calls `onDone` once it arrives. Keyed by tag, so each flight starts fresh.
+ * A chip at `to`, in points from the carousel's left, that got there one of
+ * three ways: `slide` from `from`, `fadeIn` in place, or `fadeOut` in place,
+ * for a tag with nowhere to land. Calls `onDone` once it arrives.
+ *
+ * The mode and positions are read once, at mount. Later props are ignored, so
+ * a parent can drop its in-flight state on landing without a remount. Keyed
+ * by tag, so each flight starts fresh.
  */
 function Flying({
     from,
     to,
-    fade = false,
+    mode,
     onDone,
     onWidth,
     children,
 }: {
     from: number;
     to: number;
-    fade?: boolean;
+    mode: "slide" | "fadeIn" | "fadeOut";
     onDone: () => void;
     onWidth?: (width: number) => void;
     children: ReactNode;
 }) {
-    const x = useSharedValue(from);
-    const opacity = useSharedValue(1);
+    const x = useSharedValue(mode === "slide" ? from : to);
+    const opacity = useSharedValue(mode === "fadeIn" ? 0 : 1);
 
     useEffect(() => {
         const finish = (finished?: boolean) => {
             "worklet";
             if (finished) runOnJS(onDone)();
         };
-        if (fade) {
-            opacity.set(withTiming(0, { duration: FADE_OUT_MS }, finish));
-        } else {
+        if (mode === "slide") {
             x.set(withTiming(to, { duration: MOVE_MS, easing: EASE }, finish));
+        } else {
+            opacity.set(
+                withTiming(
+                    mode === "fadeIn" ? 1 : 0,
+                    { duration: FADE_MS },
+                    finish,
+                ),
+            );
         }
         // once per flight: a new flight is a new key, not new props
         // eslint-disable-next-line react-hooks/exhaustive-deps
