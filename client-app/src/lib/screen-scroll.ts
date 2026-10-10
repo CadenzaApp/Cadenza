@@ -130,13 +130,19 @@ export function useScreenScroll<
                 // the scroll view up by the same amount so the hero stays
                 // anchored inside the shrinking card instead of growing a
                 // large empty area above it.
-                pullOffset.set(compensatesZoomPull ? Math.min(offset, 0) : 0);
+                // Written only when they change: a write reruns every style
+                // that reads it, and these run on every scroll frame. Most of
+                // the time both are 0, and rewriting 0 restyled the whole card
+                // on each frame of an ordinary scroll.
+                const pull = compensatesZoomPull ? Math.min(offset, 0) : 0;
+                if (pull !== pullOffset.get()) pullOffset.set(pull);
 
                 // Once the close is committed the animation owns progress.
                 if (!canPullToDismiss || closing.get() || !dragging.get()) {
                     return;
                 }
-                progress.set(zoomProgressForScrollOffset(offset));
+                const next = zoomProgressForScrollOffset(offset);
+                if (next !== progress.get()) progress.set(next);
             },
             onBeginDrag: () => {
                 dragging.set(true);

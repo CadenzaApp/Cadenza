@@ -89,8 +89,6 @@ const AnimatedFlashList = Animated.createAnimatedComponent(
 );
 
 const NO_CONTENT_POSITION = { disabled: true } as const;
-/** How far past the screen rows are rendered ahead, in points. */
-const DRAW_DISTANCE = 800;
 
 /**
  * FlashList's scroller, inside the screen's scroll marker. FlashList wraps its
@@ -461,9 +459,6 @@ export function MusicList({
                             {...scroll}
                             style={[{ flex: 1 }, scroll.style]}
                             renderScrollComponent={MarkedScrollView}
-                            // about a screen ahead, so a reused row is
-                            // ready before it scrolls into view
-                            drawDistance={DRAW_DISTANCE}
                             // for chat views that prepend; a song list only
                             // grows at the end, and the offset nudges fought
                             // the pull to close

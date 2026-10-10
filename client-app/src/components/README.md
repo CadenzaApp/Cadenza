@@ -213,17 +213,17 @@ sitting above a list that owns the scroll.
 `MusicList` hides its scroll indicator. Overscrolling at the top is how a detail screen closes,
 and an indicator flicking in over the shrinking card is noise.
 
-Tag rails use `MaskedView` with a fixed-width opaque-to-transparent trailing mask, and a solid
-cover over it whenever the tags fit. Whether they fit is measured into shared values and the cover
-toggled on the UI thread, so laying a rail out never renders it again. Do not replace the mask
+Overflowing tag rails use `MaskedView` with a fixed-width opaque-to-transparent trailing mask.
+Rails that fit skip it: a mask makes iOS draw the row offscreen on every frame it moves, which on
+every row cost the whole app its frame rate. The widths live in refs and only whether they
+overflow is state, so a rail renders again at most once. Do not replace the mask
 with a gradient painted in a theme color: rows also sit over artwork tints, so no single fill
 color can match every screen.
 
 `MusicList` is a `FlashList`, wrapped by Reanimated so `useScreenScroll`'s worklet handler attaches
 to it. It renders only rows on screen plus a short way past them and reuses row slots, so a row's
 React key changes only on the density pinch; anything a row holds for one song is tied to that
-song (the artwork remembers which url failed, rather than a failed flag). Rows render about a
-screen ahead, so reused ones are ready before they scroll in. Loading renders inside the list too,
+song (the artwork remembers which url failed, rather than a failed flag). Loading renders inside the list too,
 placeholder rows where the empty message goes, so the background and header are there from the
 first frame and the header is never rebuilt when the rows land. `FlashList` wraps its `ScrollView` in a container view, so the list
 supplies its own scroller through `renderScrollComponent` with `ScreenScrollMarker` inside it: the

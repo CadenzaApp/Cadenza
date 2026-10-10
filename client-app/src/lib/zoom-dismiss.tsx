@@ -260,6 +260,10 @@ export function ZoomDismissScreen({
     const progress = useSharedValue(1);
     const closing = useSharedValue(false);
     const focus = useSharedValue<ZoomRect | null>(null);
+    // the artwork as it was when the card last left rest. the styles read
+    // this, not `focus`, which moves on every scroll frame and would restyle
+    // the whole card on each of them
+    const movingFocus = useSharedValue<ZoomRect | null>(null);
     // hidden until the open starts, so the tile underneath shows meanwhile
     const cardVisible = useSharedValue(0);
     const animationGeneration = useSharedValue(0);
@@ -309,6 +313,20 @@ export function ZoomDismissScreen({
         () => focus.get() !== null,
         (ready) => {
             if (ready) startOpen();
+        },
+    );
+    // snapshot the artwork whenever the card sets off from rest, or is still
+    // opening; the page does not scroll while the card moves
+    useAnimatedReaction(
+        () => progress.get() > 0,
+        (moving, wasMoving) => {
+            if (moving && !wasMoving) movingFocus.set(focus.get());
+        },
+    );
+    useAnimatedReaction(
+        () => focus.get(),
+        (next) => {
+            if (progress.get() > 0) movingFocus.set(next);
         },
     );
     useEffect(() => {
@@ -395,7 +413,13 @@ export function ZoomDismissScreen({
     // and the copy is what reaches the tile.
     const pageStyle = useAnimatedStyle(() => {
         const p = progress.get();
-        const frame = zoomFrame(width, height, origin.get(), focus.get(), p);
+        const frame = zoomFrame(
+            width,
+            height,
+            origin.get(),
+            movingFocus.get(),
+            p,
+        );
         return {
             opacity:
                 cardVisible.get() * (hasArtwork.get() ? zoomPageOpacity(p) : 1),
@@ -411,7 +435,13 @@ export function ZoomDismissScreen({
     // artwork. shown only while the card is moving, never at rest
     const artworkLayerStyle = useAnimatedStyle(() => {
         const p = progress.get();
-        const frame = zoomFrame(width, height, origin.get(), focus.get(), p);
+        const frame = zoomFrame(
+            width,
+            height,
+            origin.get(),
+            movingFocus.get(),
+            p,
+        );
         return {
             opacity: cardVisible.get() * (p > 0.001 ? 1 : 0),
             transform: [
@@ -424,7 +454,7 @@ export function ZoomDismissScreen({
     // where the artwork sits on the page, and the copy scaled to fit it
     // there; only changes as the page scrolls
     const artworkBoxStyle = useAnimatedStyle(() => {
-        const art = visibleFocus(width, height, focus.get());
+        const art = visibleFocus(width, height, movingFocus.get());
         return {
             transform: [
                 { translateX: art.x },
