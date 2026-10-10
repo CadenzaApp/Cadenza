@@ -2,7 +2,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import type { MusicItem } from "@apple-musickit";
 import { useTheme } from "expo-router/react-navigation";
 import type { ComponentProps, ReactNode } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
     Image,
     View,
@@ -14,7 +14,6 @@ import Animated, {
     Extrapolation,
     interpolate,
     useAnimatedReaction,
-    useAnimatedRef,
     useAnimatedScrollHandler,
     useAnimatedStyle,
     useSharedValue,
@@ -22,7 +21,7 @@ import Animated, {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useIsPushedDetailScreen } from "@/lib/screen-overlay";
 import { useOpenTransitionSettled } from "@/lib/use-open-transition-settled";
-import { useZoomFocus } from "@/lib/zoom-dismiss";
+import { useZoomDismiss } from "@/lib/zoom-dismiss";
 
 import {
     MusicList,
@@ -198,24 +197,47 @@ export function TrackCollectionView({
         scrollY.set(Math.max(0, event.contentOffset.y));
     });
     // where the hero artwork is, for the close to land it on its tile
-    const artworkRef = useAnimatedRef<Animated.View>();
-    const zoomFocus = useZoomFocus();
+    const zoom = useZoomDismiss();
+    const zoomFocus = zoom?.focus;
+    const setZoomArtwork = zoom?.setArtwork;
+    const zoomPageRef = zoom?.pageRef;
+    const artworkRef = useRef<View>(null);
     const artworkBase = useSharedValue<ArtworkBase | null>(null);
-    useEffect(() => {
-        // measured once the card is full size, when screen and page agree
-        if (!settled || header) return;
-        artworkRef.current?.measureInWindow((x, y, width, height) => {
+    // measured against the page by layout, which ignores the card's
+    // transforms, so it is right before the open has even run. layout knows
+    // nothing of scrolling either, so this is the artwork at the top
+    function measureArtwork() {
+        const page = zoomPageRef?.current;
+        if (!page || header) return;
+        artworkRef.current?.measureLayout(page, (left, top, width, height) => {
             if (width <= 0 || height <= 0) return;
-            const scale = artworkScale(scrollY.get());
             artworkBase.set({
-                centerX: x + width / 2,
-                bottom: y + height,
-                width: width / scale,
-                height: height / scale,
-                scrollY: scrollY.get(),
+                centerX: left + width / 2,
+                bottom: top + height,
+                width,
+                height,
+                scrollY: 0,
             });
         });
-    }, [artworkBase, artworkRef, header, scrollY, settled]);
+    }
+    // the copy the card shows as the page fades, so the close reads as this
+    // artwork shrinking into its tile
+    useEffect(() => {
+        if (!setZoomArtwork || header) return;
+        setZoomArtwork({
+            node: (
+                <View style={ARTWORK_SHADOW}>
+                    <ArtworkMosaic
+                        artworkUrls={artworkUrls}
+                        placeholderColor={colors.text}
+                    />
+                </View>
+            ),
+            width: ARTWORK_SIZE,
+            height: ARTWORK_SIZE,
+        });
+        return () => setZoomArtwork(null);
+    }, [artworkUrls, colors.text, header, setZoomArtwork]);
     useAnimatedReaction(
         () => {
             const base = artworkBase.get();
@@ -289,14 +311,17 @@ export function TrackCollectionView({
             style={{ paddingTop: 32 + (respectTopSafeArea ? insets.top : 0) }}
         >
             <View className="items-center">
-                <Animated.View
-                    ref={artworkRef}
-                    style={[artworkStyle, ARTWORK_SHADOW]}
-                >
-                    <ArtworkMosaic
-                        artworkUrls={artworkUrls}
-                        placeholderColor={colors.text}
-                    />
+                <Animated.View style={[artworkStyle, ARTWORK_SHADOW]}>
+                    <View
+                        ref={artworkRef}
+                        collapsable={false}
+                        onLayout={measureArtwork}
+                    >
+                        <ArtworkMosaic
+                            artworkUrls={artworkUrls}
+                            placeholderColor={colors.text}
+                        />
+                    </View>
                 </Animated.View>
                 {titleContent ? (
                     <View className="mt-4" style={TITLE_CONTENT_SHADOW}>

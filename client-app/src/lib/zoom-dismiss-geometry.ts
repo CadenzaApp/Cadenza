@@ -21,17 +21,16 @@ export type ZoomRect = {
 };
 
 export type ZoomFrame = {
-    /** The visible card, in screen points. */
-    clip: ZoomRect;
-    /** How much the page inside the card is scaled. */
+    /** The page's scale, from its top-left corner. */
     scale: number;
-    /** Where the page's top-left corner sits inside the card. */
-    contentX: number;
-    contentY: number;
-    /** The card's corner radius, on screen. */
+    /** Where the page's top-left corner sits on screen. */
+    translateX: number;
+    translateY: number;
+    /** The card's corner radius as seen on screen, before the scale. */
+    visibleRadius: number;
+    /** The same radius inside the scaled card, so it shows as `visibleRadius`. */
     borderRadius: number;
-};
-/** Maps iOS overscroll to interactive transition progress. */
+}; /** Maps iOS overscroll to interactive transition progress. */
 export function zoomProgressForScrollOffset(offsetY: number): number {
     "worklet";
     return Math.min(
@@ -65,12 +64,6 @@ function lerp(from: number, to: number, t: number) {
     return from + (to - from) * t;
 }
 
-/** Slow in and out, so each phase starts and lands softly. */
-function ease(t: number) {
-    "worklet";
-    return t * t * (3 - 2 * t);
-}
-
 /** Where a close with nothing recorded lands: a square, centered. */
 function centeredSquare(width: number, height: number): ZoomRect {
     "worklet";
@@ -83,27 +76,38 @@ function centeredSquare(width: number, height: number): ZoomRect {
     };
 }
 
-/**
- * Share of the close spent collapsing the page up to its artwork. The rest
- * moves and shrinks that artwork onto the tile it opened from.
- */
-export const ZOOM_COLLAPSE_SHARE = 0.4;
+/** The artwork to land on the tile, or the top of the page without one. */
+export function visibleFocus(
+    viewportWidth: number,
+    viewportHeight: number,
+    focus: ZoomRect | null,
+): ZoomRect {
+    "worklet";
+    return focus &&
+        focus.width > 0 &&
+        focus.height > 0 &&
+        focus.y + focus.height > 0 &&
+        focus.y < viewportHeight
+        ? focus
+        : { x: 0, y: 0, width: viewportWidth, height: viewportWidth };
+}
+
+/** Share of the close over which the page fades, leaving the artwork. */
+export const ZOOM_PAGE_FADE_SHARE = 0.35;
 
 /**
  * The card at one point of the close, 0 the full screen and 1 sitting on the
  * tile it opened from. The open is the same frames run backwards.
  *
- * Two phases, the way Apple Music closes an album. First the bottom of the
- * card collapses up to just under the artwork, the page itself untouched.
- * Then the card and the page move and shrink together, so the artwork lands
- * exactly on its tile and the tile can take over. The card is a clip over the
- * page, not the page scaled whole: a whole page shrunk to the tile's width
- * kept the screen's tall shape and hung below the tile.
+ * The page moves and scales as one piece, transforms only, so the artwork on
+ * it (`focus`, where it sits while the card is full size) lands exactly on
+ * the tile. The page itself fades out early (`pageOpacity`), leaving a copy of
+ * the artwork that rides the same transform: the close reads as the artwork
+ * shrinking back into its tile, the way Apple Music closes an album.
  *
- * `focus` is the artwork on screen while the card is full size, null when
- * there is none or it is scrolled out of sight. The top of the page stands in
- * for it then. `origin` null means nothing was recorded, so the card closes
- * to a square in the middle of the screen.
+ * With no artwork, or it scrolled out of sight, the top of the page stands in
+ * for it. `origin` null means nothing was recorded, so the card closes to a
+ * square in the middle of the screen.
  */
 export function zoomFrame(
     viewportWidth: number,
@@ -113,55 +117,29 @@ export function zoomFrame(
     progress: number,
 ): ZoomFrame {
     "worklet";
+    // eased by the timing that drives it, so linear here
     const p = Math.min(Math.max(progress, 0), 1);
     const target = origin ?? centeredSquare(viewportWidth, viewportHeight);
-    const art =
-        focus &&
-        focus.width > 0 &&
-        focus.height > 0 &&
-        focus.y + focus.height > 0 &&
-        focus.y < viewportHeight
-            ? focus
-            : { x: 0, y: 0, width: viewportWidth, height: viewportWidth };
-    const artBottom = Math.min(art.y + art.height, viewportHeight);
+    const art = visibleFocus(viewportWidth, viewportHeight, focus);
 
-    const collapse = ease(Math.min(p / ZOOM_COLLAPSE_SHARE, 1));
-    const shrink = ease(
-        Math.max(0, (p - ZOOM_COLLAPSE_SHARE) / (1 - ZOOM_COLLAPSE_SHARE)),
-    );
-
-    // the part of the page showing, in page points: the whole width down to
-    // the collapsing bottom, then closing in on the artwork itself
-    const top = lerp(0, art.y, shrink);
-    const left = lerp(0, art.x, shrink);
-    const right = lerp(viewportWidth, art.x + art.width, shrink);
-    const bottom = lerp(
-        lerp(viewportHeight, artBottom, collapse),
-        artBottom,
-        shrink,
-    );
-
-    // page to screen: identity at the start of the shrink, and the artwork
-    // exactly on the target at its end
     const endScale = target.width / art.width;
-    const scale = lerp(1, endScale, shrink);
-    const offsetX = lerp(0, target.x - art.x * endScale, shrink);
-    const offsetY = lerp(0, target.y - art.y * endScale, shrink);
-
-    const targetRadius = Math.min(
-        MAX_TARGET_VISIBLE_RADIUS,
-        target.width * TARGET_RADIUS_RATIO,
+    const scale = lerp(1, endScale, p);
+    const visibleRadius = lerp(
+        FULL_VISIBLE_RADIUS,
+        Math.min(MAX_TARGET_VISIBLE_RADIUS, target.width * TARGET_RADIUS_RATIO),
+        p,
     );
     return {
-        clip: {
-            x: left * scale + offsetX,
-            y: top * scale + offsetY,
-            width: (right - left) * scale,
-            height: (bottom - top) * scale,
-        },
         scale,
-        contentX: -left * scale,
-        contentY: -top * scale,
-        borderRadius: lerp(FULL_VISIBLE_RADIUS, targetRadius, shrink),
+        translateX: lerp(0, target.x - art.x * endScale, p),
+        translateY: lerp(0, target.y - art.y * endScale, p),
+        visibleRadius,
+        borderRadius: visibleRadius / scale,
     };
+}
+
+/** The page's opacity at this point of the close, when an artwork copy is shown. */
+export function zoomPageOpacity(progress: number): number {
+    "worklet";
+    return 1 - Math.min(Math.max(progress / ZOOM_PAGE_FADE_SHARE, 0), 1);
 }

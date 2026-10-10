@@ -3,9 +3,10 @@ import test from "node:test";
 
 import {
     shouldDismissZoom,
-    ZOOM_COLLAPSE_SHARE,
+    ZOOM_PAGE_FADE_SHARE,
     zoomCloseDuration,
     zoomFrame,
+    zoomPageOpacity,
     zoomProgressForScrollOffset,
 } from "./zoom-dismiss-geometry.ts";
 
@@ -16,56 +17,47 @@ const ART = { x: 80, y: 100, width: 240, height: 240 };
 
 test("the card starts as the whole screen", () => {
     const start = zoomFrame(W, H, TILE, ART, 0);
-    assert.deepEqual(start.clip, { x: 0, y: 0, width: W, height: H });
     assert.equal(start.scale, 1);
-    assert.equal(start.borderRadius, 52);
+    assertApprox(start.translateX, 0);
+    assertApprox(start.translateY, 0);
+    assert.equal(start.visibleRadius, 52);
 });
 
-test("first the bottom collapses up to the artwork, the page untouched", () => {
-    const collapsed = zoomFrame(W, H, TILE, ART, ZOOM_COLLAPSE_SHARE);
-    assert.deepEqual(collapsed.clip, {
-        x: 0,
-        y: 0,
-        width: W,
-        height: ART.y + ART.height,
-    });
-    assert.equal(collapsed.scale, 1);
-    assertApprox(collapsed.contentX, 0);
-    assertApprox(collapsed.contentY, 0);
-});
-
-test("then the artwork lands exactly on its tile", () => {
+test("the artwork on the page lands exactly on its tile", () => {
     const end = zoomFrame(W, H, TILE, ART, 1);
-    assertApprox(end.clip.x, TILE.x);
-    assertApprox(end.clip.y, TILE.y);
-    assertApprox(end.clip.width, TILE.width);
-    assertApprox(end.clip.height, TILE.height);
     assertApprox(end.scale, TILE.width / ART.width);
-    // the page sits so the artwork is what fills the card
-    assertApprox(end.contentX, -ART.x * end.scale);
-    assertApprox(end.contentY, -ART.y * end.scale);
+    // where the artwork's corners end up on screen
+    assertApprox(ART.x * end.scale + end.translateX, TILE.x);
+    assertApprox(ART.y * end.scale + end.translateY, TILE.y);
+    assertApprox(ART.width * end.scale, TILE.width);
 });
 
 test("artwork scrolled out of sight closes on the top of the page", () => {
-    const gone = { ...ART, y: -400 };
-    const end = zoomFrame(W, H, TILE, gone, 1);
+    const end = zoomFrame(W, H, TILE, { ...ART, y: -400 }, 1);
     assertApprox(end.scale, TILE.width / W);
-    assertApprox(end.contentY, 0);
-    assertApprox(end.clip.height, TILE.height);
+    assertApprox(end.translateY, TILE.y);
 });
 
 test("a close with nothing recorded lands on a centered square", () => {
     const end = zoomFrame(W, H, null, ART, 1);
-    assertApprox(end.clip.width, 280);
-    assertApprox(end.clip.height, 280);
-    assertApprox(end.clip.x, 60);
-    assertApprox(end.clip.y, 260);
+    assertApprox(ART.width * end.scale, 280);
+    assertApprox(ART.x * end.scale + end.translateX, 60);
+    assertApprox(ART.y * end.scale + end.translateY, 260);
 });
 
-test("corners ease to the tile's radius", () => {
-    assertApprox(zoomFrame(W, H, TILE, ART, 1).borderRadius, 38.4);
+test("corners ease to the tile's radius and survive the scale", () => {
+    const end = zoomFrame(W, H, TILE, ART, 1);
+    assertApprox(end.visibleRadius, 38.4);
+    assertApprox(end.borderRadius * end.scale, 38.4);
     const row = { x: 20, y: 300, width: 56, height: 56 };
-    assertApprox(zoomFrame(W, H, row, ART, 1).borderRadius, 13.44);
+    assertApprox(zoomFrame(W, H, row, ART, 1).visibleRadius, 13.44);
+});
+
+test("the page fades out early, leaving the artwork", () => {
+    assert.equal(zoomPageOpacity(0), 1);
+    assertApprox(zoomPageOpacity(ZOOM_PAGE_FADE_SHARE / 2), 0.5);
+    assert.equal(zoomPageOpacity(ZOOM_PAGE_FADE_SHARE), 0);
+    assert.equal(zoomPageOpacity(1), 0);
 });
 
 test("pull progress continues beyond the dismissal threshold", () => {

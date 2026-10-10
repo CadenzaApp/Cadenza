@@ -130,8 +130,8 @@ past the threshold finishes from that exact progress and pops. The pull does not
 the threshold while the finger continues down.
 
 Because it is a card over another screen rather than a rectangle replacing it, it keeps rounded
-continuous corners while it shrinks. Like Music, the bottom of the page collapses up to the
-artwork first, then what is left shrinks so the artwork lands exactly on the tile it came from.
+continuous corners while it shrinks. Like Music, the page fades away early and what is left is the
+artwork itself, shrinking until it lands exactly on the tile it came from.
 
 The artwork hero screens paint the artwork tint as their own background rather than leaving it to the
 gradient inside the list. During the close, the list counters iOS's downward overscroll so the

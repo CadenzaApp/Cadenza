@@ -417,13 +417,17 @@ nothing about each other:
 The card runs both directions of the transition: it starts minimized and grows on mount, and
 shrinks back on close. That is why those routes carry `pushedScreenOptions()`, which presents them
 as transparent modals with no native animation. The screen that opened this one is still on
-display underneath. The card is a clip over the page, not the page scaled whole, and the close has
-two phases (`zoomFrame`): first the clip's bottom collapses up to just under the screen's artwork,
-the page untouched, then clip and page move and shrink together until that artwork sits exactly on
-the tile it opened from. The open runs the same frames backwards. A screen reports where its
-artwork is through `useZoomFocus`, as it scrolls; `TrackCollectionView` measures its hero once the
-card is full size and follows it from there. With no artwork reported, or it scrolled away, the
-top of the page stands in for it. The corners ease from the card's radius to the tile's.
+display underneath. The close is transforms only (`zoomFrame`): the page moves and scales as one
+piece so the screen's artwork lands exactly on the tile it opened from. A screen can also hand the
+card a copy of that artwork (`setArtwork`), which rides the same transform; the page fades out over
+the first third and the copy stays, so the close reads as the artwork shrinking back into its tile,
+the way Music does it. The open runs the same frames backwards. A screen reports where its artwork
+is through `focus`, as it scrolls; `TrackCollectionView` measures its hero against the page with
+`measureLayout`, which ignores transforms, so the open already grows from it. The open waits up to
+150ms for that report and starts the moment it lands; a screen with no artwork opens at once.
+`opened` says when the card has finished growing, and `useOpenTransitionSettled` waits for it, since
+these screens have no native transition to wait for. An earlier version resized a clip every frame
+to collapse the page first, and the layout work made both directions stutter.
 
 Every close goes through `useCloseScreen`, so the X and the pull play the same animation, and a
 screen with no card falls back to a plain `router.back()`. With no recorded rect the card closes

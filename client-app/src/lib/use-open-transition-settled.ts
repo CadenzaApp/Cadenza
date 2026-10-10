@@ -1,6 +1,8 @@
 import { useNavigation } from "expo-router";
 import { useEffect, useState } from "react";
 
+import { useZoomOpened } from "./zoom-dismiss";
+
 /** In case the transition's end is missed, how long to wait before going on. */
 const FALLBACK_MS = 700;
 
@@ -10,16 +12,21 @@ const FALLBACK_MS = 700;
  * true from the start.
  *
  * For holding back heavy rendering until the screen has arrived. Views built
- * during the push run on the same main thread the animation needs, so a list
+ * during the open run on the same main thread the animation needs, so a list
  * whose data is already cached made every open stutter.
+ *
+ * Inside a zoom card the card's own open is the transition. Those screens are
+ * presented with no native animation, so the navigation's transition end
+ * fires at once and says nothing about when the card has grown.
  */
 export function useOpenTransitionSettled(animated: boolean) {
     const navigation = useNavigation();
-    const [settled, setSettled] = useState(!animated);
+    const zoomOpened = useZoomOpened();
+    const [transitionDone, setTransitionDone] = useState(!animated);
 
     useEffect(() => {
-        if (settled) return;
-        const done = () => setSettled(true);
+        if (transitionDone || zoomOpened !== null) return;
+        const done = () => setTransitionDone(true);
         const unsubscribe = navigation.addListener(
             "transitionEnd" as never,
             done,
@@ -29,7 +36,8 @@ export function useOpenTransitionSettled(animated: boolean) {
             unsubscribe();
             clearTimeout(timer);
         };
-    }, [navigation, settled]);
+    }, [navigation, transitionDone, zoomOpened]);
 
-    return settled;
+    if (!animated) return true;
+    return zoomOpened ?? transitionDone;
 }
