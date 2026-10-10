@@ -156,35 +156,32 @@ export function layoutHeatmap(
     }
 }
 
-/** Two rows, AM and PM, of twelve hours, each numbered under its square. */
+/**
+ * Four rows of six hours, two AM and two PM, each numbered under its square.
+ * Each half is named on its first row.
+ */
 function dayHours(day: Date): HeatmapGrid {
-    const lines = [0, 12].map((offset) =>
-        Array.from({ length: 12 }, (_, i) => {
+    const lines = [0, 6, 12, 18].map((offset) =>
+        Array.from({ length: 6 }, (_, i) => {
             const hour = offset + i;
-            const start = new Date(
-                day.getFullYear(),
-                day.getMonth(),
-                day.getDate(),
-                hour,
-            );
             return {
                 key: hourKey(day, hour),
                 pick: {
-                    start,
-                    end: new Date(
-                        day.getFullYear(),
-                        day.getMonth(),
-                        day.getDate(),
-                        hour + 1,
-                    ),
+                    start: atHour(day, hour),
+                    end: atHour(day, hour + 1),
                     label: `${fullDay(day)}, ${hourName(hour)}`,
                     short: hourName(hour),
                 },
-                caption: String(i === 0 ? 12 : i),
+                caption: String(hour % 12 === 0 ? 12 : hour % 12),
             };
         }),
     );
-    return { lines, rowLabels: ["AM", "PM"], square: true };
+    return { lines, rowLabels: ["AM", "", "PM", ""], square: true };
+}
+
+/** Local `hour` o'clock on `day`. Past 23 rolls into the next day. */
+function atHour(day: Date, hour: number): Date {
+    return new Date(day.getFullYear(), day.getMonth(), day.getDate(), hour);
 }
 
 /**
@@ -280,23 +277,6 @@ export function samePick(a: HeatmapPick, b: HeatmapPick): boolean {
     return (
         a.start.getTime() === b.start.getTime() &&
         a.end.getTime() === b.end.getTime()
-    );
-}
-
-/**
- * What a level starts with picked: `carried` when the level has the same span
- * (all time's month opening the year), else the span holding `now`, else none.
- */
-export function initialPick(
-    pages: HeatmapGrid[],
-    now: Date,
-    carried?: HeatmapPick | null,
-): HeatmapPick | null {
-    const picks = picksOf(pages);
-    return (
-        (carried && picks.find((pick) => samePick(pick, carried))) ??
-        picks.find((pick) => pick.start <= now && now < pick.end) ??
-        null
     );
 }
 

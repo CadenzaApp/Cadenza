@@ -6,7 +6,6 @@ import {
     dayKey,
     heatLevel,
     hourKey,
-    initialPick,
     layoutHeatmap,
     pageOf,
     picksOf,
@@ -31,15 +30,17 @@ test("keys are local and match the backend's printing", () => {
     assert.equal(hourKey(date, 9), "2026-01-05T09:00");
 });
 
-test("a day is two rows of twelve numbered hours", () => {
+test("a day is four rows of six numbered hours, two AM and two PM", () => {
     const [grid] = pagesOf("day");
-    assert.deepEqual(grid.rowLabels, ["AM", "PM"]);
-    assert.ok(grid.lines.every((row) => row.length === 12));
+    assert.deepEqual(grid.rowLabels, ["AM", "", "PM", ""]);
+    assert.equal(grid.lines.length, 4);
+    assert.ok(grid.lines.every((row) => row.length === 6));
     assert.equal(grid.lines[0][0]?.key, "2026-10-03T00:00");
     assert.equal(grid.lines[0][0]?.caption, "12");
-    assert.equal(grid.lines[1][11]?.key, "2026-10-03T23:00");
-    assert.equal(grid.lines[1][11]?.caption, "11");
-    assert.equal(grid.lines[1][2]?.pick?.short, "2 PM");
+    assert.equal(grid.lines[1][0]?.caption, "6");
+    assert.equal(grid.lines[2][2]?.pick?.short, "2 PM");
+    assert.equal(grid.lines[3][5]?.key, "2026-10-03T23:00");
+    assert.equal(grid.lines[3][5]?.caption, "11");
 });
 
 test("a week is seven columns of two hour blocks, each picking its day", () => {
@@ -95,19 +96,10 @@ test("all time with no history is just this year", () => {
     assert.equal(pagesOf("all").length, 1);
 });
 
-test("a level starts on the span holding now", () => {
-    assert.equal(initialPick(pagesOf("day"), NOW)?.short, "12 PM");
-    assert.equal(initialPick(pagesOf("week"), NOW)?.short, "Oct 3");
-    assert.equal(initialPick(pagesOf("year"), NOW)?.short, "October");
-    const past = layoutHeatmap(resolvePeriod("month", -1, NOW).heatmap, NOW);
-    assert.equal(initialPick(past, NOW), null);
-});
-
-test("a carried pick wins when the level has the same span", () => {
+test("all time opens on the page holding the pick, else the last", () => {
     const all = layoutHeatmap({ kind: "all-months" }, NOW, 2025);
     const march = all[0].lines[0][2]?.pick ?? null;
-    const year = layoutHeatmap(resolvePeriod("year", -1, NOW).heatmap, NOW);
-    assert.equal(initialPick(year, NOW, march)?.label, "March 2025");
+    assert.equal(march?.label, "March 2025");
     assert.equal(pageOf(all, march), 0);
     assert.equal(pageOf(all, null), 1);
 });

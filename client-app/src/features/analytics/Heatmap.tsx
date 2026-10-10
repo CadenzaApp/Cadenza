@@ -4,6 +4,7 @@ import { useMemo, useRef, useState } from "react";
 import { Pressable, View } from "react-native";
 import Animated, { FadeInLeft, FadeInRight } from "react-native-reanimated";
 
+import { GlassButton } from "@/components/ui/glass-button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
 import { useAnalyticsHeatmap } from "@/lib/routes/analytics";
@@ -20,8 +21,8 @@ import {
 } from "./HeatmapGrid";
 import {
     HEAT_LEVELS,
-    initialPick,
     layoutHeatmap,
+    samePick,
     type HeatmapPick,
 } from "./heatmap-layout";
 import {
@@ -42,6 +43,7 @@ const BOX_ASPECT = 0.8;
 const MAX_BOX = 340;
 const BUTTON_HEIGHT = 44;
 const DRILL_MS = 220;
+const DOUBLE_TAP_MS = 300;
 
 /** One level of the drill: its period and the span picked in it, if any. */
 type Level = { period: ResolvedPeriod; pick: HeatmapPick | null };
@@ -58,30 +60,31 @@ type Props = {
  * year a page, swiped sideways. Each square is colored by the tag played most
  * in it and brightened by how much played.
  *
- * A tap picks a square (a whole day in a week) and the detail under the grid
- * reads it out. The open button opens the pick one grain down, in place. The
+ * Nothing is picked at first, so the detail reads out the whole level. A tap
+ * picks a square (a whole day in a week) and a second tap lets go of it. A
+ * double tap, or the open button, opens it one grain down, in place. The
  * card keeps its levels as a stack over `root`, so the back arrow walks back
  * up, never past `root`. The tags played across the level drift along the
  * bottom.
  */
 export function Heatmap({ root, accent }: Props) {
     const { now } = useAnalyticsPeriod();
-    const [levels, setLevels] = useState<Level[]>(() => [
-        {
-            period: root,
-            pick: initialPick(layoutHeatmap(root.heatmap, now), now),
-        },
+    const [levels, setLevels] = useState<Level[]>([
+        { period: root, pick: null },
     ]);
     const [back, setBack] = useState(false);
     const [width, setWidth] = useState(0);
     // when the last level change happened, so a double tap on open does not
     // open two levels
     const changedAt = useRef(0);
+    // the last square tapped and when, so a second quick tap opens it
+    const lastTap = useRef<{ pick: HeatmapPick; at: number } | null>(null);
 
     const { period: scope, pick } = levels.at(-1)!;
     const window = { since: scope.since, until: scope.until };
     const child = drillGrain(scope.grain);
-    const canOpen = child != null && pick != null && pick.start <= now;
+    const opens = (target: HeatmapPick | null) =>
+        child != null && target != null && target.start <= now;
 
     const { heatmap, heatmapLoading } = useAnalyticsHeatmap(
         scope.heatmapBucket,
@@ -91,31 +94,40 @@ export function Heatmap({ root, accent }: Props) {
     const pages = layoutHeatmap(scope.heatmap, now, cells.earliestYear);
 
     const settling = () => sliding(changedAt.current);
-    const choose = (next: HeatmapPick) =>
-        setLevels((stack) => [
-            ...stack.slice(0, -1),
-            { ...stack.at(-1)!, pick: next },
-        ]);
-    const open = () => {
-        if (!canOpen || settling()) return;
+    const open = (target: HeatmapPick | null) => {
+        if (!child || !target || !opens(target) || settling()) return;
         const period = resolvePeriod(
             child,
-            offsetOf(child, pick.start, now),
+            offsetOf(child, target.start, now),
             now,
         );
         changedAt.current = clock();
+        lastTap.current = null;
         setBack(false);
-        setLevels((stack) => [
-            ...stack,
-            {
-                period,
-                pick: initialPick(
-                    layoutHeatmap(period.heatmap, now),
-                    now,
-                    pick,
-                ),
-            },
-        ]);
+        setLevels((stack) => [...stack, { period, pick: null }]);
+    };
+    // one tap picks a square or lets go of it, a second quick one opens it
+    const tap = (target: HeatmapPick) => {
+        const at = clock();
+        const last = lastTap.current;
+        if (
+            last &&
+            samePick(last.pick, target) &&
+            at - last.at < DOUBLE_TAP_MS &&
+            opens(target)
+        ) {
+            open(target);
+            return;
+        }
+        lastTap.current = { pick: target, at };
+        setLevels((stack) => {
+            const top = stack.at(-1)!;
+            const same = top.pick != null && samePick(top.pick, target);
+            return [
+                ...stack.slice(0, -1),
+                { ...top, pick: same ? null : target },
+            ];
+        });
     };
     const goBack = () => {
         if (settling()) return;
@@ -173,7 +185,7 @@ export function Heatmap({ root, accent }: Props) {
                                     pages={pages}
                                     cells={cells}
                                     pick={pick}
-                                    onPick={choose}
+                                    onPick={tap}
                                     width={width}
                                     height={box}
                                     ring={accent ?? UNTAGGED_COLOR}
@@ -200,8 +212,8 @@ export function Heatmap({ root, accent }: Props) {
                             {child ? (
                                 <OpenButton
                                     label={`Open ${grainLabel(child).toLowerCase()}`}
-                                    disabled={!canOpen}
-                                    onPress={open}
+                                    disabled={!opens(pick)}
+                                    onPress={() => open(pick)}
                                 />
                             ) : null}
                         </View>
@@ -268,13 +280,11 @@ function OpenButton({
 }) {
     const { colors } = useTheme();
     return (
-        <Pressable
+        <GlassButton
             onPress={onPress}
             disabled={disabled}
-            accessibilityRole="button"
             accessibilityState={{ disabled }}
-            className="border-border h-full flex-row items-center justify-center gap-1 rounded-full border"
-            style={{ opacity: disabled ? 0.4 : 1 }}
+            className="h-11 gap-1 rounded-full"
         >
             <Text className="text-sm font-medium">{label}</Text>
             <Ionicons
@@ -282,7 +292,7 @@ function OpenButton({
                 size={14}
                 color={String(colors.text)}
             />
-        </Pressable>
+        </GlassButton>
     );
 }
 
