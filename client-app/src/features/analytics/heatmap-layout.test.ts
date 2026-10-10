@@ -42,23 +42,23 @@ test("a day is four rows of six numbered hours, two AM and two PM", () => {
     assert.equal(grid.lines.length, 4);
     assert.ok(grid.lines.every((row) => row.length === 6));
     assert.equal(grid.lines[0][0]?.key, "2026-10-03T00:00");
-    assert.equal(grid.lines[0][0]?.caption, "12");
-    assert.equal(grid.lines[1][0]?.caption, "6");
+    assert.equal(grid.lines[0][0]?.caption, "12 AM");
+    assert.equal(grid.lines[1][0]?.caption, "6 AM");
     assert.equal(grid.lines[2][2]?.pick?.short, "2 PM");
     assert.equal(grid.lines[3][5]?.key, "2026-10-03T23:00");
-    assert.equal(grid.lines[3][5]?.caption, "11");
+    assert.equal(grid.lines[3][5]?.caption, "11 PM");
 });
 
-test("a week is seven columns of two hour blocks, each picking its day", () => {
+test("a week is seven additive day columns, each picking its day", () => {
     const grid = gridOf("week");
     assert.ok(grid.columns);
     assert.equal(grid.lines.length, 7);
-    assert.ok(grid.lines.every((column) => column.length === 12));
-    assert.equal(grid.lines[0][0]?.key, "2026-09-28T00:00");
-    assert.equal(grid.lines[6][11]?.key, "2026-10-04T22:00");
+    assert.ok(grid.lines.every((column) => column.length === 1));
+    assert.equal(grid.lines[0][0]?.key, "2026-09-28");
+    assert.equal(grid.lines[6][0]?.key, "2026-10-04");
     assert.equal(grid.header?.[0], "Mon\n28");
     assert.equal(picksOf(grid).length, 7);
-    assert.equal(grid.lines[4][3]?.pick?.label, "Fri, Oct 2, 2026");
+    assert.equal(grid.lines[4][0]?.pick?.label, "Fri, Oct 2, 2026");
 });
 
 test("a month is a Monday-first calendar filled out with faint days", () => {
@@ -73,8 +73,10 @@ test("a month is a Monday-first calendar filled out with faint days", () => {
     const picks = picksOf(grid);
     assert.equal(picks.length, 31);
     assert.equal(dayKey(picks[30].start), "2026-10-31");
-    // and Nov 1, a Sunday, ends it
-    assert.equal(grid.lines.at(-1)?.at(-1)?.text, "1");
+    // Six reserved weeks end on Nov 8; out-of-month cells never pick.
+    assert.equal(grid.lines.length, 6);
+    assert.equal(grid.lines.at(-1)?.at(-1)?.text, "8");
+    assert.equal(grid.lines.at(-1)?.at(-1)?.pick, null);
 });
 
 test("a year is four rows of three named months", () => {

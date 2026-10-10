@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+mod listening;
+
 use axum::{
     Json, Router,
     extract::{Query, State},
@@ -17,7 +19,8 @@ use crate::{
     err::CadenzaError,
     routes::json::{
         analytics::{
-            AnalyticsHeatmap, AnalyticsSummary, AnalyticsTopList, AnalyticsTopTags, AnalyticsTrend,
+            AnalyticsHeatmap, AnalyticsSummary, AnalyticsTagShares, AnalyticsTopList,
+            AnalyticsTopTags, AnalyticsTrend,
         },
         vec_into,
     },
@@ -462,6 +465,42 @@ async fn get_top_tags_handler(
     }))
 }
 
+#[derive(Deserialize)]
+pub struct TagSharesParams {
+    since: Option<DateTime<Utc>>,
+    until: Option<DateTime<Utc>>,
+}
+
+/// The window's listening time, and how much of it was on songs carrying each
+/// of the user's tags, most first.
+///
+/// A listen counts in full toward every tag on its song, so the tags can sum
+/// past `total_ms`. `total_ms` is the summary's `listening_ms` for the same
+/// window. `tagged_ms` is the part of it on songs with any of the tags, each
+/// listen once. Every tag with any time comes back, no limit. Activity tags and
+/// suggested tags are left out, like the tag ranking.
+///
+/// JSON return value format:
+/// ```json
+/// {
+///   "total_ms": 3600000,
+///   "tagged_ms": 2880000,
+///   "tags": [
+///     {"id": 41, "name": "Japanese", "color": "#ef4444", "listening_ms": 2520000},
+///     {"id": 12, "name": "Anime", "color": "#ec4899", "listening_ms": 1800000}
+///   ]
+/// }
+/// ```
+async fn get_tag_shares_handler(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Query(params): Query<TagSharesParams>,
+) -> Result<Json<AnalyticsTagShares>, CadenzaError> {
+    let window = TimeWindow::new(params.since, params.until)?;
+    let shares = analytics::get_tag_shares(&db, claims.user_id, window).await?;
+    Ok(Json(shares.into()))
+}
+
 /// How many rows a ranking returns: the caller's `limit`, or 20, bounded so one
 /// request cannot ask for the whole history.
 fn clamp_limit(limit: Option<u64>) -> u64 {
@@ -481,6 +520,8 @@ pub fn get_analytics_router() -> Router<AppState> {
         .route("/top", get(get_top_handler))
         .route("/top-tags", get(get_top_tags_handler))
         .route("/heatmap", get(get_heatmap_handler))
+        .route("/tag-shares", get(get_tag_shares_handler))
+        .merge(listening::router())
 }
 
 #[cfg(test)]

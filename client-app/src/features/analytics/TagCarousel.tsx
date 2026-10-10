@@ -1,26 +1,25 @@
 import { useEffect, useState } from "react";
-import { View } from "react-native";
+import { Pressable, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
+    FadeInLeft,
+    FadeOut,
     useAnimatedStyle,
     useFrameCallback,
     useSharedValue,
 } from "react-native-reanimated";
 
 import { Text } from "@/components/ui/text";
-import {
-    useAnalyticsTopTags,
-    type AnalyticsWindow,
-} from "@/lib/routes/analytics";
+import type { TagListeningTime } from "@/lib/routes/analytics";
 
-/** The most the backend returns in one ranking. */
-const MAX_TAGS = 100;
+import { shareOf, sharePercent } from "./tag-share";
+
 /** Drift, in points a second, leftward. */
 const DRIFT = 28;
 /** How fast a fling settles back to the drift, per second. */
 const SETTLE = 3;
-const ITEM_GAP = 20;
-const HEIGHT = 20;
+const ITEM_GAP = 8;
+const HEIGHT = 28;
 
 /** `x` wrapped into (-width, 0], so one copy's width loops back to the start. */
 function wrap(x: number, width: number): number {
@@ -30,18 +29,88 @@ function wrap(x: number, width: number): number {
     return r > 0 ? r - width : r;
 }
 
+type Props = {
+    /** Every tag listened to in the displayed period, most first. */
+    tags: TagListeningTime[];
+    /** The period's listening time, which each chip's percent is of. */
+    totalMs: number;
+    /** False until the first read lands, so the empty state does not flash. */
+    loaded: boolean;
+    /** Pinned at the left, out of the drifting row. Null for none. */
+    selected: TagListeningTime | null;
+    onSelect: (id: number) => void;
+    /** Lets go of the pinned tag, which drops back into the row. */
+    onRelease: () => void;
+};
+
 /**
- * Every tag played in the window, the user's own only, as one row that drifts
- * left forever. A swipe drags it and a fling carries on, then eases back to
- * the drift. A row that fits sits still.
+ * The tags listened to in the displayed period. The selected one is pinned
+ * at the left and holds still; the rest drift past it in a row that loops
+ * forever. Tapping a drifting tag pins it, tapping the pinned one lets go of
+ * it and it drifts again.
+ */
+export function TagCarousel({
+    tags,
+    totalMs,
+    loaded,
+    selected,
+    onSelect,
+    onRelease,
+}: Props) {
+    if (loaded && tags.length === 0) {
+        return (
+            <View className="justify-center" style={{ height: HEIGHT }}>
+                <Text className="text-muted-foreground text-xs">
+                    No tags listened to
+                </Text>
+            </View>
+        );
+    }
+
+    const drifting = tags.filter((tag) => tag.id !== selected?.id);
+    return (
+        <View className="flex-row" style={{ height: HEIGHT }}>
+            {selected ? (
+                // keyed by tag, so a new pick slides in from the left
+                <Animated.View
+                    key={selected.id}
+                    entering={FadeInLeft.duration(220)}
+                    exiting={FadeOut.duration(150)}
+                >
+                    <TagChip
+                        tag={selected}
+                        totalMs={totalMs}
+                        selected
+                        onPress={onRelease}
+                    />
+                </Animated.View>
+            ) : null}
+            <DriftingRow
+                tags={drifting}
+                totalMs={totalMs}
+                onSelect={onSelect}
+            />
+        </View>
+    );
+}
+
+/**
+ * Tags in one row that drifts left forever. A swipe drags it and a fling
+ * carries on, then eases back to the drift. A row that fits sits still.
  *
  * The loop is copies of the row side by side, enough to cover the box, moved
- * by one copy's width at most and wrapped, so the seam never shows.
+ * by one copy's width at most and wrapped, so the seam never shows. Only the
+ * first copy is read by a screen reader.
  */
-export function TagCarousel({ window }: { window: AnalyticsWindow }) {
-    const { topTags } = useAnalyticsTopTags(window, MAX_TAGS);
-    const tags = topTags?.entries ?? [];
-
+function DriftingRow({
+    tags,
+    totalMs,
+    onSelect,
+}: {
+    tags: TagListeningTime[];
+    totalMs: number;
+    onSelect: (id: number) => void;
+}) {
     const [box, setBox] = useState(0);
     const [run, setRun] = useState(0);
     const loops = box > 0 && run > box;
@@ -73,7 +142,7 @@ export function TagCarousel({ window }: { window: AnalyticsWindow }) {
         // horizontal wins early, a clearly vertical drag scrolls the page
         .activeOffsetX([-6, 6])
         .failOffsetY([-24, 24])
-        // a finger down holds it still, whether or not it drags
+        // a finger down holds it still, so a tag can be tapped
         .onBegin(() => dragging.set(true))
         .onChange((event) => {
             offset.set(wrap(offset.get() + event.changeX, loopWidth.get()));
@@ -85,25 +154,12 @@ export function TagCarousel({ window }: { window: AnalyticsWindow }) {
         transform: [{ translateX: offset.get() }],
     }));
 
-    if (topTags && tags.length === 0) {
-        return (
-            <Text
-                className="text-muted-foreground text-xs"
-                style={{ height: HEIGHT }}
-            >
-                No tags played
-            </Text>
-        );
-    }
-
     const copies = loops ? Math.ceil(box / run) + 1 : 1;
     return (
         <GestureDetector gesture={swipe}>
             <View
-                className="overflow-hidden"
-                style={{ height: HEIGHT }}
+                className="flex-1 overflow-hidden"
                 onLayout={(event) => setBox(event.nativeEvent.layout.width)}
-                accessibilityLabel={`Tags played: ${tags.map((tag) => tag.name).join(", ")}`}
             >
                 <Animated.View
                     className="absolute left-0 top-0 h-full flex-row"
@@ -113,6 +169,10 @@ export function TagCarousel({ window }: { window: AnalyticsWindow }) {
                         <View
                             key={copy}
                             className="flex-row"
+                            accessibilityElementsHidden={copy > 0}
+                            importantForAccessibility={
+                                copy > 0 ? "no-hide-descendants" : "auto"
+                            }
                             onLayout={
                                 copy === 0
                                     ? (event) =>
@@ -121,24 +181,67 @@ export function TagCarousel({ window }: { window: AnalyticsWindow }) {
                             }
                         >
                             {tags.map((tag) => (
-                                <View
+                                <TagChip
                                     key={tag.id}
-                                    className="flex-row items-center gap-1.5"
-                                    style={{ marginRight: ITEM_GAP }}
-                                >
-                                    <View
-                                        className="h-2.5 w-2.5 rounded-full"
-                                        style={{ backgroundColor: tag.color }}
-                                    />
-                                    <Text className="text-xs" numberOfLines={1}>
-                                        {tag.name}
-                                    </Text>
-                                </View>
+                                    tag={tag}
+                                    totalMs={totalMs}
+                                    selected={false}
+                                    onPress={() => onSelect(tag.id)}
+                                />
                             ))}
                         </View>
                     ))}
                 </Animated.View>
             </View>
         </GestureDetector>
+    );
+}
+
+/**
+ * One tag. Selected only adds a border and fill in its color, never padding
+ * or weight, so its width is the same pinned or drifting.
+ */
+function TagChip({
+    tag,
+    totalMs,
+    selected,
+    onPress,
+}: {
+    tag: TagListeningTime;
+    totalMs: number;
+    selected: boolean;
+    onPress: () => void;
+}) {
+    const percent = sharePercent(shareOf(tag.listening_ms, totalMs));
+    return (
+        <Pressable
+            onPress={onPress}
+            accessibilityRole="button"
+            accessibilityLabel={`${tag.name}, ${percent}% of listening time`}
+            accessibilityHint={
+                selected ? "Shows every tag again" : "Shows this tag's share"
+            }
+            accessibilityState={{ selected }}
+            className="h-full flex-row items-center gap-1.5 overflow-hidden rounded-full border px-2.5"
+            style={{
+                marginRight: ITEM_GAP,
+                borderColor: selected ? tag.color : "transparent",
+            }}
+        >
+            {selected ? (
+                <View
+                    className="absolute inset-0"
+                    style={{ backgroundColor: tag.color, opacity: 0.18 }}
+                />
+            ) : null}
+            <View
+                className="h-2.5 w-2.5 rounded-full"
+                style={{ backgroundColor: tag.color }}
+            />
+            <Text className="text-xs" numberOfLines={1}>
+                {tag.name}
+            </Text>
+            <Text className="text-muted-foreground text-xs">{percent}%</Text>
+        </Pressable>
     );
 }

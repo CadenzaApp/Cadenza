@@ -1,9 +1,13 @@
 import { useTheme } from "expo-router/react-navigation";
-import { Pressable, Text as RNText, StyleSheet, View } from "react-native";
+import { Pressable, View } from "react-native";
 
 import { Text } from "@/components/ui/text";
-import type { AnalyticsHeatmap, HeatmapTag } from "@/lib/routes/analytics";
+import type {
+    Listening,
+    ListeningCell,
+} from "@/lib/routes/analytics-listening";
 
+import { formatDuration } from "./format";
 import {
     heatLevel,
     samePick,
@@ -12,44 +16,24 @@ import {
     type LayoutCell,
 } from "./heatmap-layout";
 
-/** What is printed inside a square: a month's name, a day's date. */
-const CELL_TEXT_COLOR = "#d4d4d4";
-/** Plays that carried none of the user's tags. */
 export const UNTAGGED_COLOR = "#a3a3a3";
-/** Opacity per heat level. Index 0 is never drawn with a color. */
 export const LEVEL_OPACITY = [0, 0.35, 0.55, 0.78, 1];
-/** An empty square is the text color this faint, so it reads on any tint. */
 export const EMPTY_OPACITY = 0.1;
 const GAP = 4;
-/** Between the blocks of a week's column, tighter than between columns. */
-const BLOCK_GAP = 2;
-/** Room inside a week's column for its selection ring. */
-const COLUMN_PAD = 3;
-const ROW_LABEL_WIDTH = 28;
-const LINE_HEIGHT = 14;
-const CAPTION_HEIGHT = 16;
-const MAX_RADIUS = 10;
-const RING_WIDTH = 1.5;
+const LABEL_WIDTH = 24;
+const CAPTION_HEIGHT = 18;
 
-/** The sparse cells by key, the tags by id, and the peak. */
-export type CellIndex = {
-    byKey: Map<string, AnalyticsHeatmap["cells"][number]>;
-    tagsById: Map<number, HeatmapTag>;
-    maxPlays: number;
-};
+export type CellIndex = { byKey: Map<string, ListeningCell>; maxMs: number };
 
-export function indexCells(heatmap?: AnalyticsHeatmap): CellIndex {
-    const index: CellIndex = {
-        byKey: new Map(),
-        tagsById: new Map(),
-        maxPlays: 0,
-    };
-    for (const tag of heatmap?.tags ?? []) index.tagsById.set(tag.id, tag);
-    for (const cell of heatmap?.cells ?? []) {
-        index.byKey.set(cell.start, cell);
-        index.maxPlays = Math.max(index.maxPlays, cell.plays);
-    }
-    return index;
+export function indexCells(listening?: Listening): CellIndex {
+    const byKey = new Map(
+        (listening?.cells ?? []).map((cell) => [cell.start, cell]),
+    );
+    const maxMs = Math.max(
+        0,
+        ...(listening?.cells ?? []).map((cell) => cell.listening_ms),
+    );
+    return { byKey, maxMs };
 }
 
 type GridProps = {
@@ -59,16 +43,16 @@ type GridProps = {
     onPick: (pick: HeatmapPick) => void;
     width: number;
     height: number;
-    /** Rings the picked square or column. */
     ring: string;
+    now: Date;
 };
 
-/** A level's squares in a fixed box: rows of squares, or a week's columns. */
+/** Every level fits the same box. Only the week draws bars; squares show their level by brightness. */
 export function HeatmapGridView(props: GridProps) {
     return (
         <View style={{ width: props.width, height: props.height }}>
             {props.grid.columns ? (
-                <ColumnGrid {...props} />
+                <WeekBars {...props} />
             ) : (
                 <RowGrid {...props} />
             )}
@@ -76,7 +60,6 @@ export function HeatmapGridView(props: GridProps) {
     );
 }
 
-/** Rows of squares, each picked on its own. */
 function RowGrid({
     grid,
     cells,
@@ -85,20 +68,21 @@ function RowGrid({
     width,
     height,
     ring,
+    now,
 }: GridProps) {
-    const { colors } = useTheme();
-    const rows = grid.lines;
-    const columns = Math.max(...rows.map((row) => row.length), 1);
-    const labelWidth = grid.rowLabels ? ROW_LABEL_WIDTH : 0;
-    const header = grid.header ? headerHeight(grid.header) + GAP : 0;
-    const captions =
-        rows.filter((row) => row.some((cell) => cell?.caption)).length *
-        CAPTION_HEIGHT;
-
-    // fractional, so the grid runs to the box's edges
+    const columns = Math.max(...grid.lines.map((row) => row.length), 1);
+    const labelWidth = grid.rowLabels ? LABEL_WIDTH : 0;
+    const headerHeight = grid.header ? 22 : 0;
+    const captionRows = grid.lines.filter((row) =>
+        row.some((cell) => cell?.caption),
+    ).length;
     const fitW = (width - labelWidth - GAP * (columns - 1)) / columns;
     const fitH =
-        (height - header - captions - GAP * (rows.length - 1)) / rows.length;
+        (height -
+            headerHeight -
+            captionRows * CAPTION_HEIGHT -
+            GAP * (grid.lines.length - 1)) /
+        grid.lines.length;
     const cellW = grid.square ? Math.min(fitW, fitH) : fitW;
     const cellH = grid.square ? cellW : fitH;
 
@@ -107,19 +91,23 @@ function RowGrid({
             {grid.header ? (
                 <View
                     className="flex-row"
-                    style={{ marginLeft: labelWidth, marginBottom: GAP }}
+                    style={{ height: headerHeight, marginLeft: labelWidth }}
                 >
-                    {grid.header.map((label, index) => (
-                        <Label
-                            key={index}
-                            text={label}
-                            width={cellW}
-                            marginLeft={index === 0 ? 0 : GAP}
-                        />
+                    {grid.header.map((label, i) => (
+                        <Text
+                            key={i}
+                            className="text-muted-foreground text-center text-[10px]"
+                            style={{
+                                width: cellW,
+                                marginLeft: i === 0 ? 0 : GAP,
+                            }}
+                        >
+                            {label}
+                        </Text>
                     ))}
                 </View>
             ) : null}
-            {rows.map((row, rowIndex) => (
+            {grid.lines.map((row, rowIndex) => (
                 <View
                     key={rowIndex}
                     style={{ marginTop: rowIndex === 0 ? 0 : GAP }}
@@ -133,27 +121,27 @@ function RowGrid({
                                 {grid.rowLabels[rowIndex]}
                             </Text>
                         ) : null}
-                        {row.map((cell, index) => (
+                        {row.map((cell, i) => (
                             <Square
-                                key={cell?.key ?? `spacer-${index}`}
+                                key={cell?.key ?? i}
                                 cell={cell}
-                                cells={cells}
+                                data={
+                                    cell ? cells.byKey.get(cell.key) : undefined
+                                }
+                                maxMs={cells.maxMs}
                                 width={cellW}
                                 height={cellH}
-                                marginLeft={index === 0 ? 0 : GAP}
-                                empty={String(colors.text)}
-                                ring={
-                                    cell?.pick &&
-                                    pick &&
-                                    samePick(cell.pick, pick)
-                                        ? ring
-                                        : null
+                                marginLeft={i === 0 ? 0 : GAP}
+                                picked={
+                                    !!(
+                                        cell?.pick &&
+                                        pick &&
+                                        samePick(cell.pick, pick)
+                                    )
                                 }
-                                onPress={
-                                    cell?.pick
-                                        ? () => onPick(cell.pick!)
-                                        : undefined
-                                }
+                                accent={ring}
+                                future={!!cell?.pick && cell.pick.start > now}
+                                onPick={onPick}
                             />
                         ))}
                     </View>
@@ -161,17 +149,22 @@ function RowGrid({
                         <View
                             className="flex-row"
                             style={{
-                                marginLeft: labelWidth,
                                 height: CAPTION_HEIGHT,
+                                marginLeft: labelWidth,
                             }}
                         >
-                            {row.map((cell, index) => (
-                                <Label
-                                    key={index}
-                                    text={cell?.caption ?? ""}
-                                    width={cellW}
-                                    marginLeft={index === 0 ? 0 : GAP}
-                                />
+                            {row.map((cell, i) => (
+                                <Text
+                                    key={cell?.key ?? i}
+                                    className="text-muted-foreground text-center text-[9px]"
+                                    style={{
+                                        width: cellW,
+                                        marginLeft: i === 0 ? 0 : GAP,
+                                    }}
+                                    numberOfLines={1}
+                                >
+                                    {cell?.caption ?? ""}
+                                </Text>
                             ))}
                         </View>
                     ) : null}
@@ -181,230 +174,142 @@ function RowGrid({
     );
 }
 
-/** Columns of blocks under a header, each column picked as a whole. */
-function ColumnGrid({
-    grid,
-    cells,
-    pick,
-    onPick,
-    width,
-    height,
-    ring,
-}: GridProps) {
+/** One additive duration per day, with explicit values and a visible scale. */
+function WeekBars({ grid, cells, pick, onPick, ring, now }: GridProps) {
     const { colors } = useTheme();
-    const columns = grid.lines;
-    const blocks = Math.max(...columns.map((column) => column.length), 1);
-    const header = grid.header ? headerHeight(grid.header) + GAP : 0;
-
-    const columnW = (width - GAP * (columns.length - 1)) / columns.length;
-    const blockW = columnW - COLUMN_PAD * 2;
-    const blockH =
-        (height - header - COLUMN_PAD * 2 - BLOCK_GAP * (blocks - 1)) / blocks;
-
     return (
-        <View className="flex-1 flex-row">
-            {columns.map((column, index) => {
-                const columnPick = column.find((cell) => cell?.pick)?.pick;
-                const picked =
-                    columnPick != null &&
-                    pick != null &&
-                    samePick(columnPick, pick);
-                return (
-                    <Pressable
-                        key={index}
-                        onPress={
-                            columnPick ? () => onPick(columnPick) : undefined
-                        }
-                        accessibilityRole="button"
-                        accessibilityLabel={columnPick?.label}
-                        accessibilityState={{ selected: picked }}
-                        style={{
-                            width: columnW,
-                            marginLeft: index === 0 ? 0 : GAP,
-                            padding: COLUMN_PAD - (picked ? RING_WIDTH : 0),
-                            borderWidth: picked ? RING_WIDTH : 0,
-                            borderColor: ring,
-                            borderRadius: MAX_RADIUS,
-                        }}
-                    >
-                        {grid.header ? (
-                            <View style={{ marginBottom: GAP }}>
-                                <Label
-                                    text={grid.header[index] ?? ""}
-                                    width={blockW}
-                                    marginLeft={0}
-                                    strong
-                                />
-                            </View>
-                        ) : null}
-                        {column.map((cell, block) => (
-                            <View
-                                key={cell?.key ?? `spacer-${block}`}
-                                style={{
-                                    marginTop: block === 0 ? 0 : BLOCK_GAP,
-                                }}
+        <View className="flex-1 gap-2">
+            <Text className="text-muted-foreground text-right text-[10px]">
+                Peak {formatDuration(cells.maxMs)}
+            </Text>
+            <View className="flex-1 flex-row gap-1">
+                {grid.lines.map((column, i) => {
+                    const cell = column[0];
+                    const target = cell?.pick;
+                    const data = cell ? cells.byKey.get(cell.key) : undefined;
+                    const ms = data?.listening_ms ?? 0;
+                    const picked = !!(target && pick && samePick(target, pick));
+                    const future = !!target && target.start > now;
+                    const fraction =
+                        cells.maxMs > 0
+                            ? Math.min(1, Math.max(0, ms / cells.maxMs))
+                            : 0;
+                    return (
+                        <Pressable
+                            key={cell?.key ?? i}
+                            className="flex-1 gap-2 rounded-xl p-1 active:opacity-60"
+                            style={{
+                                borderWidth: 1.5,
+                                borderColor: picked ? ring : "transparent",
+                                opacity: future ? 0.35 : 1,
+                            }}
+                            disabled={!target || future}
+                            onPress={() => target && onPick(target)}
+                            accessibilityRole="button"
+                            accessibilityLabel={`${target?.label}, ${formatDuration(ms)} listened, ${data?.plays ?? 0} plays`}
+                            accessibilityState={{
+                                selected: picked,
+                                disabled: !target || future,
+                            }}
+                        >
+                            <Text
+                                className="text-center text-xs"
+                                numberOfLines={2}
                             >
-                                <Square
-                                    cell={cell}
-                                    cells={cells}
-                                    width={blockW}
-                                    height={blockH}
-                                    marginLeft={0}
-                                    empty={String(colors.text)}
-                                    ring={null}
+                                {grid.header?.[i]}
+                            </Text>
+                            <View className="flex-1 justify-end overflow-hidden rounded-md">
+                                <View
+                                    className="absolute inset-0 rounded-md"
+                                    style={{
+                                        backgroundColor: colors.text,
+                                        opacity: EMPTY_OPACITY,
+                                    }}
+                                />
+                                <View
+                                    className="w-full rounded-md"
+                                    style={{
+                                        height: `${fraction * 100}%`,
+                                        backgroundColor: ring,
+                                    }}
                                 />
                             </View>
-                        ))}
-                    </Pressable>
-                );
-            })}
+                            <Text
+                                className="text-muted-foreground text-center text-[10px]"
+                                numberOfLines={1}
+                            >
+                                {future ? "-" : formatDuration(ms)}
+                            </Text>
+                        </Pressable>
+                    );
+                })}
+            </View>
         </View>
     );
 }
 
-function headerHeight(header: string[]): number {
-    const lines = Math.max(...header.map((label) => label.split("\n").length));
-    return lines * LINE_HEIGHT;
-}
-
-/** A small centered label over or under a square. */
-function Label({
-    text,
-    width,
-    marginLeft,
-    strong,
-}: {
-    text: string;
-    width: number;
-    marginLeft: number;
-    strong?: boolean;
-}) {
-    return (
-        <Text
-            className={
-                strong
-                    ? "text-center text-[11px] leading-[14px] font-medium"
-                    : "text-muted-foreground text-center text-[10px] leading-[14px]"
-            }
-            style={{ width, marginLeft }}
-            numberOfLines={2}
-        >
-            {text}
-        </Text>
-    );
-}
-
-/**
- * One square, filled by its heat in its tag's color. Without `onPress` it
- * is not a button, so a week's blocks pass taps to their column.
- */
 function Square({
     cell,
-    cells,
+    data,
+    maxMs,
     width,
     height,
     marginLeft,
-    empty,
-    ring,
-    onPress,
+    picked,
+    accent,
+    future,
+    onPick,
 }: {
     cell: LayoutCell | null;
-    cells: CellIndex;
+    data?: ListeningCell;
+    maxMs: number;
     width: number;
     height: number;
     marginLeft: number;
-    /** Fills an empty square, faintly. */
-    empty: string;
-    /** The selection ring's color, null when not picked. */
-    ring: string | null;
-    onPress?: () => void;
+    picked: boolean;
+    accent: string;
+    future: boolean;
+    onPick: (pick: HeatmapPick) => void;
 }) {
-    const radius = Math.min(
-        MAX_RADIUS,
-        Math.max(2, Math.min(width, height) * 0.22),
-    );
+    const { colors } = useTheme();
     if (!cell) return <View style={{ width, height, marginLeft }} />;
-
-    const data = cells.byKey.get(cell.key);
-    const plays = data?.plays ?? 0;
-    const level = heatLevel(plays, cells.maxPlays);
-    const color =
-        (data?.tag_id != null
-            ? cells.tagsById.get(data.tag_id)?.color
-            : null) ?? UNTAGGED_COLOR;
-    // a day outside the month is there for its shape only
-    const outside = cell.pick === null;
-
-    const body = (
-        <>
-            {/* the fill is its own layer, so its opacity does not fade the
-                ring or the text with it */}
-            <View
-                style={[
-                    StyleSheet.absoluteFill,
-                    {
-                        backgroundColor: level === 0 ? empty : color,
-                        opacity:
-                            level === 0
-                                ? EMPTY_OPACITY * (outside ? 0.5 : 1)
-                                : LEVEL_OPACITY[level],
-                    },
-                ]}
-            />
-            {cell.text ? (
-                <View style={styles.textLayer} pointerEvents="none">
-                    <RNText
-                        style={[
-                            styles.text,
-                            {
-                                fontSize: Math.max(
-                                    9,
-                                    Math.min(14, height * 0.32),
-                                ),
-                                opacity: outside ? 0.35 : 1,
-                            },
-                        ]}
-                        numberOfLines={1}
-                    >
-                        {cell.text}
-                    </RNText>
-                </View>
-            ) : null}
-        </>
-    );
-    const style = {
-        width,
-        height,
-        marginLeft,
-        borderRadius: radius,
-        overflow: "hidden" as const,
-        borderWidth: ring ? RING_WIDTH : 0,
-        borderColor: ring ?? undefined,
-    };
-
-    if (!onPress) return <View style={style}>{body}</View>;
+    const ms = data?.listening_ms ?? 0;
+    const level = heatLevel(ms, maxMs);
+    const disabled = !cell.pick || future;
     return (
         <Pressable
-            onPress={onPress}
+            className="items-center justify-center overflow-hidden rounded-lg active:opacity-60"
+            style={{
+                width,
+                height,
+                marginLeft,
+                borderWidth: 1.5,
+                borderColor: picked ? accent : "transparent",
+                opacity: disabled ? 0.35 : 1,
+            }}
+            disabled={disabled}
+            onPress={() => cell.pick && onPick(cell.pick)}
             accessibilityRole="button"
-            accessibilityLabel={`${cell.pick?.label}, ${plays} plays`}
-            accessibilityState={{ selected: ring != null }}
-            style={style}
+            accessibilityLabel={`${cell.pick?.label ?? cell.text}, ${formatDuration(ms)} listened, ${data?.plays ?? 0} plays`}
+            accessibilityState={{ selected: picked, disabled }}
         >
-            {body}
+            {/* brightness alone carries the level: a bar inside a cell this
+                small does not read */}
+            <View
+                className="absolute inset-0"
+                style={{
+                    backgroundColor: level ? accent : colors.text,
+                    opacity: level ? LEVEL_OPACITY[level] : EMPTY_OPACITY,
+                }}
+            />
+            {cell.text ? (
+                <Text
+                    className="text-center text-xs font-medium"
+                    numberOfLines={1}
+                >
+                    {cell.text}
+                </Text>
+            ) : null}
         </Pressable>
     );
 }
-
-const styles = StyleSheet.create({
-    textLayer: {
-        ...StyleSheet.absoluteFill,
-        alignItems: "center",
-        justifyContent: "center",
-    },
-    text: {
-        color: CELL_TEXT_COLOR,
-        fontWeight: "600",
-        textAlign: "center",
-    },
-});

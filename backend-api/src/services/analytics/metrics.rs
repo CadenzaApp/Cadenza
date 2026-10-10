@@ -29,6 +29,33 @@ pub enum MetricUnit {
     Milliseconds,
 }
 
+/// One event's listened time in ms, null when it has none or the value is junk.
+/// Guarded the same way as `early_skips`: at most 18 digits, so the value always
+/// fits a bigint and no row can overflow a sum. A macro so it can be spliced
+/// into the `listening_ms` aggregate at compile time.
+macro_rules! listened_ms_expr {
+    () => {
+        "case when payload->>'listened_ms' ~ '^-?[0-9]{1,18}$' \
+              then (payload->>'listened_ms')::bigint end"
+    };
+}
+
+/// The events that end a listen and so carry `listened_ms`. Only these count
+/// toward listening time, so one play cannot be counted twice.
+macro_rules! listen_events_filter {
+    () => {
+        "event_type in ('play_complete', 'skip')"
+    };
+}
+
+/// One event's listened time, unqualified columns of `listening_events`. Every
+/// listening time read uses this with [`LISTEN_EVENTS`], so a tag's share and
+/// the period total cannot disagree on what a listen is worth.
+pub const LISTENED_MS: &str = listened_ms_expr!();
+
+/// The `where` fragment picking the events [`LISTENED_MS`] is summed over.
+pub const LISTEN_EVENTS: &str = listen_events_filter!();
+
 /// A number computed from a user's events over a window.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Metric {
@@ -113,12 +140,13 @@ impl Metric {
         },
         Metric {
             name: "listening_ms",
-            // guarded for the same reason as early_skips. at most 18 digits, so
-            // the value always fits a bigint and no row can overflow the sum
-            aggregate: "coalesce(sum(case \
-                            when payload->>'listened_ms' ~ '^-?[0-9]{1,18}$' \
-                            then (payload->>'listened_ms')::bigint end) \
-                        filter (where event_type in ('play_complete', 'skip')), 0)::bigint",
+            aggregate: concat!(
+                "coalesce(sum(",
+                listened_ms_expr!(),
+                ") filter (where ",
+                listen_events_filter!(),
+                "), 0)::bigint"
+            ),
             description: "Listening time",
             unit: MetricUnit::Milliseconds,
         },
@@ -295,6 +323,13 @@ impl fmt::Display for Bucket {
 mod tests {
     use super::*;
     use crate::services::analytics::EventType;
+
+    #[test]
+    fn listening_time_is_built_from_the_shared_listen_rule() {
+        let metric = Metric::from_name("listening_ms").unwrap();
+        assert!(metric.aggregate.contains(LISTENED_MS));
+        assert!(metric.aggregate.contains(LISTEN_EVENTS));
+    }
 
     #[test]
     fn metric_names_are_unique() {

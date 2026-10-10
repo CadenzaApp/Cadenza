@@ -14,13 +14,17 @@
 
 use std::collections::HashMap;
 
+pub mod listening;
+
 use chrono::{DateTime, Utc};
 use sea_orm::{ConnectionTrait, DbBackend, Statement, Value as DbValue, prelude::Uuid};
 
 use crate::db::activity_tags::tag_type_name;
 use crate::db::entity::sea_orm_active_enums::TagType;
 use crate::err::CadenzaError;
-use crate::services::analytics::{Bucket, Dimension, Metric, TimeWindow, sanitize_timezone};
+use crate::services::analytics::{
+    Bucket, Dimension, LISTEN_EVENTS, LISTENED_MS, Metric, TimeWindow, sanitize_timezone,
+};
 
 /// A `where` fragment restricting rows to one user and a window, plus the values
 /// it binds, starting at `$1`.
@@ -526,6 +530,105 @@ pub async fn get_tags_played(
         .ok_or_else(|| CadenzaError::DatabaseError("tags played returned no row".to_owned()))?;
 
     Ok(row.try_get_by_index(0)?)
+}
+
+/// A tag and the listening time on songs carrying it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TagListening {
+    pub tag_id: i64,
+    pub name: String,
+    pub color: String,
+    pub listening_ms: i64,
+}
+
+/// Listening time over a window: the total, and each tag's part of it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TagShares {
+    /// Every listen once, the same figure as the summary's `listening_ms`.
+    pub total_ms: i64,
+    /// Every listen on a song with any of the tags, once, however many it has.
+    pub tagged_ms: i64,
+    /// Most listened first, ties to the name. Only tags with some time.
+    pub tags: Vec<TagListening>,
+}
+
+/// How much of the window's listening time each of the user's tags was on.
+///
+/// Each listen counts in full toward every tag on its song, never split, so a
+/// song with two tags adds its time to both and the shares can sum past the
+/// total. Song to tag pairs are made distinct before the join, so one listen
+/// cannot count twice toward the same tag. Same tags as `tagged_plays`: the
+/// user's own, no activity tags. Same listens and duration rule as the
+/// `listening_ms` metric, so `total_ms` is that figure.
+pub async fn get_tag_shares(
+    db: &impl ConnectionTrait,
+    user_id: Uuid,
+    window: TimeWindow,
+) -> Result<TagShares, CadenzaError> {
+    let scope = Scope::new(user_id, window, None);
+    let sql = format!(
+        "with listens as (
+             select song_id, {LISTENED_MS} as ms
+             from listening_events
+             where {scope} and {LISTEN_EVENTS}
+         ),
+         song_tags as (
+             select distinct uta.song_id, t.tag_id, t.name, t.color
+             from user_tags_applied uta
+             join tags t on t.tag_id = uta.tag_id
+             where uta.user_id = $1 and t.user_id = $1 and t.is_activity = false
+         ),
+         per_tag as (
+             select st.tag_id, st.name, st.color, sum(l.ms)::bigint as ms
+             from listens l
+             join song_tags st on st.song_id = l.song_id
+             group by st.tag_id, st.name, st.color
+         )
+         -- the total row always comes back, with a null tag when none had time
+         select total.ms, total.tagged, pt.tag_id, pt.name, pt.color, pt.ms
+         from (
+             select coalesce(sum(ms), 0)::bigint as ms,
+                    coalesce(sum(ms) filter (
+                        where song_id in (select song_id from song_tags)
+                    ), 0)::bigint as tagged
+             from listens
+         ) total
+         left join per_tag pt on pt.ms > 0
+         order by pt.ms desc nulls last, pt.name",
+        scope = scope.clause,
+    );
+
+    let rows = db
+        .query_all_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            sql,
+            scope.values,
+        ))
+        .await?;
+
+    let total_ms: i64 = rows
+        .first()
+        .ok_or_else(|| CadenzaError::DatabaseError("tag shares returned no total".to_owned()))?
+        .try_get_by_index(0)?;
+    let tagged_ms: i64 = rows[0].try_get_by_index(1)?;
+    let mut tags = Vec::new();
+    for row in &rows {
+        let tag_id: Option<i64> = row.try_get_by_index(2)?;
+        if let Some(tag_id) = tag_id {
+            tags.push(TagListening {
+                tag_id,
+                name: row.try_get_by_index(3)?,
+                color: row.try_get_by_index(4)?,
+                listening_ms: row.try_get_by_index(5)?,
+            });
+        }
+    }
+
+    Ok(TagShares {
+        total_ms,
+        tagged_ms,
+        tags,
+    })
 }
 
 /// The tag a heatmap cell is colored by: just enough to draw it.
@@ -1613,6 +1716,101 @@ mod tests {
 
         let played = get_tags_played(&txn, user_id, window()).await.unwrap();
         assert_eq!(played, 1);
+    }
+
+    /// Puts an existing tag on another song.
+    async fn apply(txn: &DatabaseTransaction, user_id: Uuid, tag_id: i64, song_id: &str) {
+        txn.execute_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            "insert into user_tags_applied (song_id, user_id, tag_id) values ($1, $2, $3)",
+            [song_id.into(), user_id.into(), tag_id.into()],
+        ))
+        .await
+        .expect("apply tag");
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn tag_shares_count_each_listen_in_full_toward_every_tag() {
+        let (txn, user_id) = scratch().await;
+        seed(&txn, user_id).await;
+        // A listened 180k + 180k, B 4k. X is on both, Y only on A
+        let x = tag_song(&txn, user_id, "zz share x", "A").await;
+        apply(&txn, user_id, x, "B").await;
+        let y = tag_song(&txn, user_id, "zz share y", "A").await;
+
+        let shares = get_tag_shares(&txn, user_id, window()).await.unwrap();
+        let stats = get_summary(&txn, user_id, window()).await.unwrap();
+        assert_eq!(shares.total_ms, 364_000);
+        assert_eq!(
+            shares.total_ms, stats["listening_ms"],
+            "same total as the summary"
+        );
+
+        let ms = |id: i64| {
+            shares
+                .tags
+                .iter()
+                .find(|t| t.tag_id == id)
+                .unwrap()
+                .listening_ms
+        };
+        assert_eq!(ms(x), 364_000, "every listen, not split with Y");
+        assert_eq!(ms(y), 360_000, "only A's");
+        assert_eq!(
+            shares.tagged_ms, 364_000,
+            "each listen once, not once per tag"
+        );
+        // overlapping, so the shares sum past the total
+        assert!(ms(x) + ms(y) > shares.total_ms);
+        assert_eq!(shares.tags[0].tag_id, x, "most listened first");
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn tag_shares_leave_out_suggested_and_untimed_tags() {
+        let (txn, user_id) = scratch().await;
+        seed(&txn, user_id).await;
+        let row = txn
+            .query_one_raw(Statement::from_string(
+                DbBackend::Postgres,
+                "insert into tags (user_id, name, color, type, is_activity)
+                 values (null, 'zz share suggested', '#ef4444', 'basic'::tag_type, false)
+                 returning tag_id",
+            ))
+            .await
+            .unwrap()
+            .unwrap();
+        let suggested: i64 = row.try_get_by_index(0).unwrap();
+        apply(&txn, user_id, suggested, "A").await;
+        // tagged, but the song has no listen in the window
+        tag_song(&txn, user_id, "zz share unplayed", "never played").await;
+
+        let shares = get_tag_shares(&txn, user_id, window()).await.unwrap();
+        assert_eq!(shares.total_ms, 364_000, "untagged listens still count");
+        assert_eq!(
+            shares.tagged_ms, 0,
+            "a suggested tag does not make a song tagged"
+        );
+        assert!(shares.tags.is_empty(), "{:?}", shares.tags);
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn tag_shares_of_an_empty_window_are_zero() {
+        let (txn, user_id) = scratch().await;
+        seed(&txn, user_id).await;
+        tag_song(&txn, user_id, "zz share x", "A").await;
+
+        let empty = TimeWindow::new(
+            Some(at("2026-08-01T00:00:00Z")),
+            Some(at("2026-08-02T00:00:00Z")),
+        )
+        .unwrap();
+        let shares = get_tag_shares(&txn, user_id, empty).await.unwrap();
+        assert_eq!(shares.total_ms, 0);
+        assert_eq!(shares.tagged_ms, 0);
+        assert!(shares.tags.is_empty());
     }
 
     #[tokio::test]

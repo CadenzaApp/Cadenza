@@ -7,9 +7,7 @@ import { Text } from "@/components/ui/text";
 import { NebulaBackdrop } from "@/components/ui/nebula-backdrop";
 import {
     useAnalyticsSummary,
-    useAnalyticsTrend,
     type AnalyticsSummary,
-    type AnalyticsTrend,
     type EntityPlayCount,
 } from "@/lib/routes/analytics";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
@@ -20,18 +18,14 @@ import { AnalyticsCard } from "./AnalyticsCard";
 import { AnalyticsHeader } from "./AnalyticsHeader";
 import { useNebulaColors, usePageTint, useUpdatedAgo } from "./analytics-hooks";
 import { useAnalyticsPeriod } from "./analytics-period";
-import { dimensionByName, type DimensionDescriptor } from "./dimensions";
 import { formatCount, formatDuration } from "./format";
 import { Heatmap } from "./Heatmap";
 import { HeroCarousel } from "./HeroCarousel";
-import { HoursChart } from "./HoursChart";
 import type { ResolvedPeriod } from "./range";
-import { SectionHeading } from "./SectionHeading";
 import { StatsStrip } from "./StatsStrip";
+import type { TagFilter as TagChoice } from "./tag-share";
 import { TagRotation } from "./TagRotation";
-import { TopEntityList } from "./TopEntityList";
 import { TopRankingsCard } from "./TopRankingsCard";
-import { TrendChart, type HeadlineMetric } from "./TrendChart";
 
 /**
  * What the user's listening looks like over one calendar period, from the
@@ -42,28 +36,21 @@ import { TrendChart, type HeadlineMetric } from "./TrendChart";
  * so it survives navigating into a detail page.
  *
  * Top to bottom: the header, the #1 hero, the stats strip, the heatmap, the tag
- * rail, then the trend chart and the rankings. Behind it all glows a nebula
+ * rail, then the rankings. Behind it all glows a nebula
  * in the period's top tag colors.
  */
 export function AnalyticsOverviewScreen() {
     const { contentBottomInset } = useScreenOverlayInsets();
     const scroll = useScreenScroll();
     const { period } = useAnalyticsPeriod();
-    const [metric, setMetric] = useState<HeadlineMetric>("plays");
+    // Keep the explicit tag filter when changing the page's period.
+    const [tagChoice, setTagChoice] = useState<TagChoice>(null);
 
     const window = { since: period.since, until: period.until };
     const { updatedAgo, markUpdated } = useUpdatedAgo();
     const { summary, summaryLoading, summaryErr } = useAnalyticsSummary(
         window,
         markUpdated,
-    );
-    // the hours chart reads plays_by_hour off the summary, so a day needs no
-    // trend request at all
-    const { trend, trendLoading, trendErr } = useAnalyticsTrend(
-        metric,
-        period.trendBucket,
-        window,
-        period.chart === "trend",
     );
 
     const accent = usePageTint(summary);
@@ -100,11 +87,8 @@ export function AnalyticsOverviewScreen() {
                             summary={summary}
                             period={period}
                             accent={accent}
-                            trend={trend}
-                            trendLoading={trendLoading}
-                            trendErr={trendErr}
-                            metric={metric}
-                            onMetricChange={setMetric}
+                            tagChoice={tagChoice}
+                            onTagChoice={setTagChoice}
                         />
                     ) : summaryErr ? (
                         <Message
@@ -131,20 +115,14 @@ function OverviewBody({
     summary,
     period,
     accent,
-    trend,
-    trendLoading,
-    trendErr,
-    metric,
-    onMetricChange,
+    tagChoice,
+    onTagChoice,
 }: {
     summary: AnalyticsSummary;
     period: ResolvedPeriod;
     accent: string | null;
-    trend?: AnalyticsTrend;
-    trendLoading: boolean;
-    trendErr?: unknown;
-    metric: HeadlineMetric;
-    onMetricChange: (metric: HeadlineMetric) => void;
+    tagChoice: TagChoice;
+    onTagChoice: (choice: TagChoice) => void;
 }) {
     const { stats } = summary;
     const periodKey = `${period.grain}:${period.since}`;
@@ -194,51 +172,13 @@ function OverviewBody({
                 key={`heatmap:${periodKey}`}
                 root={period}
                 accent={accent}
+                tagChoice={tagChoice}
+                onTagChoice={onTagChoice}
             />
 
             <TagRotation tags={summary.top_tags} />
 
-            {period.chart === "hours" ? (
-                <HoursChart
-                    playsByHour={summary.plays_by_hour}
-                    color={accent}
-                />
-            ) : (
-                <TrendChart
-                    trend={trend}
-                    loading={trendLoading}
-                    error={trend ? undefined : trendErr}
-                    metric={metric}
-                    onMetricChange={onMetricChange}
-                    color={accent}
-                />
-            )}
-
             <TopRankingsCard top={summary.top} accent={accent} />
-
-            {summary.most_replayed.length > 0 ? (
-                <AnalyticsCard>
-                    <SectionHeading
-                        title="On repeat"
-                        detail="Most plays in one sitting."
-                    />
-                    <TopEntityList
-                        dimension={REPLAY_DIMENSION}
-                        entries={summary.most_replayed.map(
-                            (song): EntityPlayCount => ({
-                                key: song.song_id,
-                                label: null,
-                                sub_label: null,
-                                entity_id: song.song_id,
-                                sample_song_id: song.song_id,
-                                // the figure on the row is the sitting, not
-                                // a total; the subtitle says so
-                                plays: song.most_in_one_session,
-                            }),
-                        )}
-                    />
-                </AnalyticsCard>
-            ) : null}
         </>
     );
 }
@@ -271,12 +211,3 @@ function LoadingState() {
 
 /** Stable, so a pending read does not give the list a new array each render. */
 const NO_ENTRIES: EntityPlayCount[] = [];
-
-/**
- * On repeat is a ranking of songs, so it borrows the song descriptor's drawing
- * rules. Its figure is the most plays in one sitting, not a total.
- */
-const REPLAY_DIMENSION: DimensionDescriptor = {
-    ...(dimensionByName("song") as DimensionDescriptor),
-    emptyLabel: "Nothing played twice in a row yet.",
-};

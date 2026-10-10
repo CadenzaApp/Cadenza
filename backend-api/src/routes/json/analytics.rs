@@ -2,12 +2,16 @@
 
 use std::collections::HashMap;
 
+pub mod listening;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
-use crate::db::analytics::{CellTag, EntityPlays, HeatmapCell, SongReplays, TagPlays, TrendPoint};
+use crate::db::analytics::{
+    CellTag, EntityPlays, HeatmapCell, SongReplays, TagListening, TagPlays, TagShares, TrendPoint,
+};
 use crate::routes::json::tag::TagType;
 use crate::services::analytics::metrics::MetricUnit;
 
@@ -185,6 +189,43 @@ pub struct AnalyticsTopList {
 #[derive(Serialize)]
 pub struct AnalyticsTopTags {
     pub entries: Vec<TagPlayCount>,
+}
+
+/// What `GET /analytics/tag-shares` answers with.
+#[derive(Serialize)]
+pub struct AnalyticsTagShares {
+    pub total_ms: i64,
+    pub tagged_ms: i64,
+    pub tags: Vec<TagListeningTime>,
+}
+
+#[derive(Serialize)]
+pub struct TagListeningTime {
+    pub id: i64,
+    pub name: String,
+    pub color: String,
+    pub listening_ms: i64,
+}
+
+impl From<TagListening> for TagListeningTime {
+    fn from(value: TagListening) -> Self {
+        Self {
+            id: value.tag_id,
+            name: value.name,
+            color: value.color,
+            listening_ms: value.listening_ms,
+        }
+    }
+}
+
+impl From<TagShares> for AnalyticsTagShares {
+    fn from(value: TagShares) -> Self {
+        Self {
+            total_ms: value.total_ms,
+            tagged_ms: value.tagged_ms,
+            tags: value.tags.into_iter().map(Into::into).collect(),
+        }
+    }
 }
 
 /// What `GET /analytics/heatmap` answers with.

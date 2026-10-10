@@ -1,6 +1,6 @@
 /**
  * The calendar period the Analytics tab is showing, and everything it resolves
- * to: the window, the chart and heatmap buckets, and the words on screen.
+ * to: the window, the heatmap bucket, and the words on screen.
  *
  * A period is a grain (day, week, month, or year) plus how many of them
  * back from the current one. Holding an offset rather than a date means offset
@@ -20,24 +20,21 @@ export type PeriodGrain = "day" | "week" | "month" | "year";
 /** Every grain, in the order the picker shows them. */
 export const PERIOD_GRAINS: PeriodGrain[] = ["day", "week", "month", "year"];
 
-/** What the backend's trend `bucket` param accepts. `auto` lets it pick. */
-export type TrendBucket = "day" | "week" | "month" | "year" | "auto";
-
 /** The buckets a heatmap is cut in. */
-export type HeatmapBucket = "hour" | "two_hour" | "day" | "month";
+export type HeatmapBucket = "hour" | "day" | "month";
 
 /**
  * How a period's heatmap is laid out. Each carries the local midnight it
  * starts on, which is all the layout needs to place every cell.
  *
  * - `day-hours`: one day, two rows of twelve hours.
- * - `week-blocks`: Monday to Sunday, a column a day of twelve two hour blocks.
+ * - `week-days`: Monday to Sunday, one additive duration bar per day.
  * - `month-days`: a calendar, one cell per day.
  * - `year-months`: the year's twelve months, four rows of three.
  */
 export type HeatmapShape =
     | { kind: "day-hours"; start: Date }
-    | { kind: "week-blocks"; start: Date }
+    | { kind: "week-days"; start: Date }
     | { kind: "month-days"; start: Date }
     | { kind: "year-months"; start: Date };
 
@@ -49,12 +46,6 @@ export type ResolvedPeriod = {
     since: string;
     /** ISO instant, exclusive. */
     until: string;
-    trendBucket: TrendBucket;
-    /**
-     * Which chart the period wants. `hours` is the 24-hour histogram, which
-     * says far more about a single day than a one-bar trend would.
-     */
-    chart: "hours" | "trend";
     heatmapBucket: HeatmapBucket;
     heatmap: HeatmapShape;
     /** The dates it covers, "Sep 28 - Oct 4, 2026". */
@@ -215,7 +206,7 @@ function heatmapFor(grain: PeriodGrain, start: Date): HeatmapShape {
         case "day":
             return { kind: "day-hours", start };
         case "week":
-            return { kind: "week-blocks", start };
+            return { kind: "week-days", start };
         case "month":
             return { kind: "month-days", start };
         case "year":
@@ -230,7 +221,7 @@ function heatmapBucketFor(grain: PeriodGrain): HeatmapBucket {
         case "day":
             return "hour";
         case "week":
-            return "two_hour";
+            return "day";
         case "month":
             return "day";
         case "year":
@@ -272,8 +263,6 @@ export function resolvePeriod(
         isCurrent,
         since: start.toISOString(),
         until: end.toISOString(),
-        trendBucket: grain === "year" ? "month" : "day",
-        chart: grain === "day" ? "hours" : "trend",
         heatmapBucket: heatmapBucketFor(grain),
     };
 }

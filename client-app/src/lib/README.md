@@ -185,10 +185,10 @@ One file per backend router, and every backend endpoint has at least one hook.
 |                       | `GET /songs/metadata-tags`        | `songs.ts` -> `useMetadataTagsOnSong(songId)`   |
 | `routes/events.rs`    | `POST /events`                    | `events.ts` -> `useRecordEvents()`              |
 | `routes/analytics.rs` | `GET /analytics/summary`          | `analytics.ts` -> `useAnalyticsSummary()`       |
-|                       | `GET /analytics/trends`           | `analytics.ts` -> `useAnalyticsTrend()`         |
 |                       | `GET /analytics/top`              | `analytics.ts` -> `useAnalyticsTop()`           |
 |                       | `GET /analytics/top-tags`         | `analytics.ts` -> `useAnalyticsTopTags()`       |
 |                       | `GET /analytics/heatmap`          | `analytics.ts` -> `useAnalyticsHeatmap()`       |
+|                       | `GET /analytics/tag-shares`       | `analytics.ts` -> `useAnalyticsTagShares()`     |
 | `routes/queries.rs`   | `POST /queries/results`           | `queries.ts` -> `useQueryResults()`             |
 | `routes/comments.rs`  | `GET /comments`                   | `comments.ts` -> `useSongComments(songId)`      |
 |                       | `POST /comments`                  | `comments.ts` -> `useCreateComment()`           |
@@ -650,7 +650,7 @@ do not share a definition of a play. Worth unifying.
   rendered before the session is restored sends no `Authorization` header at all.
 - Plays are only counted while `PlaybackProvider` is polling, which is only in the foreground. A
   song that plays start to finish with the app in the background is never counted, and the gap
-  shows up in the analytics trends as well as in the play count.
+  shows up across the analytics as well as in the play count.
 - `TagScoreTracker` counts a play at 5 seconds and `play-tracker.ts` at 15, so tag scores and the
   analytics play count will not agree. Both are deliberate for their own purpose; neither is the
   other's definition.
@@ -672,3 +672,14 @@ do not share a definition of a play. Worth unifying.
 
 Touching files in this directory? Update this README in the same change.
 See [../../../AGENT_GUIDE.md](../../../AGENT_GUIDE.md).
+
+### Listening calendar reads
+
+`routes/analytics-listening.ts` reads `/analytics/listening` and `/analytics/session-songs`
+(without a session key, so every song in the window). Every key includes window, timezone, optional
+tag, and limit. `useListening` does not retain another key's previous data. Listening totals and
+filtered totals come from one response. The song list grows its limit by 25 instead of paging. Existing analytics endpoints
+remain available for the other analytics sections.
+
+`routes/analytics-reads.ts` lists all analytics cache paths shared by event recording and tag
+mutations, so the calendar, tag picker, sessions and song details refresh together.

@@ -2,12 +2,21 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTheme } from "expo-router/react-navigation";
 import { useMemo, useRef, useState } from "react";
 import { Pressable, View } from "react-native";
-import Animated, { FadeInLeft, FadeInRight } from "react-native-reanimated";
+import Animated, {
+    FadeInLeft,
+    FadeInRight,
+    ReduceMotion,
+} from "react-native-reanimated";
 
 import { GlassButton } from "@/components/ui/glass-button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
-import { useAnalyticsHeatmap } from "@/lib/routes/analytics";
+import {
+    useAnalyticsTagShares,
+    type AnalyticsWindow,
+    type TagListeningTime,
+} from "@/lib/routes/analytics";
+import { useListening } from "@/lib/routes/analytics-listening";
 
 import { AnalyticsCard } from "./AnalyticsCard";
 import { useAnalyticsPeriod } from "./analytics-period";
@@ -23,8 +32,10 @@ import {
     HEAT_LEVELS,
     layoutHeatmap,
     samePick,
+    type HeatmapGrid,
     type HeatmapPick,
 } from "./heatmap-layout";
+import { ListeningSongs } from "./ListeningSongs";
 import {
     drillGrain,
     grainLabel,
@@ -33,6 +44,7 @@ import {
     type ResolvedPeriod,
 } from "./range";
 import { TagCarousel } from "./TagCarousel";
+import type { TagFilter } from "./tag-share";
 
 /**
  * The grid box is this tall for its width, about a six week month calendar,
@@ -41,7 +53,6 @@ import { TagCarousel } from "./TagCarousel";
  */
 const BOX_ASPECT = 0.8;
 const MAX_BOX = 340;
-const BUTTON_HEIGHT = 44;
 const DRILL_MS = 220;
 const DOUBLE_TAP_MS = 300;
 
@@ -52,27 +63,33 @@ type Props = {
     /** The page's period, the top the card can go back up to. */
     root: ResolvedPeriod;
     accent: string | null;
+    /** Lives above the card, so it survives a period change. */
+    tagChoice: TagFilter;
+    onTagChoice: (choice: TagFilter) => void;
 };
 
 /**
- * When the user listens, as squares laid out by the period: hours of a day,
- * two hour blocks of a week, days of a month, months of a year. Each square is colored by the tag played most
- * in it and brightened by how much played.
+ * When the user listens, as squares laid out by the period, brightened by
+ * listening time in the page accent.
  *
  * Nothing is picked at first, so the detail reads out the whole level. A tap
- * picks a square (a whole day in a week) and a second tap lets go of it. A
- * double tap, or the open button, opens it one grain down, in place. The
- * card keeps its levels as a stack over `root`, so the back arrow walks back
- * up, never past `root`. The tags played across the level drift along the
- * bottom.
+ * picks a square and a second tap lets go of it. A double tap, or the open
+ * button, opens it one grain down, in place. The back arrow walks back up,
+ * never past `root`. At a day the button opens the picked hour's songs.
+ *
+ * The tag carousel under the grid is the filter: tapping a tag pins it, and
+ * the grid, legend and detail show only listening to songs with it, in the
+ * tag's color.
  */
-export function Heatmap({ root, accent }: Props) {
+export function Heatmap({ root, accent, tagChoice, onTagChoice }: Props) {
     const { now } = useAnalyticsPeriod();
+    const { colors } = useTheme();
     const [levels, setLevels] = useState<Level[]>([
         { period: root, pick: null },
     ]);
     const [back, setBack] = useState(false);
     const [width, setWidth] = useState(0);
+    const [songsOpen, setSongsOpen] = useState(false);
     // when the last level change happened, so a double tap on open does not
     // open two levels
     const changedAt = useRef(0);
@@ -82,17 +99,24 @@ export function Heatmap({ root, accent }: Props) {
     const { period: scope, pick } = levels.at(-1)!;
     const window = { since: scope.since, until: scope.until };
     const child = drillGrain(scope.grain);
-    const opens = (target: HeatmapPick | null) =>
-        child != null && target != null && target.start <= now;
+    const tagId = tagChoice?.id ?? null;
+    const ink = tagChoice?.color ?? accent ?? UNTAGGED_COLOR;
 
-    const { heatmap, heatmapLoading } = useAnalyticsHeatmap(
-        scope.heatmapBucket,
-        window,
-    );
-    const cells = useMemo(() => indexCells(heatmap), [heatmap]);
     const grid = layoutHeatmap(scope.heatmap);
+    const shown = pick
+        ? { since: pick.start.toISOString(), until: pick.end.toISOString() }
+        : window;
+    // the level's tags, unfiltered, so picking one never empties the row
+    const { tagShares } = useAnalyticsTagShares(window);
+    const tags = tagShares?.tags ?? [];
 
+    // a picked span that has started, the only kind the button acts on
+    const actionable = (target: HeatmapPick | null) =>
+        target != null && target.start <= now;
+    const opens = (target: HeatmapPick | null) =>
+        child != null && actionable(target);
     const settling = () => sliding(changedAt.current);
+
     const open = (target: HeatmapPick | null) => {
         if (!child || !target || !opens(target) || settling()) return;
         const period = resolvePeriod(
@@ -107,6 +131,7 @@ export function Heatmap({ root, accent }: Props) {
     };
     // one tap picks a square or lets go of it, a second quick one opens it
     const tap = (target: HeatmapPick) => {
+        if (target.start > now || settling()) return;
         const at = clock();
         const last = lastTap.current;
         if (
@@ -131,11 +156,24 @@ export function Heatmap({ root, accent }: Props) {
     const goBack = () => {
         if (settling()) return;
         changedAt.current = clock();
+        lastTap.current = null;
         setBack(true);
         setLevels((stack) => stack.slice(0, -1));
     };
+    const pinTag = (id: number) => {
+        const tag = tags.find((each) => each.id === id);
+        if (tag) onTagChoice({ id: tag.id, name: tag.name, color: tag.color });
+    };
+    // a pinned tag this level lacks still shows, at zero
+    const pinned: TagListeningTime | null = tagChoice
+        ? (tags.find((each) => each.id === tagChoice.id) ?? {
+              ...tagChoice,
+              listening_ms: 0,
+          })
+        : null;
 
     const box = Math.min(MAX_BOX, Math.round(width * BOX_ASPECT));
+    const buttonDisabled = !actionable(pick);
 
     return (
         <AnalyticsCard>
@@ -148,17 +186,27 @@ export function Heatmap({ root, accent }: Props) {
                             accessibilityLabel={`Back to ${levels.at(-2)?.period.dateLabel}`}
                             hitSlop={10}
                         >
-                            <BackChevron />
+                            <Ionicons
+                                name="chevron-back"
+                                size={20}
+                                color={colors.text}
+                            />
                         </Pressable>
                     ) : null}
                     <View className="flex-1 gap-1">
                         <Text role="heading" className="text-lg font-semibold">
                             When you listen
                         </Text>
-                        <Breadcrumb parts={[scope.dateLabel, pick?.short]} />
+                        <Text
+                            className="text-muted-foreground text-xs"
+                            numberOfLines={1}
+                        >
+                            {scope.dateLabel}
+                            {pick ? ` > ${pick.short}` : ""}
+                        </Text>
                     </View>
                 </View>
-                <Legend accent={accent} />
+                <Legend color={ink} />
             </View>
 
             {/* keyed by level, so each one slides in fresh: from the right
@@ -170,60 +218,133 @@ export function Heatmap({ root, accent }: Props) {
                 {width > 0 ? (
                     <Animated.View
                         key={`${scope.grain}:${scope.since}`}
-                        entering={(back ? FadeInLeft : FadeInRight).duration(
-                            DRILL_MS,
-                        )}
-                        className="gap-4"
+                        entering={(back ? FadeInLeft : FadeInRight)
+                            .duration(DRILL_MS)
+                            .reduceMotion(ReduceMotion.System)}
+                        style={{ height: box }}
                     >
-                        <View style={{ height: box }}>
-                            {heatmapLoading && !heatmap ? (
-                                <Skeleton className="h-full w-full rounded-xl" />
-                            ) : (
-                                <HeatmapGridView
-                                    grid={grid}
-                                    cells={cells}
-                                    pick={pick}
-                                    onPick={tap}
-                                    width={width}
-                                    height={box}
-                                    ring={accent ?? UNTAGGED_COLOR}
-                                />
-                            )}
-                        </View>
-
-                        <Divider />
-
-                        <HeatmapDetail
-                            label={pick?.label ?? scope.dateLabel}
-                            window={
-                                pick
-                                    ? {
-                                          since: pick.start.toISOString(),
-                                          until: pick.end.toISOString(),
-                                      }
-                                    : window
-                            }
+                        <LevelGrid
+                            bucket={scope.heatmapBucket}
+                            window={window}
+                            tagId={tagId}
+                            grid={grid}
+                            pick={pick}
+                            onPick={tap}
+                            width={width}
+                            height={box}
+                            ring={ink}
+                            now={now}
                         />
                     </Animated.View>
                 ) : null}
             </View>
 
-            {/* outside the sliding level: glass mounted mid fade stays flat
-                until something redraws it. the day has nothing here, but
-                keeps the room */}
-            <View style={{ height: BUTTON_HEIGHT }}>
-                {child ? (
-                    <OpenButton
-                        label={`Open ${grainLabel(child).toLowerCase()}`}
-                        disabled={!opens(pick)}
-                        onPress={() => open(pick)}
-                    />
-                ) : null}
-            </View>
+            <TagCarousel
+                tags={tags}
+                totalMs={tagShares?.total_ms ?? 0}
+                loaded={!!tagShares}
+                selected={pinned}
+                onSelect={pinTag}
+                onRelease={() => onTagChoice(null)}
+            />
+            <View className="h-px bg-border" />
+            {/* keyed by span, so it keeps its numbers only across a tag change */}
+            <HeatmapDetail
+                key={`${shown.since}:${shown.until}`}
+                label={pick?.label ?? scope.dateLabel}
+                bucket={scope.heatmapBucket}
+                window={shown}
+                tag={tagChoice}
+            />
 
-            <Divider />
-            <TagCarousel window={window} />
+            {/* outside the sliding level: glass mounted mid fade stays flat
+                until something redraws it */}
+            <GlassButton
+                className="h-11 rounded-full"
+                disabled={buttonDisabled}
+                accessibilityState={{ disabled: buttonDisabled }}
+                onPress={() => (child ? open(pick) : setSongsOpen(true))}
+            >
+                <Text className="text-sm font-medium">
+                    {child
+                        ? `Open ${grainLabel(child).toLowerCase()}`
+                        : "View hour"}
+                </Text>
+                <Ionicons
+                    name="chevron-forward"
+                    size={14}
+                    color={colors.text}
+                />
+            </GlassButton>
+
+            {songsOpen && pick ? (
+                <ListeningSongs
+                    window={shown}
+                    tagId={tagId}
+                    title={pick.label}
+                    onClose={() => setSongsOpen(false)}
+                />
+            ) : null}
         </AnalyticsCard>
+    );
+}
+
+/**
+ * One level's grid and its read. It lives inside the level's keyed slide, so
+ * a new period mounts a fresh read, while a tag change keeps the old cells on
+ * screen until the filtered ones land.
+ */
+function LevelGrid({
+    bucket,
+    window,
+    tagId,
+    grid,
+    pick,
+    onPick,
+    width,
+    height,
+    ring,
+    now,
+}: {
+    bucket: string;
+    window: AnalyticsWindow;
+    tagId: number | null;
+    grid: HeatmapGrid;
+    pick: HeatmapPick | null;
+    onPick: (pick: HeatmapPick) => void;
+    width: number;
+    height: number;
+    ring: string;
+    now: Date;
+}) {
+    const { data, error, mutate } = useListening(bucket, window, tagId);
+    const cells = useMemo(() => indexCells(data), [data]);
+    if (data) {
+        return (
+            <HeatmapGridView
+                grid={grid}
+                cells={cells}
+                pick={pick}
+                onPick={onPick}
+                width={width}
+                height={height}
+                ring={ring}
+                now={now}
+            />
+        );
+    }
+    return error ? (
+        <Pressable
+            className="flex-1 items-center justify-center"
+            accessibilityRole="button"
+            onPress={() => void mutate()}
+        >
+            <Text className="text-muted-foreground text-sm">
+                Could not load. Tap to retry.
+            </Text>
+        </Pressable>
+    ) : (
+        <Skeleton className="h-full w-full rounded-xl" />
     );
 }
 
@@ -237,74 +358,9 @@ function sliding(at: number): boolean {
     return clock() - at < DRILL_MS;
 }
 
-function Divider() {
-    return <View className="bg-border h-px" />;
-}
-
-/** Where the card is, `2026 > October`, the last part left off when empty. */
-function Breadcrumb({ parts }: { parts: (string | undefined)[] }) {
-    const { colors } = useTheme();
-    const shown = parts.filter(Boolean);
-    return (
-        <View className="flex-row items-center gap-1">
-            {shown.map((part, index) => (
-                <View key={index} className="flex-row items-center gap-1">
-                    {index > 0 ? (
-                        <Ionicons
-                            name="chevron-forward"
-                            size={11}
-                            color={String(colors.text)}
-                            style={{ opacity: 0.5 }}
-                        />
-                    ) : null}
-                    <Text
-                        className="text-muted-foreground text-xs"
-                        numberOfLines={1}
-                    >
-                        {part}
-                    </Text>
-                </View>
-            ))}
-        </View>
-    );
-}
-
-function OpenButton({
-    label,
-    disabled,
-    onPress,
-}: {
-    label: string;
-    disabled: boolean;
-    onPress: () => void;
-}) {
-    const { colors } = useTheme();
-    return (
-        <GlassButton
-            onPress={onPress}
-            disabled={disabled}
-            accessibilityState={{ disabled }}
-            className="h-11 gap-1 rounded-full"
-        >
-            <Text className="text-sm font-medium">{label}</Text>
-            <Ionicons
-                name="chevron-forward"
-                size={14}
-                color={String(colors.text)}
-            />
-        </GlassButton>
-    );
-}
-
-function BackChevron() {
-    const { colors } = useTheme();
-    return <Ionicons name="chevron-back" size={20} color={colors.text} />;
-}
-
 /** Less to more, in the page accent. */
-function Legend({ accent }: { accent: string | null }) {
+function Legend({ color }: { color: string }) {
     const { colors } = useTheme();
-    const color = accent ?? UNTAGGED_COLOR;
     const emptyColor = String(colors.text);
     return (
         <View className="flex-row items-center gap-1 pt-1.5">

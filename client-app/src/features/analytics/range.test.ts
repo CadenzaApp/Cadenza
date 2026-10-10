@@ -56,14 +56,10 @@ test("a play one minute ago is inside every current window", () => {
     }
 });
 
-test("each grain picks its chart and buckets", () => {
-    assert.equal(resolvePeriod("day", 0, NOW).chart, "hours");
+test("each grain picks its heatmap bucket", () => {
     assert.equal(resolvePeriod("day", 0, NOW).heatmapBucket, "hour");
-    assert.equal(resolvePeriod("week", 0, NOW).trendBucket, "day");
-    assert.equal(resolvePeriod("week", 0, NOW).heatmapBucket, "two_hour");
-    assert.equal(resolvePeriod("month", 0, NOW).trendBucket, "day");
+    assert.equal(resolvePeriod("week", 0, NOW).heatmapBucket, "day");
     assert.equal(resolvePeriod("month", 0, NOW).heatmapBucket, "day");
-    assert.equal(resolvePeriod("year", 0, NOW).trendBucket, "month");
     assert.equal(resolvePeriod("year", 0, NOW).heatmapBucket, "month");
 });
 

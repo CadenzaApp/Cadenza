@@ -136,8 +136,8 @@ export function layoutHeatmap(shape: HeatmapShape): HeatmapGrid {
     switch (shape.kind) {
         case "day-hours":
             return dayHours(shape.start);
-        case "week-blocks":
-            return weekBlocks(shape.start);
+        case "week-days":
+            return weekDays(shape.start);
         case "month-days":
             return monthDays(shape.start);
         case "year-months":
@@ -161,7 +161,7 @@ function dayHours(day: Date): HeatmapGrid {
                     label: `${fullDay(day)}, ${hourName(hour)}`,
                     short: hourName(hour),
                 },
-                caption: String(hour % 12 === 0 ? 12 : hour % 12),
+                caption: hourName(hour),
             };
         }),
     );
@@ -174,18 +174,14 @@ function atHour(day: Date, hour: number): Date {
 }
 
 /**
- * Monday to Sunday, a column a day of twelve two hour blocks, midnight at the
- * top. Each column picks its day and is headed with its name and date.
+ * Monday to Sunday, one day bucket per column. Each column picks its day and is headed with its name and date.
  */
-function weekBlocks(monday: Date): HeatmapGrid {
+function weekDays(monday: Date): HeatmapGrid {
     const days = Array.from({ length: 7 }, (_, i) => addDays(monday, i));
     return {
         lines: days.map((day) => {
             const pick = dayPick(day);
-            return Array.from({ length: 12 }, (_, block) => ({
-                key: hourKey(day, block * 2),
-                pick,
-            }));
+            return [{ key: dayKey(day), pick }];
         }),
         columns: true,
         header: days.map(
@@ -201,12 +197,14 @@ function weekBlocks(monday: Date): HeatmapGrid {
  */
 function monthDays(first: Date): HeatmapGrid {
     const start = addDays(first, -mondayIndex(first));
-    const last = new Date(first.getFullYear(), first.getMonth() + 1, 0);
-    const end = addDays(last, 7 - mondayIndex(last));
+    // Reserve six weeks even when this month would fit in four or five.
+    const end = addDays(start, 42);
 
     const cells: LayoutCell[] = [];
     for (let day = start; day < end; day = addDays(day, 1)) {
-        const inside = day.getMonth() === first.getMonth();
+        const inside =
+            day.getFullYear() === first.getFullYear() &&
+            day.getMonth() === first.getMonth();
         cells.push({
             key: dayKey(day),
             pick: inside ? dayPick(day) : null,
