@@ -150,9 +150,10 @@ surface owns an optimistic state with rollback, while SWR refreshes other surfac
 That optimistic state must remain authoritative until a refreshed read agrees with the newest
 user choice, or an older cache snapshot will cause a visible solid-outline-solid flicker.
 
-`useSongInfo` resolves ids as cached 25-song pages and exposes completed pages immediately. Do not
-collapse it back into one all-or-nothing `getSongInfo` key: tag and query screens may contain
-hundreds of ids, and their first rows should not wait for the final Apple Music request.
+`useSongInfo` resolves ids as cached 25-song pages, fetched in parallel (`parallel: true`).
+`useSWRInfinite` publishes data only once every page of a pass is back, so serial pages made a
+100-song list wait on four round trips; parallel ones take about one. Do not collapse it back into
+one `getSongInfo` key: each page is its own cache entry, shared with any other list holding it.
 Likewise, query-result resolution starts missing-id pages during a cold library scan. It may do
 some duplicate Apple reads, but waiting for the complete library walk makes deep links appear
 stuck and is not an acceptable tradeoff.
@@ -249,7 +250,9 @@ keys like `["MusicKit.getSongInfo", ids]`. `useSongFavoriteStatus` and `useColle
 are the optimistic updates in the codebase, both with `rollbackOnError`. `useCollectionInfo`
 fetches an album/playlist's own metadata (title, artwork, `shareUrl`). `useCollectionSongs`
 pages a detail screen, while `useAllTracksFromLibrary` walks every song page into one cached
-copy of the library. `useTracksForSongIds` is what turns backend song ids into tracks: it
+copy of the library. That walk is a request per 100 songs plus one each to fill them in, so it
+never revalidates on mount, focus, or reconnect; only a new Apple Music session refetches it.
+`useTracksForSongIds` is what turns backend song ids into tracks: it
 resolves what that cached library holds and sends the rest to `getSongInfo`. `usePlaylistMutations` is the exception to the wrapper
 rule: playlist writes are not backend calls, so they are plain async functions that invalidate
 every cached playlist key by predicate afterwards.
@@ -261,7 +264,8 @@ page), so `useTracksFromLibrary`, `useLibraryAlbums`, `useUserPlaylists`, `useLi
 builder and a fetch. Adding
 another paged library read means writing those two things and nothing else. It is generic over
 the item type, so it pages `ArtistItem`s as happily as `MusicItem`s; both results have the same
-`items` / `hasNextPage` / `nextOffset` shape.
+`items` / `hasNextPage` / `nextOffset` shape. It sets `revalidateFirstPage: false`: SWR's default refetches page one, and
+waits for it, before every next page.
 
 `useCatalogSongSearch` and `useLibrarySongSearch` are the two search scopes and present the
 same surface: each holds its own term and takes a submitted one, so a screen switching between

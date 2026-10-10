@@ -156,6 +156,13 @@ export function useSongInfo(songIds?: readonly string[] | null) {
         },
         ([, , ids]: SongInfoPageKey) =>
             read(() => MusicKit.getSongInfo([...ids])),
+        {
+            // the chunks are independent, so ask for them all at once. one
+            // after another, a 100 song list waited on four round trips
+            parallel: true,
+            initialSize: Math.max(1, idChunks.length),
+            revalidateFirstPage: false,
+        },
     );
     const { data, error, setSize, size } = x;
     useEffect(() => {
@@ -217,6 +224,8 @@ export function useCatalogSongSearch(enabled = true) {
                 }),
             );
         },
+        // a next page is only the next page, not page one again first
+        { revalidateFirstPage: false },
     );
     const searchResults = useMemo(
         () =>
@@ -326,6 +335,9 @@ function usePagedLibraryResult<
             return getKey(offset);
         },
         (key) => read(() => fetchPage(key as unknown as Key)),
+        // a next page is only the next page. by default SWR fetches page one
+        // again first and waits for it, which doubled every load more
+        { revalidateFirstPage: false },
     );
 
     const items = useMemo(
@@ -435,6 +447,15 @@ export function useAllTracksFromLibrary(enabled = true) {
             }
 
             return appendWithoutDuplicates(pages);
+        },
+        {
+            // the whole library is one page per hundred songs, plus a request
+            // each to fill them in. SWR's default refetches it whenever a new
+            // reader mounts, which kept a library download running behind
+            // every page. a new Apple Music session still refetches it
+            revalidateIfStale: false,
+            revalidateOnFocus: false,
+            revalidateOnReconnect: false,
         },
     );
 
