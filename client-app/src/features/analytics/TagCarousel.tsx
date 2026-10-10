@@ -43,7 +43,7 @@ const GAP_MS = 420;
  * A tag leaving the pin: how long it takes to blend away, and how far left it
  * slides when replaced. Let go, it travels with the fade zone instead.
  */
-const LEAVE_MS = 420;
+const LEAVE_MS = 525;
 const LEAVE_DISTANCE = 40;
 /** A tag appearing at the pin without a slide. */
 const APPEAR_MS = 260;
@@ -84,8 +84,7 @@ type Back = { waiting: number[]; order: number[] };
  * fading out as they pass under it rather than cutting off at its edge.
  *
  * Tapping a drifting tag takes it out of the row and slides it to the pin
- * while the row closes the gap behind it; the drift holds still for the
- * slide. A tag that leaves the pin, let go or replaced, slides a little left
+ * while the row, still drifting, closes the gap behind it. A tag that leaves the pin, let go or replaced, slides a little left
  * and blends away, and the fade at the left holds until nothing is left at
  * the pin. It never goes back to its old slot, which may be on screen: it
  * joins the back of the row once the back has drifted out of sight, so
@@ -117,8 +116,8 @@ export function TagCarousel({
     const [shownPin, setShownPin] = useState(selected);
     if (selected?.id !== shownPin?.id) {
         setShownPin(selected);
-        // a pin cut off mid slide never reports landing, so let it go here
-        // or the drift would stay held
+        // a pin cut off mid slide never reports landing, so drop its start
+        // here, or a later pin of the same tag would slide in from it
         if (pinFrom && pinFrom.id !== selected?.id) setPinFrom(null);
         if (shownPin) {
             setLeaving((list) => [
@@ -215,7 +214,6 @@ export function TagCarousel({
             <MaskedView style={StyleSheet.absoluteFill} maskElement={mask}>
                 <DriftingRow
                     tags={drifting}
-                    paused={pinFrom != null}
                     waiting={back.waiting.length > 0}
                     totalMs={totalMs}
                     onSelect={pin}
@@ -352,15 +350,12 @@ function Moving({
  */
 function DriftingRow({
     tags,
-    paused,
     waiting,
     totalMs,
     onSelect,
     onBackHidden,
 }: {
     tags: TagListeningTime[];
-    /** Holds the drift still, without stopping a drag. */
-    paused: boolean;
     /** A tag waits to join the back, so watch for the back to leave sight. */
     waiting: boolean;
     totalMs: number;
@@ -380,7 +375,6 @@ function DriftingRow({
     const offset = useSharedValue(0);
     const velocity = useSharedValue(-DRIFT);
     const dragging = useSharedValue(false);
-    const holding = useSharedValue(false);
     const watching = useSharedValue(false);
     const loopWidth = useSharedValue(0);
     const boxWidth = useSharedValue(0);
@@ -389,9 +383,6 @@ function DriftingRow({
         loopWidth.set(loops ? run : 0);
         if (!loops) offset.set(0);
     }, [loopWidth, loops, offset, run]);
-    useEffect(() => {
-        holding.set(paused);
-    }, [holding, paused]);
     useEffect(() => {
         watching.set(waiting);
         boxWidth.set(box);
@@ -413,7 +404,7 @@ function DriftingRow({
     useFrameCallback((frame) => {
         "worklet";
         const width = loopWidth.get();
-        if (width <= 0 || dragging.get() || holding.get()) return;
+        if (width <= 0 || dragging.get()) return;
         const dt = (frame.timeSincePreviousFrame ?? 16) / 1000;
         const speed =
             velocity.get() +
