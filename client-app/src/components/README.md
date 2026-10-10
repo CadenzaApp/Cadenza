@@ -141,6 +141,7 @@ variables), `tailwind.config.js`, and `global.css`. Class merging goes through
 | `index.tsx`                        | The `MusicList` itself. Owns sort state, paging, selection, density, and the modals.                                                |
 | `music-list-item.tsx`              | One row, plus `MusicListItemSkeleton`.                                                                                              |
 | `tag-fade-rail.tsx`                | Overflow-aware horizontal tag rail whose alpha mask preserves the surface behind it. User tags with values, then unfilled defaults. |
+| `row-tags.tsx`                     | The list's tag reads and a per-list store rows read their own song from, so a tag response re-renders only the rows it changes.     |
 | `music-list-sort-button.tsx`       | The floating sort control.                                                                                                          |
 | `music-list-action-button.tsx`     | One button in the selection toolbar.                                                                                                |
 | `music-list-selection-toolbar.tsx` | The bar that slides up while rows are selected.                                                                                     |
@@ -212,9 +213,23 @@ sitting above a list that owns the scroll.
 `MusicList` hides its scroll indicator. Overscrolling at the top is how a detail screen closes,
 and an indicator flicking in over the shrinking card is noise.
 
-Overflowing tag rails use `MaskedView` with an opaque-to-transparent trailing mask. Rails that fit
-skip that compositing layer. Do not replace the mask with a gradient painted in a theme color:
-rows also sit over artwork tints, so no single fill color can match every screen.
+Tag rails use `MaskedView` with a fixed-width opaque-to-transparent trailing mask, and a solid
+cover over it whenever the tags fit. Whether they fit is measured into shared values and the cover
+toggled on the UI thread, so laying a rail out never renders it again. Do not replace the mask
+with a gradient painted in a theme color: rows also sit over artwork tints, so no single fill
+color can match every screen.
+
+`MusicList` is a `FlashList`, wrapped by Reanimated so `useScreenScroll`'s worklet handler attaches
+to it. It renders only rows on screen plus a short way past them and reuses row slots, so a row's
+React key changes only on the density pinch; anything a row holds for one song is keyed by that
+song (the artwork by its url). `FlashList` wraps its `ScrollView` in a container view, so the list
+supplies its own scroller through `renderScrollComponent` with `ScreenScrollMarker` inside it: the
+marker needs the `ScrollView` as its only child and asserts otherwise.
+
+Tags never live on `MusicList` itself. `RowTagSource` runs the tag reads and pushes them into a
+per-list store, and each row subscribes to its own song (`useRowTags`). A tag response re-renders
+the rows whose tags changed, not the list. The selection toolbar renders inside `RowTagSource`,
+since it needs the same reads.
 
 `TrackCollectionView` owns the standard mosaic or single-artwork header, play/shuffle row,
 caller-supplied simple glass options, and the `MusicList`. Routes can supply pagination, playback
@@ -231,10 +246,15 @@ without placing a second gradient seam at the bounce boundary. Artist uses its c
 rail through the header/footer inputs, while album and playlist details use the standard layout
 and open `CollectionOptionsMenu` from a supplied option.
 
+On a pushed screen `TrackCollectionView` holds its rows back until the open transition ends
+(`useOpenTransitionSettled`), showing the header and placeholder rows meanwhile. Rows built during
+the push run on the main thread the animation needs, and with a prefetched first page they used to
+arrive mid-animation and stutter it.
+
 `MusicList` takes a `header` for exactly that case, and a `footer` for the other end. It also
 reports its content size through `onContentSizeChange`, which is how the artist screen sizes a
 backdrop to its own content rather than to the screen. It owns its
-own `FlatList`, so anything above the first row or below the last has to go inside it rather than
+own `FlashList`, so anything above the first row or below the last has to go inside it rather than
 beside it. The search tab's Artists section is the header's current user; `RecentlyAddedGrid`
 takes a `header` for the same reason. The artist screen uses both at once: the artist image as
 the header, the albums rail as the footer. The footer sits below the pagination skeleton, so a

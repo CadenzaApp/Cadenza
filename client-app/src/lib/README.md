@@ -265,7 +265,13 @@ builder and a fetch. Adding
 another paged library read means writing those two things and nothing else. It is generic over
 the item type, so it pages `ArtistItem`s as happily as `MusicItem`s; both results have the same
 `items` / `hasNextPage` / `nextOffset` shape. It sets `revalidateFirstPage: false`: SWR's default refetches page one, and
-waits for it, before every next page.
+waits for it, before every next page. The first page is 25 items so rows show up fast, and every
+page after it is 100, Apple's cap, so a long list pages in two or three steps.
+
+`usePrefetchCollectionSongs` starts a collection's first page as a finger lands on it, in the
+Library lists and the Recently Added grid. It writes the page into the cache under the key
+`useCollectionSongs` reads, and a screen that mounts while the request is in flight joins it rather
+than sending its own.
 
 `useCatalogSongSearch` and `useLibrarySongSearch` are the two search scopes and present the
 same surface: each holds its own term and takes a submitted one, so a screen switching between
@@ -377,9 +383,13 @@ A scroller with its own content style lists `scroll.contentContainerStyle` last 
 floating top rail that is the shared top padding (see the top rail in `src/app/README.md`), and it
 has to win over the page's own.
 
-It has to be an `Animated.FlatList` / `Animated.ScrollView`, because the pull-dismiss offset is
-read on the UI thread. `ScreenScrollMarker` must have that scroller as its single direct child;
-otherwise the native registration cannot resolve the underlying `UIScrollView`. The explicit
+It has to be an `Animated.FlatList` / `Animated.ScrollView`, or a list Reanimated wraps with
+`createAnimatedComponent` like `MusicList`'s `FlashList`, because the pull-dismiss offset is read on
+the UI thread. `useScreenScroll` takes either a component instance or a component type for its ref,
+so a wrapped list needs no casts. `ScreenScrollMarker` must have the scroll view itself as its
+single direct child; otherwise the native registration cannot resolve the underlying
+`UIScrollView`, and in a dev build it asserts. A list that wraps its scroll view in another view
+(`FlashList` does) has to put the marker inside, through its own scroll component. The explicit
 react-navigation `useScrollToTop` subscription remains as a cross-platform fallback.
 
 It also drives the close of a pushed detail screen. Overscroll at the top feeds the minimize

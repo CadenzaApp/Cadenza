@@ -18,6 +18,8 @@ import Animated, {
     useSharedValue,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useIsPushedDetailScreen } from "@/lib/screen-overlay";
+import { useOpenTransitionSettled } from "@/lib/use-open-transition-settled";
 
 import {
     MusicList,
@@ -149,6 +151,7 @@ export function TrackCollectionView({
     const insets = useSafeAreaInsets();
     const { playQueue } = usePlaybackCommands();
     const [optionsOpen, setOptionsOpen] = useState(false);
+    const settled = useOpenTransitionSettled(useIsPushedDetailScreen());
     const scrollY = useSharedValue(0);
     const derivedArtworkUrls = useMemo(
         () =>
@@ -323,8 +326,10 @@ export function TrackCollectionView({
     return (
         <View className="flex-1 bg-background" style={containerStyle}>
             <MusicList
-                tracks={tracks}
-                isLoading={isLoading}
+                // held back until the open animation ends; the rows
+                // are ready by then, so they appear as it lands
+                tracks={settled ? tracks : NO_TRACKS}
+                isLoading={isLoading || !settled}
                 highlightTrackId={highlightTrackId}
                 pagination={pagination}
                 sorting={sorting}
@@ -461,3 +466,6 @@ function ArtworkMosaic({
         </View>
     );
 }
+
+/** Stable, so the held-back list does not get a new array each render. */
+const NO_TRACKS: MusicItem[] = [];

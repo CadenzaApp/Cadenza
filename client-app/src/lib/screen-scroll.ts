@@ -13,7 +13,7 @@ import {
     type AnimatedRef,
 } from "react-native-reanimated";
 import type Animated from "react-native-reanimated";
-import type { Component } from "react";
+import type { Component, ElementType } from "react";
 import type { StyleProp, ViewStyle } from "react-native";
 
 import { useIsPushedDetailScreen } from "./screen-overlay";
@@ -28,7 +28,10 @@ import {
 /** Short and eased out, so the rail settles in rather than snapping. */
 const RAIL_TIMING = { duration: 200, easing: Easing.out(Easing.cubic) };
 
-type ScreenScrollProps<T extends Component> = {
+/** A scroller instance, or a component type whose ref is one. */
+type Scroller = Component | ElementType;
+
+type ScreenScrollProps<T extends Scroller> = {
     ref: AnimatedRef<T>;
     onScroll: ReturnType<typeof useAnimatedScrollHandler>;
     scrollEventThrottle: number;
@@ -62,7 +65,7 @@ type ScreenScrollProps<T extends Component> = {
  * native insets, scroll-to-top, and tab-bar/accessory minimization.
  */
 export function useScreenScroll<
-    T extends Component = Animated.ScrollView,
+    T extends Scroller = Animated.ScrollView,
 >(): ScreenScrollProps<T> {
     const ref = useAnimatedRef<T>();
     const isFocused = useIsFocused();

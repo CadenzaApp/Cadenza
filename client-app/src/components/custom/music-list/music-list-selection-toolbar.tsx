@@ -34,7 +34,7 @@ import type {
     MusicListSelectionActionDefinition,
 } from "./types";
 
-type MusicListSelectionToolbarProps = {
+export type MusicListSelectionToolbarProps = {
     tracks: readonly MusicItem[];
     config: MusicListMultiSelectConfig;
     bottom: number;

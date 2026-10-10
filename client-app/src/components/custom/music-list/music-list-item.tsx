@@ -24,7 +24,7 @@ import { cn } from "@/lib/utils";
 
 import { TagFadeRail } from "./tag-fade-rail";
 
-type MusicListItemProps = {
+export type MusicListItemProps = {
     item: MusicItem;
     tags?: readonly AppliedTag[];
     /** Shared default tags on the song, rendered unfilled after the user's own. */
@@ -304,7 +304,11 @@ export const MusicListItem = memo(function MusicListItem({
     );
 });
 
-/** The expensive, selection-independent part of a row. */
+/**
+ * The expensive, selection-independent part of a row. Tags arriving re-render
+ * this, but the artwork and title are memo'd leaves of their own, so only the
+ * tag rail does real work then.
+ */
 const MusicListItemVisuals = memo(function MusicListItemVisuals({
     item,
     tags,
@@ -322,82 +326,25 @@ const MusicListItemVisuals = memo(function MusicListItemVisuals({
     tagMetadata?: Readonly<Record<number, TagMetadata>>;
     compact: boolean;
 }) {
-    const [artworkFailed, setArtworkFailed] = useState(false);
     const hasTags =
         tags.length > 0 || defaultTags.length > 0 || activityTags.length > 0;
-    const artworkUrl = item.artworkUrl?.trim();
-    const canRenderArtwork =
-        !artworkFailed &&
-        typeof artworkUrl === "string" &&
-        /^https?:\/\//i.test(artworkUrl);
-    const artworkSize = compact ? COMPACT_ARTWORK_SIZE : ARTWORK_SIZE;
 
     return (
         <>
-            {canRenderArtwork ? (
-                <View
-                    pointerEvents="none"
-                    className="mr-2 shrink-0"
-                    style={{
-                        width: artworkSize,
-                        aspectRatio: 1,
-                        transform: [{ translateY: compact ? 2 : 4 }],
-                    }}
-                >
-                    <Image
-                        source={{ uri: artworkUrl }}
-                        className="h-full w-full rounded bg-muted"
-                        resizeMode="cover"
-                        style={{ borderRadius: 4 }}
-                        onError={() => setArtworkFailed(true)}
-                    />
-                </View>
-            ) : (
-                <View
-                    pointerEvents="none"
-                    className="mr-2 shrink-0 items-center justify-center rounded bg-muted"
-                    style={{
-                        width: artworkSize,
-                        aspectRatio: 1,
-                        transform: [{ translateY: compact ? 2 : 4 }],
-                    }}
-                >
-                    <Text className="text-xs text-muted-foreground text-center">
-                        No Art
-                    </Text>
-                </View>
-            )}
+            {/* keyed by its url, so a reused row slot never carries one
+                song's failed artwork over to the next */}
+            <TrackArtwork
+                key={item.artworkUrl}
+                artworkUrl={item.artworkUrl}
+                compact={compact}
+            />
 
             <View
                 pointerEvents="box-none"
                 className="flex-1 flex-col justify-center overflow-hidden"
-                style={
-                    !hasTags
-                        ? {
-                              rowGap: 1,
-                              transform: [{ translateY: 5 }],
-                          }
-                        : {
-                              rowGap: 3,
-                              transform: [{ translateY: 1 }],
-                          }
-                }
+                style={hasTags ? WITH_TAGS_STYLE : WITHOUT_TAGS_STYLE}
             >
-                <View pointerEvents="none">
-                    <Text
-                        className="text-base font-bold leading-tight text-foreground"
-                        numberOfLines={1}
-                    >
-                        {item.title}
-                    </Text>
-                    <Text
-                        className="text-sm leading-tight text-muted-foreground"
-                        style={{ transform: [{ translateY: -1 }] }}
-                        numberOfLines={1}
-                    >
-                        {item.artistName}
-                    </Text>
-                </View>
+                <TrackTitle title={item.title} artistName={item.artistName} />
 
                 {hasTags ? (
                     <TagFadeRail
@@ -413,6 +360,89 @@ const MusicListItemVisuals = memo(function MusicListItemVisuals({
         </>
     );
 });
+
+const WITH_TAGS_STYLE = { rowGap: 3, transform: [{ translateY: 1 }] };
+const WITHOUT_TAGS_STYLE = { rowGap: 1, transform: [{ translateY: 5 }] };
+
+/** A row's cover, or a placeholder when it has none or it fails to load. */
+const TrackArtwork = memo(function TrackArtwork({
+    artworkUrl: rawUrl,
+    compact,
+}: {
+    artworkUrl?: string;
+    compact: boolean;
+}) {
+    const [artworkFailed, setArtworkFailed] = useState(false);
+    const artworkUrl = rawUrl?.trim();
+    const canRenderArtwork =
+        !artworkFailed &&
+        typeof artworkUrl === "string" &&
+        /^https?:\/\//i.test(artworkUrl);
+    const artworkSize = compact ? COMPACT_ARTWORK_SIZE : ARTWORK_SIZE;
+
+    return canRenderArtwork ? (
+        <View
+            pointerEvents="none"
+            className="mr-2 shrink-0"
+            style={{
+                width: artworkSize,
+                aspectRatio: 1,
+                transform: [{ translateY: compact ? 2 : 4 }],
+            }}
+        >
+            <Image
+                source={{ uri: artworkUrl }}
+                className="h-full w-full rounded bg-muted"
+                resizeMode="cover"
+                style={{ borderRadius: 4 }}
+                onError={() => setArtworkFailed(true)}
+            />
+        </View>
+    ) : (
+        <View
+            pointerEvents="none"
+            className="mr-2 shrink-0 items-center justify-center rounded bg-muted"
+            style={{
+                width: artworkSize,
+                aspectRatio: 1,
+                transform: [{ translateY: compact ? 2 : 4 }],
+            }}
+        >
+            <Text className="text-xs text-muted-foreground text-center">
+                No Art
+            </Text>
+        </View>
+    );
+});
+
+/** A row's title and artist. */
+const TrackTitle = memo(function TrackTitle({
+    title,
+    artistName,
+}: {
+    title: string;
+    artistName?: string;
+}) {
+    return (
+        <View pointerEvents="none">
+            <Text
+                className="text-base font-bold leading-tight text-foreground"
+                numberOfLines={1}
+            >
+                {title}
+            </Text>
+            <Text
+                className="text-sm leading-tight text-muted-foreground"
+                style={ARTIST_STYLE}
+                numberOfLines={1}
+            >
+                {artistName}
+            </Text>
+        </View>
+    );
+});
+
+const ARTIST_STYLE = { transform: [{ translateY: -1 }] };
 
 export function MusicListItemSkeleton({
     fullBleed = false,
