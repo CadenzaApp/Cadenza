@@ -39,7 +39,10 @@ const FADE = 36;
 const MOVE_MS = 560;
 /** The row closing or opening a gap: a little quicker, so it is ready first. */
 const GAP_MS = 420;
-/** A tag leaving the pin: how long it takes to blend away, and how far left. */
+/**
+ * A tag leaving the pin: how long it takes to blend away, and how far left it
+ * slides when replaced. Let go, it travels with the fade zone instead.
+ */
 const LEAVE_MS = 420;
 const LEAVE_DISTANCE = 40;
 /** A tag appearing at the pin without a slide. */
@@ -171,24 +174,35 @@ export function TagCarousel({
                   },
         );
 
-    // held while a tag is still leaving the pin, so the row only spreads back
-    // under it once it is gone
-    const occupied = selected != null || leaving.length > 0;
-    const fades = occupied && pinnedWidth > 0 && width > 0;
-    const mask = fades ? (
-        <LinearGradient
-            style={StyleSheet.absoluteFill}
-            colors={["transparent", "transparent", "black"]}
-            locations={[
-                0,
-                Math.min(1, pinnedWidth / width),
-                Math.min(1, (pinnedWidth + FADE) / width),
-            ]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-        />
-    ) : (
-        <View style={[StyleSheet.absoluteFill, { backgroundColor: "black" }]} />
+    // the fade zone is a strip, clear under the pin then easing to solid,
+    // slid left by its own width when there is no pin. let go, it slides out
+    // with the tag, so the two leave together and the row shows all at once
+    const zone = pinnedWidth + FADE;
+    const releasing = selected == null && leaving.length > 0;
+    const zoneX = useSharedValue(-zone);
+    useEffect(() => {
+        if (selected) zoneX.set(0);
+        else if (releasing) {
+            zoneX.set(withTiming(-zone, { duration: LEAVE_MS, easing: EASE }));
+        } else zoneX.set(-zone);
+    }, [releasing, selected, zone, zoneX]);
+    const zoneStyle = useAnimatedStyle(() => ({
+        transform: [{ translateX: zoneX.get() }],
+    }));
+    const mask = (
+        <Animated.View
+            className="absolute bottom-0 left-0 top-0 flex-row"
+            style={[{ width: width + zone }, zoneStyle]}
+        >
+            <View style={{ width: pinnedWidth }} />
+            <LinearGradient
+                style={{ width: FADE }}
+                colors={["transparent", "black"]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+            />
+            <View className="flex-1" style={{ backgroundColor: "black" }} />
+        </Animated.View>
     );
 
     return (
@@ -214,6 +228,9 @@ export function TagCarousel({
                 <Moving
                     key={`leave:${tag.id}`}
                     mode="leave"
+                    // replaced: a short hop under the new pin. let go: the
+                    // whole way out, alongside the fade zone
+                    distance={selected ? LEAVE_DISTANCE : zone}
                     onDone={() => gone(tag.id)}
                 >
                     <TagChip tag={tag} totalMs={totalMs} selected />
@@ -260,8 +277,8 @@ export function TagCarousel({
 
 /**
  * A chip at the pin that got there, or is going, one of three ways: `slide`
- * in from `from` points right of it, `appear` in place, or `leave`, sliding a
- * little left as it blends away. Calls `onDone` once it finishes.
+ * in from `from` points right of it, `appear` in place, or `leave`, sliding
+ * `distance` points left as it blends away. Calls `onDone` once it finishes.
  *
  * The mode is read once, at mount. Later props are ignored, so a parent can
  * drop its in-flight state on landing without a remount. Keyed by tag, so
@@ -269,12 +286,14 @@ export function TagCarousel({
  */
 function Moving({
     from = 0,
+    distance = LEAVE_DISTANCE,
     mode,
     onDone,
     onWidth,
     children,
 }: {
     from?: number;
+    distance?: number;
     mode: "slide" | "appear" | "leave";
     onDone: () => void;
     onWidth?: (width: number) => void;
@@ -294,7 +313,7 @@ function Moving({
             opacity.set(withTiming(1, { duration: APPEAR_MS }, finish));
         } else {
             const leave = { duration: LEAVE_MS, easing: EASE };
-            x.set(withTiming(-LEAVE_DISTANCE, leave));
+            x.set(withTiming(-distance, leave));
             opacity.set(withTiming(0, leave, finish));
         }
         // once per move: a new move is a new key, not new props
