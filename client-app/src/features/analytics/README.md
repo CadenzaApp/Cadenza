@@ -49,8 +49,11 @@ it, since their period bar sits fixed above the list. Every page pads the bottom
 | `SectionHeading.tsx`          | A section title, an optional line under it, and an optional "See all".                                                                                                                                            |
 | `HeroCarousel.tsx`            | The period's top three songs as a fan of covers. Swipe or tap to pick one; Play starts the top songs from it.                                                                                                     |
 | `StatsStrip.tsx`              | A few headline numbers with icons on one card. Takes its stats as data.                                                                                                                                           |
-| `Heatmap.tsx`                 | When the user listens, colored by tag. Tap a square to open it one grain down, back arrow to go up. Draws what `heatmap-layout.ts` lays out.                                                                      |
-| `heatmap-layout.ts`           | Pure: a heatmap shape to a grid of keyed cells, and `heatLevel`. Tested in `heatmap-layout.test.ts`.                                                                                                              |
+| `Heatmap.tsx`                 | When the user listens, colored by tag. Tap a square to pick it and read it out, "Open" to open it one grain down, back arrow to go up.                                                                            |
+| `HeatmapGrid.tsx`             | Draws the pages `heatmap-layout.ts` lays out: rows of squares, or a week's columns, and all time's years as swiped pages.                                                                                         |
+| `HeatmapDetail.tsx`           | The picked span's listens, time listened and top tags, from a summary read of that span.                                                                                                                          |
+| `TagCarousel.tsx`             | Every tag played in the card's level, as a row that drifts and loops forever. Swipe or fling it.                                                                                                                  |
+| `heatmap-layout.ts`           | Pure: a heatmap shape to pages of keyed cells, what each cell picks, and `heatLevel`. Tested in `heatmap-layout.test.ts`.                                                                                         |
 | `TagRotation.tsx`             | The tags played this period as a sideways rail of square tiles. Each opens its tag.                                                                                                                               |
 | `dimensions.ts`               | Pure: one descriptor per dimension, and where each one's rows go. Tested in `dimensions.test.ts`.                                                                                                                 |
 | `ChipRow.tsx`                 | One row of selectable chips, for the trend chart's metric picker.                                                                                                                                                 |
@@ -71,10 +74,10 @@ offset 0 always follows the clock. Weeks start Monday. Every bound is local midn
 | Grain | Window             | Chart                                 | Heatmap                         |
 | ----- | ------------------ | ------------------------------------- | ------------------------------- |
 | Day   | midnight to next   | 24 hour bars                          | hour cells, two rows of twelve  |
-| Week  | Monday to Monday   | 7 day bars                            | day cells, one row of seven     |
+| Week  | Monday to Monday   | 7 day bars                            | a column a day of 2 hour blocks |
 | Month | the 1st to the 1st | day bars                              | day cells, as a calendar        |
 | Year  | Jan 1 to Jan 1     | 12 month bars                         | month cells, four rows of three |
-| All   | the whole history  | a bar per year, its average per month | month cells, one row per year   |
+| All   | the whole history  | a bar per year, its average per month | a year's months a page, swiped  |
 
 Changing the grain jumps back to the current period. Forward is disabled on the current period,
 and All has no arrows.
@@ -91,15 +94,21 @@ survives navigating into a detail page and back.
 - **Heatmap cells are keyed by the backend's local bucket start**, `YYYY-MM-DD` or
   `YYYY-MM-DDTHH:00`. `heatmap-layout.ts` builds the same strings from local dates by hand. Going
   through `toISOString` would shift them into UTC and miss every cell.
-- **The heatmap drills down in place.** A tap opens a year's month, a month's week (by the day
-  tapped), a week's day. The card holds a stack of `ResolvedPeriod`s over the page's period and
-  fetches its own heatmap for the top one, so back never goes above the page's period. A future
-  square does not open. The card never changes size: every level stretches to fill one grid box
-  sized off the card's width, and the lines under it have fixed heights. All time, week and day keep square
-  cells and center them, so few rows do not stretch into stripes. A level that is loading shows a
-  skeleton, never the last level's cells: the heatmap read does not keep previous data, since a
-  month and its week share a bucket. Taps are dropped while a level slides in, so a double tap
-  does not open two levels.
+- **The heatmap drills down in place.** A tap picks a span and the detail reads it out from a
+  summary read of that span. "Open" opens the pick one grain down: all time's month opens its
+  year, a year's month, a month's day opens its week, a week's day. The card holds a stack of
+  levels over the page's period, each with its pick, and fetches its own heatmap for the top
+  one, so back never goes above the page's period. A level starts on the span holding now, or
+  on the pick it was opened from when it has the same span. A future span does not open. The
+  card never changes size: every part has a fixed height and every level fills one grid box
+  sized off the card's width. A level that is loading shows a skeleton, never the last level's
+  cells: the heatmap read does not keep previous data. A second tap on Open while a level slides
+  in is dropped.
+- **A week's squares are two hour blocks** but it picks whole days: tapping anywhere in a column
+  picks its day.
+- **The tag carousel only lists the user's own tags.** `tagged_plays` in the backend drops
+  activity tags and suggested tags the user applied, so the heatmap's colors, the tag ranking and
+  the carousel agree.
 - **The heatmap is sparse.** Only buckets with a play come back; the layout decides the grid and
   every other square draws empty. A square's color is its most played tag, gray when nothing in it
   was tagged, and brightness is a square root step of plays over the period's peak.

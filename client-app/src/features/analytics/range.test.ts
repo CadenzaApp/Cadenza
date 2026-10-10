@@ -67,7 +67,7 @@ test("each grain picks its chart and buckets", () => {
     assert.equal(resolvePeriod("day", 0, NOW).chart, "hours");
     assert.equal(resolvePeriod("day", 0, NOW).heatmapBucket, "hour");
     assert.equal(resolvePeriod("week", 0, NOW).trendBucket, "day");
-    assert.equal(resolvePeriod("week", 0, NOW).heatmapBucket, "day");
+    assert.equal(resolvePeriod("week", 0, NOW).heatmapBucket, "two_hour");
     assert.equal(resolvePeriod("month", 0, NOW).trendBucket, "day");
     assert.equal(resolvePeriod("month", 0, NOW).heatmapBucket, "day");
     assert.equal(resolvePeriod("year", 0, NOW).trendBucket, "month");
@@ -247,7 +247,7 @@ test("offsetOf is positive after now", () => {
 });
 
 test("drillGrain steps down one grain and stops at a day", () => {
-    assert.equal(drillGrain("all"), "month");
+    assert.equal(drillGrain("all"), "year");
     assert.equal(drillGrain("year"), "month");
     assert.equal(drillGrain("month"), "week");
     assert.equal(drillGrain("week"), "day");

@@ -30,21 +30,21 @@ export const PERIOD_GRAINS: PeriodGrain[] = [
 export type TrendBucket = "day" | "week" | "month" | "year" | "auto";
 
 /** The buckets a heatmap is cut in. */
-export type HeatmapBucket = "hour" | "day" | "month";
+export type HeatmapBucket = "hour" | "two_hour" | "day" | "month";
 
 /**
  * How a period's heatmap is laid out. Each carries the local midnight it
  * starts on, which is all the layout needs to place every cell.
  *
  * - `day-hours`: one day, two rows of twelve hours.
- * - `week-days`: Monday to Sunday, one cell a day.
+ * - `week-blocks`: Monday to Sunday, a column a day of twelve two hour blocks.
  * - `month-days`: a calendar, one cell per day.
  * - `year-months`: the year's twelve months, four rows of three.
- * - `all-months`: one row per year, one cell per month.
+ * - `all-months`: a year's four rows of three per page, one page per year.
  */
 export type HeatmapShape =
     | { kind: "day-hours"; start: Date }
-    | { kind: "week-days"; start: Date }
+    | { kind: "week-blocks"; start: Date }
     | { kind: "month-days"; start: Date }
     | { kind: "year-months"; start: Date }
     | { kind: "all-months"; start?: undefined };
@@ -231,7 +231,7 @@ function heatmapFor(grain: PeriodGrain, start: Date): HeatmapShape {
         case "day":
             return { kind: "day-hours", start };
         case "week":
-            return { kind: "week-days", start };
+            return { kind: "week-blocks", start };
         case "month":
             return { kind: "month-days", start };
         case "year":
@@ -248,6 +248,7 @@ function heatmapBucketFor(grain: Exclude<PeriodGrain, "all">): HeatmapBucket {
         case "day":
             return "hour";
         case "week":
+            return "two_hour";
         case "month":
             return "day";
         case "year":
@@ -353,13 +354,14 @@ export function offsetOf(grain: PeriodGrain, date: Date, now: Date): number {
 }
 
 /**
- * The grain a heatmap cell of `grain` opens into, or null at the bottom.
- * Year to month to week to day. A month opens a day's week, not the day, so
- * every step down is one grain. All time's cells are months.
+ * The grain a heatmap pick of `grain` opens into, or null at the bottom. All
+ * time to year to month to week to day, one grain a step. A month opens a day's
+ * week, not the day.
  */
 export function drillGrain(grain: PeriodGrain): PeriodGrain | null {
     switch (grain) {
         case "all":
+            return "year";
         case "year":
             return "month";
         case "month":
