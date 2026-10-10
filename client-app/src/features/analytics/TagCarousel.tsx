@@ -38,7 +38,7 @@ const FADE = 36;
 const MOVE_MS = 560;
 /** The row closing or opening a gap: a little quicker, so it is ready first. */
 const GAP_MS = 420;
-/** A tag leaving the pin: how long it takes to blend away, and how far left. */
+/** A tag leaving the pin: how long it takes to blend away, and how far. */
 const LEAVE_MS = 420;
 const LEAVE_DISTANCE = 40;
 /** A tag appearing at the pin without a slide. */
@@ -68,14 +68,23 @@ type Props = {
 };
 
 /**
+ * A tag leaving the pin. Replaced, it slides left under the new pin; let go,
+ * it slides right, off into the row it is going back to.
+ */
+type Leaving = { tag: TagListeningTime; toward: "left" | "right" };
+
+/**
  * The tags listened to in the shown span. The selected one is pinned at the
  * left and holds still; the rest drift behind it in a row that loops forever,
  * fading out as they pass under it rather than cutting off at its edge.
  *
  * Tapping a drifting tag slides it to the pin while the row closes the gap
- * behind it; the drift holds still for the slide. A tag that leaves the pin,
- * let go or replaced, slides a little left and blends away, and its slot opens
- * back up in the row. Nothing ever trades places.
+ * behind it; the drift holds still for the slide. A replaced tag slides a
+ * little left and blends away under the new one. A tag let go slides a little
+ * right and blends away, and the fade at the left holds until it is gone, so
+ * the full width row only comes back once nothing is left at the pin. Either
+ * way its slot opens back up in the row only once it has gone. Nothing ever
+ * trades places.
  *
  * The row stays mounted through every state, empty included, so a new span
  * swaps its chips in place and the drift carries on where it was.
@@ -95,7 +104,7 @@ export function TagCarousel({
     const [pinFrom, setPinFrom] = useState<{ id: number; x: number } | null>(
         null,
     );
-    const [leaving, setLeaving] = useState<TagListeningTime[]>([]);
+    const [leaving, setLeaving] = useState<Leaving[]>([]);
 
     // a pin that changes sends the old one off. set during render, so the row
     // and the overlays switch in the same frame
@@ -108,14 +117,20 @@ export function TagCarousel({
         if (shownPin) {
             setLeaving((list) => [
                 ...list.filter(
-                    (tag) => tag.id !== shownPin.id && tag.id !== selected?.id,
+                    ({ tag }) =>
+                        tag.id !== shownPin.id && tag.id !== selected?.id,
                 ),
-                shownPin,
+                { tag: shownPin, toward: selected ? "left" : "right" },
             ]);
         }
     }
 
-    const drifting = tags.filter((tag) => tag.id !== selected?.id);
+    // a leaving tag rejoins the row only once it has blended away, so it is
+    // never on screen twice
+    const away = new Set(leaving.map(({ tag }) => tag.id));
+    const drifting = tags.filter(
+        (tag) => tag.id !== selected?.id && !away.has(tag.id),
+    );
 
     const pin = (id: number, chipPageX: number) => {
         const view = box.current;
@@ -126,9 +141,12 @@ export function TagCarousel({
         });
     };
     const gone = (id: number) =>
-        setLeaving((list) => list.filter((tag) => tag.id !== id));
+        setLeaving((list) => list.filter(({ tag }) => tag.id !== id));
 
-    const fades = selected != null && pinnedWidth > 0 && width > 0;
+    // held while a tag is still leaving the pin, so the row only spreads back
+    // under it once it is gone
+    const occupied = selected != null || leaving.length > 0;
+    const fades = occupied && pinnedWidth > 0 && width > 0;
     const mask = fades ? (
         <LinearGradient
             style={StyleSheet.absoluteFill}
@@ -162,10 +180,10 @@ export function TagCarousel({
             </MaskedView>
 
             {/* under the new pin, so a replacement slides in over it */}
-            {leaving.map((tag) => (
+            {leaving.map(({ tag, toward }) => (
                 <Moving
                     key={`leave:${tag.id}`}
-                    mode="leave"
+                    mode={toward === "left" ? "leaveLeft" : "leaveRight"}
                     onDone={() => gone(tag.id)}
                 >
                     <TagChip tag={tag} totalMs={totalMs} selected />
@@ -211,9 +229,10 @@ export function TagCarousel({
 }
 
 /**
- * A chip at the pin that got there, or is going, one of three ways: `slide`
- * in from `from` points right of it, `appear` in place, or `leave`, sliding a
- * little left as it blends away. Calls `onDone` once it finishes.
+ * A chip at the pin that got there, or is going, one of four ways: `slide`
+ * in from `from` points right of it, `appear` in place, or `leaveLeft` and
+ * `leaveRight`, sliding a little that way as it blends away. Calls `onDone`
+ * once it finishes.
  *
  * The mode is read once, at mount. Later props are ignored, so a parent can
  * drop its in-flight state on landing without a remount. Keyed by tag, so
@@ -227,7 +246,7 @@ function Moving({
     children,
 }: {
     from?: number;
-    mode: "slide" | "appear" | "leave";
+    mode: "slide" | "appear" | "leaveLeft" | "leaveRight";
     onDone: () => void;
     onWidth?: (width: number) => void;
     children: ReactNode;
@@ -246,7 +265,9 @@ function Moving({
             opacity.set(withTiming(1, { duration: APPEAR_MS }, finish));
         } else {
             const leave = { duration: LEAVE_MS, easing: EASE };
-            x.set(withTiming(-LEAVE_DISTANCE, leave));
+            const distance =
+                mode === "leaveLeft" ? -LEAVE_DISTANCE : LEAVE_DISTANCE;
+            x.set(withTiming(distance, leave));
             opacity.set(withTiming(0, leave, finish));
         }
         // once per move: a new move is a new key, not new props
@@ -262,7 +283,9 @@ function Moving({
         <Animated.View
             className="absolute left-0 top-0 h-full"
             style={style}
-            pointerEvents={mode === "leave" ? "none" : "auto"}
+            pointerEvents={
+                mode === "slide" || mode === "appear" ? "auto" : "none"
+            }
             onLayout={
                 onWidth
                     ? (event) => onWidth(event.nativeEvent.layout.width)
