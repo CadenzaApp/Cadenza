@@ -204,6 +204,8 @@ pub struct TagListeningTime {
     pub id: i64,
     pub name: String,
     pub color: String,
+    #[serde(rename = "type")]
+    pub tag_type: TagType,
     pub listening_ms: i64,
 }
 
@@ -213,6 +215,7 @@ impl From<TagListening> for TagListeningTime {
             id: value.tag_id,
             name: value.name,
             color: value.color,
+            tag_type: value.tag_type.into(),
             listening_ms: value.listening_ms,
         }
     }

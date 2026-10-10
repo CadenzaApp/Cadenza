@@ -486,8 +486,8 @@ pub struct TagSharesParams {
 ///   "total_ms": 3600000,
 ///   "tagged_ms": 2880000,
 ///   "tags": [
-///     {"id": 41, "name": "Japanese", "color": "#ef4444", "listening_ms": 2520000},
-///     {"id": 12, "name": "Anime", "color": "#ec4899", "listening_ms": 1800000}
+///     {"id": 41, "name": "Japanese", "color": "#ef4444", "type": "basic", "listening_ms": 2520000},
+///     {"id": 12, "name": "Anime", "color": "#ec4899", "type": "basic", "listening_ms": 1800000}
 ///   ]
 /// }
 /// ```

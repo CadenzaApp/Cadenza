@@ -538,6 +538,8 @@ pub struct TagListening {
     pub tag_id: i64,
     pub name: String,
     pub color: String,
+    /// Read as text and matched in Rust, like [`TagPlays::tag_type`].
+    pub tag_type: TagType,
     pub listening_ms: i64,
 }
 
@@ -573,19 +575,20 @@ pub async fn get_tag_shares(
              where {scope} and {LISTEN_EVENTS}
          ),
          song_tags as (
-             select distinct uta.song_id, t.tag_id, t.name, t.color
+             select distinct uta.song_id, t.tag_id, t.name, t.color,
+                    t.type::text as type_name
              from user_tags_applied uta
              join tags t on t.tag_id = uta.tag_id
              where uta.user_id = $1 and t.user_id = $1 and t.is_activity = false
          ),
          per_tag as (
-             select st.tag_id, st.name, st.color, sum(l.ms)::bigint as ms
+             select st.tag_id, st.name, st.color, st.type_name, sum(l.ms)::bigint as ms
              from listens l
              join song_tags st on st.song_id = l.song_id
-             group by st.tag_id, st.name, st.color
+             group by st.tag_id, st.name, st.color, st.type_name
          )
          -- the total row always comes back, with a null tag when none had time
-         select total.ms, total.tagged, pt.tag_id, pt.name, pt.color, pt.ms
+         select total.ms, total.tagged, pt.tag_id, pt.name, pt.color, pt.ms, pt.type_name
          from (
              select coalesce(sum(ms), 0)::bigint as ms,
                     coalesce(sum(ms) filter (
@@ -615,10 +618,12 @@ pub async fn get_tag_shares(
     for row in &rows {
         let tag_id: Option<i64> = row.try_get_by_index(2)?;
         if let Some(tag_id) = tag_id {
+            let type_name: String = row.try_get_by_index(6)?;
             tags.push(TagListening {
                 tag_id,
                 name: row.try_get_by_index(3)?,
                 color: row.try_get_by_index(4)?,
+                tag_type: tag_type_from_name(&type_name)?,
                 listening_ms: row.try_get_by_index(5)?,
             });
         }

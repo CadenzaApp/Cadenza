@@ -9,6 +9,7 @@ import Animated, {
     useSharedValue,
 } from "react-native-reanimated";
 
+import { TagPill } from "@/components/custom/tag-pill";
 import { Text } from "@/components/ui/text";
 import type { TagListeningTime } from "@/lib/routes/analytics";
 
@@ -20,6 +21,8 @@ const DRIFT = 28;
 const SETTLE = 3;
 const ITEM_GAP = 8;
 const HEIGHT = 28;
+/** The pill's size unit, its font size; it fits inside `HEIGHT`. */
+const PILL_HEIGHT = 12;
 
 /** `x` wrapped into (-width, 0], so one copy's width loops back to the start. */
 function wrap(x: number, width: number): number {
@@ -198,8 +201,9 @@ function DriftingRow({
 }
 
 /**
- * One tag. Selected only adds a border and fill in its color, never padding
- * or weight, so its width is the same pinned or drifting.
+ * One tag, drawn as the app's tag pill with its share as the count. Pinned is
+ * solid, drifting is outline, the same way chosen and available tags read
+ * everywhere else. Both keep the same width, so pinning never shifts the row.
  */
 function TagChip({
     tag,
@@ -219,29 +223,18 @@ function TagChip({
             accessibilityRole="button"
             accessibilityLabel={`${tag.name}, ${percent}% of listening time`}
             accessibilityHint={
-                selected ? "Shows every tag again" : "Shows this tag's share"
+                selected ? "Shows every tag again" : "Filters to this tag"
             }
             accessibilityState={{ selected }}
-            className="h-full flex-row items-center gap-1.5 overflow-hidden rounded-full border px-2.5"
-            style={{
-                marginRight: ITEM_GAP,
-                borderColor: selected ? tag.color : "transparent",
-            }}
+            className="h-full justify-center active:opacity-60"
+            style={{ marginRight: ITEM_GAP }}
         >
-            {selected ? (
-                <View
-                    className="absolute inset-0"
-                    style={{ backgroundColor: tag.color, opacity: 0.18 }}
-                />
-            ) : null}
-            <View
-                className="h-2.5 w-2.5 rounded-full"
-                style={{ backgroundColor: tag.color }}
+            <TagPill
+                tag={tag}
+                height={PILL_HEIGHT}
+                count={`${percent}%`}
+                appearance={selected ? "solid" : "outline"}
             />
-            <Text className="text-xs" numberOfLines={1}>
-                {tag.name}
-            </Text>
-            <Text className="text-muted-foreground text-xs">{percent}%</Text>
         </Pressable>
     );
 }

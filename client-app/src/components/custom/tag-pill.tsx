@@ -76,7 +76,8 @@ export function useTagScreenColor(tagColor: string) {
  * @param height    - Controls all sizing proportionally (font, icon, padding).
  * @param value     - If provided, renders the attribute tag's value after the
  *                   name, formatted for the tag's type.
- * @param count     - If provided, renders a count badge on the right side.
+ * @param count     - If provided, renders a count badge on the right side. A
+ *                   string shows as given, like a percent.
  * @param leadingIcon - Replaces the leading dot when provided.
  * @param showIcon  - Whether to render the leading dot or icon.
  * @param appearance - Solid for chosen tags, outline for available tags.
@@ -99,7 +100,7 @@ export const TagPill = memo(function TagPill({
     tag: Tag;
     height: number;
     value?: string | null;
-    count?: number;
+    count?: number | string;
     leadingIcon?: ReactNode;
     leadingIconName?: ComponentProps<typeof Ionicons>["name"];
     showIcon?: boolean;

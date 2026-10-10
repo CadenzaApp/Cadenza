@@ -172,12 +172,7 @@ export function useAnalyticsHeatmap(bucket: string, window?: AnalyticsWindow) {
 }
 
 /** A tag and the listening time on songs carrying it. */
-export type TagListeningTime = {
-    id: number;
-    name: string;
-    color: string;
-    listening_ms: number;
-};
+export type TagListeningTime = Tag & { listening_ms: number };
 
 export type AnalyticsTagShares = {
     /** The window's listening time, each listen once. */

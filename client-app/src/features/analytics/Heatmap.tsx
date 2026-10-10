@@ -162,7 +162,13 @@ export function Heatmap({ root, accent, tagChoice, onTagChoice }: Props) {
     };
     const pinTag = (id: number) => {
         const tag = tags.find((each) => each.id === id);
-        if (tag) onTagChoice({ id: tag.id, name: tag.name, color: tag.color });
+        if (tag)
+            onTagChoice({
+                id: tag.id,
+                name: tag.name,
+                color: tag.color,
+                type: tag.type,
+            });
     };
     // a pinned tag this level lacks still shows, at zero
     const pinned: TagListeningTime | null = tagChoice
