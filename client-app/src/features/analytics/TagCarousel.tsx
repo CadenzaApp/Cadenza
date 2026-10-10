@@ -1,12 +1,22 @@
-import { useEffect, useState } from "react";
-import { Pressable, View } from "react-native";
+import MaskedView from "@react-native-masked-view/masked-view";
+import { LinearGradient } from "expo-linear-gradient";
+import { useEffect, useRef, useState } from "react";
+import {
+    Pressable,
+    StyleSheet,
+    View,
+    type GestureResponderEvent,
+} from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
+    Easing,
     FadeInLeft,
     FadeOut,
     useAnimatedStyle,
     useFrameCallback,
     useSharedValue,
+    withTiming,
+    type EntryAnimationsValues,
 } from "react-native-reanimated";
 
 import { TagPill } from "@/components/custom/tag-pill";
@@ -23,6 +33,10 @@ const ITEM_GAP = 8;
 const HEIGHT = 28;
 /** The pill's size unit, its font size; it fits inside `HEIGHT`. */
 const PILL_HEIGHT = 12;
+/** How far past the pinned tag the row takes to fade in from nothing. */
+const FADE = 36;
+/** How long a tapped tag takes to slide over to the pin. */
+const PIN_MS = 280;
 
 /** `x` wrapped into (-width, 0], so one copy's width loops back to the start. */
 function wrap(x: number, width: number): number {
@@ -46,11 +60,15 @@ type Props = {
     onRelease: () => void;
 };
 
+/** A tag being pinned, and where in the carousel it was tapped from. */
+type PinFrom = { id: number; x: number };
+
 /**
  * The tags listened to in the shown span. The selected one is pinned at the
- * left and holds still; the rest drift past it in a row that loops forever.
- * Tapping a drifting tag pins it, tapping the pinned one lets go of it and it
- * drifts again.
+ * left and holds still; the rest drift behind it in a row that loops forever,
+ * fading out as they pass under it rather than cutting off at its edge.
+ * Tapping a drifting tag slides it over to the pin, tapping the pinned one
+ * lets go of it and it drifts again.
  *
  * The row stays mounted through every state, empty included, so a new span
  * swaps its chips in place and the drift carries on where it was.
@@ -63,15 +81,62 @@ export function TagCarousel({
     onSelect,
     onRelease,
 }: Props) {
+    const box = useRef<View>(null);
+    const [width, setWidth] = useState(0);
+    const [pinnedWidth, setPinnedWidth] = useState(0);
+    const [pinFrom, setPinFrom] = useState<PinFrom | null>(null);
     const drifting = tags.filter((tag) => tag.id !== selected?.id);
+
+    // where the tapped chip sits in the carousel, so the pin can start there
+    const pin = (id: number, chipPageX: number) => {
+        const view = box.current;
+        if (!view) return onSelect(id);
+        view.measureInWindow((boxX) => {
+            setPinFrom({ id, x: Math.max(0, chipPageX - boxX) });
+            onSelect(id);
+        });
+    };
+
+    const fades = selected != null && pinnedWidth > 0 && width > 0;
+    const mask = fades ? (
+        <LinearGradient
+            style={StyleSheet.absoluteFill}
+            colors={["transparent", "transparent", "black"]}
+            locations={[
+                0,
+                Math.min(1, pinnedWidth / width),
+                Math.min(1, (pinnedWidth + FADE) / width),
+            ]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+        />
+    ) : (
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: "black" }]} />
+    );
+
     return (
-        <View className="flex-row" style={{ height: HEIGHT }}>
+        <View
+            ref={box}
+            style={{ height: HEIGHT }}
+            onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
+        >
+            <MaskedView style={StyleSheet.absoluteFill} maskElement={mask}>
+                <DriftingRow tags={drifting} totalMs={totalMs} onSelect={pin} />
+            </MaskedView>
             {selected ? (
-                // keyed by tag, so a new pick slides in from the left
+                // keyed by tag, so each pin animates in fresh
                 <Animated.View
                     key={selected.id}
-                    entering={FadeInLeft.duration(220)}
+                    className="absolute left-0 top-0 h-full"
+                    entering={
+                        pinFrom?.id === selected.id
+                            ? slideFrom(pinFrom.x)
+                            : FadeInLeft.duration(220)
+                    }
                     exiting={FadeOut.duration(150)}
+                    onLayout={(event) =>
+                        setPinnedWidth(event.nativeEvent.layout.width)
+                    }
                 >
                     <TagChip
                         tag={selected}
@@ -81,11 +146,6 @@ export function TagCarousel({
                     />
                 </Animated.View>
             ) : null}
-            <DriftingRow
-                tags={drifting}
-                totalMs={totalMs}
-                onSelect={onSelect}
-            />
             {loaded && tags.length === 0 && !selected ? (
                 <View
                     pointerEvents="none"
@@ -98,6 +158,24 @@ export function TagCarousel({
             ) : null}
         </View>
     );
+}
+
+/** An entering animation that slides in from `x` points right of its spot. */
+function slideFrom(x: number) {
+    return (values: EntryAnimationsValues) => {
+        "worklet";
+        return {
+            initialValues: {
+                originX: values.targetOriginX + x,
+            },
+            animations: {
+                originX: withTiming(values.targetOriginX, {
+                    duration: PIN_MS,
+                    easing: Easing.out(Easing.cubic),
+                }),
+            },
+        };
+    };
 }
 
 /**
@@ -115,7 +193,8 @@ function DriftingRow({
 }: {
     tags: TagListeningTime[];
     totalMs: number;
-    onSelect: (id: number) => void;
+    /** With the tapped chip's left edge, in window points. */
+    onSelect: (id: number, chipPageX: number) => void;
 }) {
     const [box, setBox] = useState(0);
     const [run, setRun] = useState(0);
@@ -192,7 +271,9 @@ function DriftingRow({
                                     tag={tag}
                                     totalMs={totalMs}
                                     selected={false}
-                                    onPress={() => onSelect(tag.id)}
+                                    onPress={(event) =>
+                                        onSelect(tag.id, chipLeft(event))
+                                    }
                                 />
                             ))}
                         </View>
@@ -217,7 +298,7 @@ function TagChip({
     tag: TagListeningTime;
     totalMs: number;
     selected: boolean;
-    onPress: () => void;
+    onPress: (event: GestureResponderEvent) => void;
 }) {
     const percent = sharePercent(shareOf(tag.listening_ms, totalMs));
     return (
@@ -240,4 +321,9 @@ function TagChip({
             />
         </Pressable>
     );
+}
+
+/** The left edge of the chip a touch landed in, in window points. */
+function chipLeft(event: GestureResponderEvent): number {
+    return event.nativeEvent.pageX - event.nativeEvent.locationX;
 }
