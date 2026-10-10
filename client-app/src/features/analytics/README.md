@@ -3,8 +3,8 @@
 The Analytics tab: what the user's listening looks like over one calendar period, from the
 backend's event log.
 
-Five screens behind four routes: an overview, one dynamic `[dimension]` route serving every
-ranking, a playable songs list, and tags. `src/app/(tabs)/analytics/` only re-exports them.
+Six screens behind five routes: an overview, one dynamic `[dimension]` route serving every
+ranking, a playable songs list, tags, and the songs listened to in one heatmap hour. `src/app/(tabs)/analytics/` only re-exports them.
 Everything here is presentation: no number on this tab is computed in the client, the backend
 aggregates in SQL and this formats and lays out what comes back.
 
@@ -52,7 +52,7 @@ it, since their period bar sits fixed above the list. Every page pads the bottom
 | `TagCarousel.tsx`             | The span's tags as a drifting row under the grid, and the heatmap's tag filter. A tapped tag fades out of the row; `TagShareChip` draws it.                                           |
 | `HeatmapGrid.tsx`             | Draws the fixed calendar or seven additive daily duration bars, with one accent.                                                                                                      |
 | `HeatmapDetail.tsx`           | The shown span in two lines: time listened and plays, or the tag's time and share when filtered.                                                                                      |
-| `ListeningSongs.tsx`          | The songs played in one hour, as a bottom sheet. "Show more" raises the read's limit, never pages.                                                                                    |
+| `ListenedSongsScreen.tsx`     | The songs listened to in one span, as a playable `MusicList` page. Opened from the heatmap's hour; loading more raises the read's limit.                                              |
 | `tag-share.ts`                | Pure: a tag's share of listening time, and the `TagFilter` type. Tested in `tag-share.test.ts`.                                                                                       |
 | `heatmap-layout.ts`           | Pure: a heatmap shape to a grid of keyed cells, what each cell picks, and `heatLevel`. Tested in `heatmap-layout.test.ts`.                                                            |
 | `TagRotation.tsx`             | The tags played this period as a sideways rail of square tiles. Each opens its tag.                                                                                                   |
@@ -114,7 +114,9 @@ survives navigating into a detail page and back.
 - **Calendar and detail use `/analytics/listening`.** Its `total_ms` is unfiltered; `listening_ms`,
   plays and cells match the pinned tag, so the filtered detail shows the tag's share of all time.
 - **Songs open per hour, from a day.** The button stays disabled until an hour is picked, then
-  lists that hour's songs under the pinned tag, from `/analytics/session-songs` with no session key.
+  pushes `/analytics/listened` with the hour's bounds, title and tag as plain params. It reads
+  `/analytics/session-songs` with no session key. A full page, not a sheet, so the songs can be
+  played, queued and navigated from like any other list.
   The backend's session endpoints stay, but nothing on the card reads them for now.
 - **Listens and listening time can disagree.** A listen counts as a play at 15 seconds but only
   gets its time when it ends, and only for time the app watched, so a span can have plays and no

@@ -1,4 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { useRouter } from "expo-router";
 import { useTheme } from "expo-router/react-navigation";
 import { useMemo, useRef, useState } from "react";
 import { Pressable, View } from "react-native";
@@ -40,7 +41,7 @@ import {
     type HeatmapGrid,
     type HeatmapPick,
 } from "./heatmap-layout";
-import { ListeningSongs } from "./ListeningSongs";
+import { listenedSongsParams } from "./ListenedSongsScreen";
 import {
     drillGrain,
     grainLabel,
@@ -92,12 +93,12 @@ type Props = {
 export function Heatmap({ root, accent, tagChoice, onTagChoice }: Props) {
     const { now } = useAnalyticsPeriod();
     const { colors } = useTheme();
+    const router = useRouter();
     const [levels, setLevels] = useState<Level[]>([
         { period: root, pick: null },
     ]);
     const [back, setBack] = useState(false);
     const [width, setWidth] = useState(0);
-    const [songsOpen, setSongsOpen] = useState(false);
     // when the last level change happened, so a double tap on open does not
     // open two levels
     const changedAt = useRef(0);
@@ -165,6 +166,14 @@ export function Heatmap({ root, accent, tagChoice, onTagChoice }: Props) {
                 ...stack.slice(0, -1),
                 { ...top, pick: same ? null : target },
             ];
+        });
+    };
+    // the picked hour's songs, as their own page in the stack
+    const openHour = () => {
+        if (!pick) return;
+        router.push({
+            pathname: "/analytics/listened",
+            params: listenedSongsParams(shown, pick.label, tag),
         });
     };
     const goBack = () => {
@@ -304,7 +313,7 @@ export function Heatmap({ root, accent, tagChoice, onTagChoice }: Props) {
                 className="h-11 rounded-full"
                 disabled={buttonDisabled}
                 accessibilityState={{ disabled: buttonDisabled }}
-                onPress={() => (child ? open(pick) : setSongsOpen(true))}
+                onPress={() => (child ? open(pick) : openHour())}
             >
                 <Text className="text-sm font-medium">
                     {child
@@ -317,15 +326,6 @@ export function Heatmap({ root, accent, tagChoice, onTagChoice }: Props) {
                     color={colors.text}
                 />
             </GlassButton>
-
-            {songsOpen && pick ? (
-                <ListeningSongs
-                    window={shown}
-                    tag={tag}
-                    title={pick.label}
-                    onClose={() => setSongsOpen(false)}
-                />
-            ) : null}
         </AnalyticsCard>
     );
 }

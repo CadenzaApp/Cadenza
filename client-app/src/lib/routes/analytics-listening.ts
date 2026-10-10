@@ -58,7 +58,7 @@ export function useListening(
 
 /**
  * The first `limit` songs listened to in the window, most first played first.
- * "Show more" raises the limit rather than paging, so the list stays one key
+ * Loading more raises the limit rather than paging, so the list stays one key
  * (see the lib README on `useSWRInfinite`). The backend caps it at 100.
  */
 export function useListeningSongs(
