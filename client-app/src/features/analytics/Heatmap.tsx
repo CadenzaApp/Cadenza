@@ -1,12 +1,19 @@
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTheme } from "expo-router/react-navigation";
 import { useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
+import Animated, { FadeInLeft, FadeInRight } from "react-native-reanimated";
 
 import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
-import type { AnalyticsHeatmap, HeatmapTag } from "@/lib/routes/analytics";
+import {
+    useAnalyticsHeatmap,
+    type AnalyticsHeatmap,
+    type HeatmapTag,
+} from "@/lib/routes/analytics";
 
 import { AnalyticsCard } from "./AnalyticsCard";
+import { useAnalyticsPeriod } from "./analytics-period";
 import { formatCount } from "./format";
 import {
     HEAT_LEVELS,
@@ -14,7 +21,13 @@ import {
     layoutHeatmap,
     type LayoutCell,
 } from "./heatmap-layout";
-import type { HeatmapShape } from "./range";
+import {
+    drillGrain,
+    offsetOf,
+    resolvePeriod,
+    type PeriodGrain,
+    type ResolvedPeriod,
+} from "./range";
 import { SectionHeading } from "./SectionHeading";
 
 /** Plays that carried none of the user's tags. */
@@ -34,11 +47,11 @@ const COL_LABEL_WIDTH = 48;
 const MIN_CELL = 8;
 /** How many tags the key under the grid names. */
 const KEY_TAGS = 4;
+const DRILL_MS = 220;
 
 type Props = {
-    heatmap?: AnalyticsHeatmap;
-    loading: boolean;
-    shape: HeatmapShape;
+    /** The page's period, the top the card can go back up to. */
+    root: ResolvedPeriod;
     accent: string | null;
 };
 
@@ -46,9 +59,99 @@ type Props = {
  * When the user listens, as a grid of squares laid out by the period: hours of
  * a day or week, days of a month, months of a year or of every year. Each square is
  * colored by the tag played most in it and brightened by how much played.
- * Tap one for its numbers.
+ *
+ * Tapping a square opens it in place, one grain down: a year's month, a month's
+ * week, a week's day. The card keeps the levels it opened as a stack over
+ * `root`, so its back arrow walks back up, never past `root`. At a day, the
+ * bottom, a tap reads out the square's numbers; above it a long press does.
  */
-export function Heatmap({ heatmap, loading, shape, accent }: Props) {
+export function Heatmap({ root, accent }: Props) {
+    const { now } = useAnalyticsPeriod();
+    const [opened, setOpened] = useState<ResolvedPeriod[]>([]);
+    const [back, setBack] = useState(false);
+
+    const scope = opened.at(-1) ?? root;
+    const parent = opened.length > 1 ? opened.at(-2) : root;
+
+    const { heatmap, heatmapLoading } = useAnalyticsHeatmap(
+        scope.heatmapBucket,
+        { since: scope.since, until: scope.until },
+    );
+    // the previous level's data is kept while this one loads, and it is cut
+    // in another bucket, so it would paint the wrong squares
+    const current =
+        heatmap?.bucket === scope.heatmapBucket ? heatmap : undefined;
+
+    const open = (date: Date) => {
+        const grain = drillGrain(scope.grain);
+        if (!grain) return;
+        const offset = offsetOf(grain, date, now);
+        // nothing has played in the future
+        if (offset > 0) return;
+        setBack(false);
+        setOpened((stack) => [...stack, resolvePeriod(grain, offset, now)]);
+    };
+    const goBack = () => {
+        setBack(true);
+        setOpened((stack) => stack.slice(0, -1));
+    };
+
+    return (
+        <AnalyticsCard>
+            <View className="flex-row items-center justify-between gap-3">
+                {opened.length > 0 ? (
+                    <Pressable
+                        onPress={goBack}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Back to ${parent?.dateLabel}`}
+                        hitSlop={10}
+                    >
+                        <BackChevron />
+                    </Pressable>
+                ) : null}
+                <View className="flex-1">
+                    <SectionHeading
+                        title="When you listen"
+                        detail={opened.length > 0 ? scope.dateLabel : undefined}
+                    />
+                </View>
+                <Legend accent={accent} />
+            </View>
+
+            {/* keyed by level, so each one slides in fresh with nothing
+                selected: from the right going down, the left coming back */}
+            <Animated.View
+                key={levelKey(scope)}
+                entering={(back ? FadeInLeft : FadeInRight).duration(DRILL_MS)}
+                className="gap-4"
+            >
+                <HeatmapLevel
+                    scope={scope}
+                    heatmap={current}
+                    loading={heatmapLoading || (heatmap != null && !current)}
+                    now={now}
+                    onOpen={drillGrain(scope.grain) ? open : null}
+                />
+            </Animated.View>
+        </AnalyticsCard>
+    );
+}
+
+/** One level of the drill: the grid, the readout under it, and the tag key. */
+function HeatmapLevel({
+    scope,
+    heatmap,
+    loading,
+    now,
+    onOpen,
+}: {
+    scope: ResolvedPeriod;
+    heatmap?: AnalyticsHeatmap;
+    loading: boolean;
+    now: Date;
+    /** Opens a square's date one grain down. Null at the bottom. */
+    onOpen: ((date: Date) => void) | null;
+}) {
     const { colors } = useTheme();
     const [width, setWidth] = useState(0);
     const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -58,8 +161,8 @@ export function Heatmap({ heatmap, loading, shape, accent }: Props) {
         [heatmap],
     );
     const grid = useMemo(
-        () => layoutHeatmap(shape, new Date(), earliestYear),
-        [earliestYear, shape],
+        () => layoutHeatmap(scope.heatmap, now, earliestYear),
+        [earliestYear, now, scope.heatmap],
     );
 
     const columns = Math.max(...grid.rows.map((row) => row.length), 1);
@@ -105,7 +208,17 @@ export function Heatmap({ heatmap, loading, shape, accent }: Props) {
                             maxPlays={maxPlays}
                             selected={slot?.key === selectedKey}
                             textColor={String(colors.text)}
-                            onPress={setSelectedKey}
+                            onPress={
+                                onOpen && slot
+                                    ? () => onOpen(slot.date)
+                                    : () => slot && setSelectedKey(slot.key)
+                            }
+                            onLongPress={
+                                slot
+                                    ? () => setSelectedKey(slot.key)
+                                    : undefined
+                            }
+                            opens={onOpen != null}
                         />
                     ))}
                 </View>
@@ -134,17 +247,7 @@ export function Heatmap({ heatmap, loading, shape, accent }: Props) {
     );
 
     return (
-        <AnalyticsCard>
-            <View className="flex-row items-center justify-between gap-3">
-                <View className="flex-1">
-                    <SectionHeading title="When you listen" />
-                </View>
-                <Legend
-                    color={accent ?? UNTAGGED_COLOR}
-                    emptyColor={String(colors.text)}
-                />
-            </View>
-
+        <>
             <View
                 onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
             >
@@ -173,7 +276,7 @@ export function Heatmap({ heatmap, loading, shape, accent }: Props) {
                       ]
                           .filter(Boolean)
                           .join(" - ")
-                    : "Colored by the tag you played most. Tap a square."}
+                    : `Colored by the tag you played most. ${hintFor(scope.grain)}`}
             </Text>
 
             {keyTags.length > 0 ? (
@@ -192,8 +295,33 @@ export function Heatmap({ heatmap, loading, shape, accent }: Props) {
                     ))}
                 </View>
             ) : null}
-        </AnalyticsCard>
+        </>
     );
+}
+
+/** What a tap does at a level, for the line under the grid. */
+function hintFor(grain: PeriodGrain): string {
+    switch (grain) {
+        case "all":
+        case "year":
+            return "Tap a month to open it.";
+        case "month":
+            return "Tap a day to open its week.";
+        case "week":
+            return "Tap a square to open its day.";
+        case "day":
+            return "Tap a square.";
+    }
+}
+
+/** Identifies a level, for keying its view. */
+function levelKey(scope: ResolvedPeriod): string {
+    return `${scope.grain}:${scope.since ?? "all"}`;
+}
+
+function BackChevron() {
+    const { colors } = useTheme();
+    return <Ionicons name="chevron-back" size={20} color={colors.text} />;
 }
 
 function Square({
@@ -206,6 +334,8 @@ function Square({
     selected,
     textColor,
     onPress,
+    onLongPress,
+    opens,
 }: {
     slot: LayoutCell | null;
     size: number;
@@ -216,7 +346,10 @@ function Square({
     selected: boolean;
     /** Fills an empty square, faintly, and rings a selected one. */
     textColor: string;
-    onPress: (key: string) => void;
+    onPress: () => void;
+    onLongPress?: () => void;
+    /** Whether a tap opens the square rather than reading it out. */
+    opens: boolean;
 }) {
     const radius = Math.min(MAX_RADIUS, Math.max(2, size * 0.22));
     if (!slot) {
@@ -226,9 +359,11 @@ function Square({
     const level = heatLevel(plays, maxPlays);
     return (
         <Pressable
-            onPress={() => onPress(slot.key)}
+            onPress={onPress}
+            onLongPress={onLongPress}
             accessibilityRole="button"
             accessibilityLabel={`${slot.label}, ${plays} plays`}
+            accessibilityHint={opens ? "Opens it" : undefined}
             style={{
                 width: size,
                 height: size,
@@ -256,7 +391,10 @@ function Square({
 }
 
 /** Less to more, in the page accent. */
-function Legend({ color, emptyColor }: { color: string; emptyColor: string }) {
+function Legend({ accent }: { accent: string | null }) {
+    const { colors } = useTheme();
+    const color = accent ?? UNTAGGED_COLOR;
+    const emptyColor = String(colors.text);
     return (
         <View className="flex-row items-center gap-1">
             <Text className="text-muted-foreground mr-1 text-[10px]">Less</Text>

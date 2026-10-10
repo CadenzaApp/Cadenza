@@ -49,7 +49,7 @@ it, since their period bar sits fixed above the list. Every page pads the bottom
 | `SectionHeading.tsx`          | A section title, an optional line under it, and an optional "See all".                                                                                                                                            |
 | `HeroCarousel.tsx`            | The period's top three songs as a fan of covers. Swipe or tap to pick one; Play starts the top songs from it.                                                                                                     |
 | `StatsStrip.tsx`              | A few headline numbers with icons on one card. Takes its stats as data.                                                                                                                                           |
-| `Heatmap.tsx`                 | When the user listens, colored by tag. Draws what `heatmap-layout.ts` lays out.                                                                                                                                   |
+| `Heatmap.tsx`                 | When the user listens, colored by tag. Tap a square to open it one grain down, back arrow to go up. Draws what `heatmap-layout.ts` lays out.                                                                      |
 | `heatmap-layout.ts`           | Pure: a heatmap shape to a grid of keyed cells, and `heatLevel`. Tested in `heatmap-layout.test.ts`.                                                                                                              |
 | `TagRotation.tsx`             | The tags played this period as a sideways rail of square tiles. Each opens its tag.                                                                                                                               |
 | `dimensions.ts`               | Pure: one descriptor per dimension, and where each one's rows go. Tested in `dimensions.test.ts`.                                                                                                                 |
@@ -91,6 +91,11 @@ survives navigating into a detail page and back.
 - **Heatmap cells are keyed by the backend's local bucket start**, `YYYY-MM-DD` or
   `YYYY-MM-DDTHH:00`. `heatmap-layout.ts` builds the same strings from local dates by hand. Going
   through `toISOString` would shift them into UTC and miss every cell.
+- **The heatmap drills down in place.** A tap opens a year's month, a month's week (by the day
+  tapped), a week's day. The card holds a stack of `ResolvedPeriod`s over the page's period and
+  fetches its own heatmap for the top one, so back never goes above the page's period. A future
+  square does not open. While a level loads, the previous level's data is ignored by its
+  `bucket`, since every step down changes bucket.
 - **The heatmap is sparse.** Only buckets with a play come back; the layout decides the grid and
   every other square draws empty. A square's color is its most played tag, gray when nothing in it
   was tagged, and brightness is a square root step of plays over the period's peak.

@@ -14,6 +14,8 @@ import { resolvePeriod, type PeriodGrain, type ResolvedPeriod } from "./range";
 type AnalyticsPeriodApi = {
     /** The window, buckets and labels on screen, stable between changes. */
     period: ResolvedPeriod;
+    /** The clock `period` was resolved against, for resolving others. */
+    now: Date;
     /** Switches grain and jumps back to the current period. */
     setGrain: (grain: PeriodGrain) => void;
     /** Moves `delta` periods. Never past the current one. */
@@ -76,8 +78,8 @@ export function AnalyticsPeriodProvider({ children }: { children: ReactNode }) {
     );
 
     const api = useMemo(
-        () => ({ period, setGrain, step }),
-        [period, setGrain, step],
+        () => ({ period, now, setGrain, step }),
+        [now, period, setGrain, step],
     );
 
     return (

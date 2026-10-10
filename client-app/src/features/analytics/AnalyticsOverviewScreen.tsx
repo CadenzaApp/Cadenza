@@ -6,10 +6,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
 import { NebulaBackdrop } from "@/components/ui/nebula-backdrop";
 import {
-    useAnalyticsHeatmap,
     useAnalyticsSummary,
     useAnalyticsTrend,
-    type AnalyticsHeatmap,
     type AnalyticsSummary,
     type AnalyticsTrend,
     type EntityPlayCount,
@@ -67,10 +65,6 @@ export function AnalyticsOverviewScreen() {
         window,
         period.chart === "trend",
     );
-    const { heatmap, heatmapLoading } = useAnalyticsHeatmap(
-        period.heatmapBucket,
-        window,
-    );
 
     const accent = usePageTint(summary);
     const nebula = useNebulaColors(summary, accent);
@@ -106,8 +100,6 @@ export function AnalyticsOverviewScreen() {
                             summary={summary}
                             period={period}
                             accent={accent}
-                            heatmap={heatmap}
-                            heatmapLoading={heatmapLoading}
                             trend={trend}
                             trendLoading={trendLoading}
                             trendErr={trendErr}
@@ -139,8 +131,6 @@ function OverviewBody({
     summary,
     period,
     accent,
-    heatmap,
-    heatmapLoading,
     trend,
     trendLoading,
     trendErr,
@@ -150,8 +140,6 @@ function OverviewBody({
     summary: AnalyticsSummary;
     period: ResolvedPeriod;
     accent: string | null;
-    heatmap?: AnalyticsHeatmap;
-    heatmapLoading: boolean;
     trend?: AnalyticsTrend;
     trendLoading: boolean;
     trendErr?: unknown;
@@ -177,7 +165,7 @@ function OverviewBody({
     return (
         <>
             {/* keyed by period, so a new one starts back on #1 and a fresh
-                grid with nothing selected */}
+                grid with nothing selected or opened */}
             <HeroCarousel
                 key={`hero:${periodKey}`}
                 songs={summary.top.song ?? NO_ENTRIES}
@@ -208,9 +196,7 @@ function OverviewBody({
 
             <Heatmap
                 key={`heatmap:${periodKey}`}
-                heatmap={heatmap}
-                loading={heatmapLoading}
-                shape={period.heatmap}
+                root={period}
                 accent={accent}
             />
 
