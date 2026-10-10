@@ -146,6 +146,7 @@ export default function CollectionDetailScreen() {
                         isLoadingNextPage: tracksLoadingNextPage,
                         onLoadNextPage: loadNextCollectionPage,
                     }}
+                    loadAllPages
                     sorting={null}
                     multiSelect={DEFAULT_MULTI_SELECT_CONFIG}
                     subtitle={artistName ?? firstTrack?.artistName}

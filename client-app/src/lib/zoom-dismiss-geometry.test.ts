@@ -82,8 +82,8 @@ test("pull progress continues beyond the dismissal threshold", () => {
 });
 
 test("close duration only covers the remaining progress", () => {
-    assert.equal(zoomCloseDuration(0), 280);
-    assert.equal(zoomCloseDuration(0.5), 140);
+    assert.equal(zoomCloseDuration(0), 350);
+    assert.equal(zoomCloseDuration(0.5), 175);
     assert.equal(zoomCloseDuration(0.96), 16);
     assert.equal(zoomCloseDuration(1), 16);
 });

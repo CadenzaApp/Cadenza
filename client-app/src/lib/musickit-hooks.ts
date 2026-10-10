@@ -748,17 +748,6 @@ export function useCollectionSongs(
             fetchCollectionSongs(key),
     );
 
-    // a collection screen shows every song and a count of them, so each next
-    // page starts as soon as the last one lands rather than when the list is
-    // scrolled near its end. loadNextPage drops a call while one is in flight
-    const { hasNextPage, isLoading, isLoadingNextPage, error, loadNextPage } =
-        page;
-    useEffect(() => {
-        if (hasNextPage && !isLoading && !isLoadingNextPage && !error) {
-            void loadNextPage();
-        }
-    }, [error, hasNextPage, isLoading, isLoadingNextPage, loadNextPage]);
-
     return {
         tracks: page.items,
         tracksLoading: page.isLoading || isInitializing,

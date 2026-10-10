@@ -1,7 +1,7 @@
 /** Pull distance that commits a pushed screen dismissal. */
 export const ZOOM_DISMISS_PULL = 70;
 /** Full close duration when no interactive progress has already been made. */
-export const ZOOM_CLOSE_DURATION = 280;
+export const ZOOM_CLOSE_DURATION = 350;
 /** Open duration from the recorded artwork to the full screen. */
 export const ZOOM_OPEN_DURATION = 320;
 

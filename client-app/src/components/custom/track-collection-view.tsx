@@ -126,6 +126,13 @@ type Props = {
     backgroundColor?: string | null;
     containerStyle?: StyleProp<ViewStyle>;
     pagination?: MusicListPagination | null;
+    /**
+     * Load every page, each as soon as the last lands, rather than when the
+     * list nears its end. For a screen that shows every song and a count of
+     * them. Held until the open has finished, so a page landing never lands
+     * mid animation.
+     */
+    loadAllPages?: boolean;
     sorting?: MusicListSorting | null;
     onContentSizeChange?: (width: number, height: number) => void;
     removeClippedSubviews?: boolean;
@@ -162,6 +169,7 @@ export function TrackCollectionView({
     backgroundColor = null,
     containerStyle,
     pagination = null,
+    loadAllPages = false,
     sorting = {
         strategy: "local",
         defaultValue: { option: "title", direction: "ascending" },
@@ -181,6 +189,14 @@ export function TrackCollectionView({
     const [optionsOpen, setOptionsOpen] = useState(false);
     const settled = useOpenTransitionSettled(useIsPushedDetailScreen());
     const scrollY = useSharedValue(0);
+    const hasNextPage = pagination?.hasNextPage ?? false;
+    const loadingNextPage = pagination?.isLoadingNextPage ?? false;
+    const loadNextPage = pagination?.onLoadNextPage;
+    useEffect(() => {
+        if (!loadAllPages || !settled || !hasNextPage || loadingNextPage)
+            return;
+        void loadNextPage?.();
+    }, [hasNextPage, loadAllPages, loadNextPage, loadingNextPage, settled]);
     const derivedArtworkUrls = useMemo(
         () =>
             artworkUrlsOverride || header ? [] : collectionArtworkGrid(tracks),

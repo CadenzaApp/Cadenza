@@ -300,15 +300,20 @@ export function ZoomDismissScreen({
         openStarted.set(true);
         cardVisible.set(1);
         progress.set(
-            withTiming(
-                0,
-                { duration: ZOOM_OPEN_DURATION, easing: ZOOM_EASING },
-                (finished) => {
-                    if (finished) runOnJS(setOpened)(true);
-                },
-            ),
+            withTiming(0, {
+                duration: ZOOM_OPEN_DURATION,
+                easing: ZOOM_EASING,
+            }),
         );
     }, [cardVisible, openStarted, progress]);
+    // opened once it reaches full size, however it got there: the timing's
+    // own callback reports unfinished whenever anything else settles it
+    useAnimatedReaction(
+        () => openStarted.get() && progress.get() === 0,
+        (atRest, wasAtRest) => {
+            if (atRest && !wasAtRest) runOnJS(setOpened)(true);
+        },
+    );
     useAnimatedReaction(
         () => focus.get() !== null,
         (ready) => {
