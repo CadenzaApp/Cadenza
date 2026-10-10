@@ -36,7 +36,7 @@ export type HeatmapBucket = "hour" | "day" | "month";
  * How a period's heatmap is laid out. Each carries the local midnight it
  * starts on, which is all the layout needs to place every cell.
  *
- * - `day-hours`: one day, four rows of six hours.
+ * - `day-hours`: one day, two rows of twelve hours.
  * - `week-days`: Monday to Sunday, one cell a day.
  * - `month-days`: a calendar, one cell per day.
  * - `year-months`: the year's twelve months, four rows of three.

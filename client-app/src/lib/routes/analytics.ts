@@ -195,12 +195,16 @@ export type AnalyticsHeatmap = {
 /**
  * `GET /analytics/heatmap`. Plays per bucket, each with its most played tag.
  * The key covers the bucket and the window.
+ *
+ * Does not keep the previous window's data while a new one loads: the heatmap
+ * card drills between windows cut in the same bucket, where old cells would
+ * land on the wrong squares.
  */
 export function useAnalyticsHeatmap(bucket: string, window?: AnalyticsWindow) {
     const x = useAPIData<AnalyticsHeatmap>(
         "/analytics/heatmap",
         { bucket, ...windowParams(window) },
-        { keepPreviousData: true, save: true },
+        { save: true },
     );
     return {
         heatmap: x.data,

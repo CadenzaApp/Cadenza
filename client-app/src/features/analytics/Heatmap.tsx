@@ -1,7 +1,13 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTheme } from "expo-router/react-navigation";
-import { useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { useMemo, useRef, useState } from "react";
+import {
+    Pressable,
+    Text as RNText,
+    ScrollView,
+    StyleSheet,
+    View,
+} from "react-native";
 import Animated, { FadeInLeft, FadeInRight } from "react-native-reanimated";
 
 import { Skeleton } from "@/components/ui/skeleton";
@@ -78,6 +84,9 @@ export function Heatmap({ root, accent }: Props) {
     const [width, setWidth] = useState(0);
     const [opened, setOpened] = useState<ResolvedPeriod[]>([]);
     const [back, setBack] = useState(false);
+    // when the last level change happened, so taps during its slide are
+    // dropped: a second tap would land on the new level and open it too
+    const changedAt = useRef(0);
 
     const scope = opened.at(-1) ?? root;
     const parent = opened.length > 1 ? opened.at(-2) : root;
@@ -86,21 +95,21 @@ export function Heatmap({ root, accent }: Props) {
         scope.heatmapBucket,
         { since: scope.since, until: scope.until },
     );
-    // the previous level's data is kept while this one loads, and it is cut
-    // in another bucket, so it would paint the wrong squares
-    const current =
-        heatmap?.bucket === scope.heatmapBucket ? heatmap : undefined;
+    const settling = () => Date.now() - changedAt.current < DRILL_MS;
 
     const open = (date: Date) => {
         const grain = drillGrain(scope.grain);
-        if (!grain) return;
+        if (!grain || settling()) return;
         const offset = offsetOf(grain, date, now);
         // nothing has played in the future
         if (offset > 0) return;
+        changedAt.current = Date.now();
         setBack(false);
         setOpened((stack) => [...stack, resolvePeriod(grain, offset, now)]);
     };
     const goBack = () => {
+        if (settling()) return;
+        changedAt.current = Date.now();
         setBack(true);
         setOpened((stack) => stack.slice(0, -1));
     };
@@ -145,10 +154,8 @@ export function Heatmap({ root, accent }: Props) {
                     >
                         <HeatmapLevel
                             scope={scope}
-                            heatmap={current}
-                            loading={
-                                heatmapLoading || (heatmap != null && !current)
-                            }
+                            heatmap={heatmap}
+                            loading={heatmapLoading}
                             now={now}
                             width={width}
                             height={Math.min(
@@ -204,10 +211,12 @@ function HeatmapLevel({
     const hasRowLabels = grid.rowLabels.some(Boolean);
     const labelWidth = hasRowLabels ? ROW_LABEL_WIDTH : 0;
     const colLabelHeight = grid.colLabels.length > 0 ? COL_LABEL_HEIGHT : 0;
+    // the label row sits a gap under the grid
+    const labelRow = colLabelHeight ? colLabelHeight + GAP : 0;
     // fractional, so the grid runs to the box's edges rather than leaving a
     // pixel per cell of slack
     const fitW = (width - labelWidth - GAP * (columns - 1)) / columns;
-    const fitH = (height - colLabelHeight - GAP * (rowCount - 1)) / rowCount;
+    const fitH = (height - labelRow - GAP * (rowCount - 1)) / rowCount;
     const cellW = grid.square ? Math.min(fitW, fitH) : fitW;
     const cellH = Math.max(MIN_CELL, grid.square ? cellW : fitH);
     const scrolls = fitH < MIN_CELL;
@@ -218,23 +227,6 @@ function HeatmapLevel({
 
     const body = (
         <View>
-            <View style={{ height: colLabelHeight, marginLeft: labelWidth }}>
-                {grid.colLabels.map((label, index) =>
-                    label ? (
-                        <Text
-                            key={index}
-                            className="text-muted-foreground absolute text-center text-[10px]"
-                            style={{
-                                left: index * (cellW + GAP),
-                                width: cellW,
-                            }}
-                            numberOfLines={1}
-                        >
-                            {label}
-                        </Text>
-                    ) : null,
-                )}
-            </View>
             {grid.rows.map((row, rowIndex) => (
                 <View
                     key={rowIndex}
@@ -279,6 +271,29 @@ function HeatmapLevel({
                     ))}
                 </View>
             ))}
+            <View
+                style={{
+                    height: colLabelHeight,
+                    marginLeft: labelWidth,
+                    marginTop: colLabelHeight ? GAP : 0,
+                }}
+            >
+                {grid.colLabels.map((label, index) =>
+                    label ? (
+                        <Text
+                            key={index}
+                            className="text-muted-foreground absolute text-center text-[10px]"
+                            style={{
+                                left: index * (cellW + GAP),
+                                width: cellW,
+                            }}
+                            numberOfLines={1}
+                        >
+                            {label}
+                        </Text>
+                    ) : null,
+                )}
+            </View>
         </View>
     );
 
@@ -434,16 +449,13 @@ function Square({
                 ]}
             />
             {slot.text ? (
-                <View
-                    style={StyleSheet.absoluteFill}
-                    className="items-center justify-center"
-                >
-                    <Text
-                        className="text-center text-[11px] font-medium"
+                <View style={styles.textLayer} pointerEvents="none">
+                    <RNText
+                        style={[styles.text, { color: textColor }]}
                         numberOfLines={2}
                     >
                         {slot.text}
-                    </Text>
+                    </RNText>
                 </View>
             ) : null}
         </Pressable>
@@ -513,3 +525,12 @@ function indexCells(heatmap?: AnalyticsHeatmap) {
     }
     return { byKey, tagsById, maxPlays, earliestYear };
 }
+
+const styles = StyleSheet.create({
+    textLayer: {
+        ...StyleSheet.absoluteFill,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    text: { fontSize: 11, fontWeight: "600", textAlign: "center" },
+});

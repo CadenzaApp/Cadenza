@@ -28,13 +28,12 @@ test("keys are local and match the backend's printing", () => {
     assert.equal(hourKey(date, 9), "2026-01-05T09:00");
 });
 
-test("a day is four rows of six named hours", () => {
+test("a day is two rows of twelve hours", () => {
     const grid = layoutHeatmap(shapeOf("day"), NOW);
-    assert.equal(grid.rows.length, 4);
-    assert.ok(grid.rows.every((row) => row.length === 6));
+    assert.deepEqual(grid.rowLabels, ["AM", "PM"]);
+    assert.ok(grid.rows.every((row) => row.length === 12));
     assert.equal(grid.rows[0][0]?.key, "2026-10-03T00:00");
-    assert.equal(grid.rows[0][0]?.text, "12 AM");
-    assert.equal(grid.rows[3][5]?.key, "2026-10-03T23:00");
+    assert.equal(grid.rows[1][11]?.key, "2026-10-03T23:00");
 });
 
 test("a week is one row of seven Monday-first days", () => {

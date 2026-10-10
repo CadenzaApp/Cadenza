@@ -70,7 +70,7 @@ offset 0 always follows the clock. Weeks start Monday. Every bound is local midn
 
 | Grain | Window             | Chart                                 | Heatmap                         |
 | ----- | ------------------ | ------------------------------------- | ------------------------------- |
-| Day   | midnight to next   | 24 hour bars                          | hour cells, four rows of six    |
+| Day   | midnight to next   | 24 hour bars                          | hour cells, two rows of twelve  |
 | Week  | Monday to Monday   | 7 day bars                            | day cells, one row of seven     |
 | Month | the 1st to the 1st | day bars                              | day cells, as a calendar        |
 | Year  | Jan 1 to Jan 1     | 12 month bars                         | month cells, four rows of three |
@@ -95,9 +95,11 @@ survives navigating into a detail page and back.
   tapped), a week's day. The card holds a stack of `ResolvedPeriod`s over the page's period and
   fetches its own heatmap for the top one, so back never goes above the page's period. A future
   square does not open. The card never changes size: every level stretches to fill one grid box
-  sized off the card's width, and the lines under it have fixed heights. All time keeps square
-  cells and centers them, so a short history does not stretch into stripes. While a level loads, the previous level's data is ignored by its
-  `bucket`, since every step down changes bucket.
+  sized off the card's width, and the lines under it have fixed heights. All time and day keep square
+  cells and center them, so few rows do not stretch into stripes. A level that is loading shows a
+  skeleton, never the last level's cells: the heatmap read does not keep previous data, since a
+  month and its week share a bucket. Taps are dropped while a level slides in, so a double tap
+  does not open two levels.
 - **The heatmap is sparse.** Only buckets with a play come back; the layout decides the grid and
   every other square draws empty. A square's color is its most played tag, gray when nothing in it
   was tagged, and brightness is a square root step of plays over the period's peak.

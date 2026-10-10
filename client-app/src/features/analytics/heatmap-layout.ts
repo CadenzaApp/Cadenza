@@ -35,7 +35,7 @@ export type HeatmapGrid = {
     rows: (LayoutCell | null)[][];
     /** One per row, null for none. */
     rowLabels: (string | null)[];
-    /** One per column, over the grid, null for none. Empty for no row. */
+    /** One per column, under the grid, null for none. Empty for no row. */
     colLabels: (string | null)[];
     /**
      * Keep squares square rather than stretching them to fill the box. Set
@@ -106,16 +106,26 @@ export function layoutHeatmap(
     }
 }
 
-/** Four rows of six hours, each named in its square. */
+/** Two rows, AM and PM, of twelve hours. Squares, like all time. */
 function dayHours(day: Date): HeatmapGrid {
-    const hours = Array.from({ length: 24 }, (_, hour) => ({
-        key: hourKey(day, hour),
-        label: hourName(hour),
-        text: hourName(hour),
-        date: day,
-    }));
-    const rows = chunk(hours, 6);
-    return { rows, rowLabels: rows.map(() => null), colLabels: [] };
+    const rows = [0, 12].map((offset) =>
+        Array.from({ length: 12 }, (_, i) => {
+            const hour = offset + i;
+            return {
+                key: hourKey(day, hour),
+                label: hourName(hour),
+                date: day,
+            };
+        }),
+    );
+    return {
+        rows,
+        rowLabels: ["AM", "PM"],
+        colLabels: Array.from({ length: 12 }, (_, i) =>
+            i % 3 === 0 ? String(i === 0 ? 12 : i) : null,
+        ),
+        square: true,
+    };
 }
 
 /** Monday to Sunday, one tall square a day, each named with its date. */
