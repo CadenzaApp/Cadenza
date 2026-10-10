@@ -57,6 +57,32 @@ export function zoomCloseDuration(progress: number): number {
     );
 }
 
+// Defined before the worklets that use them: Reanimated's plugin turns each
+// worklet into a value captured where it is declared, so a helper declared
+// further down is still undefined when zoomFrame captures it.
+function lerp(from: number, to: number, t: number) {
+    "worklet";
+    return from + (to - from) * t;
+}
+
+/** Slow in and out, so each phase starts and lands softly. */
+function ease(t: number) {
+    "worklet";
+    return t * t * (3 - 2 * t);
+}
+
+/** Where a close with nothing recorded lands: a square, centered. */
+function centeredSquare(width: number, height: number): ZoomRect {
+    "worklet";
+    const size = width * FALLBACK_SCALE;
+    return {
+        x: (width - size) / 2,
+        y: (height - size) / 2,
+        width: size,
+        height: size,
+    };
+}
+
 /**
  * Share of the close spent collapsing the page up to its artwork. The rest
  * moves and shrinks that artwork onto the tile it opened from.
@@ -137,28 +163,5 @@ export function zoomFrame(
         contentX: -left * scale,
         contentY: -top * scale,
         borderRadius: lerp(FULL_VISIBLE_RADIUS, targetRadius, shrink),
-    };
-}
-
-function lerp(from: number, to: number, t: number) {
-    "worklet";
-    return from + (to - from) * t;
-}
-
-/** Slow in and out, so each phase starts and lands softly. */
-function ease(t: number) {
-    "worklet";
-    return t * t * (3 - 2 * t);
-}
-
-/** Where a close with nothing recorded lands: a square, centered. */
-function centeredSquare(width: number, height: number): ZoomRect {
-    "worklet";
-    const size = width * FALLBACK_SCALE;
-    return {
-        x: (width - size) / 2,
-        y: (height - size) / 2,
-        width: size,
-        height: size,
     };
 }
