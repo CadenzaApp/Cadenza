@@ -144,6 +144,12 @@ export type MusicListProps = {
     footer?: ReactNode;
     /** Reports the complete scroll content size. */
     onContentSizeChange?: (width: number, height: number) => void;
+    /**
+     * Drawn behind the rows, filling the whole scroll content and scrolling
+     * with it, like a page gradient. It spans the real content with nothing
+     * measured, and is never virtualized away with an offscreen header.
+     */
+    contentBackground?: ReactNode;
     /** Controls native offscreen view clipping for backdrops that span the list. */
     removeClippedSubviews?: boolean;
     /** Optional scroll observer for coordinated header animation. */

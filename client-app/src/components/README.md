@@ -236,8 +236,10 @@ caller-supplied simple glass options, and the `MusicList`. Routes can supply pag
 overrides, one background source color, close controls, and opt the standard header into the
 device's top safe area. The view turns that color into the shared Oklch gradient for the active
 color mode, including matching fixed overscroll endpoints. The gradient is
-a scroll-translated sibling behind the virtualized list, so removing an offscreen header cannot
-remove the page background. `useCollectionArtworkTint` selects one representative four-cell sample
+`MusicList`'s `contentBackground`: drawn inside the scroll content behind the rows, filling it, so
+it spans the real content height with nothing measured, and is not a virtualized cell an offscreen
+header could take with it. Sized from a measured content height it ended early whenever the list's
+estimate of unmeasured rows came in short, leaving a hard edge over the fixed end color. `useCollectionArtworkTint` selects one representative four-cell sample
 for both the mosaic and its Oklab-averaged source color. Routes can also append actions to each track's
 shared options menu; the tag detail uses that to preserve Remove this tag. A caller can replace
 the standard title row, which the tag detail does with `TagPill` and its song count. Gradient-backed routes pair scrolling content

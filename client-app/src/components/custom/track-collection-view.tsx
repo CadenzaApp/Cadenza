@@ -5,7 +5,6 @@ import type { ComponentProps, ReactNode } from "react";
 import { useMemo, useState } from "react";
 import {
     Image,
-    useWindowDimensions,
     View,
     type ColorValue,
     type StyleProp,
@@ -152,12 +151,10 @@ export function TrackCollectionView({
     respectTopSafeArea = false,
 }: Props) {
     const { colors } = useTheme();
-    const { height: windowHeight } = useWindowDimensions();
     const insets = useSafeAreaInsets();
     const { playQueue } = usePlaybackCommands();
     const [optionsOpen, setOptionsOpen] = useState(false);
     const settled = useOpenTransitionSettled(useIsPushedDetailScreen());
-    const [contentHeight, setContentHeight] = useState(windowHeight * 1.5);
     const scrollY = useSharedValue(0);
     const derivedArtworkUrls = useMemo(
         () =>
@@ -186,9 +183,6 @@ export function TrackCollectionView({
                 ),
             },
         ],
-    }));
-    const backdropStyle = useAnimatedStyle(() => ({
-        transform: [{ translateY: -scrollY.get() }],
     }));
 
     function playAll() {
@@ -226,11 +220,6 @@ export function TrackCollectionView({
                 optionError,
             );
         });
-    }
-
-    function handleContentSizeChange(width: number, height: number) {
-        setContentHeight(Math.max(windowHeight, height));
-        onContentSizeChange?.(width, height);
     }
 
     const defaultHeader = (
@@ -341,23 +330,6 @@ export function TrackCollectionView({
     return (
         <View className="flex-1 bg-background" style={containerStyle}>
             <TintOverscrollBackdrop gradient={gradient} />
-            {gradient ? (
-                <Animated.View
-                    pointerEvents="none"
-                    style={[
-                        {
-                            position: "absolute",
-                            top: 0,
-                            left: 0,
-                            right: 0,
-                            height: contentHeight,
-                        },
-                        backdropStyle,
-                    ]}
-                >
-                    <TintBackdrop gradient={gradient} />
-                </Animated.View>
-            ) : null}
             <MusicList
                 // held back until the open animation ends; the rows
                 // are ready by then, so they appear as it lands
@@ -369,7 +341,13 @@ export function TrackCollectionView({
                 anticipatedTrackCount={anticipatedTrackCount}
                 header={listHeader}
                 footer={footer}
-                onContentSizeChange={handleContentSizeChange}
+                onContentSizeChange={onContentSizeChange}
+                // inside the scroll content, so it always spans exactly the
+                // rows. sized from a measured content height it ended early
+                // whenever the list's estimate came in short
+                contentBackground={
+                    gradient ? <TintBackdrop gradient={gradient} /> : null
+                }
                 removeClippedSubviews={removeClippedSubviews}
                 onScroll={onScroll}
                 multiSelect={multiSelect}

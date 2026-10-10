@@ -77,6 +77,10 @@ export function useScreenScroll<
     const spareZoomProgress = useSharedValue(0);
     const spareClosing = useSharedValue(false);
     const pullOffset = useSharedValue(0);
+    // the close follows a finger pulling past the top, nothing else: momentum
+    // and a list nudging its own offset while it lays out rows report negative
+    // offsets too, and with no drag ending after them nothing let the close go
+    const dragging = useSharedValue(false);
     // a screen without a floating rail still gets one shape of handler
     const spareProgress = useSharedValue(1);
     const spareTarget = useSharedValue(1);
@@ -129,10 +133,16 @@ export function useScreenScroll<
                 pullOffset.set(compensatesZoomPull ? Math.min(offset, 0) : 0);
 
                 // Once the close is committed the animation owns progress.
-                if (!canPullToDismiss || closing.get()) return;
+                if (!canPullToDismiss || closing.get() || !dragging.get()) {
+                    return;
+                }
                 progress.set(zoomProgressForScrollOffset(offset));
             },
+            onBeginDrag: () => {
+                dragging.set(true);
+            },
             onEndDrag: (event) => {
+                dragging.set(false);
                 if (!canPullToDismiss || closing.get()) return;
                 if (shouldDismissZoom(event.contentOffset.y)) {
                     // Claim the animation before iOS starts rebounding the
@@ -143,8 +153,14 @@ export function useScreenScroll<
                 }
                 resetZoomProgress(progress);
             },
+            onMomentumEnd: () => {
+                // whatever moved it, a resting list is never mid close
+                if (!canPullToDismiss || closing.get()) return;
+                if (progress.get() > 0) resetZoomProgress(progress);
+            },
         },
         [
+            dragging,
             dismiss,
             canPullToDismiss,
             compensatesZoomPull,
