@@ -206,18 +206,20 @@ export function Heatmap({ root, accent }: Props) {
                                     : window
                             }
                         />
-
-                        {/* the day has nothing under it, but keeps the room */}
-                        <View style={{ height: BUTTON_HEIGHT }}>
-                            {child ? (
-                                <OpenButton
-                                    label={`Open ${grainLabel(child).toLowerCase()}`}
-                                    disabled={!opens(pick)}
-                                    onPress={() => open(pick)}
-                                />
-                            ) : null}
-                        </View>
                     </Animated.View>
+                ) : null}
+            </View>
+
+            {/* outside the sliding level: glass mounted mid fade stays flat
+                until something redraws it. the day has nothing here, but
+                keeps the room */}
+            <View style={{ height: BUTTON_HEIGHT }}>
+                {child ? (
+                    <OpenButton
+                        label={`Open ${grainLabel(child).toLowerCase()}`}
+                        disabled={!opens(pick)}
+                        onPress={() => open(pick)}
+                    />
                 ) : null}
             </View>
 
