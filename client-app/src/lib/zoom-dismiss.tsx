@@ -436,7 +436,7 @@ export function ZoomDismissScreen({
             ],
         };
     });
-    // the copy rides the same transform, so it stays exactly over the page's
+    // the copy rides the same transform, so it stays exactly under the page's
     // artwork. shown only while the card is moving, never at rest
     const artworkLayerStyle = useAnimatedStyle(() => {
         const p = progress.get();
@@ -472,13 +472,10 @@ export function ZoomDismissScreen({
     return (
         <ZoomDismissContext.Provider value={controller}>
             <View style={styles.root}>
-                <Animated.View
-                    ref={pageRef}
-                    style={[styles.page, { width, height }, pageStyle]}
-                >
-                    {children}
-                    {overlay}
-                </Animated.View>
+                {/* behind the page, so nothing covers it at rest: glass under
+                    a full screen layer, even an invisible one, renders flat.
+                    the page fades off this copy, which sits exactly where
+                    the page's own artwork is */}
                 {artwork ? (
                     <Animated.View
                         pointerEvents="none"
@@ -502,6 +499,13 @@ export function ZoomDismissScreen({
                         </Animated.View>
                     </Animated.View>
                 ) : null}
+                <Animated.View
+                    ref={pageRef}
+                    style={[styles.page, { width, height }, pageStyle]}
+                >
+                    {children}
+                    {overlay}
+                </Animated.View>
             </View>
         </ZoomDismissContext.Provider>
     );

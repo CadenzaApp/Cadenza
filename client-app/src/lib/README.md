@@ -420,7 +420,8 @@ shrinks back on close. That is why those routes carry `pushedScreenOptions()`, w
 as transparent modals with no native animation. The screen that opened this one is still on
 display underneath. The close is transforms only (`zoomFrame`): the page moves and scales as one
 piece so the screen's artwork lands exactly on the tile it opened from. A screen can also hand the
-card a copy of that artwork (`setArtwork`), which rides the same transform; the page fades out over
+card a copy of that artwork (`setArtwork`), which rides the same transform behind the page (anything layered over the page, even invisible,
+makes the glass buttons on it render flat); the page fades out over
 the first third and the copy stays, so the close reads as the artwork shrinking back into its tile,
 the way Music does it. The open runs the same frames backwards. A screen reports where its artwork
 is through `focus`, as it scrolls; `TrackCollectionView` measures its hero against the page with
