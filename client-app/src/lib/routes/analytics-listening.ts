@@ -21,10 +21,20 @@ export type SessionSong = {
 };
 type Page<T> = { entries: T[]; has_more: boolean };
 
-function params(window: AnalyticsWindow, tagId: number | null) {
+/**
+ * What a listening read's filtered figures count: one tag's songs, songs with
+ * none of the user's tags, or everything.
+ */
+export type ListeningTag = number | "untagged" | null;
+
+function params(window: AnalyticsWindow, tag: ListeningTag) {
     return {
         ...windowParams(window),
-        ...(tagId !== null ? { tag_id: tagId } : {}),
+        ...(tag === "untagged"
+            ? { untagged: true }
+            : tag !== null
+              ? { tag_id: tag }
+              : {}),
     };
 }
 
@@ -37,11 +47,11 @@ function params(window: AnalyticsWindow, tagId: number | null) {
 export function useListening(
     bucket: string,
     window: AnalyticsWindow,
-    tagId: number | null,
+    tag: ListeningTag,
 ) {
     return useAPIData<Listening>(
         "/analytics/listening",
-        { bucket, ...params(window, tagId) },
+        { bucket, ...params(window, tag) },
         { save: true, keepPreviousData: true },
     );
 }
@@ -53,12 +63,12 @@ export function useListening(
  */
 export function useListeningSongs(
     window: AnalyticsWindow,
-    tagId: number | null,
+    tag: ListeningTag,
     limit: number,
 ) {
     return useAPIData<Page<SessionSong>>(
         "/analytics/session-songs",
-        { ...params(window, tagId), limit },
+        { ...params(window, tag), limit },
         // a raised limit keeps the rows it had while the longer list loads
         { save: true, keepPreviousData: true },
     );

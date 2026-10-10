@@ -5,7 +5,10 @@ import { ModalPopup } from "@/components/custom/modal-popup";
 import { Text } from "@/components/ui/text";
 import { indexTracksById, useTracksForSongIds } from "@/lib/musickit-hooks";
 import type { AnalyticsWindow } from "@/lib/routes/analytics";
-import { useListeningSongs } from "@/lib/routes/analytics-listening";
+import {
+    useListeningSongs,
+    type ListeningTag,
+} from "@/lib/routes/analytics-listening";
 import { isUsableArtworkUrl } from "@/lib/utils";
 
 import { formatDuration } from "./format";
@@ -18,16 +21,16 @@ const MAX_LIMIT = 100;
 type Props = {
     /** The span the songs are read from, one hour from the heatmap. */
     window: AnalyticsWindow;
-    tagId: number | null;
+    tag: ListeningTag;
     /** The span's label, the sheet's title. */
     title: string;
     onClose: () => void;
 };
 
 /** The songs listened to in one span, first played first, as a bottom sheet. */
-export function ListeningSongs({ window, tagId, title, onClose }: Props) {
+export function ListeningSongs({ window, tag, title, onClose }: Props) {
     const [limit, setLimit] = useState(PAGE);
-    const { data, error, mutate } = useListeningSongs(window, tagId, limit);
+    const { data, error, mutate } = useListeningSongs(window, tag, limit);
     const ids = useMemo(
         () => data?.entries.map((song) => song.song_id) ?? [],
         [data],

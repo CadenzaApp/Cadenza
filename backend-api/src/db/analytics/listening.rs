@@ -57,22 +57,32 @@ pub struct SessionSong {
 
 /// The duration expression is shared with the summary. Attribution follows
 /// the event timestamp, including a completion recorded after midnight.
-fn events(user_id: Uuid, window: TimeWindow, tag_id: Option<i64>) -> (Scope, String) {
+/// Which listens a read counts toward its filtered figures.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TagMatch {
+    /// Every listen.
+    Any,
+    /// Listens to songs carrying this tag of the user's.
+    Tag(i64),
+    /// Listens to songs with none of the user's own tags. Suggested and
+    /// activity tags do not count as tagged, the same terms as `tagged_ms`.
+    Untagged,
+}
+
+fn events(user_id: Uuid, window: TimeWindow, tag: TagMatch) -> (Scope, String) {
     let mut scope = Scope::new(user_id, window, Some("e"));
-    let matched = match tag_id {
-        Some(id) => {
-            let tag = scope.bind(id);
-            format!(
-                "exists (
-                select 1 from user_tags_applied uta
+    // the user's own, non-activity tags on the event's song
+    let own_tags = "select 1 from user_tags_applied uta
                 join tags t on t.tag_id = uta.tag_id
                 where uta.user_id = e.user_id and uta.song_id = e.song_id
-                    and t.user_id = e.user_id and not t.is_activity
-                    and t.tag_id = {tag}
-            )"
-            )
+                    and t.user_id = e.user_id and not t.is_activity";
+    let matched = match tag {
+        TagMatch::Any => "true".to_owned(),
+        TagMatch::Tag(id) => {
+            let tag = scope.bind(id);
+            format!("exists ({own_tags} and t.tag_id = {tag})")
         }
-        None => "true".to_owned(),
+        TagMatch::Untagged => format!("not exists ({own_tags})"),
     };
     let sql = format!(
         "events as (
@@ -95,9 +105,9 @@ pub async fn get_listening(
     window: TimeWindow,
     bucket: Bucket,
     tz: &str,
-    tag_id: Option<i64>,
+    tag: TagMatch,
 ) -> Result<Listening, CadenzaError> {
-    let (mut scope, events) = events(user_id, window, tag_id);
+    let (mut scope, events) = events(user_id, window, tag);
     let tz = scope.bind(sanitize_timezone(tz).to_owned());
     let label = scope.bind(bucket.label_format().to_owned());
     let cell = bucket.truncate(&format!("occurred_at at time zone {tz}::text"));
@@ -151,11 +161,11 @@ pub async fn get_sessions(
     db: &impl ConnectionTrait,
     user_id: Uuid,
     window: TimeWindow,
-    tag_id: Option<i64>,
+    tag: TagMatch,
     offset: i64,
     limit: i64,
 ) -> Result<Vec<Session>, CadenzaError> {
-    let (mut scope, events) = events(user_id, window, tag_id);
+    let (mut scope, events) = events(user_id, window, tag);
     let offset = scope.bind(offset);
     let limit = scope.bind(limit + 1);
     let sql = format!(
@@ -196,12 +206,12 @@ pub async fn get_session_songs(
     db: &impl ConnectionTrait,
     user_id: Uuid,
     window: TimeWindow,
-    tag_id: Option<i64>,
+    tag: TagMatch,
     session: SessionFilter,
     offset: i64,
     limit: i64,
 ) -> Result<Vec<SessionSong>, CadenzaError> {
-    let (mut scope, events) = events(user_id, window, tag_id);
+    let (mut scope, events) = events(user_id, window, tag);
     let session = match session {
         SessionFilter::Any => "true".to_owned(),
         SessionFilter::One(id) => format!("session_id = {}", scope.bind(id)),
@@ -299,9 +309,16 @@ mod tests {
             Some("2026-10-10T00:00:00Z".parse().unwrap()),
         )
         .unwrap();
-        let all = get_listening(&txn, user, window, Bucket::Hour, "America/Denver", None)
-            .await
-            .unwrap();
+        let all = get_listening(
+            &txn,
+            user,
+            window,
+            Bucket::Hour,
+            "America/Denver",
+            TagMatch::Any,
+        )
+        .await
+        .unwrap();
         assert_eq!(all.total_ms, 210_000);
         assert_eq!(all.listening_ms, all.total_ms);
         assert_eq!(all.plays, 1);
@@ -315,9 +332,10 @@ mod tests {
         );
         assert_eq!(all.cells[0].start, "2026-10-09T09:00");
         for tag in [1, 10] {
-            let filtered = get_listening(&txn, user, window, Bucket::Day, "UTC", Some(tag))
-                .await
-                .unwrap();
+            let filtered =
+                get_listening(&txn, user, window, Bucket::Day, "UTC", TagMatch::Tag(tag))
+                    .await
+                    .unwrap();
             assert_eq!(filtered.total_ms, 210_000);
             assert_eq!(
                 filtered.listening_ms, 180_000,
@@ -325,17 +343,34 @@ mod tests {
             );
             assert_eq!(filtered.plays, 1);
         }
-        let missing = get_listening(&txn, user, window, Bucket::Day, "UTC", Some(999))
+        let missing = get_listening(&txn, user, window, Bucket::Day, "UTC", TagMatch::Tag(999))
             .await
             .unwrap();
         assert_eq!(missing.total_ms, 210_000);
         assert_eq!(missing.listening_ms, 0);
         assert!(missing.cells.is_empty());
-        let foreign = get_listening(&txn, other_user, window, Bucket::Day, "UTC", Some(1))
+        let untagged = get_listening(&txn, user, window, Bucket::Day, "UTC", TagMatch::Untagged)
             .await
             .unwrap();
+        assert_eq!(untagged.total_ms, 210_000);
+        assert_eq!(
+            untagged.listening_ms, 30_000,
+            "only B, the song with none of the user's tags"
+        );
+        let foreign = get_listening(
+            &txn,
+            other_user,
+            window,
+            Bucket::Day,
+            "UTC",
+            TagMatch::Tag(1),
+        )
+        .await
+        .unwrap();
         assert_eq!(foreign.listening_ms, 0, "another user's tag never matches");
-        let sessions = get_sessions(&txn, user, window, None, 0, 25).await.unwrap();
+        let sessions = get_sessions(&txn, user, window, TagMatch::Any, 0, 25)
+            .await
+            .unwrap();
         assert_eq!(sessions.len(), 2);
         assert_eq!(
             sessions.iter().map(|row| row.listening_ms).sum::<i64>(),
@@ -345,7 +380,7 @@ mod tests {
             &txn,
             user,
             window,
-            Some(1),
+            TagMatch::Tag(1),
             SessionFilter::One(session),
             0,
             25,
@@ -355,11 +390,19 @@ mod tests {
         assert_eq!(songs.len(), 1);
         assert_eq!(songs[0].listening_ms, 180_000);
         assert_eq!(songs[0].tags.len(), 10, "tag names are deduplicated");
-        let legacy = get_session_songs(&txn, user, window, None, SessionFilter::Unassigned, 0, 25)
-            .await
-            .unwrap();
+        let legacy = get_session_songs(
+            &txn,
+            user,
+            window,
+            TagMatch::Any,
+            SessionFilter::Unassigned,
+            0,
+            25,
+        )
+        .await
+        .unwrap();
         assert_eq!(legacy[0].listening_ms, 30_000);
-        let every = get_session_songs(&txn, user, window, None, SessionFilter::Any, 0, 25)
+        let every = get_session_songs(&txn, user, window, TagMatch::Any, SessionFilter::Any, 0, 25)
             .await
             .unwrap();
         assert_eq!(
@@ -372,7 +415,7 @@ mod tests {
             Some("2026-10-02T00:00:00Z".parse().unwrap()),
         )
         .unwrap();
-        let empty = get_listening(&txn, user, empty, Bucket::Day, "UTC", None)
+        let empty = get_listening(&txn, user, empty, Bucket::Day, "UTC", TagMatch::Any)
             .await
             .unwrap();
         assert_eq!(empty.total_ms, 0);

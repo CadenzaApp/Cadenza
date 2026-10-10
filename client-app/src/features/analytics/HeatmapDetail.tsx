@@ -5,8 +5,8 @@ import { Text } from "@/components/ui/text";
 import type { AnalyticsWindow } from "@/lib/routes/analytics";
 import { useListening } from "@/lib/routes/analytics-listening";
 
-import { formatCount, formatDuration, formatPercent } from "./format";
-import { shareOf, type TagFilter } from "./tag-share";
+import { formatCount, formatDuration } from "./format";
+import { formatSharePercent, listeningTag, type TagFilter } from "./tag-share";
 
 /** Fixed, so no level, filter or loading state moves the card. */
 export const DETAIL_HEIGHT = 64;
@@ -32,7 +32,7 @@ export function HeatmapDetail({
     const { data, error, mutate } = useListening(
         bucket,
         window,
-        tag?.id ?? null,
+        listeningTag(tag),
     );
     return (
         <View className="gap-1" style={{ height: DETAIL_HEIGHT }}>
@@ -49,7 +49,7 @@ export function HeatmapDetail({
                         numberOfLines={1}
                     >
                         {tag
-                            ? `${formatPercent(shareOf(data.listening_ms, data.total_ms))} of listening`
+                            ? `${formatSharePercent(data.listening_ms, data.total_ms)} of listening`
                             : `${formatCount(data.plays)} ${data.plays === 1 ? "play" : "plays"}`}
                     </Text>
                 </View>

@@ -24,6 +24,8 @@ struct Params {
     bucket: Option<String>,
     tz: Option<String>,
     tag_id: Option<i64>,
+    /// Counts only songs with none of the user's tags. Not with `tag_id`.
+    untagged: Option<bool>,
     session_key: Option<String>,
     offset: Option<i64>,
     limit: Option<i64>,
@@ -31,12 +33,21 @@ struct Params {
 
 impl Params {
     fn window(&self) -> Result<TimeWindow, CadenzaError> {
-        if self.tag_id.is_some_and(|id| id <= 0) {
-            return Err(CadenzaError::InvalidRequestBody(
-                "tag_id must be positive".to_owned(),
-            ));
-        }
         TimeWindow::new(Some(self.since), Some(self.until))
+    }
+
+    fn tag(&self) -> Result<db::TagMatch, CadenzaError> {
+        match (self.tag_id, self.untagged.unwrap_or(false)) {
+            (Some(_), true) => Err(CadenzaError::InvalidRequestBody(
+                "tag_id and untagged cannot both be set".to_owned(),
+            )),
+            (Some(id), false) if id <= 0 => Err(CadenzaError::InvalidRequestBody(
+                "tag_id must be positive".to_owned(),
+            )),
+            (Some(id), false) => Ok(db::TagMatch::Tag(id)),
+            (None, true) => Ok(db::TagMatch::Untagged),
+            (None, false) => Ok(db::TagMatch::Any),
+        }
     }
 
     fn page(&self) -> Result<(i64, i64), CadenzaError> {
@@ -67,7 +78,7 @@ async fn listening(
             window,
             bucket,
             params.tz.as_deref().unwrap_or("UTC"),
-            params.tag_id,
+            params.tag()?,
         )
         .await?
         .into(),
@@ -83,7 +94,7 @@ async fn sessions(
 ) -> Result<Json<json::Page<json::Session>>, CadenzaError> {
     let window = params.window()?;
     let (offset, limit) = params.page()?;
-    let rows = db::get_sessions(&db, claims.user_id, window, params.tag_id, offset, limit).await?;
+    let rows = db::get_sessions(&db, claims.user_id, window, params.tag()?, offset, limit).await?;
     Ok(Json(json::Page::new(rows, limit as usize)))
 }
 
@@ -109,7 +120,7 @@ async fn songs(
         &db,
         claims.user_id,
         window,
-        params.tag_id,
+        params.tag()?,
         session,
         offset,
         limit,
@@ -136,6 +147,7 @@ mod tests {
             bucket: None,
             tz: None,
             tag_id: None,
+            untagged: None,
             session_key: None,
             offset: None,
             limit: Some(9999),
@@ -144,9 +156,15 @@ mod tests {
         assert_eq!(params.page().unwrap(), (0, 100));
         params.offset = Some(-1);
         assert!(params.page().is_err());
+        assert_eq!(params.tag().unwrap(), db::TagMatch::Any);
         params.tag_id = Some(-1);
-        assert!(params.window().is_err());
+        assert!(params.tag().is_err());
+        params.tag_id = Some(3);
+        assert_eq!(params.tag().unwrap(), db::TagMatch::Tag(3));
+        params.untagged = Some(true);
+        assert!(params.tag().is_err(), "a tag and untagged at once");
         params.tag_id = None;
+        assert_eq!(params.tag().unwrap(), db::TagMatch::Untagged);
         params.until = params.since;
         assert!(params.window().is_err());
     }

@@ -18,7 +18,10 @@ import {
     type AnalyticsWindow,
     type TagListeningTime,
 } from "@/lib/routes/analytics";
-import { useListening } from "@/lib/routes/analytics-listening";
+import {
+    useListening,
+    type ListeningTag,
+} from "@/lib/routes/analytics-listening";
 
 import { AnalyticsCard } from "./AnalyticsCard";
 import { useAnalyticsPeriod } from "./analytics-period";
@@ -46,7 +49,7 @@ import {
     type ResolvedPeriod,
 } from "./range";
 import { CHIP_FADE_MS, TagCarousel, TagShareChip } from "./TagCarousel";
-import type { TagFilter } from "./tag-share";
+import { listeningTag, withUntagged, type TagFilter } from "./tag-share";
 
 /**
  * The grid box is this tall for its width, about a six week month calendar,
@@ -104,7 +107,7 @@ export function Heatmap({ root, accent, tagChoice, onTagChoice }: Props) {
     const { period: scope, pick } = levels.at(-1)!;
     const window = { since: scope.since, until: scope.until };
     const child = drillGrain(scope.grain);
-    const tagId = tagChoice?.id ?? null;
+    const tag = listeningTag(tagChoice);
     const ink = tagChoice?.color ?? accent ?? UNTAGGED_COLOR;
 
     const grid = layoutHeatmap(scope.heatmap);
@@ -114,7 +117,12 @@ export function Heatmap({ root, accent, tagChoice, onTagChoice }: Props) {
     // the picked span's tags, or the level's with nothing picked. unfiltered,
     // so pinning one never empties the row
     const { tagShares } = useAnalyticsTagShares(shown);
-    const tags = tagShares?.tags ?? [];
+    // untagged time joins as its own entry, so it can be picked like a tag
+    const tags = withUntagged(
+        tagShares?.tags ?? [],
+        tagShares?.total_ms ?? 0,
+        tagShares?.tagged_ms ?? 0,
+    );
 
     // a picked span that has started, the only kind the button acts on
     const actionable = (target: HeatmapPick | null) =>
@@ -238,7 +246,7 @@ export function Heatmap({ root, accent, tagChoice, onTagChoice }: Props) {
                         <LevelGrid
                             bucket={scope.heatmapBucket}
                             window={window}
-                            tagId={tagId}
+                            tag={tag}
                             grid={grid}
                             pick={pick}
                             onPick={tap}
@@ -313,7 +321,7 @@ export function Heatmap({ root, accent, tagChoice, onTagChoice }: Props) {
             {songsOpen && pick ? (
                 <ListeningSongs
                     window={shown}
-                    tagId={tagId}
+                    tag={tag}
                     title={pick.label}
                     onClose={() => setSongsOpen(false)}
                 />
@@ -330,7 +338,7 @@ export function Heatmap({ root, accent, tagChoice, onTagChoice }: Props) {
 function LevelGrid({
     bucket,
     window,
-    tagId,
+    tag,
     grid,
     pick,
     onPick,
@@ -341,7 +349,7 @@ function LevelGrid({
 }: {
     bucket: string;
     window: AnalyticsWindow;
-    tagId: number | null;
+    tag: ListeningTag;
     grid: HeatmapGrid;
     pick: HeatmapPick | null;
     onPick: (pick: HeatmapPick) => void;
@@ -350,7 +358,7 @@ function LevelGrid({
     ring: string;
     now: Date;
 }) {
-    const { data, error, mutate } = useListening(bucket, window, tagId);
+    const { data, error, mutate } = useListening(bucket, window, tag);
     const cells = useMemo(() => indexCells(data), [data]);
     if (data) {
         return (

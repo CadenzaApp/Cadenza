@@ -412,9 +412,11 @@ See [../../../AGENT_GUIDE.md](../../../AGENT_GUIDE.md).
 
 ### Listening calendar endpoints
 
-- `GET /analytics/listening`: required `since`/`until`, optional `bucket`, `tz`, `tag_id`. Returns
+- `GET /analytics/listening`: required `since`/`until`, optional `bucket`, `tz`, and one of `tag_id`
+  or `untagged=true` (songs with none of the user's own tags; suggested tags do not count). Returns
   `total_ms` (unfiltered), `listening_ms`, `plays`, `session_count`, and sparse local-time `cells`
-  with `start`, `listening_ms`, and `plays`. The optional tag applies to all fields except `total_ms`.
+  with `start`, `listening_ms`, and `plays`. The optional filter applies to all fields except `total_ms`. `/analytics/sessions` and
+  `/analytics/session-songs` take the same filter.
 - `GET /analytics/sessions`: required window, optional `tag_id`, `offset` and `limit`. Returns
   `{entries, has_more}` with session `key`, recorded `start`/`end`, duration, and plays in that span.
 - `GET /analytics/session-songs`: the same window/filter/page parameters plus optional

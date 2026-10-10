@@ -16,7 +16,7 @@ import { TagPill } from "@/components/custom/tag-pill";
 import { Text } from "@/components/ui/text";
 import type { TagListeningTime } from "@/lib/routes/analytics";
 
-import { shareOf, sharePercent } from "./tag-share";
+import { UNTAGGED_TAG_ID, formatSharePercent } from "./tag-share";
 
 /** Drift, in points a second, leftward. */
 const DRIFT = 28;
@@ -340,12 +340,12 @@ export function TagShareChip({
     selected?: boolean;
     onPress: () => void;
 }) {
-    const percent = sharePercent(shareOf(tag.listening_ms, totalMs));
+    const percent = formatSharePercent(tag.listening_ms, totalMs);
     return (
         <Pressable
             onPress={onPress}
             accessibilityRole="button"
-            accessibilityLabel={`${tag.name}, ${percent}% of listening time`}
+            accessibilityLabel={`${tag.name}, ${percent} of listening time`}
             accessibilityHint={
                 selected ? "Shows every tag again" : "Filters to this tag"
             }
@@ -356,7 +356,11 @@ export function TagShareChip({
             <TagPill
                 tag={tag}
                 height={PILL_HEIGHT}
-                count={`${percent}%`}
+                count={percent}
+                // untagged is not a real tag, so it reads as an empty one
+                leadingIconName={
+                    tag.id === UNTAGGED_TAG_ID ? "pricetag-outline" : undefined
+                }
                 appearance={selected ? "solid" : "outline"}
             />
         </Pressable>
