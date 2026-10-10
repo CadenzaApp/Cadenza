@@ -19,18 +19,29 @@ import {
 } from "./range.ts";
 
 /**
- * One square: its bucket key, what a tap reads out, and the local midnight of
- * the day it falls in (a month's 1st for a month), which is what it opens into.
+ * One square: its bucket key, what a tap reads out, what is printed inside it
+ * if anything, and the local midnight of the day it falls in (a month's 1st for
+ * a month), which is what it opens into.
  */
-export type LayoutCell = { key: string; label: string; date: Date };
+export type LayoutCell = {
+    key: string;
+    label: string;
+    text?: string;
+    date: Date;
+};
 
 export type HeatmapGrid = {
     /** Null is a spacer, a slot outside the period, drawn blank. */
     rows: (LayoutCell | null)[][];
     /** One per row, null for none. */
     rowLabels: (string | null)[];
-    /** One per column, null for none. */
+    /** One per column, over the grid, null for none. Empty for no row. */
     colLabels: (string | null)[];
+    /**
+     * Keep squares square rather than stretching them to fill the box. Set
+     * where rows can be few and wide, so they would stretch into stripes.
+     */
+    square?: boolean;
 };
 
 function pad(value: number): string {
@@ -58,18 +69,19 @@ function monthDay(date: Date): string {
     return `${MONTHS_SHORT[date.getMonth()]} ${date.getDate()}`;
 }
 
-/** Hours in one block of a week row. */
-const BLOCK_HOURS = 2;
+/** `1st`, `2nd`, `3rd`, `11th`, `22nd`. */
+export function ordinal(day: number): string {
+    const teen = day % 100 >= 11 && day % 100 <= 13;
+    const suffix = teen ? "th" : (["th", "st", "nd", "rd"][day % 10] ?? "th");
+    return `${day}${suffix}`;
+}
 
-/** 12 AM, 6 AM, Noon and 6 PM over the blocks that start on them. */
-const BLOCK_AXIS: (string | null)[] = Array.from(
-    { length: 24 / BLOCK_HOURS },
-    (_, block) => {
-        const hour = block * BLOCK_HOURS;
-        if (hour % 6 !== 0) return null;
-        return hour === 12 ? "Noon" : hourName(hour);
-    },
-);
+/** `items` cut into rows of `width`. */
+function chunk<T>(items: T[], width: number): T[][] {
+    return Array.from({ length: Math.ceil(items.length / width) }, (_, i) =>
+        items.slice(i * width, (i + 1) * width),
+    );
+}
 
 /**
  * The grid for `shape`. `earliestYear` is only read by `all-months`, which has
@@ -83,8 +95,8 @@ export function layoutHeatmap(
     switch (shape.kind) {
         case "day-hours":
             return dayHours(shape.start);
-        case "week-two-hours":
-            return weekBlocks(shape.start);
+        case "week-days":
+            return weekDays(shape.start);
         case "month-days":
             return monthDays(shape.start);
         case "year-months":
@@ -94,48 +106,33 @@ export function layoutHeatmap(
     }
 }
 
-/** Two rows, AM and PM, of twelve hours. */
+/** Four rows of six hours, each named in its square. */
 function dayHours(day: Date): HeatmapGrid {
-    const rows = [0, 12].map((offset) =>
-        Array.from({ length: 12 }, (_, i) => {
-            const hour = offset + i;
-            return {
-                key: hourKey(day, hour),
-                label: hourName(hour),
-                date: day,
-            };
-        }),
-    );
-    return {
-        rows,
-        rowLabels: ["AM", "PM"],
-        colLabels: Array.from({ length: 12 }, (_, i) =>
-            i % 3 === 0 ? String(i === 0 ? 12 : i) : null,
-        ),
-    };
+    const hours = Array.from({ length: 24 }, (_, hour) => ({
+        key: hourKey(day, hour),
+        label: hourName(hour),
+        text: hourName(hour),
+        date: day,
+    }));
+    const rows = chunk(hours, 6);
+    return { rows, rowLabels: rows.map(() => null), colLabels: [] };
 }
 
-/**
- * Monday to Sunday down, two hour blocks across. A block is keyed by its first
- * hour, which is how the backend's `two_hour` bucket prints it.
- */
-function weekBlocks(monday: Date): HeatmapGrid {
-    const rows = WEEKDAYS_SHORT.map((weekday, i) => {
+/** Monday to Sunday, one tall square a day, each named with its date. */
+function weekDays(monday: Date): HeatmapGrid {
+    const row = WEEKDAYS_SHORT.map((weekday, i) => {
         const day = addDays(monday, i);
-        return Array.from({ length: 24 / BLOCK_HOURS }, (_, block) => {
-            const hour = block * BLOCK_HOURS;
-            const end = (hour + BLOCK_HOURS) % 24;
-            return {
-                key: hourKey(day, hour),
-                label: `${weekday} ${monthDay(day)}, ${hourName(hour)} - ${hourName(end)}`,
-                date: day,
-            };
-        });
+        return {
+            key: dayKey(day),
+            label: `${weekday} ${monthDay(day)}`,
+            text: `${weekday}\n${ordinal(day.getDate())}`,
+            date: day,
+        };
     });
-    return { rows, rowLabels: WEEKDAYS_SHORT, colLabels: BLOCK_AXIS };
+    return { rows: [row], rowLabels: [null], colLabels: [] };
 }
 
-/** A calendar: Monday to Sunday across, one row per week. */
+/** A calendar: Monday to Sunday across, one row per week, each day numbered. */
 function monthDays(first: Date): HeatmapGrid {
     const rows: (LayoutCell | null)[][] = [];
     let row: (LayoutCell | null)[] = Array(mondayIndex(first)).fill(null);
@@ -145,7 +142,12 @@ function monthDays(first: Date): HeatmapGrid {
         day.getMonth() === first.getMonth();
         day = addDays(day, 1)
     ) {
-        row.push({ key: dayKey(day), label: monthDay(day), date: day });
+        row.push({
+            key: dayKey(day),
+            label: monthDay(day),
+            text: ordinal(day.getDate()),
+            date: day,
+        });
         if (row.length === 7) {
             rows.push(row);
             row = [];
@@ -162,14 +164,14 @@ function monthDays(first: Date): HeatmapGrid {
     };
 }
 
-/** One row of the year's months, January to December. */
+/** The year's months, four rows of three, each named in its square. */
 function yearMonths(janFirst: Date): HeatmapGrid {
-    const year = janFirst.getFullYear();
-    return {
-        rows: [monthRow(year)],
-        rowLabels: [null],
-        colLabels: MONTHS_SHORT.map((month) => month.slice(0, 1)),
-    };
+    const months = monthRow(janFirst.getFullYear()).map((cell, i) => ({
+        ...cell,
+        text: MONTHS_SHORT[i],
+    }));
+    const rows = chunk(months, 3);
+    return { rows, rowLabels: rows.map(() => null), colLabels: [] };
 }
 
 /** January to December of `year`, each keyed by its 1st. */
@@ -180,7 +182,10 @@ function monthRow(year: number): LayoutCell[] {
     });
 }
 
-/** One row per year, oldest first, January to December across. */
+/**
+ * One row per year, oldest first, January to December across. Squares, never
+ * stretched, so a short history does not turn into tall stripes.
+ */
 function allMonths(earliestYear: number, now: Date): HeatmapGrid {
     const lastYear = now.getFullYear();
     const firstYear = Math.min(earliestYear, lastYear);
@@ -196,6 +201,7 @@ function allMonths(earliestYear: number, now: Date): HeatmapGrid {
         rows,
         rowLabels,
         colLabels: MONTHS_SHORT.map((month) => month.slice(0, 1)),
+        square: true,
     };
 }
 

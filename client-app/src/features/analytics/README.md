@@ -68,13 +68,13 @@ it, since their period bar sits fixed above the list. Every page pads the bottom
 One period drives every read on the tab. It is a grain plus how many of them back from now, so
 offset 0 always follows the clock. Weeks start Monday. Every bound is local midnight.
 
-| Grain | Window             | Chart                                 | Heatmap                            |
-| ----- | ------------------ | ------------------------------------- | ---------------------------------- |
-| Day   | midnight to next   | 24 hour bars                          | hour cells, two rows of twelve     |
-| Week  | Monday to Monday   | 7 day bars                            | two hour cells, weekdays by twelve |
-| Month | the 1st to the 1st | day bars                              | day cells, as a calendar           |
-| Year  | Jan 1 to Jan 1     | 12 month bars                         | month cells, one row of twelve     |
-| All   | the whole history  | a bar per year, its average per month | month cells, one row per year      |
+| Grain | Window             | Chart                                 | Heatmap                         |
+| ----- | ------------------ | ------------------------------------- | ------------------------------- |
+| Day   | midnight to next   | 24 hour bars                          | hour cells, four rows of six    |
+| Week  | Monday to Monday   | 7 day bars                            | day cells, one row of seven     |
+| Month | the 1st to the 1st | day bars                              | day cells, as a calendar        |
+| Year  | Jan 1 to Jan 1     | 12 month bars                         | month cells, four rows of three |
+| All   | the whole history  | a bar per year, its average per month | month cells, one row per year   |
 
 Changing the grain jumps back to the current period. Forward is disabled on the current period,
 and All has no arrows.
@@ -94,7 +94,9 @@ survives navigating into a detail page and back.
 - **The heatmap drills down in place.** A tap opens a year's month, a month's week (by the day
   tapped), a week's day. The card holds a stack of `ResolvedPeriod`s over the page's period and
   fetches its own heatmap for the top one, so back never goes above the page's period. A future
-  square does not open. While a level loads, the previous level's data is ignored by its
+  square does not open. The card never changes size: every level stretches to fill one grid box
+  sized off the card's width, and the lines under it have fixed heights. All time keeps square
+  cells and centers them, so a short history does not stretch into stripes. While a level loads, the previous level's data is ignored by its
   `bucket`, since every step down changes bucket.
 - **The heatmap is sparse.** Only buckets with a play come back; the layout decides the grid and
   every other square draws empty. A square's color is its most played tag, gray when nothing in it

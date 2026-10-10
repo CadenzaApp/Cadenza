@@ -7,6 +7,7 @@ import {
     heatLevel,
     hourKey,
     layoutHeatmap,
+    ordinal,
 } from "./heatmap-layout.ts";
 import { resolvePeriod } from "./range.ts";
 
@@ -27,30 +28,29 @@ test("keys are local and match the backend's printing", () => {
     assert.equal(hourKey(date, 9), "2026-01-05T09:00");
 });
 
-test("a day is two rows of twelve hours", () => {
+test("a day is four rows of six named hours", () => {
     const grid = layoutHeatmap(shapeOf("day"), NOW);
-    assert.equal(grid.rows.length, 2);
-    assert.ok(grid.rows.every((row) => row.length === 12));
+    assert.equal(grid.rows.length, 4);
+    assert.ok(grid.rows.every((row) => row.length === 6));
     assert.equal(grid.rows[0][0]?.key, "2026-10-03T00:00");
-    assert.equal(grid.rows[1][11]?.key, "2026-10-03T23:00");
+    assert.equal(grid.rows[0][0]?.text, "12 AM");
+    assert.equal(grid.rows[3][5]?.key, "2026-10-03T23:00");
 });
 
-test("a week is seven Monday-first rows of twelve two hour blocks", () => {
+test("a week is one row of seven Monday-first days", () => {
     const grid = layoutHeatmap(shapeOf("week"), NOW);
-    assert.equal(grid.rows.length, 7);
-    assert.ok(grid.rows.every((row) => row.length === 12));
-    assert.equal(grid.rowLabels[0], "Mon");
-    assert.equal(grid.rows[0][0]?.key, "2026-09-28T00:00");
-    assert.equal(grid.rows[0][1]?.key, "2026-09-28T02:00");
-    assert.equal(grid.rows[6][11]?.key, "2026-10-04T22:00");
-    assert.equal(grid.rows[6][11]?.label, "Sun Oct 4, 10 PM - 12 AM");
-    assert.equal(new Set(keys(grid)).size, 84);
-    assert.deepEqual(grid.colLabels.filter(Boolean), [
-        "12 AM",
-        "6 AM",
-        "Noon",
-        "6 PM",
+    assert.equal(grid.rows.length, 1);
+    assert.deepEqual(keys(grid), [
+        "2026-09-28",
+        "2026-09-29",
+        "2026-09-30",
+        "2026-10-01",
+        "2026-10-02",
+        "2026-10-03",
+        "2026-10-04",
     ]);
+    assert.equal(grid.rows[0][0]?.text, "Mon\n28th");
+    assert.equal(grid.rows[0][6]?.label, "Sun Oct 4");
 });
 
 test("a month is a Monday-first calendar with every day once", () => {
@@ -62,16 +62,34 @@ test("a month is a Monday-first calendar with every day once", () => {
     // Oct 1 2026 is a Thursday, so three spacers lead the first row
     assert.deepEqual(grid.rows[0].slice(0, 3), [null, null, null]);
     assert.ok(grid.rows.every((row) => row.length === 7));
+    assert.equal(grid.rows[0][3]?.text, "1st");
 });
 
-test("a year is one row of its twelve months", () => {
+test("a year is four rows of three named months", () => {
     const grid = layoutHeatmap(shapeOf("year"), NOW);
-    assert.equal(grid.rows.length, 1);
+    assert.equal(grid.rows.length, 4);
+    assert.ok(grid.rows.every((row) => row.length === 3));
+    assert.equal(grid.rows[3][2]?.text, "Dec");
     const months = keys(grid);
     assert.equal(months.length, 12);
     assert.equal(months[0], "2026-01-01");
     assert.equal(months[11], "2026-12-01");
-    assert.equal(grid.colLabels.length, 12);
+});
+
+test("ordinals", () => {
+    assert.deepEqual([1, 2, 3, 4, 11, 12, 13, 21, 22, 23, 31].map(ordinal), [
+        "1st",
+        "2nd",
+        "3rd",
+        "4th",
+        "11th",
+        "12th",
+        "13th",
+        "21st",
+        "22nd",
+        "23rd",
+        "31st",
+    ]);
 });
 
 test("all time is a row per year from the earliest", () => {
@@ -98,7 +116,7 @@ test("heat levels run from empty to full on a square root scale", () => {
 test("every cell's date is the local day its key names", () => {
     const shapes = [
         { kind: "day-hours", start: new Date(2026, 9, 3) },
-        { kind: "week-two-hours", start: new Date(2026, 8, 28) },
+        { kind: "week-days", start: new Date(2026, 8, 28) },
         { kind: "month-days", start: new Date(2026, 9, 1) },
         { kind: "year-months", start: new Date(2026, 0, 1) },
     ] as const;

@@ -30,22 +30,21 @@ export const PERIOD_GRAINS: PeriodGrain[] = [
 export type TrendBucket = "day" | "week" | "month" | "year" | "auto";
 
 /** The buckets a heatmap is cut in. */
-export type HeatmapBucket = "hour" | "two_hour" | "day" | "month";
+export type HeatmapBucket = "hour" | "day" | "month";
 
 /**
  * How a period's heatmap is laid out. Each carries the local midnight it
  * starts on, which is all the layout needs to place every cell.
  *
- * - `day-hours`: one day, two rows of twelve hours.
- * - `week-two-hours`: Monday to Sunday by twelve two hour blocks, so a
- *   week's squares are not too small to read.
+ * - `day-hours`: one day, four rows of six hours.
+ * - `week-days`: Monday to Sunday, one cell a day.
  * - `month-days`: a calendar, one cell per day.
- * - `year-months`: one row of the year's twelve months.
+ * - `year-months`: the year's twelve months, four rows of three.
  * - `all-months`: one row per year, one cell per month.
  */
 export type HeatmapShape =
     | { kind: "day-hours"; start: Date }
-    | { kind: "week-two-hours"; start: Date }
+    | { kind: "week-days"; start: Date }
     | { kind: "month-days"; start: Date }
     | { kind: "year-months"; start: Date }
     | { kind: "all-months"; start?: undefined };
@@ -232,7 +231,7 @@ function heatmapFor(grain: PeriodGrain, start: Date): HeatmapShape {
         case "day":
             return { kind: "day-hours", start };
         case "week":
-            return { kind: "week-two-hours", start };
+            return { kind: "week-days", start };
         case "month":
             return { kind: "month-days", start };
         case "year":
@@ -249,7 +248,6 @@ function heatmapBucketFor(grain: Exclude<PeriodGrain, "all">): HeatmapBucket {
         case "day":
             return "hour";
         case "week":
-            return "two_hour";
         case "month":
             return "day";
         case "year":

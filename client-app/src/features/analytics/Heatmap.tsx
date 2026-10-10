@@ -36,15 +36,23 @@ const UNTAGGED_COLOR = "#a3a3a3";
 const LEVEL_OPACITY = [0, 0.35, 0.55, 0.78, 1];
 /** An empty square is the text color this faint, so it reads on any tint. */
 const EMPTY_OPACITY = 0.1;
-const GAP = 2;
+const GAP = 3;
 const ROW_LABEL_WIDTH = 30;
-/** Big enough that a month calendar fills the card. */
-const MAX_CELL = 48;
+const COL_LABEL_HEIGHT = 14;
 const MAX_RADIUS = 8;
-/** A column label is centered over its column in a box this wide. */
-const COL_LABEL_WIDTH = 48;
-/** Below this a grid scrolls sideways rather than shrinking further. */
+/** Below this a grid scrolls down rather than shrinking further. */
 const MIN_CELL = 8;
+/**
+ * The grid box is this tall for its width, about a six week month calendar,
+ * and never taller than `MAX_BOX`. Every level fills the same box, so opening
+ * one never resizes the card.
+ */
+const BOX_ASPECT = 0.8;
+const MAX_BOX = 360;
+/** The readout under the grid always takes two lines, filled or not. */
+const READOUT_HEIGHT = 32;
+/** The tag key is one row, cut rather than wrapped. */
+const KEY_HEIGHT = 16;
 /** How many tags the key under the grid names. */
 const KEY_TAGS = 4;
 const DRILL_MS = 220;
@@ -57,7 +65,7 @@ type Props = {
 
 /**
  * When the user listens, as a grid of squares laid out by the period: hours of
- * a day or week, days of a month, months of a year or of every year. Each square is
+ * a day, days of a week or month, months of a year or of every year. Each square is
  * colored by the tag played most in it and brightened by how much played.
  *
  * Tapping a square opens it in place, one grain down: a year's month, a month's
@@ -67,6 +75,7 @@ type Props = {
  */
 export function Heatmap({ root, accent }: Props) {
     const { now } = useAnalyticsPeriod();
+    const [width, setWidth] = useState(0);
     const [opened, setOpened] = useState<ResolvedPeriod[]>([]);
     const [back, setBack] = useState(false);
 
@@ -110,9 +119,11 @@ export function Heatmap({ root, accent }: Props) {
                     </Pressable>
                 ) : null}
                 <View className="flex-1">
+                    {/* the date is always there, so the heading keeps its
+                        height whether or not anything is open */}
                     <SectionHeading
                         title="When you listen"
-                        detail={opened.length > 0 ? scope.dateLabel : undefined}
+                        detail={scope.dateLabel}
                     />
                 </View>
                 <Legend accent={accent} />
@@ -120,40 +131,63 @@ export function Heatmap({ root, accent }: Props) {
 
             {/* keyed by level, so each one slides in fresh with nothing
                 selected: from the right going down, the left coming back */}
-            <Animated.View
-                key={levelKey(scope)}
-                entering={(back ? FadeInLeft : FadeInRight).duration(DRILL_MS)}
-                className="gap-4"
+            <View
+                className="overflow-hidden"
+                onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
             >
-                <HeatmapLevel
-                    scope={scope}
-                    heatmap={current}
-                    loading={heatmapLoading || (heatmap != null && !current)}
-                    now={now}
-                    onOpen={drillGrain(scope.grain) ? open : null}
-                />
-            </Animated.View>
+                {width > 0 ? (
+                    <Animated.View
+                        key={levelKey(scope)}
+                        entering={(back ? FadeInLeft : FadeInRight).duration(
+                            DRILL_MS,
+                        )}
+                        className="gap-4"
+                    >
+                        <HeatmapLevel
+                            scope={scope}
+                            heatmap={current}
+                            loading={
+                                heatmapLoading || (heatmap != null && !current)
+                            }
+                            now={now}
+                            width={width}
+                            height={Math.min(
+                                MAX_BOX,
+                                Math.round(width * BOX_ASPECT),
+                            )}
+                            onOpen={drillGrain(scope.grain) ? open : null}
+                        />
+                    </Animated.View>
+                ) : null}
+            </View>
         </AnalyticsCard>
     );
 }
 
-/** One level of the drill: the grid, the readout under it, and the tag key. */
+/**
+ * One level of the drill: the grid, the readout under it, and the tag key.
+ * Each part has a fixed height, so every level is the same size.
+ */
 function HeatmapLevel({
     scope,
     heatmap,
     loading,
     now,
+    width,
+    height,
     onOpen,
 }: {
     scope: ResolvedPeriod;
     heatmap?: AnalyticsHeatmap;
     loading: boolean;
     now: Date;
+    width: number;
+    /** The grid box's height. The grid stretches to fill it. */
+    height: number;
     /** Opens a square's date one grain down. Null at the bottom. */
     onOpen: ((date: Date) => void) | null;
 }) {
     const { colors } = useTheme();
-    const [width, setWidth] = useState(0);
     const [selectedKey, setSelectedKey] = useState<string | null>(null);
 
     const { byKey, tagsById, maxPlays, earliestYear } = useMemo(
@@ -166,13 +200,17 @@ function HeatmapLevel({
     );
 
     const columns = Math.max(...grid.rows.map((row) => row.length), 1);
+    const rowCount = Math.max(grid.rows.length, 1);
     const hasRowLabels = grid.rowLabels.some(Boolean);
     const labelWidth = hasRowLabels ? ROW_LABEL_WIDTH : 0;
-    // fractional, so the grid runs to the card's edge rather than leaving
-    // a pixel per column of slack on the right
-    const fitted = (width - labelWidth - GAP * (columns - 1)) / columns;
-    const cell = Math.max(MIN_CELL, Math.min(MAX_CELL, fitted));
-    const scrolls = fitted < MIN_CELL;
+    const colLabelHeight = grid.colLabels.length > 0 ? COL_LABEL_HEIGHT : 0;
+    // fractional, so the grid runs to the box's edges rather than leaving a
+    // pixel per cell of slack
+    const fitW = (width - labelWidth - GAP * (columns - 1)) / columns;
+    const fitH = (height - colLabelHeight - GAP * (rowCount - 1)) / rowCount;
+    const cellW = grid.square ? Math.min(fitW, fitH) : fitW;
+    const cellH = Math.max(MIN_CELL, grid.square ? cellW : fitH);
+    const scrolls = fitH < MIN_CELL;
 
     const selected = selectedKey ? findCell(grid.rows, selectedKey) : null;
     const selectedData = selectedKey ? byKey.get(selectedKey) : undefined;
@@ -180,11 +218,28 @@ function HeatmapLevel({
 
     const body = (
         <View>
+            <View style={{ height: colLabelHeight, marginLeft: labelWidth }}>
+                {grid.colLabels.map((label, index) =>
+                    label ? (
+                        <Text
+                            key={index}
+                            className="text-muted-foreground absolute text-center text-[10px]"
+                            style={{
+                                left: index * (cellW + GAP),
+                                width: cellW,
+                            }}
+                            numberOfLines={1}
+                        >
+                            {label}
+                        </Text>
+                    ) : null,
+                )}
+            </View>
             {grid.rows.map((row, rowIndex) => (
                 <View
                     key={rowIndex}
                     className="flex-row items-center"
-                    style={{ marginBottom: GAP }}
+                    style={{ marginTop: rowIndex === 0 ? 0 : GAP }}
                 >
                     {hasRowLabels ? (
                         <Text
@@ -198,7 +253,8 @@ function HeatmapLevel({
                         <Square
                             key={slot?.key ?? `spacer-${colIndex}`}
                             slot={slot}
-                            size={cell}
+                            width={cellW}
+                            height={cellH}
                             marginLeft={colIndex === 0 ? 0 : GAP}
                             plays={slot ? (byKey.get(slot.key)?.plays ?? 0) : 0}
                             color={squareColor(
@@ -223,40 +279,19 @@ function HeatmapLevel({
                     ))}
                 </View>
             ))}
-            <View style={{ height: 14, marginLeft: labelWidth }}>
-                {grid.colLabels.map((label, index) =>
-                    label ? (
-                        <Text
-                            key={index}
-                            className="text-muted-foreground absolute text-center text-[10px]"
-                            style={{
-                                left:
-                                    index * (cell + GAP) +
-                                    cell / 2 -
-                                    COL_LABEL_WIDTH / 2,
-                                width: COL_LABEL_WIDTH,
-                            }}
-                            numberOfLines={1}
-                        >
-                            {label}
-                        </Text>
-                    ) : null,
-                )}
-            </View>
         </View>
     );
 
     return (
         <>
-            <View
-                onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
-            >
+            {/* a square grid that does not fill the box sits in its middle */}
+            <View style={{ height }} className="justify-center">
                 {loading && !heatmap ? (
-                    <Skeleton className="h-40 w-full rounded-xl" />
-                ) : width === 0 ? null : scrolls ? (
+                    <Skeleton className="h-full w-full rounded-xl" />
+                ) : scrolls ? (
                     <ScrollView
-                        horizontal
-                        showsHorizontalScrollIndicator={false}
+                        nestedScrollEnabled
+                        showsVerticalScrollIndicator={false}
                     >
                         {body}
                     </ScrollView>
@@ -265,7 +300,11 @@ function HeatmapLevel({
                 )}
             </View>
 
-            <Text className="text-muted-foreground text-xs">
+            <Text
+                className="text-muted-foreground text-xs"
+                style={{ height: READOUT_HEIGHT }}
+                numberOfLines={2}
+            >
                 {selected
                     ? [
                           selected.label,
@@ -279,22 +318,25 @@ function HeatmapLevel({
                     : `Colored by the tag you played most. ${hintFor(scope.grain)}`}
             </Text>
 
-            {keyTags.length > 0 ? (
-                <View className="flex-row flex-wrap gap-x-4 gap-y-2">
-                    {keyTags.map((tag) => (
+            <View
+                className="flex-row gap-x-4 overflow-hidden"
+                style={{ height: KEY_HEIGHT }}
+            >
+                {keyTags.map((tag) => (
+                    <View
+                        key={tag.id}
+                        className="flex-row items-center gap-1.5"
+                    >
                         <View
-                            key={tag.id}
-                            className="flex-row items-center gap-1.5"
-                        >
-                            <View
-                                className="h-2.5 w-2.5 rounded-full"
-                                style={{ backgroundColor: tag.color }}
-                            />
-                            <Text className="text-xs">{tag.name}</Text>
-                        </View>
-                    ))}
-                </View>
-            ) : null}
+                            className="h-2.5 w-2.5 rounded-full"
+                            style={{ backgroundColor: tag.color }}
+                        />
+                        <Text className="text-xs" numberOfLines={1}>
+                            {tag.name}
+                        </Text>
+                    </View>
+                ))}
+            </View>
         </>
     );
 }
@@ -308,7 +350,7 @@ function hintFor(grain: PeriodGrain): string {
         case "month":
             return "Tap a day to open its week.";
         case "week":
-            return "Tap a square to open its day.";
+            return "Tap a day to open it.";
         case "day":
             return "Tap a square.";
     }
@@ -326,7 +368,8 @@ function BackChevron() {
 
 function Square({
     slot,
-    size,
+    width,
+    height,
     marginLeft,
     plays,
     color,
@@ -338,7 +381,8 @@ function Square({
     opens,
 }: {
     slot: LayoutCell | null;
-    size: number;
+    width: number;
+    height: number;
     marginLeft: number;
     plays: number;
     color: string;
@@ -351,9 +395,12 @@ function Square({
     /** Whether a tap opens the square rather than reading it out. */
     opens: boolean;
 }) {
-    const radius = Math.min(MAX_RADIUS, Math.max(2, size * 0.22));
+    const radius = Math.min(
+        MAX_RADIUS,
+        Math.max(2, Math.min(width, height) * 0.22),
+    );
     if (!slot) {
-        return <View style={{ width: size, height: size, marginLeft }} />;
+        return <View style={{ width, height, marginLeft }} />;
     }
 
     const level = heatLevel(plays, maxPlays);
@@ -365,8 +412,8 @@ function Square({
             accessibilityLabel={`${slot.label}, ${plays} plays`}
             accessibilityHint={opens ? "Opens it" : undefined}
             style={{
-                width: size,
-                height: size,
+                width,
+                height,
                 marginLeft,
                 borderRadius: radius,
                 overflow: "hidden",
@@ -386,6 +433,19 @@ function Square({
                     },
                 ]}
             />
+            {slot.text ? (
+                <View
+                    style={StyleSheet.absoluteFill}
+                    className="items-center justify-center"
+                >
+                    <Text
+                        className="text-center text-[11px] font-medium"
+                        numberOfLines={2}
+                    >
+                        {slot.text}
+                    </Text>
+                </View>
+            ) : null}
         </Pressable>
     );
 }
