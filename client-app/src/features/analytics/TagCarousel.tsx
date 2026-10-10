@@ -29,7 +29,7 @@ const PILL_HEIGHT = 12;
 /** A chip fading out of the row or into it, and the selected tag's fade. */
 export const CHIP_FADE_MS = 300;
 /** The row closing or opening a gap. */
-const GAP_MS = 420;
+const GAP_MS = 525;
 
 /** `x` wrapped into (-width, 0], so one copy's width loops back to the start. */
 function wrap(x: number, width: number): number {
