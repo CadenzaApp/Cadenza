@@ -14,7 +14,7 @@ import { useAnalyticsPeriod } from "./analytics-period";
 import { HeatmapDetail } from "./HeatmapDetail";
 import {
     EMPTY_OPACITY,
-    HeatmapPages,
+    HeatmapGridView,
     LEVEL_OPACITY,
     UNTAGGED_COLOR,
     indexCells,
@@ -56,8 +56,7 @@ type Props = {
 
 /**
  * When the user listens, as squares laid out by the period: hours of a day,
- * two hour blocks of a week, days of a month, months of a year. All time is a
- * year a page, swiped sideways. Each square is colored by the tag played most
+ * two hour blocks of a week, days of a month, months of a year. Each square is colored by the tag played most
  * in it and brightened by how much played.
  *
  * Nothing is picked at first, so the detail reads out the whole level. A tap
@@ -91,7 +90,7 @@ export function Heatmap({ root, accent }: Props) {
         window,
     );
     const cells = useMemo(() => indexCells(heatmap), [heatmap]);
-    const pages = layoutHeatmap(scope.heatmap, now, cells.earliestYear);
+    const grid = layoutHeatmap(scope.heatmap);
 
     const settling = () => sliding(changedAt.current);
     const open = (target: HeatmapPick | null) => {
@@ -137,7 +136,6 @@ export function Heatmap({ root, accent }: Props) {
     };
 
     const box = Math.min(MAX_BOX, Math.round(width * BOX_ASPECT));
-    const crumb = scope.grain === "all" ? "All time" : scope.dateLabel;
 
     return (
         <AnalyticsCard>
@@ -157,7 +155,7 @@ export function Heatmap({ root, accent }: Props) {
                         <Text role="heading" className="text-lg font-semibold">
                             When you listen
                         </Text>
-                        <Breadcrumb parts={[crumb, pick?.short]} />
+                        <Breadcrumb parts={[scope.dateLabel, pick?.short]} />
                     </View>
                 </View>
                 <Legend accent={accent} />
@@ -171,7 +169,7 @@ export function Heatmap({ root, accent }: Props) {
             >
                 {width > 0 ? (
                     <Animated.View
-                        key={`${scope.grain}:${scope.since ?? "all"}`}
+                        key={`${scope.grain}:${scope.since}`}
                         entering={(back ? FadeInLeft : FadeInRight).duration(
                             DRILL_MS,
                         )}
@@ -181,8 +179,8 @@ export function Heatmap({ root, accent }: Props) {
                             {heatmapLoading && !heatmap ? (
                                 <Skeleton className="h-full w-full rounded-xl" />
                             ) : (
-                                <HeatmapPages
-                                    pages={pages}
+                                <HeatmapGridView
+                                    grid={grid}
                                     cells={cells}
                                     pick={pick}
                                     onPick={tap}

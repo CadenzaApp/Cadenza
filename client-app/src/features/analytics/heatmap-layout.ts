@@ -1,5 +1,5 @@
 /**
- * Turns a period's heatmap shape into pages of keyed cells, each keyed the way
+ * Turns a period's heatmap shape into a grid of keyed cells, each keyed the way
  * the backend prints a bucket start, so the sparse cells from
  * `/analytics/heatmap` drop straight into place.
  *
@@ -56,10 +56,8 @@ export type LayoutCell = {
     caption?: string;
 };
 
-/** One page of squares. All time has a page per year, the rest one page. */
+/** A level's squares. */
 export type HeatmapGrid = {
-    /** Printed over the grid, a year on an all time page. */
-    title?: string;
     /** Rows of squares, or columns when `columns` is set. Null is a spacer. */
     lines: (LayoutCell | null)[][];
     /**
@@ -133,26 +131,17 @@ function monthPick(first: Date): HeatmapPick {
     };
 }
 
-/**
- * The pages for `shape`. `earliestYear` is only read by `all-months`, which has
- * no bounds of its own and runs from the user's first year to `now`'s.
- */
-export function layoutHeatmap(
-    shape: HeatmapShape,
-    now: Date,
-    earliestYear?: number,
-): HeatmapGrid[] {
+/** The grid for `shape`. */
+export function layoutHeatmap(shape: HeatmapShape): HeatmapGrid {
     switch (shape.kind) {
         case "day-hours":
-            return [dayHours(shape.start)];
+            return dayHours(shape.start);
         case "week-blocks":
-            return [weekBlocks(shape.start)];
+            return weekBlocks(shape.start);
         case "month-days":
-            return [monthDays(shape.start)];
+            return monthDays(shape.start);
         case "year-months":
-            return [yearMonths(shape.start.getFullYear())];
-        case "all-months":
-            return allYears(earliestYear ?? now.getFullYear(), now);
+            return yearMonths(shape.start.getFullYear());
     }
 }
 
@@ -234,43 +223,6 @@ function yearMonths(year: number): HeatmapGrid {
         return { key: dayKey(first), pick: monthPick(first), text: month };
     });
     return { lines: chunk(months, 3) };
-}
-
-/** A titled year page per year, oldest first, so the last page is now's. */
-function allYears(earliestYear: number, now: Date): HeatmapGrid[] {
-    const lastYear = now.getFullYear();
-    const pages: HeatmapGrid[] = [];
-    for (
-        let year = Math.min(earliestYear, lastYear);
-        year <= lastYear;
-        year++
-    ) {
-        pages.push({ ...yearMonths(year), title: String(year) });
-    }
-    return pages;
-}
-
-/** Every pick on `pages`, once each, in order. */
-export function picksOf(pages: HeatmapGrid[]): HeatmapPick[] {
-    const picks = new Set<HeatmapPick>();
-    for (const page of pages) {
-        for (const line of page.lines) {
-            for (const cell of line) if (cell?.pick) picks.add(cell.pick);
-        }
-    }
-    return [...picks];
-}
-
-/** The page holding `pick`, or the last page. */
-export function pageOf(pages: HeatmapGrid[], pick: HeatmapPick | null): number {
-    const index = pick
-        ? pages.findIndex((page) =>
-              page.lines.some((line) =>
-                  line.some((cell) => cell?.pick && samePick(cell.pick, pick)),
-              ),
-          )
-        : -1;
-    return index >= 0 ? index : pages.length - 1;
 }
 
 export function samePick(a: HeatmapPick, b: HeatmapPick): boolean {

@@ -3,7 +3,6 @@ import test from "node:test";
 
 import {
     PERIOD_GRAINS,
-    canStepBack,
     canStepForward,
     drillGrain,
     grainLabel,
@@ -40,16 +39,10 @@ test("every grain has a label", () => {
     }
 });
 
-test("every grain but all is a bounded window", () => {
+test("every grain is a bounded window", () => {
     for (const grain of PERIOD_GRAINS) {
         const { since, until } = resolvePeriod(grain, 0, NOW);
-        if (grain === "all") {
-            assert.equal(since, undefined);
-            assert.equal(until, undefined);
-        } else {
-            assert.ok(since && until, grain);
-            assert.ok(new Date(since) < new Date(until), `${grain} backwards`);
-        }
+        assert.ok(new Date(since) < new Date(until), `${grain} backwards`);
     }
 });
 
@@ -72,8 +65,6 @@ test("each grain picks its chart and buckets", () => {
     assert.equal(resolvePeriod("month", 0, NOW).heatmapBucket, "day");
     assert.equal(resolvePeriod("year", 0, NOW).trendBucket, "month");
     assert.equal(resolvePeriod("year", 0, NOW).heatmapBucket, "month");
-    assert.equal(resolvePeriod("all", 0, NOW).trendBucket, "month");
-    assert.equal(resolvePeriod("all", 0, NOW).heatmapBucket, "month");
 });
 
 // ----- the boundaries -----
@@ -144,16 +135,12 @@ test("a positive offset is clamped to now", () => {
 test("only a past period can step forward", () => {
     assert.equal(canStepForward(resolvePeriod("week", 0, NOW)), false);
     assert.equal(canStepForward(resolvePeriod("week", -1, NOW)), true);
-    assert.equal(canStepForward(resolvePeriod("all", 0, NOW)), false);
-    assert.equal(canStepBack(resolvePeriod("all", 0, NOW)), false);
-    assert.equal(canStepBack(resolvePeriod("day", 0, NOW)), true);
 });
 
 test("the current period says this, a past one says that", () => {
     assert.equal(resolvePeriod("week", 0, NOW).phrase, "this week");
     assert.equal(resolvePeriod("week", -1, NOW).phrase, "that week");
     assert.equal(resolvePeriod("day", 0, NOW).phrase, "today");
-    assert.equal(resolvePeriod("all", 0, NOW).phrase, "all time");
 });
 
 // ----- labels -----
@@ -247,7 +234,6 @@ test("offsetOf is positive after now", () => {
 });
 
 test("drillGrain steps down one grain and stops at a day", () => {
-    assert.equal(drillGrain("all"), "year");
     assert.equal(drillGrain("year"), "month");
     assert.equal(drillGrain("month"), "week");
     assert.equal(drillGrain("week"), "day");

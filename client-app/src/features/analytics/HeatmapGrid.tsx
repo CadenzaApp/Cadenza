@@ -1,18 +1,11 @@
 import { useTheme } from "expo-router/react-navigation";
-import {
-    FlatList,
-    Pressable,
-    Text as RNText,
-    StyleSheet,
-    View,
-} from "react-native";
+import { Pressable, Text as RNText, StyleSheet, View } from "react-native";
 
 import { Text } from "@/components/ui/text";
 import type { AnalyticsHeatmap, HeatmapTag } from "@/lib/routes/analytics";
 
 import {
     heatLevel,
-    pageOf,
     samePick,
     type HeatmapGrid as Grid,
     type HeatmapPick,
@@ -35,16 +28,14 @@ const COLUMN_PAD = 3;
 const ROW_LABEL_WIDTH = 28;
 const LINE_HEIGHT = 14;
 const CAPTION_HEIGHT = 16;
-const TITLE_HEIGHT = 24;
 const MAX_RADIUS = 10;
 const RING_WIDTH = 1.5;
 
-/** The sparse cells by key, the tags by id, the peak, and the first year. */
+/** The sparse cells by key, the tags by id, and the peak. */
 export type CellIndex = {
     byKey: Map<string, AnalyticsHeatmap["cells"][number]>;
     tagsById: Map<number, HeatmapTag>;
     maxPlays: number;
-    earliestYear?: number;
 };
 
 export function indexCells(heatmap?: AnalyticsHeatmap): CellIndex {
@@ -57,16 +48,12 @@ export function indexCells(heatmap?: AnalyticsHeatmap): CellIndex {
     for (const cell of heatmap?.cells ?? []) {
         index.byKey.set(cell.start, cell);
         index.maxPlays = Math.max(index.maxPlays, cell.plays);
-        const year = Number(cell.start.slice(0, 4));
-        if (Number.isFinite(year)) {
-            index.earliestYear = Math.min(index.earliestYear ?? year, year);
-        }
     }
     return index;
 }
 
-type Props = {
-    pages: Grid[];
+type GridProps = {
+    grid: Grid;
     cells: CellIndex;
     pick: HeatmapPick | null;
     onPick: (pick: HeatmapPick) => void;
@@ -76,56 +63,18 @@ type Props = {
     ring: string;
 };
 
-/**
- * A level's squares in a fixed box. More than one page (all time's years)
- * swipes sideways, starting on the page holding the pick.
- */
-export function HeatmapPages(props: Props) {
-    const { pages, pick, width } = props;
-    if (pages.length === 1) return <GridPage {...props} grid={pages[0]} />;
-
+/** A level's squares in a fixed box: rows of squares, or a week's columns. */
+export function HeatmapGridView(props: GridProps) {
     return (
-        <FlatList
-            // a year added once the history loads remounts it on the pick
-            key={pages.length}
-            data={pages}
-            horizontal
-            pagingEnabled
-            showsHorizontalScrollIndicator={false}
-            keyExtractor={(page, index) => page.title ?? String(index)}
-            getItemLayout={(_, index) => ({
-                length: width,
-                offset: width * index,
-                index,
-            })}
-            initialScrollIndex={pageOf(pages, pick)}
-            renderItem={({ item }) => <GridPage {...props} grid={item} />}
-        />
-    );
-}
-
-function GridPage({ grid, height, ...props }: Props & { grid: Grid }) {
-    const title = grid.title ? TITLE_HEIGHT : 0;
-    return (
-        <View style={{ width: props.width, height }}>
-            {grid.title ? (
-                <Text
-                    className="text-muted-foreground text-sm"
-                    style={{ height: TITLE_HEIGHT }}
-                >
-                    {grid.title}
-                </Text>
-            ) : null}
-            {grid.columns ? (
-                <ColumnGrid {...props} grid={grid} height={height - title} />
+        <View style={{ width: props.width, height: props.height }}>
+            {props.grid.columns ? (
+                <ColumnGrid {...props} />
             ) : (
-                <RowGrid {...props} grid={grid} height={height - title} />
+                <RowGrid {...props} />
             )}
         </View>
     );
 }
-
-type GridProps = Omit<Props, "pages"> & { grid: Grid };
 
 /** Rows of squares, each picked on its own. */
 function RowGrid({

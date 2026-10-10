@@ -9,12 +9,7 @@ import { GlassSurface } from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
 
 import { useAnalyticsPeriod } from "./analytics-period";
-import {
-    PERIOD_GRAINS,
-    canStepBack,
-    canStepForward,
-    grainLabel,
-} from "./range";
+import { PERIOD_GRAINS, canStepForward, grainLabel } from "./range";
 
 /** A glass pill naming the grain. Tapping it offers the others. */
 export function GrainPicker() {
@@ -88,15 +83,11 @@ export function GrainPicker() {
     );
 }
 
-/**
- * Back and forward a period. Forward is disabled on the current one, and both
- * hide for all time, which has nowhere to step.
- */
+/** Back and forward a period. Forward is disabled on the current one. */
 export function PeriodStepper({ size = 40 }: { size?: number }) {
     const { period, step } = useAnalyticsPeriod();
     const { colors } = useTheme();
 
-    if (!canStepBack(period)) return null;
     const forward = canStepForward(period);
 
     return (

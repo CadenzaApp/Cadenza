@@ -147,16 +147,12 @@ function OverviewBody({
     onMetricChange: (metric: HeadlineMetric) => void;
 }) {
     const { stats } = summary;
-    const periodKey = `${period.grain}:${period.since ?? "all"}`;
+    const periodKey = `${period.grain}:${period.since}`;
 
     if ((stats.plays ?? 0) === 0) {
         return (
             <Message
-                title={
-                    period.grain === "all"
-                        ? "Nothing played yet"
-                        : `Nothing played ${period.phrase}`
-                }
+                title={`Nothing played ${period.phrase}`}
                 detail="Play some music and it will show up here. A song counts once it has played for 15 seconds."
             />
         );
@@ -215,7 +211,6 @@ function OverviewBody({
                     metric={metric}
                     onMetricChange={onMetricChange}
                     color={accent}
-                    perYear={period.grain === "all"}
                 />
             )}
 
