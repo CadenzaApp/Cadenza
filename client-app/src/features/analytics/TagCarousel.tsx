@@ -28,8 +28,13 @@ const HEIGHT = 28;
 const PILL_HEIGHT = 12;
 /** A chip fading out of the row or into it, and the selected tag's fade. */
 export const CHIP_FADE_MS = 300;
-/** The row closing or opening a gap. */
-const GAP_MS = 525;
+/**
+ * The row closing or opening a gap takes this, plus `GAP_MS_PER_POINT` for
+ * every point of the gap, so a wide tag's gap closes no faster than a narrow
+ * one's.
+ */
+const GAP_MS = 600;
+const GAP_MS_PER_POINT = 1;
 
 /** `x` wrapped into (-width, 0], so one copy's width loops back to the start. */
 function wrap(x: number, width: number): number {
@@ -176,6 +181,23 @@ function DriftingRow({
 }) {
     const [box, setBox] = useState(0);
     const [run, setRun] = useState(0);
+    // each chip's width, for timing the gap it leaves
+    const [widths, setWidths] = useState<Record<number, number>>({});
+    const [gapMs, setGapMs] = useState(GAP_MS);
+
+    // a chip left the row: time the close to its width. set during render,
+    // so the slide that closes the gap already has it
+    const ids = tags.map((tag) => tag.id).join(",");
+    const [shownIds, setShownIds] = useState(ids);
+    if (ids !== shownIds) {
+        setShownIds(ids);
+        const now = new Set(tags.map((tag) => tag.id));
+        const gap = shownIds
+            .split(",")
+            .filter((id) => id !== "" && !now.has(Number(id)))
+            .reduce((sum, id) => sum + (widths[Number(id)] ?? 0), 0);
+        setGapMs(GAP_MS + gap * GAP_MS_PER_POINT);
+    }
     const loops = box > 0 && run > box;
     const copies = loops ? Math.ceil(box / run) + 1 : 1;
 
@@ -251,7 +273,7 @@ function DriftingRow({
                         <Animated.View
                             key={copy}
                             className="flex-row"
-                            layout={LinearTransition.duration(GAP_MS)}
+                            layout={LinearTransition.duration(gapMs)}
                             accessibilityElementsHidden={copy > 0}
                             importantForAccessibility={
                                 copy > 0 ? "no-hide-descendants" : "auto"
@@ -266,7 +288,24 @@ function DriftingRow({
                             {tags.map((tag) => (
                                 <Animated.View
                                     key={tag.id}
-                                    layout={LinearTransition.duration(GAP_MS)}
+                                    layout={LinearTransition.duration(gapMs)}
+                                    onLayout={
+                                        copy === 0
+                                            ? (event) => {
+                                                  const chip =
+                                                      event.nativeEvent.layout
+                                                          .width;
+                                                  setWidths((all) =>
+                                                      all[tag.id] === chip
+                                                          ? all
+                                                          : {
+                                                                ...all,
+                                                                [tag.id]: chip,
+                                                            },
+                                                  );
+                                              }
+                                            : undefined
+                                    }
                                     entering={FadeIn.duration(CHIP_FADE_MS)}
                                     exiting={FadeOut.duration(CHIP_FADE_MS)}
                                 >
