@@ -221,8 +221,11 @@ color can match every screen.
 
 `MusicList` is a `FlashList`, wrapped by Reanimated so `useScreenScroll`'s worklet handler attaches
 to it. It renders only rows on screen plus a short way past them and reuses row slots, so a row's
-React key changes only on the density pinch; anything a row holds for one song is keyed by that
-song (the artwork by its url). `FlashList` wraps its `ScrollView` in a container view, so the list
+React key changes only on the density pinch; anything a row holds for one song is tied to that
+song (the artwork remembers which url failed, rather than a failed flag). Rows render about a
+screen ahead, so reused ones are ready before they scroll in. Loading renders inside the list too,
+placeholder rows where the empty message goes, so the background and header are there from the
+first frame and the header is never rebuilt when the rows land. `FlashList` wraps its `ScrollView` in a container view, so the list
 supplies its own scroller through `renderScrollComponent` with `ScreenScrollMarker` inside it: the
 marker needs the `ScrollView` as its only child and asserts otherwise.
 

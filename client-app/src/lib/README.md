@@ -417,17 +417,23 @@ nothing about each other:
 The card runs both directions of the transition: it starts minimized and grows on mount, and
 shrinks back on close. That is why those routes carry `pushedScreenOptions()`, which presents them
 as transparent modals with no native animation. The screen that opened this one is still on
-display underneath. The card's top-left corner follows the artwork's top-left corner, while its
-width sets a uniform scale. Its native continuous corners compensate for that scale, so they stay
-visibly rounded instead of tightening as the card gets smaller.
+display underneath. The card is a clip over the page, not the page scaled whole, and the close has
+two phases (`zoomFrame`): first the clip's bottom collapses up to just under the screen's artwork,
+the page untouched, then clip and page move and shrink together until that artwork sits exactly on
+the tile it opened from. The open runs the same frames backwards. A screen reports where its
+artwork is through `useZoomFocus`, as it scrolls; `TrackCollectionView` measures its hero once the
+card is full size and follows it from there. With no artwork reported, or it scrolled away, the
+top of the page stands in for it. The corners ease from the card's radius to the tile's.
 
 Every close goes through `useCloseScreen`, so the X and the pull play the same animation, and a
-screen with no card falls back to a plain `router.back()`. With no recorded rect the card shrinks
-toward the bottom of the window rather than doing nothing, which is what a deep link gets. A rect
+screen with no card falls back to a plain `router.back()`. With no recorded rect the card closes
+to a centered square rather than doing nothing, which is what a deep link gets. A rect
 older than `ORIGIN_MAX_AGE` at mount counts as none: a screen opened by something that records
 nothing must not grow out of whatever row was tapped a minute ago.
 
-The pull owns progress continuously instead of stopping at the close threshold. Releasing past
+The pull owns progress continuously instead of stopping at the close threshold, but only while a
+finger is dragging: momentum and a list nudging its own offset report negative offsets too, and
+with no drag ending after them the card stayed half closed. Releasing past
 it claims the animation on the UI thread before the scroll view rebounds, then finishes only the
 remaining distance. A short pull still springs back to full size.
 
