@@ -3,9 +3,8 @@
 // Mirrors backend-api/src/routes/json/query.rs.
 //
 // Both builders compile to this shape: the drag and drop builder in
-// `@/features/query-builder` only emits "is_applied" and "is_not_applied" tag
-// filters, and the advanced builder in `@/features/advanced-query-builder` uses
-// the rest.
+// Both builders emit tag-value filters. The advanced builder also supports
+// metadata and cross-tag fields.
 /////////////////////////
 
 import type { TagType } from "@/lib/types";

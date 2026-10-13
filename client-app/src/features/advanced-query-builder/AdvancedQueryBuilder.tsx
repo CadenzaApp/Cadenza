@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import { ScrollView, View } from "react-native";
 
 import { Text } from "@/components/ui/text";
@@ -19,6 +19,8 @@ import { BuilderActions, BuilderTags, FilterGroup } from "./FilterGroup";
 import { AdvancedGroupNode } from "./types";
 
 type Props = {
+    resultsAction?: ReactNode;
+    historyAction?: ReactNode;
     tags: Tag[];
     /** My Plays and the rest, offered after the user's own tags. */
     activityTags: Tag[];
@@ -33,13 +35,16 @@ type Props = {
  * lines. The screen owns the tree and the fetch; this only edits the tree.
  */
 export function AdvancedQueryBuilder({
+    resultsAction,
+    historyAction,
     tags,
     activityTags,
     root,
     setRoot,
     message,
 }: Props) {
-    const { contentBottomInset } = useScreenOverlayInsets();
+    const { contentBottomInset, floatingActionBottom } =
+        useScreenOverlayInsets();
     const builderTags = useMemo<BuilderTags>(() => {
         const every = [...tags, ...activityTags];
         return {
@@ -84,7 +89,7 @@ export function AdvancedQueryBuilder({
         >
             <ScrollView
                 className="flex-1"
-                contentContainerClassName="pb-6"
+                contentContainerClassName="pb-16"
                 keyboardShouldPersistTaps="handled"
             >
                 <FilterGroup
@@ -95,8 +100,16 @@ export function AdvancedQueryBuilder({
                 />
             </ScrollView>
 
+            <View
+                pointerEvents="box-none"
+                className="absolute right-5 left-5 flex-row items-start justify-between"
+                style={{ bottom: floatingActionBottom }}
+            >
+                <View>{historyAction}</View>
+                {resultsAction}
+            </View>
             {message && (
-                <Text className="text-center text-sm text-muted-foreground">
+                <Text className="mb-14 text-center text-sm text-muted-foreground">
                     {message}
                 </Text>
             )}

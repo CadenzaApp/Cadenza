@@ -2,6 +2,7 @@ import {
     createContext,
     useCallback,
     useContext,
+    useEffect,
     useRef,
     useState,
     type ReactNode,
@@ -12,7 +13,6 @@ import { useSharedValue, type SharedValue } from "react-native-reanimated";
 import type { DragPayload, DragState, DropTarget } from "./types";
 
 const CONDITION_REORDER_SETTLE_MS = 340;
-const CONNECTOR_REVEAL_SETTLE_MS = 240;
 
 type Rect = { x: number; y: number; width: number; height: number };
 type RegisteredZone = {
@@ -21,14 +21,6 @@ type RegisteredZone = {
     measure: () => Promise<Rect | null>;
 };
 
-type ConditionRelease = {
-    condition: Extract<DragPayload, { source: "condition" }>["condition"];
-    finalIndex: number;
-    height: number;
-    originIndex: number;
-    startCenterY: number;
-    targetCenterY: number | null;
-};
 type ConditionReorderResolver = (
     payload: Extract<DragPayload, { source: "condition" }>,
     y: number,
@@ -39,26 +31,22 @@ type DragContextValue = {
     dragX: SharedValue<number>;
     dragY: SharedValue<number>;
     conditionLayoutAnimationsSuppressed: boolean;
-    settlingConditionId: string | null;
-    conditionRelease: ConditionRelease | null;
     hoveredTargetKey: string | null;
     rootOffset: { x: number; y: number };
     registerDropZone: (key: string, zone: RegisteredZone) => void;
     unregisterDropZone: (key: string) => void;
     beginDrag: (payload: DragPayload, x: number, y: number) => Promise<void>;
     moveDrag: (payload: DragPayload, x: number, y: number) => void;
-    prepareDragRelease: (x: number, y: number) => boolean;
     finishDrag: (payload: DragPayload, x: number, y: number) => void;
     setConditionReorderIndex: (index: number | null) => void;
     setConditionReorderResolver: (
         resolver: ConditionReorderResolver | null,
     ) => void;
-    setConditionReleaseTarget: (centerY: number) => void;
-    completeConditionRelease: () => void;
     cancelDrag: () => void;
 };
 
-const DragContext = createContext<DragContextValue | null>(null);
+// The release portal must explicitly bridge this context; PortalHost reparents its children.
+export const DragContext = createContext<DragContextValue | null>(null);
 
 export function DragProvider({
     children,
@@ -74,11 +62,6 @@ export function DragProvider({
         conditionLayoutAnimationsSuppressed,
         setConditionLayoutAnimationsSuppressed,
     ] = useState(false);
-    const [settlingConditionId, setSettlingConditionId] = useState<
-        string | null
-    >(null);
-    const [conditionRelease, setConditionRelease] =
-        useState<ConditionRelease | null>(null);
     const [hoveredTargetKey, setHoveredTargetKey] = useState<string | null>(
         null,
     );
@@ -93,11 +76,17 @@ export function DragProvider({
     const conditionReorderResolver = useRef<ConditionReorderResolver | null>(
         null,
     );
-    const pendingConditionReorderIndex = useRef<number | null>(null);
-    const conditionReleasePending = useRef(false);
     const conditionAnimationTimer = useRef<ReturnType<
         typeof setTimeout
     > | null>(null);
+
+    useEffect(
+        () => () => {
+            if (conditionAnimationTimer.current)
+                clearTimeout(conditionAnimationTimer.current);
+        },
+        [],
+    );
 
     const registerDropZone = useCallback(
         (key: string, zone: RegisteredZone) => zones.current.set(key, zone),
@@ -162,13 +151,9 @@ export function DragProvider({
                     clearTimeout(conditionAnimationTimer.current);
                     conditionAnimationTimer.current = null;
                 }
-                setSettlingConditionId(null);
-                setConditionRelease(null);
-                conditionReleasePending.current = false;
                 setConditionLayoutAnimationsSuppressed(true);
             }
             conditionReorderIndex.current = null;
-            pendingConditionReorderIndex.current = null;
             const session = dragSession.current;
             dragX.set(x);
             dragY.set(y);
@@ -215,62 +200,22 @@ export function DragProvider({
         },
         [dragX, dragY, findZoneAt, updateHoveredTargetKey],
     );
-    const prepareDragRelease = useCallback(
-        (x: number, y: number) => {
-            pendingConditionReorderIndex.current =
-                conditionReorderIndex.current;
-            const payload = activePayload.current;
-            const releaseTarget = payload
-                ? findZoneAt(payload, x, y)
-                : undefined;
-            const willReorder = Boolean(
-                payload?.source === "condition" &&
-                releaseTarget?.target.kind !== "delete" &&
-                pendingConditionReorderIndex.current != null &&
-                pendingConditionReorderIndex.current !== payload.originIndex,
-            );
-            if (payload?.source === "condition") {
-                setSettlingConditionId(payload.condition.id);
-                if (willReorder) {
-                    const insertionIndex =
-                        pendingConditionReorderIndex.current!;
-                    const finalIndex =
-                        insertionIndex > payload.originIndex
-                            ? insertionIndex - 1
-                            : insertionIndex;
-                    conditionReleasePending.current = true;
-                    setConditionRelease({
-                        condition: payload.condition,
-                        finalIndex,
-                        height: payload.height,
-                        originIndex: payload.originIndex,
-                        startCenterY: y,
-                        targetCenterY: null,
-                    });
-                }
-            }
-            setDragState((current) =>
-                current ? { ...current, releasing: true } : current,
-            );
-            return willReorder;
-        },
-        [findZoneAt],
-    );
     const finishDrag = useCallback(
         (payload: DragPayload, x: number, y: number) => {
             const match = findZoneAt(payload, x, y);
             if (payload.source === "condition") {
                 if (match?.target.kind === "delete") {
                     onDrop(payload, match.target);
-                } else if (
-                    (pendingConditionReorderIndex.current ??
-                        conditionReorderIndex.current) != null
-                ) {
+                } else if (conditionReorderIndex.current != null) {
+                    const insertionIndex = conditionReorderIndex.current;
+                    const finalIndex =
+                        insertionIndex > payload.originIndex
+                            ? insertionIndex - 1
+                            : insertionIndex;
+                    if (finalIndex === payload.originIndex) return;
                     onDrop(payload, {
                         kind: "insert",
-                        index:
-                            pendingConditionReorderIndex.current ??
-                            conditionReorderIndex.current!,
+                        index: insertionIndex,
                     });
                 }
                 return;
@@ -288,29 +233,6 @@ export function DragProvider({
         },
         [],
     );
-    const setConditionReleaseTarget = useCallback((centerY: number) => {
-        setConditionRelease((current) =>
-            current ? { ...current, targetCenterY: centerY } : current,
-        );
-    }, []);
-    const completeConditionRelease = useCallback(() => {
-        conditionReleasePending.current = false;
-        setConditionRelease(null);
-        if (conditionAnimationTimer.current) {
-            clearTimeout(conditionAnimationTimer.current);
-        }
-        const completedSession = dragSession.current;
-        // Keep the committed connector slots fixed while the newly visible
-        // divider fades in. Re-enabling layout animation at the same moment as
-        // the reveal can briefly restore the slot's pre-release height.
-        conditionAnimationTimer.current = setTimeout(() => {
-            if (dragSession.current === completedSession) {
-                setSettlingConditionId(null);
-                setConditionLayoutAnimationsSuppressed(false);
-            }
-            conditionAnimationTimer.current = null;
-        }, CONNECTOR_REVEAL_SETTLE_MS);
-    }, []);
     const cancelDrag = useCallback(() => {
         dragSession.current += 1;
         const cancelledSession = dragSession.current;
@@ -320,28 +242,18 @@ export function DragProvider({
         updateHoveredTargetKey(null);
         cachedRects.current.clear();
         conditionReorderIndex.current = null;
-        pendingConditionReorderIndex.current = null;
         if (wasConditionDrag) {
             if (conditionAnimationTimer.current) {
                 clearTimeout(conditionAnimationTimer.current);
             }
-            conditionAnimationTimer.current = setTimeout(
-                () => {
-                    if (dragSession.current === cancelledSession) {
-                        setConditionLayoutAnimationsSuppressed(false);
-                        setSettlingConditionId(null);
-                        setConditionRelease(null);
-                        conditionReleasePending.current = false;
-                    }
-                    conditionAnimationTimer.current = null;
-                },
-                conditionReleasePending.current
-                    ? 1000
-                    : CONDITION_REORDER_SETTLE_MS,
-            );
+            conditionAnimationTimer.current = setTimeout(() => {
+                if (dragSession.current === cancelledSession) {
+                    setConditionLayoutAnimationsSuppressed(false);
+                }
+                conditionAnimationTimer.current = null;
+            }, CONDITION_REORDER_SETTLE_MS);
         } else {
             setConditionLayoutAnimationsSuppressed(false);
-            setSettlingConditionId(null);
         }
     }, [updateHoveredTargetKey]);
 
@@ -352,20 +264,15 @@ export function DragProvider({
                 dragX,
                 dragY,
                 conditionLayoutAnimationsSuppressed,
-                settlingConditionId,
-                conditionRelease,
                 hoveredTargetKey,
                 rootOffset,
                 registerDropZone,
                 unregisterDropZone,
                 beginDrag,
                 moveDrag,
-                prepareDragRelease,
                 finishDrag,
                 setConditionReorderIndex,
                 setConditionReorderResolver,
-                setConditionReleaseTarget,
-                completeConditionRelease,
                 cancelDrag,
             }}
         >

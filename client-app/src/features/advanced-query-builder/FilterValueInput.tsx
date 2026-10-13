@@ -23,10 +23,16 @@ type Props = {
     kind: Exclude<ValueKind, "none">;
     value: string;
     onChange: (value: string) => void;
+    compact?: boolean;
 };
 
 /** The value part of a filter line. Which input it shows depends on `kind`. */
-export function FilterValueInput({ kind, value, onChange }: Props) {
+export function FilterValueInput({
+    kind,
+    value,
+    onChange,
+    compact = false,
+}: Props) {
     switch (kind) {
         case "text":
             return (
@@ -36,7 +42,10 @@ export function FilterValueInput({ kind, value, onChange }: Props) {
                     placeholder="Empty"
                     autoCorrect={false}
                     returnKeyType="done"
-                    className="h-10 w-44 rounded-none border-0 bg-transparent shadow-none"
+                    className={cn(
+                        "h-10 rounded-none border-0 bg-transparent text-sm shadow-none",
+                        compact ? "w-full" : "w-44",
+                    )}
                 />
             );
         case "number":
@@ -47,7 +56,10 @@ export function FilterValueInput({ kind, value, onChange }: Props) {
                     placeholder="0"
                     keyboardType="numeric"
                     returnKeyType="done"
-                    className="h-10 w-24 rounded-none border-0 bg-transparent shadow-none"
+                    className={cn(
+                        "h-10 rounded-none border-0 bg-transparent text-sm shadow-none",
+                        compact ? "w-full" : "w-24",
+                    )}
                 />
             );
         case "date":
@@ -76,7 +88,7 @@ function ValueButton({
             className="h-10 justify-center px-3 active:bg-accent"
         >
             <Text
-                className={cn("text-base", !label && "text-muted-foreground")}
+                className={cn("text-sm", !label && "text-muted-foreground")}
                 numberOfLines={1}
             >
                 {label ?? placeholder}
@@ -180,13 +192,17 @@ function MomentValueInput({
                                         className="flex-1"
                                         onPress={() => setStep(null)}
                                     >
-                                        <Text>Cancel</Text>
+                                        <Text className="text-sm font-semibold">
+                                            Cancel
+                                        </Text>
                                     </Button>
                                     <Button
                                         className="flex-1"
                                         onPress={() => commit(draft)}
                                     >
-                                        <Text>Done</Text>
+                                        <Text className="text-sm font-semibold">
+                                            Done
+                                        </Text>
                                     </Button>
                                 </View>
                             </Pressable>

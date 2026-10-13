@@ -476,7 +476,7 @@ function withValue<T extends object>(
 }
 
 /** The value to send, or undefined for operators that take none. */
-function filterValue(
+export function filterValue(
     kind: FieldKind,
     op: FilterOp,
     raw: string,

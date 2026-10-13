@@ -461,8 +461,11 @@ remaining distance. A short pull still springs back to full size.
   every request 401s. Tokens are not held here, `getAccessToken()` in `supabase.ts` hands out a
   fresh one per request.
 - `AppleMusicProvider` owns the Apple Music developer and user tokens, restores them from
-  `expo-secure-store` on mount, and pushes them into the native module. `isConnected` means
-  authorized **and** holding a user token. `ensureConnected()` before any playback call.
+  `expo-secure-store` on mount, and pushes them into the native module. Stored user tokens are
+  associated with the exact developer JWT that acquired them; changing that JWT or finding a
+  legacy unscoped entry discards the stored user token before it can be restored. This matters
+  on iOS because Keychain entries may survive deleting and reinstalling the app. `isConnected`
+  means authorized **and** holding a user token. `ensureConnected()` before any playback call.
 - `SongInitProvider` runs after account and Apple Music authorization. It walks the library and
   library playlists and syncs what it finds into the backend's `user_songs`, which is what
   queries run over. It no longer generates default tags: the backend does that lazily, the first

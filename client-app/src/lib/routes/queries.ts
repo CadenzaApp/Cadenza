@@ -43,6 +43,7 @@ export function useQueryResults(
     return {
         matchedSongIds: body ? (x.data ?? NO_MATCHES) : NO_MATCHES,
         queryResultsLoading: body !== null && x.isLoading,
-        queryResultsErr: x.error,
+        queryResultsErr: body ? x.error : undefined,
+        refreshQueryResults: x.mutate,
     };
 }

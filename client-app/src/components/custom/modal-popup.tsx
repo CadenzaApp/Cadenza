@@ -16,6 +16,7 @@ type ModalPopupProps = {
     visible: boolean;
     onClose: () => void;
     title?: string;
+    titleClassName?: string;
     children: ReactNode;
     contentStyle?: StyleProp<ViewStyle>;
     /** Overrides the default backdrop padding around the popup. */
@@ -29,6 +30,7 @@ export function ModalPopup({
     visible,
     onClose,
     title,
+    titleClassName,
     children,
     contentStyle,
     backdropClassName,
@@ -70,7 +72,12 @@ export function ModalPopup({
                         </View>
                     ) : null}
                     {title ? (
-                        <Text className="text-lg font-semibold text-popover-foreground">
+                        <Text
+                            className={cn(
+                                "text-lg font-semibold text-popover-foreground",
+                                titleClassName,
+                            )}
+                        >
                             {title}
                         </Text>
                     ) : null}

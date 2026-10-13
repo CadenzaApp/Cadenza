@@ -1,9 +1,8 @@
 import { Portal } from "@rn-primitives/portal";
 import { Fragment, useEffect } from "react";
-import { Platform, StyleSheet, View } from "react-native";
+import { Platform, View } from "react-native";
 import Animated, {
-    Easing,
-    runOnJS,
+    useReducedMotion,
     useAnimatedStyle,
     useSharedValue,
     withTiming,
@@ -11,82 +10,69 @@ import Animated, {
 import { FullWindowOverlay } from "react-native-screens";
 
 import { TagPill } from "@/components/custom/tag-pill";
-import { GlassSurface } from "@/components/ui/glass-surface";
-import { Text } from "@/components/ui/text";
-import { THEME } from "@/lib/theme";
-import { useColorScheme } from "nativewind";
-import { ConditionDragHandle } from "./ConditionList";
-import { useDrag } from "./DragContext";
+import { ConditionCard, ConditionDragHandle } from "./ConditionList";
+import { DragContext, useDrag } from "./DragContext";
+import { EditorActionsContext, useEditorActions } from "./EditorActions";
 import { QueryTagPill } from "./QueryTagPill";
 import type { QueryCondition } from "./types";
 
-const RELEASE_DURATION = 320;
-const RELEASE_EASING = Easing.bezier(0.22, 0.8, 0.3, 1);
 const WindowOverlay = Platform.OS === "ios" ? FullWindowOverlay : Fragment;
 
 export function DragGhost() {
-    const {
-        dragState,
-        dragX,
-        dragY,
-        rootOffset,
-        conditionRelease,
-        completeConditionRelease,
-    } = useDrag();
-    const releaseTop = useSharedValue(0);
-    const releaseStyle = useAnimatedStyle(() => ({ top: releaseTop.get() }));
+    const drag = useDrag();
+    const editor = useEditorActions();
+    const { dragState, dragX, dragY, rootOffset } = drag;
+    const reducedMotion = useReducedMotion();
+    const pickup = useSharedValue(0);
+    const tagDragId =
+        dragState && dragState.payload.source !== "condition" ? true : null;
+    useEffect(() => {
+        pickup.set(0);
+        if (tagDragId !== null)
+            pickup.set(withTiming(1, { duration: reducedMotion ? 0 : 140 }));
+    }, [tagDragId, pickup, reducedMotion]);
+    const pickupStyle = useAnimatedStyle(() => ({
+        transform: [
+            { scale: 1 + pickup.get() * (reducedMotion ? 0 : 0.06) },
+            { translateY: -pickup.get() * (reducedMotion ? 0 : 6) },
+        ],
+    }));
+    const conditionDrag =
+        dragState?.payload.source === "condition" ? dragState.payload : null;
+    const condition = conditionDrag?.condition;
+    const conditionHeight = conditionDrag?.height ?? 0;
+    const conditionPositionStyle = useAnimatedStyle(() => ({
+        top: dragY.get() - conditionHeight / 2,
+    }));
     const tagPositionStyle = useAnimatedStyle(() => ({
         left: dragX.get() - rootOffset.x - 45,
         top: dragY.get() - rootOffset.y - 22,
     }));
-    useEffect(() => {
-        if (!conditionRelease) return;
-        if (conditionRelease.targetCenterY == null) {
-            releaseTop.set(
-                conditionRelease.startCenterY - conditionRelease.height / 2,
-            );
-            return;
-        }
-        releaseTop.set(
-            withTiming(
-                conditionRelease.targetCenterY - conditionRelease.height / 2,
-                { duration: RELEASE_DURATION, easing: RELEASE_EASING },
-                (finished) => {
-                    if (finished) runOnJS(completeConditionRelease)();
-                },
-            ),
-        );
-    }, [completeConditionRelease, conditionRelease, releaseTop]);
-
-    if (conditionRelease) {
+    if (condition) {
         return (
-            <Portal name="query-condition-release">
-                <WindowOverlay>
-                    <Animated.View
-                        pointerEvents="none"
-                        className="absolute left-4 right-4 z-50"
-                        style={[
-                            { height: conditionRelease.height },
-                            releaseStyle,
-                            conditionRelease.targetCenterY == null
-                                ? {
-                                      top:
-                                          conditionRelease.startCenterY -
-                                          conditionRelease.height / 2,
-                                  }
-                                : undefined,
-                        ]}
-                    >
-                        <ConditionGhostCard
-                            condition={conditionRelease.condition}
-                        />
-                    </Animated.View>
-                </WindowOverlay>
+            <Portal name="query-condition-drag">
+                <DragContext.Provider value={drag}>
+                    <EditorActionsContext.Provider value={editor}>
+                        <WindowOverlay>
+                            <Animated.View
+                                pointerEvents="none"
+                                accessibilityElementsHidden
+                                importantForAccessibility="no-hide-descendants"
+                                className="absolute right-[18px] left-[18px] z-50"
+                                style={[
+                                    { height: conditionHeight },
+                                    conditionPositionStyle,
+                                ]}
+                            >
+                                <ConditionGhostCard condition={condition} />
+                            </Animated.View>
+                        </WindowOverlay>
+                    </EditorActionsContext.Provider>
+                </DragContext.Provider>
             </Portal>
         );
     }
     if (!dragState) return null;
-
     if (dragState.payload.source === "condition") return null;
 
     const tag =
@@ -96,108 +82,42 @@ export function DragGhost() {
     return (
         <Animated.View
             pointerEvents="none"
-            className="absolute z-50 flex-row items-center rounded-full bg-background p-1"
-            style={[tagPositionStyle, { transform: [{ scale: 1.06 }] }]}
+            className="absolute z-50 flex-row items-center"
+            style={tagPositionStyle}
         >
-            {dragState.payload.source === "query" ? (
-                <QueryTagPill
-                    queryTag={dragState.payload.queryTag}
-                    height={10}
-                />
-            ) : (
-                // A suggested tag looks the same in flight as it does in the
-                // palette it left and the query it is heading for.
-                <TagPill
-                    tag={tag}
-                    height={10}
-                    suggested={dragState.payload.suggested}
-                    leadingIconName={
-                        dragState.payload.suggested ? "sparkles" : undefined
-                    }
-                />
-            )}
+            <Animated.View style={pickupStyle}>
+                {dragState.payload.source === "query" ? (
+                    <QueryTagPill
+                        queryTag={dragState.payload.queryTag}
+                        height={14}
+                    />
+                ) : (
+                    // A suggested tag looks the same in flight as it does in the
+                    // palette it left and the query it is heading for.
+                    <TagPill
+                        tag={tag}
+                        height={14}
+                        suggested={dragState.payload.suggested}
+                        leadingIconName={
+                            dragState.payload.suggested ? "sparkles" : undefined
+                        }
+                    />
+                )}
+            </Animated.View>
         </Animated.View>
     );
 }
 
 function ConditionGhostCard({ condition }: { condition: QueryCondition }) {
-    const group = condition.kind === "group" ? condition : null;
-    const members =
-        condition.kind === "group" ? condition.members : [condition];
-    const { colorScheme = "light" } = useColorScheme();
-    const theme = THEME[colorScheme];
-
     return (
-        <View className="relative overflow-hidden rounded-xl border border-border">
-            <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-                <GlassSurface
-                    variant="regular"
-                    style={StyleSheet.absoluteFill}
-                />
-            </View>
-            <View
-                className={
-                    group
-                        ? "pb-2.5 pl-12 pr-3 pt-2"
-                        : "min-h-12 flex-row items-center pl-12 pr-3 py-1.5"
-                }
-            >
-                {group ? (
-                    <View className="self-start flex-row rounded-full bg-secondary p-0.5">
-                        {(["any", "all", "none"] as const).map((option) => {
-                            const selected = group.mode === option;
-                            return (
-                                <View
-                                    key={option}
-                                    className="min-h-7 justify-center rounded-full px-3"
-                                    style={
-                                        selected
-                                            ? {
-                                                  backgroundColor:
-                                                      theme.background,
-                                              }
-                                            : undefined
-                                    }
-                                >
-                                    <Text
-                                        className="text-[10px] font-bold tracking-wider"
-                                        style={{
-                                            color: selected
-                                                ? theme.foreground
-                                                : theme.mutedForeground,
-                                        }}
-                                    >
-                                        {`HAVE ${option.toUpperCase()}`}
-                                    </Text>
-                                </View>
-                            );
-                        })}
-                    </View>
-                ) : null}
-                <View
-                    className={`flex-row flex-wrap items-center gap-2 ${group ? "mt-2" : ""}`}
-                >
-                    {members.map((queryTag, index) => (
-                        <View
-                            key={queryTag.id}
-                            className="flex-row items-center gap-2"
-                        >
-                            {group && index > 0 ? (
-                                <Text className="text-[10px] font-bold text-muted-foreground">
-                                    {group.mode === "any" ? "OR" : "AND"}
-                                </Text>
-                            ) : null}
-                            <QueryTagPill queryTag={queryTag} />
-                            {condition.kind === "tag" && condition.negated ? (
-                                <Text className="text-[10px] font-bold text-muted-foreground">
-                                    NOT APPLIED
-                                </Text>
-                            ) : null}
-                        </View>
-                    ))}
-                </View>
-            </View>
-            <View className="absolute bottom-0 left-0 top-0 justify-center">
+        <View>
+            <ConditionCard
+                condition={condition}
+                onModeChange={() => {}}
+                onToggleConditionNegation={() => {}}
+                ghost
+            />
+            <View className="absolute left-0 top-2">
                 <ConditionDragHandle condition={condition} />
             </View>
         </View>

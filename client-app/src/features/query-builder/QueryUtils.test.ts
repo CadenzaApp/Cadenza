@@ -7,6 +7,7 @@ import {
     appendTag,
     conditionConnectorLabel,
     getConditionReorderPosition,
+    getConditionReorderShift,
     groupMemberConnectorLabel,
     moveConditionToIndex,
     moveQueryTagToCondition,
@@ -20,13 +21,40 @@ import {
     sortTagsByApplicationCount,
     toggleConditionConnector,
     toggleConditionNegation,
+    updateQueryTagConstraint,
     usedTagIds,
 } from "./QueryUtils.ts";
 import type { QueryCondition, QueryConnector, QueryTag } from "./types.ts";
+import { metadataPaletteTag } from "./metadata-palette.ts";
+import { quoteQueryTextValue } from "./query-tag-label.ts";
 
 const rainy: Tag = { id: 1, name: "rainy", color: "#2563eb", type: "basic" };
 const chill: Tag = { id: 2, name: "chill", color: "#7c3aed", type: "basic" };
 const jazz: Tag = { id: 3, name: "jazz", color: "#db2777", type: "basic" };
+
+test("metadata palette filters compile as metadata and text values are quoted", () => {
+    const title = metadataPaletteTag("title");
+    const condition = appendTag([], title, false, {
+        op: "contains",
+        value: "wheee",
+    });
+    assert.deepEqual(queryToJSON(condition), {
+        where: {
+            and: [
+                {
+                    filter: {
+                        field: "metadata",
+                        key: "title",
+                        op: "contains",
+                        value: "wheee",
+                    },
+                },
+            ],
+        },
+    });
+    assert.equal(quoteQueryTextValue("wheee"), '"wheee"');
+    assert.equal(quoteQueryTextValue('say "hi"'), '"say \\"hi\\""');
+});
 
 /** The wire shape of a plain tag in the query, and of a negated one. */
 function applied(tagId: number) {
@@ -77,8 +105,63 @@ test("serializes HAVE NONE and a negated single condition", () => {
     });
     assert.equal(queryToJSON([]), null);
 });
+test("value tag condition edits preserve group identity and compile the chosen predicate", () => {
+    const rating: Tag = {
+        id: 4,
+        name: "Rating",
+        color: "#673ab7",
+        type: "number",
+    };
+    const base = appendTag([], rating, false, { op: "gt", value: "3" });
+    assert.deepEqual(queryToJSON(base), {
+        where: {
+            and: [
+                { filter: { field: "tag", tag_id: 4, op: "gt", value: "3" } },
+            ],
+        },
+    });
+    const original = base[0];
+    const edited = updateQueryTagConstraint(base, original.id, {
+        op: "le",
+        value: "5",
+    });
+    assert.equal(edited[0].id, original.id);
+    assert.deepEqual(queryToJSON(edited), {
+        where: {
+            and: [
+                { filter: { field: "tag", tag_id: 4, op: "le", value: "5" } },
+            ],
+        },
+    });
+    const grouped = addTagToCondition(
+        [queryTag("rainy", rainy)],
+        rating,
+        "rainy",
+        false,
+        { op: "gt", value: "3" },
+    );
+    assert.deepEqual(queryToJSON(grouped), {
+        where: {
+            and: [
+                {
+                    and: [
+                        applied(1),
+                        {
+                            filter: {
+                                field: "tag",
+                                tag_id: 4,
+                                op: "gt",
+                                value: "3",
+                            },
+                        },
+                    ],
+                },
+            ],
+        },
+    });
+});
 
-test("combining a palette tag with a single creates an any group", () => {
+test("combining a palette tag with a single creates an all group", () => {
     const rainyCondition = {
         ...queryTag("rainy", rainy),
         layoutId: "layout-rainy",
@@ -88,7 +171,7 @@ test("combining a palette tag with a single creates an any group", () => {
     assert.equal(combined[0].kind, "group");
     if (combined[0].kind !== "group") return;
     assert.equal(combined[0].layoutId, "layout-rainy");
-    assert.equal(combined[0].mode, "any");
+    assert.equal(combined[0].mode, "all");
     assert.deepEqual(
         combined[0].members.map((member) => member.tag.name),
         ["rainy", "chill"],
@@ -383,6 +466,26 @@ test("derives first and last condition reorder positions", () => {
             new Map([["a", 100]]),
         ),
         { finalIndex: 1, insertionIndex: 1 },
+    );
+});
+
+test("reorder preview shifts only intervening rows and leaves layout fixed", () => {
+    const height = 88;
+    assert.deepEqual(
+        [0, 1, 2, 3].map((index) =>
+            getConditionReorderShift(index, 0, 2, height),
+        ),
+        [0, -height, -height, 0],
+    );
+    assert.deepEqual(
+        [0, 1, 2, 3].map((index) =>
+            getConditionReorderShift(index, 3, 1, height),
+        ),
+        [0, height, height, 0],
+    );
+    assert.deepEqual(
+        [0, 1, 2].map((index) => getConditionReorderShift(index, 1, 1, height)),
+        [0, 0, 0],
     );
 });
 

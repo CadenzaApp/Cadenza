@@ -1,69 +1,66 @@
 # cadenza
 
-The simple and advanced query workspaces rendered by the Cadenza tab. This feature owns both
-query trees, the active mode, tag data, library metadata, and the shared result preview, so an
-in-progress mix survives switching modes or tabs.
+The Cadenza tab owns Simple and Advanced query drafts, matching scope, and internal edit history.
+Tags are managed in Library; this tab builds queries over the user's synced music library.
 
-Tags used to share this screen behind a Query / Tags segmented control. They are a library
-category now, opened from the library screen, so this tab is only the query builder. See
-[../library/README.md](../library/README.md).
+## Entry points
 
-## Files
+- `CadenzaScreen.tsx`: tag reads, the stable tag-colored nebula, header settings, result count,
+  editor switching, and results navigation.
+- `query-workspace.ts`: a bounded 15-edit history per editor for query changes. Switching
+  editors is navigation and does not create an undo step. No-op edits are ignored.
+- `query-settings.ts`: device-local persistence for suggested tags, Venn diagrams, Undo/Redo,
+  advanced value tags, and metadata palette visibility.
+- `../query-builder/QueryConversion.ts`: lossless conversion between the editors' supported forms.
 
-| file                | role                                                                              |
-| ------------------- | --------------------------------------------------------------------------------- |
-| `CadenzaScreen.tsx` | The query builder, tag data, query state, live preview, and results-route launch. |
+## Query flow
 
-## How it works
+Simple has one outer All groups / Any group rule. Every edit normalizes the condition connectors
+so reordering is presentational. Inside a group, ANY / ALL / NONE still means OR / AND / NOT OR.
+With multiple groups, the heading reads "Find me all songs that satisfy [ALL/ANY] of the
+following:". Its words and compact slider wrap together. Tapping an AND/OR divider toggles
+the same global rule.
 
-`CadenzaScreen` fetches the user's tags, the activity tags, and the complete Apple Music song
-library. Activity tags go to the advanced builder only, in their own picker section; the simple
-builder's palette stays the user's own tags. It also holds the
-simple builder's `Include suggested tags` switch, which reveals the palette's suggested-tag
-section, makes default tags count in the query, and clears the query when it is turned off with a
-suggested tag still in it. The mode button in
-the result-summary row switches between the tactile simple builder and the filter-based advanced
-builder without discarding either tree. The simple path compiles `QueryCondition[]` with
-`queryToJSON` and the advanced path compiles its tree with `buildAdvancedQuery`, but both produce
-the same wire format, so the active mode only decides which tree is sent. One
-`useQueryResults` call handles both. Returned ids map back to the same cached library tracks and
-render the same `ResultsSummary`; its arrow opens the current mode's results.
+Opening Advanced carries the current simple query across. Returning to Simple converts supported
+tag and metadata predicates and flat tag groups when possible. Unsupported fields,
+nesting, unavailable tags, and invalid predicates are never silently dropped. When conversion
+is not possible, the user can open the previous simple draft and keep the advanced draft. Opening
+Advanced then offers Resume or Use current simple query. Replacing a separate draft requires the explicit Use current simple query action.
+Simple constructs conditions by drag and drop or tap placement, with a predicate popup for value
+tags, and metadata fields using the same predicate popup. Advanced also supports cross-tag fields.
 
-The request carries no song ids. The backend evaluates the query over the library it already
-holds in `user_songs`, which is what lets a negated query include songs with no Cadenza tags at
-all. The cached library tracks are still read here, but only to turn matched ids back into
-songs to render.
+Both editors compile to the shared QueryJSON format and use `useQueryResults`. The result button
+uses the backend ID count directly; the editor does not load MusicKit track metadata or artwork.
+Empty, incomplete, pending, zero-match, and failed queries have distinct result states. Retry uses
+SWR's mutate. Opening results scores the query's positive tags and pushes `/query-results` with
+the query, matching scope, relevant tags, and its analytics description. Closing results preserves
+both drafts. The results route owns resolving matched IDs into playable tracks.
 
-The conditions live on the tab screen, so they survive tab switches. Opening the full result set
-pushes `/query-results` with the serialized query and a `suggested` flag, and the route renders
-the same normal full-screen `QueryResults` view. The builder remains mounted underneath, so going back returns to
-the existing query and active mode.
+## Suggested tags
 
-That same arrow press is when the query's tags score. `useScoreQueryTags` from
-`@/lib/tag-scores` gives every tag the query uses positively 10 points. Live edits do not score,
-since the preview reruns the query on every change. Tag ids resolve to names through `userTags`
-plus the simple builder's own condition tags, so suggested tags in a simple query score too.
+The header editor switch sits beside settings, before Account.
+This setting reveals the simple palette's suggestions and sets `consider_default_tags` for both
+editors. Suggested tags encountered in Simple retain their identity when converted to Advanced.
+Advanced only offers remembered suggested tags while the setting is enabled.
 
-## Connects to
+The setting cannot be switched off while either draft explicitly references a suggested tag.
+An info button beside each setting opens a tap-triggered popover over the settings. The
+suggested-tag explanation also explains how to remove required references. Turning the setting
+off never clears a query.
+Settings also controls diagram visibility for all simple cards, including singles.
+One search field filters the palette's basic, suggested, advanced, and metadata sections.
+The metadata section is off by default. All five query settings persist across
+app launches. Clear sits beside the heading. Undo and Redo appear in the floating left action
+area when enabled, dimmed when unavailable. iOS combines them in one glass capsule; Android
+keeps separate buttons. The untinted glass results button floats on the right at
+the same height. Simple places these above the resizable palette; Advanced places them above
+the bottom navigation/player inset.
 
-- `@/features/query-builder` for the simple query and shared result presentation.
-- `@/features/advanced-query-builder` for advanced filter construction and compilation.
-- `@/lib/routes/tags` and `@/lib/routes/queries` for backend data.
-- `@/lib/musickit-hooks::useTracksForSongIds` for result metadata.
-- `@/features/library` owns tags now, including tag creation.
+## Limits
 
-## Gotchas
+Drafts and internal history last for the mounted tab's lifetime. Query settings persist on device.
+The backend evaluates `user_songs`, so results depend on the last successful library sync.
+The full results page has a Save Query name dialog. Saving currently logs the requested name
+and does not persist a query.
 
-- Both query trees last for the lifetime of the mounted Cadenza tab. They are not persisted across app
-  launches. The `Include suggested tags` switch has the same lifetime. It shows the suggested-tag
-  section in the palette and sets `consider_default_tags` on the results request.
-- Turning that switch off discards the whole simple query when a suggested tag is in it, because a
-  default tag id does not resolve without `consider_default_tags`. The advanced tree is untouched:
-  its tag picker only ever offers the user's own tags.
-- Tag creation lives in the Tags library sheet, not here. Query needs tags to exist before it is
-  useful, so a user with no tags has to go make one from the library first.
-
----
-
-Touching files in this directory? Update this README in the same change.
-See [../../../../AGENT_GUIDE.md](../../../../AGENT_GUIDE.md).
+Touching this directory? Keep this README accurate with the final change.

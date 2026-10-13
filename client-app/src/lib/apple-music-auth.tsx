@@ -8,6 +8,10 @@ import {
     useCallback,
     type ReactNode,
 } from "react";
+import {
+    parseStoredAppleMusicAuth,
+    serializeAppleMusicAuth,
+} from "./apple-music-auth-storage";
 
 type AppleMusicContextType = {
     authResult: AuthResult | null;
@@ -225,12 +229,22 @@ async function readStoredAuth(): Promise<AuthResult | null> {
     if (!(await SecureStore.isAvailableAsync())) return null;
     const serialized = await SecureStore.getItemAsync(AUTH_STORAGE_KEY);
     if (!serialized) return null;
-    return JSON.parse(serialized) as AuthResult;
+    // iOS Keychain data may survive uninstall/reinstall. A token acquired under
+    // an older developer JWT must not silently become this build's session.
+    const result = parseStoredAppleMusicAuth(serialized, getDeveloperToken());
+    if (!result) {
+        await clearStoredAuth();
+        return null;
+    }
+    return result;
 }
 
 async function writeStoredAuth(result: AuthResult): Promise<void> {
     if (!(await SecureStore.isAvailableAsync())) return;
-    await SecureStore.setItemAsync(AUTH_STORAGE_KEY, JSON.stringify(result));
+    await SecureStore.setItemAsync(
+        AUTH_STORAGE_KEY,
+        serializeAppleMusicAuth(result, getDeveloperToken()),
+    );
 }
 
 async function clearStoredAuth(): Promise<void> {

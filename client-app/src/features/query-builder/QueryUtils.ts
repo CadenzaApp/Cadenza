@@ -1,5 +1,6 @@
 import type { QueryJSON, QueryJSONNode } from "@/lib/query-json";
 import type { Tag, TagMetadata } from "@/lib/types";
+import { isMetadataPaletteTag } from "./metadata-palette.ts";
 
 import type {
     QueryCondition,
@@ -7,6 +8,7 @@ import type {
     QueryGroup,
     QueryGroupMode,
     QueryTag,
+    QueryTagConstraint,
 } from "./types";
 
 let nextQueryId = 0;
@@ -34,6 +36,7 @@ export function makeQueryTag(
     tag: Tag,
     connector: QueryConnector = "and",
     suggested = false,
+    constraint?: QueryTagConstraint,
 ): QueryTag {
     return {
         kind: "tag",
@@ -42,6 +45,7 @@ export function makeQueryTag(
         tag,
         negated: false,
         suggested,
+        constraint,
         connector,
     };
 }
@@ -50,6 +54,7 @@ export function appendTag(
     conditions: readonly QueryCondition[],
     tag: Tag,
     suggested = false,
+    constraint?: QueryTagConstraint,
 ): QueryCondition[] {
     return [
         ...conditions,
@@ -57,6 +62,7 @@ export function appendTag(
             tag,
             connectorForInsertion(conditions, conditions.length),
             suggested,
+            constraint,
         ),
     ];
 }
@@ -66,6 +72,7 @@ export function insertTag(
     tag: Tag,
     index: number,
     suggested = false,
+    constraint?: QueryTagConstraint,
 ): QueryCondition[] {
     const next = [...conditions];
     const insertionIndex = clampInsertionIndex(index, next.length);
@@ -76,6 +83,7 @@ export function insertTag(
             tag,
             connectorForInsertion(conditions, insertionIndex),
             suggested,
+            constraint,
         ),
     );
     return next;
@@ -86,11 +94,33 @@ export function addTagToCondition(
     tag: Tag,
     conditionId: string,
     suggested = false,
+    constraint?: QueryTagConstraint,
 ): QueryCondition[] {
     return addQueryTagToCondition(
         conditions,
-        makeQueryTag(tag, "and", suggested),
+        makeQueryTag(tag, "and", suggested, constraint),
         conditionId,
+    );
+}
+
+export function updateQueryTagConstraint(
+    conditions: readonly QueryCondition[],
+    queryTagId: string,
+    constraint: QueryTagConstraint,
+): QueryCondition[] {
+    return conditions.map((condition) =>
+        condition.kind === "tag"
+            ? condition.id === queryTagId
+                ? { ...condition, constraint }
+                : condition
+            : {
+                  ...condition,
+                  members: condition.members.map((member) =>
+                      member.id === queryTagId
+                          ? { ...member, constraint }
+                          : member,
+                  ),
+              },
     );
 }
 
@@ -217,6 +247,22 @@ export function getConditionReorderPosition(
     };
 }
 
+/** Keep the list's geometry fixed while a condition is being dragged. */
+export function getConditionReorderShift(
+    index: number,
+    originIndex: number | null,
+    finalIndex: number | null,
+    draggedRowHeight: number,
+): number {
+    if (originIndex == null || finalIndex == null || originIndex === finalIndex)
+        return 0;
+    if (originIndex < finalIndex && index > originIndex && index <= finalIndex)
+        return -draggedRowHeight;
+    if (originIndex > finalIndex && index >= finalIndex && index < originIndex)
+        return draggedRowHeight;
+    return 0;
+}
+
 export function moveQueryTagToIndex(
     conditions: readonly QueryCondition[],
     queryTagId: string,
@@ -272,8 +318,8 @@ export function moveQueryTagToCondition(
 
 /**
  * Compiles the tree into the shared wire format, the same one the advanced
- * builder produces. A tag becomes an "is applied" filter on it, and a negated
- * tag an "is not applied" filter.
+ * builder produces. A basic tag checks application; a value tag carries its
+ * selected operator and typed value.
  */
 export function queryToJSON(
     conditions: readonly QueryCondition[],
@@ -352,7 +398,7 @@ function addQueryTagToCondition(
         return {
             kind: "group",
             id: makeQueryId("group"),
-            mode: condition.negated ? "none" : "any",
+            mode: condition.negated ? "none" : "all",
             connector: condition.connector,
             rememberedNextConnector: condition.rememberedNextConnector,
             layoutId: condition.layoutId ?? makeQueryId("condition"),
@@ -449,13 +495,23 @@ function conditionToJSON(condition: QueryCondition): QueryJSONNode {
 }
 
 function queryTagToJSON(queryTag: QueryTag): QueryJSONNode {
-    return {
+    const metadataKey = isMetadataPaletteTag(queryTag.tag)
+        ? queryTag.tag.metadataKey
+        : null;
+    const filter: QueryJSONNode = {
         filter: {
-            field: "tag",
-            tag_id: queryTag.tag.id,
-            op: queryTag.negated ? "is_not_applied" : "is_applied",
+            ...(metadataKey
+                ? { field: "metadata" as const, key: metadataKey }
+                : { field: "tag" as const, tag_id: queryTag.tag.id }),
+            op:
+                queryTag.constraint?.op ??
+                (queryTag.negated ? "is_not_applied" : "is_applied"),
+            ...(queryTag.constraint?.value !== undefined
+                ? { value: queryTag.constraint.value }
+                : {}),
         },
     };
+    return queryTag.constraint && queryTag.negated ? { not: filter } : filter;
 }
 
 function joinJSONNodes(

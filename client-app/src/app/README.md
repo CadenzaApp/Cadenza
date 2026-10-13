@@ -170,7 +170,8 @@ detail pages. Android always pins, since its scroll views have no content inset.
 
 A screen adds its own controls to the rail with `navigation.setOptions({ headerRight })`; the
 `header` render prop in `(tabs)/_layout.tsx` passes them through as `actions`. The library screen
-is the one caller, adding the button that opens `/library-categories`.
+adds the button that opens `/library-categories`. Cadenza adds query settings, including the
+shared suggested-tag matching scope.
 
 ## Sheets
 
