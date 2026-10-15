@@ -9,17 +9,16 @@ call into `src/db/` or `src/services/`, and shape the response.
 | file                | role                                                                                                                                                                                                    |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `mod.rs`            | Declares `json`, `analytics`, `comments`, `events`, `queries`, `social`, `tags`, `songs`.                                                                                                               |
-| `tags.rs`           | Tag CRUD for the signed-in user, tag score edits, default tag search, listing the activity tags, plus LLM tag suggestion. Mounted at `/tags`.                                                           |
+| `tags.rs`           | Tag CRUD for the signed-in user, default tag search, listing the activity tags, plus LLM tag suggestion. Mounted at `/tags`.                                                                             |
 | `songs.rs`          | Adding and removing the user's songs, reading and changing user tags, reading default tags, reading activity tags, recording plays, and reporting an opened song. Mounted at `/songs`.                 |
 | `queries.rs`        | Runs a tag query and returns song ids by relevance. Mounted at `/queries`.                                                                                                                              |
 | `comments.rs`       | Reading, leaving, deleting, and voting on comments on songs. Mounted at `/comments`.                                                                                                                    |
 | `events.rs`         | Ingests a batch of listening events, and counts the `play_counted` ones towards the activity tags in the same transaction. Mounted at `/events`.                                                        |
 | `analytics.rs`      | Summary counts, time bucketed trends, the metric list, and the rankings (song, artist, album, playlist, query). Mounted at `/analytics`.                                                                                |
 | `social.rs`         | One catch-all handler that proxies `/social/*` to the social feed service with the caller's user id attached. No endpoint list of its own. Mounted at `/social`.                                        |
-| `json/mod.rs`       | `vec_into`, a small `Vec<A> -> Vec<B>` helper. Declares `analytics`, `comment`, `metadata_tag`, `query`, `tag`, and `tag_score`.                                                                                        |
+| `json/mod.rs`       | `vec_into`, a small `Vec<A> -> Vec<B>` helper. Declares `analytics`, `comment`, `metadata_tag`, `query`, and `tag`.                                                                                                      |
 | `json/analytics.rs` | The `/events` request and response shapes, and the `/analytics` response shapes.                                                                                                                        |
 | `json/tag.rs`       | `TagType`, `Tag`, and `AppliedTag`, the wire shapes of a tag. `From<tags::Model>` drops `user_id` and keeps `is_activity`.                                                                              |
-| `json/tag_score.rs` | `ScoredTag`, one top tag as a `[score, color, source]` array, and `TagSource`, `"local"` or `"global"`.                                                                                                 |
 | `json/metadata_tag.rs`| `MetadataTag` and `metadata_tags_of`, a song's stored metadata as read-only `{key, type, value}` tags.                                                                                                  |
 | `json/comment.rs`   | `Comment` and `CommentThread`, the wire shapes of a comment and of a top level comment with its replies. Both take the reading user's id, to turn `user_id` into `mine`, and each comment's vote tally. |
 | `json/query.rs`     | `Query`, `QueryNode`, `Filter`, `FilterOp`, `MetadataKey`: the input schema of a tag query. Both client builders produce it.                                                                            |
@@ -35,8 +34,6 @@ Every route below requires `Authorization: Bearer <supabase jwt>`.
 | POST   | `/tags`                      | `{name, color, type?}`                                                                          | the new tag id, as a bare number in the body; 409 when the user already owns that normalized name                                                                                                                                                                                                                                                                                                                                                                     |
 | PATCH  | `/tags`                      | `{tag_id, name?, color?}`                                                                       | the updated tag. 404 if the tag is not yours; 409 when its new name matches another tag you own                                                                                                                                                                                                                                                                                                                                                                       |
 | DELETE | `/tags`                      | `{tag_id}`                                                                                      | empty. Silently no-ops if the tag is not yours                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| GET    | `/tags/scores`               | `?k=N`                                                                                          | `{tag_name: [score, color, "local" \| "global"]}`, the user's `k` highest scores, 0 and below and names with no tag left out. `k` is at most 200                                                                                                                                                                                                                                                                                                                      |
-| PATCH  | `/tags/scores`               | `{"pop": 5, "rock": 10, "jazz": -2}`                                                            | `{tag_name: score}`, the score every named tag is left at                                                                                                                                                                                                                                                                                                                                                                                                             |
 | GET    | `/tags/default-tags`         | `?search=...`                                                                                   | `[Tag]`, at most 5 default tags matching the search, most used first                                                                                                                                                                                                                                                                                                                                                                                                  |
 | GET    | `/tags/activity`             | none                                                                                            | `[Tag]`, every activity tag in display order. The same for every user                                                                                                                                                                                                                                                                                                                                                                                                 |
 | GET    | `/tags/suggest`              | `?song_desc=...&requested_tag_count=N`                                                          | `[{name, color}, ...]`                                                                                                                                                                                                                                                                                                                                                                                                                                                |
@@ -194,27 +191,6 @@ Handlers take what they need out of `AppState` by `FromRef`, so most take
 take `State(tag_gen_service)`. Routes that operate only on shared defaults still require credentials
 with a bare `_: Claims<SupabaseClaims>`.
 
-`PATCH /tags/scores` tracks which tag names the signed in user is interested in. The body is a map
-of tag name to how far to move that name's score, so one interaction sends one request however many
-tags it touched. A name the user has no score for starts at its delta, a negative delta lowers the
-score, and the response is the score every named tag is left at.
-
-Scores go by tag name, not tag id, so they cover the user's own tags, default tags, and names they
-have no tag of at all. Names are lowercased, whitespace collapsed, and cut to 50 bytes by
-`services::tag_normalizer::normalize_tag_name` first, so `"Pop"` and `" pop "` are one score, and
-two names in one body that collapse into one have their deltas added together. See
-[../db/README.md](../db/README.md) for the upsert.
-
-`GET /tags/scores?k=N` reads them back: the signed in user's `k` highest scores, keyed by the same
-normalized tag name `PATCH` uses. Each value is a three element array, `[score, color, source]`,
-so the client can draw the name as a tag. `color` is the user's own tag's when they have a tag of
-that name, and `source` is then `"local"`. Otherwise it is the default tag's, and `source` is
-`"global"`. A map has no order, so the client sorts it.
-
-Scores of 0 and below are left out, and so are names with no tag at all, like one the user deleted.
-A user with fewer than `k` names left gets all of those. Where the `k`th place is a tie, the names
-that sort first make the cut, so the same scores always pick the same names.
-
 `GET /tags/default-tags` searches the shared default tag pool by name and is not song scoped.
 It is the odd one out next to `/songs/default-tags`, which reads the defaults applied to one song.
 Its results are ordered by how many songs carry the tag, most first.
@@ -291,7 +267,7 @@ api as JSON should have a type here rather than serializing an entity model dire
 
 ## Connects to
 
-- `crate::db::tags`, `crate::db::activity_tags`, `crate::db::tag_scores`, `crate::db::queries`, `crate::db::comments`, `crate::db::comment_votes`, and
+- `crate::db::tags`, `crate::db::activity_tags`, `crate::db::queries`, `crate::db::comments`, `crate::db::comment_votes`, and
   `crate::db::user_songs` for all data access.
 - `crate::services::tag_generation::TagGenerationService` for `/tags/suggest`, and through
   `crate::services::default_tags` for the default tag reads.
@@ -323,13 +299,6 @@ api as JSON should have a type here rather than serializing an entity model dire
   returns 5 tags rather than none. The cap of 5 is `DEFAULT_TAG_SEARCH_LIMIT` and is not a
   client-settable param.
 - `POST /tags` returns the id as a bare string body, not JSON.
-- `PATCH /tags/scores` caps a request at 200 tag names, and a name that normalizes to nothing (blank
-  or whitespace only) is a `QueryFormatError` (422) rather than being skipped.
-- A score delta of 0 still writes the row, which creates it at 0 for a name that had no score.
-- `GET /tags/scores` requires `k`. A missing or negative `k` is axum's own 400 with a plain text
-  body, not a `CadenzaError`. More than 200 is a `QueryFormatError` (422).
-- `GET /tags/scores` keys by the normalized name, so a user tag named `Road Trip` comes back as
-  `road trip`.
 - `DELETE /tags`, `DELETE /songs/local-tags`, and `DELETE /comments` take a JSON body. Some HTTP
   clients will not send one on a DELETE.
 - `GET /songs/local-tags` returns only the user's own tags. Default tags (`user_id IS NULL`) are
@@ -387,9 +356,6 @@ api as JSON should have a type here rather than serializing an entity model dire
   The client sets them when a queue starts from a playlist or a query. A query's `source_id` is the
   query itself, JSON encoded with its suggested flag, so the same query ranks as one row and the
   client can run it again. Plays logged before the client wrote a source rank under neither.
-- `GET /tags/scores` has no client caller any more. The Analytics tab shows tags by plays in a
-  window, which `tag_scores` cannot answer because it has no timestamp. The scores are still
-  written and still decay weekly, as the input for recommendations, so this is not dead code.
 - Payload numbers must be whole and fit in an `i64`. The aggregates cast the stored text straight
   to `bigint` and the log is append only, so one row holding `1.5` would make the summary raise
   for that user with no way to delete it through the api.

@@ -20,7 +20,7 @@ import { useColorScheme } from "nativewind";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { MediaPlayerPushedScreenOverlay } from "@/components/custom/media-player";
 import { MusicListPreferencesProvider } from "@/lib/music-list-preferences";
-import { TagScoreTracker } from "@/lib/tag-scores";
+import { InterestPlayTracker } from "@/lib/interest-play-tracker";
 import { InterestDecay } from "@/lib/interest-decay";
 
 import "../../global.css";
@@ -119,7 +119,7 @@ export default function RootLayout() {
                                                         </Stack>
                                                         <AppleMusicSessionGuard />
                                                         <MediaPlayerPushedScreenOverlay />
-                                                        <TagScoreTracker />
+                                                        <InterestPlayTracker />
                                                         <InterestDecay />
                                                         <TasksHost />
                                                         <PortalHost />

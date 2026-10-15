@@ -28,7 +28,6 @@ use crate::{
         social_feed::SocialFeedService,
         song_metadata::SongMetadataService,
         tag_generation::{TagGenerationService, openai_tag_generator::OpenAiTagGenerator},
-        tag_score_decay::spawn_tag_score_decay,
     },
 };
 
@@ -131,11 +130,6 @@ async fn main() {
         }
         None => println!("metadata crawl: off"),
     }
-
-    // halves each user's tag scores once a week, so a name the user stopped using
-    // falls back behind the ones they still do. always on: it costs one short
-    // transaction per user a week and nothing outside the database
-    spawn_tag_score_decay(db.clone());
 
     let app_state = AppState {
         db,

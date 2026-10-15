@@ -12,7 +12,7 @@ native module directly.
 | `api-actions.ts`             | The generic SWR wrappers: `useAPIData`, `useAPIPostData`, `useAPIPostDataBatched`, `useAPIFetch`, `useAPIMutation`.                                                                                                                                                                               |
 | `api-endpoints.ts`           | `matchesEndpoint`, the cache-key matcher behind invalidation. Import-free so it can be unit tested.                                                                                                                                                                                               |
 | `swr-utils.ts`               | `clearCache` and `useSimpleMutation`, for things that are not plain backend calls.                                                                                                                                                                                                                |
-| `routes/tags.ts`             | Hooks for `/tags`: `useUserTags`, `useTag`, `useCreateTag`, `useUpdateTag`, `useDeleteTag`, `useDefaultTags`, `useActivityTags`, `useActivityTagIdsInQuery`, `useSuggestTags`, `useEditTagScores`.                                                                                                |
+| `routes/tags.ts`             | Hooks for `/tags`: `useUserTags`, `useTag`, `useCreateTag`, `useUpdateTag`, `useDeleteTag`, `useDefaultTags`, `useActivityTags`, `useActivityTagIdsInQuery`, `useSuggestTags`.                                                                                                                     |
 | `routes/songs.ts`            | Hooks for local, default, and activity tag reads (one song and batched), local tag writes, removing a suggested tag, recording a play, reporting an opened song, missing-default checks, generation, and editing the user's library.                                                              |
 | `routes/queries.ts`          | `useQueryResults`, the one cached hook for `/queries/results`. Both builders go through it, and it carries the suggested-tag flag. It sends no song ids: the backend queries the library it already has.                                                                                          |
 | `routes/comments.ts`         | Hooks for `/comments`: `useSongComments`, `useCreateComment`, `useDeleteComment`, `useVoteOnComment`.                                                                                                                                                                                             |
@@ -22,8 +22,7 @@ native module directly.
 | `song-init.tsx`              | `SongInitProvider`, which runs the library sync job after account and Apple Music authorization.                                                                                                                                                                                                  |
 | `song-init-job.ts`           | Import-free, tested library sync job: walks Apple Music, diffs it against the local record, and sends the difference to `PATCH /songs`.                                                                                                                                                           |
 | `initialized-songs-db.ts`    | The expo-sqlite `initialized_songs` table, the device's record of what `user_songs` holds. Opens the database and hands the job an `InitializedSongsStore`.                                                                                                                                       |
-| `tag-scores.tsx`             | `TagScoreTracker`, which gives each of the user's own tags on a song 2 points and each default tag 1 point once that song has played for 5 seconds, plus 1 interest point to its artist and each genre, and `useScoreQueryTags`, which gives every tag a query uses positively 10 points.         |
-| `tag-score-deltas.ts`        | The `PATCH /tags/scores` body one play of a song, or one run of a query, is worth. Only type imports, tested in `tag-score-deltas.test.ts`.                                                                                                                                                       |
+| `interest-play-tracker.tsx`  | `InterestPlayTracker`, which gives 1 interest point to a song's artist and each genre once that song has played for 5 seconds.                                                                                                                                                                   |
 | `interest-score-deltas.ts`   | The `PATCH /social/interests/update` deltas one play of a song is worth, from its artist and genres. Only type imports, tested in `interest-score-deltas.test.ts`.                                                                                                                                |
 | `interest-decay.tsx`         | `InterestDecay`, which sends one `PATCH /social/interests/decay` per app launch once someone is signed in.                                                                                                                                                                                        |
 | `account.tsx`                | `AccountProvider` / `useAccount`. Who is signed in (id and email), and sign in / sign up / sign out.                                                                                                                                                                                              |
@@ -157,7 +156,6 @@ One file per backend router, and every backend endpoint has at least one hook.
 |                       | `GET /tags/default-tags`          | `tags.ts` -> `useDefaultTags(search)`           |
 |                       | `GET /tags/activity`              | `tags.ts` -> `useActivityTags()`                |
 |                       | `GET /tags/suggest`               | `tags.ts` -> `useSuggestTags()`                 |
-|                       | `PATCH /tags/scores`              | `tags.ts` -> `useEditTagScores()`               |
 | `routes/songs.rs`     | `GET /songs/local-tags`           | `songs.ts` -> `useTagsOnSong(songId)`           |
 |                       | `POST /songs/local-tags/batch`    | `songs.ts` -> `useTagsOnSongs(songIds)`         |
 |                       | `GET /songs/default-tags`         | `songs.ts` -> `useDefaultTagsOnSong(songId)`    |
@@ -197,11 +195,6 @@ inside the bound `mutate` of that song's `/comments` read, with `comment-votes.t
 as the optimistic data and `rollbackOnError`, then revalidates the read whether the vote saved or
 not. So its `useAPIMutation` lists nothing to invalidate. `useDeleteComment` invalidates every
 song's comments, because its payload carries no song id.
-
-`GET /tags/scores` has no hook any more. The Analytics tab reads tags by plays over a window
-instead, through `useAnalyticsTopTags`, which `tag_scores` cannot answer because it has no
-timestamp. `useEditTagScores` still writes them and the backend still decays them weekly, as the
-input for recommendations.
 
 Adding an endpoint: add the route in `backend-api/src/routes/*.rs`, then add a hook in the
 matching `routes/*.ts` built on the shared wrappers. For writes, list the endpoints the
@@ -490,55 +483,25 @@ in the pass. Sends are logged before the request, so a batch that hangs still sh
 Default tags are not part of this. The backend generates them lazily, the first time a default
 tag read touches a song it has never generated for.
 
-## Scoring tags on playback
+## Scoring interests on playback
 
-The tags on a song score once that song has played for 5 seconds, which is how the backend learns
-which tags the user listens to rather than which ones they type or skip past.
-`tag-scores.tsx::TagScoreTracker` is mounted at the root, watches `usePlaybackTrackState()`, and
-sends one `PATCH /tags/scores` per play. The body is
-`tag-score-deltas.ts::playTagScoreDeltas`: 2 points for each of the user's own tags
-(`LOCAL_TAG_PLAY_SCORE_DELTA`) and 1 for each default tag (`DEFAULT_TAG_PLAY_SCORE_DELTA`), added
-up by tag name, since scores go by name rather than by tag id. A default tag whose name is also
-one of the user's tags on the song counts as local only, so it gets 2, not 3. Names are compared
-trimmed, whitespace collapsed, and lowercased, the way the backend keys a score.
+The social feed ranks posts by the user's interest in artists and genres.
+`interest-play-tracker.tsx::InterestPlayTracker` is mounted at the root, watches
+`usePlaybackTrackState()`, and sends one `PATCH /social/interests/update` per play that lasts
+`PLAY_SCORE_DELAY_MS` (5 seconds) of uninterrupted playing. The body is
+`interest-score-deltas.ts::playInterestScoreDeltas`: 1 point for the track's `artistName`
+(`ARTIST_PLAY_INTEREST_DELTA`) and 1 for each of its `genres` (`GENRE_PLAY_INTEREST_DELTA`),
+straight off the active track's Apple Music metadata. Apple's catch-all "Music" genre is dropped,
+since it is on nearly every song. It waits for an account. The Android playback snapshot carries
+no genres, so a track that is not also in the app's queue mirror scores its artist only.
 
 There is no native playback event, so plays are read off the polled snapshot. A play starts when
 the active track becomes a different song, and scores at most once. Resuming after a pause is not
 a new play, and neither is the same song repeating. A snapshot with no track in it is ignored, so
-losing the track for a poll and finding the same one again does not start a second play.
+losing the track for a poll and finding the same one again does not start a second play. A timer
+runs while the track is playing and is cleared by a pause or a track change, so pausing starts the
+count over and skipping before it runs out drops the play.
 
-A play scores after `PLAY_SCORE_DELAY_MS` (5 seconds) of uninterrupted playing. A timer runs while
-the track is playing and is cleared by a pause or a track change, so pausing starts the count over
-and skipping before it runs out drops the play. The play lives in state and is replaced during
-render when the track changes, so the scoring effect never pairs an old play with a new track.
-
-It reads the user's own tags through `useTagsOnSong` and the default tags through
-`useDefaultTagsOnSong`, both under the song's `catalogId ?? id`. Those are the same cache keys the
-player sheet's Tags page reads, and the list rows read the same data in batches, so the reads are
-usually already warm when a song starts. The play waits for both. If the default read fails, it
-scores the user's own tags alone.
-
-Reading a song's default tags generates them when nothing has yet, so playing a song that no list
-or player sheet has shown can spend an LLM call and holds the play's score until generation
-finishes.
-
-The same play also sends one `PATCH /social/interests/update`, which is what the social feed ranks
-posts by. The body is `interest-score-deltas.ts::playInterestScoreDeltas`: 1 point for the track's
-`artistName` (`ARTIST_PLAY_INTEREST_DELTA`) and 1 for each of its `genres`
-(`GENRE_PLAY_INTEREST_DELTA`), straight off the active track's Apple Music metadata. Apple's
-catch-all "Music" genre is dropped, since it is on nearly every song. It needs no read, so it does
-not wait on the tag reads, but it does wait for an account. The Android playback snapshot carries
-no genres, so a track that is not also in the app's queue mirror scores its artist only.
-
-## Scoring tags in queries
-
-`tag-scores.tsx::useScoreQueryTags` returns a callback that gives every tag a query uses
-positively 10 points (`QUERY_TAG_SCORE_DELTA`), in one `PATCH /tags/scores`. `CadenzaScreen` calls it when the user opens
-the full results, not on each live edit. The body is `tag-score-deltas.ts::queryTagScoreDeltas`,
-which walks the `QueryJSON` tree. A tag filter under an odd number of `not`s is negative, and
-`is_not_applied` counts as one more `not`. A tag counts once per query however often it appears,
-and counts if it is used positively anywhere. `tag_name`, `tag_value`, and `tag_type` filters name
-no one tag and score nothing. Tag ids resolve to names through the tag list the caller passes.
 
 ## Connects to
 
@@ -596,8 +559,8 @@ times in one sitting" answerable. Going to the background ends the listen in fli
 `flushListen` rather than losing it.
 
 Note that there are now two separate things watching playback: this, and
-`tag-scores.tsx::TagScoreTracker`, which scores tags and interests off its own 5 second rule. They
-do not share a definition of a play. Worth unifying.
+`interest-play-tracker.tsx::InterestPlayTracker`, which scores interests off its own 5 second
+rule. They do not share a definition of a play. Worth unifying.
 
 ## Gotchas
 
@@ -639,9 +602,9 @@ do not share a definition of a play. Worth unifying.
 - Plays are only counted while `PlaybackProvider` is polling, which is only in the foreground. A
   song that plays start to finish with the app in the background is never counted, and the gap
   shows up in the analytics trends as well as in the play count.
-- `TagScoreTracker` counts a play at 5 seconds and `play-tracker.ts` at 15, so tag scores and the
-  analytics play count will not agree. Both are deliberate for their own purpose; neither is the
-  other's definition.
+- `InterestPlayTracker` counts a play at 5 seconds and `play-tracker.ts` at 15, so interest
+  scores and the analytics play count will not agree. Both are deliberate for their own purpose;
+  neither is the other's definition.
 - A comment vote is absolute (`"up"`, `"down"`, or `null`), and the server keeps whichever request
   it handles last. Two quick taps on one comment send two requests that can land out of order.
 - Opening the app while Apple Music is already playing scores that song. The first snapshot looks
