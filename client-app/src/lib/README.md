@@ -17,7 +17,7 @@ native module directly.
 | `routes/queries.ts`          | `useQueryResults`, the one cached hook for `/queries/results`. Both builders go through it, and it carries the suggested-tag flag. It sends no song ids: the backend queries the library it already has.                                                                                          |
 | `routes/comments.ts`         | Hooks for `/comments`: `useSongComments`, `useCreateComment`, `useDeleteComment`, `useVoteOnComment`.                                                                                                                                                                                             |
 | `routes/profile.ts`          | Hooks for `/profile`: `useProfile`, `useCreateProfile`, `useUpdateProfile`, plus `createProfile(token)` for the post-signup call from `AccountProvider`.                                                                                                                                         |
-| `routes/social.ts`           | `useDecayInterests`, `useEditInterestScores`, `useCreatePost`, `useLikePost`, `useUnlikePost`, and `usePosts`, for `/social`, the proxy to the social feed service.                                                                                                                               |
+| `routes/social.ts`           | `useFeed`, `useDecayInterests`, `useEditInterestScores`, `useCreatePost`, `useLikePost`, `useUnlikePost`, and `usePosts`, for `/social`, the proxy to the social feed service.                                                                                                                     |
 | `comment-votes.ts`           | `applyCommentVote`, the optimistic update `useVoteOnComment` makes to cached comment threads. `sortThreadsByVotes` and `orderThreadsLike`, which `CommentsPage` uses to sort threads by score and then hold that order while it is in view. Only type imports, tested in `comment-votes.test.ts`. |
 | `musickit-hooks.ts`          | SWR over the native module: song info, catalog search, paged and complete-library songs, albums, artists, playlists, collection metadata, favorites, artist search, and playlist writes.                                                                                                          |
 | `song-init.tsx`              | `SongInitProvider`, which runs the library sync job after account and Apple Music authorization.                                                                                                                                                                                                  |
@@ -181,7 +181,8 @@ One file per backend router, and every backend endpoint has at least one hook.
 |                       | `POST /comments`                  | `comments.ts` -> `useCreateComment()`           |
 |                       | `DELETE /comments`                | `comments.ts` -> `useDeleteComment()`           |
 |                       | `POST /comments/votes`            | `comments.ts` -> `useVoteOnComment(songId)`     |
-| `routes/social.rs`    | `PATCH /social/interests/decay`   | `social.ts` -> `useDecayInterests()`            |
+| `routes/social.rs`    | `GET /social/feed`                | `social.ts` -> `useFeed()`                      |
+|                       | `PATCH /social/interests/decay`   | `social.ts` -> `useDecayInterests()`            |
 |                       | `PATCH /social/interests/update`  | `social.ts` -> `useEditInterestScores()`        |
 |                       | `POST /social/posts`              | `social.ts` -> `useCreatePost()`                |
 |                       | `POST /social/posts/{id}/likes`   | `social.ts` -> `useLikePost()`                  |

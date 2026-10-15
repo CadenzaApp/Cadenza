@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from "react";
 
-import { useAPIMutation, useAPIPostDataBatched } from "../api-actions";
+import { useAPIData, useAPIMutation, useAPIPostDataBatched } from "../api-actions";
 import type { InterestScoreDelta, SocialPost } from "@/lib/types";
 
 /**
@@ -50,6 +50,24 @@ export function useEditInterestScores() {
         editInterestScoresLoading: x.isMutating,
         resetEditInterestScores: x.reset,
         editInterestScores: x.trigger,
+    };
+}
+
+type FeedResponse = {
+    feed: [number, number][];
+};
+
+/** Ranked post ids for the signed-in user, best first. At most 100. */
+export function useFeed() {
+    const x = useAPIData<FeedResponse>("/social/feed");
+    const postIds = useMemo(
+        () => (x.data?.feed ?? []).map((item) => item[1]),
+        [x.data],
+    );
+    return {
+        postIds,
+        feedLoading: x.isLoading,
+        feedErr: x.error,
     };
 }
 
@@ -134,9 +152,9 @@ type PostsBatchResponse = {
 const EMPTY_POSTS: SocialPost[] = [];
 
 /**
- * Display fields for many posts at once (content, likes, created_at, author
- * username), in the order of `postIds`. Missing ids are omitted. The list is
- * split into batches the way other list reads are.
+ * Display fields for many posts at once (content, likes, whether you liked
+ * it, created_at, author username), in the order of `postIds`. Missing ids are
+ * omitted. The list is split into batches the way other list reads are.
  *
  * ```ts
  * const { posts, postsLoading, postsErr } = usePosts(feedPostIds);

@@ -136,7 +136,7 @@ def mark_posts_viewed(user_id: str, post_ids: list[int]):
         )
 
 
-def get_posts(post_ids: list[int]) -> list[dict]:
+def get_posts(user_id: str, post_ids: list[int]) -> list[dict]:
     """Display fields for the given posts, in request order. Missing ids are skipped."""
     if not post_ids:
         return []
@@ -151,12 +151,17 @@ def get_posts(post_ids: list[int]) -> list[dict]:
                     p.content,
                     p.likes,
                     p.created_at,
-                    pr.username
+                    pr.username,
+                    EXISTS (
+                        SELECT 1 FROM post_likes
+                        WHERE post_likes.post_id = p.post_id
+                          AND post_likes.user_id = %s
+                    ) AS liked
                 FROM posts p
                 LEFT JOIN profile pr ON pr.uid = p.user_id
                 WHERE p.post_id = ANY(%s)
             """,
-            (ordered_unique,),
+            (user_id, ordered_unique),
         ).fetchall()
 
     by_id = {row["post_id"]: row for row in rows}
@@ -171,6 +176,7 @@ def get_posts(post_ids: list[int]) -> list[dict]:
                 "content": row["content"],
                 "likes": row["likes"],
                 "created_at": row["created_at"],
+                "liked": row["liked"],
                 "author": {"username": row["username"] or "unknown"},
             }
         )

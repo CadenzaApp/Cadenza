@@ -66,6 +66,8 @@ export type SocialPost = {
     post_id: number;
     content: string;
     likes: number;
+    /** Whether the signed-in user has liked it. */
+    liked: boolean;
     /** RFC 3339 in UTC */
     created_at: string;
     author: {

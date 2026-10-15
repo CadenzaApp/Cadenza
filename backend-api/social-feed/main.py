@@ -55,12 +55,13 @@ async def create_post_route(body: CreatePostBody):
 
 
 class GetPostsBody(BaseModel):
+    user_id: str
     post_ids: list[int]
 
 
 @app.post("/posts/batch")
 async def get_posts_route(body: GetPostsBody):
-    return {"posts": get_posts(body.post_ids)}
+    return {"posts": get_posts(body.user_id, body.post_ids)}
 
 
 class LikePostBody(BaseModel):
@@ -68,34 +69,26 @@ class LikePostBody(BaseModel):
     timestamp: int
 
 
-def _apply_like(user_id: str, post_id: int, timestamp: int, apply):
-    if not accept_like_interaction(user_id, post_id, timestamp):
-        return
-    try:
-        apply()
-    except Exception:
-        forget_like_interaction(user_id, post_id, timestamp)
-        raise
-
-
 @app.post("/posts/{post_id}/likes")
 async def like_post_route(post_id: int, body: LikePostBody):
-    _apply_like(
-        body.user_id,
-        post_id,
-        body.timestamp,
-        lambda: like_post(body.user_id, post_id),
-    )
+    if not accept_like_interaction(body.user_id, post_id, body.timestamp):
+        return
+    try:
+        like_post(body.user_id, post_id)
+    except Exception:
+        forget_like_interaction(body.user_id, post_id, body.timestamp)
+        raise
 
 
 @app.delete("/posts/{post_id}/likes")
 async def unlike_post_route(post_id: int, body: LikePostBody):
-    _apply_like(
-        body.user_id,
-        post_id,
-        body.timestamp,
-        lambda: unlike_post(body.user_id, post_id),
-    )
+    if not accept_like_interaction(body.user_id, post_id, body.timestamp):
+        return
+    try:
+        unlike_post(body.user_id, post_id)
+    except Exception:
+        forget_like_interaction(body.user_id, post_id, body.timestamp)
+        raise
 
 
 class MarkPostsViewedBody(BaseModel):

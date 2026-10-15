@@ -15,13 +15,9 @@ type Props = {
     onToggleLike: () => void;
 };
 
-/**
- * One feed row: author, body, and a local like control. No network calls yet;
- * likes only flip state on the screen that owns the feed.
- */
+/** One feed row: author, body, and the like control. */
 export function PostCard({ post, liked, onToggleLike }: Props) {
     const { colors } = useTheme();
-    const likes = post.likes + (liked ? 1 : 0);
 
     return (
         <View className="gap-3 overflow-hidden rounded-3xl border border-border p-4">
@@ -74,7 +70,7 @@ export function PostCard({ post, liked, onToggleLike }: Props) {
                         liked ? "text-rose-600" : "text-muted-foreground",
                     )}
                 >
-                    {likes}
+                    {post.likes}
                 </Text>
             </Pressable>
         </View>
