@@ -57,3 +57,13 @@ class LikePostBody(BaseModel):
 @app.post("/posts/{post_id}/likes")
 async def like_post_route(post_id: int, body: LikePostBody):
     like_post(post_id)
+
+
+class MarkPostsViewedBody(BaseModel):
+    user_id: str
+    post_ids: list[int]
+
+
+@app.post("/posts/views")
+async def mark_posts_viewed_route(body: MarkPostsViewedBody):
+    mark_posts_viewed(body.user_id, body.post_ids)

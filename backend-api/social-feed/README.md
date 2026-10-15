@@ -37,8 +37,12 @@ First start downloads the model, so it is slow and needs a few hundred MB.
 | `PATCH /interests/decay` | `user_id` | nothing |
 | `POST /posts` | `user_id`, `content` | `{"post_id": n}` |
 | `POST /posts/{post_id}/likes` | `user_id` (unused) | nothing |
+| `POST /posts/views` | `user_id`, `post_ids: [n, ...]` | nothing |
 
 `itype` is `genre` or `artist`.
+
+`POST /posts/views` inserts a `post_views` row per id (idempotent on `(post_id, user_id)`).
+Both feed sources skip posts the user has already viewed.
 
 ## How ranking works
 
@@ -48,8 +52,8 @@ First start downloads the model, so it is slow and needs a few hundred MB.
   only ever happens on a name nothing has embedded before.
 - The user vector is the top 10 genres and top 10 artists, each embedding times its score,
   summed. No scores means no vector, which means an empty feed.
-- `get_feed` unions posts nearest the user vector with the globally hot posts, dedupes, then
-  scores each by likes, age, and cosine similarity.
+- `get_feed` unions unviewed posts nearest the user vector with the globally hot unviewed
+  posts, dedupes, then scores each by likes, age, and cosine similarity.
 - `decay_interests` multiplies every score by 0.6. It is a no-op if the user decayed in the
   last 6 hours or their top score is under 5, so the client can call it on every launch. The
   client does, from `@/lib/interest-decay`.
