@@ -2,8 +2,14 @@ import { AuthStatus, type AuthResult } from "@apple-musickit";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Redirect, useRouter, type Href } from "expo-router";
 import { useTheme } from "expo-router/react-navigation";
-import { useState } from "react";
-import { ActivityIndicator, ScrollView, StyleSheet, View } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import {
+    ActivityIndicator,
+    ScrollView,
+    StyleSheet,
+    TextInput,
+    View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { getAccountInitials } from "@/components/custom/account-initials";
@@ -12,12 +18,21 @@ import { GlassButton } from "@/components/ui/glass-button";
 import { GlassConfirmDialog } from "@/components/ui/glass-confirm-dialog";
 import { GlassSurface } from "@/components/ui/glass-surface";
 import { GlassToggle } from "@/components/ui/glass-toggle";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Text } from "@/components/ui/text";
 import { useAccount } from "@/lib/account";
+import { classifyError } from "@/lib/app-error";
 import { useAppleMusic } from "@/lib/apple-music-auth";
 import { useMusicListPreferences } from "@/lib/music-list-preferences";
+import { useProfile, useUpdateProfile } from "@/lib/routes/profile";
 
 import { GlassSettingsPanel, SettingsIcon, SettingsRow } from "./settings-ui";
+
+/** Matches `MAX_USERNAME_CHARS` in backend-api/src/db/profile.rs. */
+const MAX_USERNAME_CHARS = 64;
+/** Matches `MAX_BIO_CHARS` in backend-api/src/db/profile.rs. */
+const MAX_BIO_CHARS = 500;
 
 type ConfirmationTarget = "cadenza" | "apple-music";
 
@@ -26,6 +41,12 @@ export function AccountSettingsScreen() {
     const insets = useSafeAreaInsets();
     const { colors } = useTheme();
     const { account, signOut } = useAccount();
+    const { profile, profileLoading, profileErr } = useProfile();
+    const {
+        updateProfile,
+        updateProfileLoading,
+        resetUpdateProfile,
+    } = useUpdateProfile();
     const { showSuggestedTags, setShowSuggestedTags } =
         useMusicListPreferences();
     const {
@@ -48,9 +69,62 @@ export function AccountSettingsScreen() {
         null,
     );
     const [syncMessageVisible, setSyncMessageVisible] = useState(false);
+    const [username, setUsername] = useState("");
+    const [bio, setBio] = useState("");
+    const [profileSaveError, setProfileSaveError] = useState<string | null>(
+        null,
+    );
+    const [profileSaveMessage, setProfileSaveMessage] = useState<string | null>(
+        null,
+    );
+    const profileFormSeeded = useRef(false);
+
+    useEffect(() => {
+        if (!profile || profileFormSeeded.current) return;
+        setUsername(profile.username);
+        setBio(profile.bio);
+        profileFormSeeded.current = true;
+    }, [profile]);
 
     if (!account) {
         return <Redirect href="/auth?initialMode=signin" />;
+    }
+
+    const trimmedUsername = username.trim();
+    const trimmedBio = bio.trim();
+    const profileDirty =
+        profile != null &&
+        (trimmedUsername !== profile.username || trimmedBio !== profile.bio);
+    const usernameValid =
+        trimmedUsername.length > 0 &&
+        trimmedUsername.length <= MAX_USERNAME_CHARS &&
+        !trimmedUsername.includes("@");
+    const bioValid = trimmedBio.length <= MAX_BIO_CHARS;
+    const canSaveProfile =
+        profileDirty &&
+        usernameValid &&
+        bioValid &&
+        !updateProfileLoading &&
+        !profileLoading;
+
+    async function handleSaveProfile() {
+        if (!canSaveProfile) return;
+
+        setProfileSaveError(null);
+        setProfileSaveMessage(null);
+        resetUpdateProfile();
+        try {
+            const updated = await updateProfile({
+                username: trimmedUsername,
+                bio: trimmedBio,
+            });
+            setUsername(updated.username);
+            setBio(updated.bio);
+            setProfileSaveMessage("Profile saved.");
+        } catch (error) {
+            console.error("Profile save error:", error);
+            setProfileSaveError(profileSaveErrorMessage(error));
+        }
     }
 
     async function handleConnectAppleMusic() {
@@ -166,6 +240,123 @@ export function AccountSettingsScreen() {
                             />
                             <Text>Sign Out</Text>
                         </GlassButton>
+                    </View>
+                </GlassSettingsPanel>
+
+                <GlassSettingsPanel>
+                    <View className="gap-4 px-5 py-5">
+                        <View className="gap-1">
+                            <Text className="text-lg font-semibold">
+                                Profile
+                            </Text>
+                            <Text className="text-sm leading-5 text-muted-foreground">
+                                Your public username and bio on Cadenza.
+                            </Text>
+                        </View>
+
+                        {profileLoading && !profile ? (
+                            <ActivityIndicator
+                                size="small"
+                                color={colors.text}
+                            />
+                        ) : profileErr && !profile ? (
+                            <Text className="text-sm text-destructive">
+                                Could not load your profile. Try again later.
+                            </Text>
+                        ) : (
+                            <>
+                                <View className="gap-1.5">
+                                    <Label>Username</Label>
+                                    <Input
+                                        value={username}
+                                        onChangeText={(text) => {
+                                            setUsername(
+                                                text.slice(
+                                                    0,
+                                                    MAX_USERNAME_CHARS,
+                                                ),
+                                            );
+                                            setProfileSaveError(null);
+                                            setProfileSaveMessage(null);
+                                        }}
+                                        placeholder="username"
+                                        autoCapitalize="none"
+                                        autoCorrect={false}
+                                        maxLength={MAX_USERNAME_CHARS}
+                                        editable={!updateProfileLoading}
+                                        returnKeyType="next"
+                                    />
+                                    <Text className="text-right text-xs text-muted-foreground">
+                                        {username.trim().length}/
+                                        {MAX_USERNAME_CHARS}
+                                    </Text>
+                                </View>
+
+                                <View className="gap-1.5">
+                                    <Label>Bio</Label>
+                                    <View className="overflow-hidden rounded-md border border-border">
+                                        <TextInput
+                                            value={bio}
+                                            onChangeText={(text) => {
+                                                setBio(
+                                                    text.slice(
+                                                        0,
+                                                        MAX_BIO_CHARS,
+                                                    ),
+                                                );
+                                                setProfileSaveError(null);
+                                                setProfileSaveMessage(null);
+                                            }}
+                                            placeholder="Say something about yourself"
+                                            placeholderTextColor="#888888"
+                                            multiline
+                                            maxLength={MAX_BIO_CHARS}
+                                            editable={!updateProfileLoading}
+                                            textAlignVertical="top"
+                                            className="min-h-[96px] bg-input px-3 py-3 text-base text-foreground"
+                                        />
+                                    </View>
+                                    <Text className="text-right text-xs text-muted-foreground">
+                                        {bio.trim().length}/{MAX_BIO_CHARS}
+                                    </Text>
+                                </View>
+
+                                {profileSaveError ? (
+                                    <Text className="text-sm text-destructive">
+                                        {profileSaveError}
+                                    </Text>
+                                ) : null}
+                                {profileSaveMessage ? (
+                                    <Text className="text-sm text-muted-foreground">
+                                        {profileSaveMessage}
+                                    </Text>
+                                ) : null}
+
+                                <GlassButton
+                                    className="w-full"
+                                    disabled={!canSaveProfile}
+                                    onPress={() => void handleSaveProfile()}
+                                >
+                                    {updateProfileLoading ? (
+                                        <ActivityIndicator
+                                            size="small"
+                                            color={colors.text}
+                                        />
+                                    ) : (
+                                        <Ionicons
+                                            name="checkmark-outline"
+                                            size={19}
+                                            color={colors.text}
+                                        />
+                                    )}
+                                    <Text>
+                                        {updateProfileLoading
+                                            ? "Saving..."
+                                            : "Save Profile"}
+                                    </Text>
+                                </GlassButton>
+                            </>
+                        )}
                     </View>
                 </GlassSettingsPanel>
 
@@ -413,4 +604,32 @@ function confirmationCopy(target: ConfirmationTarget | null) {
         title: "Sign out of Cadenza?",
         description: "You will need to sign in again to use Cadenza.",
     };
+}
+
+/** User-facing sentence for a failed profile save. */
+function profileSaveErrorMessage(error: unknown): string {
+    if (typeof error === "object" && error !== null) {
+        const type = (error as { error_type?: unknown }).error_type;
+        const message = (error as { message?: unknown }).message;
+
+        if (type === "UsernameAlreadyTaken") {
+            return "That username is already taken.";
+        }
+        if (
+            (type === "QueryFormatError" || type === "InvalidRequestBody") &&
+            typeof message === "string" &&
+            message.length > 0
+        ) {
+            return sentenceCase(message);
+        }
+    }
+
+    return classifyError(error).detail;
+}
+
+function sentenceCase(message: string): string {
+    const trimmed = message.trim();
+    if (!trimmed) return trimmed;
+    const capped = trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+    return /[.!?]$/.test(capped) ? capped : `${capped}.`;
 }

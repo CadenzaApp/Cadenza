@@ -7,7 +7,7 @@ actions. Appearance and the other marked settings are local previews only.
 
 | file                            | role                                                                                                                                               |
 | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `account-settings.tsx`          | Account cards, authentication actions, suggested-tag display setting, content toggle, privacy, and sync stub.                                      |
+| `account-settings.tsx`          | Account cards, profile username/bio editing, authentication actions, suggested-tag display setting, content toggle, privacy, and sync stub.         |
 | `appearance-settings.tsx`       | Session-only color controls and preview.                                                                                                           |
 | `settings-ui.tsx`               | Shared glass panels, rows, icons, and the TODO badge.                                                                                              |
 | `apple-music-session-guard.tsx` | `AppleMusicSessionGuard`: renders nothing, opens this sheet once when Apple rejects the stored music-user token. Mounted in `src/app/_layout.tsx`. |
@@ -17,6 +17,10 @@ actions. Appearance and the other marked settings are local previews only.
 Both routes stay standard `DetailScreen` sheets. Signing out of Cadenza uses the existing
 Supabase provider. Signing out of Apple Music clears only the local MusicKit authorization.
 Both destructive actions go through the same glass confirmation dialog.
+
+The Profile panel loads the signed-in user's row from `GET /profile` and saves with
+`PATCH /profile`. Username is capped at 64 characters and cannot contain `@`. Bio is capped
+at 500. Empty bio is allowed.
 
 When `useAppleMusic().sessionExpired` is set, the Apple Music card says the token expired and
 to reconnect. That flag is set by `reportAppleMusicAuthFailure()` after an Apple Music read has
@@ -36,6 +40,7 @@ local unavailable feedback and does not call MusicKit or the backend.
 ## Connects to
 
 - `@/lib/account` for the Cadenza session.
+- `@/lib/routes/profile` for reading and updating username and bio.
 - `@/lib/apple-music-auth` for Apple Music authorization.
 - `@/lib/music-list-preferences` for the persisted suggested-tag display setting.
 - `@/components/ui/glass-*` for every visible surface and action, including `GlassToggle`.
