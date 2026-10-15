@@ -17,7 +17,7 @@ nothing that comes back is persisted.
 | `src/err.rs` | `CadenzaError` and its status code / JSON body mapping. |
 | `src/routes/` | HTTP handlers. See [src/routes/README.md](src/routes/README.md). |
 | `src/db/` | Query layer and generated entities. See [src/db/README.md](src/db/README.md). |
-| `src/services/` | Tag generation, normalization, Apple Music song metadata, default tag generation, the weekly tag score decay, the social feed proxy, and the listening analytics definitions. See [src/services/README.md](src/services/README.md). |
+| `src/services/` | Tag generation, normalization, Apple Music song metadata, default tag generation, the social feed proxy, and the listening analytics definitions. See [src/services/README.md](src/services/README.md). |
 | `src/test_utils.rs` | Test helpers. Currently just `string_of_length`. |
 | `sql/` | The DDL for tables added by hand, so a fresh database can be stood up. Not a migration runner; see Schema changes. |
 | `certs/readme.md` | Leftover self-signed cert steps. No longer needed, the server is plain HTTP. |
@@ -55,7 +55,7 @@ Auth is per handler, not middleware. A handler that needs a user adds
 the request with a 401 before the body runs. The user id is `claims.user_id`, taken from the
 JWT `sub`. Never read a user id off the request.
 
-Three `tokio` tasks run for the life of the process, all spawned from `main.rs` before the
+Two `tokio` tasks run for the life of the process, both spawned from `main.rs` before the
 listener binds:
 
 - **default tag backfill**, off unless `DEFAULT_TAG_BACKFILL_ENABLED` is `true`, because every
@@ -65,12 +65,8 @@ listener binds:
   songs and for every song on a queued album, so queries can filter on it. Woken straight away
   when a request queues an album, and hands back albums a stopped server left claimed when it
   starts.
-- **tag score decay**, always on. Once a week it halves each user's `tag_scores` in a transaction
-  of its own, skipping users whose highest score is below 5, and records each user's last decay
-  week in `tag_scores_metadata`. It checks once a day, and a day with nobody due costs one query,
-  so there is no env var to turn it off.
 
-All three are in `src/services/`. See [src/services/README.md](src/services/README.md).
+Both are in `src/services/`. See [src/services/README.md](src/services/README.md).
 
 Errors: every handler returns `Result<_, CadenzaError>`. `CadenzaError` implements
 `IntoResponse` and maps each variant to a status plus a JSON body of

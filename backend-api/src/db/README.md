@@ -7,25 +7,22 @@ The data access layer. Everything that touches postgres lives here, so handlers 
 
 | file | role |
 | --- | --- |
-| `mod.rs` | Declares `activity_tags`, `analytics`, `comment_votes`, `comments`, `entity`, `events`, `metadata_tags`, `queries`, `tag_activity`, `tag_scores`, `tag_scores_metadata`, `tags`, `user_songs`. |
+| `mod.rs` | Declares `activity_tags`, `analytics`, `comment_votes`, `comments`, `entity`, `events`, `metadata_tags`, `queries`, `tag_activity`, `tags`, `user_songs`. |
 | `events.rs` | The write path for `listening_events`: `NewEvent` and `insert_events`, which is idempotent on `client_event_id` and reports which rows were new. |
 | `analytics.rs` | The read path for `listening_events`: the metric summary, dense time bucketed trends, the song, artist, album, playlist and query rankings, replays, top tags with a cover song, tags played, the tag-colored heatmap, plays by hour, active days, and the event bounds. Integration tested against a real database (`--ignored`). |
 | `activity_tags.rs` | `ActivityTag` (My Plays, First Played, Last Played), finding their rows by `is_activity` and name and creating missing ones, `record_play`, and reading their values per song with defaults filled in. Unit tested. |
-| `tags.rs` | User tag CRUD and applied values, plus searching, reading, and applying default tags, and claiming, finishing, and dropping a song's default tag generation. `get_tags_named` reads the user's and the default tags by normalized name, never activity tags. User tag reads never copy or return defaults. |
+| `tags.rs` | User tag CRUD and applied values, plus searching, reading, and applying default tags, and claiming, finishing, and dropping a song's default tag generation. User tag reads never copy or return defaults. |
 | `tag_activity.rs` | Not activity tags. Counts applies and removes of a tag name on a song in `default_tag_activity`, and promotes popular names to default tags. |
-| `tag_scores.rs` | `add_to_tag_scores`: moves the user's score for each named tag by a delta, in one upsert. `get_top_tag_scores`: the user's `k` highest scores, each with the color of the tag it is drawn as. `get_users_due_for_decay`, `get_max_score`, and `halve_user_tag_scores`: what the weekly halving reads and writes. Unit tested. |
-| `tag_scores_metadata.rs` | Each user's last decay week: `insert_decay_week_if_missing`, `lock_decay_week` (`FOR UPDATE SKIP LOCKED`), and `set_decay_week`. Unit tested. |
 | `queries.rs` | Compiles a tag query to SQL, runs it, and ranks the matches. Unit tested, plus metadata filters run against a real database (`--ignored`). |
 | `metadata_tags.rs` | The copy of Apple Music song metadata that queries and metadata tags read in `metadata_song_tags_applied`, and the album crawl queue in `metadata_albums`: storing songs, finding ones with no row, and queueing, claiming, finishing, and releasing albums. Unit tested, plus integration tests against a real database (`--ignored`). |
 | `comments.rs` | Comment reads and writes: every comment on a song paired into threads, leaving a comment or a reply, and deleting the user's own comment. |
 | `comment_votes.rs` | `CommentVote` and `VoteTally`. `set_comment_vote`, which casts, switches, or takes back the user's vote on a comment, and `get_song_vote_tallies`, the votes on each comment of a song as the reading user sees them. |
 | `user_songs.rs` | `edit_user_songs`: adds and removes the user's songs in one transaction. `get_recent_songs_without_generated_default_tags`: the newest songs nothing has generated default tags for, which the backfill job walks. |
-| `entity/` | sea-orm-codegen output. Includes tag, tag score, default-tag, comment, and tag score metadata tables, plus `prelude` and `mod`. Do not hand edit. |
+| `entity/` | sea-orm-codegen output. Includes tag, default-tag, comment, and related tables, plus `prelude` and `mod`. Do not hand edit. |
 
 ## Schema
 
-Most of the tables below are keyed on song ids that come from Apple Music. `tag_scores` is
-keyed by tag name and user, and `tag_scores_metadata` by user alone.
+Most of the tables below are keyed on song ids that come from Apple Music.
 
 - `tags` - `tag_id` (bigserial pk), `name`, `color`, nullable `user_id`, `type` (`tag_type` enum:
   `basic`, `text`, `datetime`, `number`, `checkbox`, `date`; defaults to `basic`), and `is_activity`
@@ -51,14 +48,6 @@ keyed by tag name and user, and `tag_scores_metadata` by user alone.
   `(song_id, tag_name)`. `apply_count` is how many users have a tag of that name on the song, and
   `remove_count` how many removed it as a suggested tag. The row is written once and never
   deleted, so the counts outlive the promotion to `default_tags_applied`.
-- `tag_scores` - how interested a user is in a tag name. Composite pk of `(tag_name, user_id)`,
-  plus `score`, a bigint defaulting to 0. Keyed by name rather than tag id, so one score covers
-  the user's own tags, default tags, and names they have no tag of at all. `user_id` references
-  `auth.users` and cascades, and carries a `gen_random_uuid()` column default that the api never
-  leans on because it always sets the column. Two things write it: `PATCH /tags/scores`, through
-  `tag_scores.rs::add_to_tag_scores`, and the weekly halving job, through
-  `tag_scores.rs::halve_user_tag_scores`. `GET /tags/scores` reads it, through
-  `tag_scores.rs::get_top_tag_scores`.
 - `default_tags_removed` - one row per user who removed a default tag from a song, composite pk of
   `(user_id, tag_id, song_id)`, so a removal counts once. Its fk to `default_tags_applied`
   cascades, so a default tag coming off a song takes its removals with it. Default tag reads and
@@ -92,10 +81,6 @@ keyed by tag name and user, and `tag_scores_metadata` by user alone.
 - `comment_votes` - a user's vote on a comment. Composite pk of `(user_id, comment_id)`, so one
   vote per user per comment, and `is_upvote`. Both fks cascade, to `comment` and to `auth.users`,
   so deleting a comment or a user deletes its votes.
-- `tag_scores_metadata` - the weekly decay's per user state. `user_id` (uuid pk, references
-  `auth.users` and cascades) and `last_decay_week` (int, not null), a week number counted from
-  the unix epoch. A user gets a row the first time the decay job sees them with a score. Only the
-  decay job reads or writes it.
 - `metadata_song_tags_applied` - a copy of each song's Apple Music metadata, one row
   per song, keyed by `song_id`. `found` is false for an id Apple has no catalog entry for, which
   leaves every other column empty. `name`, `artist_name`, `album_name`, `album_id`,
@@ -229,55 +214,6 @@ which leaves them out on its own, so they never show on the Tags pages. `unapply
 them with `ActivityTagReadOnly`, and `apply_user_tag` / `set_user_tag_value` already refuse them
 through `get_owned_tag`.
 
-## Tag scores
-
-`tag_scores.rs::add_to_tag_scores` takes a map of tag name to delta and adds each delta to that
-name's score for the user, in one multi-row upsert:
-`ON CONFLICT (tag_name, user_id) DO UPDATE SET score = tag_scores.score + excluded.score`. A name
-with no row yet starts at its delta, and a negative delta takes a score down, below zero included.
-
-Names go through `services::tag_normalizer::normalize_tag_name` first, so a score belongs to a
-lowercased name and `"Pop"` and `" pop "` are one row. `normalize_deltas` does that, rejects a name
-that normalizes to nothing, caps a request at `MAX_SCORED_TAG_NAMES` (200) names, and adds up the
-deltas of names that collapsed into one rather than letting one of them win.
-
-It hands back a `BTreeMap`, so the statement writes rows in name order however the request listed
-them. Two concurrent requests naming the same tags then lock those rows in the same order instead
-of deadlocking each other.
-
-The scores every named tag is left at come straight off the upsert's `RETURNING`, so the caller
-does not read the rows back.
-
-`get_top_tag_scores` is the read, with `k` capped at `MAX_TOP_TAG_SCORES` (200). It takes three
-steps:
-
-1. Every one of the user's rows with `score > 0`, `ORDER BY score DESC, tag_name ASC`, with no
-   `LIMIT`, because names with no tag drop out in step 3 and a `LIMIT k` could leave fewer than
-   `k`.
-2. `tags.rs::get_tags_named` for those names: the user's own tags and the default tags whose
-   names normalize to one of them, oldest first. Tag names are stored as written, so the match
-   runs a SQL version of `normalize_tag_name` over `tags.name`
-   (`lower(left(btrim(regexp_replace(name, '\s+', ' ', 'g')), 50))`).
-3. `tag_colors_by_name` normalizes each tag's name again in Rust, which is the match it trusts,
-   and picks one color per name: the user's tag over a default tag, the oldest on each side. The
-   rows then keep their order, lose the names with no tag, and stop at `k`.
-
-The result is a `HashMap` of name to `TopTagScore { score, color, local }`. The order only decides
-which rows make the cut. The name tiebreak keeps that cut stable when scores tie at the `k`th
-place, which halving makes common.
-
-The weekly halving is the other side of that. `get_users_due_for_decay` returns every user with
-a score except those whose `tag_scores_metadata` week is already this week or later, as one
-`SELECT DISTINCT ... NOT IN (subquery)`. `get_max_score` is one user's highest score.
-`halve_user_tag_scores` is
-`UPDATE tag_scores SET score = score / 2 WHERE user_id = $1`: every tag name of one user, in one
-statement. Postgres truncates integer division toward zero, so a score of 1 lands on 0 and so
-does -1. Rows are never deleted, so a name that decayed to 0 keeps its row and can climb back out
-of it.
-
-Their only caller is `services::tag_score_decay`, which runs them once a week, together with
-the `tag_scores_metadata.rs` functions. The scheduling, which users get skipped, and how the
-per user row lock stops two servers halving the same user twice all live there. See [../services/README.md](../services/README.md).
 
 ## Comments
 
@@ -482,27 +418,6 @@ every song scores zero and the whole list is ordered by song id.
 - The removal join sits in two places, `default_tags_on_songs_query` and the default branch of
   `queries.rs::applied_tags_source`. A new read of `default_tags_applied` has to exclude removals
   itself.
-- Tag scores are per tag name, not per tag id. Nothing ties a score to a `tags` row, so a score
-  can name a tag the user deleted, a default tag, or a name they never had a tag of.
-- A delta of 0 still writes the row, which creates it at 0 for a name that had no score.
-- Nothing clamps a delta. Deltas that collapse into one name are summed saturating, but a delta
-  big enough to overflow the bigint `score` comes back from postgres as a generic `DatabaseError`.
-- `tag_scores` has no index that leads with `user_id`. Its pk is `(tag_name, user_id)`, so
-  `get_top_tag_scores` scans the table and sorts. An index on `(user_id, score DESC, tag_name)`
-  would make it a range read.
-- `get_top_tag_scores` reads every positive score the user has, not `k` of them, and names all of
-  them in one `IN` list. `get_tags_named`'s name match is an expression over `tags.name`, so it
-  cannot use an index and scans the user's and every default tag.
-- The SQL name normalization cuts at 50 characters and Rust at 50 bytes, and the two lowercase
-  non-ASCII text differently. A tag whose name only matches under one of them is missed, and
-  that name drops out of the top scores as if it had no tag.
-- Halving truncates toward zero, so a score of 1 becomes 0 and stays there until something adds
-  to it again. Scores near zero decay faster in relative terms than large ones.
-- `get_users_due_for_decay` is not user scoped. It reads every user's scores in one query, and
-  only the decay job should call it.
-- `lock_decay_week` returns `None` both when the user has no row and when another transaction
-  holds it. Callers that need to tell those apart have to insert first, which is what
-  `insert_decay_week_if_missing` is for.
 - Activity tag rows live in `user_tags_applied`, so they count as tags on a song everywhere that
   table is read: `tag_name`, `tag_value` and `tag_type` filters see activity tags too, and a song's
   My Plays row counts toward ranking when the query names My Plays.

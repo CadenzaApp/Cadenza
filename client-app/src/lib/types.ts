@@ -45,21 +45,6 @@ export type TagMetadata = {
     count: number;
 };
 
-/**
- * How far to move each tag name's score, keyed by tag name. Positive values
- * raise the score, negative ones lower it. Names are matched case-insensitively
- * and by tag name rather than tag id, so a default tag can be scored too.
- */
-export type TagScoreDeltas = Record<string, number>;
-
-/** What each named tag's score is now, keyed by the lowercased tag name. */
-export type TagScores = Record<string, number>;
-
-// `GET /tags/scores` has no client caller any more. The Analytics tab reads tags
-// by plays in a window instead, which tag_scores cannot answer because it has no
-// timestamp. Scores are still written and still decay, as the input for
-// recommendations; its response shape lives in backend-api/src/routes/README.md.
-
 /** What kind of thing the social feed tracks the user's interest in. */
 export type InterestType = "artist" | "genre";
 

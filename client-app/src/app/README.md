@@ -54,7 +54,7 @@ GestureHandlerRootView
                   ZoomOriginProvider          per-navigation zoom launch measurements
                     Stack                     the routes
                     AppleMusicSessionGuard    opens /account when the apple music token dies
-                    TagScoreTracker           scores the tags, artist, and genres of each song played for 5 seconds
+                    InterestPlayTracker       scores the artist and genres of each song played for 5 seconds
                     InterestDecay             decays the user's interest scores once per launch
                     TasksHost                 background task status
                     PortalHost                where dialogs and modals render
@@ -69,10 +69,10 @@ GestureHandlerRootView
 music-user token, so a library that cannot load turns into a reconnect instead of an error. It
 skips the splash and auth routes.
 
-`TagScoreTracker` (`@/lib/tag-scores`) renders nothing. It sits beside the root `Stack` because
-it only needs to be inside `PlaybackProvider` and `AccountProvider`, and it sends one
-`PATCH /tags/scores` and one `PATCH /social/interests/update` per song that plays for 5 seconds.
-See [../lib/README.md](../lib/README.md).
+`InterestPlayTracker` (`@/lib/interest-play-tracker`) renders nothing. It sits beside the root
+`Stack` because it only needs to be inside `PlaybackProvider` and `AccountProvider`, and it sends
+one `PATCH /social/interests/update` per song that plays for 5 seconds. See
+[../lib/README.md](../lib/README.md).
 
 `InterestDecay` (`@/lib/interest-decay`) renders nothing. It sends one
 `PATCH /social/interests/decay` per launch as soon as an account is signed in, whether restored
@@ -240,7 +240,7 @@ lists reserve exactly the compact player's height.
 ## Connects to
 
 - `@/lib/account`, `@/lib/apple-music-auth`, `@/lib/playback` for the providers, and
-  `@/lib/tag-scores` for the tag scoring the root layout mounts.
+  `@/lib/interest-play-tracker` for the interest scoring the root layout mounts.
 - `@/lib/routes/*` and `@/lib/musickit-hooks` for data.
 - `@/features/account` from the Account and Appearance sheets.
 - `@/features/cadenza` from the Cadenza tab, which toggles between `@/features/query-builder`
