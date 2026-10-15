@@ -135,7 +135,7 @@ export function invalidateAPIData(endpoints: APIDataEndpoint[]) {
 /** When triggered, invalidates `useAPIData`s using the given endpoints */
 export function useAPIMutation<RequestBody, Response>(
     method: string,
-    path: string,
+    path: string | ((body: RequestBody) => string),
     invalidatedEndpoints:
         | ((body: RequestBody) => APIDataEndpoint[])
         | APIDataEndpoint[] = [],
@@ -152,13 +152,18 @@ export function useAPIMutation<RequestBody, Response>(
 ) {
     const { account } = useAccount();
 
+    const pathKey = typeof path === "string" ? path : path.name;
     return useSWRMutation(
-        [method, path, account?.id],
+        [method, pathKey, account?.id],
         async (_: any, { arg: body }: { arg: RequestBody }) => {
-            const data = await apiRequest<Response>(BACKEND_URL + path, {
-                method,
-                body,
-            });
+            const resolvedPath = typeof path === "string" ? path : path(body);
+            const data = await apiRequest<Response>(
+                BACKEND_URL + resolvedPath,
+                {
+                    method,
+                    body,
+                },
+            );
 
             const invalidationMode =
                 options?.invalidation ??

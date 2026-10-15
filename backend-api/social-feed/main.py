@@ -64,11 +64,38 @@ async def get_posts_route(body: GetPostsBody):
 
 
 class LikePostBody(BaseModel):
-    user_id: str  # todo: unused, track user likes later
+    user_id: str
+    timestamp: int
+
+
+def _apply_like(user_id: str, post_id: int, timestamp: int, apply):
+    if not accept_like_interaction(user_id, post_id, timestamp):
+        return
+    try:
+        apply()
+    except Exception:
+        forget_like_interaction(user_id, post_id, timestamp)
+        raise
+
 
 @app.post("/posts/{post_id}/likes")
 async def like_post_route(post_id: int, body: LikePostBody):
-    like_post(post_id)
+    _apply_like(
+        body.user_id,
+        post_id,
+        body.timestamp,
+        lambda: like_post(body.user_id, post_id),
+    )
+
+
+@app.delete("/posts/{post_id}/likes")
+async def unlike_post_route(post_id: int, body: LikePostBody):
+    _apply_like(
+        body.user_id,
+        post_id,
+        body.timestamp,
+        lambda: unlike_post(body.user_id, post_id),
+    )
 
 
 class MarkPostsViewedBody(BaseModel):

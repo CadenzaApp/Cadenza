@@ -14,6 +14,7 @@ pub mod interests;
 pub mod listening_events;
 pub mod metadata_albums;
 pub mod metadata_song_tags_applied;
+pub mod post_likes;
 pub mod post_views;
 pub mod posts;
 pub mod profile;

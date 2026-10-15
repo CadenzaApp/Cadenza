@@ -1,7 +1,9 @@
 import math
 from datetime import date, timedelta
+from threading import Lock
 
 import numpy as np
+from cachetools import LRUCache
 from sentence_transformers import SentenceTransformer
 
 from interests import *
@@ -14,6 +16,29 @@ def post_embedding(model: SentenceTransformer, content: str) -> np.ndarray:
 
 
 POSTS_EPOCH = datetime(year=2026, month=1, day=1, tzinfo=UTC)
+
+# Last accepted like or unlike, keyed by (user id, post id). A click whose
+# timestamp is older than the stored one is ignored. 2000 entries, this process only.
+_like_interactions: LRUCache = LRUCache(maxsize=2000)
+_like_interactions_lock = Lock()
+
+
+def accept_like_interaction(user_id: str, post_id: int, timestamp: int) -> bool:
+    key = (user_id, post_id)
+    with _like_interactions_lock:
+        previous = _like_interactions.get(key)
+        if previous is not None and timestamp < previous:
+            return False
+        _like_interactions[key] = timestamp
+        return True
+
+
+def forget_like_interaction(user_id: str, post_id: int, timestamp: int):
+    """Drops a timestamp if a newer click has not already replaced it."""
+    key = (user_id, post_id)
+    with _like_interactions_lock:
+        if _like_interactions.get(key) == timestamp:
+            del _like_interactions[key]
 
 
 def create_post(model: SentenceTransformer, user_id: str, content: str):
@@ -40,17 +65,56 @@ def create_post(model: SentenceTransformer, user_id: str, content: str):
             return row["post_id"]
 
 
-def like_post(post_id: int):
+def like_post(user_id: str, post_id: int):
     with db_conn() as conn:
+        inserted = conn.execute(
+            """
+                INSERT INTO post_likes (post_id, user_id)
+                VALUES (%s, %s)
+                ON CONFLICT (post_id, user_id) DO NOTHING
+                RETURNING post_id
+            """,
+            (post_id, user_id),
+        ).fetchone()
+        if inserted is None:
+            return
+
         conn.execute(
             """
                 UPDATE posts
-                SET 
+                SET
                     likes = likes + 1,
-                    hot_score = 
-                        10 * LOG(2, likes + 1) + 
+                    hot_score =
+                        10 * LOG(2, likes + 1) +
                         (created_at::date - '1970-01-01'::date)
-                WHERE post_id=%s;
+                WHERE post_id = %s
+            """,
+            (post_id,),
+        )
+
+
+def unlike_post(user_id: str, post_id: int):
+    with db_conn() as conn:
+        deleted = conn.execute(
+            """
+                DELETE FROM post_likes
+                WHERE post_id = %s AND user_id = %s
+                RETURNING post_id
+            """,
+            (post_id, user_id),
+        ).fetchone()
+        if deleted is None:
+            return
+
+        conn.execute(
+            """
+                UPDATE posts
+                SET
+                    likes = GREATEST(likes - 1, 0),
+                    hot_score =
+                        10 * LOG(2, GREATEST(likes - 1, 1)) +
+                        (created_at::date - '1970-01-01'::date)
+                WHERE post_id = %s
             """,
             (post_id,),
         )

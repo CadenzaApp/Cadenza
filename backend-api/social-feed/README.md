@@ -37,13 +37,19 @@ First start downloads the model, so it is slow and needs a few hundred MB.
 | `PATCH /interests/decay` | `user_id` | nothing |
 | `POST /posts` | `user_id`, `content` (at most 500 characters) | `{"post_id": n}` |
 | `POST /posts/batch` | `user_id`, `post_ids: [n, ...]` | `{"posts": [{post_id, content, likes, created_at, author: {username}}, ...]}`, request order, missing ids skipped |
-| `POST /posts/{post_id}/likes` | `user_id` (unused) | nothing |
+| `POST /posts/{post_id}/likes` | `user_id`, `timestamp` (client ms) | nothing |
+| `DELETE /posts/{post_id}/likes` | `user_id`, `timestamp` (client ms) | nothing |
 | `POST /posts/views` | `user_id`, `post_ids: [n, ...]` | nothing |
 
 `itype` is `genre` or `artist`.
 
 `POST /posts/views` inserts a `post_views` row per id (idempotent on `(post_id, user_id)`).
 Both feed sources skip posts the user has already viewed.
+
+`POST /posts/{post_id}/likes` inserts a `post_likes` row. `DELETE` removes it.
+`posts.likes` and `hot_score` move only when that row is inserted or deleted.
+A `timestamp` older than the last like or unlike this process accepted for that
+user and post is ignored. The process remembers the last 2000 pairs.
 
 ## How ranking works
 

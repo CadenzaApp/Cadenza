@@ -12,6 +12,7 @@ pub use super::interests::Entity as Interests;
 pub use super::listening_events::Entity as ListeningEvents;
 pub use super::metadata_albums::Entity as MetadataAlbums;
 pub use super::metadata_song_tags_applied::Entity as MetadataSongTagsApplied;
+pub use super::post_likes::Entity as PostLikes;
 pub use super::post_views::Entity as PostViews;
 pub use super::posts::Entity as Posts;
 pub use super::profile::Entity as Profile;

@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 
 import { useAPIMutation, useAPIPostDataBatched } from "../api-actions";
 import type { InterestScoreDelta, SocialPost } from "@/lib/types";
@@ -76,6 +76,48 @@ export function useCreatePost() {
         resetCreatePost: x.reset,
         createPost: async (body: NewPostPayload) =>
             (await x.trigger(body))?.post_id,
+    };
+}
+
+type PostLikePayload = {
+    post_id: number;
+    timestamp: number;
+};
+
+function postLikePath({ post_id }: PostLikePayload) {
+    return `/social/posts/${post_id}/likes`;
+}
+
+/**
+ * Likes a post. `timestamp` is `Date.now()` at the click. The service ignores
+ * a like or unlike older than the last one it accepted for this user and post.
+ */
+export function useLikePost() {
+    const x = useAPIMutation<PostLikePayload, void>("POST", postLikePath);
+    const likePost = useCallback(
+        (post_id: number) => x.trigger({ post_id, timestamp: Date.now() }),
+        [x.trigger],
+    );
+    return {
+        likePostErr: x.error,
+        likePostLoading: x.isMutating,
+        resetLikePost: x.reset,
+        likePost,
+    };
+}
+
+/** Removes the signed-in user's like. Same `timestamp` rule as `useLikePost`. */
+export function useUnlikePost() {
+    const x = useAPIMutation<PostLikePayload, void>("DELETE", postLikePath);
+    const unlikePost = useCallback(
+        (post_id: number) => x.trigger({ post_id, timestamp: Date.now() }),
+        [x.trigger],
+    );
+    return {
+        unlikePostErr: x.error,
+        unlikePostLoading: x.isMutating,
+        resetUnlikePost: x.reset,
+        unlikePost,
     };
 }
 
