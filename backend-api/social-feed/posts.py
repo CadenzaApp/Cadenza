@@ -13,7 +13,7 @@ def post_embedding(model: SentenceTransformer, content: str) -> np.ndarray:
     return model.encode_document(content)
 
 
-POSTS_EPOCH = datetime(year=2026, month=1, day=1)
+POSTS_EPOCH = datetime(year=2026, month=1, day=1, tzinfo=UTC)
 
 
 def create_post(model: SentenceTransformer, user_id: str, content: str):
@@ -67,11 +67,10 @@ def _get_user_vector(user_id: str) -> ndarray | None:
             if interest.score != 0 and interest.embedding is not None
         ]
     )
-    if total_weighted_embeddings == 0:
+    if isinstance(total_weighted_embeddings, int):
         return None
 
     return total_weighted_embeddings / np.linalg.norm(total_weighted_embeddings)
-
 
 
 def get_post_similarities(
@@ -86,12 +85,13 @@ def get_post_similarities(
     return similarities.squeeze().tolist()
 
 
-def similar_and_recent_posts(user_id: str, n: int):
-    user_vector = _get_user_vector(user_id)
+def similar_and_recent_posts(user_vector: ndarray | None, n: int):
     if user_vector is None:
         return []
 
-    AGE_MULTIPLIER = 0.3 # how much similarity score is equivalent to 1 day of post age
+    AGE_MULTIPLIER = (
+        0.02  # how much similarity score is equivalent to 1 day of post age
+    )
     user_vector = np.append(AGE_MULTIPLIER, user_vector)
 
     with db_conn() as conn:
@@ -101,7 +101,7 @@ def similar_and_recent_posts(user_id: str, n: int):
                 ORDER BY embedding_w_bday <#> %s
                 LIMIT %s
             """,
-            (embedding_to_str(user_vector), n),
+            (embedding_to_str(user_vector), n),  # type: ignore
         ).fetchall()
 
 
@@ -118,7 +118,9 @@ def hot_posts(n: int):
 
 
 def get_feed(model: SentenceTransformer, user_id: str, n: int):
-    sources = [similar_and_recent_posts(user_id, n), hot_posts(n)]
+    user_vector = _get_user_vector(user_id)
+    sources = [similar_and_recent_posts(user_vector, n), hot_posts(n)]
+    print([s["post_id"] for s in sources[0]])
 
     posts = [post for source in sources for post in source]  # flatten
     posts = list({p["post_id"]: p for p in posts}.values())  # deduplicate
@@ -126,7 +128,7 @@ def get_feed(model: SentenceTransformer, user_id: str, n: int):
     if len(posts) == 0:
         return []
 
-    similiarities = get_post_similarities(model, posts, _get_user_vector(user_id))
+    similiarities = get_post_similarities(model, posts, user_vector)
 
     scored_posts = []
     for post, similarity in zip(posts, similiarities):
