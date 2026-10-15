@@ -38,8 +38,12 @@ native module directly.
 | `play-source.ts`             | Pure: `PlaySource`, the playlist or query a queue started from, and `encodeQuerySource` / `decodeQuerySource`. Tested in `play-source.test.ts`.                                                                                                                                                   |
 | `event-queue.ts`             | Pure: the listening event queue and the wire shape it sends. Enqueue with an oldest-first cap, batch, and drop only what the backend confirmed. Tested in `event-queue.test.ts`.                                                                                                                  |
 | `event-queue-store.ts`       | The AsyncStorage half of that queue. Keyed by user: a queue is sent under whoever's token is current, so one shared key could flush one user's plays into another's history.                                                                                                                      |
+| `saved-reads.ts`             | Pure: which saved reads to keep, newest first under a cap.                                                                                                                                                                                                                                        |
+| `saved-reads-store.ts`       | The AsyncStorage half: the last good response of each read that opts in with `useAPIData`'s `save`.                                                                                                                                                                                               |
 | `listening-session.ts`       | Pure: when a listening session ends, and what to do with a batch the backend refused. The two decisions that can lose a play, so they live where they can be tested. Tested in `listening-session.test.ts`.                                                                                       |
 | `queue-order.ts`             | Pure index math for the queue mirror. Tested in `queue-order.test.ts`.                                                                                                                                                                                                                            |
+| `transport.ts`               | What back and forward do: back restarts past 4s or with nothing before, forward always moves, and at the queue end replays, wraps, or rewinds paused by repeat mode.                                                                                                                              |
+| `color-queue.ts`             | `tradeColor`: hands a color to the back of a line and takes the first different one from the front. The nebula backdrop trades blob colors through it.                                                                                                                                            |
 | `supabase.ts`                | The Supabase client, backed by AsyncStorage, plus `getAccessToken()`, the fresh access token every backend request uses.                                                                                                                                                                          |
 | `theme.ts`                   | `NAV_THEME`, light and dark palettes for react-navigation, `sheetScreenOptions` for sheet routes, and `pushedScreenOptions` for the pushed detail routes.                                                                                                                                         |
 | `error-utils.ts`             | `getErrorDetails` / `getErrorMessage`, for unwrapping native and backend errors.                                                                                                                                                                                                                  |
@@ -48,6 +52,9 @@ native module directly.
 | `use-tint-gradient.ts`       | Theme-aware hook that turns one source color into the shared light/dark Oklch gradient stops.                                                                                                                                                                                                     |
 | `tag-color-palette.ts`       | Curated RGB tag palette sorted by hue, followed by brown and gray. Every swatch has tested contrast against black and white.                                                                                                                                                                      |
 | `music-routes.ts`            | `collectionRoute` / `albumRouteForTrack`. Hrefs into the resource screens, params and all.                                                                                                                                                                                                        |
+| `album-route.ts`             | `useAlbumRouteForTrack`: the full catalog album for a song, not the library copy, with the song highlighted.                                                                                                                                                                                      |
+| `open-screen.ts`             | `useOpenScreen`, what opens a detail screen in place of `router.push`. Goes back to one already open instead of stacking a copy.                                                                                                                                                                  |
+| `detail-stack.ts`            | Pure: the root routes after opening a detail screen, with the identity and depth cap rules. Tested in `detail-stack.test.ts`.                                                                                                                                                                     |
 | `music-list-preferences.tsx` | `MusicListPreferencesProvider` / `useMusicListPreferences`. The persisted device-local preference for suggested tag pills in music-list rows.                                                                                                                                                     |
 | `share-track.ts`             | `shareTrack` / `shareCollection`. Builds and fires the native share sheet for a song, album, or playlist's canonical Apple Music link.                                                                                                                                                            |
 | `screen-overlay.ts`          | `useScreenOverlayInsets`, native tab/accessory visibility, extra overlay clearance, focused-screen and keyboard suppression, and pushed-screen detection.                                                                                                                                         |
@@ -92,6 +99,11 @@ dormant until an id arrives. An empty string is a real value, so a blank search 
 `useAPIData` takes an optional third argument passed straight to SWR. `keepPreviousData` is the
 one that matters for a search-as-you-type read, where each keystroke is a new key and `data` would
 otherwise drop to undefined between responses. `useDefaultTags` is the caller.
+
+`save: true` keeps the last good response of a read on the device (`saved-reads-store.ts`, newest
+40, cleared on sign out) and serves it while the request fails or is in flight, even after a cold
+start. The order is this key's live data, then its saved copy, then whatever `keepPreviousData`
+held from the last key. The analytics reads use it so the tab works offline.
 
 `useAPIPostDataBatched` exists for reads whose request is a list too long for a query string. It
 splits the list into parallel requests and merges the responses, but stays **one** `api-data`
@@ -138,9 +150,10 @@ surface owns an optimistic state with rollback, while SWR refreshes other surfac
 That optimistic state must remain authoritative until a refreshed read agrees with the newest
 user choice, or an older cache snapshot will cause a visible solid-outline-solid flicker.
 
-`useSongInfo` resolves ids as cached 25-song pages and exposes completed pages immediately. Do not
-collapse it back into one all-or-nothing `getSongInfo` key: tag and query screens may contain
-hundreds of ids, and their first rows should not wait for the final Apple Music request.
+`useSongInfo` resolves ids as cached 25-song pages, fetched in parallel (`parallel: true`).
+`useSWRInfinite` publishes data only once every page of a pass is back, so serial pages made a
+100-song list wait on four round trips; parallel ones take about one. Do not collapse it back into
+one `getSongInfo` key: each page is its own cache entry, shared with any other list holding it.
 Likewise, query-result resolution starts missing-id pages during a cold library scan. It may do
 some duplicate Apple reads, but waiting for the complete library walk makes deep links appear
 stuck and is not an acceptable tradeoff.
@@ -173,10 +186,10 @@ One file per backend router, and every backend endpoint has at least one hook.
 |                       | `GET /songs/metadata-tags`        | `songs.ts` -> `useMetadataTagsOnSong(songId)`   |
 | `routes/events.rs`    | `POST /events`                    | `events.ts` -> `useRecordEvents()`              |
 | `routes/analytics.rs` | `GET /analytics/summary`          | `analytics.ts` -> `useAnalyticsSummary()`       |
-|                       | `GET /analytics/trends`           | `analytics.ts` -> `useAnalyticsTrend()`         |
 |                       | `GET /analytics/top`              | `analytics.ts` -> `useAnalyticsTop()`           |
 |                       | `GET /analytics/top-tags`         | `analytics.ts` -> `useAnalyticsTopTags()`       |
 |                       | `GET /analytics/heatmap`          | `analytics.ts` -> `useAnalyticsHeatmap()`       |
+|                       | `GET /analytics/tag-shares`       | `analytics.ts` -> `useAnalyticsTagShares()`     |
 | `routes/queries.rs`   | `POST /queries/results`           | `queries.ts` -> `useQueryResults()`             |
 | `routes/comments.rs`  | `GET /comments`                   | `comments.ts` -> `useSongComments(songId)`      |
 |                       | `POST /comments`                  | `comments.ts` -> `useCreateComment()`           |
@@ -237,7 +250,9 @@ keys like `["MusicKit.getSongInfo", ids]`. `useSongFavoriteStatus` and `useColle
 are the optimistic updates in the codebase, both with `rollbackOnError`. `useCollectionInfo`
 fetches an album/playlist's own metadata (title, artwork, `shareUrl`). `useCollectionSongs`
 pages a detail screen, while `useAllTracksFromLibrary` walks every song page into one cached
-copy of the library. `useTracksForSongIds` is what turns backend song ids into tracks: it
+copy of the library. That walk is a request per 100 songs plus one each to fill them in, so it
+never revalidates on mount, focus, or reconnect; only a new Apple Music session refetches it.
+`useTracksForSongIds` is what turns backend song ids into tracks: it
 resolves what that cached library holds and sends the rest to `getSongInfo`. `usePlaylistMutations` is the exception to the wrapper
 rule: playlist writes are not backend calls, so they are plain async functions that invalidate
 every cached playlist key by predicate afterwards.
@@ -249,7 +264,16 @@ page), so `useTracksFromLibrary`, `useLibraryAlbums`, `useUserPlaylists`, `useLi
 builder and a fetch. Adding
 another paged library read means writing those two things and nothing else. It is generic over
 the item type, so it pages `ArtistItem`s as happily as `MusicItem`s; both results have the same
-`items` / `hasNextPage` / `nextOffset` shape.
+`items` / `hasNextPage` / `nextOffset` shape. It sets `revalidateFirstPage: false`: SWR's default refetches page one, and
+waits for it, before every next page. The first page is 25 items so rows show up fast, and every
+page after it is 100, Apple's cap, so a long list pages in two or three steps.
+
+`usePrefetchCollectionSongs` starts a collection's first page as a finger lands on it, in the
+Library lists and the Recently Added grid. It writes the page into the cache under the key
+`useCollectionSongs` reads, and a screen that mounts while the request is in flight joins it rather
+than sending its own. The album and playlist screen then loads each next page as soon as the last one lands, not when
+the list nears its end, since it shows every song and a count of them (`TrackCollectionView`'s
+`loadAllPages`). That waits for the open to finish, so no page lands mid animation.
 
 `useCatalogSongSearch` and `useLibrarySongSearch` are the two search scopes and present the
 same surface: each holds its own term and takes a submitted one, so a screen switching between
@@ -361,9 +385,13 @@ A scroller with its own content style lists `scroll.contentContainerStyle` last 
 floating top rail that is the shared top padding (see the top rail in `src/app/README.md`), and it
 has to win over the page's own.
 
-It has to be an `Animated.FlatList` / `Animated.ScrollView`, because the pull-dismiss offset is
-read on the UI thread. `ScreenScrollMarker` must have that scroller as its single direct child;
-otherwise the native registration cannot resolve the underlying `UIScrollView`. The explicit
+It has to be an `Animated.FlatList` / `Animated.ScrollView`, or a list Reanimated wraps with
+`createAnimatedComponent` like `MusicList`'s `FlashList`, because the pull-dismiss offset is read on
+the UI thread. `useScreenScroll` takes either a component instance or a component type for its ref,
+so a wrapped list needs no casts. `ScreenScrollMarker` must have the scroll view itself as its
+single direct child; otherwise the native registration cannot resolve the underlying
+`UIScrollView`, and in a dev build it asserts. A list that wraps its scroll view in another view
+(`FlashList` does) has to put the marker inside, through its own scroll component. The explicit
 react-navigation `useScrollToTop` subscription remains as a cross-platform fallback.
 
 It also drives the close of a pushed detail screen. Overscroll at the top feeds the minimize
@@ -390,17 +418,29 @@ nothing about each other:
 The card runs both directions of the transition: it starts minimized and grows on mount, and
 shrinks back on close. That is why those routes carry `pushedScreenOptions()`, which presents them
 as transparent modals with no native animation. The screen that opened this one is still on
-display underneath. The card's top-left corner follows the artwork's top-left corner, while its
-width sets a uniform scale. Its native continuous corners compensate for that scale, so they stay
-visibly rounded instead of tightening as the card gets smaller.
+display underneath. The close is transforms only (`zoomFrame`): the page moves and scales as one
+piece so the screen's artwork lands exactly on the tile it opened from. A screen can also hand the
+card a copy of that artwork (`setArtwork`), which rides the same transform behind the page (anything layered over the page, even invisible,
+makes the glass buttons on it render flat); the page fades out over
+the first third and the copy stays, so the close reads as the artwork shrinking back into its tile,
+the way Music does it. The open is different on purpose (`zoomOpenFrame`): the whole page grows from the tile, opaque the
+whole way, and starts at once. Glass on a page that starts see-through renders flat and stays
+flat, so the page is never faded on the way in, only on the way out. A screen reports where its
+artwork is through `focus`, as it scrolls; `TrackCollectionView` measures its hero against the page
+with `measureLayout`, which ignores transforms, and the close snapshots it as it sets off.
+`opened` says when the card has finished growing, and `useOpenTransitionSettled` waits for it, since
+these screens have no native transition to wait for. An earlier version resized a clip every frame
+to collapse the page first, and the layout work made both directions stutter.
 
 Every close goes through `useCloseScreen`, so the X and the pull play the same animation, and a
-screen with no card falls back to a plain `router.back()`. With no recorded rect the card shrinks
-toward the bottom of the window rather than doing nothing, which is what a deep link gets. A rect
+screen with no card falls back to a plain `router.back()`. With no recorded rect the card closes
+to a centered square rather than doing nothing, which is what a deep link gets. A rect
 older than `ORIGIN_MAX_AGE` at mount counts as none: a screen opened by something that records
 nothing must not grow out of whatever row was tapped a minute ago.
 
-The pull owns progress continuously instead of stopping at the close threshold. Releasing past
+The pull owns progress continuously instead of stopping at the close threshold, but only while a
+finger is dragging: momentum and a list nudging its own offset report negative offsets too, and
+with no drag ending after them the card stayed half closed. Releasing past
 it claims the animation on the UI thread before the scroll view rebounds, then finishes only the
 remaining distance. A short pull still springs back to full size.
 
@@ -638,7 +678,7 @@ do not share a definition of a play. Worth unifying.
   rendered before the session is restored sends no `Authorization` header at all.
 - Plays are only counted while `PlaybackProvider` is polling, which is only in the foreground. A
   song that plays start to finish with the app in the background is never counted, and the gap
-  shows up in the analytics trends as well as in the play count.
+  shows up across the analytics as well as in the play count.
 - `TagScoreTracker` counts a play at 5 seconds and `play-tracker.ts` at 15, so tag scores and the
   analytics play count will not agree. Both are deliberate for their own purpose; neither is the
   other's definition.
@@ -660,3 +700,14 @@ do not share a definition of a play. Worth unifying.
 
 Touching files in this directory? Update this README in the same change.
 See [../../../AGENT_GUIDE.md](../../../AGENT_GUIDE.md).
+
+### Listening calendar reads
+
+`routes/analytics-listening.ts` reads `/analytics/listening` and `/analytics/session-songs`
+(without a session key, so every song in the window). Every key includes window, timezone, optional
+tag, and limit. `useListening` does not retain another key's previous data. Listening totals and
+filtered totals come from one response. The song list grows its limit by 25 instead of paging. Existing analytics endpoints
+remain available for the other analytics sections.
+
+`routes/analytics-reads.ts` lists all analytics cache paths shared by event recording and tag
+mutations, so the calendar, tag picker, sessions and song details refresh together.

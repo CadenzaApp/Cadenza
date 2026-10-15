@@ -1,11 +1,11 @@
 /**
- * Turns a period's heatmap shape into a grid of cells, each keyed the way the
- * backend prints a bucket start, so the sparse cells from
+ * Turns a period's heatmap shape into a grid of keyed cells, each keyed the way
+ * the backend prints a bucket start, so the sparse cells from
  * `/analytics/heatmap` drop straight into place.
  *
- * Keys: an hour is `YYYY-MM-DDTHH:00`, a day `YYYY-MM-DD`, a month its 1st as a
- * day. Built from local dates by hand, never through `toISOString`, which would
- * shift them into UTC.
+ * Keys: an hour or two hour block is `YYYY-MM-DDTHH:00`, a day `YYYY-MM-DD`, a
+ * month its 1st as a day. Built from local dates by hand, never through
+ * `toISOString`, which would shift them into UTC.
  *
  * Pure, so `heatmap-layout.test.ts` runs it under `node --test`.
  */
@@ -15,20 +15,65 @@ import {
     WEEKDAYS_SHORT,
     addDays,
     mondayIndex,
-    startOfWeek,
     type HeatmapShape,
 } from "./range.ts";
 
-/** One square: its bucket key and what a tap reads out. */
-export type LayoutCell = { key: string; label: string };
+const MONTHS_LONG = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+];
 
+/**
+ * What a tap selects: a span of local time, `start` inclusive and `end`
+ * exclusive. `label` heads the detail under the grid, `short` follows the
+ * level in the breadcrumb.
+ */
+export type HeatmapPick = {
+    start: Date;
+    end: Date;
+    label: string;
+    short: string;
+};
+
+/**
+ * One square: the bucket it draws, what a tap on it picks, and what is printed
+ * in it or under it. A null pick is a day outside the period, drawn faint.
+ */
+export type LayoutCell = {
+    key: string;
+    pick: HeatmapPick | null;
+    text?: string;
+    caption?: string;
+};
+
+/** A level's squares. */
 export type HeatmapGrid = {
-    /** Null is a spacer, a slot outside the period, drawn blank. */
-    rows: (LayoutCell | null)[][];
-    /** One per row, null for none. */
-    rowLabels: (string | null)[];
-    /** One per column, null for none. */
-    colLabels: (string | null)[];
+    /** Rows of squares, or columns when `columns` is set. Null is a spacer. */
+    lines: (LayoutCell | null)[][];
+    /**
+     * Lay `lines` out as columns, top to bottom. Every square in a column
+     * picks the same span, so a tap anywhere picks the whole column.
+     */
+    columns?: boolean;
+    /** One label per column, over it. May run two lines. */
+    header?: string[];
+    /** One label per row, left of it. Rows only. */
+    rowLabels?: string[];
+    /**
+     * Keep squares square rather than stretching them to fill the box. Set
+     * where rows are few and wide, so they would stretch into stripes.
+     */
+    square?: boolean;
 };
 
 function pad(value: number): string {
@@ -56,168 +101,133 @@ function monthDay(date: Date): string {
     return `${MONTHS_SHORT[date.getMonth()]} ${date.getDate()}`;
 }
 
-/** Hours in one block of a week row. */
-const BLOCK_HOURS = 2;
+/** `Fri, Oct 9, 2026`. */
+function fullDay(date: Date): string {
+    return `${WEEKDAYS_SHORT[mondayIndex(date)]}, ${monthDay(date)}, ${date.getFullYear()}`;
+}
 
-/** 12 AM, 6 AM, Noon and 6 PM over the blocks that start on them. */
-const BLOCK_AXIS: (string | null)[] = Array.from(
-    { length: 24 / BLOCK_HOURS },
-    (_, block) => {
-        const hour = block * BLOCK_HOURS;
-        if (hour % 6 !== 0) return null;
-        return hour === 12 ? "Noon" : hourName(hour);
-    },
-);
+/** `items` cut into rows of `width`. */
+function chunk<T>(items: T[], width: number): T[][] {
+    return Array.from({ length: Math.ceil(items.length / width) }, (_, i) =>
+        items.slice(i * width, (i + 1) * width),
+    );
+}
 
-/**
- * The grid for `shape`. `earliestYear` is only read by `all-months`, which has
- * no bounds of its own and runs from the user's first year to `now`'s.
- */
-export function layoutHeatmap(
-    shape: HeatmapShape,
-    now: Date,
-    earliestYear?: number,
-): HeatmapGrid {
+function dayPick(day: Date): HeatmapPick {
+    return {
+        start: day,
+        end: addDays(day, 1),
+        label: fullDay(day),
+        short: monthDay(day),
+    };
+}
+
+function monthPick(first: Date): HeatmapPick {
+    return {
+        start: first,
+        end: new Date(first.getFullYear(), first.getMonth() + 1, 1),
+        label: `${MONTHS_LONG[first.getMonth()]} ${first.getFullYear()}`,
+        short: MONTHS_LONG[first.getMonth()],
+    };
+}
+
+/** The grid for `shape`. */
+export function layoutHeatmap(shape: HeatmapShape): HeatmapGrid {
     switch (shape.kind) {
         case "day-hours":
             return dayHours(shape.start);
-        case "week-two-hours":
-            return weekBlocks(shape.start);
+        case "week-days":
+            return weekDays(shape.start);
         case "month-days":
             return monthDays(shape.start);
-        case "year-days":
-            return yearDays(shape.start);
-        case "all-months":
-            return allMonths(earliestYear ?? now.getFullYear(), now);
+        case "year-months":
+            return yearMonths(shape.start.getFullYear());
     }
 }
 
-/** Two rows, AM and PM, of twelve hours. */
-function dayHours(day: Date): HeatmapGrid {
-    const rows = [0, 12].map((offset) =>
-        Array.from({ length: 12 }, (_, i) => {
-            const hour = offset + i;
-            return { key: hourKey(day, hour), label: hourName(hour) };
-        }),
-    );
-    return {
-        rows,
-        rowLabels: ["AM", "PM"],
-        colLabels: Array.from({ length: 12 }, (_, i) =>
-            i % 3 === 0 ? String(i === 0 ? 12 : i) : null,
-        ),
-    };
-}
-
 /**
- * Monday to Sunday down, two hour blocks across. A block is keyed by its first
- * hour, which is how the backend's `two_hour` bucket prints it.
+ * Four rows of six hours, two AM and two PM, each numbered under its square.
+ * Each half is named on its first row.
  */
-function weekBlocks(monday: Date): HeatmapGrid {
-    const rows = WEEKDAYS_SHORT.map((weekday, i) => {
-        const day = addDays(monday, i);
-        return Array.from({ length: 24 / BLOCK_HOURS }, (_, block) => {
-            const hour = block * BLOCK_HOURS;
-            const end = (hour + BLOCK_HOURS) % 24;
+function dayHours(day: Date): HeatmapGrid {
+    const lines = [0, 6, 12, 18].map((offset) =>
+        Array.from({ length: 6 }, (_, i) => {
+            const hour = offset + i;
             return {
                 key: hourKey(day, hour),
-                label: `${weekday} ${monthDay(day)}, ${hourName(hour)} - ${hourName(end)}`,
+                pick: {
+                    start: atHour(day, hour),
+                    end: atHour(day, hour + 1),
+                    label: `${fullDay(day)}, ${hourName(hour)}`,
+                    short: hourName(hour),
+                },
+                caption: hourName(hour),
             };
-        });
-    });
-    return { rows, rowLabels: WEEKDAYS_SHORT, colLabels: BLOCK_AXIS };
+        }),
+    );
+    return { lines, rowLabels: ["AM", "", "PM", ""], square: true };
 }
 
-/** A calendar: Monday to Sunday across, one row per week. */
-function monthDays(first: Date): HeatmapGrid {
-    const rows: (LayoutCell | null)[][] = [];
-    let row: (LayoutCell | null)[] = Array(mondayIndex(first)).fill(null);
+/** Local `hour` o'clock on `day`. Past 23 rolls into the next day. */
+function atHour(day: Date, hour: number): Date {
+    return new Date(day.getFullYear(), day.getMonth(), day.getDate(), hour);
+}
 
-    for (
-        let day = first;
-        day.getMonth() === first.getMonth();
-        day = addDays(day, 1)
-    ) {
-        row.push({ key: dayKey(day), label: monthDay(day) });
-        if (row.length === 7) {
-            rows.push(row);
-            row = [];
-        }
-    }
-    if (row.length > 0) {
-        rows.push([...row, ...Array(7 - row.length).fill(null)]);
-    }
-
+/**
+ * Monday to Sunday, one day bucket per column. Each column picks its day and is headed with its name and date.
+ */
+function weekDays(monday: Date): HeatmapGrid {
+    const days = Array.from({ length: 7 }, (_, i) => addDays(monday, i));
     return {
-        rows,
-        rowLabels: rows.map(() => null),
-        colLabels: WEEKDAYS_SHORT.map((weekday) => weekday.slice(0, 1)),
+        lines: days.map((day) => {
+            const pick = dayPick(day);
+            return [{ key: dayKey(day), pick }];
+        }),
+        columns: true,
+        header: days.map(
+            (day) => `${WEEKDAYS_SHORT[mondayIndex(day)]}\n${day.getDate()}`,
+        ),
     };
 }
 
 /**
- * A contribution grid: weekdays down, weeks across, from the week holding
- * January 1st to the one holding December 31st. Days outside the year are
- * spacers. A column is labelled with a month when its 1st falls in it.
+ * A calendar, Monday to Sunday across, one row per week, each day numbered.
+ * The first and last weeks are filled out with the months either side, drawn
+ * faint and never picked.
  */
-function yearDays(janFirst: Date): HeatmapGrid {
-    const year = janFirst.getFullYear();
-    const firstMonday = startOfWeek(janFirst);
-    const lastDay = new Date(year, 11, 31);
-    const weeks =
-        Math.round(
-            (startOfWeek(lastDay).getTime() - firstMonday.getTime()) /
-                (7 * 24 * 60 * 60 * 1000),
-        ) + 1;
+function monthDays(first: Date): HeatmapGrid {
+    const start = addDays(first, -mondayIndex(first));
+    // Reserve six weeks even when this month would fit in four or five.
+    const end = addDays(start, 42);
 
-    const rows: (LayoutCell | null)[][] = WEEKDAYS_SHORT.map(() => []);
-    const colLabels: (string | null)[] = [];
-
-    for (let week = 0; week < weeks; week++) {
-        let monthStart: string | null = null;
-        for (let weekday = 0; weekday < 7; weekday++) {
-            const day = addDays(firstMonday, week * 7 + weekday);
-            if (day.getFullYear() !== year) {
-                rows[weekday].push(null);
-                continue;
-            }
-            if (day.getDate() === 1) monthStart = MONTHS_SHORT[day.getMonth()];
-            rows[weekday].push({ key: dayKey(day), label: monthDay(day) });
-        }
-        colLabels.push(monthStart);
+    const cells: LayoutCell[] = [];
+    for (let day = start; day < end; day = addDays(day, 1)) {
+        const inside =
+            day.getFullYear() === first.getFullYear() &&
+            day.getMonth() === first.getMonth();
+        cells.push({
+            key: dayKey(day),
+            pick: inside ? dayPick(day) : null,
+            text: String(day.getDate()),
+        });
     }
-
-    return {
-        rows,
-        rowLabels: WEEKDAYS_SHORT.map((weekday, i) =>
-            i % 2 === 0 ? weekday : null,
-        ),
-        colLabels,
-    };
+    return { lines: chunk(cells, 7), header: [...WEEKDAYS_SHORT] };
 }
 
-/** One row per year, oldest first, January to December across. */
-function allMonths(earliestYear: number, now: Date): HeatmapGrid {
-    const lastYear = now.getFullYear();
-    const firstYear = Math.min(earliestYear, lastYear);
-    const rows: LayoutCell[][] = [];
-    const rowLabels: string[] = [];
+/** The year's months, four rows of three, each named in its square. */
+function yearMonths(year: number): HeatmapGrid {
+    const months = MONTHS_SHORT.map((month, i) => {
+        const first = new Date(year, i, 1);
+        return { key: dayKey(first), pick: monthPick(first), text: month };
+    });
+    return { lines: chunk(months, 3) };
+}
 
-    for (let year = firstYear; year <= lastYear; year++) {
-        rows.push(
-            MONTHS_SHORT.map((month, i) => ({
-                key: dayKey(new Date(year, i, 1)),
-                label: `${month} ${year}`,
-            })),
-        );
-        rowLabels.push(String(year));
-    }
-
-    return {
-        rows,
-        rowLabels,
-        colLabels: MONTHS_SHORT.map((month) => month.slice(0, 1)),
-    };
+export function samePick(a: HeatmapPick, b: HeatmapPick): boolean {
+    return (
+        a.start.getTime() === b.start.getTime() &&
+        a.end.getTime() === b.end.getTime()
+    );
 }
 
 /** How many steps of brightness a cell can have, past empty. */

@@ -1,8 +1,8 @@
 /**
  * The calendar period the Analytics tab is showing, and everything it resolves
- * to: the window, the chart and heatmap buckets, and the words on screen.
+ * to: the window, the heatmap bucket, and the words on screen.
  *
- * A period is a grain (day, week, month, year, or all) plus how many of them
+ * A period is a grain (day, week, month, or year) plus how many of them
  * back from the current one. Holding an offset rather than a date means offset
  * 0 always follows the clock, so "this week" stays this week when the app comes
  * back the next Monday.
@@ -15,62 +15,42 @@
  * is injected rather than read from the clock so a test can pin it.
  */
 
-export type PeriodGrain = "day" | "week" | "month" | "year" | "all";
+export type PeriodGrain = "day" | "week" | "month" | "year";
 
 /** Every grain, in the order the picker shows them. */
-export const PERIOD_GRAINS: PeriodGrain[] = [
-    "day",
-    "week",
-    "month",
-    "year",
-    "all",
-];
-
-/** What the backend's trend `bucket` param accepts. `auto` lets it pick. */
-export type TrendBucket = "day" | "week" | "month" | "year" | "auto";
+export const PERIOD_GRAINS: PeriodGrain[] = ["day", "week", "month", "year"];
 
 /** The buckets a heatmap is cut in. */
-export type HeatmapBucket = "hour" | "two_hour" | "day" | "month";
+export type HeatmapBucket = "hour" | "day" | "month";
 
 /**
  * How a period's heatmap is laid out. Each carries the local midnight it
  * starts on, which is all the layout needs to place every cell.
  *
  * - `day-hours`: one day, two rows of twelve hours.
- * - `week-two-hours`: Monday to Sunday by twelve two hour blocks, so a
- *   week's squares are not too small to read.
+ * - `week-days`: Monday to Sunday, one additive duration bar per day.
  * - `month-days`: a calendar, one cell per day.
- * - `year-days`: a contribution grid, weeks across, weekdays down.
- * - `all-months`: one row per year, one cell per month.
+ * - `year-months`: the year's twelve months, four rows of three.
  */
 export type HeatmapShape =
     | { kind: "day-hours"; start: Date }
-    | { kind: "week-two-hours"; start: Date }
+    | { kind: "week-days"; start: Date }
     | { kind: "month-days"; start: Date }
-    | { kind: "year-days"; start: Date }
-    | { kind: "all-months"; start?: undefined };
+    | { kind: "year-months"; start: Date };
 
 export type ResolvedPeriod = {
     grain: PeriodGrain;
     /** Periods back from the current one. 0 is now, never positive. */
     offset: number;
-    /** ISO instant, or undefined for all time. */
-    since?: string;
-    /** ISO instant, exclusive, or undefined for all time. */
-    until?: string;
-    trendBucket: TrendBucket;
-    /**
-     * Which chart the period wants. `hours` is the 24-hour histogram, which
-     * says far more about a single day than a one-bar trend would.
-     */
-    chart: "hours" | "trend";
+    /** ISO instant. */
+    since: string;
+    /** ISO instant, exclusive. */
+    until: string;
     heatmapBucket: HeatmapBucket;
     heatmap: HeatmapShape;
-    /** The page heading, "Your week". */
-    title: string;
     /** The dates it covers, "Sep 28 - Oct 4, 2026". */
     dateLabel: string;
-    /** How a sentence refers to it: "this week", "that month", "all time". */
+    /** How a sentence refers to it: "this week", "that month", "today". */
     phrase: string;
     /** True when now falls inside it, so there is nothing later to step to. */
     isCurrent: boolean;
@@ -87,8 +67,6 @@ export function grainLabel(grain: PeriodGrain): string {
             return "Month";
         case "year":
             return "Year";
-        case "all":
-            return "All time";
     }
 }
 
@@ -123,8 +101,6 @@ function periodStart(grain: PeriodGrain, offset: number, now: Date): Date {
             return new Date(now.getFullYear(), now.getMonth() + offset, 1);
         case "year":
             return new Date(now.getFullYear() + offset, 0, 1);
-        case "all":
-            return now;
     }
 }
 
@@ -139,8 +115,6 @@ function periodEnd(grain: PeriodGrain, start: Date): Date {
             return new Date(start.getFullYear(), start.getMonth() + 1, 1);
         case "year":
             return new Date(start.getFullYear() + 1, 0, 1);
-        case "all":
-            return start;
     }
 }
 
@@ -224,8 +198,6 @@ function dateLabelFor(
             return `${MONTHS_LONG[start.getMonth()]} ${start.getFullYear()}`;
         case "year":
             return String(start.getFullYear());
-        case "all":
-            return "Your whole history";
     }
 }
 
@@ -234,33 +206,31 @@ function heatmapFor(grain: PeriodGrain, start: Date): HeatmapShape {
         case "day":
             return { kind: "day-hours", start };
         case "week":
-            return { kind: "week-two-hours", start };
+            return { kind: "week-days", start };
         case "month":
             return { kind: "month-days", start };
         case "year":
-            return { kind: "year-days", start };
-        case "all":
-            return { kind: "all-months" };
+            return { kind: "year-months", start };
     }
 }
 
 /** The bucket the backend cuts a bounded period's heatmap in. Matches the
  * cells `heatmapFor`'s shape lays out. */
-function heatmapBucketFor(grain: Exclude<PeriodGrain, "all">): HeatmapBucket {
+function heatmapBucketFor(grain: PeriodGrain): HeatmapBucket {
     switch (grain) {
         case "day":
             return "hour";
         case "week":
-            return "two_hour";
-        case "month":
-        case "year":
             return "day";
+        case "month":
+            return "day";
+        case "year":
+            return "month";
     }
 }
 
 /** How a sentence names the period, for the current one and for a past one. */
 function phraseFor(grain: PeriodGrain, isCurrent: boolean): string {
-    if (grain === "all") return "all time";
     if (grain === "day") return isCurrent ? "today" : "that day";
     return `${isCurrent ? "this" : "that"} ${grain}`;
 }
@@ -279,48 +249,72 @@ export function resolvePeriod(
     now: Date,
 ): ResolvedPeriod {
     // a future period has nothing in it, so the offset never goes positive
-    const back = grain === "all" ? 0 : Math.min(0, Math.trunc(offset));
+    const back = Math.min(0, Math.trunc(offset));
     const start = periodStart(grain, back, now);
     const end = periodEnd(grain, start);
     const isCurrent = back === 0;
 
-    const shared = {
+    return {
         grain,
         offset: back,
         heatmap: heatmapFor(grain, start),
-        title: grain === "all" ? "All time" : `Your ${grain}`,
         dateLabel: dateLabelFor(grain, start, end, now),
         phrase: phraseFor(grain, isCurrent),
         isCurrent,
-    };
-
-    if (grain === "all") {
-        return {
-            ...shared,
-            // no bounds: the backend runs it from the user's first event, and
-            // picks the trend bucket, since it is the side that knows the span
-            trendBucket: "auto",
-            chart: "trend",
-            heatmapBucket: "month",
-        };
-    }
-
-    return {
-        ...shared,
         since: start.toISOString(),
         until: end.toISOString(),
-        trendBucket: grain === "year" ? "month" : "day",
-        chart: grain === "day" ? "hours" : "trend",
         heatmapBucket: heatmapBucketFor(grain),
     };
 }
 
 /** Whether there is a later period to step to. */
 export function canStepForward(period: ResolvedPeriod): boolean {
-    return period.grain !== "all" && !period.isCurrent;
+    return !period.isCurrent;
 }
 
-/** Whether there is an earlier period to step to. */
-export function canStepBack(period: ResolvedPeriod): boolean {
-    return period.grain !== "all";
+/** Whole local days from `from` to `to`, by calendar date, so DST is no issue. */
+function daysBetween(from: Date, to: Date): number {
+    const utc = (date: Date) =>
+        Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
+    return Math.round((utc(to) - utc(from)) / 86_400_000);
+}
+
+/**
+ * The offset of the `grain` period holding `date`, counted from the one holding
+ * `now`. The inverse of `resolvePeriod`, so a date can be opened as a period.
+ * Positive for a period after now's.
+ */
+export function offsetOf(grain: PeriodGrain, date: Date, now: Date): number {
+    switch (grain) {
+        case "day":
+            return daysBetween(now, date);
+        case "week":
+            return daysBetween(startOfWeek(now), startOfWeek(date)) / 7;
+        case "month":
+            return (
+                (date.getFullYear() - now.getFullYear()) * 12 +
+                date.getMonth() -
+                now.getMonth()
+            );
+        case "year":
+            return date.getFullYear() - now.getFullYear();
+    }
+}
+
+/**
+ * The grain a heatmap pick of `grain` opens into, or null at the bottom. Year
+ * to month to week to day, one grain a step. A month opens a day's
+ * week, not the day.
+ */
+export function drillGrain(grain: PeriodGrain): PeriodGrain | null {
+    switch (grain) {
+        case "year":
+            return "month";
+        case "month":
+            return "week";
+        case "week":
+            return "day";
+        case "day":
+            return null;
+    }
 }

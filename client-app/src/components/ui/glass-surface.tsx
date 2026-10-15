@@ -53,6 +53,26 @@ const FALLBACK_TINT: Record<"light" | "dark", BlurTint> = {
     dark: "systemThickMaterialDark",
 };
 
+/**
+ * True under a glass surface. Glass there paints a flat fill instead, since
+ * liquid glass is not meant to stack on glass.
+ */
+const GlassLayerContext = createContext(false);
+
+/**
+ * The fill nested glass paints, a wash of the text color. `regular` reads a
+ * step stronger than `clear`, so a pill still shows on its track.
+ */
+const NESTED_FILL: Record<"light" | "dark", string> = {
+    light: "#000000",
+    dark: "#ffffff",
+};
+
+const NESTED_FILL_OPACITY: Record<GlassSurfaceVariant, number> = {
+    regular: 0.1,
+    clear: 0.05,
+};
+
 const FALLBACK_INTENSITY: Record<GlassSurfaceVariant, number> = {
     regular: 60,
     clear: 35,
@@ -83,6 +103,9 @@ const ANDROID_FILL_OPACITY: Record<GlassSurfaceVariant, number> = {
  * `GlassBlurTargetProvider`. Any other Android glass paints a
  * semi-transparent fill.
  *
+ * Inside another glass surface, or a `GlassLayer`, it paints a flat fill
+ * instead, since liquid glass is not meant to stack on glass.
+ *
  * It paints a background and nothing else. Give it a size, a radius, and
  * `overflow: "hidden"` from the caller. Note that clipping kills an iOS shadow,
  * so keep the shadow on a parent rather than on this view.
@@ -98,12 +121,35 @@ export function GlassSurface({
     const { colorScheme } = useColorScheme();
     const scheme = colorScheme === "dark" ? "dark" : "light";
     const blurTarget = useContext(BlurTargetContext);
+    const nested = useContext(GlassLayerContext);
+
+    // Everything below can hold children, so they learn they are on glass.
+    const content = <GlassLayer>{children}</GlassLayer>;
+
+    if (nested) {
+        return (
+            <View className={className} {...rest}>
+                <View
+                    pointerEvents="none"
+                    style={[
+                        StyleSheet.absoluteFill,
+                        {
+                            backgroundColor: NESTED_FILL[scheme],
+                            opacity: NESTED_FILL_OPACITY[variant],
+                        },
+                    ]}
+                />
+                <FallbackTint color={tintColor} />
+                {content}
+            </View>
+        );
+    }
 
     if (Platform.OS === "web") {
         return (
             <View className={cn("bg-card/80", className)} {...rest}>
                 <FallbackTint color={tintColor} />
-                {children}
+                {content}
             </View>
         );
     }
@@ -117,7 +163,7 @@ export function GlassSurface({
                 className={className}
                 {...rest}
             >
-                {children}
+                {content}
             </GlassView>
         );
     }
@@ -145,7 +191,7 @@ export function GlassSurface({
                     ]}
                 />
                 <FallbackTint color={tintColor} />
-                {children}
+                {content}
             </View>
         );
     }
@@ -162,8 +208,21 @@ export function GlassSurface({
             {...rest}
         >
             <FallbackTint color={tintColor} />
-            {children}
+            {content}
         </BlurView>
+    );
+}
+
+/**
+ * Marks its children as sitting on glass, so any glass among them paints a
+ * flat fill. For a container whose glass is a sibling layer under its content
+ * rather than the parent of it.
+ */
+export function GlassLayer({ children }: { children: ReactNode }) {
+    return (
+        <GlassLayerContext.Provider value={true}>
+            {children}
+        </GlassLayerContext.Provider>
     );
 }
 

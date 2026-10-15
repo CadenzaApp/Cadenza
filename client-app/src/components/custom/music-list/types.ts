@@ -91,6 +91,11 @@ export type MusicListProps = {
     tracks: MusicItem[];
     isLoading: boolean;
     /**
+     * A song id (catalog, library, or plain) whose row shimmers the first time
+     * it is on screen, then never again.
+     */
+    highlightTrackId?: string;
+    /**
      * Replaces normal tap-to-play behavior. When null or omitted, tapping a
      * track uses the shared playback controller.
      */
@@ -139,6 +144,12 @@ export type MusicListProps = {
     footer?: ReactNode;
     /** Reports the complete scroll content size. */
     onContentSizeChange?: (width: number, height: number) => void;
+    /**
+     * Drawn behind the rows, filling the whole scroll content and scrolling
+     * with it, like a page gradient. It spans the real content with nothing
+     * measured, and is never virtualized away with an offscreen header.
+     */
+    contentBackground?: ReactNode;
     /** Controls native offscreen view clipping for backdrops that span the list. */
     removeClippedSubviews?: boolean;
     /** Optional scroll observer for coordinated header animation. */

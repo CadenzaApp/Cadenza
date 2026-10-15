@@ -1,5 +1,5 @@
 import type { MusicItem } from "@apple-musickit";
-import { router } from "expo-router";
+import type { Href } from "expo-router";
 import { memo, useState } from "react";
 import { Alert } from "react-native";
 
@@ -10,22 +10,23 @@ import type {
     MusicListTrackAction,
 } from "@/components/custom/music-list/types";
 import { SongTagSelectorPopup } from "@/components/custom/tag-selector/song-popup";
-import { albumRouteForTrack } from "@/lib/music-routes";
+import { useAlbumRouteForTrack } from "@/lib/album-route";
 import { useSongArtists, useSongFavoriteStatus } from "@/lib/musickit-hooks";
+import { useOpenScreen } from "@/lib/open-screen";
 import { usePlaybackCommands } from "@/lib/playback";
 import { shareTrack } from "@/lib/share-track";
 import { classifyError } from "@/lib/app-error";
 
 import { FavoriteShareRow } from "./favorite-share-row";
 
-type NavigateFn = (href: Parameters<typeof router.push>[0]) => void;
+type NavigateFn = (href: Href) => void;
 
 type SongOptionsMenuProps = {
     track: MusicItem | null;
     onClose: () => void;
     /**
      * How Add to Playlist / Go to Album / Go to Artist navigate. Defaults to
-     * a plain push. The now-playing sheet passes a function that dismisses
+     * `useOpenScreen`. The now-playing sheet passes a function that dismisses
      * itself first, since those are full-screen routes pushed on top of it.
      */
     navigate?: NavigateFn;
@@ -40,9 +41,11 @@ type SongOptionsMenuProps = {
 export const SongOptionsMenu = memo(function SongOptionsMenu({
     track,
     onClose,
-    navigate = (href) => router.push(href),
+    navigate,
     extraActions = [],
 }: SongOptionsMenuProps) {
+    const openScreen = useOpenScreen();
+    const go = navigate ?? openScreen;
     const favoriteId = track?.catalogId ?? track?.id;
     const {
         favoriteStatus,
@@ -51,6 +54,7 @@ export const SongOptionsMenu = memo(function SongOptionsMenu({
         setSongFavoriteStatus,
     } = useSongFavoriteStatus(favoriteId);
     const { artistIds, artistIdsLoading } = useSongArtists(favoriteId);
+    const { albumRoute, albumRouteLoading } = useAlbumRouteForTrack(track);
     const [isUpdatingFavorite, setIsUpdatingFavorite] = useState(false);
     const [editingTags, setEditingTags] = useState(false);
     const { addToQueue, playNext } = usePlaybackCommands();
@@ -80,23 +84,22 @@ export const SongOptionsMenu = memo(function SongOptionsMenu({
     function openAddToPlaylist() {
         const songId = selectedTrack.catalogId ?? selectedTrack.id;
         onClose();
-        navigate({
+        go({
             pathname: "/add-to-playlist",
             params: { songId, title: selectedTrack.title },
         });
     }
 
     function openAlbum() {
-        const route = albumRouteForTrack(selectedTrack);
-        if (!route) return;
+        if (!albumRoute) return;
         onClose();
-        navigate(route);
+        go(albumRoute);
     }
 
     function openArtist() {
         if (!artistId) return;
         onClose();
-        navigate({
+        go({
             pathname: "/artist/[id]",
             params: {
                 id: artistId,
@@ -181,10 +184,13 @@ export const SongOptionsMenu = memo(function SongOptionsMenu({
                             key={action.id}
                             action={action}
                             target={selectedTrack}
-                            busy={isArtist && artistIdsLoading}
+                            busy={
+                                (isArtist && artistIdsLoading) ||
+                                (isAlbum && albumRouteLoading)
+                            }
                             disabled={
                                 (isArtist && !artistId) ||
-                                (isAlbum && !selectedTrack.albumID)
+                                (isAlbum && !albumRoute)
                             }
                         />
                     );

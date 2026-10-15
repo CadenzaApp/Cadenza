@@ -2,7 +2,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import type { ArtistDetail, MusicItem } from "@apple-musickit";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams } from "expo-router";
 import { useTheme } from "expo-router/react-navigation";
 import { useColorScheme } from "nativewind";
 import { useState } from "react";
@@ -10,11 +10,13 @@ import {
     Image as RNImage,
     Pressable,
     ScrollView,
+    StyleSheet,
     useWindowDimensions,
     View,
 } from "react-native";
 
 import { ErrorNotice } from "@/components/custom/error-notice";
+import { Crossfade } from "@/components/ui/crossfade";
 import { TrackCollectionView } from "@/components/custom/track-collection-view";
 import { FloatingCloseButton } from "@/components/ui/floating-close-button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -27,6 +29,7 @@ import { collectionRoute } from "@/lib/music-routes";
 import { useArtist } from "@/lib/musickit-hooks";
 import { samePlayableItem } from "@/lib/playable-item";
 import { usePlaybackCommands, usePlaybackTrackState } from "@/lib/playback";
+import { useOpenScreen } from "@/lib/open-screen";
 
 const ALBUM_TILE_WIDTH = 132;
 const ALBUM_PLACEHOLDER_COUNT = 4;
@@ -55,7 +58,7 @@ const HERO_FADE_RATIO = 0.45;
  */
 export default function ArtistScreen() {
     const { id, name } = useLocalSearchParams<{ id: string; name?: string }>();
-    const router = useRouter();
+    const openScreen = useOpenScreen();
     const { colorScheme = "light" } = useColorScheme();
     const { height: windowHeight } = useWindowDimensions();
     const { artist, artistLoading, artistErr } = useArtist(id);
@@ -77,7 +80,7 @@ export default function ArtistScreen() {
     const heroHeight = windowHeight * HERO_HEIGHT_RATIO;
 
     function openAlbum(album: MusicItem) {
-        router.push(collectionRoute(album));
+        openScreen(collectionRoute(album));
     }
 
     /** Replaces the queue with the top songs, in Apple's order. */
@@ -197,7 +200,14 @@ function ArtistHero({
     const artworkUrl = artist?.artworkUrl;
     // `colors.card` is a ColorValue, which is a hex string on every theme the
     // app defines. The gradient wants that string.
-    const fadeColor = fadeTo ?? String(colors.card);
+    const untintedFade = [
+        withAlpha("#000000", 0),
+        String(colors.card),
+    ] as const;
+    const fade = [
+        withAlpha(tint ?? "#000000", 0),
+        fadeTo ?? untintedFade[1],
+    ] as const;
 
     return (
         <View style={{ height }} className="justify-end">
@@ -222,9 +232,8 @@ function ArtistHero({
                 </View>
             )}
 
-            <LinearGradient
+            <View
                 pointerEvents="none"
-                colors={[withAlpha(tint ?? "#000000", 0), fadeColor]}
                 style={{
                     position: "absolute",
                     left: 0,
@@ -232,7 +241,21 @@ function ArtistHero({
                     bottom: 0,
                     height: height * HERO_FADE_RATIO,
                 }}
-            />
+            >
+                {/* fades with the page's tint, from the untinted fade the
+                    page starts at, so the two never disagree */}
+                <Crossfade
+                    value={fade}
+                    initial={untintedFade}
+                    keyOf={(stops) => stops.join(",")}
+                    render={(stops) => (
+                        <LinearGradient
+                            style={StyleSheet.absoluteFill}
+                            colors={stops}
+                        />
+                    )}
+                />
+            </View>
 
             <View className="items-center px-6 pb-5">
                 <Text

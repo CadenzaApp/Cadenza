@@ -10,13 +10,21 @@ import {
     type SearchResult,
     type SongFavoriteStatus,
 } from "@apple-musickit";
-import { useEffect, useMemo, useState } from "react";
-import useSWR, { useSWRConfig } from "swr";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import useSWR, { unstable_serialize, useSWRConfig } from "swr";
 import useSWRInfinite from "swr/infinite";
 import { isAppleMusicAuthError } from "./app-error";
 import { reportAppleMusicAuthFailure, useAppleMusic } from "./apple-music-auth";
+import { collectionRoute } from "./music-routes";
 
 const MUSIC_LIST_PAGE_SIZE = 25;
+/**
+ * A paged list's first page stays small, so its rows show up fast. Every page
+ * after it is as big as Apple allows, so a long list pages in two or three
+ * steps rather than one per 25 songs, each step re-rendering the list.
+ */
+const FIRST_PAGE_SIZE = MUSIC_LIST_PAGE_SIZE;
+const NEXT_PAGE_SIZE = 100;
 const ALL_LIBRARY_PAGE_SIZE = 100;
 /** The artist sections are rails, not paged lists, so one page is the whole thing. */
 const ARTIST_SEARCH_LIMIT = 12;
@@ -156,6 +164,13 @@ export function useSongInfo(songIds?: readonly string[] | null) {
         },
         ([, , ids]: SongInfoPageKey) =>
             read(() => MusicKit.getSongInfo([...ids])),
+        {
+            // the chunks are independent, so ask for them all at once. one
+            // after another, a 100 song list waited on four round trips
+            parallel: true,
+            initialSize: Math.max(1, idChunks.length),
+            revalidateFirstPage: false,
+        },
     );
     const { data, error, setSize, size } = x;
     useEffect(() => {
@@ -217,6 +232,8 @@ export function useCatalogSongSearch(enabled = true) {
                 }),
             );
         },
+        // a next page is only the next page, not page one again first
+        { revalidateFirstPage: false },
     );
     const searchResults = useMemo(
         () =>
@@ -266,13 +283,13 @@ export function useLibrarySongSearch(enabled = true) {
     const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
     const [term, setTerm] = useState<string | null>(null);
     const page = usePagedLibraryResult(
-        (offset) =>
+        (offset, limit) =>
             enabled && isConnected && term
                 ? ([
                       "MusicKit.searchLibrarySongs",
                       sessionRevision,
                       term,
-                      MUSIC_LIST_PAGE_SIZE,
+                      limit,
                       offset,
                   ] as const)
                 : null,
@@ -315,7 +332,8 @@ function usePagedLibraryResult<
     Key extends readonly unknown[],
     Item extends { id: string } = MusicItem,
 >(
-    getKey: (offset: number) => Key | null,
+    /** `limit` is the pager's page size for that page, for the key. */
+    getKey: (offset: number, limit: number) => Key | null,
     fetchPage: (key: Key) => Promise<PagedResult<Item>>,
 ) {
     const x = useSWRInfinite<PagedResult<Item>>(
@@ -323,9 +341,15 @@ function usePagedLibraryResult<
             if (pageIndex > 0 && !hasNextLibraryPage(previousPage)) return null;
             const offset = pageIndex === 0 ? 0 : previousPage?.nextOffset;
             if (offset === undefined) return null;
-            return getKey(offset);
+            return getKey(
+                offset,
+                pageIndex === 0 ? FIRST_PAGE_SIZE : NEXT_PAGE_SIZE,
+            );
         },
         (key) => read(() => fetchPage(key as unknown as Key)),
+        // a next page is only the next page. by default SWR fetches page one
+        // again first and waits for it, which doubled every load more
+        { revalidateFirstPage: false },
     );
 
     const items = useMemo(
@@ -369,12 +393,12 @@ export function useTracksFromLibrary({
 } = {}) {
     const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
     const page = usePagedLibraryResult(
-        (offset) =>
+        (offset, limit) =>
             enabled && isConnected
                 ? ([
                       "MusicKit.getLibrarySongs",
                       sessionRevision,
-                      MUSIC_LIST_PAGE_SIZE,
+                      limit,
                       sort?.option ?? null,
                       sort?.direction ?? null,
                       offset,
@@ -435,6 +459,15 @@ export function useAllTracksFromLibrary(enabled = true) {
             }
 
             return appendWithoutDuplicates(pages);
+        },
+        {
+            // the whole library is one page per hundred songs, plus a request
+            // each to fill them in. SWR's default refetches it whenever a new
+            // reader mounts, which kept a library download running behind
+            // every page. a new Apple Music session still refetches it
+            revalidateIfStale: false,
+            revalidateOnFocus: false,
+            revalidateOnReconnect: false,
         },
     );
 
@@ -517,12 +550,12 @@ export function indexTracksById(tracks: readonly MusicItem[]) {
 export function useLibraryAlbums(enabled = true) {
     const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
     const page = usePagedLibraryResult(
-        (offset) =>
+        (offset, limit) =>
             enabled && isConnected
                 ? ([
                       "MusicKit.getLibraryAlbums",
                       sessionRevision,
-                      MUSIC_LIST_PAGE_SIZE,
+                      limit,
                       offset,
                   ] as const)
                 : null,
@@ -634,12 +667,12 @@ export function useLibraryArtistSearch(term?: string, enabled = true) {
 export function useUserPlaylists(enabled = true) {
     const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
     const page = usePagedLibraryResult(
-        (offset) =>
+        (offset, limit) =>
             enabled && isConnected
                 ? ([
                       "MusicKit.getUserPlaylists",
                       sessionRevision,
-                      MUSIC_LIST_PAGE_SIZE,
+                      limit,
                       offset,
                   ] as const)
                 : null,
@@ -699,21 +732,20 @@ export function useCollectionSongs(
 ) {
     const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
     const page = usePagedLibraryResult(
-        (offset) =>
+        (offset, limit) =>
             isConnected && collectionId
-                ? ([
-                      "MusicKit.getCollectionSongs",
+                ? collectionSongsKey(
                       sessionRevision,
                       kind,
                       collectionId,
-                      MUSIC_LIST_PAGE_SIZE,
+                      limit,
                       offset,
-                  ] as const)
+                  )
                 : null,
-        ([, , collectionKind, id, limit, offset]: CollectionSongsPageKey) =>
-            collectionKind === "album"
-                ? MusicKit.getAlbumSongs(id, { limit, offset })
-                : MusicKit.getPlaylistSongs(id, { limit, offset }),
+        // a page prefetched on press-in is already on its way; join it
+        (key: CollectionSongsPageKey) =>
+            prefetching.get(unstable_serialize(key)) ??
+            fetchCollectionSongs(key),
     );
 
     return {
@@ -724,6 +756,105 @@ export function useCollectionSongs(
         hasNextCollectionPage: page.hasNextPage,
         tracksErr: page.error,
     };
+}
+
+function collectionSongsKey(
+    sessionRevision: number,
+    kind: LibraryCollectionKind,
+    collectionId: string,
+    limit: number,
+    offset: number,
+): CollectionSongsPageKey {
+    return [
+        "MusicKit.getCollectionSongs",
+        sessionRevision,
+        kind,
+        collectionId,
+        limit,
+        offset,
+    ] as const;
+}
+
+function fetchCollectionSongs([
+    ,
+    ,
+    kind,
+    id,
+    limit,
+    offset,
+]: CollectionSongsPageKey) {
+    return kind === "album"
+        ? MusicKit.getAlbumSongs(id, { limit, offset })
+        : MusicKit.getPlaylistSongs(id, { limit, offset });
+}
+
+/** First pages requested on press-in and not landed yet, by cache key. */
+const prefetching = new Map<string, Promise<PagedResult<MusicItem>>>();
+
+/**
+ * Starts loading a collection's first page as a finger lands on it, so the
+ * request is underway during the tap and the screen's open. The page lands in
+ * the cache under the same key `useCollectionSongs` asks for, and a screen
+ * that mounts while it is still in flight joins that request rather than
+ * sending its own.
+ */
+export function usePrefetchCollectionSongs() {
+    const { isConnected, sessionRevision } = useAppleMusic();
+    const { cache, mutate } = useSWRConfig();
+    return useCallback(
+        (collection: MusicItem) => {
+            // the same kind and id the screen will open with
+            const { kind, id } = collectionRoute(collection).params;
+            if (!isConnected || !id) return;
+            if (kind !== "album" && kind !== "playlist") return;
+            const key = collectionSongsKey(
+                sessionRevision,
+                kind,
+                id,
+                FIRST_PAGE_SIZE,
+                0,
+            );
+            const cacheKey = unstable_serialize(key);
+            if (
+                cache.get(cacheKey)?.data !== undefined ||
+                prefetching.has(cacheKey)
+            ) {
+                return;
+            }
+            const request = read(() => fetchCollectionSongs(key));
+            prefetching.set(cacheKey, request);
+            void (async () => {
+                try {
+                    await mutate(key, await request, { revalidate: false });
+                } catch {
+                    // the screen's own read reports it
+                } finally {
+                    prefetching.delete(cacheKey);
+                }
+            })();
+        },
+        [cache, isConnected, mutate, sessionRevision],
+    );
+}
+
+/**
+ * `useCollectionSongs` for `collectionId`, or for `fallbackId` once that one
+ * fails or comes back empty. `collectionId` in the result is the one shown.
+ */
+export function useCollectionSongsOrFallback(
+    kind: LibraryCollectionKind,
+    collectionId?: string,
+    fallbackId?: string,
+) {
+    const primary = useCollectionSongs(kind, collectionId);
+    const missing =
+        fallbackId != null &&
+        !primary.tracksLoading &&
+        (primary.tracksErr != null || primary.tracks.length === 0);
+    const fallback = useCollectionSongs(kind, missing ? fallbackId : undefined);
+    return missing
+        ? { ...fallback, collectionId: fallbackId }
+        : { ...primary, collectionId };
 }
 
 /** Returns and updates the cached favorite status for one Apple Music song. */
@@ -830,27 +961,52 @@ export function useCollectionInfo(
     kind: LibraryCollectionKind,
     collectionId?: string,
 ) {
+    const ids = useMemo(
+        () => (collectionId ? [collectionId] : NO_IDS),
+        [collectionId],
+    );
+    const { collections, collectionsLoading, collectionsErr } =
+        useCollectionsInfo(kind, ids);
+
+    return {
+        collection: collections[0],
+        collectionLoading: collectionsLoading,
+        collectionErr: collectionsErr,
+    };
+}
+
+/**
+ * Returns metadata for many albums or playlists in one request, in the order
+ * asked, minus any Apple Music could not find. Ids may be catalog or library.
+ */
+export function useCollectionsInfo(
+    kind: LibraryCollectionKind,
+    collectionIds: readonly string[],
+) {
     const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
     const apiKind = collectionFavoriteKind(kind);
     const key =
-        isConnected && collectionId
+        isConnected && collectionIds.length > 0
             ? ([
                   "MusicKit.getCollectionInfo",
                   sessionRevision,
                   apiKind,
-                  collectionId,
+                  ...collectionIds,
               ] as const)
             : null;
     const x = useSWR<MusicItem[]>(key, () =>
-        read(() => MusicKit.getCollectionInfo(apiKind, [collectionId!])),
+        read(() => MusicKit.getCollectionInfo(apiKind, [...collectionIds])),
     );
 
     return {
-        collection: x.data?.[0],
-        collectionLoading: x.isLoading || isInitializing,
-        collectionErr: x.error,
+        collections: x.data ?? EMPTY_COLLECTIONS,
+        collectionsLoading: x.isLoading || isInitializing,
+        collectionsErr: x.error,
     };
 }
+
+const NO_IDS: readonly string[] = [];
+const EMPTY_COLLECTIONS: MusicItem[] = [];
 
 /**
  * Resolves the catalog artists credited on a song. Separate from `useArtist`

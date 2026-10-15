@@ -3,97 +3,102 @@ import test from "node:test";
 
 import {
     shouldDismissZoom,
+    ZOOM_PAGE_FADE_SHARE,
     zoomCloseDuration,
-    zoomGeometry,
+    zoomFrame,
+    zoomOpenFrame,
+    zoomPageOpacity,
     zoomProgressForScrollOffset,
 } from "./zoom-dismiss-geometry.ts";
 
-test("zoom geometry lands the card's top-left corner on its artwork", () => {
-    const width = 400;
-    const height = 800;
-    const origin = { x: 20, y: 300, width: 160, height: 160 };
+const W = 400;
+const H = 800;
+const TILE = { x: 20, y: 300, width: 160, height: 160 };
+const ART = { x: 80, y: 100, width: 240, height: 240 };
 
-    const start = zoomGeometry(width, height, origin, 0);
+test("the card starts as the whole screen", () => {
+    const start = zoomFrame(W, H, TILE, ART, 0);
     assert.equal(start.scale, 1);
     assertApprox(start.translateX, 0);
     assertApprox(start.translateY, 0);
-    assert.equal(start.borderRadius, 52);
-
-    const middle = zoomGeometry(width, height, origin, 0.5);
-    assertApprox(renderedLeft(width, middle), origin.x * 0.5);
-    assertApprox(renderedTop(height, middle), origin.y * 0.5);
-
-    const end = zoomGeometry(width, height, origin, 1);
-    assertApprox(renderedLeft(width, end), origin.x);
-    assertApprox(renderedTop(height, end), origin.y);
-    assertApprox(width * end.scale, origin.width);
+    assert.equal(start.visibleRadius, 52);
 });
 
-test("zoom corners stay visible as the card shrinks", () => {
-    const gridEnd = zoomGeometry(
-        400,
-        800,
-        { x: 20, y: 300, width: 160, height: 160 },
-        1,
-    );
-    assertApprox(gridEnd.visibleBorderRadius, 38.4);
-    assertApprox(gridEnd.borderRadius * gridEnd.scale, 38.4);
-
-    const rowEnd = zoomGeometry(
-        400,
-        800,
-        { x: 20, y: 300, width: 56, height: 56 },
-        1,
-    );
-    assertApprox(rowEnd.visibleBorderRadius, 13.44);
-    assertApprox(rowEnd.borderRadius * rowEnd.scale, 13.44);
+test("the artwork on the page lands exactly on its tile", () => {
+    const end = zoomFrame(W, H, TILE, ART, 1);
+    assertApprox(end.scale, TILE.width / ART.width);
+    // where the artwork's corners end up on screen
+    assertApprox(ART.x * end.scale + end.translateX, TILE.x);
+    assertApprox(ART.y * end.scale + end.translateY, TILE.y);
+    assertApprox(ART.width * end.scale, TILE.width);
 });
 
-test("source-less zoom keeps its centered fallback target", () => {
-    const end = zoomGeometry(400, 800, null, 1);
+test("artwork scrolled out of sight closes on the top of the page", () => {
+    const end = zoomFrame(W, H, TILE, { ...ART, y: -400 }, 1);
+    assertApprox(end.scale, TILE.width / W);
+    assertApprox(end.translateY, TILE.y);
+});
 
-    assert.equal(end.scale, 0.7);
-    assert.equal(renderedLeft(400, end), 60);
-    assert.equal(renderedTop(800, end), 360);
+test("a close with nothing recorded lands on a centered square", () => {
+    const end = zoomFrame(W, H, null, ART, 1);
+    assertApprox(ART.width * end.scale, 280);
+    assertApprox(ART.x * end.scale + end.translateX, 60);
+    assertApprox(ART.y * end.scale + end.translateY, 260);
+});
+
+test("corners ease to the tile's radius and survive the scale", () => {
+    const end = zoomFrame(W, H, TILE, ART, 1);
+    assertApprox(end.visibleRadius, 38.4);
+    assertApprox(end.borderRadius * end.scale, 38.4);
+    const row = { x: 20, y: 300, width: 56, height: 56 };
+    assertApprox(zoomFrame(W, H, row, ART, 1).visibleRadius, 13.44);
+});
+
+test("most of the shrink happens early, while the page fades", () => {
+    const end = zoomFrame(W, H, TILE, ART, 1);
+    const early = zoomFrame(W, H, TILE, ART, ZOOM_PAGE_FADE_SHARE);
+    const shrunk = (1 - early.scale) / (1 - end.scale);
+    assert.ok(
+        shrunk > 0.5,
+        `only ${shrunk} of the shrink by the end of the fade`,
+    );
+});
+
+test("the page fades out early, leaving the artwork", () => {
+    assert.equal(zoomPageOpacity(0), 1);
+    assertApprox(zoomPageOpacity(ZOOM_PAGE_FADE_SHARE / 2), 0.5);
+    assert.equal(zoomPageOpacity(ZOOM_PAGE_FADE_SHARE), 0);
+    assert.equal(zoomPageOpacity(1), 0);
+});
+
+test("the open grows the whole page from the tile, top-left on its corner", () => {
+    const start = zoomOpenFrame(W, H, TILE, 1);
+    assertApprox(start.translateX, TILE.x);
+    assertApprox(start.translateY, TILE.y);
+    assertApprox(W * start.scale, TILE.width);
+    const full = zoomOpenFrame(W, H, TILE, 0);
+    assert.equal(full.scale, 1);
+    assertApprox(full.translateX, 0);
+    assertApprox(full.translateY, 0);
 });
 
 test("pull progress continues beyond the dismissal threshold", () => {
     assert.equal(zoomProgressForScrollOffset(20), 0);
-    assert.equal(zoomProgressForScrollOffset(-55), 0.11);
-    assert.equal(zoomProgressForScrollOffset(-110), 0.22);
-    assert.equal(zoomProgressForScrollOffset(-220), 0.44);
+    assertApprox(zoomProgressForScrollOffset(-50), 0.15);
+    assertApprox(zoomProgressForScrollOffset(-100), 0.3);
+    assertApprox(zoomProgressForScrollOffset(-200), 0.6);
     assert.equal(zoomProgressForScrollOffset(-1000), 0.96);
 
-    assert.equal(shouldDismissZoom(-109), false);
-    assert.equal(shouldDismissZoom(-110), true);
+    assert.equal(shouldDismissZoom(-69), false);
+    assert.equal(shouldDismissZoom(-70), true);
 });
 
 test("close duration only covers the remaining progress", () => {
-    assert.equal(zoomCloseDuration(0), 280);
-    assert.equal(zoomCloseDuration(0.5), 140);
+    assert.equal(zoomCloseDuration(0), 350);
+    assert.equal(zoomCloseDuration(0.5), 175);
     assert.equal(zoomCloseDuration(0.96), 16);
     assert.equal(zoomCloseDuration(1), 16);
 });
-
-function renderedLeft(
-    viewportWidth: number,
-    geometry: ReturnType<typeof zoomGeometry>,
-) {
-    return (
-        (viewportWidth - viewportWidth * geometry.scale) / 2 +
-        geometry.translateX
-    );
-}
-
-function renderedTop(
-    viewportHeight: number,
-    geometry: ReturnType<typeof zoomGeometry>,
-) {
-    return (
-        (viewportHeight - viewportHeight * geometry.scale) / 2 +
-        geometry.translateY
-    );
-}
 
 function assertApprox(actual: number, expected: number) {
     assert.ok(

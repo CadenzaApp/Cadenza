@@ -196,6 +196,10 @@ rather than bound, so they have to stay literals written in that file and must c
 by something other than the window (top songs, replays, top tags, the heatmap) are each their own
 function. Every read of "tags the user listened to" starts from `tagged_plays`, one shared join, so
 the tag ranking, the tag count, and each heatmap cell's tag cannot disagree on what counts.
+Tag listening time (`get_tag_shares`) is the exception: it counts the events that carry
+`listened_ms`, not `play_counted`, so it builds on `LISTENED_MS` and `LISTEN_EVENTS` from
+`metrics.rs`, the same pieces the `listening_ms` metric is made of. Its total and the summary's
+cannot disagree, and each listen counts once per tag on its song, never split.
 
 ## Activity tags
 
@@ -521,3 +525,16 @@ every song scores zero and the whole list is ordered by song id.
 ---
 Touching files in this directory? Update this README in the same change.
 See [../../../AGENT_GUIDE.md](../../../AGENT_GUIDE.md).
+
+### Listening calendar and sessions
+
+`analytics/listening.rs` adds duration buckets and recorded session/song reads. All use the existing
+`LISTENED_MS` and `LISTEN_EVENTS` rules and attribute duration to the completion/skip event timestamp.
+Tag membership uses a user-scoped `EXISTS`, so duplicate associations or many tags cannot multiply
+an event. The listening read returns unfiltered total time and filtered metrics in one SQL snapshot.
+Session groups and song durations are clipped to the requested window and tag filter. Tags are
+collected after song aggregation. Missing session ids form an unassigned group and are excluded
+from the recorded session count. Pagination fetches one extra row for continuation.
+
+The new database integration test uses transaction-local temporary tables and rolls back; it does
+not modify real user data. Run it explicitly with `cargo test listening_filters_and_sessions -- --ignored`.

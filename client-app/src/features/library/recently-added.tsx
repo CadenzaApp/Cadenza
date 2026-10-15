@@ -4,6 +4,7 @@ import { useTheme } from "expo-router/react-navigation";
 import type { ReactNode } from "react";
 import { FlatList, Image, Pressable, View } from "react-native";
 import Animated from "react-native-reanimated";
+import { usePrefetchCollectionSongs } from "@/lib/musickit-hooks";
 
 import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
@@ -136,6 +137,7 @@ function RecentlyAddedTile({
 }) {
     const { colors } = useTheme();
     const { ref: zoomRef, capture: captureZoom } = useZoomSource();
+    const prefetch = usePrefetchCollectionSongs();
     const artworkUrl = item.artworkUrlLarge?.trim() ?? item.artworkUrl?.trim();
     const canRenderArtwork =
         typeof artworkUrl === "string" && /^https?:\/\//i.test(artworkUrl);
@@ -150,6 +152,10 @@ function RecentlyAddedTile({
                     ? `Play ${item.title}`
                     : `Open ${item.title}`
             }
+            // an album or playlist's songs start loading as the finger lands
+            onPressIn={() => {
+                if (item.resourceKind !== "song") prefetch(item);
+            }}
             onPress={() => {
                 // What the collection screen minimizes back into.
                 captureZoom();

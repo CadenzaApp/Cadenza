@@ -14,8 +14,9 @@ logic out.
 | `(tabs)/_layout.tsx`                 |                           | Protected native tab group, its five triggers, and the media-player bottom accessory.                         |
 | `(tabs)/*/_layout.tsx`               |                           | One native `Stack` per tab, using `TabStack` for the shared top rail.                                         |
 | `(tabs)/social/index.tsx`            | `/social`                 | Static previews of planned social features.                                                                   |
-| `(tabs)/analytics/index.tsx`         | `/analytics`              | The overview: header, #1 hero, stats, heatmap, tag rail, the chart, and one card for every ranking.           |
+| `(tabs)/analytics/index.tsx`         | `/analytics`              | The overview: header, #1 hero, stats, heatmap, tag rail, and one card for every ranking.                      |
 | `(tabs)/analytics/[dimension].tsx`   | `/analytics/[dimension]`  | One full ranking. `dimension` is a name from the client's dimension registry.                                 |
+| `(tabs)/analytics/listened.tsx`      | `/analytics/listened`     | The songs listened to in one heatmap hour. Params: `since`, `until`, `title`, optional `tag`.                 |
 | `(tabs)/cadenza/index.tsx`           | `/cadenza`                | The simple / advanced query workspace and shared result preview.                                              |
 | `(tabs)/library/index.tsx`           | `/library`                | Library index: a row per category, then Recently Added.                                                       |
 | `(tabs)/library/category/[kind].tsx` | `/library/category/:kind` | One category's normal Library-stack view; preserves the tab bar and bottom player.                            |
@@ -129,8 +130,8 @@ past the threshold finishes from that exact progress and pops. The pull does not
 the threshold while the finger continues down.
 
 Because it is a card over another screen rather than a rectangle replacing it, it keeps rounded
-continuous corners while it shrinks. The visible corner size is compensated for the card's scale,
-and the card lands its top-left edge on the artwork rather than hovering around its center.
+continuous corners while it shrinks. Like Music, the page fades away early and what is left is the
+artwork itself, shrinking until it lands exactly on the tile it came from.
 
 The artwork hero screens paint the artwork tint as their own background rather than leaving it to the
 gradient inside the list. During the close, the list counters iOS's downward overscroll so the
@@ -191,6 +192,11 @@ animation**. That is what the zoom below needs, since it has to grow out of and 
 screen that is still on display underneath. The cost is the native back swipe, which a transparent
 modal has no edge for; the pull down at the top replaces it.
 
+Open a detail screen with `useOpenScreen` (`@/lib/open-screen`), not `router.push`. Opening one
+already on the stack goes back to it, so artist -> playlist -> the same artist lands on the first
+artist, and the artist you are on does nothing. Past `MAX_DETAIL_DEPTH` the oldest detail screens
+are dropped. Since each one is a transparent modal, everything under it stays mounted.
+
 ## The detail shell
 
 Both kinds render their body inside `DetailScreen` (`@/components/ui/detail-screen`), which
@@ -229,6 +235,11 @@ and the now playing sheet's `...` menu. `/collection/:kind/:id` is reached throu
 `collectionRoute` and `albumRouteForTrack` in `@/lib/music-routes`, which carry the title, the
 artist, both artwork sizes, and the artwork color so the hero and the tint are there before the
 song fetch lands.
+
+Go to Album opens the full catalog album through `useAlbumRouteForTrack`, since a library album
+holds only the songs the user added. Its `fallbackId` is the library album, shown when the full one
+fails or is empty. Its `highlight` param names the song it came from, and that row shimmers once,
+the first time it is on screen.
 
 These root routes render above the native tab controller, so its bottom accessory cannot appear
 over them. Every zoom-dismiss card owns a compact player layer, which makes the player transform

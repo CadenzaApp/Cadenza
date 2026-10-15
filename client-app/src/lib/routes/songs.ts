@@ -1,3 +1,4 @@
+import { ANALYTICS_READS } from "./analytics-reads";
 import { useMemo } from "react";
 import {
     invalidateAPIData,
@@ -71,6 +72,7 @@ export function useApplyTag() {
             { path: "/tags", exactParams: true },
             { path: "/tags", params: { tag_id }, exactParams: true },
             { path: "/queries/results" },
+            ...ANALYTICS_READS,
         ],
         { invalidation: "background" },
     );
@@ -98,6 +100,7 @@ export function useSetTagValue() {
             { path: "/tags", exactParams: true },
             { path: "/tags", params: { tag_id }, exactParams: true },
             { path: "/queries/results" },
+            ...ANALYTICS_READS,
         ],
         { invalidation: "background" },
     );
@@ -122,6 +125,7 @@ export function useUnapplyTag() {
             { path: "/tags", exactParams: true },
             { path: "/tags", params: { tag_id }, exactParams: true },
             { path: "/queries/results" },
+            ...ANALYTICS_READS,
         ],
         { invalidation: "background" },
     );
@@ -145,6 +149,7 @@ const BATCH_TAG_INVALIDATIONS = [
     { path: "/songs/default-tags/batch" },
     { path: "/tags" },
     { path: "/queries/results" },
+    ...ANALYTICS_READS,
 ];
 
 /** Applies each tag to each song, splitting requests at the backend's caps. */
@@ -261,6 +266,7 @@ export function useRemoveDefaultTag() {
             { path: "/songs/default-tags", params: { song_id } },
             { path: "/songs/default-tags/batch", item: song_id },
             { path: "/queries/results" },
+            ...ANALYTICS_READS,
         ],
     );
     return {

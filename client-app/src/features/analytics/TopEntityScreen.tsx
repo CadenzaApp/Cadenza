@@ -40,7 +40,7 @@ export function TopEntityScreen() {
     return (
         <AnalyticsScrollScreen
             title={descriptor.pageTitle}
-            error={topErr}
+            error={top ? undefined : topErr}
             loading={topLoading && !top}
             skeleton={
                 <View className="gap-3">

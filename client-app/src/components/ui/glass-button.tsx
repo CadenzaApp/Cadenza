@@ -38,10 +38,7 @@ export function GlassButton({
             <Pressable
                 accessibilityRole="button"
                 disabled={disabled}
-                style={({ pressed }) => [
-                    pressed && styles.pressed,
-                    disabled && styles.disabled,
-                ]}
+                style={({ pressed }) => pressed && styles.pressed}
                 {...props}
             >
                 <View
@@ -57,7 +54,14 @@ export function GlassButton({
                             style={StyleSheet.absoluteFill}
                         />
                     </View>
-                    {children}
+                    {/* disabled dims the content, not the button: native glass
+                        under a faded parent does not fade with it */}
+                    <View
+                        className="flex-row items-center justify-center gap-2"
+                        style={disabled && styles.disabled}
+                    >
+                        {children}
+                    </View>
                 </View>
             </Pressable>
         </TextClassContext.Provider>
@@ -65,6 +69,6 @@ export function GlassButton({
 }
 
 const styles = StyleSheet.create({
-    disabled: { opacity: 0.55 },
+    disabled: { opacity: 0.4 },
     pressed: { opacity: 0.65 },
 });
