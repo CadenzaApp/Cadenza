@@ -15,6 +15,7 @@ pub mod listening_events;
 pub mod metadata_albums;
 pub mod metadata_song_tags_applied;
 pub mod posts;
+pub mod profile;
 pub mod sea_orm_active_enums;
 pub mod tag_scores;
 pub mod tag_scores_metadata;

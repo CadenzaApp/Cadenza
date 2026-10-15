@@ -13,16 +13,28 @@ def post_embedding(model: SentenceTransformer, content: str) -> np.ndarray:
     return model.encode_document(content)
 
 
+POSTS_EPOCH = datetime(year=2026, month=1, day=1)
+
+
 def create_post(model: SentenceTransformer, user_id: str, content: str):
     with db_conn() as conn, conn.cursor() as cur:
-        embedding = embedding_to_str(post_embedding(model, content))
+        embedding = post_embedding(model, content)
+
+        days_since_epoch = (datetime.now(UTC) - POSTS_EPOCH).days
+        embedding_w_bday = np.append(days_since_epoch, embedding)
+
         row = cur.execute(
             """
-                INSERT INTO posts (user_id, content, embedding)
-                VALUES (%s, %s, %s)
+                INSERT INTO posts (user_id, content, embedding, embedding_w_bday)
+                VALUES (%s, %s, %s, %s)
                 RETURNING post_id
             """,
-            (user_id, content, embedding),
+            (
+                user_id,
+                content,
+                embedding_to_str(embedding),
+                embedding_to_str(embedding_w_bday),
+            ),
         ).fetchone()
         if row:
             return row["post_id"]
@@ -45,13 +57,8 @@ def like_post(post_id: int):
 
 
 def _get_user_vector(user_id: str) -> ndarray | None:
-    """Not normalized!"""
-
     genres = top_k_of_interest(user_id, "genre", 10)
     artists = top_k_of_interest(user_id, "artist", 10)
-
-    if len(genres) == 0 and len(artists) == 0:
-        return None
 
     total_weighted_embeddings = sum(
         [
@@ -60,7 +67,11 @@ def _get_user_vector(user_id: str) -> ndarray | None:
             if interest.score != 0 and interest.embedding is not None
         ]
     )
-    return total_weighted_embeddings  # type: ignore
+    if total_weighted_embeddings == 0:
+        return None
+
+    return total_weighted_embeddings / np.linalg.norm(total_weighted_embeddings)
+
 
 
 def get_post_similarities(
@@ -74,16 +85,20 @@ def get_post_similarities(
     similarities = model.similarity(user_vector, embeddings)
     return similarities.squeeze().tolist()
 
-def posts_similar_to_user(user_id: str, n: int):
+
+def similar_and_recent_posts(user_id: str, n: int):
     user_vector = _get_user_vector(user_id)
     if user_vector is None:
         return []
+
+    AGE_MULTIPLIER = 0.3 # how much similarity score is equivalent to 1 day of post age
+    user_vector = np.append(AGE_MULTIPLIER, user_vector)
 
     with db_conn() as conn:
         return conn.execute(
             """
                 SELECT post_id, embedding, likes, created_at FROM posts 
-                ORDER BY embedding <=> %s
+                ORDER BY embedding_w_bday <#> %s
                 LIMIT %s
             """,
             (embedding_to_str(user_vector), n),
@@ -103,7 +118,7 @@ def hot_posts(n: int):
 
 
 def get_feed(model: SentenceTransformer, user_id: str, n: int):
-    sources = [posts_similar_to_user(user_id, n), hot_posts(n)]
+    sources = [similar_and_recent_posts(user_id, n), hot_posts(n)]
 
     posts = [post for source in sources for post in source]  # flatten
     posts = list({p["post_id"]: p for p in posts}.values())  # deduplicate
@@ -115,9 +130,8 @@ def get_feed(model: SentenceTransformer, user_id: str, n: int):
 
     scored_posts = []
     for post, similarity in zip(posts, similiarities):
-
         likes_score = 10 * math.log2(post["likes"] + 1)
-        age_score =  (datetime.now(UTC) - post["created_at"]).days
+        age_score = (datetime.now(UTC) - post["created_at"]).days
         similarity_score = similarity * 50
 
         score = likes_score + age_score + similarity_score

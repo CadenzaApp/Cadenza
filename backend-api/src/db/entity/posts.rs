@@ -10,16 +10,18 @@ pub struct Model {
     pub user_id: Uuid,
     #[sea_orm(column_type = "Text")]
     pub content: String,
+    #[sea_orm(ignore, column_type = "custom(\"vector\")", select_as = "text")]
+    pub embedding: String,
+    pub likes: i64,
+    pub created_at: DateTimeWithTimeZone,
+    pub hot_score: i64,
     #[sea_orm(
         ignore,
         column_type = "custom(\"vector\")",
         select_as = "text",
         nullable
     )]
-    pub embedding: Option<String>,
-    pub likes: i64,
-    pub created_at: DateTimeWithTimeZone,
-    pub hot_score: i64,
+    pub embedding_w_bday: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
