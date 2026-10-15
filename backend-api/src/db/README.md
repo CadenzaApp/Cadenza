@@ -7,7 +7,8 @@ The data access layer. Everything that touches postgres lives here, so handlers 
 
 | file | role |
 | --- | --- |
-| `mod.rs` | Declares `activity_tags`, `analytics`, `comment_votes`, `comments`, `entity`, `events`, `metadata_tags`, `queries`, `tag_activity`, `tags`, `user_songs`. |
+| `mod.rs` | Declares `activity_tags`, `analytics`, `comment_votes`, `comments`, `entity`, `events`, `metadata_tags`, `profile`, `queries`, `tag_activity`, `tags`, `user_songs`. |
+| `profile.rs` | Profile reads and writes: own profile, create with a default username from the email local part, and update username/bio. Unit tested. |
 | `events.rs` | The write path for `listening_events`: `NewEvent` and `insert_events`, which is idempotent on `client_event_id` and reports which rows were new. |
 | `analytics.rs` | The read path for `listening_events`: the metric summary, dense time bucketed trends, the song, artist, album, playlist and query rankings, replays, top tags with a cover song, tags played, the tag-colored heatmap, plays by hour, active days, and the event bounds. Integration tested against a real database (`--ignored`). |
 | `activity_tags.rs` | `ActivityTag` (My Plays, First Played, Last Played), finding their rows by `is_activity` and name and creating missing ones, `record_play`, and reading their values per song with defaults filled in. Unit tested. |
@@ -73,6 +74,11 @@ Most of the tables below are keyed on song ids that come from Apple Music.
   not null, plus a partial `(user_id, session_id)` for the replay rollup. Rows are never updated
   or deleted outside of deleting the user. The DDL is `backend-api/sql/listening_events.sql`.
   See Listening events below.
+- `profile` - one public profile per auth user. `uid` (uuid pk, references `auth.users`, cascades),
+  `username` (text, unique), and `bio` (text, defaults to `''`). A trigger on `auth.users` insert
+  creates the row with username equal to the email local part (everything before `@`), appending
+  a number when that name is taken. `POST /profile` does the same for a missing row. See Profiles
+  below.
 - `comment` - a comment a user left on a song. `id` (identity pk), `content`, `song_id`, `user_id`,
   and `created_at`, a `timestamp` with no time zone that defaults to `now()`. A reply sets `parent`
   to the comment it answers, a self fk that cascades, so deleting a comment deletes its replies.
@@ -215,6 +221,14 @@ them with `ActivityTagReadOnly`, and `apply_user_tag` / `set_user_tag_value` alr
 through `get_owned_tag`.
 
 
+## Profiles
+
+`username_from_email` takes everything before the first `@`, or `"user"` when that is empty.
+`create_profile` uses that default when no username is passed, trims and checks length, and
+refuses a username that still contains `@`. `update_profile` needs at least one of `username` or
+`bio`. Duplicate `uid` maps to `ProfileAlreadyExists`, duplicate `username` to
+`UsernameAlreadyTaken`, both through `err.rs` on the unique constraints.
+
 ## Comments
 
 `get_song_comments` reads every comment with the song's id in one query, oldest first, and
@@ -333,7 +347,7 @@ every song scores zero and the whole list is ordered by song id.
 ## Connects to
 
 - Called by `src/routes/tags.rs`, `src/routes/songs.rs`, `src/routes/queries.rs`,
-  `src/routes/comments.rs`.
+  `src/routes/comments.rs`, `src/routes/profile.rs`.
 - `queries.rs` reads its input types from `src/routes/json/query.rs`.
 - Models convert to wire types through `From<tags::Model> for routes::json::tag::Tag`, and a
   model paired with its applied value through `From<(tags::Model, Option<String>)> for

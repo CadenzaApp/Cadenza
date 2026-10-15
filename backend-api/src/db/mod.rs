@@ -5,6 +5,7 @@ pub mod comments;
 pub mod entity;
 pub mod events;
 pub mod metadata_tags;
+pub mod profile;
 pub mod queries;
 pub mod tag_activity;
 pub mod tags;

@@ -19,8 +19,8 @@ use crate::{
     auth::{SupabaseClaims, new_jwt_decoder},
     routes::{
         analytics::get_analytics_router, comments::get_comments_router, events::get_events_router,
-        queries::get_queries_router, social::get_social_router, songs::get_songs_router,
-        tags::get_tags_router,
+        profile::get_profile_router, queries::get_queries_router, social::get_social_router,
+        songs::get_songs_router, tags::get_tags_router,
     },
     services::{
         default_tags::{BackfillConfig, spawn_default_tag_backfill},
@@ -146,6 +146,7 @@ async fn main() {
         .nest("/songs", get_songs_router())
         .nest("/queries", get_queries_router())
         .nest("/comments", get_comments_router())
+        .nest("/profile", get_profile_router())
         .nest("/social", get_social_router())
         .nest("/events", get_events_router())
         .nest("/analytics", get_analytics_router())

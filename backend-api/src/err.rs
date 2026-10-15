@@ -19,6 +19,10 @@ pub enum CadenzaError {
     SongAlreadyInLibrary,
     TagAlreadyApplied,
     TagNameAlreadyTaken,
+    /// The signed-in user already has a profile row.
+    ProfileAlreadyExists,
+    /// Another profile already uses this username.
+    UsernameAlreadyTaken,
     DatabaseError(String), // generic database error
     QueryFormatError(String),
     TagGenerationErr(String),
@@ -48,6 +52,8 @@ impl CadenzaError {
             Self::SongAlreadyInLibrary => 409,
             Self::TagAlreadyApplied => 409,
             Self::TagNameAlreadyTaken => 409,
+            Self::ProfileAlreadyExists => 409,
+            Self::UsernameAlreadyTaken => 409,
             Self::DatabaseError(_) => 500,
             Self::QueryFormatError(_) => 422,
             Self::TagGenerationErr(_) => 500,
@@ -77,6 +83,14 @@ impl CadenzaError {
             Self::TagNameAlreadyTaken => json!({
                 "error_type": "TagNameAlreadyTaken",
                 "message": "you already have a tag with that name"
+            }),
+            Self::ProfileAlreadyExists => json!({
+                "error_type": "ProfileAlreadyExists",
+                "message": "you already have a profile"
+            }),
+            Self::UsernameAlreadyTaken => json!({
+                "error_type": "UsernameAlreadyTaken",
+                "message": "that username is already taken"
             }),
             Self::DatabaseError(msg) => json!({
                 "error_type": "DatabaseError",
@@ -192,6 +206,13 @@ impl From<DbErr> for CadenzaError {
                 "23505" => match db_err.table() {
                     Some("applied_tags") => return Self::TagAlreadyApplied,
                     Some("songs") => return Self::SongAlreadyInLibrary,
+                    Some("profile") => {
+                        return match db_err.constraint() {
+                            Some("profile_pkey") => Self::ProfileAlreadyExists,
+                            Some("profile_username_key") => Self::UsernameAlreadyTaken,
+                            _ => Self::ProfileAlreadyExists,
+                        };
+                    }
                     _ => {}
                 },
 

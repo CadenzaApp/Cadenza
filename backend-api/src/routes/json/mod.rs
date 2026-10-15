@@ -2,6 +2,7 @@
 pub mod analytics;
 pub mod comment;
 pub mod metadata_tag;
+pub mod profile;
 pub mod query;
 pub mod tag;
 
