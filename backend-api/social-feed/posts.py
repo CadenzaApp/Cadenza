@@ -72,6 +72,47 @@ def mark_posts_viewed(user_id: str, post_ids: list[int]):
         )
 
 
+def get_posts(post_ids: list[int]) -> list[dict]:
+    """Display fields for the given posts, in request order. Missing ids are skipped."""
+    if not post_ids:
+        return []
+
+    ordered_unique: list[int] = list(dict.fromkeys(post_ids))
+
+    with db_conn() as conn:
+        rows = conn.execute(
+            """
+                SELECT
+                    p.post_id,
+                    p.content,
+                    p.likes,
+                    p.created_at,
+                    pr.username
+                FROM posts p
+                LEFT JOIN profile pr ON pr.uid = p.user_id
+                WHERE p.post_id = ANY(%s)
+            """,
+            (ordered_unique,),
+        ).fetchall()
+
+    by_id = {row["post_id"]: row for row in rows}
+    posts = []
+    for post_id in ordered_unique:
+        row = by_id.get(post_id)
+        if row is None:
+            continue
+        posts.append(
+            {
+                "post_id": row["post_id"],
+                "content": row["content"],
+                "likes": row["likes"],
+                "created_at": row["created_at"],
+                "author": {"username": row["username"] or "unknown"},
+            }
+        )
+    return posts
+
+
 def _get_user_vector(user_id: str) -> ndarray | None:
     genres = top_k_of_interest(user_id, "genre", 10)
     artists = top_k_of_interest(user_id, "artist", 10)

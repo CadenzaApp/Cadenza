@@ -58,6 +58,21 @@ export type InterestScoreDelta = {
     delta: number;
 };
 
+/**
+ * One social feed post as `POST /social/posts/batch` returns it. Author comes
+ * from `profile`; a missing profile row shows as `"unknown"`.
+ */
+export type SocialPost = {
+    post_id: number;
+    content: string;
+    likes: number;
+    /** RFC 3339 in UTC */
+    created_at: string;
+    author: {
+        username: string;
+    };
+};
+
 export type CommentVote = "up" | "down";
 
 /** a comment on a song, as the signed in user sees it */

@@ -51,6 +51,15 @@ async def create_post_route(body: CreatePostBody):
     return {"post_id": create_post(model, body.user_id, body.content)}
 
 
+class GetPostsBody(BaseModel):
+    post_ids: list[int]
+
+
+@app.post("/posts/batch")
+async def get_posts_route(body: GetPostsBody):
+    return {"posts": get_posts(body.post_ids)}
+
+
 class LikePostBody(BaseModel):
     user_id: str  # todo: unused, track user likes later
 
