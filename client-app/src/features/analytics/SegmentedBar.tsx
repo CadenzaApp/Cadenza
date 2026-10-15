@@ -9,7 +9,7 @@ import Animated, {
     withTiming,
 } from "react-native-reanimated";
 
-import { GlassSurface } from "@/components/ui/glass-surface";
+import { GlassLayer, GlassSurface } from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
 
 export type Segment<T extends string> = {
@@ -33,8 +33,8 @@ const SLIDE = { duration: 220, easing: Easing.out(Easing.cubic) };
 
 /**
  * A small tab bar: equal segments, each an icon over a label, with a pill that
- * slides to the selected one. Glass paints the track and the pill, the same
- * way the search scope toggle does it. For a picker with a handful of fixed options,
+ * slides to the selected one. Glass paints the track. The pill sits in a
+ * `GlassLayer` above it, so it paints a fill rather than glass on glass. For a picker with a handful of fixed options,
  * where chips wrap and read as filters rather than places.
  */
 export function SegmentedBar<T extends string>({
@@ -74,57 +74,63 @@ export function SegmentedBar<T extends string>({
                     style={[StyleSheet.absoluteFill, { borderRadius: RADIUS }]}
                 />
             </View>
-            {/* drawn once measured, so it never flashes at the wrong size */}
-            {segmentWidth > 0 ? (
-                <Animated.View
-                    pointerEvents="none"
-                    style={[
-                        {
-                            position: "absolute",
-                            top: PADDING,
-                            bottom: PADDING,
-                            left: PADDING,
-                            width: segmentWidth,
-                        },
-                        pillStyle,
-                    ]}
-                >
-                    <GlassSurface
-                        style={{
-                            flex: 1,
-                            borderRadius: RADIUS - PADDING,
-                            borderCurve: "continuous",
-                            overflow: "hidden",
-                        }}
-                    />
-                </Animated.View>
-            ) : null}
-            {segments.map((segment) => {
-                const isSelected = segment.value === selected;
-                const color = isSelected
-                    ? (accent ?? colors.text)
-                    : colors.text;
-                return (
-                    <Pressable
-                        key={segment.value}
-                        onPress={() => onSelect(segment.value)}
-                        accessibilityRole="tab"
-                        accessibilityLabel={segment.label}
-                        accessibilityState={{ selected: isSelected }}
-                        className="flex-1 items-center gap-0.5 py-1.5"
-                        style={{ opacity: isSelected ? 1 : 0.55 }}
+            <GlassLayer>
+                {/* drawn once measured, so it never flashes at the wrong size */}
+                {segmentWidth > 0 ? (
+                    <Animated.View
+                        pointerEvents="none"
+                        style={[
+                            {
+                                position: "absolute",
+                                top: PADDING,
+                                bottom: PADDING,
+                                left: PADDING,
+                                width: segmentWidth,
+                            },
+                            pillStyle,
+                        ]}
                     >
-                        <Ionicons name={segment.icon} size={18} color={color} />
-                        <Text
-                            className="text-[11px] font-medium"
-                            style={{ color }}
-                            numberOfLines={1}
+                        <GlassSurface
+                            style={{
+                                flex: 1,
+                                borderRadius: RADIUS - PADDING,
+                                borderCurve: "continuous",
+                                overflow: "hidden",
+                            }}
+                        />
+                    </Animated.View>
+                ) : null}
+                {segments.map((segment) => {
+                    const isSelected = segment.value === selected;
+                    const color = isSelected
+                        ? (accent ?? colors.text)
+                        : colors.text;
+                    return (
+                        <Pressable
+                            key={segment.value}
+                            onPress={() => onSelect(segment.value)}
+                            accessibilityRole="tab"
+                            accessibilityLabel={segment.label}
+                            accessibilityState={{ selected: isSelected }}
+                            className="flex-1 items-center gap-0.5 py-1.5"
+                            style={{ opacity: isSelected ? 1 : 0.55 }}
                         >
-                            {segment.label}
-                        </Text>
-                    </Pressable>
-                );
-            })}
+                            <Ionicons
+                                name={segment.icon}
+                                size={18}
+                                color={color}
+                            />
+                            <Text
+                                className="text-[11px] font-medium"
+                                style={{ color }}
+                                numberOfLines={1}
+                            >
+                                {segment.label}
+                            </Text>
+                        </Pressable>
+                    );
+                })}
+            </GlassLayer>
         </View>
     );
 }

@@ -37,6 +37,9 @@ glass controls and compatibility surfaces. It renders liquid glass on iOS 26, an
 older, and a flat translucent card on web, all behind one component. It paints a background and
 nothing else; the caller supplies size, radius, and `overflow: "hidden"`. Its optional
 `tintColor` reaches native liquid glass and gets a translucent approximation on fallbacks.
+Glass does not stack: a `GlassSurface` under another one, or under a `GlassLayer`, paints a flat
+fill instead. A container whose glass is a sibling under its content (like `AnalyticsCard`) wraps
+that content in `GlassLayer`.
 
 `glass-button.tsx` and `glass-confirm-dialog.tsx` provide regular and destructive glass actions.
 Destructive actions keep neutral glass and use red foreground content. The confirmation is used
