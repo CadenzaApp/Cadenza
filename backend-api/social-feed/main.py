@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from fastapi import FastAPI
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sentence_transformers import SentenceTransformer
 
 from interests import *
@@ -41,9 +41,12 @@ async def decay_interests_route(body: DecayInterestsBody):
     decay_interests(body.user_id)
 
 
+POST_CONTENT_MAX = 500
+
+
 class CreatePostBody(BaseModel):
     user_id: str
-    content: str
+    content: str = Field(max_length=POST_CONTENT_MAX)
 
 
 @app.post("/posts")

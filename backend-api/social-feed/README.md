@@ -35,7 +35,7 @@ First start downloads the model, so it is slow and needs a few hundred MB.
 | `GET /feed` | `user_id` | `{"feed": [[score, post_id], ...]}`, at most 100 |
 | `PATCH /interests/update` | `user_id`, `delta_scores: [{name, itype, delta}]` | nothing |
 | `PATCH /interests/decay` | `user_id` | nothing |
-| `POST /posts` | `user_id`, `content` | `{"post_id": n}` |
+| `POST /posts` | `user_id`, `content` (at most 500 characters) | `{"post_id": n}` |
 | `POST /posts/batch` | `user_id`, `post_ids: [n, ...]` | `{"posts": [{post_id, content, likes, created_at, author: {username}}, ...]}`, request order, missing ids skipped |
 | `POST /posts/{post_id}/likes` | `user_id` (unused) | nothing |
 | `POST /posts/views` | `user_id`, `post_ids: [n, ...]` | nothing |

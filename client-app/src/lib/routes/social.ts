@@ -53,6 +53,32 @@ export function useEditInterestScores() {
     };
 }
 
+type NewPostPayload = {
+    content: string;
+};
+
+type NewPostResponse = {
+    post_id: number;
+};
+
+/**
+ * Creates a post for the signed-in user. The body is only the text. The
+ * backend adds the user id from the token. Resolves to the new `post_id`.
+ */
+export function useCreatePost() {
+    const x = useAPIMutation<NewPostPayload, NewPostResponse>(
+        "POST",
+        "/social/posts",
+    );
+    return {
+        createPostErr: x.error,
+        createPostLoading: x.isMutating,
+        resetCreatePost: x.reset,
+        createPost: async (body: NewPostPayload) =>
+            (await x.trigger(body))?.post_id,
+    };
+}
+
 const POSTS_BATCH_SIZE = 50;
 
 type PostsBatchBody = {
