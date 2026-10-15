@@ -1,7 +1,14 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useNavigation } from "expo-router";
 import { useTheme } from "expo-router/react-navigation";
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+    useCallback,
+    useEffect,
+    useLayoutEffect,
+    useMemo,
+    useRef,
+    useState,
+} from "react";
 import { FlatList, View } from "react-native";
 import Animated from "react-native-reanimated";
 
@@ -41,11 +48,27 @@ export function SocialFeedScreen() {
 
     const [created, setCreated] = useState<SocialPost[]>([]);
     const [composeOpen, setComposeOpen] = useState(false);
+    const [toast, setToast] = useState<string | null>(null);
+    const nextTempId = useRef(0);
+    const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const [likedOverride, setLikedOverride] = useState<ReadonlyMap<number, boolean>>(
         () => new Map(),
     );
     const likedOverrideRef = useRef(likedOverride);
     likedOverrideRef.current = likedOverride;
+
+    const showToast = useCallback((message: string) => {
+        if (toastTimer.current) clearTimeout(toastTimer.current);
+        setToast(message);
+        toastTimer.current = setTimeout(() => setToast(null), 3000);
+    }, []);
+
+    useEffect(
+        () => () => {
+            if (toastTimer.current) clearTimeout(toastTimer.current);
+        },
+        [],
+    );
 
     const feed = useMemo(() => {
         const loaded = new Set(posts.map((post) => post.post_id));
@@ -74,6 +97,7 @@ export function SocialFeedScreen() {
             next.set(post.post_id, nowLiked);
             likedOverrideRef.current = next;
             setLikedOverride(next);
+            if (post.post_id < 0) return;
             const request = nowLiked
                 ? likePost(post.post_id)
                 : unlikePost(post.post_id);
@@ -91,11 +115,11 @@ export function SocialFeedScreen() {
     );
 
     const handleCreate = useCallback(
-        async (content: string) => {
-            const post_id = await createPost({ content });
-            if (post_id == null) return;
+        (content: string) => {
+            nextTempId.current -= 1;
+            const tempId = nextTempId.current;
             const post: SocialPost = {
-                post_id,
+                post_id: tempId,
                 content,
                 likes: 0,
                 liked: false,
@@ -103,8 +127,56 @@ export function SocialFeedScreen() {
                 author: { username: profile?.username ?? "unknown" },
             };
             setCreated((current) => [post, ...current]);
+
+            function dropTemp() {
+                setCreated((current) =>
+                    current.filter((item) => item.post_id !== tempId),
+                );
+                if (!likedOverrideRef.current.has(tempId)) return;
+                const next = new Map(likedOverrideRef.current);
+                next.delete(tempId);
+                likedOverrideRef.current = next;
+                setLikedOverride(next);
+            }
+
+            void createPost({ content })
+                .then((post_id) => {
+                    if (post_id == null) {
+                        dropTemp();
+                        showToast("Couldn't publish your post.");
+                        return;
+                    }
+                    setCreated((current) =>
+                        current.map((item) =>
+                            item.post_id === tempId
+                                ? { ...item, post_id }
+                                : item,
+                        ),
+                    );
+                    if (!likedOverrideRef.current.has(tempId)) return;
+                    const liked = likedOverrideRef.current.get(tempId)!;
+                    const next = new Map(likedOverrideRef.current);
+                    next.delete(tempId);
+                    next.set(post_id, liked);
+                    likedOverrideRef.current = next;
+                    setLikedOverride(next);
+                    if (!liked) return;
+                    void likePost(post_id).catch(() => {
+                        if (likedOverrideRef.current.get(post_id) !== true) {
+                            return;
+                        }
+                        const rolled = new Map(likedOverrideRef.current);
+                        rolled.delete(post_id);
+                        likedOverrideRef.current = rolled;
+                        setLikedOverride(rolled);
+                    });
+                })
+                .catch(() => {
+                    dropTemp();
+                    showToast("Couldn't publish your post.");
+                });
         },
-        [createPost, profile?.username],
+        [createPost, likePost, profile?.username, showToast],
     );
 
     const loading =
@@ -164,6 +236,18 @@ export function SocialFeedScreen() {
                 onOpenChange={setComposeOpen}
                 onCreate={handleCreate}
             />
+
+            {toast ? (
+                <View
+                    pointerEvents="none"
+                    accessibilityRole="alert"
+                    className="absolute left-5 right-5 top-3 rounded-2xl bg-destructive px-4 py-3"
+                >
+                    <Text className="text-center text-sm text-white">
+                        {toast}
+                    </Text>
+                </View>
+            ) : null}
         </View>
     );
 }

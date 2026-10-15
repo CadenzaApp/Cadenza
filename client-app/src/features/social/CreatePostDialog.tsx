@@ -19,10 +19,7 @@ type Props = {
     onCreate: (content: string) => void | Promise<void>;
 };
 
-/**
- * Compose dialog for a new feed post. Local only for now: the caller decides
- * what to do with the text (prepend mock data, hit an endpoint later).
- */
+/** Compose dialog for a new feed post. Closes as soon as the user posts. */
 export function CreatePostDialog({ open, onOpenChange, onCreate }: Props) {
     const { colors } = useTheme();
     const { width: screenWidth } = useWindowDimensions();
@@ -41,10 +38,10 @@ export function CreatePostDialog({ open, onOpenChange, onCreate }: Props) {
         onOpenChange(val);
     }
 
-    async function handlePost() {
+    function handlePost() {
         const trimmed = content.trim();
         if (!trimmed || trimmed.length > MAX_POST_LENGTH) return;
-        await onCreate(trimmed);
+        void onCreate(trimmed);
         setOpen(false);
     }
 

@@ -1,5 +1,4 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useTheme } from "expo-router/react-navigation";
 import { Pressable, StyleSheet, View } from "react-native";
 
 import { GlassSurface } from "@/components/ui/glass-surface";
@@ -17,8 +16,6 @@ type Props = {
 
 /** One feed row: author, body, and the like control. */
 export function PostCard({ post, liked, onToggleLike }: Props) {
-    const { colors } = useTheme();
-
     return (
         <View className="gap-3 overflow-hidden rounded-3xl border border-border p-4">
             <View pointerEvents="none" style={StyleSheet.absoluteFill}>
@@ -62,7 +59,7 @@ export function PostCard({ post, liked, onToggleLike }: Props) {
                 <Ionicons
                     name={liked ? "heart" : "heart-outline"}
                     size={18}
-                    color={liked ? "#e11d48" : colors.text}
+                    color="#e11d48"
                 />
                 <Text
                     className={cn(
