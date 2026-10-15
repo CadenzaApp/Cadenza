@@ -89,10 +89,9 @@ def similar_and_recent_posts(user_vector: ndarray | None, n: int):
     if user_vector is None:
         return []
 
-    AGE_MULTIPLIER = (
-        0.02  # how much similarity score is equivalent to 1 day of post age
-    )
-    user_vector = np.append(AGE_MULTIPLIER, user_vector)
+    # how much similarity score is equivalent to 1 day of post age
+    AGE_MULTIPLIER = 0.02
+    user_vector_w_age = np.append(AGE_MULTIPLIER, user_vector)
 
     with db_conn() as conn:
         return conn.execute(
@@ -101,7 +100,7 @@ def similar_and_recent_posts(user_vector: ndarray | None, n: int):
                 ORDER BY embedding_w_bday <#> %s
                 LIMIT %s
             """,
-            (embedding_to_str(user_vector), n),  # type: ignore
+            (embedding_to_str(user_vector_w_age), n),
         ).fetchall()
 
 
@@ -120,7 +119,6 @@ def hot_posts(n: int):
 def get_feed(model: SentenceTransformer, user_id: str, n: int):
     user_vector = _get_user_vector(user_id)
     sources = [similar_and_recent_posts(user_vector, n), hot_posts(n)]
-    print([s["post_id"] for s in sources[0]])
 
     posts = [post for source in sources for post in source]  # flatten
     posts = list({p["post_id"]: p for p in posts}.values())  # deduplicate
