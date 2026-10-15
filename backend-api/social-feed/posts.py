@@ -56,6 +56,22 @@ def like_post(post_id: int):
         )
 
 
+def mark_posts_viewed(user_id: str, post_ids: list[int]):
+    if not post_ids:
+        return
+
+    with db_conn() as conn:
+        conn.execute(
+            """
+                INSERT INTO post_views (post_id, user_id)
+                SELECT post_id, %s
+                FROM unnest(%s) AS post_id
+                ON CONFLICT (post_id, user_id) DO NOTHING
+            """,
+            (user_id, post_ids),
+        )
+
+
 def _get_user_vector(user_id: str) -> ndarray | None:
     genres = top_k_of_interest(user_id, "genre", 10)
     artists = top_k_of_interest(user_id, "artist", 10)
@@ -85,7 +101,7 @@ def get_post_similarities(
     return similarities.squeeze().tolist()
 
 
-def similar_and_recent_posts(user_vector: ndarray | None, n: int):
+def similar_and_recent_posts(user_id: str, user_vector: ndarray | None, n: int):
     if user_vector is None:
         return []
 
@@ -97,29 +113,42 @@ def similar_and_recent_posts(user_vector: ndarray | None, n: int):
     with db_conn() as conn:
         return conn.execute(
             """
-                SELECT post_id, embedding, likes, created_at FROM posts 
+                SELECT post_id, embedding, likes, created_at FROM posts
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM post_views
+                    WHERE post_views.post_id = posts.post_id
+                      AND post_views.user_id = %s
+                )
                 ORDER BY embedding_w_bday <#> %s
                 LIMIT %s
             """,
-            (embedding_to_str(user_vector), n),  # type: ignore
+            (user_id, embedding_to_str(user_vector), n),  # type: ignore
         ).fetchall()
 
 
-def hot_posts(n: int):
+def hot_posts(user_id: str, n: int):
     with db_conn() as conn:
         return conn.execute(
             """
-                SELECT post_id, embedding, likes, created_at FROM posts 
+                SELECT post_id, embedding, likes, created_at FROM posts
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM post_views
+                    WHERE post_views.post_id = posts.post_id
+                      AND post_views.user_id = %s
+                )
                 ORDER BY hot_score DESC
                 LIMIT %s
             """,
-            (n,),
+            (user_id, n),
         ).fetchall()
 
 
 def get_feed(model: SentenceTransformer, user_id: str, n: int):
     user_vector = _get_user_vector(user_id)
-    sources = [similar_and_recent_posts(user_vector, n), hot_posts(n)]
+    sources = [
+        similar_and_recent_posts(user_id, user_vector, n),
+        hot_posts(user_id, n),
+    ]
     print([s["post_id"] for s in sources[0]])
 
     posts = [post for source in sources for post in source]  # flatten
