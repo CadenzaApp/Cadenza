@@ -272,7 +272,7 @@ export function SocialFeedScreen() {
                     }
                     onEndReached={onEndReached}
                     onEndReachedThreshold={1}
-                    showsVerticalScrollIndicator
+                    showsVerticalScrollIndicator={false}
                 />
             </ScreenScrollMarker>
 
