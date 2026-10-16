@@ -2,6 +2,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTheme } from "expo-router/react-navigation";
 import { useState } from "react";
 import { Pressable, TextInput, useWindowDimensions, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ModalPopup } from "@/components/custom/modal-popup";
 import { GlassButton } from "@/components/ui/glass-button";
@@ -22,6 +23,7 @@ type Props = {
 /** Compose dialog for a new feed post. Closes as soon as the user posts. */
 export function CreatePostDialog({ open, onOpenChange, onCreate }: Props) {
     const { colors } = useTheme();
+    const insets = useSafeAreaInsets();
     const { width: screenWidth } = useWindowDimensions();
     const dialogWidth = Math.min(
         screenWidth - SCREEN_MARGIN * 2,
@@ -52,11 +54,13 @@ export function CreatePostDialog({ open, onOpenChange, onCreate }: Props) {
         <ModalPopup
             visible={open}
             onClose={() => setOpen(false)}
+            backdropClassName="justify-start py-0"
             contentStyle={{
                 width: dialogWidth,
                 maxWidth: dialogWidth,
                 padding: DIALOG_PADDING,
                 gap: 14,
+                marginTop: insets.top + 12,
             }}
         >
             <Pressable
