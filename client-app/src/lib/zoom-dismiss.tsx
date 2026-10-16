@@ -9,6 +9,7 @@ import {
     useRef,
     useState,
     type ReactNode,
+    type RefObject,
 } from "react";
 import {
     StyleSheet,
@@ -20,6 +21,7 @@ import Animated, {
     Easing,
     makeMutable,
     runOnJS,
+    useAnimatedReaction,
     useAnimatedStyle,
     useSharedValue,
     withSpring,
@@ -28,8 +30,11 @@ import Animated, {
 } from "react-native-reanimated";
 
 import {
+    visibleFocus,
     zoomCloseDuration,
-    zoomGeometry,
+    zoomFrame,
+    zoomOpenFrame,
+    zoomPageOpacity,
     ZOOM_OPEN_DURATION,
     type ZoomRect,
 } from "./zoom-dismiss-geometry";
@@ -72,6 +77,9 @@ type ZoomOriginStore = {
 
 const ZoomOriginContext = createContext<ZoomOriginStore | null>(null);
 
+/** A copy of a screen's artwork, and the size it draws at unscaled. */
+export type ZoomArtwork = { node: ReactNode; width: number; height: number };
+
 export type ZoomDismissController = {
     /** 0 is the full screen, 1 is fully minimized into the origin rect. */
     progress: SharedValue<number>;
@@ -81,6 +89,22 @@ export type ZoomDismissController = {
     close: () => void;
     /** Finishes a close already committed by the UI-thread scroll handler. */
     finishGestureClose: () => void;
+    /**
+     * Where the screen's artwork is while the card is full size, set by the
+     * screen as it scrolls. The close lands this on the tile it opened from.
+     * Null closes on the top of the page instead.
+     */
+    focus: SharedValue<ZoomRect | null>;
+    /** The page, for a screen to measure its artwork against. */
+    pageRef: RefObject<RNView | null>;
+    /**
+     * A copy of the screen's artwork, drawn over the page while it moves. The
+     * page fades and this stays, so the close reads as the artwork shrinking
+     * back into its tile. Null keeps the whole page visible instead.
+     */
+    setArtwork: (artwork: ZoomArtwork | null) => void;
+    /** True once the open has finished, for holding heavy rendering back. */
+    opened: boolean;
 };
 
 const ZoomDismissContext = createContext<ZoomDismissController | null>(null);
@@ -169,6 +193,23 @@ export function useZoomDismiss() {
 }
 
 /**
+ * Where a screen reports its artwork for the close to land on its tile, or
+ * null outside a zoom card. Set it in screen points, as laid out at full size.
+ */
+export function useZoomFocus() {
+    return useContext(ZoomDismissContext)?.focus ?? null;
+}
+
+/**
+ * Whether this screen's zoom card has finished opening, or null outside one.
+ * The card runs its own open, so a navigation transition event says nothing.
+ */
+export function useZoomOpened() {
+    const controller = useContext(ZoomDismissContext);
+    return controller ? controller.opened : null;
+}
+
+/**
  * Closes the screen: the minimize if it is wrapped in `ZoomDismissScreen`, a
  * plain pop otherwise. Every close button goes through this, so the X and the
  * pull do the same thing.
@@ -213,8 +254,21 @@ export function ZoomDismissScreen({
     const [launch] = useState(() => store?.peekLaunch({ width, height }));
     const progress = useSharedValue(1);
     const closing = useSharedValue(false);
+    const focus = useSharedValue<ZoomRect | null>(null);
+    // the artwork as it was when the card last left rest. the styles read
+    // this, not `focus`, which moves on every scroll frame and would restyle
+    // the whole card on each of them
+    const movingFocus = useSharedValue<ZoomRect | null>(null);
     const cardVisible = useSharedValue(1);
     const animationGeneration = useSharedValue(0);
+    // true until the card first reaches full size: the open and the close
+    // move differently
+    const opening = useSharedValue(true);
+    const pageRef = useRef<RNView>(null);
+    const [artwork, setArtwork] = useState<ZoomArtwork | null>(null);
+    const artworkWidth = useSharedValue(1);
+    const hasArtwork = useSharedValue(false);
+    const [opened, setOpened] = useState(false);
     const launchMatchesViewport =
         launch?.viewport.width === width && launch.viewport.height === height;
     const origin = launchMatchesViewport ? launch.origin : fallbackOrigin;
@@ -222,16 +276,41 @@ export function ZoomDismissScreen({
     useLayoutEffect(() => {
         if (launch) store?.consumeLaunch(launch);
     }, [launch, store]);
-
     useEffect(() => {
-        cardVisible.set(1);
+        hasArtwork.set(artwork != null);
+        if (artwork) artworkWidth.set(artwork.width);
+    }, [artwork, artworkWidth, hasArtwork]);
+
+    // The open waits for the screen to report its artwork, so it grows from
+    // the artwork rather than from a guess, and starts the moment it can.
+    // grows from the tile at once, the page opaque the whole way
+    useEffect(() => {
         progress.set(
             withTiming(0, {
                 duration: ZOOM_OPEN_DURATION,
                 easing: ZOOM_EASING,
             }),
         );
-    }, [cardVisible, progress]);
+    }, [progress]);
+    // opened once it reaches full size, however it got there: the timing's
+    // own callback reports unfinished whenever anything else settles it.
+    // from here on every move is a close, which fades and lands the artwork
+    useAnimatedReaction(
+        () => opening.get() && progress.get() === 0,
+        (atRest, wasAtRest) => {
+            if (!atRest || wasAtRest) return;
+            opening.set(false);
+            runOnJS(setOpened)(true);
+        },
+    );
+    // snapshot the artwork whenever the card sets off from rest; the page
+    // does not scroll while the card moves
+    useAnimatedReaction(
+        () => progress.get() > 0,
+        (moving, wasMoving) => {
+            if (moving && !wasMoving) movingFocus.set(focus.get());
+        },
+    );
 
     const pop = useCallback(() => {
         if (router.canGoBack()) {
@@ -281,32 +360,118 @@ export function ZoomDismissScreen({
     }, [runCloseAnimation]);
 
     const controller = useMemo(
-        () => ({ progress, closing, close, finishGestureClose }),
-        [progress, closing, close, finishGestureClose],
+        () => ({
+            progress,
+            closing,
+            close,
+            finishGestureClose,
+            focus,
+            pageRef,
+            setArtwork,
+            opened,
+        }),
+        [
+            progress,
+            closing,
+            close,
+            finishGestureClose,
+            focus,
+            setArtwork,
+            opened,
+        ],
     );
 
-    const cardStyle = useAnimatedStyle(() => {
+    // Transforms only: the page moves and scales as one piece so its artwork
+    // lands on the tile. With an artwork copy over it, the page fades early
+    // and the copy is what reaches the tile.
+    const pageStyle = useAnimatedStyle(() => {
         const p = progress.get();
-        const rect = origin.get();
-        const geometry = zoomGeometry(width, height, rect, p);
-
+        const isOpening = opening.get();
+        const frame = isOpening
+            ? zoomOpenFrame(width, height, origin.get(), p)
+            : zoomFrame(width, height, origin.get(), movingFocus.get(), p);
         return {
-            opacity: cardVisible.get(),
-            borderRadius: geometry.borderRadius,
+            // only a close fades the page, and only with an artwork copy to
+            // leave behind. the open never does: see `zoomOpenFrame`
+            opacity:
+                cardVisible.get() *
+                (!isOpening && hasArtwork.get() ? zoomPageOpacity(p) : 1),
+            borderRadius: frame.borderRadius,
             transform: [
-                { translateX: geometry.translateX },
-                { translateY: geometry.translateY },
-                { scale: geometry.scale },
+                { translateX: frame.translateX },
+                { translateY: frame.translateY },
+                { scale: frame.scale },
             ],
-            // No fade. A card you can see the old screen through while it
-            // shrinks reads as muddy rather than as depth.
+        };
+    });
+    // the copy rides the same transform, so it stays exactly under the page's
+    // artwork. shown only while the card is moving, never at rest
+    const artworkLayerStyle = useAnimatedStyle(() => {
+        const p = progress.get();
+        const frame = zoomFrame(
+            width,
+            height,
+            origin.get(),
+            movingFocus.get(),
+            p,
+        );
+        return {
+            // only a close shows it, and only once the card has moved
+            opacity: cardVisible.get() * (!opening.get() && p > 0.001 ? 1 : 0),
+            transform: [
+                { translateX: frame.translateX },
+                { translateY: frame.translateY },
+                { scale: frame.scale },
+            ],
+        };
+    });
+    // where the artwork sits on the page, and the copy scaled to fit it
+    // there; only changes as the page scrolls
+    const artworkBoxStyle = useAnimatedStyle(() => {
+        const art = visibleFocus(width, height, movingFocus.get());
+        return {
+            transform: [
+                { translateX: art.x },
+                { translateY: art.y },
+                { scale: art.width / artworkWidth.get() },
+            ],
         };
     });
 
     return (
         <ZoomDismissContext.Provider value={controller}>
             <View style={styles.root}>
-                <Animated.View style={[styles.card, cardStyle]}>
+                {/* behind the page, so nothing covers it at rest: glass under
+                    a full screen layer, even an invisible one, renders flat.
+                    the page fades off this copy, which sits exactly where
+                    the page's own artwork is */}
+                {artwork ? (
+                    <Animated.View
+                        pointerEvents="none"
+                        style={[
+                            styles.layer,
+                            { width, height },
+                            artworkLayerStyle,
+                        ]}
+                    >
+                        <Animated.View
+                            style={[
+                                styles.layer,
+                                {
+                                    width: artwork.width,
+                                    height: artwork.height,
+                                },
+                                artworkBoxStyle,
+                            ]}
+                        >
+                            {artwork.node}
+                        </Animated.View>
+                    </Animated.View>
+                ) : null}
+                <Animated.View
+                    ref={pageRef}
+                    style={[styles.page, { width, height }, pageStyle]}
+                >
                     {children}
                     {overlay}
                 </Animated.View>
@@ -323,11 +488,21 @@ export function resetZoomProgress(progress: SharedValue<number>) {
 
 const styles = StyleSheet.create({
     root: { flex: 1 },
-    // The animated radius compensates for the card's scale. `borderCurve` is
-    // what makes the result a continuous squircle rather than a quarter circle.
-    card: {
-        flex: 1,
+    // The page at full screen size, scaled from its top-left corner. The
+    // animated radius compensates for that scale, and `borderCurve` makes the
+    // corner a continuous squircle rather than a quarter circle.
+    page: {
+        position: "absolute",
+        top: 0,
+        left: 0,
+        transformOrigin: "top left",
         borderCurve: "continuous",
         overflow: "hidden",
+    },
+    layer: {
+        position: "absolute",
+        top: 0,
+        left: 0,
+        transformOrigin: "top left",
     },
 });

@@ -1,6 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
 import { ActivityIndicator, View } from "react-native";
-import { useRouter } from "expo-router";
 
 import { Text } from "@/components/ui/text";
 import { AdvancedQueryBuilder } from "@/features/advanced-query-builder/AdvancedQueryBuilder";
@@ -25,6 +24,7 @@ import {
     useUserTags,
 } from "@/lib/routes/tags";
 import type { Tag } from "@/lib/types";
+import { useOpenScreen } from "@/lib/open-screen";
 
 type BuilderMode = "simple" | "advanced";
 
@@ -40,7 +40,7 @@ export function CadenzaScreen() {
     // offered by the advanced builder only; the simple builder's palette is
     // the user's own tags
     const { activityTags } = useActivityTags();
-    const router = useRouter();
+    const openScreen = useOpenScreen();
     const [mode, setMode] = useState<BuilderMode>("simple");
     const [conditions, setConditions] = useState<QueryCondition[]>([]);
     // Not wired to the query yet: the switch only holds its own state.
@@ -134,7 +134,7 @@ export function CadenzaScreen() {
                 }
                 onNext={() => {
                     if (!query) return;
-                    router.push({
+                    openScreen({
                         pathname: "/query-results",
                         params: {
                             query: JSON.stringify(query),

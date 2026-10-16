@@ -43,16 +43,31 @@ export type TintGradient = {
     readonly colors: readonly [string, string, ...string[]];
 };
 
-/** One sampled point along the shared mode-aware Oklch tint gradient. */
+/**
+ * How far a point has moved from the top color toward the end color, from how
+ * far down the page it is (0 at the top, 1 at the bottom).
+ *
+ * The top color keeps a 1/x share with x = 1 + depth, so 1 at the top and 1/2
+ * at the bottom. Thus a long page eases off and stops halfway to the end color,
+ * rather than running into it.
+ */
+export function tintFadeAt(depth: number) {
+    return 1 - 1 / (1 + Math.max(0, Math.min(1, depth)));
+}
+
+/**
+ * The shared mode-aware Oklch tint at `depth` down a page, 0 at the top and 1
+ * at the bottom. See `tintFadeAt` for the curve.
+ */
 export function sampleTintGradientColor(
     hex: string,
     colorScheme: ColorScheme,
-    progress: number,
+    depth: number,
 ) {
     const color = toOklch(hex);
     if (!color) return hex;
 
-    const boundedProgress = Math.max(0, Math.min(1, progress));
+    const fade = tintFadeAt(depth);
     const start = {
         l: colorScheme === "light" ? color.l + (1 - color.l) * 0.475 : color.l,
         c: colorScheme === "light" ? color.c * 0.75 : color.c * 0.6,
@@ -69,19 +84,20 @@ export function sampleTintGradientColor(
         formatHex(
             toRgb({
                 ...color,
-                l: start.l + (end.l - start.l) * boundedProgress,
-                c: start.c + (end.c - start.c) * boundedProgress,
+                l: start.l + (end.l - start.l) * fade,
+                c: start.c + (end.c - start.c) * fade,
             }),
         ) ?? hex
     );
 }
 
 /**
- * Samples a tinted surface gradient in Oklch, then returns RGB stops
- * for the native renderer. In dark mode, the top preserves its lightness and
- * retains 60% of its chroma. In light mode, it moves 47.5% toward white and
- * retains 75% of its chroma. The bottom retains 20% of its chroma and moves
- * toward the current mode's page background.
+ * Samples a tinted page gradient in Oklch, top to bottom, then returns RGB
+ * stops for the native renderer. Meant to run the whole page's length. In dark
+ * mode, the top preserves its lightness and retains 60% of its chroma. In
+ * light mode, it moves 47.5% toward white and retains 75% of its chroma. The
+ * end color retains 20% of its chroma and sits near the mode's page
+ * background; the bottom of the page gets halfway there.
  */
 export function createTintGradient(
     hex: string,
@@ -96,4 +112,63 @@ export function createTintGradient(
             ),
         ) as unknown as TintGradient["colors"],
     };
+}
+
+/**
+ * A color evened out to glow in the nebula behind a page. Lightness is held to
+ * a band per mode and chroma is capped, so a near black tag still shows on a
+ * dark page and a neon one reads as a soft glow rather than a light.
+ */
+export function nebulaColor(hex: string, colorScheme: ColorScheme) {
+    const color = toOklch(hex);
+    if (!color) return hex;
+
+    const [minL, maxL, maxC] =
+        colorScheme === "dark" ? [0.5, 0.68, 0.16] : [0.72, 0.86, 0.12];
+    return (
+        formatHex(
+            toRgb({
+                ...color,
+                l: Math.max(minL, Math.min(maxL, color.l)),
+                c: Math.min(maxC, color.c),
+            }),
+        ) ?? hex
+    );
+}
+
+/**
+ * How far apart two colors have to be in Oklab to count as different. Close
+ * to the smallest step the eye picks up, so two near identical browns from
+ * different covers count as one.
+ */
+const DISTINCT_COLOR_DISTANCE = 0.04;
+
+/**
+ * The first `count` colors in `candidates` that differ from every one picked
+ * before them, in order. Skips anything that is not six-digit hex. May return
+ * fewer than `count` when the candidates run out.
+ */
+export function distinctColors(
+    candidates: readonly (string | null | undefined)[],
+    count: number,
+    minDistance = DISTINCT_COLOR_DISTANCE,
+): string[] {
+    const picked: { hex: string; lab: { l: number; a: number; b: number } }[] =
+        [];
+    for (const hex of candidates) {
+        if (picked.length >= count) break;
+        if (typeof hex !== "string" || !/^#[0-9a-f]{6}$/i.test(hex)) continue;
+        const lab = toOklab(hex);
+        if (!lab) continue;
+        const repeat = picked.some(
+            (seen) =>
+                Math.hypot(
+                    seen.lab.l - lab.l,
+                    seen.lab.a - lab.a,
+                    seen.lab.b - lab.b,
+                ) < minDistance,
+        );
+        if (!repeat) picked.push({ hex, lab });
+    }
+    return picked.map((color) => color.hex);
 }

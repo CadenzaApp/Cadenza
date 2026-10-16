@@ -1,6 +1,7 @@
 import { supabase } from "./supabase";
 import { useState, useEffect, useRef, createContext, useContext } from "react";
 import { createProfile } from "./create-profile";
+import { clearSavedReads } from "./saved-reads-store";
 import { clearCache } from "./swr-utils";
 
 /**
@@ -108,6 +109,7 @@ export default function AccountProvider({ children }: Props) {
 
         setAccount(null);
         clearCache();
+        void clearSavedReads();
     }
 
     const [accountInfo, setAccountInfo] = useState<AccountInfo>({

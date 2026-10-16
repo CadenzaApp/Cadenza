@@ -1,3 +1,5 @@
+import { ANALYTICS_READS } from "./analytics-reads";
+
 import { useAPIMutation } from "../api-actions";
 import type { QueuedEvent } from "../event-queue";
 
@@ -31,12 +33,7 @@ export function useRecordEvents() {
         "/events",
         ({ events }) => {
             // every analytics read, or a play leaves the detail pages stale
-            const analytics = [
-                { path: "/analytics/summary" },
-                { path: "/analytics/trends" },
-                { path: "/analytics/top" },
-                { path: "/analytics/top-tags" },
-            ];
+            const analytics = [...ANALYTICS_READS];
             const movedActivityTags = events.some(
                 (event) => event.type === "play_counted",
             );

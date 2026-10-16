@@ -1,9 +1,9 @@
-import { useRouter } from "expo-router";
 import { Pressable, View } from "react-native";
 
 import { TagPill } from "@/components/custom/tag-pill";
 import { Text } from "@/components/ui/text";
 import type { TagPlayCount } from "@/lib/routes/analytics";
+import { useOpenScreen } from "@/lib/open-screen";
 
 type Props = {
     tags: readonly TagPlayCount[];
@@ -18,7 +18,7 @@ type Props = {
  * its tag page.
  */
 export function TopTagList({ tags, emptyLabel }: Props) {
-    const router = useRouter();
+    const openScreen = useOpenScreen();
 
     if (tags.length === 0) {
         return (
@@ -32,7 +32,7 @@ export function TopTagList({ tags, emptyLabel }: Props) {
                 <Pressable
                     key={tag.id}
                     onPress={() =>
-                        router.push({
+                        openScreen({
                             pathname: "/tag/[tagId]",
                             params: { tagId: tag.id },
                         })

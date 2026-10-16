@@ -15,7 +15,7 @@ pub mod metrics;
 
 pub use dimension::Dimension;
 pub use event_type::EventType;
-pub use metrics::{Bucket, Metric};
+pub use metrics::{Bucket, LISTEN_EVENTS, LISTENED_MS, Metric};
 
 use chrono::{DateTime, Duration, Utc};
 

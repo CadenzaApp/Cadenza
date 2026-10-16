@@ -1,18 +1,26 @@
 import MaskedView from "@react-native-masked-view/masked-view";
 import { LinearGradient } from "expo-linear-gradient";
-import { memo, useMemo, useState } from "react";
-import { ScrollView, StyleSheet, View } from "react-native";
+import { memo, useMemo, useRef, useState } from "react";
+import { ScrollView, View } from "react-native";
 
 import { TagPill } from "@/components/custom/tag-pill";
 import { activityTagDisplayValue, unownedDefaultTags } from "@/lib/tag-values";
 import type { AppliedTag, Tag, TagMetadata } from "@/lib/types";
 
-import { tagFadeStart } from "./tag-fade-utils";
 import { sortMusicListTags } from "./sort-tags";
 
 const TAG_RAIL_TOUCH_INSET = 10;
 const EMPTY_TAG_NAMES: readonly string[] = [];
 const SUGGESTED_TAG_STYLE = { opacity: 0.42 } as const;
+const FILL = {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+} as const;
+const MASK_ROW = { ...FILL, flexDirection: "row" } as const;
+const MASK_SOLID = { flex: 1, backgroundColor: "black" } as const;
 
 /**
  * The song's own and shared default tags in list-wide relevance order.
@@ -50,21 +58,17 @@ export const TagFadeRail = memo(function TagFadeRail({
             ),
         [mostRelevantTags, shownDefaultTags, tagMetadata, tags],
     );
-    const [viewportWidth, setViewportWidth] = useState(0);
-    const [contentWidth, setContentWidth] = useState(0);
     const fadeWidth = compact ? 16 : 24;
-    const overflows = contentWidth > viewportWidth && viewportWidth > 0;
-    const maskElement = overflows ? (
-        <LinearGradient
-            style={StyleSheet.absoluteFill}
-            colors={["black", "black", "transparent"]}
-            locations={[0, tagFadeStart(viewportWidth, fadeWidth), 1]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-        />
-    ) : (
-        <View style={[StyleSheet.absoluteFill, { backgroundColor: "black" }]} />
-    );
+    // only a rail whose tags run past its edge gets the mask: a mask makes
+    // iOS draw the row offscreen, every frame it moves. the widths live in
+    // refs and only the yes or no is state, so a rail renders again at most
+    // once, when that answer changes
+    const widths = useRef({ viewport: 0, content: 0 });
+    const [overflows, setOverflows] = useState(false);
+    const remeasure = () => {
+        const { viewport, content } = widths.current;
+        setOverflows(viewport > 0 && content - fadeWidth > viewport);
+    };
 
     const rail = (
         <ScrollView
@@ -72,14 +76,15 @@ export const TagFadeRail = memo(function TagFadeRail({
             directionalLockEnabled
             nestedScrollEnabled
             showsHorizontalScrollIndicator={false}
-            onContentSizeChange={(width) =>
-                setContentWidth((current) =>
-                    current === width ? current : width,
-                )
-            }
+            onContentSizeChange={(width) => {
+                widths.current.content = width;
+                remeasure();
+            }}
             contentContainerStyle={{
                 gap: compact ? 4 : 6,
-                paddingRight: overflows ? fadeWidth : 0,
+                // always room for the fade, so the last tag can be scrolled
+                // clear of it without a layout change
+                paddingRight: fadeWidth,
                 paddingVertical: TAG_RAIL_TOUCH_INSET,
             }}
         >
@@ -120,16 +125,24 @@ export const TagFadeRail = memo(function TagFadeRail({
                 zIndex: 2,
             }}
             onLayout={(event) => {
-                const width = event.nativeEvent.layout.width;
-                setViewportWidth((current) =>
-                    current === width ? current : width,
-                );
+                widths.current.viewport = event.nativeEvent.layout.width;
+                remeasure();
             }}
         >
             {overflows ? (
                 <MaskedView
                     style={{ alignSelf: "stretch" }}
-                    maskElement={maskElement}
+                    maskElement={
+                        <View style={MASK_ROW}>
+                            <View style={MASK_SOLID} />
+                            <LinearGradient
+                                style={{ width: fadeWidth }}
+                                colors={["black", "transparent"]}
+                                start={{ x: 0, y: 0 }}
+                                end={{ x: 1, y: 0 }}
+                            />
+                        </View>
+                    }
                 >
                     {rail}
                 </MaskedView>

@@ -1,7 +1,6 @@
 import type { MusicItem } from "@apple-musickit";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Image } from "expo-image";
-import { useRouter } from "expo-router";
 import { useTheme } from "expo-router/react-navigation";
 import { useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
@@ -21,12 +20,13 @@ import { indexTracksById, useTracksForSongIds } from "@/lib/musickit-hooks";
 import { usePlaybackCommands } from "@/lib/playback";
 import type { EntityPlayCount } from "@/lib/routes/analytics";
 import { isUsableArtworkUrl } from "@/lib/utils";
+import { useAlbumRouteForTrack } from "@/lib/album-route";
+import { useOpenScreen } from "@/lib/open-screen";
 
-import { albumRouteFor } from "./dimensions";
 import { formatCount } from "./format";
 
 /** How many covers the carousel holds. */
-const HERO_COUNT = 3;
+export const HERO_COUNT = 3;
 const COVER_SIZE = 220;
 /** How far a side cover sits from the center, as a share of a cover. */
 const SIDE_OFFSET = 0.6;
@@ -54,7 +54,7 @@ type Props = {
  * bring it forward. Play starts the top songs from the selected one.
  */
 export function HeroCarousel({ songs, phrase, accent }: Props) {
-    const router = useRouter();
+    const openScreen = useOpenScreen();
     const { colors } = useTheme();
     const { playQueue } = usePlaybackCommands();
     const entries = useMemo(() => songs.slice(0, HERO_COUNT), [songs]);
@@ -113,9 +113,10 @@ export function HeroCarousel({ songs, phrase, accent }: Props) {
         });
 
     const entry = entries[selected];
+    const track = entry ? tracksById.get(entry.sample_song_id) : undefined;
+    // the entry is a song, so its id is no album id. only the track knows it
+    const { albumRoute: album } = useAlbumRouteForTrack(track);
     if (!entry) return null;
-    const track = tracksById.get(entry.sample_song_id);
-    const album = albumRouteFor(entry, track);
 
     async function play() {
         if (!track) return;
@@ -187,34 +188,44 @@ export function HeroCarousel({ songs, phrase, accent }: Props) {
                     </View>
                 </Pressable>
                 {album ? (
-                    <Pressable
-                        onPress={() => router.push(album)}
-                        accessibilityRole="button"
-                        accessibilityLabel="View album"
-                        style={({ pressed }) =>
-                            pressed ? styles.pressed : null
-                        }
-                    >
-                        <View className="h-12 flex-row items-center gap-1 overflow-hidden rounded-full border border-border px-6">
-                            <View
-                                pointerEvents="none"
-                                style={StyleSheet.absoluteFill}
-                            >
-                                <GlassSurface style={StyleSheet.absoluteFill} />
-                            </View>
-                            <Text className="text-base font-medium">
-                                View album
-                            </Text>
-                            <Ionicons
-                                name="chevron-forward"
-                                size={16}
-                                color={colors.text}
-                            />
-                        </View>
-                    </Pressable>
+                    <GlassLinkButton
+                        label="View album"
+                        onPress={() => openScreen(album)}
+                    />
                 ) : null}
             </View>
         </View>
+    );
+}
+
+/** The outlined glass pill beside Play, with a trailing chevron. */
+function GlassLinkButton({
+    label,
+    onPress,
+}: {
+    label: string;
+    onPress: () => void;
+}) {
+    const { colors } = useTheme();
+    return (
+        <Pressable
+            onPress={onPress}
+            accessibilityRole="button"
+            accessibilityLabel={label}
+            style={({ pressed }) => (pressed ? styles.pressed : null)}
+        >
+            <View className="h-12 flex-row items-center gap-1 overflow-hidden rounded-full border border-border px-6">
+                <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+                    <GlassSurface style={StyleSheet.absoluteFill} />
+                </View>
+                <Text className="text-base font-medium">{label}</Text>
+                <Ionicons
+                    name="chevron-forward"
+                    size={16}
+                    color={colors.text}
+                />
+            </View>
+        </Pressable>
     );
 }
 

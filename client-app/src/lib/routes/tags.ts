@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { ANALYTICS_READS } from "./analytics-reads";
 
 import { useAPIData, useAPIFetch, useAPIMutation } from "../api-actions";
 import { queryTagIds, type QueryJSON } from "../query-json";
@@ -96,6 +97,8 @@ export function useCreateTag() {
         { path: "/songs/local-tags" },
         { path: "/songs/local-tags/batch" },
         { path: "/tags" },
+        // a new tag can turn a top tag local and change its color
+        ...ANALYTICS_READS,
     ]);
     return {
         createTagErr: x.error,
@@ -118,6 +121,7 @@ export function useUpdateTag() {
             { path: "/songs/local-tags" },
             { path: "/songs/local-tags/batch" },
             { path: "/tags" },
+            ...ANALYTICS_READS,
         ],
         { invalidation: "await" },
     );
@@ -137,6 +141,8 @@ export function useDeleteTag() {
             { path: "/songs/local-tags" },
             { path: "/songs/local-tags/batch" },
             { path: "/tags" },
+            // a deleted tag can drop out of the top tags or fall back to global
+            ...ANALYTICS_READS,
         ],
         { invalidation: "await" },
     );

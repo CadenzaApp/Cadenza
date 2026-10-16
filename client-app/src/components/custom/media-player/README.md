@@ -143,7 +143,7 @@ smoothly between the 750ms native snapshot polls, and scrubbing overrides it wit
 - `@/components/custom/reorderable-list::ReorderableList` for the up-next list.
 - `@/components/custom/options-menu::SongOptionsMenu` for the `...` menu, documented in
   [../../README.md](../../README.md). `player-page.tsx` passes it a `navigate` that dismisses the
-  sheet before pushing (`router.back()` then `router.push`), since Add to Playlist / Go to
+  sheet before opening (`router.back()` then `useOpenScreen`), since Add to Playlist / Go to
   Album / Go to Artist are full screen routes and a push from inside a presented sheet would
   land inside its box. Modify Tags opens the menu's selector popup without navigating.
 - Mounted by `src/app/(tabs)/_layout.tsx`; the sheet navigator is declared by
