@@ -1,6 +1,7 @@
 import math
 from datetime import date, timedelta
 from threading import Lock
+from typing import Literal
 
 import numpy as np
 from cachetools import LRUCache
@@ -15,6 +16,8 @@ from util import *
 def post_embedding(model: SentenceTransformer, content: str) -> np.ndarray:
     return model.encode_document(content)
 
+
+FEED_SIZE = 10
 
 POSTS_EPOCH = datetime(year=2026, month=1, day=1, tzinfo=UTC)
 
@@ -121,17 +124,37 @@ def unlike_post(user_id: str, post_id: int):
         )
 
 
-def mark_posts_viewed(user_id: str, post_ids: list[int]):
+def mark_posts_loaded(user_id: str, post_ids: list[int]):
+    """Insert `loaded` for ids with no row yet. Never downgrades `viewed`."""
     if not post_ids:
         return
 
     with db_conn() as conn:
         conn.execute(
             """
-                INSERT INTO post_views (post_id, user_id)
-                SELECT post_id, %s
+                INSERT INTO post_view_status (post_id, user_id, status, date)
+                SELECT post_id, %s, 'loaded', NULL
                 FROM unnest(%s) AS post_id
                 ON CONFLICT (post_id, user_id) DO NOTHING
+            """,
+            (user_id, post_ids),
+        )
+
+
+def mark_posts_viewed(user_id: str, post_ids: list[int]):
+    """Set `viewed`, inserting or upgrading from `loaded`."""
+    if not post_ids:
+        return
+
+    with db_conn() as conn:
+        conn.execute(
+            """
+                INSERT INTO post_view_status (post_id, user_id, status, date)
+                SELECT post_id, %s, 'viewed', now()
+                FROM unnest(%s) AS post_id
+                ON CONFLICT (post_id, user_id) DO UPDATE
+                SET status = 'viewed',
+                    date = now()
             """,
             (user_id, post_ids),
         )
@@ -270,8 +293,44 @@ def get_post_similarities(
     return similarities.squeeze().tolist()
 
 
+ExcludeKind = Literal["none", "loaded", "viewed"]
+
+
+def _exclude_clause(user_id: str, exclude: ExcludeKind) -> tuple[str, list]:
+    """SQL WHERE fragment and params for `exclude` on `posts`."""
+    if exclude == "none":
+        return "", []
+    if exclude == "viewed":
+        return (
+            """
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM post_view_status
+                    WHERE post_view_status.post_id = posts.post_id
+                      AND post_view_status.user_id = %s
+                      AND post_view_status.status = 'viewed'
+                )
+            """,
+            [user_id],
+        )
+    if exclude == "loaded":
+        # any row (loaded or viewed) means it was already returned from /feed
+        return (
+            """
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM post_view_status
+                    WHERE post_view_status.post_id = posts.post_id
+                      AND post_view_status.user_id = %s
+                )
+            """,
+            [user_id],
+        )
+    raise ValueError(f"unknown exclude: {exclude}")
+
+
 def similar_and_recent_posts(
-    user_id: str, user_vector: ndarray | None, n: int, include_seen: bool = False
+    user_id: str,
+    user_vector: ndarray | None,
+    exclude: ExcludeKind = "none",
 ):
     if user_vector is None:
         return []
@@ -280,24 +339,14 @@ def similar_and_recent_posts(
     AGE_MULTIPLIER = 0.02
     user_vector_w_age = np.append(AGE_MULTIPLIER, user_vector)
 
-    seen_filter = ""
-    params: list = []
-    if not include_seen:
-        seen_filter = """
-            WHERE NOT EXISTS (
-                SELECT 1 FROM post_views
-                WHERE post_views.post_id = posts.post_id
-                  AND post_views.user_id = %s
-            )
-        """
-        params.append(user_id)
-    params.extend([embedding_to_str(user_vector_w_age), n])
+    where, params = _exclude_clause(user_id, exclude)
+    params.extend([embedding_to_str(user_vector_w_age), FEED_SIZE])
 
     with db_conn() as conn:
         return conn.execute(
             f"""
                 SELECT post_id, embedding, likes, created_at, content FROM posts
-                {seen_filter}
+                {where}
                 ORDER BY embedding_w_bday <#> %s
                 LIMIT %s
             """,
@@ -305,25 +354,15 @@ def similar_and_recent_posts(
         ).fetchall()
 
 
-def hot_posts(user_id: str, n: int, include_seen: bool = False):
-    seen_filter = ""
-    params: list = []
-    if not include_seen:
-        seen_filter = """
-            WHERE NOT EXISTS (
-                SELECT 1 FROM post_views
-                WHERE post_views.post_id = posts.post_id
-                  AND post_views.user_id = %s
-            )
-        """
-        params.append(user_id)
-    params.append(n)
+def hot_posts(user_id: str, exclude: ExcludeKind = "none"):
+    where, params = _exclude_clause(user_id, exclude)
+    params.append(FEED_SIZE)
 
     with db_conn() as conn:
         return conn.execute(
             f"""
                 SELECT post_id, embedding, likes, created_at, content FROM posts
-                {seen_filter}
+                {where}
                 ORDER BY hot_score DESC
                 LIMIT %s
             """,
@@ -332,12 +371,14 @@ def hot_posts(user_id: str, n: int, include_seen: bool = False):
 
 
 def get_feed(
-    model: SentenceTransformer, user_id: str, n: int, include_seen: bool = False
+    model: SentenceTransformer,
+    user_id: str,
+    exclude: ExcludeKind = "none",
 ):
     user_vector = _get_user_vector(user_id)
     sources = [
-        similar_and_recent_posts(user_id, user_vector, n, include_seen),
-        hot_posts(user_id, n, include_seen),
+        similar_and_recent_posts(user_id, user_vector, exclude),
+        hot_posts(user_id, exclude),
     ]
 
     posts = [post for source in sources for post in source]  # flatten
@@ -360,4 +401,6 @@ def get_feed(
         scored_posts.append((score, post["post_id"]))
 
     scored_posts.sort(reverse=True)
-    return scored_posts[:n]
+    page = scored_posts[:FEED_SIZE]
+    mark_posts_loaded(user_id, [post_id for _, post_id in page])
+    return page

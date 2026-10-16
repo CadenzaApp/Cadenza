@@ -329,4 +329,12 @@ export function useAPIFetch<Input extends Record<string, any>, Output>(
     );
 }
 
+/** One GET against a backend path. Used by infinite readers that build their own SWR keys. */
+export function fetchAPIData<Output>(
+    path: string,
+    params?: Record<string, any>,
+) {
+    return apiRequest<Output>(BACKEND_URL + path + queryParamsToStr(params));
+}
+
 export { matchesEndpoint, type APIDataEndpoint };

@@ -32,7 +32,7 @@ First start downloads the model, so it is slow and needs a few hundred MB.
 
 | endpoint | body / query | returns |
 | --- | --- | --- |
-| `GET /feed` | `user_id`, optional `include_seen_posts=true` | `{"feed": [[score, post_id], ...]}`, at most 100. Without the flag, posts the user has viewed are left out |
+| `GET /feed` | `user_id`, optional `exclude=none\|loaded\|viewed` (default `none`) | `{"feed": [[score, post_id], ...]}`, at most `FEED_SIZE` (10). Marks returned ids as `loaded` in `post_view_status` (insert only; never downgrades `viewed`) |
 | `PATCH /interests/update` | `user_id`, `delta_scores: [{name, itype, delta}]` | nothing |
 | `PATCH /interests/decay` | `user_id` | nothing |
 | `POST /posts` | `user_id`, `content` (at most 500 characters) | `{"post_id": n}` |
@@ -40,17 +40,22 @@ First start downloads the model, so it is slow and needs a few hundred MB.
 | `GET /posts/user/{author_id}` | `user_id` (viewer, for liked) | `{"profile": {user_id, username, bio}, "posts": [...]}`, that author's posts newest first. Missing profile uses username `"unknown"` and an empty bio |
 | `POST /posts/{post_id}/likes` | `user_id`, `timestamp` (client ms) | nothing |
 | `DELETE /posts/{post_id}/likes` | `user_id`, `timestamp` (client ms) | nothing |
-| `POST /posts/views` | `user_id`, `post_ids: [n, ...]` | nothing |
+| `POST /posts/views` | `user_id`, `post_ids: [n, ...]` | nothing. Sets `post_view_status` to `viewed` (insert or upgrade from `loaded`) |
 
 `itype` is `genre` or `artist`.
 
-`POST /posts/views` inserts a `post_views` row per id (idempotent on `(post_id, user_id)`).
-Both feed sources skip posts the user has already viewed, unless `include_seen_posts=true`.
+### `exclude` on `/feed`
 
-`POST /posts/{post_id}/likes` inserts a `post_likes` row. `DELETE` removes it.
-`posts.likes` and `hot_score` move only when that row is inserted or deleted.
-A `timestamp` older than the last like or unlike this process accepted for that
-user and post is ignored. The process remembers the last 2000 pairs.
+| value | filter |
+| --- | --- |
+| `none` | no `post_view_status` filter |
+| `viewed` | no row with `status = viewed` |
+| `loaded` | no `post_view_status` row at all |
+
+Progression per user/post: (no row) → `loaded` (on `/feed` return) → `viewed` (client after ~2s on screen).
+
+The client loads the first page with `exclude=viewed`, later pages with `exclude=loaded`, then
+`exclude=none` after never-loaded posts run out.
 
 ## How ranking works
 
@@ -60,8 +65,8 @@ user and post is ignored. The process remembers the last 2000 pairs.
   only ever happens on a name nothing has embedded before.
 - The user vector is the top 10 genres and top 10 artists, each embedding times its score,
   summed. No scores means no vector, which means an empty feed.
-- `get_feed` unions unviewed posts nearest the user vector with the globally hot unviewed
-  posts, dedupes, then scores each by likes, age, and cosine similarity.
+- `get_feed` unions posts nearest the user vector with the globally hot posts (after `exclude`),
+  dedupes, then scores each by likes, age, and cosine similarity.
 - `decay_interests` multiplies every score by 0.6. It is a no-op if the user decayed in the
   last 6 hours or their top score is under 5, so the client can call it on every launch. The
   client does, from `@/lib/interest-decay`.

@@ -4,6 +4,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+from typing import Literal
+
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
 from sentence_transformers import SentenceTransformer
@@ -17,9 +19,11 @@ model.similarity_fn_name = "cosine"
 
 
 @app.get("/feed")
-async def get_feed_route(user_id: str, include_seen_posts: bool = False):
-    FEED_SIZE = 100; # todo: allow fetching past FEED_SIZE
-    return {"feed": get_feed(model, user_id, FEED_SIZE, include_seen_posts)}
+async def get_feed_route(
+    user_id: str,
+    exclude: Literal["none", "loaded", "viewed"] = "none",
+):
+    return {"feed": get_feed(model, user_id, exclude)}
 
 
 class UpdateInterestsBody(BaseModel):

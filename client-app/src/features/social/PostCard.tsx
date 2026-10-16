@@ -1,8 +1,11 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { useRouter } from "expo-router";
+import { useRef, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 
 import { GlassSurface } from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
+import { useLikePost, useUnlikePost } from "@/lib/routes/social";
 import { cn } from "@/lib/utils";
 
 import { formatRelativeTime, initialsFromUsername } from "./format";
@@ -10,19 +13,39 @@ import type { SocialPost } from "./types";
 
 type Props = {
     post: SocialPost;
-    liked: boolean;
-    onToggleLike: () => void;
-    /** Opens the author's profile. Omit on the profile page itself. */
-    onPressAuthor?: () => void;
 };
 
 /** One feed row: author, body, and the like control. */
-export function PostCard({
-    post,
-    liked,
-    onToggleLike,
-    onPressAuthor,
-}: Props) {
+export function PostCard({ post }: Props) {
+    const router = useRouter();
+    const { likePost } = useLikePost();
+    const { unlikePost } = useUnlikePost();
+    const [liked, setLiked] = useState(post.liked);
+    const likedRef = useRef(liked);
+    likedRef.current = liked;
+
+    const likes = post.likes + (liked ? 1 : 0) - (post.liked ? 1 : 0);
+
+    function toggleLike() {
+        const nowLiked = !likedRef.current;
+        likedRef.current = nowLiked;
+        setLiked(nowLiked);
+        if (post.post_id < 0) return;
+        const request = nowLiked
+            ? likePost(post.post_id)
+            : unlikePost(post.post_id);
+        void request.catch(() => {
+            if (likedRef.current !== nowLiked) return;
+            likedRef.current = !nowLiked;
+            setLiked(!nowLiked);
+        });
+    }
+
+    function openAuthor() {
+        if (!post.author.user_id) return;
+        router.push(`/social/user/${post.author.user_id}`);
+    }
+
     const authorRow = (
         <>
             <View className="h-10 w-10 items-center justify-center rounded-full bg-muted">
@@ -53,18 +76,14 @@ export function PostCard({
                 />
             </View>
 
-            {onPressAuthor ? (
-                <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={`View ${post.author.username}'s profile`}
-                    onPress={onPressAuthor}
-                    className="flex-row items-center gap-3 active:opacity-60"
-                >
-                    {authorRow}
-                </Pressable>
-            ) : (
-                <View className="flex-row items-center gap-3">{authorRow}</View>
-            )}
+            <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`View ${post.author.username}'s profile`}
+                onPress={openAuthor}
+                className="flex-row items-center gap-3 active:opacity-60"
+            >
+                {authorRow}
+            </Pressable>
 
             <Text className="text-base leading-6 text-foreground">
                 {post.content}
@@ -74,7 +93,7 @@ export function PostCard({
                 accessibilityRole="button"
                 accessibilityLabel={liked ? "Unlike post" : "Like post"}
                 accessibilityState={{ selected: liked }}
-                onPress={onToggleLike}
+                onPress={toggleLike}
                 hitSlop={8}
                 className="flex-row items-center gap-1.5 self-start active:opacity-60"
             >
@@ -89,7 +108,7 @@ export function PostCard({
                         liked ? "text-rose-600" : "text-muted-foreground",
                     )}
                 >
-                    {post.likes}
+                    {likes}
                 </Text>
             </Pressable>
         </View>

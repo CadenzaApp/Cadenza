@@ -1,11 +1,21 @@
 import { useCallback, useMemo } from "react";
+import useSWRInfinite from "swr/infinite";
 
-import { useAPIData, useAPIMutation, useAPIPostDataBatched } from "../api-actions";
+import { useAccount } from "../account";
+import {
+    fetchAPIData,
+    useAPIData,
+    useAPIMutation,
+    useAPIPostDataBatched,
+} from "../api-actions";
 import type {
     InterestScoreDelta,
     SocialPost,
     SocialUserProfile,
 } from "@/lib/types";
+
+/** Matches social-feed `FEED_SIZE`. A shorter page means this mode is done. */
+const FEED_PAGE_SIZE = 10;
 
 /**
  * Shrinks the signed in user's interest scores so the social feed follows what
@@ -61,28 +71,153 @@ type FeedResponse = {
     feed: [number, number][];
 };
 
+type FeedPageKey = {
+    keyType: "api-data";
+    path: "/social/feed";
+    params: Record<string, unknown>;
+    accountId: string;
+    /** Distinguishes pages so each scroll-triggered call hits the network. */
+    pageIndex: number;
+};
+
+function feedPageIds(pages: FeedResponse[] | undefined): number[] {
+    return (pages ?? []).flatMap((page) => page.feed.map(([, id]) => id));
+}
+
+function feedPageIsFull(page: FeedResponse | null | undefined): boolean {
+    return (page?.feed.length ?? 0) >= FEED_PAGE_SIZE;
+}
+
+function isLoadingNextFeedPage(
+    size: number,
+    data: FeedResponse[] | undefined,
+    isValidating: boolean,
+) {
+    return isValidating && Boolean(data?.length) && size > (data?.length ?? 0);
+}
+
 /**
- * Ranked post ids for the signed-in user, best first. At most 100.
- * Unseen posts first. If that feed is empty, the same request again with
- * `include_seen_posts` so already viewed posts fill the screen.
+ * Ranked post ids for the signed-in user, paged like the library lists.
+ *
+ * First page uses `exclude=viewed` (skip only fully viewed posts). Later
+ * pages use `exclude=loaded` (skip anything /feed already returned). The
+ * service marks returned ids as `loaded`. When never-loaded posts run out,
+ * continues with `exclude=none` after the caught-up separator.
  */
 export function useFeed() {
-    const unseen = useAPIData<FeedResponse>("/social/feed");
-    const unseenEmpty = unseen.data?.feed.length === 0;
-    const seen = useAPIData<FeedResponse>(
-        "/social/feed",
-        { include_seen_posts: true },
-        { enabled: unseenEmpty },
+    const { account } = useAccount();
+
+    // Do not revalidate earlier pages when size grows: /feed's ranking shifts
+    // as rows are marked loaded/viewed, so refetching page 0 would replace the
+    // list instead of appending the next page.
+    const feedSwrOptions = {
+        revalidateFirstPage: false,
+        revalidateAll: false,
+    } as const;
+
+    const fresh = useSWRInfinite<FeedResponse>(
+        (pageIndex, previousPage): FeedPageKey | null => {
+            if (!account) return null;
+            if (pageIndex > 0 && !feedPageIsFull(previousPage)) return null;
+            return {
+                keyType: "api-data",
+                path: "/social/feed",
+                // first paint: anything not viewed; scroll: only never-loaded
+                params: { exclude: pageIndex === 0 ? "viewed" : "loaded" },
+                accountId: account.id,
+                pageIndex,
+            };
+        },
+        (key: FeedPageKey) => fetchAPIData<FeedResponse>(key.path, key.params),
+        feedSwrOptions,
     );
-    const data = unseenEmpty ? seen.data : unseen.data;
+
+    const freshExhausted =
+        fresh.data != null &&
+        (fresh.data.length === 0 ||
+            !feedPageIsFull(fresh.data[fresh.data.length - 1]));
+
+    const caughtUp = useSWRInfinite<FeedResponse>(
+        (pageIndex, previousPage): FeedPageKey | null => {
+            if (!account || !freshExhausted) return null;
+            if (pageIndex > 0 && !feedPageIsFull(previousPage)) return null;
+            return {
+                keyType: "api-data",
+                path: "/social/feed",
+                params: { exclude: "none" },
+                accountId: account.id,
+                pageIndex,
+            };
+        },
+        (key: FeedPageKey) => fetchAPIData<FeedResponse>(key.path, key.params),
+        feedSwrOptions,
+    );
+
+    const freshIds = useMemo(() => feedPageIds(fresh.data), [fresh.data]);
+    const caughtUpIds = useMemo(
+        () => feedPageIds(caughtUp.data),
+        [caughtUp.data],
+    );
     const postIds = useMemo(
-        () => (data?.feed ?? []).map((item) => item[1]),
-        [data],
+        () => [...freshIds, ...caughtUpIds],
+        [freshIds, caughtUpIds],
     );
+
+    const freshLoadingNext = isLoadingNextFeedPage(
+        fresh.size,
+        fresh.data,
+        fresh.isValidating,
+    );
+    const caughtUpLoadingNext = isLoadingNextFeedPage(
+        caughtUp.size,
+        caughtUp.data,
+        caughtUp.isValidating,
+    );
+
+    const hasNextPage = !freshExhausted
+        ? feedPageIsFull(fresh.data?.[fresh.data.length - 1])
+        : caughtUp.data == null
+          ? !caughtUp.error
+          : feedPageIsFull(caughtUp.data[caughtUp.data.length - 1]);
+
+    const isLoadingNextPage = !freshExhausted
+        ? freshLoadingNext
+        : caughtUp.isLoading || caughtUpLoadingNext;
+
+    const loadNextPage = useCallback(async () => {
+        if (!hasNextPage || isLoadingNextPage) return;
+        if (!freshExhausted) {
+            await fresh.setSize((size) => size + 1);
+            return;
+        }
+        await caughtUp.setSize((size) => size + 1);
+    }, [
+        caughtUp.setSize,
+        fresh.setSize,
+        freshExhausted,
+        hasNextPage,
+        isLoadingNextPage,
+    ]);
+
+    const refreshFeed = useCallback(async () => {
+        await Promise.all([fresh.setSize(1), caughtUp.setSize(1)]);
+        await Promise.all([fresh.mutate(), caughtUp.mutate()]);
+    }, [caughtUp.mutate, caughtUp.setSize, fresh.mutate, fresh.setSize]);
+
     return {
         postIds,
-        feedLoading: unseen.isLoading || (unseenEmpty && seen.isLoading),
-        feedErr: unseen.error ?? (unseenEmpty ? seen.error : undefined),
+        /** How many leading ids came from the fresh pages (for the separator). */
+        unseenCount: freshIds.length,
+        showingSeen: freshExhausted,
+        hasNextPage,
+        isLoadingNextPage,
+        loadNextPage,
+        refreshFeed,
+        feedLoading:
+            fresh.isLoading ||
+            (freshExhausted && caughtUp.isLoading && !caughtUp.data),
+        feedErr:
+            fresh.error ?? (freshExhausted ? caughtUp.error : undefined),
     };
 }
 
@@ -109,6 +244,38 @@ export function useCreatePost() {
         resetCreatePost: x.reset,
         createPost: async (body: NewPostPayload) =>
             (await x.trigger(body))?.post_id,
+    };
+}
+
+type MarkPostsViewedPayload = {
+    post_ids: number[];
+};
+
+/**
+ * Marks posts as `viewed` in `post_view_status` (upgrades `loaded`). Does not
+ * refresh the feed cache: a mid-scroll refresh would yank rows out from under
+ * the user. `/feed` itself writes `loaded` when it returns ids.
+ */
+export function useMarkPostsViewed() {
+    const x = useAPIMutation<MarkPostsViewedPayload, void>(
+        "POST",
+        "/social/posts/views",
+        [],
+        { invalidation: "none" },
+    );
+    const markPostsViewed = useCallback(
+        (post_ids: number[]) => {
+            const ids = [...new Set(post_ids.filter((id) => id > 0))];
+            if (ids.length === 0) return Promise.resolve();
+            return x.trigger({ post_ids: ids });
+        },
+        [x.trigger],
+    );
+    return {
+        markPostsViewedErr: x.error,
+        markPostsViewedLoading: x.isMutating,
+        resetMarkPostsViewed: x.reset,
+        markPostsViewed,
     };
 }
 

@@ -1,5 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useNavigation, useRouter } from "expo-router";
+import { useNavigation } from "expo-router";
 import { useTheme } from "expo-router/react-navigation";
 import {
     useCallback,
@@ -9,7 +9,14 @@ import {
     useRef,
     useState,
 } from "react";
-import { FlatList, RefreshControl, View } from "react-native";
+import {
+    ActivityIndicator,
+    FlatList,
+    RefreshControl,
+    View,
+    type ListRenderItem,
+    type ViewToken,
+} from "react-native";
 import Animated from "react-native-reanimated";
 
 import { GlassIconButton } from "@/components/ui/glass-icon-button";
@@ -19,9 +26,8 @@ import { useProfile } from "@/lib/routes/profile";
 import {
     useCreatePost,
     useFeed,
-    useLikePost,
+    useMarkPostsViewed,
     usePosts,
-    useUnlikePost,
 } from "@/lib/routes/social";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { useScreenScroll } from "@/lib/screen-scroll";
@@ -32,23 +38,40 @@ import { CreatePostDialog } from "./CreatePostDialog";
 import { PostCard } from "./PostCard";
 import type { SocialPost } from "./types";
 
+const VIEWABILITY_CONFIG = {
+    itemVisiblePercentThreshold: 50,
+    minimumViewTime: 2000, /** How long a post must stay on screen before it counts as seen. */
+};
+
 /**
  * The Social tab. Loads the ranked feed, then the posts themselves.
  * A post you just wrote stays at the top until the feed includes it.
+ * Posts that stay half-visible for a couple seconds are marked viewed.
  */
 export function SocialFeedScreen() {
     const { listBottomInset } = useScreenOverlayInsets();
     const railInset = useTopRailInset() ?? 0;
-    const scroll = useScreenScroll<FlatList<SocialPost>>();
+    const scroll = useScreenScroll<FlatList<FeedRow>>();
     const navigation = useNavigation();
-    const router = useRouter();
     const { colors } = useTheme();
-    const { postIds, feedLoading, feedErr } = useFeed();
+    const {
+        postIds,
+        unseenCount,
+        showingSeen,
+        hasNextPage,
+        isLoadingNextPage,
+        loadNextPage,
+        refreshFeed,
+        feedLoading,
+        feedErr,
+    } = useFeed();
     const { posts, postsLoading, postsErr } = usePosts(postIds);
     const { createPost } = useCreatePost();
-    const { likePost } = useLikePost();
-    const { unlikePost } = useUnlikePost();
+    const { markPostsViewed } = useMarkPostsViewed();
     const { profile } = useProfile();
+    const markedViewedIds = useRef(new Set<number>());
+    const markPostsViewedRef = useRef(markPostsViewed);
+    markPostsViewedRef.current = markPostsViewed;
 
     const [created, setCreated] = useState<SocialPost[]>([]);
     const [refreshing, setRefreshing] = useState(false);
@@ -56,11 +79,6 @@ export function SocialFeedScreen() {
     const [toast, setToast] = useState<string | null>(null);
     const nextTempId = useRef(0);
     const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const [likedOverride, setLikedOverride] = useState<ReadonlyMap<number, boolean>>(
-        () => new Map(),
-    );
-    const likedOverrideRef = useRef(likedOverride);
-    likedOverrideRef.current = likedOverride;
 
     const showToast = useCallback((message: string) => {
         if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -75,10 +93,27 @@ export function SocialFeedScreen() {
         [],
     );
 
-    const feed = useMemo(() => {
+    const feed = useMemo((): FeedRow[] => {
         const loaded = new Set(posts.map((post) => post.post_id));
-        return [...created.filter((post) => !loaded.has(post.post_id)), ...posts];
-    }, [created, posts]);
+        const pending = created.filter((post) => !loaded.has(post.post_id));
+        const rows: FeedRow[] = pending.map((post) => ({
+            kind: "post",
+            post,
+        }));
+        const unseenPosts = posts.slice(0, unseenCount);
+        const seenPosts = posts.slice(unseenCount);
+        for (const post of unseenPosts) {
+            rows.push({ kind: "post", post });
+        }
+        // Never-loaded pages ran dry: separator, then exclude=none pages
+        if (showingSeen && seenPosts.length > 0) {
+            rows.push({ kind: "caught-up" });
+        }
+        for (const post of seenPosts) {
+            rows.push({ kind: "post", post });
+        }
+        return rows;
+    }, [created, posts, showingSeen, unseenCount]);
 
     useLayoutEffect(() => {
         navigation.setOptions({
@@ -92,32 +127,6 @@ export function SocialFeedScreen() {
             ),
         });
     }, [navigation, colors.text]);
-
-    const toggleLike = useCallback(
-        (post: SocialPost) => {
-            const current =
-                likedOverrideRef.current.get(post.post_id) ?? post.liked;
-            const nowLiked = !current;
-            const next = new Map(likedOverrideRef.current);
-            next.set(post.post_id, nowLiked);
-            likedOverrideRef.current = next;
-            setLikedOverride(next);
-            if (post.post_id < 0) return;
-            const request = nowLiked
-                ? likePost(post.post_id)
-                : unlikePost(post.post_id);
-            void request.catch(() => {
-                if (likedOverrideRef.current.get(post.post_id) !== nowLiked) {
-                    return;
-                }
-                const rolled = new Map(likedOverrideRef.current);
-                rolled.delete(post.post_id);
-                likedOverrideRef.current = rolled;
-                setLikedOverride(rolled);
-            });
-        },
-        [likePost, unlikePost],
-    );
 
     const handleCreate = useCallback(
         (content: string) => {
@@ -140,11 +149,6 @@ export function SocialFeedScreen() {
                 setCreated((current) =>
                     current.filter((item) => item.post_id !== tempId),
                 );
-                if (!likedOverrideRef.current.has(tempId)) return;
-                const next = new Map(likedOverrideRef.current);
-                next.delete(tempId);
-                likedOverrideRef.current = next;
-                setLikedOverride(next);
             }
 
             void createPost({ content })
@@ -161,54 +165,65 @@ export function SocialFeedScreen() {
                                 : item,
                         ),
                     );
-                    if (!likedOverrideRef.current.has(tempId)) return;
-                    const liked = likedOverrideRef.current.get(tempId)!;
-                    const next = new Map(likedOverrideRef.current);
-                    next.delete(tempId);
-                    next.set(post_id, liked);
-                    likedOverrideRef.current = next;
-                    setLikedOverride(next);
-                    if (!liked) return;
-                    void likePost(post_id).catch(() => {
-                        if (likedOverrideRef.current.get(post_id) !== true) {
-                            return;
-                        }
-                        const rolled = new Map(likedOverrideRef.current);
-                        rolled.delete(post_id);
-                        likedOverrideRef.current = rolled;
-                        setLikedOverride(rolled);
-                    });
                 })
                 .catch(() => {
                     dropTemp();
                     showToast("Couldn't publish your post.");
                 });
         },
-        [createPost, likePost, profile?.uid, profile?.username, showToast],
-    );
-
-    const openAuthor = useCallback(
-        (authorId: string) => {
-            if (!authorId) return;
-            router.push(`/social/user/${authorId}`);
-        },
-        [router],
+        [createPost, profile?.uid, profile?.username, showToast],
     );
 
     const reload = useCallback(async () => {
         setRefreshing(true);
         try {
-            await invalidateAPIData([
-                { path: "/social/feed" },
-                { path: "/social/posts/batch" },
-            ]);
+            await refreshFeed();
+            await invalidateAPIData([{ path: "/social/posts/batch" }]);
         } finally {
             setRefreshing(false);
         }
+    }, [refreshFeed]);
+
+    const onViewableItemsChanged = useRef(
+        ({ viewableItems }: { viewableItems: ViewToken[] }) => {
+            const ids: number[] = [];
+            for (const token of viewableItems) {
+                const row = token.item as FeedRow | undefined;
+                if (!token.isViewable || row?.kind !== "post") continue;
+                const id = row.post.post_id;
+                if (id <= 0 || markedViewedIds.current.has(id)) continue;
+                markedViewedIds.current.add(id);
+                ids.push(id);
+            }
+            if (ids.length === 0) return;
+            void markPostsViewedRef.current(ids).catch(() => {
+                for (const id of ids) markedViewedIds.current.delete(id);
+            });
+        },
+    ).current;
+
+    const keyExtractor = useCallback((item: FeedRow, index: number) => {
+        return item.kind === "caught-up"
+            ? "caught-up"
+            : `${item.post.post_id}-${index}`;
     }, []);
 
+    const renderItem = useCallback<ListRenderItem<FeedRow>>(({ item }) => {
+        if (item.kind === "caught-up") {
+            return <CaughtUpSeparator />;
+        }
+        return <PostCard post={item.post} />;
+    }, []);
+
+    const onEndReached = useCallback(() => {
+        if (hasNextPage && !isLoadingNextPage) {
+            void loadNextPage();
+        }
+    }, [hasNextPage, isLoadingNextPage, loadNextPage]);
+
     const loading =
-        feed.length === 0 && (feedLoading || (postIds.length > 0 && postsLoading));
+        feed.length === 0 &&
+        (feedLoading || (postIds.length > 0 && postsLoading));
     const emptyLabel = loading
         ? "Loading posts..."
         : feedErr || postsErr
@@ -232,25 +247,10 @@ export function SocialFeedScreen() {
                             progressViewOffset={railInset}
                         />
                     }
-                    keyExtractor={(post) => String(post.post_id)}
-                    renderItem={({ item }) => {
-                        const liked =
-                            likedOverride.get(item.post_id) ?? item.liked;
-                        const likes =
-                            item.likes +
-                            (liked ? 1 : 0) -
-                            (item.liked ? 1 : 0);
-                        return (
-                            <PostCard
-                                post={{ ...item, likes }}
-                                liked={liked}
-                                onToggleLike={() => toggleLike(item)}
-                                onPressAuthor={() =>
-                                    openAuthor(item.author.user_id)
-                                }
-                            />
-                        );
-                    }}
+                    keyExtractor={keyExtractor}
+                    renderItem={renderItem}
+                    onViewableItemsChanged={onViewableItemsChanged}
+                    viewabilityConfig={VIEWABILITY_CONFIG}
                     ItemSeparatorComponent={PostSeparator}
                     contentContainerStyle={[
                         {
@@ -268,6 +268,17 @@ export function SocialFeedScreen() {
                             {emptyLabel}
                         </Text>
                     }
+                    ListFooterComponent={
+                        isLoadingNextPage ? (
+                            <View className="items-center py-4">
+                                <ActivityIndicator color={colors.text} />
+                            </View>
+                        ) : (
+                            <View className="h-5" />
+                        )
+                    }
+                    onEndReached={onEndReached}
+                    onEndReachedThreshold={1}
                     showsVerticalScrollIndicator={false}
                 />
             </ScreenScrollMarker>
@@ -293,6 +304,18 @@ export function SocialFeedScreen() {
     );
 }
 
+type FeedRow =
+    | { kind: "post"; post: SocialPost }
+    | { kind: "caught-up" };
+
 function PostSeparator() {
     return <View className="h-3" />;
+}
+
+function CaughtUpSeparator() {
+    return (
+        <Text className="py-2 text-center text-sm text-muted-foreground">
+            ----- No new posts, you&apos;re caught up! -----
+        </Text>
+    );
 }

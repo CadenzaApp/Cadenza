@@ -28,8 +28,8 @@ pub struct Model {
 pub enum Relation {
     #[sea_orm(has_many = "super::post_likes::Entity")]
     PostLikes,
-    #[sea_orm(has_many = "super::post_views::Entity")]
-    PostViews,
+    #[sea_orm(has_many = "super::post_view_status::Entity")]
+    PostViewStatus,
 }
 
 impl Related<super::post_likes::Entity> for Entity {
@@ -38,9 +38,9 @@ impl Related<super::post_likes::Entity> for Entity {
     }
 }
 
-impl Related<super::post_views::Entity> for Entity {
+impl Related<super::post_view_status::Entity> for Entity {
     fn to() -> RelationDef {
-        Relation::PostViews.def()
+        Relation::PostViewStatus.def()
     }
 }
 

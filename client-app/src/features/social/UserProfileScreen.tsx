@@ -1,14 +1,10 @@
 import { useNavigation } from "expo-router";
-import { useCallback, useLayoutEffect, useRef, useState } from "react";
-import { FlatList, View } from "react-native";
+import { useCallback, useLayoutEffect } from "react";
+import { FlatList, View, type ListRenderItem } from "react-native";
 import Animated from "react-native-reanimated";
 
 import { Text } from "@/components/ui/text";
-import {
-    useLikePost,
-    useUnlikePost,
-    useUserPosts,
-} from "@/lib/routes/social";
+import { useUserPosts } from "@/lib/routes/social";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { useScreenScroll } from "@/lib/screen-scroll";
 import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
@@ -31,14 +27,6 @@ export function UserProfileScreen({ userId }: Props) {
     const navigation = useNavigation();
     const { profile, posts, userPostsLoading, userPostsErr } =
         useUserPosts(userId);
-    const { likePost } = useLikePost();
-    const { unlikePost } = useUnlikePost();
-
-    const [likedOverride, setLikedOverride] = useState<
-        ReadonlyMap<number, boolean>
-    >(() => new Map());
-    const likedOverrideRef = useRef(likedOverride);
-    likedOverrideRef.current = likedOverride;
 
     useLayoutEffect(() => {
         navigation.setOptions({
@@ -46,29 +34,9 @@ export function UserProfileScreen({ userId }: Props) {
         });
     }, [navigation, profile?.username]);
 
-    const toggleLike = useCallback(
-        (post: SocialPost) => {
-            const current =
-                likedOverrideRef.current.get(post.post_id) ?? post.liked;
-            const nowLiked = !current;
-            const next = new Map(likedOverrideRef.current);
-            next.set(post.post_id, nowLiked);
-            likedOverrideRef.current = next;
-            setLikedOverride(next);
-            const request = nowLiked
-                ? likePost(post.post_id)
-                : unlikePost(post.post_id);
-            void request.catch(() => {
-                if (likedOverrideRef.current.get(post.post_id) !== nowLiked) {
-                    return;
-                }
-                const rolled = new Map(likedOverrideRef.current);
-                rolled.delete(post.post_id);
-                likedOverrideRef.current = rolled;
-                setLikedOverride(rolled);
-            });
-        },
-        [likePost, unlikePost],
+    const renderItem = useCallback<ListRenderItem<SocialPost>>(
+        ({ item }) => <PostCard post={item} />,
+        [],
     );
 
     const loading = userPostsLoading && posts.length === 0;
@@ -93,21 +61,7 @@ export function UserProfileScreen({ userId }: Props) {
                             loading={userPostsLoading && !profile}
                         />
                     }
-                    renderItem={({ item }) => {
-                        const liked =
-                            likedOverride.get(item.post_id) ?? item.liked;
-                        const likes =
-                            item.likes +
-                            (liked ? 1 : 0) -
-                            (item.liked ? 1 : 0);
-                        return (
-                            <PostCard
-                                post={{ ...item, likes }}
-                                liked={liked}
-                                onToggleLike={() => toggleLike(item)}
-                            />
-                        );
-                    }}
+                    renderItem={renderItem}
                     ItemSeparatorComponent={PostSeparator}
                     contentContainerStyle={[
                         {

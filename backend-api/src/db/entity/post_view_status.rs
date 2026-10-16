@@ -2,14 +2,17 @@
 
 use sea_orm::entity::prelude::*;
 
+use super::sea_orm_active_enums::PostViewStatusKind;
+
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
-#[sea_orm(table_name = "post_views")]
+#[sea_orm(table_name = "post_view_status")]
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
     pub post_id: i64,
     #[sea_orm(primary_key, auto_increment = false)]
     pub user_id: Uuid,
-    pub date: DateTimeWithTimeZone,
+    pub status: PostViewStatusKind,
+    pub date: Option<DateTimeWithTimeZone>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
