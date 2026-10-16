@@ -309,7 +309,8 @@ memory per user for 5 hours. A model that cannot be reached is
 - `SocialFeedService::new()` does not panic on a missing `SOCIAL_FEED_URL`, unlike the other
   services. It falls back to `http://localhost:3001`. The python process is started from
   `main.rs` and loads the model after spawn, so embedding or similarity can 502 until the
-  port is open. `spawn_ml_service` panics if `ml-service/.venv` is missing.
+  port is open. `spawn_ml_service` panics if `ml-service/.venv` is missing. Each child line
+  is copied onto this process's stdout or stderr with a `[ml-service]` prefix.
 - The embedding service has no auth of its own. If it is reachable from outside, anyone can
   ask it to embed text. Keep `SOCIAL_FEED_URL` on a private address.
 - The integration tests in `openai_tag_generator.rs` are `#[ignore]`d because they spend real

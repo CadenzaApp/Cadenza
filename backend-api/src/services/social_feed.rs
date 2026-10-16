@@ -4,9 +4,11 @@
 //! text the model needs, and writes the vectors it gets back.
 
 use std::collections::{HashMap, HashSet};
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, ChildStderr, ChildStdout, Command, Stdio};
 use std::sync::{Arc, Mutex};
+use std::thread;
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
@@ -48,11 +50,12 @@ pub fn spawn_ml_service() -> MlService {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("ml-service");
     let python = ml_python(&dir);
     println!(
-        "ml-service: starting on {MODEL_HOST}:{MODEL_PORT} with {}",
+        "[ml-service] starting on {MODEL_HOST}:{MODEL_PORT} with {}",
         python.display()
     );
-    let child = Command::new(&python)
+    let mut child = Command::new(&python)
         .current_dir(&dir)
+        .env("PYTHONUNBUFFERED", "1")
         .args([
             "-m",
             "uvicorn",
@@ -64,11 +67,36 @@ pub fn spawn_ml_service() -> MlService {
             "--workers",
             "1",
         ])
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .spawn()
         .unwrap_or_else(|err| panic!("failed to start ml-service at {}: {err}", python.display()));
+    prefix_child_lines("[ml-service]", child.stdout.take(), child.stderr.take());
     MlService { child }
+}
+
+/// Copies each child line onto this process's stdout or stderr with `prefix`.
+fn prefix_child_lines(
+    prefix: &'static str,
+    stdout: Option<ChildStdout>,
+    stderr: Option<ChildStderr>,
+) {
+    if let Some(stdout) = stdout {
+        thread::spawn(move || {
+            for line in BufReader::new(stdout).lines() {
+                let Ok(line) = line else { break };
+                println!("{prefix} {line}");
+            }
+        });
+    }
+    if let Some(stderr) = stderr {
+        thread::spawn(move || {
+            for line in BufReader::new(stderr).lines() {
+                let Ok(line) = line else { break };
+                eprintln!("{prefix} {line}");
+            }
+        });
+    }
 }
 
 fn ml_python(dir: &Path) -> PathBuf {

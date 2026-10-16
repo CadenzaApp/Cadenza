@@ -20,7 +20,8 @@ uv sync
 
 `cargo run` in `backend-api/` starts this process on `127.0.0.1:3001`. The
 model loads after spawn, so a feed or post can 502 until the port is open.
-Stopping the api kills this process.
+Stopping the api kills this process. Child stdout and stderr are copied onto
+the api's output, each line prefixed with `[ml-service]`.
 
 To run it by hand, for example to watch the model load without the api:
 
