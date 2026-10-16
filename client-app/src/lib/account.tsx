@@ -1,6 +1,6 @@
 import { supabase } from "./supabase";
 import { useState, useEffect, useRef, createContext, useContext } from "react";
-import { createProfile } from "./routes/profile";
+import { createProfile } from "./create-profile";
 import { clearCache } from "./swr-utils";
 
 /**

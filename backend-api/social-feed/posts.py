@@ -5,6 +5,7 @@ from threading import Lock
 import numpy as np
 from cachetools import LRUCache
 from sentence_transformers import SentenceTransformer
+from pprint import pprint
 
 from interests import *
 from util import *
@@ -136,6 +137,20 @@ def mark_posts_viewed(user_id: str, post_ids: list[int]):
         )
 
 
+def _post_from_row(row: DictRow) -> dict:
+    return {
+        "post_id": row["post_id"],
+        "content": row["content"],
+        "likes": row["likes"],
+        "created_at": row["created_at"],
+        "liked": row["liked"],
+        "author": {
+            "user_id": str(row["user_id"]),
+            "username": row["username"] or "unknown",
+        },
+    }
+
+
 def get_posts(user_id: str, post_ids: list[int]) -> list[dict]:
     """Display fields for the given posts, in request order. Missing ids are skipped."""
     if not post_ids:
@@ -148,6 +163,7 @@ def get_posts(user_id: str, post_ids: list[int]) -> list[dict]:
             """
                 SELECT
                     p.post_id,
+                    p.user_id,
                     p.content,
                     p.likes,
                     p.created_at,
@@ -170,18 +186,60 @@ def get_posts(user_id: str, post_ids: list[int]) -> list[dict]:
         row = by_id.get(post_id)
         if row is None:
             continue
-        posts.append(
-            {
-                "post_id": row["post_id"],
-                "content": row["content"],
-                "likes": row["likes"],
-                "created_at": row["created_at"],
-                "liked": row["liked"],
-                "author": {"username": row["username"] or "unknown"},
-            }
-        )
+        posts.append(_post_from_row(row))
     return posts
 
+
+def get_user_posts(viewer_id: str, author_id: str) -> dict:
+    """One author's posts, newest first, plus their public profile for the page header."""
+    with db_conn() as conn:
+        profile_row = conn.execute(
+            """
+                SELECT uid, username, bio
+                FROM profile
+                WHERE uid = %s
+            """,
+            (author_id,),
+        ).fetchone()
+
+        rows = conn.execute(
+            """
+                SELECT
+                    p.post_id,
+                    p.user_id,
+                    p.content,
+                    p.likes,
+                    p.created_at,
+                    pr.username,
+                    EXISTS (
+                        SELECT 1 FROM post_likes
+                        WHERE post_likes.post_id = p.post_id
+                          AND post_likes.user_id = %s
+                    ) AS liked
+                FROM posts p
+                LEFT JOIN profile pr ON pr.uid = p.user_id
+                WHERE p.user_id = %s
+                ORDER BY p.created_at DESC
+            """,
+            (viewer_id, author_id),
+        ).fetchall()
+
+    posts = [_post_from_row(row) for row in rows]
+
+    if profile_row is not None:
+        profile = {
+            "user_id": str(profile_row["uid"]),
+            "username": profile_row["username"],
+            "bio": profile_row["bio"] or "",
+        }
+    else:
+        profile = {
+            "user_id": author_id,
+            "username": posts[0]["author"]["username"] if posts else "unknown",
+            "bio": "",
+        }
+
+    return {"profile": profile, "posts": posts}
 
 def _get_user_vector(user_id: str) -> ndarray | None:
     genres = top_k_of_interest(user_id, "genre", 10)
@@ -212,7 +270,9 @@ def get_post_similarities(
     return similarities.squeeze().tolist()
 
 
-def similar_and_recent_posts(user_id: str, user_vector: ndarray | None, n: int):
+def similar_and_recent_posts(
+    user_id: str, user_vector: ndarray | None, n: int, include_seen: bool = False
+):
     if user_vector is None:
         return []
 
@@ -220,44 +280,64 @@ def similar_and_recent_posts(user_id: str, user_vector: ndarray | None, n: int):
     AGE_MULTIPLIER = 0.02
     user_vector_w_age = np.append(AGE_MULTIPLIER, user_vector)
 
+    seen_filter = ""
+    params: list = []
+    if not include_seen:
+        seen_filter = """
+            WHERE NOT EXISTS (
+                SELECT 1 FROM post_views
+                WHERE post_views.post_id = posts.post_id
+                  AND post_views.user_id = %s
+            )
+        """
+        params.append(user_id)
+    params.extend([embedding_to_str(user_vector_w_age), n])
+
     with db_conn() as conn:
         return conn.execute(
-            """
-                SELECT post_id, embedding, likes, created_at FROM posts
-                WHERE NOT EXISTS (
-                    SELECT 1 FROM post_views
-                    WHERE post_views.post_id = posts.post_id
-                      AND post_views.user_id = %s
-                )
+            f"""
+                SELECT post_id, embedding, likes, created_at, content FROM posts
+                {seen_filter}
                 ORDER BY embedding_w_bday <#> %s
                 LIMIT %s
             """,
-            (user_id, embedding_to_str(user_vector_w_age), n),
+            params,
         ).fetchall()
 
 
-def hot_posts(user_id: str, n: int):
+def hot_posts(user_id: str, n: int, include_seen: bool = False):
+    seen_filter = ""
+    params: list = []
+    if not include_seen:
+        seen_filter = """
+            WHERE NOT EXISTS (
+                SELECT 1 FROM post_views
+                WHERE post_views.post_id = posts.post_id
+                  AND post_views.user_id = %s
+            )
+        """
+        params.append(user_id)
+    params.append(n)
+
     with db_conn() as conn:
         return conn.execute(
-            """
-                SELECT post_id, embedding, likes, created_at FROM posts
-                WHERE NOT EXISTS (
-                    SELECT 1 FROM post_views
-                    WHERE post_views.post_id = posts.post_id
-                      AND post_views.user_id = %s
-                )
+            f"""
+                SELECT post_id, embedding, likes, created_at, content FROM posts
+                {seen_filter}
                 ORDER BY hot_score DESC
                 LIMIT %s
             """,
-            (user_id, n),
+            params,
         ).fetchall()
 
 
-def get_feed(model: SentenceTransformer, user_id: str, n: int):
+def get_feed(
+    model: SentenceTransformer, user_id: str, n: int, include_seen: bool = False
+):
     user_vector = _get_user_vector(user_id)
     sources = [
-        similar_and_recent_posts(user_id, user_vector, n),
-        hot_posts(user_id, n),
+        similar_and_recent_posts(user_id, user_vector, n, include_seen),
+        hot_posts(user_id, n, include_seen),
     ]
 
     posts = [post for source in sources for post in source]  # flatten
@@ -270,9 +350,11 @@ def get_feed(model: SentenceTransformer, user_id: str, n: int):
 
     scored_posts = []
     for post, similarity in zip(posts, similiarities):
-        likes_score = 10 * math.log2(post["likes"] + 1)
-        age_score = (datetime.now(UTC) - post["created_at"]).days
-        similarity_score = similarity * 50
+        age_days = (datetime.now(UTC) - post["created_at"]).days
+
+        age_score = -math.log2(age_days + 1)
+        likes_score = 3 * math.log2(post["likes"] + 1)
+        similarity_score = 100 * similarity
 
         score = likes_score + age_score + similarity_score
         scored_posts.append((score, post["post_id"]))

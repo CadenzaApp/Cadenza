@@ -1,5 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useNavigation } from "expo-router";
+import { useNavigation, useRouter } from "expo-router";
 import { useTheme } from "expo-router/react-navigation";
 import {
     useCallback,
@@ -9,11 +9,12 @@ import {
     useRef,
     useState,
 } from "react";
-import { FlatList, View } from "react-native";
+import { FlatList, RefreshControl, View } from "react-native";
 import Animated from "react-native-reanimated";
 
 import { GlassIconButton } from "@/components/ui/glass-icon-button";
 import { Text } from "@/components/ui/text";
+import { invalidateAPIData } from "@/lib/api-actions";
 import { useProfile } from "@/lib/routes/profile";
 import {
     useCreatePost,
@@ -25,6 +26,7 @@ import {
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { useScreenScroll } from "@/lib/screen-scroll";
 import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
+import { useTopRailInset } from "@/lib/top-rail";
 
 import { CreatePostDialog } from "./CreatePostDialog";
 import { PostCard } from "./PostCard";
@@ -36,8 +38,10 @@ import type { SocialPost } from "./types";
  */
 export function SocialFeedScreen() {
     const { listBottomInset } = useScreenOverlayInsets();
+    const railInset = useTopRailInset() ?? 0;
     const scroll = useScreenScroll<FlatList<SocialPost>>();
     const navigation = useNavigation();
+    const router = useRouter();
     const { colors } = useTheme();
     const { postIds, feedLoading, feedErr } = useFeed();
     const { posts, postsLoading, postsErr } = usePosts(postIds);
@@ -47,6 +51,7 @@ export function SocialFeedScreen() {
     const { profile } = useProfile();
 
     const [created, setCreated] = useState<SocialPost[]>([]);
+    const [refreshing, setRefreshing] = useState(false);
     const [composeOpen, setComposeOpen] = useState(false);
     const [toast, setToast] = useState<string | null>(null);
     const nextTempId = useRef(0);
@@ -124,7 +129,10 @@ export function SocialFeedScreen() {
                 likes: 0,
                 liked: false,
                 created_at: new Date().toISOString(),
-                author: { username: profile?.username ?? "unknown" },
+                author: {
+                    user_id: profile?.uid ?? "",
+                    username: profile?.username ?? "unknown",
+                },
             };
             setCreated((current) => [post, ...current]);
 
@@ -176,8 +184,28 @@ export function SocialFeedScreen() {
                     showToast("Couldn't publish your post.");
                 });
         },
-        [createPost, likePost, profile?.username, showToast],
+        [createPost, likePost, profile?.uid, profile?.username, showToast],
     );
+
+    const openAuthor = useCallback(
+        (authorId: string) => {
+            if (!authorId) return;
+            router.push(`/social/user/${authorId}`);
+        },
+        [router],
+    );
+
+    const reload = useCallback(async () => {
+        setRefreshing(true);
+        try {
+            await invalidateAPIData([
+                { path: "/social/feed" },
+                { path: "/social/posts/batch" },
+            ]);
+        } finally {
+            setRefreshing(false);
+        }
+    }, []);
 
     const loading =
         feed.length === 0 && (feedLoading || (postIds.length > 0 && postsLoading));
@@ -194,6 +222,16 @@ export function SocialFeedScreen() {
                     {...scroll}
                     className="flex-1"
                     data={feed}
+                    refreshControl={
+                        <RefreshControl
+                            refreshing={refreshing}
+                            onRefresh={reload}
+                            tintColor={colors.text}
+                            colors={[colors.text]}
+                            progressBackgroundColor={colors.card}
+                            progressViewOffset={railInset}
+                        />
+                    }
                     keyExtractor={(post) => String(post.post_id)}
                     renderItem={({ item }) => {
                         const liked =
@@ -207,6 +245,9 @@ export function SocialFeedScreen() {
                                 post={{ ...item, likes }}
                                 liked={liked}
                                 onToggleLike={() => toggleLike(item)}
+                                onPressAuthor={() =>
+                                    openAuthor(item.author.user_id)
+                                }
                             />
                         );
                     }}

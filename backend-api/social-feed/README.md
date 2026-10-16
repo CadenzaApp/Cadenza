@@ -32,11 +32,12 @@ First start downloads the model, so it is slow and needs a few hundred MB.
 
 | endpoint | body / query | returns |
 | --- | --- | --- |
-| `GET /feed` | `user_id` | `{"feed": [[score, post_id], ...]}`, at most 100 |
+| `GET /feed` | `user_id`, optional `include_seen_posts=true` | `{"feed": [[score, post_id], ...]}`, at most 100. Without the flag, posts the user has viewed are left out |
 | `PATCH /interests/update` | `user_id`, `delta_scores: [{name, itype, delta}]` | nothing |
 | `PATCH /interests/decay` | `user_id` | nothing |
 | `POST /posts` | `user_id`, `content` (at most 500 characters) | `{"post_id": n}` |
-| `POST /posts/batch` | `user_id`, `post_ids: [n, ...]` | `{"posts": [{post_id, content, likes, liked, created_at, author: {username}}, ...]}`, request order, missing ids skipped. `liked` is whether this user has a `post_likes` row |
+| `POST /posts/batch` | `user_id`, `post_ids: [n, ...]` | `{"posts": [{post_id, content, likes, liked, created_at, author: {user_id, username}}, ...]}`, request order, missing ids skipped. `liked` is whether this user has a `post_likes` row |
+| `GET /posts/user/{author_id}` | `user_id` (viewer, for liked) | `{"profile": {user_id, username, bio}, "posts": [...]}`, that author's posts newest first. Missing profile uses username `"unknown"` and an empty bio |
 | `POST /posts/{post_id}/likes` | `user_id`, `timestamp` (client ms) | nothing |
 | `DELETE /posts/{post_id}/likes` | `user_id`, `timestamp` (client ms) | nothing |
 | `POST /posts/views` | `user_id`, `post_ids: [n, ...]` | nothing |
@@ -44,7 +45,7 @@ First start downloads the model, so it is slow and needs a few hundred MB.
 `itype` is `genre` or `artist`.
 
 `POST /posts/views` inserts a `post_views` row per id (idempotent on `(post_id, user_id)`).
-Both feed sources skip posts the user has already viewed.
+Both feed sources skip posts the user has already viewed, unless `include_seen_posts=true`.
 
 `POST /posts/{post_id}/likes` inserts a `post_likes` row. `DELETE` removes it.
 `posts.likes` and `hot_score` move only when that row is inserted or deleted.

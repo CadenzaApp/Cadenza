@@ -23,7 +23,7 @@ class Interest(BaseModel, arbitrary_types_allowed=True):
     id: int
     name: str
     embedding: ndarray | None
-    score: int
+    score: float
     interest_type: InterestType
 
     @staticmethod

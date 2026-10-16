@@ -17,9 +17,9 @@ model.similarity_fn_name = "cosine"
 
 
 @app.get("/feed")
-async def get_feed_route(user_id: str):
+async def get_feed_route(user_id: str, include_seen_posts: bool = False):
     FEED_SIZE = 100; # todo: allow fetching past FEED_SIZE
-    return {"feed": get_feed(model, user_id, FEED_SIZE)}
+    return {"feed": get_feed(model, user_id, FEED_SIZE, include_seen_posts)}
 
 
 class UpdateInterestsBody(BaseModel):
@@ -62,6 +62,12 @@ class GetPostsBody(BaseModel):
 @app.post("/posts/batch")
 async def get_posts_route(body: GetPostsBody):
     return {"posts": get_posts(body.user_id, body.post_ids)}
+
+
+@app.get("/posts/user/{author_id}")
+async def get_user_posts_route(author_id: str, user_id: str):
+    """Posts by `author_id`, newest first. `user_id` is the viewer (for liked)."""
+    return get_user_posts(user_id, author_id)
 
 
 class LikePostBody(BaseModel):

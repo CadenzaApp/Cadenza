@@ -1,7 +1,11 @@
 import { useCallback, useMemo } from "react";
 
 import { useAPIData, useAPIMutation, useAPIPostDataBatched } from "../api-actions";
-import type { InterestScoreDelta, SocialPost } from "@/lib/types";
+import type {
+    InterestScoreDelta,
+    SocialPost,
+    SocialUserProfile,
+} from "@/lib/types";
 
 /**
  * Shrinks the signed in user's interest scores so the social feed follows what
@@ -57,17 +61,28 @@ type FeedResponse = {
     feed: [number, number][];
 };
 
-/** Ranked post ids for the signed-in user, best first. At most 100. */
+/**
+ * Ranked post ids for the signed-in user, best first. At most 100.
+ * Unseen posts first. If that feed is empty, the same request again with
+ * `include_seen_posts` so already viewed posts fill the screen.
+ */
 export function useFeed() {
-    const x = useAPIData<FeedResponse>("/social/feed");
+    const unseen = useAPIData<FeedResponse>("/social/feed");
+    const unseenEmpty = unseen.data?.feed.length === 0;
+    const seen = useAPIData<FeedResponse>(
+        "/social/feed",
+        { include_seen_posts: true },
+        { enabled: unseenEmpty },
+    );
+    const data = unseenEmpty ? seen.data : unseen.data;
     const postIds = useMemo(
-        () => (x.data?.feed ?? []).map((item) => item[1]),
-        [x.data],
+        () => (data?.feed ?? []).map((item) => item[1]),
+        [data],
     );
     return {
         postIds,
-        feedLoading: x.isLoading,
-        feedErr: x.error,
+        feedLoading: unseen.isLoading || (unseenEmpty && seen.isLoading),
+        feedErr: unseen.error ?? (unseenEmpty ? seen.error : undefined),
     };
 }
 
@@ -150,6 +165,34 @@ type PostsBatchResponse = {
 };
 
 const EMPTY_POSTS: SocialPost[] = [];
+
+type UserPostsResponse = {
+    profile: SocialUserProfile;
+    posts: SocialPost[];
+};
+
+/**
+ * One author's public profile and their posts, newest first. Pass no id to
+ * leave it unread.
+ *
+ * ```ts
+ * const { profile, posts, userPostsLoading, userPostsErr } =
+ *     useUserPosts(authorId);
+ * ```
+ */
+export function useUserPosts(authorId?: string) {
+    const x = useAPIData<UserPostsResponse>(
+        `/social/posts/user/${authorId}`,
+        undefined,
+        { enabled: Boolean(authorId) },
+    );
+    return {
+        profile: x.data?.profile,
+        posts: x.data?.posts ?? EMPTY_POSTS,
+        userPostsLoading: x.isLoading,
+        userPostsErr: x.error,
+    };
+}
 
 /**
  * Display fields for many posts at once (content, likes, whether you liked

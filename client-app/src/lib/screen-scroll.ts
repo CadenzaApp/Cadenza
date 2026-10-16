@@ -163,7 +163,8 @@ export function useScreenScroll<
         ref,
         onScroll,
         scrollEventThrottle: 16,
-        style: pullCompensationStyle,
+        // A no-op transform still clips the iOS refresh indicator.
+        style: compensatesZoomPull ? pullCompensationStyle : undefined,
         // padding rather than a native content inset: 0 stays the top, so
         // scroll-to-top and the first frame need nothing special
         contentContainerStyle:

@@ -60,7 +60,7 @@ export type InterestScoreDelta = {
 
 /**
  * One social feed post as `POST /social/posts/batch` returns it. Author comes
- * from `profile`; a missing profile row shows as `"unknown"`.
+ * from `profile`; a missing profile row shows username `"unknown"`.
  */
 export type SocialPost = {
     post_id: number;
@@ -71,8 +71,17 @@ export type SocialPost = {
     /** RFC 3339 in UTC */
     created_at: string;
     author: {
+        /** Auth user id; used to open their profile page. */
+        user_id: string;
         username: string;
     };
+};
+
+/** Public profile header from `GET /social/posts/user/:author_id`. */
+export type SocialUserProfile = {
+    user_id: string;
+    username: string;
+    bio: string;
 };
 
 export type CommentVote = "up" | "down";

@@ -12,10 +12,38 @@ type Props = {
     post: SocialPost;
     liked: boolean;
     onToggleLike: () => void;
+    /** Opens the author's profile. Omit on the profile page itself. */
+    onPressAuthor?: () => void;
 };
 
 /** One feed row: author, body, and the like control. */
-export function PostCard({ post, liked, onToggleLike }: Props) {
+export function PostCard({
+    post,
+    liked,
+    onToggleLike,
+    onPressAuthor,
+}: Props) {
+    const authorRow = (
+        <>
+            <View className="h-10 w-10 items-center justify-center rounded-full bg-muted">
+                <Text className="text-sm font-semibold text-foreground">
+                    {initialsFromUsername(post.author.username)}
+                </Text>
+            </View>
+            <View className="min-w-0 flex-1">
+                <Text
+                    className="font-semibold text-foreground"
+                    numberOfLines={1}
+                >
+                    {post.author.username}
+                </Text>
+                <Text className="text-xs text-muted-foreground">
+                    {formatRelativeTime(post.created_at)}
+                </Text>
+            </View>
+        </>
+    );
+
     return (
         <View className="gap-3 overflow-hidden rounded-3xl border border-border p-4">
             <View pointerEvents="none" style={StyleSheet.absoluteFill}>
@@ -25,24 +53,18 @@ export function PostCard({ post, liked, onToggleLike }: Props) {
                 />
             </View>
 
-            <View className="flex-row items-center gap-3">
-                <View className="h-10 w-10 items-center justify-center rounded-full bg-muted">
-                    <Text className="text-sm font-semibold text-foreground">
-                        {initialsFromUsername(post.author.username)}
-                    </Text>
-                </View>
-                <View className="min-w-0 flex-1">
-                    <Text
-                        className="font-semibold text-foreground"
-                        numberOfLines={1}
-                    >
-                        {post.author.username}
-                    </Text>
-                    <Text className="text-xs text-muted-foreground">
-                        {formatRelativeTime(post.created_at)}
-                    </Text>
-                </View>
-            </View>
+            {onPressAuthor ? (
+                <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`View ${post.author.username}'s profile`}
+                    onPress={onPressAuthor}
+                    className="flex-row items-center gap-3 active:opacity-60"
+                >
+                    {authorRow}
+                </Pressable>
+            ) : (
+                <View className="flex-row items-center gap-3">{authorRow}</View>
+            )}
 
             <Text className="text-base leading-6 text-foreground">
                 {post.content}

@@ -13,7 +13,8 @@ logic out.
 | `auth/index.tsx`                     | `/auth`                   | Sign in / sign up. Takes an `initialMode` search param.                                                       |
 | `(tabs)/_layout.tsx`                 |                           | Protected native tab group, its five triggers, and the media-player bottom accessory.                         |
 | `(tabs)/*/_layout.tsx`               |                           | One native `Stack` per tab, using `TabStack` for the shared top rail.                                         |
-| `(tabs)/social/index.tsx`            | `/social`                 | Static previews of planned social features.                                                                   |
+| `(tabs)/social/index.tsx`            | `/social`                 | The ranked social feed.                                                                                       |
+| `(tabs)/social/user/[userId].tsx`    | `/social/user/:userId`    | One user's public profile (username, bio) and their posts, newest first.                                      |
 | `(tabs)/analytics/index.tsx`         | `/analytics`              | The overview: header, #1 hero, stats, heatmap, tag rail, the chart, and one card for every ranking.           |
 | `(tabs)/analytics/[dimension].tsx`   | `/analytics/[dimension]`  | One full ranking. `dimension` is a name from the client's dimension registry.                                 |
 | `(tabs)/cadenza/index.tsx`           | `/cadenza`                | The simple / advanced query workspace and shared result preview.                                              |
