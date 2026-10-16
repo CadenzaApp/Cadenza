@@ -59,8 +59,9 @@ export type InterestScoreDelta = {
 };
 
 /**
- * One social feed post as `POST /social/posts/batch` returns it. Author comes
- * from `profile`; a missing profile row shows username `"unknown"`.
+ * One social feed post as `/social/feed` and `/social/posts/user/:id` return
+ * it. Author comes from `profile`; a missing profile row shows username
+ * `"unknown"`.
  */
 export type SocialPost = {
     post_id: number;

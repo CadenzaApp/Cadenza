@@ -58,16 +58,6 @@ async def create_post_route(body: CreatePostBody):
     return {"post_id": create_post(model, body.user_id, body.content)}
 
 
-class GetPostsBody(BaseModel):
-    user_id: str
-    post_ids: list[int]
-
-
-@app.post("/posts/batch")
-async def get_posts_route(body: GetPostsBody):
-    return {"posts": get_posts(body.user_id, body.post_ids)}
-
-
 @app.get("/posts/user/{author_id}")
 async def get_user_posts_route(author_id: str, user_id: str):
     """Posts by `author_id`, newest first. `user_id` is the viewer (for liked)."""

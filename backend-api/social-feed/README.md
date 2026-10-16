@@ -32,12 +32,11 @@ First start downloads the model, so it is slow and needs a few hundred MB.
 
 | endpoint | body / query | returns |
 | --- | --- | --- |
-| `GET /feed` | `user_id`, optional `exclude=none\|loaded\|viewed` (default `none`) | `{"feed": [[score, post_id], ...]}`, at most `FEED_SIZE` (10). Marks returned ids as `loaded` in `post_view_status` (insert only; never downgrades `viewed`) |
+| `GET /feed` | `user_id`, optional `exclude=none\|loaded\|viewed` (default `none`) | `{"feed": [{post_id, content, likes, liked, created_at, author: {user_id, username}}, ...]}`, at most `FEED_SIZE` (10), ranked. Marks returned ids as `loaded` in `post_view_status` (insert only; never downgrades `viewed`). `liked` is whether this user has a `post_likes` row |
 | `PATCH /interests/update` | `user_id`, `delta_scores: [{name, itype, delta}]` | nothing |
 | `PATCH /interests/decay` | `user_id` | nothing |
 | `POST /posts` | `user_id`, `content` (at most 500 characters) | `{"post_id": n}` |
-| `POST /posts/batch` | `user_id`, `post_ids: [n, ...]` | `{"posts": [{post_id, content, likes, liked, created_at, author: {user_id, username}}, ...]}`, request order, missing ids skipped. `liked` is whether this user has a `post_likes` row |
-| `GET /posts/user/{author_id}` | `user_id` (viewer, for liked) | `{"profile": {user_id, username, bio}, "posts": [...]}`, that author's posts newest first. Missing profile uses username `"unknown"` and an empty bio |
+| `GET /posts/user/{author_id}` | `user_id` (viewer, for liked) | `{"profile": {user_id, username, bio}, "posts": [...]}`, that author's posts newest first (same post shape as `/feed`). Missing profile uses username `"unknown"` and an empty bio |
 | `POST /posts/{post_id}/likes` | `user_id`, `timestamp` (client ms) | nothing |
 | `DELETE /posts/{post_id}/likes` | `user_id`, `timestamp` (client ms) | nothing |
 | `POST /posts/views` | `user_id`, `post_ids: [n, ...]` | nothing. Sets `post_view_status` to `viewed` (insert or upgrade from `loaded`) |
@@ -52,7 +51,7 @@ First start downloads the model, so it is slow and needs a few hundred MB.
 | `viewed` | no row with `status = viewed` |
 | `loaded` | no `post_view_status` row at all |
 
-Progression per user/post: (no row) → `loaded` (on `/feed` return) → `viewed` (client after ~2s on screen).
+Progression per user/post: (no row) → `loaded` (when `/feed` returns the post) → `viewed` (client after ~2s on screen).
 
 The client loads the first page with `exclude=viewed`, later pages with `exclude=loaded`, then
 `exclude=none` after never-loaded posts run out.

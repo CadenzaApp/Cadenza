@@ -21,13 +21,11 @@ import Animated from "react-native-reanimated";
 
 import { GlassIconButton } from "@/components/ui/glass-icon-button";
 import { Text } from "@/components/ui/text";
-import { invalidateAPIData } from "@/lib/api-actions";
 import { useProfile } from "@/lib/routes/profile";
 import {
     useCreatePost,
     useFeed,
     useMarkPostsViewed,
-    usePosts,
 } from "@/lib/routes/social";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { useScreenScroll } from "@/lib/screen-scroll";
@@ -40,13 +38,12 @@ import type { SocialPost } from "./types";
 
 const VIEWABILITY_CONFIG = {
     itemVisiblePercentThreshold: 50,
-    minimumViewTime: 2000, /** How long a post must stay on screen before it counts as seen. */
 };
 
 /**
- * The Social tab. Loads the ranked feed, then the posts themselves.
+ * The Social tab. Loads the ranked feed with full post payloads.
  * A post you just wrote stays at the top until the feed includes it.
- * Posts that stay half-visible for a couple seconds are marked viewed.
+ * Posts that are at least half-visible are marked viewed.
  */
 export function SocialFeedScreen() {
     const { listBottomInset } = useScreenOverlayInsets();
@@ -55,7 +52,7 @@ export function SocialFeedScreen() {
     const navigation = useNavigation();
     const { colors } = useTheme();
     const {
-        postIds,
+        posts,
         unseenCount,
         showingSeen,
         hasNextPage,
@@ -65,7 +62,6 @@ export function SocialFeedScreen() {
         feedLoading,
         feedErr,
     } = useFeed();
-    const { posts, postsLoading, postsErr } = usePosts(postIds);
     const { createPost } = useCreatePost();
     const { markPostsViewed } = useMarkPostsViewed();
     const { profile } = useProfile();
@@ -178,7 +174,6 @@ export function SocialFeedScreen() {
         setRefreshing(true);
         try {
             await refreshFeed();
-            await invalidateAPIData([{ path: "/social/posts/batch" }]);
         } finally {
             setRefreshing(false);
         }
@@ -221,12 +216,10 @@ export function SocialFeedScreen() {
         }
     }, [hasNextPage, isLoadingNextPage, loadNextPage]);
 
-    const loading =
-        feed.length === 0 &&
-        (feedLoading || (postIds.length > 0 && postsLoading));
+    const loading = feed.length === 0 && feedLoading;
     const emptyLabel = loading
         ? "Loading posts..."
-        : feedErr || postsErr
+        : feedErr
           ? "Couldn't load posts."
           : "No posts yet.";
 
@@ -279,7 +272,7 @@ export function SocialFeedScreen() {
                     }
                     onEndReached={onEndReached}
                     onEndReachedThreshold={1}
-                    showsVerticalScrollIndicator={false}
+                    showsVerticalScrollIndicator
                 />
             </ScreenScrollMarker>
 

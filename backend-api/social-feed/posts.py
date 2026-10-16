@@ -132,8 +132,8 @@ def mark_posts_loaded(user_id: str, post_ids: list[int]):
     with db_conn() as conn:
         conn.execute(
             """
-                INSERT INTO post_view_status (post_id, user_id, status, date)
-                SELECT post_id, %s, 'loaded', NULL
+                INSERT INTO post_view_status (post_id, user_id, status)
+                SELECT post_id, %s, 'loaded'
                 FROM unnest(%s) AS post_id
                 ON CONFLICT (post_id, user_id) DO NOTHING
             """,
@@ -149,8 +149,8 @@ def mark_posts_viewed(user_id: str, post_ids: list[int]):
     with db_conn() as conn:
         conn.execute(
             """
-                INSERT INTO post_view_status (post_id, user_id, status, date)
-                SELECT post_id, %s, 'viewed', now()
+                INSERT INTO post_view_status (post_id, user_id, status)
+                SELECT post_id, %s, 'viewed'
                 FROM unnest(%s) AS post_id
                 ON CONFLICT (post_id, user_id) DO UPDATE
                 SET status = 'viewed',
@@ -175,7 +175,10 @@ def _post_from_row(row: DictRow) -> dict:
 
 
 def get_posts(user_id: str, post_ids: list[int]) -> list[dict]:
-    """Display fields for the given posts, in request order. Missing ids are skipped."""
+    """Display fields for the given posts, in request order. Missing ids are skipped.
+
+    Used by `/feed` after ranking; not exposed as its own HTTP endpoint.
+    """
     if not post_ids:
         return []
 
@@ -401,6 +404,6 @@ def get_feed(
         scored_posts.append((score, post["post_id"]))
 
     scored_posts.sort(reverse=True)
-    page = scored_posts[:FEED_SIZE]
-    mark_posts_loaded(user_id, [post_id for _, post_id in page])
-    return page
+    page_ids = [post_id for _, post_id in scored_posts[:FEED_SIZE]]
+    mark_posts_loaded(user_id, page_ids)
+    return get_posts(user_id, page_ids)

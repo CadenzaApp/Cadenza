@@ -2,12 +2,7 @@ import { useCallback, useMemo } from "react";
 import useSWRInfinite from "swr/infinite";
 
 import { useAccount } from "../account";
-import {
-    fetchAPIData,
-    useAPIData,
-    useAPIMutation,
-    useAPIPostDataBatched,
-} from "../api-actions";
+import { fetchAPIData, useAPIData, useAPIMutation } from "../api-actions";
 import type {
     InterestScoreDelta,
     SocialPost,
@@ -16,6 +11,8 @@ import type {
 
 /** Matches social-feed `FEED_SIZE`. A shorter page means this mode is done. */
 const FEED_PAGE_SIZE = 10;
+
+const EMPTY_POSTS: SocialPost[] = [];
 
 /**
  * Shrinks the signed in user's interest scores so the social feed follows what
@@ -68,7 +65,7 @@ export function useEditInterestScores() {
 }
 
 type FeedResponse = {
-    feed: [number, number][];
+    feed: SocialPost[];
 };
 
 type FeedPageKey = {
@@ -80,8 +77,17 @@ type FeedPageKey = {
     pageIndex: number;
 };
 
-function feedPageIds(pages: FeedResponse[] | undefined): number[] {
-    return (pages ?? []).flatMap((page) => page.feed.map(([, id]) => id));
+function feedPagePosts(pages: FeedResponse[] | undefined): SocialPost[] {
+    const seen = new Set<number>();
+    const posts: SocialPost[] = [];
+    for (const page of pages ?? []) {
+        for (const post of page.feed) {
+            if (seen.has(post.post_id)) continue;
+            seen.add(post.post_id);
+            posts.push(post);
+        }
+    }
+    return posts;
 }
 
 function feedPageIsFull(page: FeedResponse | null | undefined): boolean {
@@ -97,7 +103,8 @@ function isLoadingNextFeedPage(
 }
 
 /**
- * Ranked post ids for the signed-in user, paged like the library lists.
+ * Ranked posts for the signed-in user, paged like the library lists. Each
+ * page already includes everything needed to render a card.
  *
  * First page uses `exclude=viewed` (skip only fully viewed posts). Later
  * pages use `exclude=loaded` (skip anything /feed already returned). The
@@ -153,15 +160,18 @@ export function useFeed() {
         feedSwrOptions,
     );
 
-    const freshIds = useMemo(() => feedPageIds(fresh.data), [fresh.data]);
-    const caughtUpIds = useMemo(
-        () => feedPageIds(caughtUp.data),
+    const freshPosts = useMemo(() => feedPagePosts(fresh.data), [fresh.data]);
+    const caughtUpPosts = useMemo(
+        () => feedPagePosts(caughtUp.data),
         [caughtUp.data],
     );
-    const postIds = useMemo(
-        () => [...freshIds, ...caughtUpIds],
-        [freshIds, caughtUpIds],
-    );
+    const posts = useMemo(() => {
+        const seen = new Set(freshPosts.map((post) => post.post_id));
+        return [
+            ...freshPosts,
+            ...caughtUpPosts.filter((post) => !seen.has(post.post_id)),
+        ];
+    }, [freshPosts, caughtUpPosts]);
 
     const freshLoadingNext = isLoadingNextFeedPage(
         fresh.size,
@@ -205,9 +215,9 @@ export function useFeed() {
     }, [caughtUp.mutate, caughtUp.setSize, fresh.mutate, fresh.setSize]);
 
     return {
-        postIds,
-        /** How many leading ids came from the fresh pages (for the separator). */
-        unseenCount: freshIds.length,
+        posts,
+        /** How many leading posts came from the fresh pages (for the separator). */
+        unseenCount: freshPosts.length,
         showingSeen: freshExhausted,
         hasNextPage,
         isLoadingNextPage,
@@ -254,7 +264,7 @@ type MarkPostsViewedPayload = {
 /**
  * Marks posts as `viewed` in `post_view_status` (upgrades `loaded`). Does not
  * refresh the feed cache: a mid-scroll refresh would yank rows out from under
- * the user. `/feed` itself writes `loaded` when it returns ids.
+ * the user. `/feed` itself writes `loaded` when it returns posts.
  */
 export function useMarkPostsViewed() {
     const x = useAPIMutation<MarkPostsViewedPayload, void>(
@@ -321,18 +331,6 @@ export function useUnlikePost() {
     };
 }
 
-const POSTS_BATCH_SIZE = 50;
-
-type PostsBatchBody = {
-    post_ids: number[];
-};
-
-type PostsBatchResponse = {
-    posts: SocialPost[];
-};
-
-const EMPTY_POSTS: SocialPost[] = [];
-
 type UserPostsResponse = {
     profile: SocialUserProfile;
     posts: SocialPost[];
@@ -358,55 +356,5 @@ export function useUserPosts(authorId?: string) {
         posts: x.data?.posts ?? EMPTY_POSTS,
         userPostsLoading: x.isLoading,
         userPostsErr: x.error,
-    };
-}
-
-/**
- * Display fields for many posts at once (content, likes, whether you liked
- * it, created_at, author username), in the order of `postIds`. Missing ids are
- * omitted. The list is split into batches the way other list reads are.
- *
- * ```ts
- * const { posts, postsLoading, postsErr } = usePosts(feedPostIds);
- * ```
- */
-export function usePosts(postIds: readonly number[]) {
-    const normalizedIds = useMemo(
-        () => [...new Set(postIds.filter((id) => Number.isFinite(id)))],
-        [postIds],
-    );
-    const x = useAPIPostDataBatched<
-        number,
-        PostsBatchBody,
-        PostsBatchResponse
-    >("/social/posts/batch", normalizedIds, {
-        batchSize: POSTS_BATCH_SIZE,
-        toBody: (post_ids) => ({ post_ids }),
-        merge: (responses) => ({
-            posts: responses.flatMap((response) => response.posts),
-        }),
-    });
-
-    const postsById = useMemo(() => {
-        const map = new Map<number, SocialPost>();
-        for (const post of x.data?.posts ?? EMPTY_POSTS) {
-            map.set(post.post_id, post);
-        }
-        return map;
-    }, [x.data]);
-
-    const posts = useMemo(
-        () =>
-            normalizedIds
-                .map((id) => postsById.get(id))
-                .filter((post): post is SocialPost => post != null),
-        [normalizedIds, postsById],
-    );
-
-    return {
-        posts,
-        postsById,
-        postsLoading: x.isLoading,
-        postsErr: x.error,
     };
 }
