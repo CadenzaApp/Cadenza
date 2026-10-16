@@ -1,201 +1,595 @@
-use std::{env, time::Duration};
+//! Calls the python model for embeddings and similarity, and runs the feed.
+//!
+//! The model never sees the database. This process loads the rows, sends the
+//! text the model needs, and writes the vectors it gets back.
 
-use dotenvy::dotenv;
-use reqwest::{Client, Method, Response};
-use serde_json::{Map, Value};
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
+use chrono::{DateTime, Utc};
+use reqwest::Client;
+use sea_orm::DatabaseConnection;
+use sea_orm::prelude::Uuid;
+use serde::{Deserialize, Serialize};
+
+use crate::db::social::{
+    self, FeedCandidate, FeedExclude, InterestDelta, PublicProfile, SocialPost, UpsertedInterest,
+};
 use crate::err::CadenzaError;
 
-const DEFAULT_SOCIAL_SERVICE_URL: &str = "http://localhost:3001";
-const SOCIAL_SERVICE_HTTP_TIMEOUT_SECS: u64 = 10;
+const DEFAULT_MODEL_URL: &str = "http://localhost:3001";
+const MODEL_HTTP_TIMEOUT: Duration = Duration::from_secs(60);
+/// Last accepted like or unlike per user and post. A click older than that is ignored.
+const LIKE_MEMORY: usize = 2000;
+/// Users whose interest vector is kept in memory. The least recently read entry is dropped.
+const USER_VECTOR_CACHE: usize = 2000;
 
-/// Forwards requests to the social feed service, stamping them with the caller's user id.
-///
-/// The service has no auth of its own and takes the user id as data: on a GET it reads
-/// `user_id` from the query string, on anything else from the JSON body. So the user id has
-/// to come from the verified claims here and never from what the client sent.
+/// HTTP client for the sentence-transformer process, plus the in-memory like clock
+/// and user-vector cache.
 #[derive(Clone)]
 pub struct SocialFeedService {
     base_url: String,
-    http_client: Client,
+    http: Client,
+    likes: Arc<Mutex<LikeMemory>>,
+    vectors: Arc<Mutex<UserVectorCache>>,
 }
 
 impl SocialFeedService {
-    /// Reads `SOCIAL_FEED_URL`, defaulting to `DEFAULT_SOCIAL_SERVICE_URL`. A trailing slash
-    /// is trimmed so path joining never doubles it.
+    /// Reads `SOCIAL_FEED_URL`, defaulting to `http://localhost:3001`.
     pub fn new() -> Self {
-        dotenv().ok();
-
-        let base_url =
-            env::var("SOCIAL_FEED_URL").unwrap_or_else(|_| DEFAULT_SOCIAL_SERVICE_URL.to_owned());
-
+        let base_url = std::env::var("SOCIAL_FEED_URL")
+            .unwrap_or_else(|_| DEFAULT_MODEL_URL.to_owned())
+            .trim_end_matches('/')
+            .to_owned();
         Self {
-            base_url: base_url.trim_end_matches('/').to_owned(),
-            http_client: Client::builder()
-                .timeout(Duration::from_secs(SOCIAL_SERVICE_HTTP_TIMEOUT_SECS))
+            base_url,
+            http: Client::builder()
+                .timeout(MODEL_HTTP_TIMEOUT)
                 .build()
                 .expect("failed to build http client for SocialFeedService"),
+            likes: Arc::new(Mutex::new(LikeMemory::default())),
+            vectors: Arc::new(Mutex::new(UserVectorCache::default())),
         }
     }
 
-    /// Sends `method path?query` to the service with `user_id` added, and hands back the
-    /// upstream response for the caller to relay.
-    ///
-    /// `body` is only read for methods other than GET, where it must be a JSON object or
-    /// absent. A GET carries the user id in the query string instead.
-    pub async fn forward(
+    /// Embeds `content`, stores the post, and returns its id.
+    pub async fn create_post(
         &self,
-        method: Method,
-        path: &str,
-        query: Option<&str>,
-        body: Option<Value>,
-        user_id: &str,
-    ) -> Result<Response, CadenzaError> {
-        let url = build_url(&self.base_url, path, query, &method, user_id);
+        db: &DatabaseConnection,
+        user_id: Uuid,
+        content: &str,
+    ) -> Result<i64, CadenzaError> {
+        let embedding = self.embed_post(content).await?;
+        let mut with_bday = Vec::with_capacity(embedding.len() + 1);
+        with_bday.push(social::days_since_posts_epoch(Utc::now()) as f64);
+        with_bday.extend_from_slice(&embedding);
+        social::insert_post(db, user_id, content, &embedding, &with_bday).await
+    }
 
-        let mut req = self.http_client.request(method.clone(), url);
-        if method != Method::GET {
-            req = req.json(&with_user_id(body, user_id)?);
+    /// Ranked posts for `user_id`. Marks the returned ids `loaded`.
+    pub async fn get_feed(
+        &self,
+        db: &DatabaseConnection,
+        user_id: Uuid,
+        exclude: FeedExclude,
+    ) -> Result<Vec<SocialPost>, CadenzaError> {
+        let now = Utc::now();
+        let cached = self
+            .vectors
+            .lock()
+            .expect("user vector cache")
+            .get(user_id, now);
+        let vector = if let Some(vector) = cached {
+            vector
+        } else {
+            let vector = social::user_vector(db, user_id).await?;
+            self.vectors.lock().expect("user vector cache").insert(
+                user_id,
+                vector.clone(),
+                Utc::now(),
+            );
+            vector
+        };
+
+        let (similar, hot) = tokio::try_join!(
+            social::similar_and_recent_posts(db, user_id, exclude, vector.as_deref()),
+            social::hot_posts(db, user_id, exclude),
+        )?;
+
+        let mut seen = HashSet::new();
+        let mut posts = Vec::new();
+        for post in similar.into_iter().chain(hot) {
+            if seen.insert(post.post_id) {
+                posts.push(post);
+            }
+        }
+        if posts.is_empty() {
+            return Ok(Vec::new());
         }
 
-        req.send()
-            .await
-            .map_err(|err| CadenzaError::SocialFeedErr(err.to_string()))
+        let similarities = match vector.as_deref() {
+            Some(vector) => self.similarities(vector, &posts).await?,
+            None => HashMap::new(),
+        };
+
+        let now = Utc::now();
+        let scores: HashMap<i64, f64> = posts
+            .iter()
+            .map(|post| {
+                (
+                    post.post_id,
+                    social::score_post(
+                        post.likes,
+                        social::age_days(post.created_at, now),
+                        similarities.get(&post.post_id).copied().unwrap_or(0.0),
+                    ),
+                )
+            })
+            .collect();
+        posts.sort_by(|a, b| {
+            let score = |post: &FeedCandidate| scores.get(&post.post_id).copied().unwrap_or(0.0);
+            score(b)
+                .partial_cmp(&score(a))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        let page_ids: Vec<i64> = posts
+            .iter()
+            .take(social::FEED_SIZE as usize)
+            .map(|post| post.post_id)
+            .collect();
+
+        let (_, page) = tokio::try_join!(
+            social::mark_posts_loaded(db, user_id, &page_ids),
+            social::get_posts(db, user_id, &page_ids),
+        )?;
+        Ok(page)
     }
-}
 
-/// `base/path`, with the original query string kept and `user_id` appended for a GET.
-fn build_url(
-    base_url: &str,
-    path: &str,
-    query: Option<&str>,
-    method: &Method,
-    user_id: &str,
-) -> String {
-    let mut url = format!("{base_url}/{}", path.trim_start_matches('/'));
-
-    if let Some(query) = query.filter(|query| !query.is_empty()) {
-        url.push('?');
-        url.push_str(query);
+    /// Profile header plus that author's posts, newest first.
+    pub async fn user_posts(
+        &self,
+        db: &DatabaseConnection,
+        viewer_id: Uuid,
+        author_id: Uuid,
+    ) -> Result<(PublicProfile, Vec<SocialPost>), CadenzaError> {
+        let (posts, profile) = tokio::try_join!(
+            social::get_author_posts(db, viewer_id, author_id),
+            social::find_public_profile(db, author_id),
+        )?;
+        let profile = profile.unwrap_or_else(|| PublicProfile {
+            user_id: author_id,
+            username: posts
+                .first()
+                .map(|post| post.author_username.clone())
+                .unwrap_or_else(|| "unknown".to_owned()),
+            bio: String::new(),
+        });
+        Ok((profile, posts))
     }
 
-    if *method == Method::GET {
-        url.push(if url.contains('?') { '&' } else { '?' });
-        url.push_str("user_id=");
-        url.push_str(user_id);
+    /// Moves each named interest by its delta, embedding any name that has no
+    /// vector yet.
+    pub async fn update_interests(
+        &self,
+        db: &DatabaseConnection,
+        user_id: Uuid,
+        deltas: &[InterestDelta],
+    ) -> Result<(), CadenzaError> {
+        if deltas.is_empty() {
+            return Ok(());
+        }
+        let rows = social::upsert_interests(db, deltas).await?;
+        let missing: Vec<UpsertedInterest> = rows
+            .iter()
+            .filter(|row| !row.embedding_exists)
+            .cloned()
+            .collect();
+        if !missing.is_empty() {
+            let embeddings = self.embed_interests(&missing).await?;
+            let ids: Vec<i64> = missing.iter().map(|row| row.interest_id).collect();
+            social::set_interest_embeddings(db, &ids, &embeddings).await?;
+        }
+
+        let id_by_key: HashMap<(String, String), i64> = rows
+            .into_iter()
+            .map(|row| ((row.name, row.interest_type), row.interest_id))
+            .collect();
+        let mut interest_ids = Vec::with_capacity(deltas.len());
+        let mut amounts = Vec::with_capacity(deltas.len());
+        for delta in deltas {
+            let key = (delta.name.clone(), delta.interest_type.clone());
+            let Some(id) = id_by_key.get(&key) else {
+                return Err(CadenzaError::DatabaseError(
+                    "interest upsert did not return a row".into(),
+                ));
+            };
+            interest_ids.push(*id);
+            amounts.push(delta.delta);
+        }
+        social::add_interest_scores(db, user_id, &interest_ids, &amounts).await
     }
 
-    url
-}
+    pub async fn decay_interests(
+        &self,
+        db: &DatabaseConnection,
+        user_id: Uuid,
+    ) -> Result<(), CadenzaError> {
+        social::decay_interests(db, user_id).await
+    }
 
-/// The request body with `user_id` set on it, from an empty body if there was none.
-///
-/// The service reads the id off the top level of the body, so anything that is not a JSON
-/// object has nowhere to put it and is rejected rather than silently replaced.
-fn with_user_id(body: Option<Value>, user_id: &str) -> Result<Value, CadenzaError> {
-    let mut object = match body {
-        None | Some(Value::Null) => Map::new(),
-        Some(Value::Object(object)) => object,
-        Some(_) => {
-            return Err(CadenzaError::InvalidRequestBody(
-                "request body must be a json object".to_owned(),
+    /// Likes `post_id` unless `timestamp` is older than the last click this
+    /// process accepted for the pair.
+    pub async fn like_post(
+        &self,
+        db: &DatabaseConnection,
+        user_id: Uuid,
+        post_id: i64,
+        timestamp: i64,
+    ) -> Result<(), CadenzaError> {
+        if !self
+            .likes
+            .lock()
+            .expect("like memory")
+            .accept(user_id, post_id, timestamp)
+        {
+            return Ok(());
+        }
+        if let Err(err) = social::like_post(db, user_id, post_id).await {
+            self.likes
+                .lock()
+                .expect("like memory")
+                .forget(user_id, post_id, timestamp);
+            return Err(err);
+        }
+        Ok(())
+    }
+
+    /// Removes a like. Same timestamp rule as [`Self::like_post`].
+    pub async fn unlike_post(
+        &self,
+        db: &DatabaseConnection,
+        user_id: Uuid,
+        post_id: i64,
+        timestamp: i64,
+    ) -> Result<(), CadenzaError> {
+        if !self
+            .likes
+            .lock()
+            .expect("like memory")
+            .accept(user_id, post_id, timestamp)
+        {
+            return Ok(());
+        }
+        if let Err(err) = social::unlike_post(db, user_id, post_id).await {
+            self.likes
+                .lock()
+                .expect("like memory")
+                .forget(user_id, post_id, timestamp);
+            return Err(err);
+        }
+        Ok(())
+    }
+
+    pub async fn mark_posts_viewed(
+        &self,
+        db: &DatabaseConnection,
+        user_id: Uuid,
+        post_ids: &[i64],
+    ) -> Result<(), CadenzaError> {
+        social::mark_posts_viewed(db, user_id, post_ids).await
+    }
+
+    async fn embed_post(&self, content: &str) -> Result<Vec<f64>, CadenzaError> {
+        let response: EmbedResponse = self
+            .post_json(
+                "/embedding",
+                &EmbedBody {
+                    content: Some(content.to_owned()),
+                    interests: Vec::new(),
+                },
+            )
+            .await?;
+        response
+            .embedding
+            .ok_or_else(|| CadenzaError::SocialFeedErr("embedding response had no vector".into()))
+    }
+
+    async fn embed_interests(
+        &self,
+        interests: &[UpsertedInterest],
+    ) -> Result<Vec<Vec<f64>>, CadenzaError> {
+        let response: EmbedResponse = self
+            .post_json(
+                "/embedding",
+                &EmbedBody {
+                    content: None,
+                    interests: interests
+                        .iter()
+                        .map(|interest| InterestText {
+                            name: interest.name.clone(),
+                            itype: interest.interest_type.clone(),
+                        })
+                        .collect(),
+                },
+            )
+            .await?;
+        if response.interest_embeddings.len() != interests.len() {
+            return Err(CadenzaError::SocialFeedErr(
+                "interest embedding count did not match".into(),
             ));
         }
-    };
+        Ok(response.interest_embeddings)
+    }
 
-    object.insert("user_id".to_owned(), Value::String(user_id.to_owned()));
+    async fn similarities(
+        &self,
+        user_vector: &[f64],
+        posts: &[FeedCandidate],
+    ) -> Result<HashMap<i64, f64>, CadenzaError> {
+        let response: SimilarityResponse = self
+            .post_json(
+                "/posts/similarities",
+                &SimilarityBody {
+                    user_vector: user_vector.to_vec(),
+                    posts: posts
+                        .iter()
+                        .map(|post| SimilarityPost {
+                            post_id: post.post_id,
+                            embedding: post.embedding.clone(),
+                        })
+                        .collect(),
+                },
+            )
+            .await?;
+        Ok(response
+            .similarities
+            .into_iter()
+            .map(|row| (row.post_id, row.similarity))
+            .collect())
+    }
 
-    Ok(Value::Object(object))
+    async fn post_json<B, T>(&self, path: &str, body: &B) -> Result<T, CadenzaError>
+    where
+        B: Serialize,
+        T: for<'de> Deserialize<'de>,
+    {
+        let url = format!("{}{}", self.base_url, path);
+        let response = self
+            .http
+            .post(url)
+            .json(body)
+            .send()
+            .await
+            .map_err(|err| CadenzaError::SocialFeedErr(err.to_string()))?;
+        let status = response.status();
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|err| CadenzaError::SocialFeedErr(err.to_string()))?;
+        if !status.is_success() {
+            return Err(CadenzaError::SocialFeedErr(format!(
+                "{status}: {}",
+                String::from_utf8_lossy(&bytes)
+            )));
+        }
+        serde_json::from_slice(&bytes).map_err(|err| CadenzaError::SocialFeedErr(err.to_string()))
+    }
+}
+
+/// A stored vector is reused until it is over 5 hours old.
+fn user_vector_is_fresh(calculated_at: DateTime<Utc>, now: DateTime<Utc>) -> bool {
+    now.signed_duration_since(calculated_at) <= chrono::Duration::hours(5)
+}
+
+#[derive(Default)]
+struct UserVectorCache {
+    /// `user_id -> (vector, calculated_at, last_touch)`.
+    entries: HashMap<Uuid, (Option<Vec<f64>>, DateTime<Utc>, u64)>,
+    tick: u64,
+}
+
+impl UserVectorCache {
+    /// The vector from the last calculation, when that calculation is still fresh.
+    /// `Some(None)` is a fresh calculation that produced no vector.
+    fn get(&mut self, user_id: Uuid, now: DateTime<Utc>) -> Option<Option<Vec<f64>>> {
+        let fresh = self
+            .entries
+            .get(&user_id)
+            .is_some_and(|(_, calculated_at, _)| user_vector_is_fresh(*calculated_at, now));
+        if !fresh {
+            return None;
+        }
+        self.touch(user_id);
+        self.entries
+            .get(&user_id)
+            .map(|(vector, _, _)| vector.clone())
+    }
+
+    fn insert(&mut self, user_id: Uuid, vector: Option<Vec<f64>>, calculated_at: DateTime<Utc>) {
+        self.tick += 1;
+        let tick = self.tick;
+        self.entries.insert(user_id, (vector, calculated_at, tick));
+        self.evict();
+    }
+
+    fn touch(&mut self, user_id: Uuid) {
+        self.tick += 1;
+        let tick = self.tick;
+        if let Some(entry) = self.entries.get_mut(&user_id) {
+            entry.2 = tick;
+        }
+    }
+
+    fn evict(&mut self) {
+        if self.entries.len() <= USER_VECTOR_CACHE {
+            return;
+        }
+        if let Some(oldest) = self
+            .entries
+            .iter()
+            .min_by_key(|(_, (_, _, touch))| *touch)
+            .map(|(user_id, _)| *user_id)
+        {
+            self.entries.remove(&oldest);
+        }
+    }
+}
+
+#[derive(Default)]
+struct LikeMemory {
+    /// `(user, post) -> (timestamp_ms, last_touch)`.
+    entries: HashMap<(Uuid, i64), (i64, u64)>,
+    tick: u64,
+}
+
+impl LikeMemory {
+    /// Returns false when `timestamp` is older than the one already stored.
+    fn accept(&mut self, user_id: Uuid, post_id: i64, timestamp: i64) -> bool {
+        let key = (user_id, post_id);
+        if let Some((previous, _)) = self.entries.get(&key)
+            && timestamp < *previous
+        {
+            return false;
+        }
+        self.tick += 1;
+        let tick = self.tick;
+        self.entries.insert(key, (timestamp, tick));
+        if self.entries.len() > LIKE_MEMORY {
+            if let Some(oldest) = self
+                .entries
+                .iter()
+                .min_by_key(|(_, (_, touch))| *touch)
+                .map(|(key, _)| *key)
+            {
+                self.entries.remove(&oldest);
+            }
+        }
+        true
+    }
+
+    fn forget(&mut self, user_id: Uuid, post_id: i64, timestamp: i64) {
+        let key = (user_id, post_id);
+        if self
+            .entries
+            .get(&key)
+            .is_some_and(|(stored, _)| *stored == timestamp)
+        {
+            self.entries.remove(&key);
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct EmbedBody {
+    content: Option<String>,
+    interests: Vec<InterestText>,
+}
+
+#[derive(Serialize)]
+struct InterestText {
+    name: String,
+    itype: String,
+}
+
+#[derive(Deserialize)]
+struct EmbedResponse {
+    embedding: Option<Vec<f64>>,
+    #[serde(default)]
+    interest_embeddings: Vec<Vec<f64>>,
+}
+
+#[derive(Serialize)]
+struct SimilarityBody {
+    user_vector: Vec<f64>,
+    posts: Vec<SimilarityPost>,
+}
+
+#[derive(Serialize)]
+struct SimilarityPost {
+    post_id: i64,
+    embedding: Vec<f64>,
+}
+
+#[derive(Deserialize)]
+struct SimilarityResponse {
+    similarities: Vec<PostSimilarity>,
+}
+
+#[derive(Deserialize)]
+struct PostSimilarity {
+    post_id: i64,
+    similarity: f64,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
-
-    const USER: &str = "11111111-1111-1111-1111-111111111111";
 
     #[test]
-    fn get_url_carries_the_user_id_in_the_query_string() {
-        assert_eq!(
-            build_url("http://host:3001", "feed", None, &Method::GET, USER),
-            format!("http://host:3001/feed?user_id={USER}")
-        );
+    fn an_older_click_is_ignored_and_a_newer_one_replaces_it() {
+        let mut memory = LikeMemory::default();
+        let user = Uuid::nil();
+        assert!(memory.accept(user, 1, 20));
+        assert!(!memory.accept(user, 1, 10));
+        assert!(memory.accept(user, 1, 30));
     }
 
     #[test]
-    fn get_url_keeps_the_original_query_and_appends_the_user_id() {
+    fn a_vector_is_reused_until_it_is_over_five_hours_old() {
+        let mut cache = UserVectorCache::default();
+        let user = Uuid::nil();
+        let now = Utc::now();
+        cache.insert(user, Some(vec![1.0, 0.0]), now);
+
         assert_eq!(
-            build_url(
-                "http://host:3001",
-                "feed",
-                Some("limit=5"),
-                &Method::GET,
-                USER
+            cache.get(user, now + chrono::Duration::hours(5)),
+            Some(Some(vec![1.0, 0.0]))
+        );
+        assert_eq!(
+            cache.get(
+                user,
+                now + chrono::Duration::hours(5) + chrono::Duration::seconds(1)
             ),
-            format!("http://host:3001/feed?limit=5&user_id={USER}")
+            None
         );
     }
 
     #[test]
-    fn non_get_url_leaves_the_user_id_out_of_the_query_string() {
-        assert_eq!(
-            build_url(
-                "http://host:3001",
-                "interests/decay",
-                None,
-                &Method::PATCH,
-                USER
-            ),
-            "http://host:3001/interests/decay".to_string()
-        );
+    fn a_user_with_no_vector_stays_cached() {
+        let mut cache = UserVectorCache::default();
+        let user = Uuid::nil();
+        let now = Utc::now();
+        cache.insert(user, None, now);
+        assert_eq!(cache.get(user, now), Some(None));
     }
 
     #[test]
-    fn url_joining_never_doubles_the_separating_slash() {
-        assert_eq!(
-            build_url("http://host:3001", "/feed", None, &Method::PATCH, USER),
-            "http://host:3001/feed".to_string()
+    fn the_least_recently_read_vector_is_dropped() {
+        let mut cache = UserVectorCache::default();
+        let now = Utc::now();
+        for i in 0..USER_VECTOR_CACHE {
+            cache.insert(Uuid::from_u128(i as u128), Some(vec![1.0]), now);
+        }
+        let oldest = Uuid::from_u128(0);
+        assert!(cache.get(oldest, now).is_some());
+        cache.insert(
+            Uuid::from_u128(USER_VECTOR_CACHE as u128),
+            Some(vec![2.0]),
+            now,
         );
+        assert!(cache.get(Uuid::from_u128(1), now).is_none());
+        assert!(cache.get(oldest, now).is_some());
     }
 
     #[test]
-    fn empty_query_doesnt_leave_a_bare_question_mark() {
-        assert_eq!(
-            build_url("http://host:3001", "feed", Some(""), &Method::PATCH, USER),
-            "http://host:3001/feed".to_string()
-        );
-    }
-
-    #[test]
-    fn missing_body_becomes_an_object_holding_only_the_user_id() {
-        assert_eq!(
-            with_user_id(None, USER).unwrap(),
-            json!({ "user_id": USER })
-        );
-    }
-
-    #[test]
-    fn body_keeps_its_own_fields_alongside_the_user_id() {
-        assert_eq!(
-            with_user_id(Some(json!({ "song_id": "123" })), USER).unwrap(),
-            json!({ "song_id": "123", "user_id": USER })
-        );
-    }
-
-    #[test]
-    fn body_cannot_pass_its_own_user_id() {
-        assert_eq!(
-            with_user_id(Some(json!({ "user_id": "somebody-else" })), USER).unwrap(),
-            json!({ "user_id": USER })
-        );
-    }
-
-    #[test]
-    fn non_object_body_is_rejected() {
-        assert!(matches!(
-            with_user_id(Some(json!([1, 2, 3])), USER),
-            Err(CadenzaError::InvalidRequestBody(_))
-        ));
+    fn forget_drops_only_the_timestamp_it_stored() {
+        let mut memory = LikeMemory::default();
+        let user = Uuid::nil();
+        assert!(memory.accept(user, 1, 20));
+        memory.forget(user, 1, 10);
+        assert!(memory.entries.contains_key(&(user, 1)));
+        memory.forget(user, 1, 20);
+        assert!(memory.entries.is_empty());
     }
 }

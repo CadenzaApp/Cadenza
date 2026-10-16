@@ -40,10 +40,14 @@ const VIEWABILITY_CONFIG = {
     itemVisiblePercentThreshold: 50,
 };
 
+/** How often pending view marks are flushed to the API. */
+const MARK_VIEWED_FLUSH_MS = 3000;
+
 /**
  * The Social tab. Loads the ranked feed with full post payloads.
  * A post you just wrote stays at the top until the feed includes it.
- * Posts that are at least half-visible are marked viewed.
+ * Posts that are at least half-visible are queued and marked viewed in
+ * batches every few seconds.
  */
 export function SocialFeedScreen() {
     const { listBottomInset } = useScreenOverlayInsets();
@@ -66,8 +70,26 @@ export function SocialFeedScreen() {
     const { markPostsViewed } = useMarkPostsViewed();
     const { profile } = useProfile();
     const markedViewedIds = useRef(new Set<number>());
+    const pendingViewedIds = useRef(new Set<number>());
     const markPostsViewedRef = useRef(markPostsViewed);
     markPostsViewedRef.current = markPostsViewed;
+
+    const flushPendingViewed = useCallback(() => {
+        if (pendingViewedIds.current.size === 0) return;
+        const ids = [...pendingViewedIds.current];
+        pendingViewedIds.current.clear();
+        void markPostsViewedRef.current(ids).catch(() => {
+            for (const id of ids) markedViewedIds.current.delete(id);
+        });
+    }, []);
+
+    useEffect(() => {
+        const timer = setInterval(flushPendingViewed, MARK_VIEWED_FLUSH_MS);
+        return () => {
+            clearInterval(timer);
+            flushPendingViewed();
+        };
+    }, [flushPendingViewed]);
 
     const [created, setCreated] = useState<SocialPost[]>([]);
     const [refreshing, setRefreshing] = useState(false);
@@ -181,19 +203,14 @@ export function SocialFeedScreen() {
 
     const onViewableItemsChanged = useRef(
         ({ viewableItems }: { viewableItems: ViewToken[] }) => {
-            const ids: number[] = [];
             for (const token of viewableItems) {
                 const row = token.item as FeedRow | undefined;
                 if (!token.isViewable || row?.kind !== "post") continue;
                 const id = row.post.post_id;
                 if (id <= 0 || markedViewedIds.current.has(id)) continue;
                 markedViewedIds.current.add(id);
-                ids.push(id);
+                pendingViewedIds.current.add(id);
             }
-            if (ids.length === 0) return;
-            void markPostsViewedRef.current(ids).catch(() => {
-                for (const id of ids) markedViewedIds.current.delete(id);
-            });
         },
     ).current;
 

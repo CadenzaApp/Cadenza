@@ -191,8 +191,7 @@ One file per backend router, and every backend endpoint has at least one hook.
 |                       | `POST /social/posts/views`        | `social.ts` -> `useMarkPostsViewed()`           |
 |                       | `GET /social/posts/user/:id`      | `social.ts` -> `useUserPosts(authorId)`         |
 
-`routes/social.rs` forwards any `/social/*` path to the social feed service and adds the
-user id, so it has no fixed endpoint list. Only the paths the app calls get a hook.
+`routes/social.rs` implements the paths above. The user id comes from the JWT.
 
 `GET /tags` has two hooks because the handler returns a tagged union: without `tag_id` it
 responds with `All { tags, metadata }`, with one it responds with `One { tag, song_ids }`.

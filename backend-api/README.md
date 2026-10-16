@@ -17,7 +17,7 @@ nothing that comes back is persisted.
 | `src/err.rs` | `CadenzaError` and its status code / JSON body mapping. |
 | `src/routes/` | HTTP handlers. See [src/routes/README.md](src/routes/README.md). |
 | `src/db/` | Query layer and generated entities. See [src/db/README.md](src/db/README.md). |
-| `src/services/` | Tag generation, normalization, Apple Music song metadata, default tag generation, the social feed proxy, and the listening analytics definitions. See [src/services/README.md](src/services/README.md). |
+| `src/services/` | Tag generation, normalization, Apple Music song metadata, default tag generation, the social feed model client, and the listening analytics definitions. See [src/services/README.md](src/services/README.md). |
 | `src/test_utils.rs` | Test helpers. Currently just `string_of_length`. |
 | `sql/` | The DDL for tables added by hand, so a fresh database can be stood up. Not a migration runner; see Schema changes. |
 | `certs/readme.md` | Leftover self-signed cert steps. No longer needed, the server is plain HTTP. |
@@ -47,8 +47,9 @@ Seven routers get nested, plus a health route:
 /test       returns "server is reachable"
 ```
 
-`/social` is a proxy, not a resource. It forwards whatever path follows to the social feed
-service and adds the caller's user id. See [social-feed/README.md](social-feed/README.md).
+`/social` is the feed, posts, likes, and interests. It calls the python service
+only when it needs a sentence-transformer vector or a similarity score. See
+[ml-service/README.md](ml-service/README.md).
 
 Auth is per handler, not middleware. A handler that needs a user adds
 `Claims { claims, .. }: Claims<SupabaseClaims>` to its arguments, and `axum-jwt-auth` rejects
@@ -90,7 +91,7 @@ that shape.
 | `METADATA_CRAWL_ALBUM_BATCH_SIZE` | no | Albums one pass crawls, in one Apple request. Defaults to 20, clamped to 1..=100, Apple's cap on album ids per request. |
 | `METADATA_CRAWL_LIBRARY_BATCH_SIZE` | no | Library songs without metadata the library walk stores each interval, newest additions first. Defaults to 300, capped at 1500. `0` turns the library walk off and leaves only the album queue. |
 | `METADATA_CRAWL_INTERVAL_SECS` | no | Seconds between passes when nothing wakes the crawl. Defaults to 60. A queued album does not wait for it: opening a song wakes the crawl. Zero and unparseable values fall back to the default. A pass Apple rate limited waits a fixed 300 seconds instead. |
-| `SOCIAL_FEED_URL` | no | Base url of the social feed service that `/social/*` forwards to. Defaults to `http://localhost:3001`. A trailing slash is trimmed. The service has no auth, so this must stay on a private address. |
+| `SOCIAL_FEED_URL` | no | Base url of the python embedding service (`POST /embedding`, `POST /posts/similarities`). Defaults to `http://localhost:3001`. A trailing slash is trimmed. The service has no auth, so this must stay on a private address. |
 
 ### Database connections
 

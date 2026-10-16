@@ -9,7 +9,7 @@ import type {
     SocialUserProfile,
 } from "@/lib/types";
 
-/** Matches social-feed `FEED_SIZE`. A shorter page means this mode is done. */
+/** Matches the backend feed page size. A shorter page means this mode is done. */
 const FEED_PAGE_SIZE = 10;
 
 const EMPTY_POSTS: SocialPost[] = [];

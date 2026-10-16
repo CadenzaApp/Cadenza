@@ -16,13 +16,14 @@ call into `src/db/` or `src/services/`, and shape the response.
 | `profile.rs`        | Reading, creating, and editing the signed-in user's public profile (username and bio). Mounted at `/profile`.                                                                                           |
 | `events.rs`         | Ingests a batch of listening events, and counts the `play_counted` ones towards the activity tags in the same transaction. Mounted at `/events`.                                                        |
 | `analytics.rs`      | Summary counts, time bucketed trends, the metric list, and the rankings (song, artist, album, playlist, query). Mounted at `/analytics`.                                                                                |
-| `social.rs`         | One catch-all handler that proxies `/social/*` to the social feed service with the caller's user id attached. No endpoint list of its own. Mounted at `/social`.                                        |
+| `social.rs`         | The social feed, posts, likes, views, and interest scores. Calls the python model only for embeddings and similarity. Mounted at `/social`.                                                              |
 | `json/mod.rs`       | `vec_into`, a small `Vec<A> -> Vec<B>` helper. Declares `analytics`, `comment`, `metadata_tag`, `profile`, `query`, and `tag`.                                                                                           |
 | `json/analytics.rs` | The `/events` request and response shapes, and the `/analytics` response shapes.                                                                                                                        |
 | `json/tag.rs`       | `TagType`, `Tag`, and `AppliedTag`, the wire shapes of a tag. `From<tags::Model>` drops `user_id` and keeps `is_activity`.                                                                              |
 | `json/metadata_tag.rs`| `MetadataTag` and `metadata_tags_of`, a song's stored metadata as read-only `{key, type, value}` tags.                                                                                                  |
 | `json/comment.rs`   | `Comment` and `CommentThread`, the wire shapes of a comment and of a top level comment with its replies. Both take the reading user's id, to turn `user_id` into `mine`, and each comment's vote tally. |
 | `json/profile.rs`   | `Profile`, the wire shape of a public profile (`uid`, `username`, `bio`).                                                                                                                               |
+| `json/social.rs`    | `SocialPost`, `SocialUserProfile`, and the feed, create-post, and user-posts response envelopes.                                                                                                        |
 | `json/query.rs`     | `Query`, `QueryNode`, `Filter`, `FilterOp`, `MetadataKey`: the input schema of a tag query. Both client builders produce it.                                                                            |
 
 ## Endpoints
@@ -69,6 +70,14 @@ Every route below requires `Authorization: Bearer <supabase jwt>`.
 | GET    | `/profile`                   | none                                                                                            | `{uid, username, bio}`, the signed-in user's profile. 404 if there is no row                                                                                                                                                                                                                                                                                                                                                                                          |
 | POST   | `/profile`                   | `{username?, bio?}` or empty                                                                    | the new `{uid, username, bio}`. Username defaults to the email local part. 409 `ProfileAlreadyExists` or `UsernameAlreadyTaken`                                                                                                                                                                                                                                                                                                                                      |
 | PATCH  | `/profile`                   | `{username?, bio?}`                                                                             | the updated `{uid, username, bio}`. At least one field required. 404 if the user has no profile; 409 `UsernameAlreadyTaken`                                                                                                                                                                                                                                                                                                                                          |
+| GET    | `/social/feed`               | `?exclude=none\|loaded\|viewed` (default `none`)                                                | `{feed: [SocialPost]}`, at most 10, ranked. Marks returned ids `loaded`. `SocialPost` is `{post_id, content, likes, liked, created_at, author: {user_id, username}}`                                                                                                                                                                                                                                                                                                |
+| PATCH  | `/social/interests/update`   | `{delta_scores: [{name, itype, delta}]}`                                                        | `null`. `itype` is `genre` or `artist`. A new name is embedded on first use                                                                                                                                                                                                                                                                                                                                                                                         |
+| PATCH  | `/social/interests/decay`    | none                                                                                            | `null`. No-op when the user decayed in the last 6 hours or their top score is under 5                                                                                                                                                                                                                                                                                                                                                                               |
+| POST   | `/social/posts`              | `{content}`                                                                                     | `{post_id}`. `content` is at most 500 characters                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| POST   | `/social/posts/views`        | `{post_ids: [n]}`                                                                               | `null`. Sets those posts to `viewed`                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| GET    | `/social/posts/user/:id`     | path author id                                                                                  | `{profile: {user_id, username, bio}, posts: [SocialPost]}`, newest first. A missing profile uses username `"unknown"` and an empty bio                                                                                                                                                                                                                                                                                                                              |
+| POST   | `/social/posts/:id/likes`    | `{timestamp}`                                                                                   | `null`. `timestamp` is the click time in ms. An older click for the same user and post is ignored                                                                                                                                                                                                                                                                                                                                                                   |
+| DELETE | `/social/posts/:id/likes`    | `{timestamp}`                                                                                   | `null`. Same timestamp rule as like                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | GET    | `/test`                      | none                                                                                            | `server is reachable`. Defined inline in `main.rs`, not here                                                                                                                                                                                                                                                                                                                                                                                                          |
 
 `GET /tags` returns a serde-tagged enum, so the two shapes come back wrapped in `"One"` or
@@ -89,13 +98,10 @@ A `value` that does not fit the tag's type (not a number, not RFC 3339, not a
 any non-blank value on a `basic` tag) is rejected with `CadenzaError::InvalidTagValue` (422). See
 [../services/README.md](../services/README.md) for the exact per-type rules.
 
-`/social/*` is the one prefix with no endpoint table here. The handler takes any method and
-any path and forwards it to the social feed service, so that service owns its own routes. It
-adds the user id from the JWT (query string on a GET, JSON body otherwise) and relays the
-status, content type, and body back unchanged. A request body that is not a JSON object is
-rejected with `InvalidRequestBody` (422), and a service that cannot be reached gives
-`SocialFeedErr` (502). The paths the app actually calls are listed in
-[../../social-feed/README.md](../../social-feed/README.md) and hooked in
+`/social` reads and writes posts, likes, view status, and interest scores in postgres.
+The user id always comes from the JWT. A call the python model cannot answer is
+`SocialFeedErr` (502). What that process accepts is in
+[../../ml-service/README.md](../../ml-service/README.md). The app hooks are in
 `client-app/src/lib/routes/social.ts`.
 
 A `Comment` is `{id, content, created_at, mine, votes, my_vote}`, and a `CommentThread` is a top
@@ -278,7 +284,7 @@ api as JSON should have a type here rather than serializing an entity model dire
   `crate::services::default_tags` for the default tag reads.
 - `crate::services::song_metadata::SongMetadataService` for the titles those reads generate
   default tags from.
-- `crate::services::social_feed::SocialFeedService` for everything under `/social`.
+- `crate::db::social` and `crate::services::social_feed::SocialFeedService` for `/social`.
 - `crate::err::CadenzaError` for every error path.
 - Client side: `client-app/src/lib/routes/*.ts` wraps every one of these in an SWR hook,
   including `client-app/src/lib/routes/comments.ts` for the `/comments` routes behind the
@@ -291,8 +297,11 @@ api as JSON should have a type here rather than serializing an entity model dire
 - `POST /queries/results` ignores an unknown field, so a client still sending `song_ids` gets no
   error, just results over whatever `PATCH /songs` last put in `user_songs`. A user who has never
   synced their library matches nothing.
-- `social.rs` does not read the proxied response, so nothing here validates what the social feed
-  service sends. A bad shape reaches the client as-is.
+- A like or unlike older than the last one this process accepted for that user and post is
+  ignored. The clock is in memory (the last 2000 pairs), so a restart forgets it.
+- The feed reuses a user's interest vector for 5 hours. The cache holds the last 2000 users
+  and lives in this process, so a restart forgets it. An interest update is not reflected in
+  the feed until that user's entry is older than 5 hours.
 - `tags.rs::get_songs_with_user_tag_handler` exists but is not routed anywhere. Dead code. The
   same data comes back from `GET /tags?tag_id=N`.
 - `GET /tags/suggest` uses `requested_tag_count` as a **required** query param, not optional, so

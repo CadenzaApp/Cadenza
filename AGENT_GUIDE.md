@@ -61,9 +61,9 @@ backend-api/            rust api
   src/err.rs            CadenzaError, every handler returns Result<_, CadenzaError>
   src/routes/           http handlers, one module per resource
   src/db/               query layer, src/db/entity/ is generated
-  src/services/         tag generation, tag normalization, social feed proxy, analytics defs
+  src/services/         tag generation, tag normalization, social feed model client, analytics defs
   sql/                  DDL for tables applied by hand, so a fresh db can be stood up
-  social-feed/          python recommendation service, run separately from the api
+  ml-service/           python sentence-transformer service, run separately from the api
 client-app/             expo app
   src/app/              expo-router routes (tabs, auth, splash, tag detail)
   src/lib/              data layer: swr wrappers, endpoint hooks, providers
@@ -88,7 +88,7 @@ directories with only a few straightforward files do not need documentation.
 | [backend-api/src/routes/README.md](backend-api/src/routes/README.md)                                               | Every HTTP endpoint and its request/response shape              |
 | [backend-api/src/db/README.md](backend-api/src/db/README.md)                                                       | Query layer, the tag and comment schema, the query compiler     |
 | [backend-api/src/services/README.md](backend-api/src/services/README.md)                                           | LLM tag generation, the `TagGenerator` trait, tag normalization |
-| [backend-api/social-feed/README.md](backend-api/social-feed/README.md)                                             | The python social feed service, its endpoints and ranking        |
+| [backend-api/ml-service/README.md](backend-api/ml-service/README.md)                                               | The python embedding service: post vectors and feed similarity   |
 | [client-app/README.md](client-app/README.md)                                                                       | Client setup, env vars, path aliases, scripts                   |
 | [client-app/src/app/README.md](client-app/src/app/README.md)                                                       | expo-router layout, provider nesting, the five tabs             |
 | [client-app/src/lib/README.md](client-app/src/lib/README.md)                                                       | SWR wrappers, endpoint hooks, the four providers                |

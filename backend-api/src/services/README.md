@@ -5,7 +5,7 @@ tags with an LLM, normalizing tag names, validating/canonicalizing tag values, r
 song metadata from Apple Music, the one step that puts those together (generating a song's
 default tags the first time anything asks for them), keeping a copy of that metadata for queries
 and metadata tags
-and crawling albums to fill it, the proxy to the social feed service, and the definitions the
+and crawling albums to fill it, the client for the social feed embedding service, and the definitions the
 listening analytics are computed from.
 
 ## Files
@@ -24,7 +24,7 @@ listening analytics are computed from.
 | `song_metadata.rs` | `SongMetadataService`: song ids to Apple Music catalog metadata, and album ids to every song on them, developer token only. Unit tested, plus ignored integration tests. |
 | `metadata_tags.rs` | Keeps the copy of song metadata for queries and metadata tags in `metadata_song_tags_applied` filled: stores listed and opened songs, queues opened songs' albums, and the background crawl that walks libraries and crawls queued albums. Unit tested. |
 | `default_tags.rs` | `ensure_default_tags_generated`: generates a song's default tags the first time they are read, claiming the song in `default_tags_generation` first so it happens once. Also `backfill_default_tags` and the background job that runs it, which does the same for songs nothing has read yet. |
-| `social_feed.rs` | `SocialFeedService::forward`: sends a request to the social feed service with the caller's user id attached, and hands the response back for the route to relay. Unit tested. |
+| `social_feed.rs` | `SocialFeedService`: calls `POST /embedding` and `POST /posts/similarities`, and runs the feed, likes, and interest updates on top of `db::social`. Unit tested for the like clock and the user-vector cache. |
 
 ## Listening analytics
 
@@ -283,24 +283,20 @@ accepts `"true"`/`"false"` case-insensitively and stores lowercase. Anything els
 - The backfill job is spawned from `src/main.rs`, which is also where `BackfillConfig::from_env`
   decides whether it runs at all.
 - `SocialFeedService` is built in `src/main.rs` from `SOCIAL_FEED_URL` and lives in `AppState`.
-  Its only caller is `src/routes/social.rs`.
+  Its only caller is `src/routes/social.rs`. Database work is `db::social`.
 
-### The social feed proxy
+### The social feed model client
 
-`social_feed.rs` exists because the social feed service (`backend-api/social-feed/`, python)
-has no auth and takes `user_id` as data. The id has to come from the verified JWT, so every
-call goes through here.
+`social_feed.rs` calls the python process (`backend-api/ml-service/`) when a post or an
+interest needs a vector, and when the feed rescores a page. The python process has no auth
+and no database. The user id stays in the Rust handlers, from the verified JWT.
 
-`forward` builds `base_url/path`, keeps the original query string, and puts the user id where
-the service reads it: the query string on a GET, the top level of the JSON body on anything
-else. A body that is not a JSON object has nowhere to hold the id and comes back as
-`CadenzaError::InvalidRequestBody` (422). A body that carries its own `user_id` has it
-overwritten, so a client cannot act as someone else.
-
-`build_url` and `with_user_id` are free functions so they can be tested without a service
-running. The one method that does I/O returns the raw `reqwest::Response`, and
-`routes/social.rs` relays its status, content type, and body unchanged. Nothing here reads the
-response, so the service can add endpoints without touching rust.
+`POST /embedding` takes a post's text and/or interest names. `POST /posts/similarities`
+takes the user vector (the normalized weighted sum of the user's stored
+interest embeddings, computed here) plus each candidate post's stored
+embedding, and returns a cosine similarity per post. That vector is cached in
+memory per user for 5 hours. A model that cannot be reached is
+`CadenzaError::SocialFeedErr` (502).
 
 ## Gotchas
 
@@ -310,10 +306,10 @@ response, so the service can add endpoints without touching rust.
   `TagGenerationService::generate_tags` splits the batch into as many generator calls as it
   takes to stay under it, and truncates any single description longer than that on its own.
 - `SocialFeedService::new()` does not panic on a missing `SOCIAL_FEED_URL`, unlike the other
-  services. It falls back to `http://localhost:3001`, so a misconfigured deployment proxies into
-  nothing and `/social/*` answers 502 instead of failing at startup.
-- The social feed service has no auth of its own. If it is reachable from outside, anyone can
-  pass any `user_id`. Keep `SOCIAL_FEED_URL` on a private address.
+  services. It falls back to `http://localhost:3001`, so a misconfigured deployment calls
+  nothing and embedding or similarity answers 502 instead of failing at startup.
+- The embedding service has no auth of its own. If it is reachable from outside, anyone can
+  ask it to embed text. Keep `SOCIAL_FEED_URL` on a private address.
 - The integration tests in `openai_tag_generator.rs` are `#[ignore]`d because they spend real
   tokens. Comment header says last run Jul 26.
 - Only rate limiting is structured. Everything else is `TagGenerationError::Other`, so that

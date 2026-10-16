@@ -4,6 +4,7 @@ pub mod comment;
 pub mod metadata_tag;
 pub mod profile;
 pub mod query;
+pub mod social;
 pub mod tag;
 
 /// convert a `Vec<A>` into a `Vec<B>``
