@@ -24,7 +24,7 @@ listening analytics are computed from.
 | `song_metadata.rs` | `SongMetadataService`: song ids to Apple Music catalog metadata, and album ids to every song on them, developer token only. Unit tested, plus ignored integration tests. |
 | `metadata_tags.rs` | Keeps the copy of song metadata for queries and metadata tags in `metadata_song_tags_applied` filled: stores listed and opened songs, queues opened songs' albums, and the background crawl that walks libraries and crawls queued albums. Unit tested. |
 | `default_tags.rs` | `ensure_default_tags_generated`: generates a song's default tags the first time they are read, claiming the song in `default_tags_generation` first so it happens once. Also `backfill_default_tags` and the background job that runs it, which does the same for songs nothing has read yet. |
-| `social_feed.rs` | `SocialFeedService`: calls `POST /embedding` and `POST /posts/similarities`, and runs the feed, likes, and interest updates on top of `db::social`. Unit tested for the like clock and the user-vector cache. |
+| `social_feed.rs` | `SocialFeedService`: calls `POST /embedding` and `POST /posts/similarities`, and runs the feed, likes, and interest updates on top of `db::social`. `spawn_ml_service` starts the python process. Unit tested for the like clock and the user-vector cache. |
 
 ## Listening analytics
 
@@ -283,7 +283,8 @@ accepts `"true"`/`"false"` case-insensitively and stores lowercase. Anything els
 - The backfill job is spawned from `src/main.rs`, which is also where `BackfillConfig::from_env`
   decides whether it runs at all.
 - `SocialFeedService` is built in `src/main.rs` from `SOCIAL_FEED_URL` and lives in `AppState`.
-  Its only caller is `src/routes/social.rs`. Database work is `db::social`.
+  `main.rs` also calls `spawn_ml_service` and holds the child until the server exits. Its only
+  caller is `src/routes/social.rs`. Database work is `db::social`.
 
 ### The social feed model client
 
@@ -306,8 +307,9 @@ memory per user for 5 hours. A model that cannot be reached is
   `TagGenerationService::generate_tags` splits the batch into as many generator calls as it
   takes to stay under it, and truncates any single description longer than that on its own.
 - `SocialFeedService::new()` does not panic on a missing `SOCIAL_FEED_URL`, unlike the other
-  services. It falls back to `http://localhost:3001`, so a misconfigured deployment calls
-  nothing and embedding or similarity answers 502 instead of failing at startup.
+  services. It falls back to `http://localhost:3001`. The python process is started from
+  `main.rs` and loads the model after spawn, so embedding or similarity can 502 until the
+  port is open. `spawn_ml_service` panics if `ml-service/.venv` is missing.
 - The embedding service has no auth of its own. If it is reachable from outside, anyone can
   ask it to embed text. Keep `SOCIAL_FEED_URL` on a private address.
 - The integration tests in `openai_tag_generator.rs` are `#[ignore]`d because they spend real

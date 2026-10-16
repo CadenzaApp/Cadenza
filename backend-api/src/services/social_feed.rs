@@ -4,6 +4,8 @@
 //! text the model needs, and writes the vectors it gets back.
 
 use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -19,11 +21,66 @@ use crate::db::social::{
 use crate::err::CadenzaError;
 
 const DEFAULT_MODEL_URL: &str = "http://localhost:3001";
+const MODEL_HOST: &str = "127.0.0.1";
+const MODEL_PORT: &str = "3001";
 const MODEL_HTTP_TIMEOUT: Duration = Duration::from_secs(60);
 /// Last accepted like or unlike per user and post. A click older than that is ignored.
 const LIKE_MEMORY: usize = 2000;
 /// Users whose interest vector is kept in memory. The least recently read entry is dropped.
 const USER_VECTOR_CACHE: usize = 2000;
+
+/// The python model process started by [`spawn_ml_service`]. Dropping it kills
+/// the child.
+pub struct MlService {
+    child: Child,
+}
+
+impl Drop for MlService {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+/// Starts `ml-service` on `127.0.0.1:3001`. The model loads after spawn, so
+/// embedding and similarity calls can 502 until the port is open.
+pub fn spawn_ml_service() -> MlService {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("ml-service");
+    let python = ml_python(&dir);
+    println!(
+        "ml-service: starting on {MODEL_HOST}:{MODEL_PORT} with {}",
+        python.display()
+    );
+    let child = Command::new(&python)
+        .current_dir(&dir)
+        .args([
+            "-m",
+            "uvicorn",
+            "main:app",
+            "--host",
+            MODEL_HOST,
+            "--port",
+            MODEL_PORT,
+            "--workers",
+            "1",
+        ])
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .unwrap_or_else(|err| panic!("failed to start ml-service at {}: {err}", python.display()));
+    MlService { child }
+}
+
+fn ml_python(dir: &Path) -> PathBuf {
+    let python = dir.join(".venv").join("bin").join("python");
+    if !python.exists() {
+        panic!(
+            "ml-service venv missing at {}; run `uv sync` in backend-api/ml-service",
+            python.display()
+        );
+    }
+    python
+}
 
 /// HTTP client for the sentence-transformer process, plus the in-memory like clock
 /// and user-vector cache.

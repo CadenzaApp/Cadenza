@@ -1,7 +1,7 @@
 # ml-service
 
-Sentence-transformer calls for the social feed. FastAPI, run as its own process
-next to `backend-api`. It does not connect to the database. The Rust api loads
+Sentence-transformer calls for the social feed. FastAPI, started by the Rust
+api as a child process. It does not connect to the database. The Rust api loads
 the rows and sends whatever the model needs: post or interest text for
 `/embedding`, and the user vector plus stored post embeddings for
 `/posts/similarities`.
@@ -16,10 +16,20 @@ Needs [uv](https://docs.astral.sh/uv/) and python 3.13+.
 
 ```
 uv sync
-uv run fastapi dev main.py --port 3001
 ```
 
-Port 3001 is what `SOCIAL_FEED_URL` defaults to on the api side.
+`cargo run` in `backend-api/` starts this process on `127.0.0.1:3001`. The
+model loads after spawn, so a feed or post can 502 until the port is open.
+Stopping the api kills this process.
+
+To run it by hand, for example to watch the model load without the api:
+
+```
+uv run fastapi run main.py --host 127.0.0.1 --port 3001
+```
+
+Port 3001 is what `SOCIAL_FEED_URL` defaults to on the api side. Do not start
+a second copy on that port while the api is running.
 
 `ml-service/.env`, gitignored:
 

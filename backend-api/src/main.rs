@@ -25,7 +25,7 @@ use crate::{
     services::{
         default_tags::{BackfillConfig, spawn_default_tag_backfill},
         metadata_tags::{MetadataCrawlConfig, MetadataCrawler, spawn_metadata_crawl},
-        social_feed::SocialFeedService,
+        social_feed::{self, SocialFeedService},
         song_metadata::SongMetadataService,
         tag_generation::{TagGenerationService, openai_tag_generator::OpenAiTagGenerator},
     },
@@ -87,6 +87,7 @@ async fn main() {
 
     let song_meta_service = SongMetadataService::new();
 
+    let _ml_service = social_feed::spawn_ml_service();
     let social_feed_service = SocialFeedService::new();
 
     // fills in default tags for songs nothing has read yet. off unless the

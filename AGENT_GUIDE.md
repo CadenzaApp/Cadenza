@@ -88,7 +88,7 @@ directories with only a few straightforward files do not need documentation.
 | [backend-api/src/routes/README.md](backend-api/src/routes/README.md)                                               | Every HTTP endpoint and its request/response shape              |
 | [backend-api/src/db/README.md](backend-api/src/db/README.md)                                                       | Query layer, the tag and comment schema, the query compiler     |
 | [backend-api/src/services/README.md](backend-api/src/services/README.md)                                           | LLM tag generation, the `TagGenerator` trait, tag normalization |
-| [backend-api/ml-service/README.md](backend-api/ml-service/README.md)                                               | The python embedding service: post vectors and feed similarity   |
+| [backend-api/ml-service/README.md](backend-api/ml-service/README.md)                                               | The python embedding service started by the api: post vectors and feed similarity |
 | [client-app/README.md](client-app/README.md)                                                                       | Client setup, env vars, path aliases, scripts                   |
 | [client-app/src/app/README.md](client-app/src/app/README.md)                                                       | expo-router layout, provider nesting, the five tabs             |
 | [client-app/src/lib/README.md](client-app/src/lib/README.md)                                                       | SWR wrappers, endpoint hooks, the four providers                |

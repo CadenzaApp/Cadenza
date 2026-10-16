@@ -12,7 +12,7 @@ nothing that comes back is persisted.
 
 | file | role |
 | --- | --- |
-| `src/main.rs` | Builds `AppState`, spawns the background jobs, nests the routers, binds the listener. |
+| `src/main.rs` | Builds `AppState`, starts the python model process, spawns the background jobs, nests the routers, binds the listener. |
 | `src/auth.rs` | `SupabaseClaims` and `new_jwt_decoder()`, which fetches Supabase's JWKS once at startup. |
 | `src/err.rs` | `CadenzaError` and its status code / JSON body mapping. |
 | `src/routes/` | HTTP handlers. See [src/routes/README.md](src/routes/README.md). |
@@ -24,9 +24,11 @@ nothing that comes back is persisted.
 
 ## How it works
 
-`main.rs` loads `.env`, opens the db connection, builds the JWKS decoder, constructs the tag
-generation service, and packs all three into `AppState`. It also spawns the two background jobs,
-neither of which is in `AppState` because nothing serving a request talks to them.
+`main.rs` loads `.env`, opens the db connection, builds the JWKS decoder, starts the python
+model process, constructs the tag generation service, and packs the request-facing pieces into
+`AppState`. It also spawns the two background jobs, neither of which is in `AppState` because
+nothing serving a request talks to them. The model child is held in `main` until the listener
+exits, then killed.
 `AppState` derives `FromRef`, so a handler can extract just the piece it needs:
 
 ```rust
@@ -91,7 +93,7 @@ that shape.
 | `METADATA_CRAWL_ALBUM_BATCH_SIZE` | no | Albums one pass crawls, in one Apple request. Defaults to 20, clamped to 1..=100, Apple's cap on album ids per request. |
 | `METADATA_CRAWL_LIBRARY_BATCH_SIZE` | no | Library songs without metadata the library walk stores each interval, newest additions first. Defaults to 300, capped at 1500. `0` turns the library walk off and leaves only the album queue. |
 | `METADATA_CRAWL_INTERVAL_SECS` | no | Seconds between passes when nothing wakes the crawl. Defaults to 60. A queued album does not wait for it: opening a song wakes the crawl. Zero and unparseable values fall back to the default. A pass Apple rate limited waits a fixed 300 seconds instead. |
-| `SOCIAL_FEED_URL` | no | Base url of the python embedding service (`POST /embedding`, `POST /posts/similarities`). Defaults to `http://localhost:3001`. A trailing slash is trimmed. The service has no auth, so this must stay on a private address. |
+| `SOCIAL_FEED_URL` | no | Base url of the python embedding service (`POST /embedding`, `POST /posts/similarities`). Defaults to `http://localhost:3001`. A trailing slash is trimmed. `main.rs` starts that process on `127.0.0.1:3001`. The service has no auth, so this must stay on a private address. |
 
 ### Database connections
 

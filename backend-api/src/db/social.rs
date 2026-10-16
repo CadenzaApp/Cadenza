@@ -5,12 +5,15 @@
 
 use std::collections::HashMap;
 
+use crate::db::entity::post_likes;
 use crate::err::CadenzaError;
 use chrono::{DateTime, TimeZone, Utc};
 use sea_orm::prelude::Uuid;
 use sea_orm::{
-    ConnectionTrait, DatabaseConnection, DbBackend, DbErr, FromQueryResult, Statement,
-    TransactionTrait, Value, sea_query::ArrayType,
+    ActiveValue::{NotSet, Set},
+    ColumnTrait, ConnectionTrait, DatabaseConnection, DbBackend, DbErr, EntityTrait,
+    FromQueryResult, QueryFilter, Statement, TransactionTrait, Value,
+    sea_query::{ArrayType, OnConflict},
 };
 
 /// How many posts one `/feed` call returns. A shorter page means that exclude
@@ -108,19 +111,25 @@ pub async fn like_post(
     post_id: i64,
 ) -> Result<(), CadenzaError> {
     let txn = db.begin().await?;
-    let inserted = txn
-        .query_one_raw(Statement::from_sql_and_values(
-            DbBackend::Postgres,
-            "INSERT INTO post_likes (post_id, user_id)
-             VALUES ($1, $2)
-             ON CONFLICT (post_id, user_id) DO NOTHING
-             RETURNING post_id",
-            vec![post_id.into(), user_id.into()],
-        ))
-        .await?;
-    if inserted.is_none() {
-        txn.commit().await?;
-        return Ok(());
+    let inserted = post_likes::Entity::insert(post_likes::ActiveModel {
+        post_id: Set(post_id),
+        user_id: Set(user_id),
+        date: NotSet,
+    })
+    .on_conflict(
+        OnConflict::columns([post_likes::Column::PostId, post_likes::Column::UserId])
+            .do_nothing()
+            .to_owned(),
+    )
+    .exec_with_returning(&txn)
+    .await;
+    match inserted {
+        Ok(_) => {}
+        Err(DbErr::RecordNotInserted) => {
+            txn.commit().await?;
+            return Ok(());
+        }
+        Err(err) => return Err(err.into()),
     }
     txn.execute_raw(Statement::from_sql_and_values(
         DbBackend::Postgres,
@@ -142,16 +151,12 @@ pub async fn unlike_post(
     post_id: i64,
 ) -> Result<(), CadenzaError> {
     let txn = db.begin().await?;
-    let deleted = txn
-        .query_one_raw(Statement::from_sql_and_values(
-            DbBackend::Postgres,
-            "DELETE FROM post_likes
-             WHERE post_id = $1 AND user_id = $2
-             RETURNING post_id",
-            vec![post_id.into(), user_id.into()],
-        ))
+    let deleted = post_likes::Entity::delete_many()
+        .filter(post_likes::Column::PostId.eq(post_id))
+        .filter(post_likes::Column::UserId.eq(user_id))
+        .exec_with_returning(&txn)
         .await?;
-    if deleted.is_none() {
+    if deleted.is_empty() {
         txn.commit().await?;
         return Ok(());
     }
