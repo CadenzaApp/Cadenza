@@ -14,7 +14,8 @@ use crate::db::social::{PublicProfile, SocialPost as PostRow};
 ///   "likes": 2,
 ///   "liked": false,
 ///   "created_at": "2026-10-16T18:00:00Z",
-///   "author": { "user_id": "11111111-1111-1111-1111-111111111111", "username": "ada" }
+///   "author": { "user_id": "11111111-1111-1111-1111-111111111111", "username": "ada" },
+///   "topic_mk_id": "1615585008"
 /// }
 /// ```
 #[derive(Serialize)]
@@ -25,6 +26,8 @@ pub struct SocialPost {
     pub liked: bool,
     pub created_at: DateTime<Utc>,
     pub author: SocialAuthor,
+    /// Apple Music catalog id of the attached song or artist, or `null`.
+    pub topic_mk_id: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -45,6 +48,7 @@ impl From<PostRow> for SocialPost {
                 user_id: post.author_id.to_string(),
                 username: post.author_username,
             },
+            topic_mk_id: post.topic_mk_id,
         }
     }
 }

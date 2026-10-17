@@ -19,6 +19,8 @@ use crate::{
 };
 
 const POST_CONTENT_MAX: usize = 500;
+const TOPIC_MK_ID_MAX: usize = 128;
+const TOPIC_NAME_MAX: usize = 200;
 
 /// Ranked posts for the signed-in user.
 ///
@@ -26,7 +28,7 @@ const POST_CONTENT_MAX: usize = 500;
 /// posts. Each returned id is marked `loaded`.
 ///
 /// ```json
-/// { "feed": [ { "post_id": 1, "content": "hi", "likes": 0, "liked": false, "created_at": "2026-10-16T18:00:00Z", "author": { "user_id": "...", "username": "ada" } } ] }
+/// { "feed": [ { "post_id": 1, "content": "hi", "likes": 0, "liked": false, "created_at": "2026-10-16T18:00:00Z", "author": { "user_id": "...", "username": "ada" }, "topic_mk_id": null } ] }
 /// ```
 async fn get_feed(
     State(db): State<DatabaseConnection>,
@@ -114,9 +116,18 @@ async fn decay_interests(
 #[derive(Deserialize)]
 struct CreatePostBody {
     content: String,
+    #[serde(default)]
+    topic_mk_id: Option<String>,
+    #[serde(default)]
+    topic_song_title: Option<String>,
+    #[serde(default)]
+    topic_artist_name: Option<String>,
 }
 
 /// Creates a post for the signed-in user. `content` is at most 500 characters.
+/// `topic_mk_id` is an optional Apple Music catalog id of a song or artist.
+/// `topic_song_title` and `topic_artist_name` are display names from MusicKit,
+/// used only to prefix the embedding; stored content is unchanged.
 ///
 /// ```json
 /// { "post_id": 1 }
@@ -132,10 +143,42 @@ async fn create_post(
             "content is longer than 500 characters".into(),
         ));
     }
+    let topic_mk_id = parse_optional_text(body.topic_mk_id, "topic_mk_id", TOPIC_MK_ID_MAX)?;
+    let topic_song_title =
+        parse_optional_text(body.topic_song_title, "topic_song_title", TOPIC_NAME_MAX)?;
+    let topic_artist_name =
+        parse_optional_text(body.topic_artist_name, "topic_artist_name", TOPIC_NAME_MAX)?;
     let post_id = social
-        .create_post(&db, claims.user_id, &body.content)
+        .create_post(
+            &db,
+            claims.user_id,
+            &body.content,
+            topic_mk_id.as_deref(),
+            topic_song_title.as_deref(),
+            topic_artist_name.as_deref(),
+        )
         .await?;
     Ok(Json(CreatePostResponse { post_id }))
+}
+
+fn parse_optional_text(
+    raw: Option<String>,
+    field: &str,
+    max_chars: usize,
+) -> Result<Option<String>, CadenzaError> {
+    let Some(raw) = raw else {
+        return Ok(None);
+    };
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    if trimmed.chars().count() > max_chars {
+        return Err(CadenzaError::InvalidRequestBody(format!(
+            "{field} is longer than {max_chars} characters"
+        )));
+    }
+    Ok(Some(trimmed.to_owned()))
 }
 
 #[derive(Deserialize)]

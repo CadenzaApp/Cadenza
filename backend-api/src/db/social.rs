@@ -50,6 +50,9 @@ pub struct SocialPost {
     pub created_at: DateTime<Utc>,
     pub author_id: Uuid,
     pub author_username: String,
+    /// Apple Music catalog id of the attached song or artist, when the author
+    /// picked one. Kind is not stored; the client asks MusicKit.
+    pub topic_mk_id: Option<String>,
 }
 
 /// Public header for someone else's profile page.
@@ -79,24 +82,27 @@ pub struct FeedCandidate {
 
 /// Inserts a post and returns its id. `embedding` is the model vector;
 /// `embedding_w_bday` is that vector with days-since-epoch in front.
+/// `topic_mk_id` is the Apple Music catalog id of an attached song or artist.
 pub async fn insert_post(
     db: &DatabaseConnection,
     user_id: Uuid,
     content: &str,
     embedding: &[f64],
     embedding_w_bday: &[f64],
+    topic_mk_id: Option<&str>,
 ) -> Result<i64, CadenzaError> {
     let row = db
         .query_one_raw(Statement::from_sql_and_values(
             DbBackend::Postgres,
-            "INSERT INTO posts (user_id, content, embedding, embedding_w_bday)
-             VALUES ($1, $2, $3::vector, $4::vector)
+            "INSERT INTO posts (user_id, content, embedding, embedding_w_bday, topic_mk_id)
+             VALUES ($1, $2, $3::vector, $4::vector, $5)
              RETURNING post_id",
             vec![
                 user_id.into(),
                 content.to_owned().into(),
                 vector_literal(embedding).into(),
                 vector_literal(embedding_w_bday).into(),
+                topic_mk_id.map(str::to_owned).into(),
             ],
         ))
         .await?
@@ -235,6 +241,7 @@ pub async fn get_posts(
              p.content,
              p.likes,
              p.created_at,
+             p.topic_mk_id,
              COALESCE(pr.username, 'unknown') AS username,
              EXISTS (
                  SELECT 1 FROM post_likes
@@ -293,6 +300,7 @@ pub async fn get_author_posts(
              p.content,
              p.likes,
              p.created_at,
+             p.topic_mk_id,
              COALESCE(pr.username, 'unknown') AS username,
              EXISTS (
                  SELECT 1 FROM post_likes
@@ -716,6 +724,7 @@ struct PostRow {
     created_at: DateTime<chrono::FixedOffset>,
     username: String,
     liked: bool,
+    topic_mk_id: Option<String>,
 }
 
 impl PostRow {
@@ -728,6 +737,7 @@ impl PostRow {
             created_at: self.created_at.with_timezone(&Utc),
             author_id: self.author_id,
             author_username: self.username.clone(),
+            topic_mk_id: self.topic_mk_id.clone(),
         }
     }
 }

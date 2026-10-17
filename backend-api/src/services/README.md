@@ -24,7 +24,7 @@ listening analytics are computed from.
 | `song_metadata.rs` | `SongMetadataService`: song ids to Apple Music catalog metadata, and album ids to every song on them, developer token only. Unit tested, plus ignored integration tests. |
 | `metadata_tags.rs` | Keeps the copy of song metadata for queries and metadata tags in `metadata_song_tags_applied` filled: stores listed and opened songs, queues opened songs' albums, and the background crawl that walks libraries and crawls queued albums. Unit tested. |
 | `default_tags.rs` | `ensure_default_tags_generated`: generates a song's default tags the first time they are read, claiming the song in `default_tags_generation` first so it happens once. Also `backfill_default_tags` and the background job that runs it, which does the same for songs nothing has read yet. |
-| `social_feed.rs` | `SocialFeedService`: calls `POST /embedding` and `POST /posts/similarities`, and runs the feed, likes, and interest updates on top of `db::social`. `spawn_ml_service` starts the python process. Unit tested for the like clock and the user-vector cache. |
+| `social_feed.rs` | `SocialFeedService`: calls `POST /embedding` and `POST /posts/similarities`, and runs the feed, likes, and interest updates on top of `db::social`. `spawn_ml_service` starts the python process. A new post with a topic prefixes the embed text with the song or artist names from the request; stored content is unchanged. Unit tested for the like clock, the user-vector cache, and that prefix. |
 
 ## Listening analytics
 

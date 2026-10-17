@@ -139,17 +139,29 @@ impl SocialFeedService {
     }
 
     /// Embeds `content`, stores the post, and returns its id.
+    ///
+    /// When `topic_mk_id` is set, the embedding is prefixed with the song or
+    /// artist names from the request. Stored `content` is the user's text.
     pub async fn create_post(
         &self,
         db: &DatabaseConnection,
         user_id: Uuid,
         content: &str,
+        topic_mk_id: Option<&str>,
+        topic_song_title: Option<&str>,
+        topic_artist_name: Option<&str>,
     ) -> Result<i64, CadenzaError> {
-        let embedding = self.embed_post(content).await?;
+        let to_embed = match topic_mk_id
+            .and_then(|_| topic_embedding_prefix(topic_song_title, topic_artist_name))
+        {
+            Some(prefix) => format!("{prefix}{content}"),
+            None => content.to_owned(),
+        };
+        let embedding = self.embed_post(&to_embed).await?;
         let mut with_bday = Vec::with_capacity(embedding.len() + 1);
         with_bday.push(social::days_since_posts_epoch(Utc::now()) as f64);
         with_bday.extend_from_slice(&embedding);
-        social::insert_post(db, user_id, content, &embedding, &with_bday).await
+        social::insert_post(db, user_id, content, &embedding, &with_bday, topic_mk_id).await
     }
 
     /// Ranked posts for `user_id`. Marks the returned ids `loaded`.
@@ -462,6 +474,16 @@ impl SocialFeedService {
     }
 }
 
+/// Prefix for the embedding when a post has a topic. Names come from the
+/// create-post body, not Apple. `None` when there is not enough to format.
+fn topic_embedding_prefix(song_title: Option<&str>, artist_name: Option<&str>) -> Option<String> {
+    match (song_title, artist_name) {
+        (Some(song), Some(artist)) => Some(format!("About the song {song} by {artist}: ")),
+        (None, Some(artist)) => Some(format!("About the music artist {artist}: ")),
+        _ => None,
+    }
+}
+
 /// A stored vector is reused until it is over 10 minutes old.
 fn user_vector_is_fresh(calculated_at: DateTime<Utc>, now: DateTime<Utc>) -> bool {
     now.signed_duration_since(calculated_at) <= chrono::Duration::minutes(10)
@@ -610,6 +632,20 @@ struct PostSimilarity {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn topic_prefix_uses_song_and_artist_or_just_the_artist() {
+        assert_eq!(
+            topic_embedding_prefix(Some("As It Was"), Some("Harry Styles")).as_deref(),
+            Some("About the song As It Was by Harry Styles: ")
+        );
+        assert_eq!(
+            topic_embedding_prefix(None, Some("Harry Styles")).as_deref(),
+            Some("About the music artist Harry Styles: ")
+        );
+        assert_eq!(topic_embedding_prefix(Some("As It Was"), None), None);
+        assert_eq!(topic_embedding_prefix(None, None), None);
+    }
 
     #[test]
     fn an_older_click_is_ignored_and_a_newer_one_replaces_it() {
