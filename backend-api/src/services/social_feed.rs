@@ -462,9 +462,9 @@ impl SocialFeedService {
     }
 }
 
-/// A stored vector is reused until it is over 5 hours old.
+/// A stored vector is reused until it is over 10 minutes old.
 fn user_vector_is_fresh(calculated_at: DateTime<Utc>, now: DateTime<Utc>) -> bool {
-    now.signed_duration_since(calculated_at) <= chrono::Duration::hours(5)
+    now.signed_duration_since(calculated_at) <= chrono::Duration::minutes(10)
 }
 
 #[derive(Default)]
@@ -621,20 +621,20 @@ mod tests {
     }
 
     #[test]
-    fn a_vector_is_reused_until_it_is_over_five_hours_old() {
+    fn a_vector_is_reused_until_it_is_over_ten_minutes_old() {
         let mut cache = UserVectorCache::default();
         let user = Uuid::nil();
         let now = Utc::now();
         cache.insert(user, Some(vec![1.0, 0.0]), now);
 
         assert_eq!(
-            cache.get(user, now + chrono::Duration::hours(5)),
+            cache.get(user, now + chrono::Duration::minutes(10)),
             Some(Some(vec![1.0, 0.0]))
         );
         assert_eq!(
             cache.get(
                 user,
-                now + chrono::Duration::hours(5) + chrono::Duration::seconds(1)
+                now + chrono::Duration::minutes(10) + chrono::Duration::seconds(1)
             ),
             None
         );

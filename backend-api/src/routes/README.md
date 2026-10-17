@@ -300,9 +300,9 @@ api as JSON should have a type here rather than serializing an entity model dire
   synced their library matches nothing.
 - A like or unlike older than the last one this process accepted for that user and post is
   ignored. The clock is in memory (the last 2000 pairs), so a restart forgets it.
-- The feed reuses a user's interest vector for 5 hours. The cache holds the last 2000 users
+- The feed reuses a user's interest vector for 10 minutes. The cache holds the last 2000 users
   and lives in this process, so a restart forgets it. An interest update is not reflected in
-  the feed until that user's entry is older than 5 hours.
+  the feed until that user's entry is older than 10 minutes.
 - `tags.rs::get_songs_with_user_tag_handler` exists but is not routed anywhere. Dead code. The
   same data comes back from `GET /tags?tag_id=N`.
 - `GET /tags/suggest` uses `requested_tag_count` as a **required** query param, not optional, so

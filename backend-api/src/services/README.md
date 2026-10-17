@@ -296,7 +296,7 @@ and no database. The user id stays in the Rust handlers, from the verified JWT.
 takes the user vector (the normalized weighted sum of the user's stored
 interest embeddings, computed here) plus each candidate post's stored
 embedding, and returns a cosine similarity per post. That vector is cached in
-memory per user for 5 hours. A model that cannot be reached is
+memory per user for 10 minutes. A model that cannot be reached is
 `CadenzaError::SocialFeedErr` (502).
 
 ## Gotchas
