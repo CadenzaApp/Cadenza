@@ -221,6 +221,9 @@ public class AppleMusicKitModule: Module {
         if let duration = song.duration {
             dict["songDuration"] = duration
         }
+        if let previewURL = song.previewAssets?.first?.url {
+            dict["previewUrl"] = previewURL.absoluteString
+        }
         if let albumId = song.albums?.first?.id.rawValue {
             dict["albumID"] = albumId
         }
@@ -347,6 +350,12 @@ public class AppleMusicKitModule: Module {
         }
         if let duration = attributes["durationInMillis"] as? NSNumber {
             result["songDuration"] = duration.doubleValue / 1000
+        }
+        if let previews = attributes["previews"] as? [[String: Any]],
+           let previewURL = previews.first?["url"] as? String,
+           !previewURL.isEmpty
+        {
+            result["previewUrl"] = previewURL
         }
 
         if let artwork = attributes["artwork"] as? [String: Any] {
