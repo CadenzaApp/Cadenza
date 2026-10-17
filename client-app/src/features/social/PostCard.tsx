@@ -1,6 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRouter } from "expo-router";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 
 import { GlassSurface } from "@/components/ui/glass-surface";
@@ -9,20 +9,27 @@ import { useLikePost, useUnlikePost } from "@/lib/routes/social";
 import { cn } from "@/lib/utils";
 
 import { formatRelativeTime, initialsFromUsername } from "./format";
-import type { SocialPost } from "./types";
+import { PostTopicCard } from "./PostTopicCard";
+import { useResolvedTopic } from "./topic";
+import type { PostTopic, SocialPost } from "./types";
 
 type Props = {
     post: SocialPost;
+    /** Full topic from compose, used until MusicKit hydrates the stored id. */
+    topicHint?: PostTopic | null;
 };
 
-/** One feed row: author, body, and the like control. */
-export function PostCard({ post }: Props) {
+/** One feed row: author, attached topic, body, and the like control. */
+export function PostCard({ post, topicHint }: Props) {
     const router = useRouter();
     const { likePost } = useLikePost();
     const { unlikePost } = useUnlikePost();
+    const topic = useResolvedTopic(post.topic_mk_id, topicHint);
     const [liked, setLiked] = useState(post.liked);
     const likedRef = useRef(liked);
-    likedRef.current = liked;
+    useEffect(() => {
+        likedRef.current = liked;
+    }, [liked]);
 
     const likes = post.likes + (liked ? 1 : 0) - (post.liked ? 1 : 0);
 
@@ -84,6 +91,10 @@ export function PostCard({ post }: Props) {
             >
                 {authorRow}
             </Pressable>
+
+            {topic ? (
+                <PostTopicCard topic={topic} cardId={String(post.post_id)} />
+            ) : null}
 
             <Text className="text-base leading-6 text-foreground">
                 {post.content}

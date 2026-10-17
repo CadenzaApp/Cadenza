@@ -59,9 +59,37 @@ export type InterestScoreDelta = {
 };
 
 /**
+ * A song or artist attached to a social post. The wire only stores the
+ * MusicKit catalog id; the client asks Apple whether that id is a song or
+ * an artist.
+ */
+export type PostTopic =
+    | {
+          kind: "song";
+          id: string;
+          title: string;
+          artistName?: string;
+          artworkUrl?: string;
+          artworkColor?: string;
+          catalogId?: string;
+          playbackId?: string;
+          songDuration?: number;
+          previewUrl?: string;
+      }
+    | {
+          kind: "artist";
+          id: string;
+          name: string;
+          artworkUrl?: string;
+          artworkColor?: string;
+          catalogId?: string;
+      };
+
+/**
  * One social feed post as `/social/feed` and `/social/posts/user/:id` return
  * it. Author comes from `profile`; a missing profile row shows username
- * `"unknown"`.
+ * `"unknown"`. `topic_mk_id` is the Apple Music catalog id of an attached
+ * song or artist, or null.
  */
 export type SocialPost = {
     post_id: number;
@@ -76,6 +104,8 @@ export type SocialPost = {
         user_id: string;
         username: string;
     };
+    /** Apple Music catalog id of the attached song or artist, or null. */
+    topic_mk_id: string | null;
 };
 
 /** Public profile header from `GET /social/posts/user/:author_id`. */

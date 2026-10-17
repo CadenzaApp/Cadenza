@@ -233,6 +233,9 @@ export function useFeed() {
 
 type NewPostPayload = {
     content: string;
+    topic_mk_id?: string | null;
+    topic_song_title?: string | null;
+    topic_artist_name?: string | null;
 };
 
 type NewPostResponse = {
@@ -240,8 +243,10 @@ type NewPostResponse = {
 };
 
 /**
- * Creates a post for the signed-in user. The body is only the text. The
- * backend adds the user id from the token. Resolves to the new `post_id`.
+ * Creates a post for the signed-in user. `topic_mk_id` is an optional Apple
+ * Music catalog id. Song and artist names go with it so the backend can
+ * prefix the embedding without calling Apple. The backend adds the user id
+ * from the token. Resolves to the new `post_id`.
  */
 export function useCreatePost() {
     const x = useAPIMutation<NewPostPayload, NewPostResponse>(
