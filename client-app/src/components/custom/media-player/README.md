@@ -3,27 +3,26 @@
 The global Apple Music player. On iOS 26 its compact form is the native tab controller's bottom
 accessory; UIKit moves it inline when native scrolling minimizes the tab bar. Older iOS, Android,
 and web use a floating fallback. Tapping it opens the `/player` sheet; swiping it horizontally
-pauses playback and dismisses the compact player. Comments, Player, and Tags are three
+pauses playback and dismisses the compact player. Discuss, Player, and Tags are three
 always-mounted pages in one horizontal pager at the bottom of that sheet.
 
 ## Files
 
-| file                     | role                                                                                                                                                 |
-| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `index.ts`               | Public exports for the native accessory and compatibility overlay.                                                                                   |
-| `media-player-host.tsx`  | Adapts native accessory placement, owns zoom-card and root-screen compact-player hosts, and positions the fallback.                                  |
-| `media-player.tsx`       | Playback wiring shared by both native placements and the fallback.                                                                                   |
-| `player-pager.tsx`       | Always-mounted horizontal pager plus its glass Comments / Player / Tags selector.                                                                    |
-| `player-tabs.tsx`        | Selected-page context shared by the pager and its glass tab selector.                                                                                |
-| `player-chrome.tsx`      | Context carrying how much room the pager's selector takes below the pages, for keyboard avoidance.                                                   |
-| `player-scope.tsx`       | Resolves and shares the focused song across the sheet's three pages.                                                                                 |
-| `player-page.tsx`        | The Player route: artwork or the queue, the scrubber, and the transport. The only route that touches playback.                                       |
-| `comments-page.tsx`      | The Comments route: every user's comments on `focusedSong`, highest score first. Posts, replies, votes, and deletes through `@/lib/routes/comments`. |
-| `tags-page.tsx`          | The Tags route: every user tag for `focusedSong`, applied first, plus default tags a tap adopts and a long press removes.                            |
-| `compact.tsx`            | Regular and inline compact content. Adds glass only for the compatibility fallback.                                                                  |
-| `playback-details.tsx`   | `MediaPlayerTrackHeading` (title, artist, favorite, `...`) and `MediaPlayerProgress` (scrubber and timestamps).                                      |
-| `queue-view.tsx`         | What replaces the artwork when the queue is open: compact heading, shuffle/repeat pills, and the reorderable next list.                              |
-| `transport-controls.tsx` | Shuffle, skip, play, skip, queue.                                                                                                                    |
+| file                     | role                                                                                                                      |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| `index.ts`               | Public exports for the native accessory and compatibility overlay.                                                        |
+| `media-player-host.tsx`  | Adapts native accessory placement, owns zoom-card and root-screen compact-player hosts, and positions the fallback.       |
+| `media-player.tsx`       | Playback wiring shared by both native placements and the fallback.                                                        |
+| `player-pager.tsx`       | Always-mounted horizontal pager plus its glass Discuss / Player / Tags selector.                                          |
+| `player-tabs.tsx`        | Selected-page context shared by the pager and its glass tab selector.                                                     |
+| `player-scope.tsx`       | Resolves and shares the focused song across the sheet's three pages.                                                      |
+| `player-page.tsx`        | The Player route: artwork or the queue, the scrubber, and the transport. The only route that touches playback.            |
+| `discuss-page.tsx`       | The Discuss page: posts about `focusedSong`, most liked first. Creating one publishes a post whose topic is that song.    |
+| `tags-page.tsx`          | The Tags route: every user tag for `focusedSong`, applied first, plus default tags a tap adopts and a long press removes. |
+| `compact.tsx`            | Regular and inline compact content. Adds glass only for the compatibility fallback.                                       |
+| `playback-details.tsx`   | `MediaPlayerTrackHeading` (title, artist, favorite, `...`) and `MediaPlayerProgress` (scrubber and timestamps).           |
+| `queue-view.tsx`         | What replaces the artwork when the queue is open: compact heading, shuffle/repeat pills, and the reorderable next list.   |
+| `transport-controls.tsx` | Shuffle, skip, play, skip, queue.                                                                                         |
 
 The `...` menu and its tag editor are **not** in this directory any more. They moved to
 `@/components/custom/options-menu::SongOptionsMenu` and `@/components/custom/song-tag-editor`,
@@ -60,29 +59,24 @@ offscreen before it is hidden.
 
 ### The now playing sheet's three pages
 
-`app/player/_layout.tsx` presents the sheet and its route slot. Each of the three entry routes
-renders the same `PlayerPager`, which mounts Comments, Player, and Tags side by side inside one
-horizontal paging `ScrollView`. Route choice decides only which page is selected initially.
-Swipes expose the adjacent live page under the finger, and the glass selector's highlight follows
-the scroll position continuously. Each selected tab uses its filled icon variant; inactive tabs
-use outlines. The three page instances stay mounted for the sheet's lifetime. Comments and Tags
-do not start their network reads merely because their page shell is mounted. The pager enables a
-page's reads the first time that page is selected, then leaves them enabled so revisiting it is
-instant. Preserve that separation when adding data to an offscreen player page.
-
-`PlayerChromeProvider` wraps the three pages with the measured height of the pager's own selector,
-which is what a page needs to lift content clear of the keyboard. The pager is the only thing that
-knows that number, so it reports it rather than letting each page guess.
+`app/player/_layout.tsx` presents the sheet and its route slot. `/player` and `/player/tags`
+both render the same `PlayerPager`, which mounts Discuss, Player, and Tags side by side inside one
+horizontal paging `ScrollView`. `/player` opens Player and `/player/tags` opens Tags. Discuss is
+selected only from inside the sheet. Swipes expose the adjacent live page under the finger, and
+the glass selector's highlight follows the scroll position continuously. Each selected tab uses its
+filled icon variant; inactive tabs
+use outlines. The three page instances stay mounted for the sheet's lifetime. Tags and Discuss do not
+start their network reads merely because their page shells are mounted. The pager enables a page's
+reads the first time that page is selected, then leaves them enabled so revisiting it is instant.
+Preserve that separation when adding data to an offscreen player page.
 
 `PlayerScopeProvider` resolves a `focusedSong` (id, title, artwork) from `usePlayback()`'s
 `activeTrack` or the route's `tagsSongId` / `tagsSongTitle` / `tagsArtworkUrl` /
-`tagsArtworkColor` params and shares it across the three routes.
+`tagsArtworkColor` params and shares it across the three pages.
 
-`CommentsPage` also takes `active`, whether the pager is on it, so it knows when to hold its
-comment order. The pager derives that from the selected tab, which settles on momentum scroll end.
-
-Only `PlayerPage` touches playback. `CommentsPage` and `TagsPage` take only `focusedSong` and never
-read `usePlayback()`. `DetailScreen` hands the sampled artwork color to the same mode-aware Oklch
+Only `PlayerPage` touches playback. `TagsPage` and `DiscussPage` take `focusedSong` and never read
+`usePlayback()`. Discuss lists posts whose topic is that song, most liked first. Its compose
+dialog is the media tab's new-post dialog with the topic locked to that song. `DetailScreen` hands the sampled artwork color to the same mode-aware Oklch
 gradient hook as `TrackCollectionView`, then paints those stops once behind the header and the
 transparent pager, so there is no second gradient boundary below the title. The pager is the gesture surface;
 it does not navigate during a swipe or wait for a destination route to mount.
@@ -136,9 +130,10 @@ smoothly between the 750ms native snapshot polls, and scrubbing overrides it wit
 ## Connects to
 
 - `@/lib/playback::usePlayback` for all transport.
+- `@/features/social` (`PostCard`, `CreatePostDialog`) and `@/lib/routes/social`
+  (`useTopicPosts`, `useCreatePost`) for Discuss. A post there has `topic_mk_id` set to the
+  focused song.
 - `@/lib/musickit-hooks::useSongFavoriteStatus` for the heading/queue heart.
-- `@/lib/routes/comments` for the Comments page, and `@/lib/account::useAccount` for the email it
-  signs the user's own comments with.
 - `@/lib/screen-overlay` for the shared visibility rules and fallback clearance.
 - `@/components/custom/reorderable-list::ReorderableList` for the up-next list.
 - `@/components/custom/options-menu::SongOptionsMenu` for the `...` menu, documented in
@@ -179,36 +174,11 @@ smoothly between the 750ms native snapshot polls, and scrubbing overrides it wit
   thing either native player can do; see the queue section of the module README.
 - The queue list is `ReorderableList`, which positions rows off a fixed `QUEUE_ROW_HEIGHT`
   rather than measuring them. Change the row's height and that constant has to move with it.
-- `CommentsPage`'s composer tracks the keyboard with `useAnimatedKeyboard` and a `translateY`,
-  not `KeyboardAvoidingView`. The page sits inside a native form sheet (`DetailScreen`), and the
-  sheet's own offset from the screen top throws off `KeyboardAvoidingView`'s padding math, leaving
-  the composer under the keyboard. It lands the input's bottom edge one `COMPOSER_GAP` above the
-  keyboard's top, subtracting the space that is already under the page: the keyboard covers the
-  pager's selector before it covers anything on the page, so translating by the raw keyboard
-  height double counts it and throws the composer far above the keyboard.
-- That space comes from `usePlayerChrome`, which the pager fills in from an `onLayout` on its own
-  selector. Do **not** reach for `measureInWindow` or `Dimensions` to rederive it. The origin
-  those report from inside a presented form sheet is not the one `useAnimatedKeyboard` measures
-  its height against, and mixing the two gives a composer that is wildly too high, too low, or
-  never moves at all depending on which way the spaces disagree. `onLayout` keeps the whole
-  calculation in one space, and the sheet reaches the bottom of the screen, so the selector's
-  height is the entire gap.
 - The pager's selector gives its `GlassSurface` an explicit radius instead of leaning on the
   parent's `overflow: hidden`. Native glass shapes its lensing and specular edge from its own
   corners, so a clipped square reads as a flat fill. The glass also stays off the touch path
   behind a `pointerEvents="none"` wrapper; the native view ignores `pointerEvents` itself and
   swallows the tab presses.
-- Comment authors are placeholders. The backend sends `mine` and no author, so `CommentsPage` signs
-  the user's own comments with their email and everyone else's with `Anonymous`.
-- Only top level comments get vote buttons and a Reply button, since replies go one level deep.
-  The backend takes votes on replies too; the page just does not offer them.
-- The backend sends comments newest first, and that is the order the SWR cache keeps. `CommentsPage`
-  reorders them as it renders, through `@/lib/comment-votes`: highest score first, newest first
-  among equal scores. Replies stay oldest first. While the page is `active` it holds the order it
-  sorted when it came into view, so a vote changes a score without moving the comment. Comments
-  posted since go on top, and deleted ones drop out. It sorts again when it comes back into view or
-  the song changes. Out of view it sorts live, so a changed order settles while the page slides
-  away rather than while it slides in.
 - The `...` menu, its artist resolution, Go to Artist's library-only disabling, and its own
   gotchas now live with `SongOptionsMenu` - see [../../README.md](../../README.md) rather than
   this file. `TagsPage` uses the reusable `TagSelector`: Your Tags and Suggested are separate glass

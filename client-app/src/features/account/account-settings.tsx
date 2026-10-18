@@ -42,11 +42,8 @@ export function AccountSettingsScreen() {
     const { colors } = useTheme();
     const { account, signOut } = useAccount();
     const { profile, profileLoading, profileErr } = useProfile();
-    const {
-        updateProfile,
-        updateProfileLoading,
-        resetUpdateProfile,
-    } = useUpdateProfile();
+    const { updateProfile, updateProfileLoading, resetUpdateProfile } =
+        useUpdateProfile();
     const { showSuggestedTags, setShowSuggestedTags } =
         useMusicListPreferences();
     const {
@@ -453,7 +450,7 @@ export function AccountSettingsScreen() {
                     <SettingsRow
                         icon="eye-off-outline"
                         title="Hide Explicit Content"
-                        description="Songs and comments flagged as explicit will be hidden."
+                        description="Songs flagged as explicit will be hidden."
                         todo
                         trailing={
                             <GlassToggle

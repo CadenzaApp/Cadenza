@@ -14,7 +14,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ModalPopup } from "@/components/custom/modal-popup";
-import { GlassButton } from "@/components/ui/glass-button";
+import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { useAppleMusic } from "@/lib/apple-music-auth";
 import {
@@ -39,15 +39,31 @@ const ARTIST_RESULT_LIMIT = 4;
 type Props = {
     open: boolean;
     onOpenChange: (open: boolean) => void;
-    /** Called with the trimmed body and optional attached topic. */
+    /** Called with the trimmed body and the attached topic, if there is one. */
     onCreate: (
         content: string,
         topic?: PostTopic | null,
     ) => void | Promise<void>;
+    /** Dialog heading. */
+    title?: string;
+    /** Submit button label. */
+    submitLabel?: string;
+    /**
+     * Topic the user cannot change. Hides the search and the remove control.
+     * `onCreate` receives this topic.
+     */
+    lockedTopic?: PostTopic | null;
 };
 
-/** Compose dialog for a new feed post. Closes as soon as the user posts. */
-export function CreatePostDialog({ open, onOpenChange, onCreate }: Props) {
+/** Compose dialog for a new post. Closes as soon as the user submits. */
+export function CreatePostDialog({
+    open,
+    onOpenChange,
+    onCreate,
+    title = "New post",
+    submitLabel = "Post",
+    lockedTopic,
+}: Props) {
     const { colors } = useTheme();
     const insets = useSafeAreaInsets();
     const { width: screenWidth, height: screenHeight } = useWindowDimensions();
@@ -61,14 +77,18 @@ export function CreatePostDialog({ open, onOpenChange, onCreate }: Props) {
     const [topicQuery, setTopicQuery] = useState("");
     const [submittedTerm, setSubmittedTerm] = useState<string | undefined>();
 
-    const catalogSongs = useCatalogSongSearch(open && isConnected);
+    const topicLocked = lockedTopic != null;
+    const selectedTopic = topicLocked ? lockedTopic : topic;
+    const catalogSongs = useCatalogSongSearch(
+        open && isConnected && !topicLocked,
+    );
     const catalogArtists = useCatalogArtistSearch(
         submittedTerm,
-        open && isConnected && Boolean(submittedTerm),
+        open && isConnected && Boolean(submittedTerm) && !topicLocked,
     );
 
     useEffect(() => {
-        if (!open) return;
+        if (!open || topicLocked) return;
         const trimmed = topicQuery.trim();
         const delay =
             trimmed.length < MIN_SEARCH_LENGTH ? 0 : SEARCH_DEBOUNCE_MS;
@@ -84,7 +104,7 @@ export function CreatePostDialog({ open, onOpenChange, onCreate }: Props) {
         return () => clearTimeout(timer);
         // searchCatalog is recreated each render; the term is the real input.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [open, topicQuery]);
+    }, [open, topicLocked, topicQuery]);
 
     function resetForm() {
         setContent("");
@@ -102,7 +122,7 @@ export function CreatePostDialog({ open, onOpenChange, onCreate }: Props) {
     function handlePost() {
         const trimmed = content.trim();
         if (!trimmed || trimmed.length > MAX_POST_LENGTH) return;
-        void onCreate(trimmed, topic);
+        void onCreate(trimmed, topicLocked ? lockedTopic : topic);
         setOpen(false);
     }
 
@@ -127,7 +147,7 @@ export function CreatePostDialog({ open, onOpenChange, onCreate }: Props) {
     const searching =
         catalogSongs.searchCatalogLoading || catalogArtists.artistsLoading;
     const showResults =
-        !topic &&
+        !selectedTopic &&
         Boolean(submittedTerm) &&
         topicQuery.trim().length >= MIN_SEARCH_LENGTH;
     const noResults =
@@ -144,7 +164,6 @@ export function CreatePostDialog({ open, onOpenChange, onCreate }: Props) {
                 maxWidth: dialogWidth,
                 maxHeight: maxDialogHeight,
                 padding: DIALOG_PADDING,
-                gap: 14,
                 marginTop: insets.top + 12,
             }}
         >
@@ -153,14 +172,18 @@ export function CreatePostDialog({ open, onOpenChange, onCreate }: Props) {
                 hitSlop={12}
                 className="absolute right-4 top-4 z-10 rounded opacity-70 active:opacity-100"
                 accessibilityRole="button"
-                accessibilityLabel="Close create post dialog"
+                accessibilityLabel={
+                    title === "New post"
+                        ? "Close create post dialog"
+                        : `Close ${title.toLowerCase()} dialog`
+                }
             >
                 <Ionicons name="close" size={18} color={colors.text} />
             </Pressable>
 
-            <View className="pr-6">
+            <View className="mb-4 pr-6">
                 <Text className="text-lg font-semibold leading-none">
-                    New post
+                    {title}
                 </Text>
             </View>
 
@@ -194,10 +217,14 @@ export function CreatePostDialog({ open, onOpenChange, onCreate }: Props) {
                         <Text className="text-sm font-semibold leading-none">
                             Topic
                         </Text>
-                        {topic ? (
+                        {selectedTopic ? (
                             <PostTopicCard
-                                topic={topic}
-                                onRemove={() => setTopic(null)}
+                                topic={selectedTopic}
+                                onRemove={
+                                    topicLocked
+                                        ? undefined
+                                        : () => setTopic(null)
+                                }
                             />
                         ) : (
                             <View className="overflow-hidden rounded-2xl border border-border">
@@ -241,7 +268,7 @@ export function CreatePostDialog({ open, onOpenChange, onCreate }: Props) {
                         )}
                     </View>
 
-                    {!topic && !isConnected ? (
+                    {!selectedTopic && !isConnected ? (
                         <Text className="text-xs text-muted-foreground">
                             Connect Apple Music to attach a song or artist.
                         </Text>
@@ -287,13 +314,15 @@ export function CreatePostDialog({ open, onOpenChange, onCreate }: Props) {
                 </View>
             </ScrollView>
 
-            <GlassButton
-                accessibilityLabel="Post"
-                disabled={!canPost}
-                onPress={handlePost}
-            >
-                <Text className="font-semibold">Post</Text>
-            </GlassButton>
+            <View className="mt-4">
+                <Button
+                    accessibilityLabel={submitLabel}
+                    disabled={!canPost}
+                    onPress={handlePost}
+                >
+                    <Text>{submitLabel}</Text>
+                </Button>
+            </View>
         </ModalPopup>
     );
 }

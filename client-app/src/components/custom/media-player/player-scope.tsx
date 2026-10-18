@@ -66,7 +66,7 @@ export function PlayerScopeProvider({ children }: { children: ReactNode }) {
             : null);
 
     // Playback can stop while the sheet is open. A route target still leaves
-    // Comments and Tags with a useful song, so only the plain player closes.
+    // Discuss and Tags with a useful song, so only the plain player closes.
     useEffect(() => {
         if (!activeTrack && !pinnedSong && router.canGoBack()) {
             router.back();

@@ -1,8 +1,10 @@
 import { useCallback, useMemo } from "react";
+import { useSWRConfig } from "swr";
 import useSWRInfinite from "swr/infinite";
 
 import { useAccount } from "../account";
 import { fetchAPIData, useAPIData, useAPIMutation } from "../api-actions";
+import { applyPostLike, isSocialPostListKey } from "../post-like";
 import type {
     InterestScoreDelta,
     SocialPost,
@@ -226,8 +228,7 @@ export function useFeed() {
         feedLoading:
             fresh.isLoading ||
             (freshExhausted && caughtUp.isLoading && !caughtUp.data),
-        feedErr:
-            fresh.error ?? (freshExhausted ? caughtUp.error : undefined),
+        feedErr: fresh.error ?? (freshExhausted ? caughtUp.error : undefined),
     };
 }
 
@@ -321,6 +322,27 @@ export function useLikePost() {
     };
 }
 
+/**
+ * Writes `liked` through every cached post list. The Discuss page reads that
+ * cache again after it unmounts, so a like that lived only on the card would
+ * come back on the next visit.
+ */
+export function useUpdateCachedPostLike() {
+    const { mutate } = useSWRConfig();
+    return useCallback(
+        (postId: number, liked: boolean) =>
+            mutate(
+                isSocialPostListKey,
+                (current: unknown) =>
+                    current == null
+                        ? current
+                        : applyPostLike(current, postId, liked),
+                { revalidate: false },
+            ),
+        [mutate],
+    );
+}
+
 /** Removes the signed-in user's like. Same `timestamp` rule as `useLikePost`. */
 export function useUnlikePost() {
     const x = useAPIMutation<PostLikePayload, void>("DELETE", postLikePath);
@@ -333,6 +355,34 @@ export function useUnlikePost() {
         unlikePostLoading: x.isMutating,
         resetUnlikePost: x.reset,
         unlikePost,
+    };
+}
+
+type TopicPostsResponse = {
+    posts: SocialPost[];
+};
+
+/**
+ * Posts whose topic is this Apple Music catalog id, most liked first.
+ * Pass no id, or `enabled: false`, to leave it unread.
+ *
+ * ```ts
+ * const { posts, topicPostsLoading, topicPostsErr, refreshTopicPosts } =
+ *     useTopicPosts(songId, enabled);
+ * ```
+ */
+export function useTopicPosts(topicMkId?: string, enabled = true) {
+    const x = useAPIData<TopicPostsResponse>(
+        "/social/posts/topic",
+        topicMkId ? { topic_mk_id: topicMkId } : undefined,
+        { enabled: enabled && Boolean(topicMkId) },
+    );
+    const refreshTopicPosts = useCallback(() => x.mutate(), [x.mutate]);
+    return {
+        posts: x.data?.posts ?? EMPTY_POSTS,
+        topicPostsLoading: x.isLoading,
+        topicPostsErr: x.error,
+        refreshTopicPosts,
     };
 }
 
