@@ -1,6 +1,6 @@
 /**
- * Keeps the pushed detail screens (artist, album, playlist, tag, query results)
- * from piling up on the root stack.
+ * Keeps the pushed detail screens (artist, album, playlist, tag, song discuss,
+ * query results) from piling up on the root stack.
  *
  * Opening a detail screen that is already on the stack goes back to it rather
  * than pushing a copy, so artist -> playlist -> the same artist lands on the
@@ -20,6 +20,7 @@ const DETAIL_IDENTITY: Record<string, readonly string[]> = {
     "artist/[id]": ["id"],
     "collection/[kind]/[id]": ["kind", "id"],
     "tag/[tagId]": ["tagId"],
+    "discuss/[songId]": ["songId"],
     "query-results": ["query", "suggested"],
 };
 

@@ -129,7 +129,7 @@ export function sheetScreenOptions(theme: Theme): StackScreenOptions {
 
 /**
  * Stack options for the pushed detail routes: album, artist, category, tag,
- * the category picker, and the playlist picker.
+ * song discuss, the category picker, and the playlist picker.
  *
  * Presented over the screen that opened them rather than replacing it, with no
  * native animation at all. The zoom in `@/lib/zoom-dismiss` is the transition

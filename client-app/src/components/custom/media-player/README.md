@@ -8,29 +8,29 @@ always-mounted pages in one horizontal pager at the bottom of that sheet.
 
 ## Files
 
-| file                     | role                                                                                                                      |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
-| `index.ts`               | Public exports for the native accessory and compatibility overlay.                                                        |
-| `media-player-host.tsx`  | Adapts native accessory placement, owns zoom-card and root-screen compact-player hosts, and positions the fallback.       |
-| `media-player.tsx`       | Playback wiring shared by both native placements and the fallback.                                                        |
-| `player-pager.tsx`       | Always-mounted horizontal pager plus its glass Discuss / Player / Tags selector.                                          |
-| `player-tabs.tsx`        | Selected-page context shared by the pager and its glass tab selector.                                                     |
-| `player-scope.tsx`       | Resolves and shares the focused song across the sheet's three pages.                                                      |
-| `player-page.tsx`        | The Player route: artwork or the queue, the scrubber, and the transport. The only route that touches playback.            |
-| `discuss-page.tsx`       | The Discuss page: posts about `focusedSong`, most liked first. Creating one publishes a post whose topic is that song.    |
-| `tags-page.tsx`          | The Tags route: every user tag for `focusedSong`, applied first, plus default tags a tap adopts and a long press removes. |
-| `compact.tsx`            | Regular and inline compact content. Adds glass only for the compatibility fallback.                                       |
-| `playback-details.tsx`   | `MediaPlayerTrackHeading` (title, artist, favorite, `...`) and `MediaPlayerProgress` (scrubber and timestamps).           |
-| `queue-view.tsx`         | What replaces the artwork when the queue is open: compact heading, shuffle/repeat pills, and the reorderable next list.   |
-| `transport-controls.tsx` | Shuffle, skip, play, skip, queue.                                                                                         |
+| file                     | role                                                                                                                        |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| `index.ts`               | Public exports for the native accessory and compatibility overlay.                                                          |
+| `media-player-host.tsx`  | Adapts native accessory placement, owns zoom-card and root-screen compact-player hosts, and positions the fallback.         |
+| `media-player.tsx`       | Playback wiring shared by both native placements and the fallback.                                                          |
+| `player-pager.tsx`       | Always-mounted horizontal pager plus its glass Discuss / Player / Tags selector.                                            |
+| `player-tabs.tsx`        | Selected-page context shared by the pager and its glass tab selector.                                                       |
+| `player-scope.tsx`       | Resolves and shares the focused song across the sheet's three pages.                                                        |
+| `player-page.tsx`        | The Player route: artwork or the queue, the scrubber, and the transport. The only route that touches playback.              |
+| `discuss-page.tsx`       | Posts about a song, most liked first. The sheet passes `focusedSong`. `SongDiscussPage` is that list on `/discuss/:songId`. |
+| `tags-page.tsx`          | The Tags route: every user tag for `focusedSong`, applied first, plus default tags a tap adopts and a long press removes.   |
+| `compact.tsx`            | Regular and inline compact content. Adds glass only for the compatibility fallback.                                         |
+| `playback-details.tsx`   | `MediaPlayerTrackHeading` (title, artist, favorite, `...`) and `MediaPlayerProgress` (scrubber and timestamps).             |
+| `queue-view.tsx`         | What replaces the artwork when the queue is open: compact heading, shuffle/repeat pills, and the reorderable next list.     |
+| `transport-controls.tsx` | Shuffle, skip, play, skip, queue.                                                                                           |
 
 The `...` menu and its tag editor are **not** in this directory any more. They moved to
 `@/components/custom/options-menu::SongOptionsMenu` and `@/components/custom/song-tag-editor`,
 since the list-row song menu needed the same Favorite/Share/Add to Playlist/Go to Album/Go to
 Artist/Discuss/Modify Tags shape this sheet already had. `player-page.tsx` renders `SongOptionsMenu`
-with a `navigate` that dismisses the sheet before pushing full-screen routes. Discuss stays in the
-sheet. Modify Tags stays in place and swaps the options menu for the shared selector popup (see
-Connects to).
+with a `navigate` that dismisses the sheet before pushing full-screen routes. Discuss is one of
+those routes: `/discuss/:songId`, the posts list with no now-playing chrome. Modify Tags stays in
+place and swaps the options menu for the shared selector popup (see Connects to).
 
 ## How it works
 
@@ -76,7 +76,7 @@ Preserve that separation when adding data to an offscreen player page.
 
 Only `PlayerPage` touches playback. `TagsPage` and `DiscussPage` take `focusedSong` and never read
 `usePlayback()`. Discuss lists posts whose topic is that song, most liked first. Its compose
-dialog is the media tab's new-post dialog with the topic locked to that song. `DetailScreen` hands the sampled artwork color to the same mode-aware Oklch
+dialog is the media tab's new-post dialog with the topic locked to that song. Tapping an author closes this sheet, or the standalone `/discuss/:songId` screen, and opens that person's profile on the Social tab. `DetailScreen` hands the sampled artwork color to the same mode-aware Oklch
 gradient hook as `TrackCollectionView`, then paints those stops once behind the header and the
 transparent pager, so there is no second gradient boundary below the title. The pager is the gesture surface;
 it does not navigate during a swipe or wait for a destination route to mount.
@@ -140,8 +140,9 @@ smoothly between the 750ms native snapshot polls, and scrubbing overrides it wit
   [../../README.md](../../README.md). `player-page.tsx` passes it a `navigate` that dismisses the
   sheet before opening (`router.back()` then `useOpenScreen`), since Add to Playlist / Go to
   Album / Go to Artist are full screen routes and a push from inside a presented sheet would
-  land inside its box. Discuss opens `/player/discuss` for that song and does not dismiss the
-  sheet when it is already up. Modify Tags opens the menu's selector popup without navigating.
+  land inside its box. Discuss opens `/discuss/:songId` for that song, dismissing the sheet when
+  it is already up, and does not change playback. Modify Tags opens the menu's selector popup
+  without navigating.
 - Mounted by `src/app/(tabs)/_layout.tsx`; the sheet navigator is declared by
   `src/app/player/_layout.tsx`.
 

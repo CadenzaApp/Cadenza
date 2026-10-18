@@ -28,6 +28,12 @@ type Props = {
      * lists later, after the screen that owns the card closes.
      */
     onLikedChange?: (postId: number, liked: boolean) => void;
+    /**
+     * Author tap. Defaults to pushing `/social/user/:userId` on the current
+     * stack, which is what the feed wants. Discuss passes a handler that
+     * closes itself first.
+     */
+    onAuthorPress?: (userId: string) => void;
 };
 
 /** One feed row: author, attached topic, body, and the like control. */
@@ -36,6 +42,7 @@ export function PostCard({
     topicHint,
     showTopic = true,
     onLikedChange,
+    onAuthorPress,
 }: Props) {
     const router = useRouter();
     const { likePost } = useLikePost();
@@ -81,8 +88,10 @@ export function PostCard({
     }
 
     function openAuthor() {
-        if (!post.author.user_id) return;
-        router.push(`/social/user/${post.author.user_id}`);
+        const userId = post.author.user_id;
+        if (!userId) return;
+        if (onAuthorPress) onAuthorPress(userId);
+        else router.push(`/social/user/${userId}`);
     }
 
     const authorRow = (

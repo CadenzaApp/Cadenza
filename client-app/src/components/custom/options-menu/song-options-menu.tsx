@@ -1,5 +1,5 @@
 import type { MusicItem } from "@apple-musickit";
-import { usePathname, useRouter, type Href } from "expo-router";
+import type { Href } from "expo-router";
 import { memo, useState } from "react";
 import { Alert } from "react-native";
 
@@ -25,9 +25,9 @@ type SongOptionsMenuProps = {
     track: MusicItem | null;
     onClose: () => void;
     /**
-     * How Add to Playlist / Go to Album / Go to Artist navigate. Defaults to
-     * `useOpenScreen`. The now-playing sheet passes a function that dismisses
-     * itself first, since those are full-screen routes pushed on top of it.
+     * How Add to Playlist, Go to Album, Go to Artist, and Discuss navigate.
+     * Defaults to `useOpenScreen`. The now-playing sheet passes a function
+     * that dismisses itself first, since those are full-screen routes.
      */
     navigate?: NavigateFn;
     /** Caller-specific actions appended after the standard song actions. */
@@ -45,8 +45,6 @@ export const SongOptionsMenu = memo(function SongOptionsMenu({
     extraActions = [],
 }: SongOptionsMenuProps) {
     const openScreen = useOpenScreen();
-    const router = useRouter();
-    const pathname = usePathname();
     const go = navigate ?? openScreen;
     const favoriteId = track?.catalogId ?? track?.id;
     const {
@@ -112,22 +110,18 @@ export const SongOptionsMenu = memo(function SongOptionsMenu({
 
     function openDiscuss() {
         const songId = selectedTrack.catalogId ?? selectedTrack.id;
-        const inPlayer =
-            pathname === "/player" || pathname.startsWith("/player/");
         onClose();
-        const href: Href = {
-            pathname: "/player/discuss",
+        // Its own screen, not the now playing sheet. Nothing here starts or
+        // replaces the song that is already playing.
+        go({
+            pathname: "/discuss/[songId]",
             params: {
-                tagsSongId: songId,
-                tagsSongTitle: selectedTrack.title,
-                tagsArtworkUrl: selectedTrack.artworkUrl ?? "",
-                tagsArtworkColor: selectedTrack.artworkColor ?? "",
+                songId,
+                title: selectedTrack.title,
+                artworkUrl: selectedTrack.artworkUrl ?? "",
+                artworkColor: selectedTrack.artworkColor ?? "",
             },
-        };
-        // Stay inside the sheet when it is already open. A push from a list
-        // opens the sheet on Discuss for this song.
-        if (inPlayer) router.replace(href);
-        else router.push(href);
+        });
     }
 
     const rowActions: MusicListAction<MusicItem>[] = [

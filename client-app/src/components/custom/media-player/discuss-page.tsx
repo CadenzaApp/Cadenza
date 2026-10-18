@@ -2,6 +2,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTheme } from "expo-router/react-navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RefreshControl, ScrollView, View } from "react-native";
+import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { GlassIconButton } from "@/components/ui/glass-icon-button";
@@ -11,29 +12,43 @@ import { PostCard } from "@/features/social/PostCard";
 import { topicCreateFields, topicMkId } from "@/features/social/topic";
 import type { PostTopic, SocialPost } from "@/features/social/types";
 import { useSongInfo } from "@/lib/musickit-hooks";
+import { useOpenSocialProfile } from "@/lib/use-open-social-profile";
 import { useProfile } from "@/lib/routes/profile";
 import {
     useCreatePost,
     useTopicPosts,
     useUpdateCachedPostLike,
 } from "@/lib/routes/social";
+import { useScreenOverlayInsets } from "@/lib/screen-overlay";
+import { useScreenScroll, type ScreenScrollBinding } from "@/lib/screen-scroll";
+import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
 
 import type { FocusedSong } from "./player-scope";
 
-/** The now-playing sheet's Discuss page: posts about the focused song. */
+/**
+ * Posts about one song. The now-playing sheet passes `focusedSong` from the
+ * player scope. `SongDiscussPage` is the same list on its own route.
+ */
 export function DiscussPage({
     focusedSong,
     enabled = true,
     active = true,
+    contentPaddingBottom,
+    screenScroll,
 }: {
     focusedSong: FocusedSong;
     /** Becomes true after this pager page is first visited. */
     enabled?: boolean;
     /** False once the user leaves this page. Likes flush to the cache then. */
     active?: boolean;
+    /** Replaces the safe-area bottom padding. The standalone page clears the mini player with this. */
+    contentPaddingBottom?: number;
+    /** Pull-to-close wiring for the standalone page. The sheet leaves this off. */
+    screenScroll?: ScreenScrollBinding;
 }) {
     const insets = useSafeAreaInsets();
     const { colors } = useTheme();
+    const openSocialProfile = useOpenSocialProfile();
     const { profile } = useProfile(enabled);
     const { createPost } = useCreatePost();
     const updateCachedPostLike = useUpdateCachedPostLike();
@@ -207,61 +222,89 @@ export function DiscussPage({
         : topicPostsErr
           ? "Couldn't load posts."
           : "No posts yet.";
+    const paddingBottom = contentPaddingBottom ?? insets.bottom + 16;
+    const refreshControl = (
+        <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => void reload()}
+            tintColor={colors.text}
+            colors={[colors.text]}
+            progressBackgroundColor={colors.card}
+        />
+    );
+    const postList = (
+        <>
+            <View className="flex-row items-center justify-between gap-3">
+                <View className="min-w-0 flex-1">
+                    <Text className="text-2xl font-bold text-foreground">
+                        Posts about this song
+                    </Text>
+                    <Text
+                        className="mt-0.5 text-base text-muted-foreground"
+                        numberOfLines={1}
+                    >
+                        {focusedSong.title}
+                    </Text>
+                </View>
+                <GlassIconButton
+                    accessibilityLabel="Create a post"
+                    onPress={() => setComposeOpen(true)}
+                >
+                    <Ionicons name="add" size={24} color={colors.text} />
+                </GlassIconButton>
+            </View>
 
-    return (
-        <View className="flex-1">
-            <ScrollView
+            {!enabled ? null : rankedPosts.length === 0 ? (
+                <Text className="py-10 text-center text-muted-foreground">
+                    {emptyLabel}
+                </Text>
+            ) : (
+                <View className="gap-3">
+                    {rankedPosts.map((post) => (
+                        <PostCard
+                            key={post.post_id}
+                            post={post}
+                            showTopic={false}
+                            onLikedChange={rememberLike}
+                            onAuthorPress={openSocialProfile}
+                        />
+                    ))}
+                </View>
+            )}
+        </>
+    );
+    const scroller = screenScroll ? (
+        <ScreenScrollMarker>
+            <Animated.ScrollView
+                {...screenScroll}
+                className="flex-1"
                 contentContainerClassName="gap-4 px-6 pt-4"
-                contentContainerStyle={{ paddingBottom: insets.bottom + 16 }}
-                refreshControl={
-                    <RefreshControl
-                        refreshing={refreshing}
-                        onRefresh={() => void reload()}
-                        tintColor={colors.text}
-                        colors={[colors.text]}
-                        progressBackgroundColor={colors.card}
-                    />
-                }
+                contentContainerStyle={[
+                    { paddingBottom },
+                    screenScroll.contentContainerStyle,
+                ]}
+                refreshControl={refreshControl}
                 keyboardShouldPersistTaps="handled"
                 showsVerticalScrollIndicator={false}
             >
-                <View className="flex-row items-center justify-between gap-3">
-                    <View className="min-w-0 flex-1">
-                        <Text className="text-2xl font-bold text-foreground">
-                            Posts about this song
-                        </Text>
-                        <Text
-                            className="mt-0.5 text-base text-muted-foreground"
-                            numberOfLines={1}
-                        >
-                            {focusedSong.title}
-                        </Text>
-                    </View>
-                    <GlassIconButton
-                        accessibilityLabel="Create a post"
-                        onPress={() => setComposeOpen(true)}
-                    >
-                        <Ionicons name="add" size={24} color={colors.text} />
-                    </GlassIconButton>
-                </View>
+                {postList}
+            </Animated.ScrollView>
+        </ScreenScrollMarker>
+    ) : (
+        <ScrollView
+            contentContainerClassName="gap-4 px-6 pt-4"
+            contentContainerStyle={{ paddingBottom }}
+            refreshControl={refreshControl}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+        >
+            {postList}
+        </ScrollView>
+    );
 
-                {!enabled ? null : rankedPosts.length === 0 ? (
-                    <Text className="py-10 text-center text-muted-foreground">
-                        {emptyLabel}
-                    </Text>
-                ) : (
-                    <View className="gap-3">
-                        {rankedPosts.map((post) => (
-                            <PostCard
-                                key={post.post_id}
-                                post={post}
-                                showTopic={false}
-                                onLikedChange={rememberLike}
-                            />
-                        ))}
-                    </View>
-                )}
-            </ScrollView>
+    return (
+        <View className="flex-1">
+            {scroller}
 
             <CreatePostDialog
                 open={composeOpen}
@@ -282,6 +325,22 @@ export function DiscussPage({
                 </View>
             ) : null}
         </View>
+    );
+}
+
+/**
+ * The same posts list on `/discuss/:songId`. It never reads playback, so
+ * opening it leaves the song that is playing alone.
+ */
+export function SongDiscussPage({ focusedSong }: { focusedSong: FocusedSong }) {
+    const screenScroll = useScreenScroll();
+    const { contentBottomInset } = useScreenOverlayInsets();
+    return (
+        <DiscussPage
+            focusedSong={focusedSong}
+            contentPaddingBottom={contentBottomInset}
+            screenScroll={screenScroll}
+        />
     );
 }
 

@@ -92,6 +92,10 @@ export default function RootLayout() {
                                                                 options={pushedScreenOptions()}
                                                             />
                                                             <Stack.Screen
+                                                                name="discuss/[songId]"
+                                                                options={pushedScreenOptions()}
+                                                            />
+                                                            <Stack.Screen
                                                                 name="query-results"
                                                                 options={{
                                                                     headerShown: false,

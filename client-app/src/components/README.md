@@ -281,15 +281,16 @@ scroll view for inset, scroll-to-top, and tab-bar/accessory minimization.
 
 ### custom/options-menu/
 
-| file                          | role                                                                                                                                                                                                                                                                      |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `song-options-menu.tsx`       | `SongOptionsMenu`. Favorite + Share, then Modify Tags, Add to Playlist, Play Next, Add to Queue, Go to Album, Go to Artist, and Discuss. Discuss opens `/player/discuss` for that song. Modify Tags swaps the menu for an inline selector popup. Self-contained from just a `track`; used by list rows and the now-playing sheet. |
-| `collection-options-menu.tsx` | `CollectionOptionsMenu`. Favorite + Share for the album/playlist itself, then Play Next / Add to Queue against its songs. Used by `/collection/[kind]/[id]`.                                                                                                              |
-| `favorite-share-row.tsx`      | `FavoriteShareRow`, the icon row + divider both menus lead with. Generic over the target type.                                                                                                                                                                            |
+| file                          | role                                                                                                                                                                                                                                                                                                                                                            |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `song-options-menu.tsx`       | `SongOptionsMenu`. Favorite + Share, then Modify Tags, Add to Playlist, Play Next, Add to Queue, Go to Album, Go to Artist, and Discuss. Discuss opens `/discuss/:songId` for that song and does not change playback. Modify Tags swaps the menu for an inline selector popup. Self-contained from just a `track`; used by list rows and the now-playing sheet. |
+| `collection-options-menu.tsx` | `CollectionOptionsMenu`. Favorite + Share for the album/playlist itself, then Play Next / Add to Queue against its songs. Used by `/collection/[kind]/[id]`.                                                                                                                                                                                                    |
+| `favorite-share-row.tsx`      | `FavoriteShareRow`, the icon row + divider both menus lead with. Generic over the target type.                                                                                                                                                                                                                                                                  |
 
 Both menus render through the liquid-glass default in `ModalPopup`. `SongOptionsMenu` takes an
 optional `navigate` (defaulting to `useOpenScreen`), so the now-playing sheet can dismiss
-itself before opening full-screen destinations. Modify Tags does not navigate. It replaces the
+itself before opening full-screen destinations. Discuss is one of those: `/discuss/:songId`.
+Modify Tags does not navigate. It replaces the
 options popup with a `TagSelector` popup for that song.
 
 Gotchas carried over from before the two "..." menus were merged: `SongOptionsMenu` resolves the
