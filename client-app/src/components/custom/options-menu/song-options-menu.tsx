@@ -1,5 +1,5 @@
 import type { MusicItem } from "@apple-musickit";
-import type { Href } from "expo-router";
+import { usePathname, useRouter, type Href } from "expo-router";
 import { memo, useState } from "react";
 import { Alert } from "react-native";
 
@@ -45,6 +45,8 @@ export const SongOptionsMenu = memo(function SongOptionsMenu({
     extraActions = [],
 }: SongOptionsMenuProps) {
     const openScreen = useOpenScreen();
+    const router = useRouter();
+    const pathname = usePathname();
     const go = navigate ?? openScreen;
     const favoriteId = track?.catalogId ?? track?.id;
     const {
@@ -108,6 +110,26 @@ export const SongOptionsMenu = memo(function SongOptionsMenu({
         });
     }
 
+    function openDiscuss() {
+        const songId = selectedTrack.catalogId ?? selectedTrack.id;
+        const inPlayer =
+            pathname === "/player" || pathname.startsWith("/player/");
+        onClose();
+        const href: Href = {
+            pathname: "/player/discuss",
+            params: {
+                tagsSongId: songId,
+                tagsSongTitle: selectedTrack.title,
+                tagsArtworkUrl: selectedTrack.artworkUrl ?? "",
+                tagsArtworkColor: selectedTrack.artworkColor ?? "",
+            },
+        };
+        // Stay inside the sheet when it is already open. A push from a list
+        // opens the sheet on Discuss for this song.
+        if (inPlayer) router.replace(href);
+        else router.push(href);
+    }
+
     const rowActions: MusicListAction<MusicItem>[] = [
         {
             id: "modify-tags",
@@ -150,6 +172,12 @@ export const SongOptionsMenu = memo(function SongOptionsMenu({
             label: "Go to Artist",
             icon: "mic-outline",
             onPress: openArtist,
+        },
+        {
+            id: "discuss",
+            label: "Discuss",
+            icon: "chatbubble-outline",
+            onPress: openDiscuss,
         },
     ];
 

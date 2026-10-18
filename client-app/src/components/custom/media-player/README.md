@@ -27,9 +27,10 @@ always-mounted pages in one horizontal pager at the bottom of that sheet.
 The `...` menu and its tag editor are **not** in this directory any more. They moved to
 `@/components/custom/options-menu::SongOptionsMenu` and `@/components/custom/song-tag-editor`,
 since the list-row song menu needed the same Favorite/Share/Add to Playlist/Go to Album/Go to
-Artist/Modify Tags shape this sheet already had. `player-page.tsx` renders `SongOptionsMenu` with
-a `navigate` that dismisses the sheet before pushing. Modify Tags stays in place and swaps the
-options menu for the shared selector popup (see Connects to).
+Artist/Discuss/Modify Tags shape this sheet already had. `player-page.tsx` renders `SongOptionsMenu`
+with a `navigate` that dismisses the sheet before pushing full-screen routes. Discuss stays in the
+sheet. Modify Tags stays in place and swaps the options menu for the shared selector popup (see
+Connects to).
 
 ## How it works
 
@@ -59,12 +60,11 @@ offscreen before it is hidden.
 
 ### The now playing sheet's three pages
 
-`app/player/_layout.tsx` presents the sheet and its route slot. `/player` and `/player/tags`
-both render the same `PlayerPager`, which mounts Discuss, Player, and Tags side by side inside one
-horizontal paging `ScrollView`. `/player` opens Player and `/player/tags` opens Tags. Discuss is
-selected only from inside the sheet. Swipes expose the adjacent live page under the finger, and
-the glass selector's highlight follows the scroll position continuously. Each selected tab uses its
-filled icon variant; inactive tabs
+`app/player/_layout.tsx` presents the sheet and its route slot. `/player`, `/player/discuss`, and
+`/player/tags` each render the same `PlayerPager`, which mounts Discuss, Player, and Tags side by
+side inside one horizontal paging `ScrollView`. The route selects Player, Discuss, or Tags.
+Swipes expose the adjacent live page under the finger, and the glass selector's highlight follows
+the scroll position continuously. Each selected tab uses its filled icon variant; inactive tabs
 use outlines. The three page instances stay mounted for the sheet's lifetime. Tags and Discuss do not
 start their network reads merely because their page shells are mounted. The pager enables a page's
 reads the first time that page is selected, then leaves them enabled so revisiting it is instant.
@@ -140,7 +140,8 @@ smoothly between the 750ms native snapshot polls, and scrubbing overrides it wit
   [../../README.md](../../README.md). `player-page.tsx` passes it a `navigate` that dismisses the
   sheet before opening (`router.back()` then `useOpenScreen`), since Add to Playlist / Go to
   Album / Go to Artist are full screen routes and a push from inside a presented sheet would
-  land inside its box. Modify Tags opens the menu's selector popup without navigating.
+  land inside its box. Discuss opens `/player/discuss` for that song and does not dismiss the
+  sheet when it is already up. Modify Tags opens the menu's selector popup without navigating.
 - Mounted by `src/app/(tabs)/_layout.tsx`; the sheet navigator is declared by
   `src/app/player/_layout.tsx`.
 
