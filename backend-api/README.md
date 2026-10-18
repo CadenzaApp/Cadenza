@@ -1,7 +1,7 @@
 # backend-api
 
-Rust HTTP api for Cadenza. Owns tags, tag application, the boolean query engine, LLM tag
-suggestion, and comments on songs. axum 0.8 for routing, SeaORM 2.0 over Supabase postgres, auth
+Rust HTTP api for Cadenza. Owns tags, tag application, the boolean query engine, and LLM tag
+suggestion. axum 0.8 for routing, SeaORM 2.0 over Supabase postgres, auth
 by verifying Supabase JWTs against Supabase's JWKS.
 
 It does not store song metadata. A song is just an id string that came from Apple Music. It can
@@ -42,7 +42,7 @@ Seven routers get nested, plus a health route:
 /tags       get_tags_router()
 /songs      get_songs_router()
 /queries    get_queries_router()
-/comments   get_comments_router()
+/profile    get_profile_router()
 /social     get_social_router()
 /events     get_events_router()
 /analytics  get_analytics_router()

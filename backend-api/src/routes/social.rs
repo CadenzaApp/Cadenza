@@ -14,7 +14,9 @@ use crate::{
     auth::SupabaseClaims,
     db::social::{FeedExclude, InterestDelta},
     err::CadenzaError,
-    routes::json::social::{CreatePostResponse, FeedResponse, SocialPost, UserPostsResponse},
+    routes::json::social::{
+        CreatePostResponse, FeedResponse, SocialPost, TopicPostsResponse, UserPostsResponse,
+    },
     services::social_feed::SocialFeedService,
 };
 
@@ -199,6 +201,32 @@ async fn mark_viewed(
     Ok(Json(Value::Null))
 }
 
+#[derive(Deserialize)]
+struct TopicPostsQuery {
+    topic_mk_id: String,
+}
+
+/// Posts whose topic is this Apple Music catalog id, most liked first.
+///
+/// ```json
+/// { "posts": [ { "post_id": 1, "content": "hi", "likes": 3, "liked": false, "created_at": "2026-10-16T18:00:00Z", "author": { "user_id": "...", "username": "ada" }, "topic_mk_id": "1615585008" } ] }
+/// ```
+async fn topic_posts(
+    State(db): State<DatabaseConnection>,
+    State(social): State<SocialFeedService>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Query(query): Query<TopicPostsQuery>,
+) -> Result<Json<TopicPostsResponse>, CadenzaError> {
+    let topic_mk_id = parse_optional_text(Some(query.topic_mk_id), "topic_mk_id", TOPIC_MK_ID_MAX)?
+        .ok_or_else(|| CadenzaError::InvalidRequestBody("topic_mk_id is required".into()))?;
+    let posts = social
+        .topic_posts(&db, claims.user_id, &topic_mk_id)
+        .await?;
+    Ok(Json(TopicPostsResponse {
+        posts: posts.into_iter().map(SocialPost::from).collect(),
+    }))
+}
+
 /// One user's public profile and their posts, newest first. `user` in the
 /// path is the author. The signed-in user is the viewer, for `liked`.
 ///
@@ -261,6 +289,7 @@ pub fn get_social_router() -> Router<AppState> {
         .route("/interests/decay", patch(decay_interests))
         .route("/posts", post(create_post))
         .route("/posts/views", post(mark_viewed))
+        .route("/posts/topic", get(topic_posts))
         .route("/posts/user/{author_id}", get(user_posts))
         .route(
             "/posts/{post_id}/likes",

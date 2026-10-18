@@ -2,8 +2,6 @@
 
 pub mod prelude;
 
-pub mod comment;
-pub mod comment_votes;
 pub mod default_tag_activity;
 pub mod default_tags_applied;
 pub mod default_tags_generation;

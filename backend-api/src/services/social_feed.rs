@@ -243,6 +243,16 @@ impl SocialFeedService {
         Ok(page)
     }
 
+    /// Posts whose topic is `topic_mk_id`, most liked first.
+    pub async fn topic_posts(
+        &self,
+        db: &DatabaseConnection,
+        viewer_id: Uuid,
+        topic_mk_id: &str,
+    ) -> Result<Vec<SocialPost>, CadenzaError> {
+        social::get_topic_posts(db, viewer_id, topic_mk_id).await
+    }
+
     /// Profile header plus that author's posts, newest first.
     pub async fn user_posts(
         &self,

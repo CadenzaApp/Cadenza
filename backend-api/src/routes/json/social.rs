@@ -5,7 +5,8 @@ use serde::Serialize;
 
 use crate::db::social::{PublicProfile, SocialPost as PostRow};
 
-/// One post as `/social/feed` and `/social/posts/user/:id` return it.
+/// One post as `/social/feed`, `/social/posts/user/:id`, and
+/// `/social/posts/topic` return it.
 ///
 /// ```json
 /// {
@@ -84,5 +85,11 @@ pub struct CreatePostResponse {
 #[derive(Serialize)]
 pub struct UserPostsResponse {
     pub profile: SocialUserProfile,
+    pub posts: Vec<SocialPost>,
+}
+
+/// `{posts}` from `GET /social/posts/topic`, most liked first.
+#[derive(Serialize)]
+pub struct TopicPostsResponse {
     pub posts: Vec<SocialPost>,
 }

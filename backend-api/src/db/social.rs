@@ -286,6 +286,39 @@ pub async fn find_public_profile(
     }))
 }
 
+/// Posts whose topic is this Apple Music catalog id, most liked first.
+/// Equal scores fall back to newest first, then post id.
+pub async fn get_topic_posts(
+    db: &DatabaseConnection,
+    viewer_id: Uuid,
+    topic_mk_id: &str,
+) -> Result<Vec<SocialPost>, CadenzaError> {
+    let rows = PostRow::find_by_statement(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "SELECT
+             p.post_id,
+             p.user_id AS author_id,
+             p.content,
+             p.likes,
+             p.created_at,
+             p.topic_mk_id,
+             COALESCE(pr.username, 'unknown') AS username,
+             EXISTS (
+                 SELECT 1 FROM post_likes
+                 WHERE post_likes.post_id = p.post_id
+                   AND post_likes.user_id = $1
+             ) AS liked
+         FROM posts p
+         LEFT JOIN profile pr ON pr.uid = p.user_id
+         WHERE p.topic_mk_id = $2
+         ORDER BY p.likes DESC, p.created_at DESC, p.post_id DESC",
+        vec![viewer_id.into(), topic_mk_id.into()],
+    ))
+    .all(db)
+    .await?;
+    Ok(rows.iter().map(PostRow::to_post).collect())
+}
+
 /// One author's posts, newest first.
 pub async fn get_author_posts(
     db: &DatabaseConnection,

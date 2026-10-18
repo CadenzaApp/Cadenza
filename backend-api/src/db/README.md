@@ -7,7 +7,7 @@ The data access layer. Everything that touches postgres lives here, so handlers 
 
 | file | role |
 | --- | --- |
-| `mod.rs` | Declares `activity_tags`, `analytics`, `comment_votes`, `comments`, `entity`, `events`, `metadata_tags`, `profile`, `queries`, `tag_activity`, `tags`, `user_songs`. |
+| `mod.rs` | Declares `activity_tags`, `analytics`, `entity`, `events`, `metadata_tags`, `profile`, `queries`, `social`, `tag_activity`, `tags`, `user_songs`. |
 | `profile.rs` | Profile reads and writes: own profile, create with a default username from the email local part, and update username/bio. Unit tested. |
 | `events.rs` | The write path for `listening_events`: `NewEvent` and `insert_events`, which is idempotent on `client_event_id` and reports which rows were new. |
 | `analytics.rs` | The read path for `listening_events`: the metric summary, dense time bucketed trends, the song, artist, album, playlist and query rankings, replays, top tags with a cover song, tags played, the tag-colored heatmap, plays by hour, active days, and the event bounds. Integration tested against a real database (`--ignored`). |
@@ -15,12 +15,10 @@ The data access layer. Everything that touches postgres lives here, so handlers 
 | `tags.rs` | User tag CRUD and applied values, plus searching, reading, and applying default tags, and claiming, finishing, and dropping a song's default tag generation. User tag reads never copy or return defaults. |
 | `tag_activity.rs` | Not activity tags. Counts applies and removes of a tag name on a song in `default_tag_activity`, and promotes popular names to default tags. |
 | `queries.rs` | Compiles a tag query to SQL, runs it, and ranks the matches. Unit tested, plus metadata filters run against a real database (`--ignored`). |
-| `social.rs` | Posts, likes, view status, interest scores, and the feed's SQL and score math. `post_likes` writes use the generated entity; `hot_score` and embeddings stay raw SQL. Embeddings come from `services::social_feed`. `topic_mk_id` is an optional Apple Music catalog id; song vs artist is not stored. Unit tested for the vector math. |
+| `social.rs` | Posts, likes, view status, interest scores, and the feed's SQL and score math. `post_likes` writes use the generated entity; `hot_score` and embeddings stay raw SQL. Embeddings come from `services::social_feed`. `topic_mk_id` is an optional Apple Music catalog id; song vs artist is not stored. `get_topic_posts` returns the posts for one catalog id, most liked first. Unit tested for the vector math. |
 | `metadata_tags.rs` | The copy of Apple Music song metadata that queries and metadata tags read in `metadata_song_tags_applied`, and the album crawl queue in `metadata_albums`: storing songs, finding ones with no row, and queueing, claiming, finishing, and releasing albums. Unit tested, plus integration tests against a real database (`--ignored`). |
-| `comments.rs` | Comment reads and writes: every comment on a song paired into threads, leaving a comment or a reply, and deleting the user's own comment. |
-| `comment_votes.rs` | `CommentVote` and `VoteTally`. `set_comment_vote`, which casts, switches, or takes back the user's vote on a comment, and `get_song_vote_tallies`, the votes on each comment of a song as the reading user sees them. |
 | `user_songs.rs` | `edit_user_songs`: adds and removes the user's songs in one transaction. `get_recent_songs_without_generated_default_tags`: the newest songs nothing has generated default tags for, which the backfill job walks. |
-| `entity/` | sea-orm-codegen output. Includes tag, default-tag, comment, and related tables, plus `prelude` and `mod`. Do not hand edit. |
+| `entity/` | sea-orm-codegen output. Includes tag, default-tag, and related tables, plus `prelude` and `mod`. Do not hand edit. |
 
 ## Schema
 
@@ -84,14 +82,6 @@ Most of the tables below are keyed on song ids that come from Apple Music.
   creates the row with username equal to the email local part (everything before `@`), appending
   a number when that name is taken. `POST /profile` does the same for a missing row. See Profiles
   below.
-- `comment` - a comment a user left on a song. `id` (identity pk), `content`, `song_id`, `user_id`,
-  and `created_at`, a `timestamp` with no time zone that defaults to `now()`. A reply sets `parent`
-  to the comment it answers, a self fk that cascades, so deleting a comment deletes its replies.
-  `song_id` is nullable, but the api fills it on every comment, replies included. `user_id`
-  references `auth.users` with no cascade. See Comments below.
-- `comment_votes` - a user's vote on a comment. Composite pk of `(user_id, comment_id)`, so one
-  vote per user per comment, and `is_upvote`. Both fks cascade, to `comment` and to `auth.users`,
-  so deleting a comment or a user deletes its votes.
 - `metadata_song_tags_applied` - a copy of each song's Apple Music metadata, one row
   per song, keyed by `song_id`. `found` is false for an id Apple has no catalog entry for, which
   leaves every other column empty. `name`, `artist_name`, `album_name`, `album_id`,
@@ -238,32 +228,6 @@ refuses a username that still contains `@`. `update_profile` needs at least one 
 `bio`. Duplicate `uid` maps to `ProfileAlreadyExists`, duplicate `username` to
 `UsernameAlreadyTaken`, both through `err.rs` on the unique constraints.
 
-## Comments
-
-`get_song_comments` reads every comment with the song's id in one query, oldest first, and
-`into_threads` pairs them up: top level comments newest first, each with its replies oldest first.
-One query is enough because a reply stores its parent's `song_id` too.
-
-`new_comment` trims the content, which then has to be 1 to `MAX_COMMENT_CHARS` (2000) characters.
-With a `parent_id` it looks the parent up first. A missing parent is `NotFound`. A parent that is a
-reply, or is on another song, is `QueryFormatError`, so replies stay one level deep. A parent
-deleted between that check and the insert trips `comment_parent_fkey`, which `err.rs` maps to
-`NotFound`.
-
-`delete_user_comment` deletes by comment id and user id in one statement, and returns `NotFound`
-when nothing matched. The cascade takes the replies with it, whoever left them, and every vote on
-them.
-
-`comment_votes.rs::set_comment_vote` upserts the user's row on `(user_id, comment_id)` for an up or
-down vote, so voting again switches the vote instead of adding one, and deletes the row for `None`.
-An up or down vote on a comment that does not exist trips `comment_votes_comment_id_fkey`, which
-`err.rs` maps to `NotFound`. Taking back a vote that was never cast does nothing.
-
-`get_song_vote_tallies` is one grouped query over the votes on the song's comments. Each up vote
-counts 1 and each down vote -1. Their sum is the comment's `votes`, and the max of that value over
-the reader's rows alone, null when they did not vote, is `my_vote`. Comments with no votes are left
-out, and `routes::json::comment` gives them 0 votes and no vote of the reader's.
-
 ## The query compiler
 
 `queries.rs::run_query` is the interesting part. It takes the typed `Query` from
@@ -356,12 +320,11 @@ every song scores zero and the whole list is ordered by song id.
 ## Connects to
 
 - Called by `src/routes/tags.rs`, `src/routes/songs.rs`, `src/routes/queries.rs`,
-  `src/routes/comments.rs`, `src/routes/profile.rs`.
+  `src/routes/profile.rs`.
 - `queries.rs` reads its input types from `src/routes/json/query.rs`.
 - Models convert to wire types through `From<tags::Model> for routes::json::tag::Tag`, and a
   model paired with its applied value through `From<(tags::Model, Option<String>)> for
-  routes::json::tag::AppliedTag`. Comments convert through `routes::json::comment`, which also
-  takes the reading user's id to fill in `mine`, and the tallies from `comment_votes.rs`.
+  routes::json::tag::AppliedTag`.
 - `set_default_tags_on_songs` accepts `services::tag_generation::TagSpecs` from the generator.
 - Client side the same JSON comes from either
   `client-app/src/features/query-builder/QueryUtils.ts::queryToJSON` or
@@ -446,15 +409,6 @@ every song scores zero and the whole list is ordered by song id.
   My Plays row counts toward ranking when the query names My Plays.
 - The trigger stops `DELETE` on an activity tag, not `TRUNCATE`. After a truncate the next request
   recreates the rows with new ids, and the old values are gone with the cascade.
-- `comment` has no index on `song_id` or `parent`, so `get_song_comments` scans the table, and so
-  does `get_song_vote_tallies`, whose join to `comment` filters on `song_id`. The `comment_votes` pk
-  leads with `user_id`, so that join's `comment_id` side cannot use it either.
-- `comment.user_id` references `auth.users` with no cascade, so deleting a Supabase user who has
-  comments fails until those comments are gone.
-- `comment.created_at` has no time zone. sqlx sessions and the database default both run in UTC, so
-  `routes::json::comment` labels it UTC. A session in another time zone would write shifted times.
-- Rows written outside the api that break the thread rules never come back from
-  `get_song_comments`: a comment with no `song_id`, or a reply to a reply.
 
 ---
 Touching files in this directory? Update this README in the same change.
