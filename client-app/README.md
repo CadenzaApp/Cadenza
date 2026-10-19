@@ -15,6 +15,8 @@ over HTTP.
 | `modules/apple-musickit/`                             | Local native Expo module. See [modules/apple-musickit/README.md](modules/apple-musickit/README.md).                                                                                                                                                               |
 | `modules/image-color/`                                | Local native artwork color module. See [modules/image-color/README.md](modules/image-color/README.md).                                                                                                                                                            |
 | `plugins/`                                            | Local Expo config plugins applied during prebuild.                                                                                                                                                                                                                |
+| `patches/`                                            | Native dependency fixes applied by the npm postinstall hook.                                                                                                                                                                                                      |
+| `scripts/`                                            | Native build regression checks; included in `npm test`.                                                                                                                                                                                                           |
 | `app.config.js`, `eas.json`                           | Expo app config and build profiles. `app.config.js` reads `APPLE_BUNDLE_ID` and `APPLE_TEAM_ID` from the env so each developer can sign with their own bundle id and team.                                                                                        |
 | `tailwind.config.js`, `global.css`, `components.json` | nativewind / tailwind and shadcn-style generator config.                                                                                                                                                                                                          |
 | `metro.config.js`, `babel.config.js`, `tsconfig.json` | Bundler, transform, and path aliases.                                                                                                                                                                                                                             |
@@ -82,6 +84,13 @@ npx tsc --noEmit   # typecheck
 
 ## Gotchas
 
+- Xcode 27.1 can reject a cached ExpoModulesJSI framework built against another SDK even
+  when the Swift compiler version is unchanged. The pinned `expo-modules-jsi` patch adds Xcode
+  and SDK build identifiers to its cache key and handles Swift 6.4's C++ namespace spelling
+  in interface cleanup. `npm install` applies it through `patch-package`; if install scripts
+  were skipped, run `npm run postinstall` before building. The next native build automatically
+  rebuilds the affected framework. When upgrading that package, recheck whether the patch is
+  still needed. Its shell regression tests run on macOS.
 - **Two different base urls.** `src/lib/backend.ts` hardcodes `http://localhost:3000` and is what
   every SWR hook and the query builder use. `src/lib/tag-generation.ts` has its own resolver that
   reads `EXPO_PUBLIC_BACKEND_API_URL` and falls back to the Expo host. On a physical device

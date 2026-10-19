@@ -14,11 +14,11 @@ function nativeError(name: string) {
     );
 }
 
-test("a 403 from apple music reads as an expired session, not a stack trace", () => {
+test("a 403 from Apple Music asks for reconnection, not a stack trace", () => {
     const appError = classifyError(nativeError("ERR_APPLE_MUSIC_AUTH"));
 
     assert.equal(appError.kind, "apple-music-auth");
-    assert.equal(appError.title, "Apple Music session expired");
+    assert.equal(appError.title, "Apple Music connection needs attention");
     assert.equal(appError.action?.href, "/account");
     assert.equal(appError.retryable, false);
     // the raw text is kept for logging but is not what the UI shows

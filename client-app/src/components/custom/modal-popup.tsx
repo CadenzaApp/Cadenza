@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
 import {
+    KeyboardAvoidingView,
     Modal,
+    Platform,
     Pressable,
     StyleSheet,
     View,
@@ -13,6 +15,7 @@ import { Text } from "@/components/ui/text";
 import { cn } from "@/lib/utils";
 
 type ModalPopupProps = {
+    keyboardAware?: boolean;
     visible: boolean;
     onClose: () => void;
     title?: string;
@@ -28,6 +31,7 @@ type ModalPopupProps = {
 /** Shared modal popup with the app's standard fade and outside-tap dismissal. */
 export function ModalPopup({
     visible,
+    keyboardAware = false,
     onClose,
     title,
     titleClassName,
@@ -43,47 +47,53 @@ export function ModalPopup({
             animationType="fade"
             onRequestClose={onClose}
         >
-            <Pressable
-                className={cn(
-                    "flex-1 items-center justify-center bg-black/70 px-4 py-8",
-                    backdropClassName,
-                )}
-                onPress={onClose}
+            <KeyboardAvoidingView
+                className="flex-1"
+                enabled={keyboardAware}
+                behavior={Platform.OS === "ios" ? "padding" : "height"}
             >
                 <Pressable
-                    accessibilityViewIsModal
                     className={cn(
-                        "w-[70%] max-w-[400px] min-w-[240px] gap-2 overflow-hidden rounded-2xl p-4",
-                        variant === "solid" &&
-                            "border border-border bg-popover shadow-lg shadow-black/5",
+                        "flex-1 items-center justify-center bg-black/70 px-4 py-8",
+                        backdropClassName,
                     )}
-                    style={contentStyle}
-                    onPress={(event) => event.stopPropagation()}
+                    onPress={onClose}
                 >
-                    {variant === "glass" ? (
-                        <View
-                            pointerEvents="none"
-                            style={StyleSheet.absoluteFill}
-                        >
-                            <GlassSurface
-                                variant="regular"
+                    <Pressable
+                        accessibilityViewIsModal
+                        className={cn(
+                            "w-[70%] max-w-[400px] min-w-[240px] gap-2 overflow-hidden rounded-2xl p-4",
+                            variant === "solid" &&
+                                "border border-border bg-popover shadow-lg shadow-black/5",
+                        )}
+                        style={contentStyle}
+                        onPress={(event) => event.stopPropagation()}
+                    >
+                        {variant === "glass" ? (
+                            <View
+                                pointerEvents="none"
                                 style={StyleSheet.absoluteFill}
-                            />
-                        </View>
-                    ) : null}
-                    {title ? (
-                        <Text
-                            className={cn(
-                                "text-lg font-semibold text-popover-foreground",
-                                titleClassName,
-                            )}
-                        >
-                            {title}
-                        </Text>
-                    ) : null}
-                    {children}
+                            >
+                                <GlassSurface
+                                    variant="regular"
+                                    style={StyleSheet.absoluteFill}
+                                />
+                            </View>
+                        ) : null}
+                        {title ? (
+                            <Text
+                                className={cn(
+                                    "text-lg font-semibold text-popover-foreground",
+                                    titleClassName,
+                                )}
+                            >
+                                {title}
+                            </Text>
+                        ) : null}
+                        {children}
+                    </Pressable>
                 </Pressable>
-            </Pressable>
+            </KeyboardAvoidingView>
         </Modal>
     );
 }

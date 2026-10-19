@@ -11,7 +11,8 @@ import {
 import {
     parseStoredAppleMusicAuth,
     serializeAppleMusicAuth,
-} from "./apple-music-auth-storage";
+    AppleMusicAuthGeneration,
+} from "./apple-music-auth-state";
 
 type AppleMusicContextType = {
     authResult: AuthResult | null;
@@ -39,14 +40,26 @@ const AppleMusicContext = createContext<AppleMusicContextType | null>(null);
  * The provider is a singleton, so there is only ever one of these.
  */
 let authFailureHandler: (() => void) | null = null;
+const authGeneration = new AppleMusicAuthGeneration();
+let pendingAuthReset: Promise<void> = Promise.resolve();
+
+/** Capture this before an Apple Music read so a later failure cannot clear a new session. */
+export function getAppleMusicAuthGeneration(): number {
+    return authGeneration.snapshot();
+}
 
 /**
- * Called when Apple has rejected the stored music-user token and a retry did
- * not help. Drops the dead token and flips the provider to `sessionExpired`, so
- * the UI can offer a reconnect instead of replaying a token that cannot work.
+ * Called when Apple has rejected a request with the current credentials and a
+ * retry did not help. Clears those credentials and offers a reconnect.
  */
-export function reportAppleMusicAuthFailure() {
-    authFailureHandler?.();
+export function reportAppleMusicAuthFailure(readGeneration: number) {
+    if (
+        !authFailureHandler ||
+        !authGeneration.retireIfCurrent(readGeneration)
+    ) {
+        return;
+    }
+    authFailureHandler();
 }
 
 export function useAppleMusic() {
@@ -84,6 +97,7 @@ export function AppleMusicProvider({ children }: { children: ReactNode }) {
 
     // Initialize tokens on app load
     useEffect(() => {
+        authGeneration.beginTransition();
         async function initAppleMusic() {
             try {
                 const savedAuth = await readStoredAuth();
@@ -110,6 +124,7 @@ export function AppleMusicProvider({ children }: { children: ReactNode }) {
                 setAuthResult(null);
             } finally {
                 setIsInitializing(false);
+                authGeneration.endTransition();
             }
         }
         // required to make this inline function to handle async stuff. Unless there's a better way, idk.
@@ -121,7 +136,9 @@ export function AppleMusicProvider({ children }: { children: ReactNode }) {
      * allowing them to be restored in future sessions.
      */
     const connect = useCallback(async () => {
+        authGeneration.beginTransition();
         try {
+            await pendingAuthReset;
             const result = await Auth.authorize(getDeveloperToken());
 
             if (result.status === AuthStatus.Authorized && result.userToken) {
@@ -140,6 +157,8 @@ export function AppleMusicProvider({ children }: { children: ReactNode }) {
         } catch (error) {
             console.error("Apple Music authorization error:", error);
             throw error;
+        } finally {
+            authGeneration.endTransition();
         }
     }, [restoreNativeTokens]);
 
@@ -159,13 +178,18 @@ export function AppleMusicProvider({ children }: { children: ReactNode }) {
      * Signs the user out of Apple Music and removes the securely stored token.
      */
     async function disconnect() {
-        setAuthResult(null);
-        setSessionRevision((revision) => revision + 1);
-        setSessionExpired(false);
-        await clearStoredAuth();
+        authGeneration.beginTransition();
+        try {
+            setAuthResult(null);
+            setSessionRevision((revision) => revision + 1);
+            setSessionExpired(false);
+            await clearStoredAuth();
 
-        // Explicitly pass null to overwrite the userToken in the native module
-        await restoreNativeTokens(null);
+            // Explicitly pass null to overwrite the userToken in the native module
+            await restoreNativeTokens(null);
+        } finally {
+            authGeneration.endTransition();
+        }
     }
 
     // Drop a token Apple has rejected. Keeping it would mean every later read
@@ -176,14 +200,17 @@ export function AppleMusicProvider({ children }: { children: ReactNode }) {
             setSessionExpired(true);
             setAuthResult(null);
             setSessionRevision((revision) => revision + 1);
-            clearStoredAuth().catch((error) =>
+            const clearStored = clearStoredAuth().catch((error) =>
                 console.error("Failed to clear Apple Music auth:", error),
             );
-            restoreNativeTokens(null).catch((error) =>
+            const clearNative = restoreNativeTokens(null).catch((error) =>
                 console.error(
                     "Failed to clear native Apple Music token:",
                     error,
                 ),
+            );
+            pendingAuthReset = Promise.all([clearStored, clearNative]).then(
+                () => undefined,
             );
         };
         return () => {

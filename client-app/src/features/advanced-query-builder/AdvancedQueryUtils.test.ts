@@ -438,3 +438,14 @@ test("moving between a tag and a metadata field keeps what still fits", () => {
         "is",
     );
 });
+
+test("unchanged leaf updates preserve the root and its other branches", () => {
+    const root = createGroup();
+    const node = root.children[0];
+    assert.equal(
+        updateFilter(root, node.id, (filter) => ({ ...filter })),
+        root,
+    );
+    assert.equal(setConjunction(root, root.id, root.conjunction), root);
+    assert.equal(removeNode(root, "missing"), root);
+});

@@ -3,8 +3,8 @@
 // Mirrors backend-api/src/routes/json/query.rs.
 //
 // Both builders compile to this shape: the drag and drop builder in
-// Both builders emit tag-value filters. The advanced builder also supports
-// metadata and cross-tag fields.
+// Both builders emit tag-value and metadata filters. Advanced also supports
+// cross-tag fields.
 /////////////////////////
 
 import type { TagType } from "@/lib/types";

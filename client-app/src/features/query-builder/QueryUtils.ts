@@ -27,12 +27,12 @@ export function sortTagsByApplicationCount(
     });
 }
 
-export function makeQueryId(prefix: "tag" | "group" | "condition"): string {
+function makeQueryId(prefix: "tag" | "group" | "condition"): string {
     nextQueryId += 1;
     return `${prefix}-${Date.now().toString(36)}-${nextQueryId.toString(36)}`;
 }
 
-export function makeQueryTag(
+function makeQueryTag(
     tag: Tag,
     connector: QueryConnector = "and",
     suggested = false,
@@ -108,20 +108,19 @@ export function updateQueryTagConstraint(
     queryTagId: string,
     constraint: QueryTagConstraint,
 ): QueryCondition[] {
-    return conditions.map((condition) =>
-        condition.kind === "tag"
-            ? condition.id === queryTagId
-                ? { ...condition, constraint }
-                : condition
-            : {
-                  ...condition,
-                  members: condition.members.map((member) =>
-                      member.id === queryTagId
-                          ? { ...member, constraint }
-                          : member,
-                  ),
-              },
-    );
+    const update = (tag: QueryTag): QueryTag =>
+        tag.id !== queryTagId ||
+        (tag.constraint?.op === constraint.op &&
+            tag.constraint?.value === constraint.value)
+            ? tag
+            : { ...tag, constraint };
+    return conditions.map((condition) => {
+        if (condition.kind === "tag") return update(condition);
+        const members = condition.members.map(update);
+        return members.every((item, index) => item === condition.members[index])
+            ? condition
+            : { ...condition, members };
+    });
 }
 
 export function toggleConditionNegation(
@@ -141,35 +140,12 @@ export function setGroupMode(
     mode: QueryGroupMode,
 ): QueryCondition[] {
     return conditions.map((condition) =>
-        condition.kind === "group" && condition.id === groupId
+        condition.kind === "group" &&
+        condition.id === groupId &&
+        condition.mode !== mode
             ? { ...condition, mode }
             : condition,
     );
-}
-
-export function toggleConditionConnector(
-    conditions: readonly QueryCondition[],
-    conditionId: string,
-): QueryCondition[] {
-    return conditions.map((condition, index) =>
-        index > 0 && condition.id === conditionId
-            ? {
-                  ...condition,
-                  connector: condition.connector === "and" ? "or" : "and",
-              }
-            : condition,
-    );
-}
-
-export function conditionConnectorLabel(condition: QueryCondition): string {
-    const connector = condition.connector.toUpperCase();
-    const itemCount = condition.kind === "group" ? condition.members.length : 1;
-    return itemCount === 1 ? `${connector} HAVE` : connector;
-}
-
-export function groupMemberConnectorLabel(mode: QueryGroupMode): string {
-    if (mode === "any") return "OR";
-    return mode === "none" ? "NOR" : "AND";
 }
 
 export function removeQueryTag(
@@ -211,56 +187,11 @@ export function moveConditionToIndex(
     const [condition] = next.splice(conditionIndex, 1);
     const adjustedIndex = conditionIndex < index ? index - 1 : index;
     next.splice(clampInsertionIndex(adjustedIndex, next.length), 0, condition);
-    return next.map((item, nextIndex) => ({
-        ...item,
-        connector: nextIndex === 0 ? "and" : connectorSlots[nextIndex - 1],
-    }));
-}
-
-export function getConditionReorderPosition(
-    conditions: readonly Pick<QueryCondition, "id">[],
-    conditionId: string,
-    draggedCenterY: number,
-    conditionCenters: ReadonlyMap<string, number>,
-): { finalIndex: number; insertionIndex: number } | null {
-    const originIndex = conditions.findIndex(
-        (condition) => condition.id === conditionId,
-    );
-    if (originIndex === -1) return null;
-
-    let finalIndex = 0;
-    for (const condition of conditions) {
-        if (condition.id === conditionId) continue;
-        const center = conditionCenters.get(condition.id);
-        if (center == null) {
-            return {
-                finalIndex: Math.min(originIndex, conditions.length - 1),
-                insertionIndex: originIndex,
-            };
-        }
-        if (draggedCenterY > center) finalIndex += 1;
-    }
-
-    return {
-        finalIndex,
-        insertionIndex: finalIndex > originIndex ? finalIndex + 1 : finalIndex,
-    };
-}
-
-/** Keep the list's geometry fixed while a condition is being dragged. */
-export function getConditionReorderShift(
-    index: number,
-    originIndex: number | null,
-    finalIndex: number | null,
-    draggedRowHeight: number,
-): number {
-    if (originIndex == null || finalIndex == null || originIndex === finalIndex)
-        return 0;
-    if (originIndex < finalIndex && index > originIndex && index <= finalIndex)
-        return -draggedRowHeight;
-    if (originIndex > finalIndex && index >= finalIndex && index < originIndex)
-        return draggedRowHeight;
-    return 0;
+    return next.map((item, nextIndex) => {
+        const connector =
+            nextIndex === 0 ? "and" : connectorSlots[nextIndex - 1];
+        return item.connector === connector ? item : { ...item, connector };
+    });
 }
 
 export function moveQueryTagToIndex(
@@ -373,12 +304,6 @@ export function usedTagIds(
         else condition.members.forEach((member) => used.add(member.tag.id));
     }
     return used;
-}
-
-export function queryHeading(conditions: readonly QueryCondition[]): string {
-    return conditions[0]?.kind === "group"
-        ? "Find me all songs that:"
-        : "Find me all songs that have:";
 }
 
 function addQueryTagToCondition(

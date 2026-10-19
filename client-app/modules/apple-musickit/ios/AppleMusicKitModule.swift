@@ -726,10 +726,9 @@ public class AppleMusicKitModule: Module {
                     self.userToken = userToken
                     return ["status": "authorized", "userToken": userToken]
                 } catch {
-                    let nsError = error as NSError
                     return [
                         "status": "failed",
-                        "error": "MusicKit could not authorize this Apple Music account (\(nsError.domain) \(nsError.code)): \(error.localizedDescription)"
+                        "error": "Apple Music couldn't connect. Check your connection and try again."
                     ]
                 }
             case .denied: return ["status": "denied"]

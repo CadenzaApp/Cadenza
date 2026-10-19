@@ -25,7 +25,10 @@ type Props = {
     /** My Plays and the rest, offered after the user's own tags. */
     activityTags: Tag[];
     root: AdvancedGroupNode;
-    setRoot: (update: (root: AdvancedGroupNode) => AdvancedGroupNode) => void;
+    setRoot: (
+        update: (root: AdvancedGroupNode) => AdvancedGroupNode,
+        coalesceKey?: string,
+    ) => void;
     /** Shown beneath the editor when the current tree cannot be compiled. */
     message?: string | null;
 };
@@ -77,7 +80,10 @@ export function AdvancedQueryBuilder({
                     ),
                 ),
             updateFilter: (filterId, update) =>
-                setRoot((r) => updateFilter(r, filterId, update)),
+                setRoot(
+                    (r) => updateFilter(r, filterId, update),
+                    `value:${filterId}`,
+                ),
         }),
         [setRoot, builderTags],
     );

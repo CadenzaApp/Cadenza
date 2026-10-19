@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-    advancedToSimple,
     advancedUsesTags,
     simpleToAdvanced,
     withOuterConnector,
@@ -10,7 +9,6 @@ import { buildAdvancedQuery } from "../advanced-query-builder/AdvancedQueryUtils
 import { queryToJSON, moveConditionToIndex } from "./QueryUtils.ts";
 import type { QueryCondition, QueryTag } from "./types.ts";
 import type { QueryJSONNode } from "../../lib/query-json.ts";
-import type { AdvancedGroupNode } from "../advanced-query-builder/types.ts";
 import { metadataPaletteTag } from "./metadata-palette.ts";
 
 const tags = [1, 2, 3].map((id) => ({
@@ -20,7 +18,7 @@ const tags = [1, 2, 3].map((id) => ({
     type: "basic" as const,
 }));
 const tagTypes = new Map(tags.map((tag) => [tag.id, tag.type]));
-test("metadata filters survive switching between simple and advanced builders", () => {
+test("metadata filters survive seeding Advanced from Simple", () => {
     const conditions: QueryCondition[] = [
         {
             kind: "tag",
@@ -45,9 +43,6 @@ test("metadata filters survive switching between simple and advanced builders", 
     const built = buildAdvancedQuery(advanced, tagTypes);
     assert.ok(built.ok);
     assert.deepEqual(queryToJSON(conditions), built.query);
-    const restored = advancedToSimple(advanced, tags, new Set());
-    assert.ok(restored);
-    assert.deepEqual(queryToJSON(restored.conditions), queryToJSON(conditions));
 });
 const leaf = (index: number, negated = false): QueryTag => ({
     kind: "tag",
@@ -82,7 +77,7 @@ function equivalent(a: QueryJSONNode, b: QueryJSONNode) {
 }
 for (const connector of ["and", "or"] as const) {
     for (const mode of ["any", "all", "none"] as const) {
-        test(`${connector}/${mode}: editor round trip preserves every match and suggested identity`, () => {
+        test(`${connector}/${mode}: seeding Advanced preserves every match and suggested reference`, () => {
             const conditions = withOuterConnector(
                 [
                     {
@@ -100,16 +95,6 @@ for (const connector of ["and", "or"] as const) {
             const built = buildAdvancedQuery(advanced, tagTypes);
             assert.ok(built.ok);
             equivalent(queryToJSON(conditions)!.where, built.query.where);
-            const simple = advancedToSimple(advanced, tags, new Set([2]));
-            assert.ok(simple);
-            equivalent(
-                queryToJSON(conditions)!.where,
-                queryToJSON(simple.conditions)!.where,
-            );
-            assert.equal(simple.connector, connector);
-            const group = simple.conditions[0];
-            assert.ok(group.kind === "group");
-            assert.equal(group.members[1].suggested, true);
             assert.equal(advancedUsesTags(advanced, new Set([2])), true);
         });
     }
@@ -124,12 +109,6 @@ test("legacy mixed connectors are nested, never silently reinterpreted", () => {
     const built = buildAdvancedQuery(root, tagTypes);
     assert.ok(built.ok);
     equivalent(queryToJSON(conditions)!.where, built.query.where);
-    const simple = advancedToSimple(root, tags, new Set());
-    assert.ok(simple);
-    equivalent(
-        queryToJSON(conditions)!.where,
-        queryToJSON(simple.conditions)!.where,
-    );
 });
 test("a uniform outer rule is invariant under reorder", () => {
     for (const connector of ["and", "or"] as const) {
@@ -147,31 +126,7 @@ test("a uniform outer rule is invariant under reorder", () => {
         );
     }
 });
-test("unsupported value filters, unavailable tags, and negative group members cannot lose meaning on conversion", () => {
-    const root = simpleToAdvanced([leaf(1)]);
-    const filter = root.children[0];
-    assert.ok(filter.kind === "filter");
-    assert.equal(
-        advancedToSimple(
-            { ...root, children: [{ ...filter, op: "eq", value: "8" }] },
-            tags,
-            new Set(),
-        ),
-        null,
-    );
-    assert.equal(advancedToSimple(root, [], new Set()), null);
-    const nested: AdvancedGroupNode = {
-        kind: "group",
-        id: "nested",
-        conjunction: "or",
-        children: [{ ...filter, op: "is_not_applied" }, filter],
-    };
-    assert.equal(
-        advancedToSimple({ ...root, children: [nested] }, tags, new Set()),
-        null,
-    );
-});
-test("number constraints survive Simple compilation and an Advanced round trip", () => {
+test("number constraints and negation survive seeding Advanced", () => {
     const numberTag = {
         id: 4,
         name: "Rating",
@@ -197,15 +152,6 @@ test("number constraints survive Simple compilation and an Advanced round trip",
     const built = buildAdvancedQuery(advanced, new Map([[4, "number"]]));
     assert.ok(built.ok);
     assert.deepEqual(built.query, expected);
-    const converted = advancedToSimple(advanced, [numberTag], new Set());
-    assert.ok(converted);
-    assert.deepEqual(queryToJSON(converted.conditions), expected);
-    assert.deepEqual(
-        converted.conditions[0].kind === "tag"
-            ? converted.conditions[0].constraint
-            : undefined,
-        tagged.constraint,
-    );
 
     const excluded: QueryCondition[] = [{ ...tagged, negated: true }];
     const excludedAdvanced = simpleToAdvanced(excluded);
@@ -234,20 +180,8 @@ test("number constraints survive Simple compilation and an Advanced round trip",
             ],
         },
     });
-    const excludedSimple = advancedToSimple(
-        excludedAdvanced,
-        [numberTag],
-        new Set(),
-    );
-    assert.ok(excludedSimple);
-    assert.deepEqual(
-        queryToJSON(excludedSimple.conditions),
-        queryToJSON(excluded),
-    );
 });
-test("empty editors convert without inventing filters", () => {
-    assert.deepEqual(advancedToSimple(simpleToAdvanced([]), tags, new Set()), {
-        conditions: [],
-        connector: "and",
-    });
+
+test("an empty Simple draft seeds an empty Advanced draft", () => {
+    assert.deepEqual(simpleToAdvanced([]).children, []);
 });

@@ -5,34 +5,27 @@ import type { Tag } from "../../lib/types.ts";
 import {
     addTagToCondition,
     appendTag,
-    conditionConnectorLabel,
-    getConditionReorderPosition,
-    getConditionReorderShift,
-    groupMemberConnectorLabel,
     moveConditionToIndex,
     moveQueryTagToCondition,
     moveQueryTagToIndex,
-    queryHeading,
     hasSuggestedTag,
     queryToJSON,
     removeCondition,
     removeQueryTag,
     setGroupMode,
     sortTagsByApplicationCount,
-    toggleConditionConnector,
     toggleConditionNegation,
     updateQueryTagConstraint,
     usedTagIds,
 } from "./QueryUtils.ts";
 import type { QueryCondition, QueryConnector, QueryTag } from "./types.ts";
 import { metadataPaletteTag } from "./metadata-palette.ts";
-import { quoteQueryTextValue } from "./query-tag-label.ts";
 
 const rainy: Tag = { id: 1, name: "rainy", color: "#2563eb", type: "basic" };
 const chill: Tag = { id: 2, name: "chill", color: "#7c3aed", type: "basic" };
 const jazz: Tag = { id: 3, name: "jazz", color: "#db2777", type: "basic" };
 
-test("metadata palette filters compile as metadata and text values are quoted", () => {
+test("metadata palette filters compile as metadata", () => {
     const title = metadataPaletteTag("title");
     const condition = appendTag([], title, false, {
         op: "contains",
@@ -52,8 +45,6 @@ test("metadata palette filters compile as metadata and text values are quoted", 
             ],
         },
     });
-    assert.equal(quoteQueryTextValue("wheee"), '"wheee"');
-    assert.equal(quoteQueryTextValue('say "hi"'), '"say \\"hi\\""');
 });
 
 /** The wire shape of a plain tag in the query, and of a negated one. */
@@ -285,7 +276,7 @@ test("toggles all three group modes without changing tag identity", () => {
     });
 });
 
-test("derives heading and used palette markers", () => {
+test("derives used palette markers", () => {
     const single = queryTag("rainy", rainy);
     const group: QueryCondition = {
         kind: "group",
@@ -295,33 +286,7 @@ test("derives heading and used palette markers", () => {
         members: [single, queryTag("chill", chill)],
     };
 
-    assert.equal(queryHeading([]), "Find me all songs that have:");
-    assert.equal(queryHeading([single]), "Find me all songs that have:");
-    assert.equal(queryHeading([group]), "Find me all songs that:");
     assert.deepEqual([...usedTagIds([group])], [1, 2]);
-});
-
-test("toggles top-level connectors and labels the condition below", () => {
-    const single = queryTag("chill", chill);
-    const group: QueryCondition = {
-        kind: "group",
-        id: "group-1",
-        mode: "any",
-        connector: "and",
-        members: [queryTag("chill-2", chill), queryTag("jazz", jazz)],
-    };
-
-    assert.equal(conditionConnectorLabel(single), "AND HAVE");
-    assert.equal(conditionConnectorLabel(group), "AND");
-    assert.equal(groupMemberConnectorLabel("any"), "OR");
-    assert.equal(groupMemberConnectorLabel("all"), "AND");
-    assert.equal(groupMemberConnectorLabel("none"), "NOR");
-    const toggled = toggleConditionConnector(
-        [queryTag("rainy", rainy), single],
-        single.id,
-    );
-    assert.equal(toggled[1].connector, "or");
-    assert.equal(conditionConnectorLabel(toggled[1]), "OR HAVE");
 });
 
 test("serializes mixed top-level connectors from left to right", () => {
@@ -394,98 +359,6 @@ test("moves a single-tag condition as a top-level group", () => {
             (condition) => condition.id,
         ),
         ["jazz", "rainy", "chill"],
-    );
-});
-
-test("derives live condition reorder positions in both directions", () => {
-    const conditions = [
-        queryTag("a", rainy),
-        queryTag("b", chill),
-        queryTag("c", jazz),
-        queryTag("d", rainy),
-    ];
-    const centers = new Map([
-        ["a", 100],
-        ["b", 200],
-        ["c", 300],
-        ["d", 400],
-    ]);
-
-    const downward = getConditionReorderPosition(conditions, "a", 350, centers);
-    assert.deepEqual(downward, { finalIndex: 2, insertionIndex: 3 });
-    assert.deepEqual(
-        moveConditionToIndex(conditions, "a", downward!.insertionIndex).map(
-            (condition) => condition.id,
-        ),
-        ["b", "c", "a", "d"],
-    );
-
-    const upward = getConditionReorderPosition(conditions, "d", 150, centers);
-    assert.deepEqual(upward, { finalIndex: 1, insertionIndex: 1 });
-    assert.deepEqual(
-        moveConditionToIndex(conditions, "d", upward!.insertionIndex).map(
-            (condition) => condition.id,
-        ),
-        ["a", "d", "b", "c"],
-    );
-    assert.deepEqual(
-        getConditionReorderPosition(conditions, "b", 250, centers),
-        { finalIndex: 1, insertionIndex: 1 },
-    );
-});
-
-test("derives first and last condition reorder positions", () => {
-    const conditions = [
-        queryTag("a", rainy),
-        queryTag("b", chill),
-        queryTag("c", jazz),
-    ];
-    const centers = new Map([
-        ["a", 100],
-        ["b", 200],
-        ["c", 300],
-    ]);
-
-    assert.deepEqual(
-        getConditionReorderPosition(conditions, "c", 50, centers),
-        { finalIndex: 0, insertionIndex: 0 },
-    );
-    assert.deepEqual(
-        getConditionReorderPosition(conditions, "a", 350, centers),
-        { finalIndex: 2, insertionIndex: 3 },
-    );
-    assert.equal(
-        getConditionReorderPosition(conditions, "missing", 150, centers),
-        null,
-    );
-    assert.deepEqual(
-        getConditionReorderPosition(
-            conditions,
-            "b",
-            350,
-            new Map([["a", 100]]),
-        ),
-        { finalIndex: 1, insertionIndex: 1 },
-    );
-});
-
-test("reorder preview shifts only intervening rows and leaves layout fixed", () => {
-    const height = 88;
-    assert.deepEqual(
-        [0, 1, 2, 3].map((index) =>
-            getConditionReorderShift(index, 0, 2, height),
-        ),
-        [0, -height, -height, 0],
-    );
-    assert.deepEqual(
-        [0, 1, 2, 3].map((index) =>
-            getConditionReorderShift(index, 3, 1, height),
-        ),
-        [0, height, height, 0],
-    );
-    assert.deepEqual(
-        [0, 1, 2].map((index) => getConditionReorderShift(index, 1, 1, height)),
-        [0, 0, 0],
     );
 });
 

@@ -3,6 +3,12 @@ import type { FilterOp } from "@/lib/query-json";
 
 export type QueryTagConstraint = { op: FilterOp; value?: string };
 
+export type TagPlacement = {
+    tag: Tag;
+    suggested: boolean;
+    conditionIds: string[];
+};
+
 export type QueryTag = {
     kind: "tag";
     id: string;
@@ -45,8 +51,6 @@ export type DragPayload =
     | {
           source: "condition";
           condition: QueryCondition;
-          originIndex: number;
-          height: number;
       };
 
 export type DropTarget =
@@ -57,6 +61,4 @@ export type DropTarget =
 
 export type DragState = {
     payload: DragPayload;
-    x: number;
-    y: number;
 } | null;

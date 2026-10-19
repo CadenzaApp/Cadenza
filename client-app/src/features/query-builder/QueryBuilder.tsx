@@ -2,26 +2,33 @@ import {
     useCallback,
     useEffect,
     useRef,
+    useMemo,
     useState,
-    type ReactNode,
     type Dispatch,
+    type ReactNode,
     type SetStateAction,
 } from "react";
 import { KeyboardAvoidingView, Platform, View } from "react-native";
+import Animated, {
+    useAnimatedStyle,
+    useScrollOffset,
+    useSharedValue,
+    type SharedValue,
+} from "react-native-reanimated";
 import { DropSlot } from "./DropSlot";
-import { EditorActionsContext } from "./EditorActions";
-import Animated from "react-native-reanimated";
+import { DropViewport } from "./DropViewport";
+import { TAG_PALETTE_MAX_HEIGHT, clampPaletteHeight } from "./palette-geometry";
 
-import type { Tag, TagMetadata } from "@/lib/types";
 import {
     supportsNativeTabBottomAccessory,
     useScreenOverlayInsets,
 } from "@/lib/screen-overlay";
-import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
 import { useScreenScroll } from "@/lib/screen-scroll";
-import { ConditionList } from "./ConditionList";
+import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
+import type { Tag, TagMetadata } from "@/lib/types";
+import { ConditionList, EditorActionsContext } from "./ConditionList";
+import { DragProvider, useDrag, useRefreshDragHover } from "./DragContext";
 import { DragGhost } from "./DragGhost";
-import { DragProvider, useDrag } from "./DragContext";
 import {
     addTagToCondition,
     appendTag,
@@ -34,17 +41,19 @@ import {
     setGroupMode,
     toggleConditionNegation,
     updateQueryTagConstraint,
+    usedTagIds as collectUsedTagIds,
 } from "./QueryUtils";
-import { TagPalette } from "./TagPalette";
 import { TagConstraintDialog } from "./TagConstraintDialog";
+import { TagPalette } from "./TagPalette";
 import type {
     DragPayload,
     DropTarget,
     QueryCondition,
-    QueryGroupMode,
     QueryConnector,
+    QueryGroupMode,
     QueryTag,
     QueryTagConstraint,
+    TagPlacement,
 } from "./types";
 
 type Props = {
@@ -58,18 +67,8 @@ type Props = {
     tagMetadata?: Readonly<Record<number, TagMetadata>>;
     conditions: QueryCondition[];
     setConditions: Dispatch<SetStateAction<QueryCondition[]>>;
-    pendingTag: {
-        tag: Tag;
-        suggested: boolean;
-        conditionIds: string[];
-    } | null;
-    setPendingTag: Dispatch<
-        SetStateAction<{
-            tag: Tag;
-            suggested: boolean;
-            conditionIds: string[];
-        } | null>
-    >;
+    pendingTag: TagPlacement | null;
+    setPendingTag: Dispatch<SetStateAction<TagPlacement | null>>;
     includeSuggestedTags: boolean;
     outerConnector: QueryConnector;
     onOuterConnectorChange: (value: QueryConnector) => void;
@@ -104,23 +103,27 @@ export function QueryBuilder({
             : 0);
     const paletteWasResized = useRef(false);
     const [paletteHeight, setPaletteHeight] = useState(defaultPaletteHeight);
-    const handlePaletteHeightChange = useCallback((height: number) => {
-        paletteWasResized.current = true;
-        setPaletteHeight(height);
-    }, []);
+    const visiblePaletteHeight = useSharedValue(defaultPaletteHeight);
+    const handlePaletteHeightChange = useCallback(
+        (height: number) => {
+            paletteWasResized.current = true;
+            const next = clampPaletteHeight(height, 0);
+            visiblePaletteHeight.set(next);
+            setPaletteHeight(next);
+        },
+        [visiblePaletteHeight],
+    );
+    const usedTagIds = useMemo(
+        () => collectUsedTagIds(conditions),
+        [conditions],
+    );
     const scroll = useScreenScroll();
+    const scrollOffset = useScrollOffset(scroll.ref);
     const [constraintDraft, setConstraintDraft] = useState<
         | { kind: "add"; tag: Tag; suggested: boolean; target: DropTarget }
         | { kind: "edit"; queryTag: QueryTag }
         | null
     >(null);
-    const activePendingTag =
-        pendingTag &&
-        conditions.some((condition) =>
-            pendingTag.conditionIds.includes(condition.id),
-        )
-            ? pendingTag
-            : null;
     useEffect(() => {
         if (!paletteWasResized.current) {
             setPaletteHeight(defaultPaletteHeight);
@@ -268,48 +271,44 @@ export function QueryBuilder({
     );
     const placeTagInCondition = useCallback(
         (conditionId: string) => {
-            if (!activePendingTag) return;
-            if (activePendingTag.tag.type === "basic") {
+            if (!pendingTag) return;
+            if (pendingTag.tag.type === "basic") {
                 setConditions((current) =>
                     addTagToCondition(
                         current,
-                        activePendingTag.tag,
+                        pendingTag.tag,
                         conditionId,
-                        activePendingTag.suggested,
+                        pendingTag.suggested,
                     ),
                 );
             } else {
                 setConstraintDraft({
                     kind: "add",
-                    tag: activePendingTag.tag,
-                    suggested: activePendingTag.suggested,
+                    tag: pendingTag.tag,
+                    suggested: pendingTag.suggested,
                     target: { kind: "condition", conditionId },
                 });
             }
             setPendingTag(null);
         },
-        [activePendingTag, setConditions, setPendingTag],
+        [pendingTag, setConditions, setPendingTag],
     );
     const placeTagInNewCondition = useCallback(() => {
-        if (!activePendingTag) return;
-        if (activePendingTag.tag.type === "basic") {
+        if (!pendingTag) return;
+        if (pendingTag.tag.type === "basic") {
             setConditions((current) =>
-                appendTag(
-                    current,
-                    activePendingTag.tag,
-                    activePendingTag.suggested,
-                ),
+                appendTag(current, pendingTag.tag, pendingTag.suggested),
             );
         } else {
             setConstraintDraft({
                 kind: "add",
-                tag: activePendingTag.tag,
-                suggested: activePendingTag.suggested,
+                tag: pendingTag.tag,
+                suggested: pendingTag.suggested,
                 target: { kind: "query-end" },
             });
         }
         setPendingTag(null);
-    }, [activePendingTag, setConditions, setPendingTag]);
+    }, [pendingTag, setConditions, setPendingTag]);
     const saveConstraint = useCallback(
         (constraint: QueryTagConstraint) => {
             if (!constraintDraft) return;
@@ -362,12 +361,12 @@ export function QueryBuilder({
                     setConditions((current) => removeQueryTag(current, id)),
                 editQueryTag: (queryTag) =>
                     setConstraintDraft({ kind: "edit", queryTag }),
-                pendingTag: activePendingTag,
+                pendingTag,
                 placeTagInCondition,
                 placeTagInNewCondition,
             }}
         >
-            <DragProvider onDrop={handleDrop}>
+            <DragProvider onDrop={handleDrop} bottomInset={playerBottomInset}>
                 <KeyboardAvoidingView
                     className="flex-1"
                     style={
@@ -378,18 +377,29 @@ export function QueryBuilder({
                     behavior={Platform.OS === "ios" ? "padding" : undefined}
                     keyboardVerticalOffset={80}
                 >
-                    <View className="flex-1">
+                    <QueryDropViewport
+                        scrollY={scrollOffset}
+                        visibleHeight={visiblePaletteHeight}
+                        topInset={headingOverlapHeight}
+                    >
                         <ScreenScrollMarker>
                             <Animated.ScrollView
                                 {...scroll}
+                                removeClippedSubviews={false}
                                 className="flex-1"
-                                contentContainerClassName="flex-grow px-[18px] pb-16"
+                                contentContainerClassName="flex-grow px-[18px]"
                                 contentContainerStyle={{
                                     paddingTop: headingOverlapHeight,
+                                    paddingBottom: paletteHeight + 64,
                                 }}
                                 keyboardShouldPersistTaps="handled"
                             >
                                 <ConditionList
+                                    scrollRef={scroll.ref}
+                                    scrollOffset={scrollOffset}
+                                    viewportTopInset={headingOverlapHeight}
+                                    viewportBottomInset={visiblePaletteHeight}
+                                    bottomClearance={paletteHeight + 64}
                                     conditions={conditions}
                                     onToggleConditionNegation={toggleNegation}
                                     onModeChange={changeMode}
@@ -408,31 +418,28 @@ export function QueryBuilder({
                         <FloatingActions
                             historyAction={historyAction}
                             resultsAction={resultsAction}
+                            visibleHeight={visiblePaletteHeight}
+                        />
+                    </QueryDropViewport>
+
+                    <View
+                        pointerEvents="box-none"
+                        className="absolute inset-0 overflow-hidden"
+                    >
+                        <TagPalette
+                            tags={tags}
+                            tagMetadata={tagMetadata}
+                            height={paletteHeight}
+                            visibleHeight={visiblePaletteHeight}
+                            onHeightChange={handlePaletteHeightChange}
+                            includeSuggestedTags={includeSuggestedTags}
+                            showAdvancedTags={showAdvancedTags}
+                            showMetadataTags={showMetadataTags}
+                            pendingTag={pendingTag}
+                            onTagTap={selectPaletteTag}
+                            usedTagIds={usedTagIds}
                         />
                     </View>
-
-                    <TagPalette
-                        tags={tags}
-                        tagMetadata={tagMetadata}
-                        height={paletteHeight}
-                        onHeightChange={handlePaletteHeightChange}
-                        includeSuggestedTags={includeSuggestedTags}
-                        showAdvancedTags={showAdvancedTags}
-                        showMetadataTags={showMetadataTags}
-                        pendingTag={activePendingTag}
-                        onTagTap={selectPaletteTag}
-                        usedTagIds={
-                            new Set(
-                                conditions.flatMap((condition) =>
-                                    condition.kind === "tag"
-                                        ? [condition.tag.id]
-                                        : condition.members.map(
-                                              (tag) => tag.tag.id,
-                                          ),
-                                ),
-                            )
-                        }
-                    />
                 </KeyboardAvoidingView>
                 <DragGhost />
                 {constraintDraft ? (
@@ -476,22 +483,54 @@ export function QueryBuilder({
     );
 }
 
+function QueryDropViewport({
+    children,
+    scrollY,
+    visibleHeight,
+    topInset,
+}: {
+    children: ReactNode;
+    scrollY: SharedValue<number>;
+    visibleHeight: SharedValue<number>;
+    topInset: number;
+}) {
+    useRefreshDragHover(scrollY, visibleHeight);
+    return (
+        <DropViewport
+            className="flex-1"
+            scrollY={scrollY}
+            topInset={topInset}
+            bottomInset={visibleHeight}
+        >
+            {children}
+        </DropViewport>
+    );
+}
+
 function FloatingActions({
     historyAction,
     resultsAction,
+    visibleHeight,
 }: {
     historyAction: ReactNode;
     resultsAction: ReactNode;
+    visibleHeight: SharedValue<number>;
 }) {
     const { dragState } = useDrag();
+    const positionStyle = useAnimatedStyle(() => ({
+        transform: [
+            { translateY: TAG_PALETTE_MAX_HEIGHT - visibleHeight.get() },
+        ],
+    }));
     if (dragState) return null;
     return (
-        <View
+        <Animated.View
             pointerEvents="box-none"
-            className="absolute bottom-3 right-5 left-5 flex-row items-start justify-between"
+            className="absolute right-5 left-5 flex-row items-start justify-between"
+            style={[{ bottom: TAG_PALETTE_MAX_HEIGHT + 12 }, positionStyle]}
         >
             <View>{historyAction}</View>
             {resultsAction}
-        </View>
+        </Animated.View>
     );
 }

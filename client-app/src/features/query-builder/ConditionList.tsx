@@ -1,52 +1,40 @@
-import {
-    useCallback,
-    useEffect,
-    useLayoutEffect,
-    useMemo,
-    useRef,
-    useState,
-    type ReactNode,
-} from "react";
-import { Pressable, StyleSheet, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import * as Haptics from "expo-haptics";
+import { createContext, useContext, useEffect, useMemo } from "react";
+import { Pressable, StyleSheet, View } from "react-native";
+import { GestureDetector } from "react-native-gesture-handler";
+import Animated, {
+    Easing,
+    FadeIn,
+    FadeOut,
+    ReduceMotion,
+    interpolateColor,
+    useAnimatedProps,
+    useAnimatedStyle,
+    useSharedValue,
+    withTiming,
+    type AnimatedRef,
+    type SharedValue,
+} from "react-native-reanimated";
+import Svg, { Path } from "react-native-svg";
 import {
     GroupModeControl,
     QuerySegmentedControl,
     VennDiagram,
 } from "./GroupModeControl";
-import { useEditorActions } from "./EditorActions";
-import Animated, {
-    Easing,
-    FadeIn,
-    FadeInDown,
-    FadeOut,
-    FadeOutUp,
-    ReduceMotion,
-    interpolateColor,
-    useAnimatedStyle,
-    useAnimatedProps,
-    useSharedValue,
-    withDelay,
-    withTiming,
-    type LayoutAnimationFunction,
-} from "react-native-reanimated";
-import Svg, { Path } from "react-native-svg";
+import { MeasuredReorderList, useReorderHandle } from "./MeasuredReorderList";
 
-import { GlassSurface } from "@/components/ui/glass-surface";
 import { TagPill } from "@/components/custom/tag-pill";
+import { GlassSurface } from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
 import { THEME } from "@/lib/theme";
+import type { Tag } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { useColorScheme } from "nativewind";
+import { useDrag, useDragCommands, useDropHover } from "./DragContext";
 import { DraggablePill } from "./DraggablePill";
-import { useDrag } from "./DragContext";
 import { DropSlot } from "./DropSlot";
 import { QueryTagPill } from "./QueryTagPill";
-import {
-    getConditionReorderPosition,
-    getConditionReorderShift,
-} from "./QueryUtils";
 import type {
     DragPayload,
     QueryCondition,
@@ -57,152 +45,55 @@ import type {
 const REORDER_DURATION = 320;
 const CONNECTOR_REVEAL_DURATION = 220;
 const SOFT_EASING = Easing.bezier(0.22, 0.8, 0.3, 1);
-const CONDITION_LAYOUT_TRANSITION: LayoutAnimationFunction = (values) => {
-    "worklet";
-    return {
-        initialValues: {
-            originX: values.currentOriginX,
-            originY: values.currentOriginY,
-            width: values.currentWidth,
-            height: values.currentHeight,
-        },
-        animations: {
-            originX: withTiming(values.targetOriginX, {
-                duration: REORDER_DURATION,
-                easing: SOFT_EASING,
-            }),
-            originY: withTiming(values.targetOriginY, {
-                duration: REORDER_DURATION,
-                easing: SOFT_EASING,
-            }),
-            width: withTiming(values.targetWidth, {
-                duration: REORDER_DURATION,
-                easing: SOFT_EASING,
-            }),
-            height: withTiming(values.targetHeight, {
-                duration: REORDER_DURATION,
-                easing: SOFT_EASING,
-            }),
-        },
-    };
-};
-const POSITION_ONLY_LAYOUT_TRANSITION: LayoutAnimationFunction = (values) => {
-    "worklet";
-    return {
-        initialValues: {
-            originX: values.targetOriginX,
-            originY: values.currentOriginY,
-            width: values.targetWidth,
-            height: values.targetHeight,
-        },
-        animations: {
-            originY: withTiming(values.targetOriginY, {
-                duration: REORDER_DURATION,
-                easing: SOFT_EASING,
-            }),
-        },
-    };
-};
 const CONNECTOR_HEIGHT = 32;
 const AnimatedPath = Animated.createAnimatedComponent(Path);
+
+export const EditorActionsContext = createContext({
+    showVennDiagrams: true,
+    toggleOuterConnector: () => {},
+    removeGroup: (_id: string) => {},
+    removeQueryTag: (_id: string) => {},
+    editQueryTag: (_tag: QueryTag) => {},
+    pendingTag: null as { tag: Tag; suggested: boolean } | null,
+    placeTagInCondition: (_id: string) => {},
+    placeTagInNewCondition: () => {},
+});
+const useEditorActions = () => useContext(EditorActionsContext);
 
 export function ConditionList({
     conditions,
     onToggleConditionNegation,
     onModeChange,
+    scrollRef,
+    scrollOffset,
+    viewportTopInset,
+    viewportBottomInset,
+    bottomClearance,
 }: {
+    scrollRef: AnimatedRef<Animated.ScrollView>;
+    scrollOffset: SharedValue<number>;
+    viewportTopInset: number;
+    viewportBottomInset: SharedValue<number>;
+    bottomClearance: number;
     conditions: readonly QueryCondition[];
     onToggleConditionNegation: (conditionId: string) => void;
     onModeChange: (groupId: string, mode: QueryGroupMode) => void;
 }) {
-    const {
-        conditionLayoutAnimationsSuppressed,
-        dragState,
-        hoveredTargetKey,
-        setConditionReorderIndex,
-        setConditionReorderResolver,
-    } = useDrag();
-    const [conditionCenters, setConditionCenters] = useState(
-        () => new Map<string, number>(),
-    );
-    const conditionCentersRef = useRef(conditionCenters);
-    const conditionRefs = useRef(new Map<string, View>());
-    const [rowHeights, setRowHeights] = useState(
-        () => new Map<string, number>(),
-    );
+    const { beginDrag, moveDrag, finishDrag, cancelDrag } = useDragCommands();
+    const { dragState } = useDrag();
     const conditionDrag =
         dragState?.payload.source === "condition" ? dragState.payload : null;
     const { pendingTag, placeTagInNewCondition } = useEditorActions();
-    const queryEndHovered =
-        hoveredTargetKey === "query-end" ||
-        hoveredTargetKey === "workspace-end";
+    const endHovered = useDropHover("query-end");
+    const workspaceHovered = useDropHover("workspace-end");
+    const queryEndHovered = endHovered || workspaceHovered;
     const previewColor = dragState ? dragTagColor(dragState.payload) : null;
-
-    const recordConditionCenter = useCallback(
-        (id: string, centerY: number) => {
-            if (
-                conditionCentersRef.current.get(id) === centerY ||
-                conditionDrag
-            )
-                return;
-            const next = new Map(conditionCentersRef.current);
-            next.set(id, centerY);
-            conditionCentersRef.current = next;
-            setConditionCenters(next);
-        },
-        [conditionDrag],
-    );
-    const registerConditionRef = useCallback(
-        (id: string, view: View | null) => {
-            if (view) conditionRefs.current.set(id, view);
-            else conditionRefs.current.delete(id);
-        },
-        [],
-    );
-    const refreshConditionCenters = useCallback(() => {
-        conditionRefs.current.forEach((view, id) => {
-            view.measureInWindow((_x, y, _width, height) => {
-                if (height > 0) {
-                    const next = new Map(conditionCentersRef.current);
-                    next.set(id, y + height / 2);
-                    conditionCentersRef.current = next;
-                    setConditionCenters(next);
-                }
-            });
-        });
-    }, []);
-    const resolveConditionReorderIndex = useCallback(
-        (payload: Extract<DragPayload, { source: "condition" }>, y: number) =>
-            getConditionReorderPosition(
-                conditions,
-                payload.condition.id,
-                y,
-                conditionCentersRef.current,
-            )?.insertionIndex ?? null,
-        [conditions],
-    );
-    useEffect(() => {
-        setConditionReorderResolver(resolveConditionReorderIndex);
-        return () => setConditionReorderResolver(null);
-    }, [resolveConditionReorderIndex, setConditionReorderResolver]);
-
-    const reorderPosition = conditionDrag
-        ? getConditionReorderPosition(
-              conditions,
-              conditionDrag.condition.id,
-              dragState!.y,
-              conditionCenters,
-          )
-        : null;
-    useEffect(() => {
-        setConditionReorderIndex(reorderPosition?.insertionIndex ?? null);
-    }, [reorderPosition?.insertionIndex, setConditionReorderIndex]);
-    const draggedRowHeight = conditionDrag
-        ? (rowHeights.get(conditionDrag.condition.id) ??
-          conditionDrag.height +
-              (conditionDrag.originIndex === 0 ? 4 : CONNECTOR_HEIGHT))
-        : 0;
-
+    const payloadFor = (
+        condition: QueryCondition,
+    ): Extract<DragPayload, { source: "condition" }> => ({
+        source: "condition",
+        condition,
+    });
     return (
         <DropSlot
             targetKey="query-end"
@@ -220,50 +111,51 @@ export function ConditionList({
                 </Text>
             ) : (
                 <>
-                    {conditions.map((condition, index) => (
-                        <ReorderRow
-                            key={`condition-${condition.layoutId ?? condition.id}`}
-                            shift={getConditionReorderShift(
-                                index,
-                                conditionDrag?.originIndex ?? null,
-                                reorderPosition?.finalIndex ?? null,
-                                draggedRowHeight,
-                            )}
-                            hide={conditionDrag?.condition.id === condition.id}
-                            animateLayout={!conditionDrag}
-                            layoutAnimationsSuppressed={
-                                conditionLayoutAnimationsSuppressed
+                    <View className="-mt-7">
+                        <MeasuredReorderList
+                            data={conditions}
+                            keyFor={(condition) =>
+                                condition.layoutId ?? condition.id
                             }
-                            onHeight={(height) => {
-                                if (rowHeights.get(condition.id) === height)
-                                    return;
-                                setRowHeights((current) => {
-                                    const next = new Map(current);
-                                    next.set(condition.id, height);
-                                    return next;
-                                });
+                            scrollRef={scrollRef}
+                            scrollOffset={scrollOffset}
+                            viewportTopInset={viewportTopInset}
+                            viewportBottomInset={viewportBottomInset}
+                            bottomClearance={bottomClearance}
+                            onStart={(condition, index, x, y) => {
+                                void Haptics.impactAsync(
+                                    Haptics.ImpactFeedbackStyle.Light,
+                                ).catch(() => {});
+                                void beginDrag(payloadFor(condition), x, y);
                             }}
-                        >
-                            <InsertionSlot
-                                index={index}
-                                condition={condition}
-                                settleImmediately
-                                visible={index > 0}
-                                expanded={index === 0}
-                            />
-                            <DraggableCondition
-                                condition={condition}
-                                index={index}
-                                onToggleConditionNegation={
-                                    onToggleConditionNegation
-                                }
-                                onModeChange={onModeChange}
-                                onCenterChange={recordConditionCenter}
-                                onPrepareDrag={refreshConditionCenters}
-                                onRefChange={registerConditionRef}
-                            />
-                        </ReorderRow>
-                    ))}
+                            onMove={moveDrag}
+                            onDrop={(condition, from, to, x, y) =>
+                                finishDrag(
+                                    payloadFor(condition),
+                                    x,
+                                    y,
+                                    to > from ? to + 1 : to,
+                                )
+                            }
+                            onCancel={cancelDrag}
+                            renderItem={(condition, index) => (
+                                <>
+                                    <InsertionSlot
+                                        index={index}
+                                        condition={condition}
+                                        visible={index > 0}
+                                    />
+                                    <DraggableCondition
+                                        condition={condition}
+                                        onToggleConditionNegation={
+                                            onToggleConditionNegation
+                                        }
+                                        onModeChange={onModeChange}
+                                    />
+                                </>
+                            )}
+                        />
+                    </View>
                     {pendingTag && !dragState ? (
                         <View className="mt-3 self-start">
                             <TagPlacementOutline
@@ -285,125 +177,35 @@ export function ConditionList({
     );
 }
 
-function ReorderRow({
-    children,
-    shift,
-    hide,
-    animateLayout,
-    layoutAnimationsSuppressed,
-    onHeight,
-}: {
-    children: ReactNode;
-    shift: number;
-    hide: boolean;
-    animateLayout: boolean;
-    layoutAnimationsSuppressed: boolean;
-    onHeight: (height: number) => void;
-}) {
-    const shiftY = useSharedValue(0);
-    useEffect(() => {
-        shiftY.set(
-            withTiming(shift, {
-                duration: REORDER_DURATION,
-                easing: SOFT_EASING,
-            }),
-        );
-    }, [shift, shiftY]);
-    const animatedStyle = useAnimatedStyle(() => ({
-        transform: [{ translateY: shiftY.get() }],
-    }));
-    return (
-        <Animated.View
-            collapsable={false}
-            onLayout={(event) => onHeight(event.nativeEvent.layout.height)}
-            entering={FadeInDown.duration(200).reduceMotion(
-                ReduceMotion.System,
-            )}
-            exiting={FadeOutUp.duration(160).reduceMotion(ReduceMotion.System)}
-            layout={
-                animateLayout
-                    ? layoutAnimationsSuppressed
-                        ? POSITION_ONLY_LAYOUT_TRANSITION
-                        : CONDITION_LAYOUT_TRANSITION
-                    : undefined
-            }
-            style={[animatedStyle, { zIndex: hide ? 2 : 0 }]}
-        >
-            <View style={{ opacity: hide ? 0 : 1 }}>{children}</View>
-        </Animated.View>
-    );
-}
-
 function DraggableCondition({
     condition,
-    index,
     onToggleConditionNegation,
     onModeChange,
-    onCenterChange,
-    onPrepareDrag,
-    onRefChange,
 }: {
     condition: QueryCondition;
-    index: number;
-    onToggleConditionNegation: (conditionId: string) => void;
-    onModeChange: (groupId: string, mode: QueryGroupMode) => void;
-    onCenterChange: (conditionId: string, centerY: number) => void;
-    onPrepareDrag: () => void;
-    onRefChange: (conditionId: string, view: View | null) => void;
+    onToggleConditionNegation: (id: string) => void;
+    onModeChange: (id: string, mode: QueryGroupMode) => void;
 }) {
-    const conditionRef = useRef<View>(null);
-    const [height, setHeight] = useState(0);
-    const setConditionRef = useCallback(
-        (view: View | null) => {
-            conditionRef.current = view;
-            onRefChange(condition.id, view);
-        },
-        [condition.id, onRefChange],
-    );
-    const dragPayload = useMemo(
-        () => ({
-            source: "condition" as const,
-            condition,
-            originIndex: index,
-            height,
-        }),
-        [condition, height, index],
-    );
+    const gesture = useReorderHandle();
     return (
-        <DraggablePill
-            payload={dragPayload}
-            dragHandle={<ConditionDragHandle condition={condition} />}
-            onPrepareDrag={onPrepareDrag}
-            verticalOnly
-        >
-            <View
-                ref={setConditionRef}
-                onLayout={(event) => {
-                    setHeight(event.nativeEvent.layout.height);
-                    conditionRef.current?.measureInWindow(
-                        (_x, y, _width, measuredHeight) =>
-                            onCenterChange(
-                                condition.id,
-                                y + measuredHeight / 2,
-                            ),
-                    );
-                }}
-            >
-                <ConditionCard
-                    condition={condition}
-                    onModeChange={onModeChange}
-                    onToggleConditionNegation={onToggleConditionNegation}
-                />
-            </View>
-        </DraggablePill>
+        <View>
+            <ConditionCard
+                condition={condition}
+                onModeChange={onModeChange}
+                onToggleConditionNegation={onToggleConditionNegation}
+            />
+            {gesture ? (
+                <GestureDetector gesture={gesture}>
+                    <View className="absolute left-0 top-2 z-10">
+                        <ConditionDragHandle condition={condition} />
+                    </View>
+                </GestureDetector>
+            ) : null}
+        </View>
     );
 }
 
-export function ConditionDragHandle({
-    condition,
-}: {
-    condition: QueryCondition;
-}) {
+function ConditionDragHandle({ condition }: { condition: QueryCondition }) {
     const { colorScheme = "light" } = useColorScheme();
     const theme = THEME[colorScheme];
     const label = condition.kind === "group" ? "tag group" : "tag";
@@ -460,16 +262,14 @@ const SINGLE_OPTIONS = [
     { value: "exclude", label: "don't have" },
 ] as const;
 
-export function ConditionCard({
+function ConditionCard({
     condition,
     onModeChange,
     onToggleConditionNegation,
-    ghost = false,
 }: {
     condition: QueryCondition;
     onModeChange: (id: string, mode: QueryGroupMode) => void;
     onToggleConditionNegation: (id: string) => void;
-    ghost?: boolean;
 }) {
     const group = condition.kind === "group" ? condition : null;
     const members =
@@ -477,10 +277,8 @@ export function ConditionCard({
     const { colorScheme = "light" } = useColorScheme();
     const theme = THEME[colorScheme];
     const editor = useEditorActions();
-    const { dragState, hoveredTargetKey } = useDrag();
-    const hovered = Boolean(
-        !ghost && dragState && hoveredTargetKey === `condition-${condition.id}`,
-    );
+    const { dragState } = useDrag();
+    const hovered = useDropHover(`condition-${condition.id}`);
     const body = (
         <View className="gap-2.5 px-3 py-2">
             <View className="flex-row items-center gap-1 pl-6">
@@ -563,18 +361,13 @@ export function ConditionCard({
                                           : "or"}
                                 </Text>
                             ) : null}
-                            {ghost ? (
-                                <QueryTagPill queryTag={queryTag} />
-                            ) : (
-                                <DraggableQueryTag
-                                    queryTag={queryTag}
-                                    conditionId={condition.id}
-                                />
-                            )}
+                            <DraggableQueryTag
+                                queryTag={queryTag}
+                                conditionId={condition.id}
+                            />
                         </Animated.View>
                     ))}
                     {editor.pendingTag &&
-                    !ghost &&
                     !dragState &&
                     !members.some(
                         (member) => member.tag.id === editor.pendingTag?.tag.id,
@@ -591,7 +384,7 @@ export function ConditionCard({
                 {editor.showVennDiagrams ? (
                     <Pressable
                         className="absolute bottom-1 right-0"
-                        disabled={ghost || !!dragState || !!editor.pendingTag}
+                        disabled={!!dragState || !!editor.pendingTag}
                         hitSlop={4}
                         accessibilityRole="button"
                         accessibilityLabel={
@@ -643,20 +436,19 @@ export function ConditionCard({
             <View pointerEvents="none" style={StyleSheet.absoluteFill}>
                 <GlassSurface
                     variant="regular"
-                    style={StyleSheet.absoluteFill}
+                    style={[
+                        StyleSheet.absoluteFill,
+                        { borderRadius: 11, overflow: "hidden" },
+                    ]}
                 />
             </View>
-            {ghost ? (
-                body
-            ) : (
-                <DropSlot
-                    targetKey={`condition-${condition.id}`}
-                    target={{ kind: "condition", conditionId: condition.id }}
-                    priority={30}
-                >
-                    {body}
-                </DropSlot>
-            )}
+            <DropSlot
+                targetKey={`condition-${condition.id}`}
+                target={{ kind: "condition", conditionId: condition.id }}
+                priority={30}
+            >
+                {body}
+            </DropSlot>
         </View>
     );
 }
@@ -664,85 +456,46 @@ export function ConditionCard({
 function InsertionSlot({
     index,
     condition,
-    settleImmediately = false,
-    collapse = false,
-    deferReveal = false,
-    hidden = false,
     visible = true,
-    expanded = false,
 }: {
     index: number;
     condition: QueryCondition;
-    settleImmediately?: boolean;
-    collapse?: boolean;
-    deferReveal?: boolean;
-    hidden?: boolean;
     visible?: boolean;
-    expanded?: boolean;
 }) {
     const { toggleOuterConnector, pendingTag } = useEditorActions();
-    const { dragState, hoveredTargetKey } = useDrag();
-    const hovered = Boolean(
-        dragState && hoveredTargetKey === `insert-${index}`,
-    );
+    const { dragState } = useDrag();
+    const hovered = useDropHover(`insert-${index}`);
     const conditionDrag =
         dragState?.payload.source === "condition" ? dragState.payload : null;
     const previewVisible = Boolean(hovered && !conditionDrag);
     const previewColor = dragState ? dragTagColor(dragState.payload) : null;
     const previewLabel = "CREATE A NEW TAG GROUP";
-    const connectorVisible = visible && !hidden && !previewVisible;
-    const baseHeight = collapse
-        ? 0
-        : previewVisible
-          ? CONNECTOR_HEIGHT
-          : visible
-            ? CONNECTOR_HEIGHT
-            : expanded
-              ? 4
-              : 4;
-    const slotHeight = useSharedValue(baseHeight);
-    const connectorProgress = useSharedValue(0);
-    const connectorNeedsSettling = useRef(false);
-    useLayoutEffect(() => {
-        slotHeight.set(
-            settleImmediately
-                ? baseHeight
-                : withTiming(baseHeight, {
-                      duration: REORDER_DURATION,
-                      easing: SOFT_EASING,
-                  }),
-        );
-    }, [baseHeight, settleImmediately, slotHeight]);
+    const connectorVisible = visible && !previewVisible;
+    const connectorProgress = useSharedValue(connectorVisible ? 1 : 0);
     useEffect(() => {
-        const animation = withTiming(connectorVisible ? 1 : 0, {
-            duration: CONNECTOR_REVEAL_DURATION,
-            easing: SOFT_EASING,
-        });
-        if (!connectorVisible) {
-            connectorNeedsSettling.current = deferReveal;
-        }
         connectorProgress.set(
-            connectorVisible && connectorNeedsSettling.current
-                ? withDelay(REORDER_DURATION, animation)
-                : animation,
+            withTiming(connectorVisible ? 1 : 0, {
+                duration: CONNECTOR_REVEAL_DURATION,
+                easing: SOFT_EASING,
+            }),
         );
-        if (connectorVisible) connectorNeedsSettling.current = false;
-    }, [connectorProgress, connectorVisible, deferReveal]);
+    }, [connectorProgress, connectorVisible]);
     const connectorStyle = useAnimatedStyle(() => ({
         opacity: connectorProgress.get(),
         transform: [{ scaleX: connectorProgress.get() }],
     }));
-    const slotStyle = useAnimatedStyle(() => ({
-        height: slotHeight.get(),
-    }));
-
     return (
-        <Animated.View style={slotStyle}>
+        // A fixed slot travels with each card. Only its contents animate;
+        // hiding the first connector never changes the measured row height.
+        <View
+            className="relative shrink-0"
+            style={{ height: CONNECTOR_HEIGHT }}
+        >
             <DropSlot
                 targetKey={`insert-${index}`}
                 target={{ kind: "insert", index }}
                 priority={20}
-                className="flex-1 flex-row items-center"
+                className="absolute inset-0 justify-center"
             >
                 {previewVisible && previewColor ? (
                     <NewGroupInsertionPreview
@@ -751,7 +504,7 @@ function InsertionSlot({
                     />
                 ) : (
                     <Pressable
-                        className="flex-1 flex-row items-center"
+                        className="h-full w-full justify-center"
                         disabled={
                             !connectorVisible || !!dragState || !!pendingTag
                         }
@@ -764,7 +517,7 @@ function InsertionSlot({
                         }
                     >
                         <Animated.View
-                            className="flex-1 flex-row items-center"
+                            className="w-full flex-row items-center"
                             style={connectorStyle}
                         >
                             <View className="h-px flex-1 bg-border" />
@@ -780,7 +533,7 @@ function InsertionSlot({
                     </Pressable>
                 )}
             </DropSlot>
-        </Animated.View>
+        </View>
     );
 }
 
@@ -856,6 +609,7 @@ function DraggableQueryTag({
         <DraggablePill payload={dragPayload}>
             <Pressable
                 disabled={!!pendingTag}
+                className="py-[4px]"
                 onPress={() =>
                     queryTag.tag.type === "basic"
                         ? removeQueryTag(queryTag.id)

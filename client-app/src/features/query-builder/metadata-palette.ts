@@ -2,7 +2,7 @@ import { METADATA_KEY_LABELS, type MetadataKey } from "../../lib/query-json.ts";
 import { METADATA_TAG_COLOR } from "../../lib/song-metadata-tags.ts";
 import type { Tag, TagType } from "../../lib/types.ts";
 
-export type MetadataPaletteTag = Tag & { metadataKey: MetadataKey };
+type MetadataPaletteTag = Tag & { metadataKey: MetadataKey };
 
 const FIELDS: readonly { key: MetadataKey; type: TagType }[] = [
     { key: "title", type: "text" },

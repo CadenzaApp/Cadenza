@@ -123,7 +123,7 @@ export const TagPill = memo(function TagPill({
     const iconSize = 1.15 * height;
     const fontSize = 1 * height;
     const countFontSize = 0.9 * height;
-    const countPaddingHorizontal = 0.9 * height;
+    const countPaddingHorizontal = 0.55 * height;
     const countPaddingVertical = 0.1 * height;
     const displayedValue = suffix ?? formatTagValue(tag.type, value);
     const countGapAdjustment = count === undefined ? 0 : -0.05 * height;
@@ -217,6 +217,8 @@ export const TagPill = memo(function TagPill({
                         borderRadius: 999,
                         paddingHorizontal: countPaddingHorizontal,
                         paddingVertical: countPaddingVertical,
+                        marginLeft: -1,
+                        alignSelf: "center",
                         backgroundColor: hexToRgba(contentColor, 1.0),
                     }}
                 >

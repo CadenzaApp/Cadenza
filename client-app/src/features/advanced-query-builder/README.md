@@ -12,7 +12,7 @@ submitted query, shared results action, and the Simple / Advanced mode toggle.
 | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `types.ts`                 | The builder tree (`AdvancedGroupNode`, `AdvancedFilterNode`), `FilterField`, and `FieldKind`. Re-exports `FilterOp`; the wire format itself lives in `@/lib/query-json`.                                   |
 | `AdvancedQueryUtils.ts`    | Pure: operator tables and labels, immutable tree ops, date helpers, and `buildAdvancedQuery`, which compiles the tree to `QueryJSON`. Unit tested in `AdvancedQueryUtils.test.ts`.                         |
-| `AdvancedQueryBuilder.tsx` | Scrollable root group. Binds the tree ops into a `BuilderActions` object; the shared results button owns navigation.                                                                                       |
+| `AdvancedQueryBuilder.tsx` | Scrollable root group. Binds tree ops to `BuilderActions`; shared results/history actions float above the navigation/player inset.                                                                         |
 | `FilterGroup.tsx`          | One group: the all / any / none selector, its children, and the "Add filter" / "Add filter group" buttons. Recursive. Exports `BuilderTags` and `BuilderActions`.                                          |
 | `FilterRow.tsx`            | One filter line: connector word, field picker (Properties, Metadata, Your tags), operator picker, value input, and the remove button. Exports `RemoveButton`.                                              |
 | `FilterValueInput.tsx`     | The value input for a line: text, number, a calendar day, a date and time, or a tag type. Its compact width is shared with Simple's value-tag popup.                                                       |
@@ -81,11 +81,12 @@ The Cadenza screen compiles the tree as it changes and sends every successfully 
 `POST /queries/results`. Song ids come back most relevant first; the editor uses their count directly. The advanced builder has no separate submit button. It uses the same `ResultsSummary` count button as the simple builder. The button opens the shared
 `/query-results` full-screen `QueryResults` route, where MusicKit tracks and artwork are resolved.
 
-Switching from Simple converts its current query, including value-tag and metadata predicates. Returning to
-Simple converts supported tag and metadata filters and flat groups; otherwise the advanced draft is kept and the user
-can open the previous simple draft. Cadenza owns this conversion and a shared undo history. Suggested
-tags already used in Simple are available here while Include suggested tags is on. Header settings
-apply to both editors, and cannot disable suggestions while either draft explicitly uses one.
+The first switch from Simple seeds Advanced with its current query, including value-tag and
+metadata predicates, only if no Advanced draft exists. The editors then keep separate drafts,
+including empty drafts, and separate 20-edit undo histories. Switching never converts Advanced
+back into Simple or prompts about drafts. Consecutive value typing coalesces into one undo step.
+Suggested tags already used in Simple are available here while Show suggested tags is on.
+Header settings apply to both editors and cannot disable suggestions while either draft uses one.
 
 ## Connects to
 
@@ -115,6 +116,3 @@ apply to both editors, and cannot disable suggestions while either draft explici
 
 Touching files in this directory? Update this README in the same change.
 See [../../../../AGENT_GUIDE.md](../../../../AGENT_GUIDE.md).
-
-The editor accepts the shared floating results action from Cadenza. It sits above the bottom
-overlay inset, with scroll clearance for the final filter and validation message.

@@ -1,11 +1,13 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { useColorScheme } from "nativewind";
 import { useState } from "react";
 import { Pressable, ScrollView, View } from "react-native";
-import { useColorScheme } from "nativewind";
 
 import { ModalPopup } from "@/components/custom/modal-popup";
 import { Text } from "@/components/ui/text";
-import { FilterValueInput } from "../advanced-query-builder/FilterValueInput";
+import type { FilterOp } from "@/lib/query-json";
+import { THEME } from "@/lib/theme";
+import type { Tag } from "@/lib/types";
 import {
     filterValue,
     METADATA_FIELD_KINDS,
@@ -13,11 +15,9 @@ import {
     OPERATORS_BY_FIELD,
     valueKindFor,
 } from "../advanced-query-builder/AdvancedQueryUtils";
-import type { Tag } from "@/lib/types";
-import type { FilterOp } from "@/lib/query-json";
-import type { QueryTagConstraint } from "./types";
-import { THEME } from "@/lib/theme";
+import { FilterValueInput } from "../advanced-query-builder/FilterValueInput";
 import { isMetadataPaletteTag } from "./metadata-palette";
+import type { QueryTagConstraint } from "./types";
 
 const DEFAULT_OP: Partial<Record<Tag["type"], FilterOp>> = {
     text: "is",
@@ -75,76 +75,81 @@ export function TagConstraintDialog({
 
     return (
         <ModalPopup
+            keyboardAware
             visible
             onClose={onClose}
             title={onDelete ? `Edit ${tag.name}` : `Filter ${tag.name}`}
             titleClassName="text-xl font-bold"
             contentStyle={{ width: "92%", maxHeight: "82%" }}
         >
-            {valueOperators.length ? (
-                <View className="mt-1 flex-row gap-3">
-                    <View className="min-w-0 flex-1 gap-2">
-                        <Text className="text-sm font-semibold">Condition</Text>
-                        <ScrollView
-                            style={{ flexGrow: 0, maxHeight: 240 }}
-                            keyboardShouldPersistTaps="handled"
-                            showsVerticalScrollIndicator
-                        >
-                            <View className="flex-row flex-wrap gap-2 pr-1">
-                                {valueOperators.map((option) => (
-                                    <ConditionOption
-                                        key={option}
-                                        option={option}
-                                        selected={op === option}
-                                        onPress={() => chooseOp(option)}
-                                    />
-                                ))}
+            <ScrollView
+                style={{ flexShrink: 1 }}
+                keyboardShouldPersistTaps="handled"
+                contentContainerClassName="pb-1"
+            >
+                {valueOperators.length ? (
+                    <View className="mt-1 flex-row gap-3">
+                        <View className="min-w-0 flex-1 gap-2">
+                            <Text className="text-sm font-semibold">
+                                Condition
+                            </Text>
+                            <View>
+                                <View className="flex-row flex-wrap gap-2 pr-1">
+                                    {valueOperators.map((option) => (
+                                        <ConditionOption
+                                            key={option}
+                                            option={option}
+                                            selected={op === option}
+                                            onPress={() => chooseOp(option)}
+                                        />
+                                    ))}
+                                </View>
                             </View>
-                        </ScrollView>
-                    </View>
-                    <View className="min-w-0 flex-1 items-center justify-center gap-2">
-                        <Text className="text-sm font-semibold">Value</Text>
-                        <View className="min-h-10 w-full justify-center rounded-lg border border-border px-1">
-                            {valueKind === "none" ? (
-                                <Text className="px-2 text-sm text-muted-foreground">
-                                    No value needed
-                                </Text>
-                            ) : (
-                                <FilterValueInput
-                                    kind={valueKind}
-                                    value={value}
-                                    compact
-                                    onChange={(next) => {
-                                        setValue(next);
-                                        setError(null);
-                                    }}
-                                />
-                            )}
+                        </View>
+                        <View className="min-w-0 flex-1 items-center justify-center gap-2">
+                            <Text className="text-sm font-semibold">Value</Text>
+                            <View className="min-h-10 w-full justify-center rounded-lg border border-border px-1">
+                                {valueKind === "none" ? (
+                                    <Text className="px-2 text-sm text-muted-foreground">
+                                        No value needed
+                                    </Text>
+                                ) : (
+                                    <FilterValueInput
+                                        kind={valueKind}
+                                        value={value}
+                                        compact
+                                        onChange={(next) => {
+                                            setValue(next);
+                                            setError(null);
+                                        }}
+                                    />
+                                )}
+                            </View>
                         </View>
                     </View>
-                </View>
-            ) : null}
-            {valuelessOperators.length ? (
-                <View className="mt-3 gap-2">
-                    {valueOperators.length ? (
-                        <View className="h-px bg-border" />
-                    ) : null}
-                    <View className="flex-row flex-wrap gap-2">
-                        {valuelessOperators.map((option) => (
-                            <ConditionOption
-                                key={option}
-                                option={option}
-                                selected={op === option}
-                                onPress={() => chooseOp(option)}
-                            />
-                        ))}
+                ) : null}
+                {valuelessOperators.length ? (
+                    <View className="mt-3 gap-2">
+                        {valueOperators.length ? (
+                            <View className="h-px bg-border" />
+                        ) : null}
+                        <View className="flex-row flex-wrap gap-2">
+                            {valuelessOperators.map((option) => (
+                                <ConditionOption
+                                    key={option}
+                                    option={option}
+                                    selected={op === option}
+                                    onPress={() => chooseOp(option)}
+                                />
+                            ))}
+                        </View>
                     </View>
-                </View>
-            ) : null}
-            {error ? (
-                <Text className="text-sm text-destructive">{error}</Text>
-            ) : null}
-            <View className="mt-3 flex-row items-center gap-2">
+                ) : null}
+                {error ? (
+                    <Text className="text-sm text-destructive">{error}</Text>
+                ) : null}
+            </ScrollView>
+            <View className="mt-3 shrink-0 flex-row items-center gap-2">
                 {onDelete ? (
                     <Pressable
                         onPress={onDelete}

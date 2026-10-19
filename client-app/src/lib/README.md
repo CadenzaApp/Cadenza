@@ -438,12 +438,15 @@ remaining distance. A short pull still springs back to full size.
 
 ## The providers
 
-- `AppleMusicProvider` exposes `sessionExpired`, set when Apple rejects the stored
-  music-user token. Every Apple Music read in `musickit-hooks.ts` goes through a local
+- `AppleMusicProvider` exposes `sessionExpired`, set when Apple rejects a request with the
+  current credentials. It does not prove the music-user token itself expired. Every Apple
+  Music read in `musickit-hooks.ts` goes through a local
   `read()` wrapper that retries once on `ERR_APPLE_MUSIC_AUTH` and, if that fails too, calls
-  `reportAppleMusicAuthFailure()`. That drops the dead token and flips `sessionExpired`, which
-  `AppleMusicSessionGuard` turns into the Account sheet. A new musickit read that skips `read()`
-  will hang on a dead token instead of prompting a reconnect.
+  `reportAppleMusicAuthFailure()`. That clears the rejected credentials and flips
+  `sessionExpired`, which `AppleMusicSessionGuard` turns into the Account sheet. Reads capture
+  an auth generation, so a failure from before reconnect cannot clear a newer session;
+  reconnect waits for any pending credential reset. A new musickit read that skips `read()`
+  will keep replaying rejected credentials instead of prompting a reconnect.
 - `AccountProvider` owns who is signed in, id and email only. `signIn`, `signUp`, `signOut`, and
   `tryRestoreSession`. Every account change calls `clearCache()`, so switching users cannot leak
   cached data. It does not log session tokens or account details. It has no loading state on

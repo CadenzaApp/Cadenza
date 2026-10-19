@@ -1,208 +1,158 @@
-import { useCallback, useMemo, type ReactNode } from "react";
-import { StyleSheet } from "react-native";
+import * as Haptics from "expo-haptics";
+import {
+    useCallback,
+    useLayoutEffect,
+    useMemo,
+    useRef,
+    type ReactNode,
+} from "react";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
+    ReduceMotion,
+    runOnJS,
     useAnimatedStyle,
     useSharedValue,
-    withSpring,
     withTiming,
 } from "react-native-reanimated";
-
-import * as Haptics from "expo-haptics";
-
+import { useDragCommands } from "./DragContext";
 import type { DragPayload } from "./types";
-import { useDrag } from "./DragContext";
 
-const DRAG_MIN_DISTANCE = 12;
-const HANDLE_TOP_OFFSET = 8;
-// The dedicated reorder grip has no tap action to protect, so it should
-// engage at the first intentional movement rather than feeling like a hold.
-const HANDLE_DRAG_MIN_DISTANCE = 3;
-
+/** Tag motion stays on the UI thread; React handles pickup, hover, and drop. */
 export function DraggablePill({
     payload,
     children,
-    dragHandle,
-    onPrepareDrag,
-    verticalOnly = false,
 }: {
     payload: DragPayload;
     children: ReactNode;
-    dragHandle?: ReactNode;
-    onPrepareDrag?: () => void;
-    verticalOnly?: boolean;
 }) {
-    const { beginDrag, moveDrag, finishDrag, cancelDrag } = useDrag();
-    const startX = useSharedValue(0);
-    const startY = useSharedValue(0);
-    const touchOffsetY = useSharedValue(0);
+    const { beginDrag, moveDrag, finishDrag, cancelDrag, dragX, dragY } =
+        useDragCommands();
+    const handlers = useRef({
+        payload,
+        beginDrag,
+        moveDrag,
+        finishDrag,
+        cancelDrag,
+    });
+    useLayoutEffect(() => {
+        handlers.current = {
+            payload,
+            beginDrag,
+            moveDrag,
+            finishDrag,
+            cancelDrag,
+        };
+    }, [payload, beginDrag, moveDrag, finishDrag, cancelDrag]);
+    const origin = useSharedValue({ x: 0, y: 0 });
     const opacity = useSharedValue(1);
-    const isDragging = useSharedValue(0);
-    const measuredWidth = useSharedValue(0);
-    const measuredHeight = useSharedValue(0);
-
+    const started = useSharedValue(false);
+    const released = useSharedValue(false);
+    const lastHover = useSharedValue(0);
     const start = useCallback(
-        (x: number, y: number) => {
-            void beginDrag(payload, x, y);
-            if (payload.source === "palette") {
-                void (async () => {
-                    try {
-                        await Haptics.impactAsync(
-                            Haptics.ImpactFeedbackStyle.Light,
-                        );
-                    } catch {
-                        /* Feedback is optional. */
-                    }
-                })();
-            }
+        (x: number, y: number, offset: { x: number; y: number }) => {
+            void handlers.current.beginDrag(
+                handlers.current.payload,
+                x,
+                y,
+                offset,
+            );
+            void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(
+                () => {},
+            );
         },
-        [beginDrag, payload],
+        [],
     );
     const move = useCallback(
-        (x: number, y: number) => moveDrag(payload, x, y),
-        [moveDrag, payload],
+        (x: number, y: number) => handlers.current.moveDrag(x, y),
+        [],
     );
     const finish = useCallback(
-        (x: number, y: number) => finishDrag(payload, x, y),
-        [finishDrag, payload],
-    );
-
-    const pan = useMemo(() => {
-        const gesture = Gesture.Pan()
-            .minDistance(
-                dragHandle ? HANDLE_DRAG_MIN_DISTANCE : DRAG_MIN_DISTANCE,
-            )
-            .maxPointers(1)
-            .runOnJS(true);
-        return gesture
-            .onBegin((event) => {
-                onPrepareDrag?.();
-                startX.set(event.absoluteX);
-                startY.set(event.absoluteY);
-                touchOffsetY.set(event.y);
-            })
-            .onStart(() => {
-                isDragging.set(1);
-                opacity.set(verticalOnly ? withTiming(0, { duration: 80 }) : 0);
-                start(
-                    startX.get(),
-                    verticalOnly
-                        ? startY.get() -
-                              touchOffsetY.get() -
-                              HANDLE_TOP_OFFSET +
-                              measuredHeight.get() / 2
-                        : startY.get(),
+        async (x: number, y: number) => {
+            try {
+                await handlers.current.finishDrag(
+                    handlers.current.payload,
+                    x,
+                    y,
                 );
-            })
-            .onUpdate((event) => {
-                if (!isDragging.get()) return;
-                move(
-                    verticalOnly
-                        ? startX.get()
-                        : startX.get() + event.translationX,
-                    verticalOnly
-                        ? startY.get() -
-                              touchOffsetY.get() -
-                              HANDLE_TOP_OFFSET +
-                              measuredHeight.get() / 2 +
-                              event.translationY
-                        : startY.get() + event.translationY,
+            } finally {
+                opacity.set(
+                    withTiming(1, {
+                        duration: 100,
+                        reduceMotion: ReduceMotion.System,
+                    }),
                 );
-            })
-            .onEnd((event) => {
-                if (!isDragging.get()) return;
-                const endX = verticalOnly
-                    ? startX.get()
-                    : startX.get() + event.translationX;
-                const endY = verticalOnly
-                    ? startY.get() -
-                      touchOffsetY.get() -
-                      HANDLE_TOP_OFFSET +
-                      measuredHeight.get() / 2 +
-                      event.translationY
-                    : startY.get() + event.translationY;
-                if (verticalOnly) {
-                    move(endX, endY);
-                    finish(endX, endY);
-                    isDragging.set(0);
-                    opacity.set(1);
-                    cancelDrag();
-                    return;
-                }
-                finish(endX, endY);
-            })
-            .onFinalize(() => {
-                const didDrag = isDragging.get() === 1;
-                isDragging.set(0);
-                opacity.set(withSpring(1));
-                if (didDrag) cancelDrag();
-            });
-    }, [
-        cancelDrag,
-        dragHandle,
-        finish,
-        isDragging,
-        move,
-        onPrepareDrag,
-        measuredHeight,
-        opacity,
-        start,
-        startX,
-        startY,
-        touchOffsetY,
-        verticalOnly,
-    ]);
-    const animatedStyle = useAnimatedStyle(() => ({
-        width:
-            verticalOnly && isDragging.get() && measuredWidth.get() > 0
-                ? measuredWidth.get()
-                : undefined,
-        height: verticalOnly
-            ? isDragging.get() && measuredHeight.get() > 0
-                ? measuredHeight.get()
-                : "auto"
-            : undefined,
-        opacity: opacity.get(),
-        zIndex: isDragging.get() ? 1001 : 0,
-        elevation: isDragging.get() ? 24 : 0,
-        overflow: "visible",
-    }));
-    const content = (
-        <Animated.View
-            style={animatedStyle}
-            onLayout={(event) => {
-                const { width, height } = event.nativeEvent.layout;
-                if (width > 0) {
-                    measuredWidth.set(width);
-                }
-                if (height > 0) {
-                    measuredHeight.set(height);
-                }
-            }}
-        >
-            {children}
-            {dragHandle ? (
-                <GestureDetector gesture={pan}>
-                    <Animated.View style={styles.dragHandle}>
-                        {dragHandle}
-                    </Animated.View>
-                </GestureDetector>
-            ) : null}
-        </Animated.View>
+            }
+        },
+        [opacity],
     );
-
-    return dragHandle ? (
-        content
-    ) : (
-        <GestureDetector gesture={pan}>{content}</GestureDetector>
+    const cancel = useCallback(() => handlers.current.cancelDrag(), []);
+    // These callbacks execute later on the UI runtime, never during render.
+    /* eslint-disable react-hooks/refs, react-hooks/purity */
+    const pan = useMemo(
+        () =>
+            Gesture.Pan()
+                .minDistance(6)
+                .maxPointers(1)
+                .onBegin((event) => {
+                    origin.set({ x: event.x, y: event.y });
+                    started.set(false);
+                    released.set(false);
+                })
+                .onStart((event) => {
+                    started.set(true);
+                    opacity.set(0);
+                    dragX.set(event.absoluteX);
+                    dragY.set(event.absoluteY);
+                    runOnJS(start)(
+                        event.absoluteX,
+                        event.absoluteY,
+                        origin.get(),
+                    );
+                })
+                .onUpdate((event) => {
+                    dragX.set(event.absoluteX);
+                    dragY.set(event.absoluteY);
+                    const now = Date.now();
+                    if (now - lastHover.get() >= 80) {
+                        lastHover.set(now);
+                        runOnJS(move)(event.absoluteX, event.absoluteY);
+                    }
+                })
+                .onEnd((event) => {
+                    released.set(true);
+                    dragX.set(event.absoluteX);
+                    dragY.set(event.absoluteY);
+                    runOnJS(finish)(event.absoluteX, event.absoluteY);
+                })
+                .onFinalize(() => {
+                    if (!released.get())
+                        opacity.set(
+                            withTiming(1, {
+                                duration: 100,
+                                reduceMotion: ReduceMotion.System,
+                            }),
+                        );
+                    if (started.get() && !released.get()) runOnJS(cancel)();
+                }),
+        [
+            origin,
+            opacity,
+            started,
+            released,
+            dragX,
+            dragY,
+            lastHover,
+            start,
+            move,
+            finish,
+            cancel,
+        ],
+    );
+    /* eslint-enable react-hooks/refs, react-hooks/purity */
+    const style = useAnimatedStyle(() => ({ opacity: opacity.get() }));
+    return (
+        <GestureDetector gesture={pan}>
+            <Animated.View style={style}>{children}</Animated.View>
+        </GestureDetector>
     );
 }
-
-const styles = StyleSheet.create({
-    dragHandle: {
-        position: "absolute",
-        left: 0,
-        top: HANDLE_TOP_OFFSET,
-        zIndex: 2,
-    },
-});
