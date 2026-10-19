@@ -35,7 +35,7 @@ type ScreenScrollProps<T extends Scroller> = {
     ref: AnimatedRef<T>;
     onScroll: ReturnType<typeof useAnimatedScrollHandler>;
     scrollEventThrottle: number;
-    style: AnimatedStyle<ViewStyle>;
+    style: AnimatedStyle<ViewStyle> | undefined;
     /**
      * The top padding a floating rail needs, undefined with none. A scroller
      * with its own content style lists this last in it, so it wins over the
@@ -43,6 +43,9 @@ type ScreenScrollProps<T extends Scroller> = {
      */
     contentContainerStyle: StyleProp<ViewStyle>;
 };
+
+/** What `useScreenScroll()` returns for an animated scroll view. */
+export type ScreenScrollBinding = ScreenScrollProps<Animated.ScrollView>;
 
 /**
  * Wiring for a tab screen's top-level scroller. Spread it onto an
@@ -188,7 +191,8 @@ export function useScreenScroll<
         ref,
         onScroll,
         scrollEventThrottle: 16,
-        style: pullCompensationStyle,
+        // A no-op transform still clips the iOS refresh indicator.
+        style: compensatesZoomPull ? pullCompensationStyle : undefined,
         // padding rather than a native content inset: 0 stays the top, so
         // scroll-to-top and the first frame need nothing special
         contentContainerStyle:

@@ -45,21 +45,6 @@ export type TagMetadata = {
     count: number;
 };
 
-/**
- * How far to move each tag name's score, keyed by tag name. Positive values
- * raise the score, negative ones lower it. Names are matched case-insensitively
- * and by tag name rather than tag id, so a default tag can be scored too.
- */
-export type TagScoreDeltas = Record<string, number>;
-
-/** What each named tag's score is now, keyed by the lowercased tag name. */
-export type TagScores = Record<string, number>;
-
-// `GET /tags/scores` has no client caller any more. The Analytics tab reads tags
-// by plays in a window instead, which tag_scores cannot answer because it has no
-// timestamp. Scores are still written and still decay, as the input for
-// recommendations; its response shape lives in backend-api/src/routes/README.md.
-
 /** What kind of thing the social feed tracks the user's interest in. */
 export type InterestType = "artist" | "genre";
 
@@ -73,23 +58,59 @@ export type InterestScoreDelta = {
     delta: number;
 };
 
-export type CommentVote = "up" | "down";
+/**
+ * A song or artist attached to a social post. The wire only stores the
+ * MusicKit catalog id; the client asks Apple whether that id is a song or
+ * an artist.
+ */
+export type PostTopic =
+    | {
+          kind: "song";
+          id: string;
+          title: string;
+          artistName?: string;
+          artworkUrl?: string;
+          artworkColor?: string;
+          catalogId?: string;
+          playbackId?: string;
+          songDuration?: number;
+          previewUrl?: string;
+      }
+    | {
+          kind: "artist";
+          id: string;
+          name: string;
+          artworkUrl?: string;
+          artworkColor?: string;
+          catalogId?: string;
+      };
 
-/** a comment on a song, as the signed in user sees it */
-export type Comment = {
-    id: number;
+/**
+ * One social feed post as `/social/feed`, `/social/posts/user/:id`, and
+ * `/social/posts/topic` return it. Author comes from `profile`; a missing
+ * profile row shows username `"unknown"`. `topic_mk_id` is the Apple Music
+ * catalog id of an attached song or artist, or null.
+ */
+export type SocialPost = {
+    post_id: number;
     content: string;
-    /** RFC 3339 in UTC, e.g. "2026-09-15T18:03:11.482913Z" */
+    likes: number;
+    /** Whether the signed-in user has liked it. */
+    liked: boolean;
+    /** RFC 3339 in UTC */
     created_at: string;
-    /** whether the signed in user left it. the backend never says who else did */
-    mine: boolean;
-    /** up votes minus down votes */
-    votes: number;
-    /** the signed in user's vote on it */
-    my_vote: CommentVote | null;
+    author: {
+        /** Auth user id; used to open their profile page. */
+        user_id: string;
+        username: string;
+    };
+    /** Apple Music catalog id of the attached song or artist, or null. */
+    topic_mk_id: string | null;
 };
 
-/** a top level comment with its replies, oldest reply first */
-export type CommentThread = Comment & {
-    replies: Comment[];
+/** Public profile header from `GET /social/posts/user/:author_id`. */
+export type SocialUserProfile = {
+    user_id: string;
+    username: string;
+    bio: string;
 };

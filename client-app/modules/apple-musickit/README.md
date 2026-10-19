@@ -22,7 +22,10 @@ Import `Auth`, `MusicKit`, `Playback`, and their public types from
   snapshot.
 
 Returned `MusicItem` values identify their `resourceKind`, `source`, canonical
-`id`, optional `catalogId` and `libraryId`, and required `playbackType`. Library
+`id`, optional `catalogId` and `libraryId`, and required `playbackType`. Catalog
+songs also carry `previewUrl` when Apple ships a ~30 second clip; library-only
+songs often have none. Topic cards play that clip instead of the full queue.
+Library
 requests accept `limit` and `offset`; results expose Apple's `next` path when a
 later page exists.
 

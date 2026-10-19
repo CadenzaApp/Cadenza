@@ -1,10 +1,10 @@
 /// this module has objects that are to be returned from API as json.
 pub mod analytics;
-pub mod comment;
 pub mod metadata_tag;
+pub mod profile;
 pub mod query;
+pub mod social;
 pub mod tag;
-pub mod tag_score;
 
 /// convert a `Vec<A>` into a `Vec<B>``
 pub fn vec_into<A, B>(v: Vec<A>) -> Vec<B>

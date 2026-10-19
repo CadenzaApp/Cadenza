@@ -23,6 +23,7 @@ import {
     type QueueState,
 } from "./queue-order";
 import { samePlayableItem } from "./playable-item";
+import { abandonTopicPreview } from "./topic-preview";
 import { nextAction, previousAction } from "./transport";
 
 export type PlaybackQueue = {
@@ -237,6 +238,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
         if (playableTracks.length === 0) return;
 
         await ensureConnected();
+        await abandonTopicPreview();
         const boundedIndex = Math.max(
             0,
             Math.min(startIndex, playableTracks.length - 1),
@@ -283,6 +285,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
                     showPlayer();
                     if (snapshot.isPlaying) return;
                 }
+                await abandonTopicPreview();
                 await Playback.togglePlayerState();
             } else {
                 // Song lookup/list playback intentionally creates a one-song
@@ -414,6 +417,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     }
 
     async function playQueueItem(index: number) {
+        await abandonTopicPreview();
         await mutateQueue(
             "play that song",
             (state) => jumpToQueueEntry(state, index),
@@ -457,6 +461,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     }
 
     async function skipToNext() {
+        await abandonTopicPreview();
         const action = nextAction({
             index: resolvedQueueIndex,
             length: queue.length,
@@ -485,6 +490,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     }
 
     async function skipToPrevious() {
+        await abandonTopicPreview();
         const action = previousAction({
             index: resolvedQueueIndex,
             progress: snapshot.progress,
@@ -503,6 +509,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     }
 
     async function dismissPlayer() {
+        await abandonTopicPreview();
         dismissalAwaitingPauseRef.current = true;
         isPlayerDismissedRef.current = true;
         setIsPlayerDismissed(true);

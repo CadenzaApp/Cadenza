@@ -10,19 +10,48 @@ pub struct Model {
     pub user_id: Uuid,
     #[sea_orm(column_type = "Text")]
     pub content: String,
+    #[sea_orm(ignore, column_type = "custom(\"vector\")", select_as = "text")]
+    pub embedding: String,
+    pub likes: i64,
+    pub created_at: DateTimeWithTimeZone,
+    pub hot_score: i64,
     #[sea_orm(
         ignore,
         column_type = "custom(\"vector\")",
         select_as = "text",
         nullable
     )]
-    pub embedding: Option<String>,
-    pub likes: i64,
-    pub created_at: DateTimeWithTimeZone,
-    pub hot_score: i64,
+    pub embedding_w_bday: Option<String>,
+    #[sea_orm(column_type = "Text", nullable)]
+    pub topic_mk_id: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
-pub enum Relation {}
+pub enum Relation {
+    #[sea_orm(has_many = "super::comments::Entity")]
+    Comments,
+    #[sea_orm(has_many = "super::post_likes::Entity")]
+    PostLikes,
+    #[sea_orm(has_many = "super::post_view_status::Entity")]
+    PostViewStatus,
+}
+
+impl Related<super::comments::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Comments.def()
+    }
+}
+
+impl Related<super::post_likes::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::PostLikes.def()
+    }
+}
+
+impl Related<super::post_view_status::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::PostViewStatus.def()
+    }
+}
 
 impl ActiveModelBehavior for ActiveModel {}

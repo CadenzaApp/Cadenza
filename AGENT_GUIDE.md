@@ -3,8 +3,6 @@
 Shared instructions for any coding agent working in this repo. `CLAUDE.md` and `AGENTS.md`
 both point here. Tool-specific instructions go in those files, below the pointer.
 
-Git worktrees are in .wt/branch-name.
-
 ## What Cadenza is
 
 A music app built on Apple Music. Users tag songs in their library, then build boolean tag
@@ -39,14 +37,14 @@ from a playlist or a query carries that source the same way, for the playlist an
 Two halves:
 
 - `client-app/` - Expo / React Native app, expo-router, nativewind. Runs on iOS and Android.
-  Talks to Apple Music through a local native Expo module, and to our own backend for tags,
-  queries, and comments.
+  Talks to Apple Music through a local native Expo module, and to our own backend for tags
+  and queries.
 - `backend-api/` - Rust, axum 0.8 + SeaORM 2.0 over Supabase postgres. Owns tags, tag
-  application, the query engine, LLM tag generation, and comments on songs. Auth is Supabase
+  application, the query engine, and LLM tag generation. Auth is Supabase
   JWT, verified against Supabase's JWKS.
 
-Apple Music owns song metadata and playback. We store a song id (a string) and the tags and
-comments attached to it. The one exception is `metadata_song_tags_applied`, a copy of each
+Apple Music owns song metadata and playback. We store a song id (a string) and the tags
+attached to it. The one exception is `metadata_song_tags_applied`, a copy of each
 song's title, artist, album, genre, release date, length, rating, and total plays across every
 user, so queries can filter on
 them (the query builder's Metadata fields) and the Tags page can show them as Metadata Tags. Nothing else
@@ -63,9 +61,9 @@ backend-api/            rust api
   src/err.rs            CadenzaError, every handler returns Result<_, CadenzaError>
   src/routes/           http handlers, one module per resource
   src/db/               query layer, src/db/entity/ is generated
-  src/services/         tag generation, tag normalization, social feed proxy, analytics defs
+  src/services/         tag generation, tag normalization, social feed model client, analytics defs
   sql/                  DDL for tables applied by hand, so a fresh db can be stood up
-  social-feed/          python recommendation service, run separately from the api
+  ml-service/           python sentence-transformer service, run separately from the api
 client-app/             expo app
   src/app/              expo-router routes (tabs, auth, splash, tag detail)
   src/lib/              data layer: swr wrappers, endpoint hooks, providers
@@ -88,9 +86,9 @@ directories with only a few straightforward files do not need documentation.
 | ------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------- |
 | [backend-api/README.md](backend-api/README.md)                                                                     | Backend setup, env vars, `main.rs` wiring, auth, errors         |
 | [backend-api/src/routes/README.md](backend-api/src/routes/README.md)                                               | Every HTTP endpoint and its request/response shape              |
-| [backend-api/src/db/README.md](backend-api/src/db/README.md)                                                       | Query layer, the tag and comment schema, the query compiler     |
+| [backend-api/src/db/README.md](backend-api/src/db/README.md)                                                       | Query layer, the tag schema, and the query compiler             |
 | [backend-api/src/services/README.md](backend-api/src/services/README.md)                                           | LLM tag generation, the `TagGenerator` trait, tag normalization |
-| [backend-api/social-feed/README.md](backend-api/social-feed/README.md)                                             | The python social feed service, its endpoints and ranking        |
+| [backend-api/ml-service/README.md](backend-api/ml-service/README.md)                                               | The python embedding service started by the api: post vectors and feed similarity |
 | [client-app/README.md](client-app/README.md)                                                                       | Client setup, env vars, path aliases, scripts                   |
 | [client-app/src/app/README.md](client-app/src/app/README.md)                                                       | expo-router layout, provider nesting, the five tabs             |
 | [client-app/src/lib/README.md](client-app/src/lib/README.md)                                                       | SWR wrappers, endpoint hooks, the four providers                |

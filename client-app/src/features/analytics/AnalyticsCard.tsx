@@ -1,6 +1,6 @@
 import { StyleSheet, View, type ViewProps } from "react-native";
 
-import { GlassSurface } from "@/components/ui/glass-surface";
+import { GlassLayer, GlassSurface } from "@/components/ui/glass-surface";
 import { TextClassContext } from "@/components/ui/text";
 import { cn } from "@/lib/utils";
 
@@ -10,7 +10,8 @@ import { cn } from "@/lib/utils";
  *
  * The glass is a sibling layer under the content rather than the container
  * itself, the way `GlassButton` does it, so the content lays out as a plain
- * view and the glass only paints.
+ * view and the glass only paints. The content sits in a `GlassLayer`, so
+ * glass controls inside the card paint a flat fill instead of stacking.
  */
 export function AnalyticsCard({ className, children, ...rest }: ViewProps) {
     return (
@@ -28,7 +29,7 @@ export function AnalyticsCard({ className, children, ...rest }: ViewProps) {
                         style={StyleSheet.absoluteFill}
                     />
                 </View>
-                {children}
+                <GlassLayer>{children}</GlassLayer>
             </View>
         </TextClassContext.Provider>
     );

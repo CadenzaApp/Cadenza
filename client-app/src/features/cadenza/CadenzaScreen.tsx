@@ -57,7 +57,6 @@ import { useAppleMusic } from "@/lib/apple-music-auth";
 import { describeQuery, positiveQueryTagNames } from "@/lib/query-json";
 import { useQueryResults } from "@/lib/routes/queries";
 import { useActivityTags, useUserTags } from "@/lib/routes/tags";
-import { useScoreQueryTags } from "@/lib/tag-scores";
 import type { Tag } from "@/lib/types";
 import { useOpenScreen } from "@/lib/open-screen";
 import { THEME } from "@/lib/theme";
@@ -98,7 +97,6 @@ export function CadenzaScreen() {
     const { colorScheme = "light" } = useColorScheme();
     const headingBackground = THEME[colorScheme].background;
     const openScreen = useOpenScreen();
-    const scoreQueryTags = useScoreQueryTags();
     const [history, dispatch] = useReducer(workspaceReducer, {
         present: INITIAL_WORKSPACE,
         past: [],
@@ -466,10 +464,6 @@ export function CadenzaScreen() {
                     return;
                 }
                 if (!query || queryResultsLoading || queryResultsErr) return;
-                void scoreQueryTags(
-                    query,
-                    queryTags.filter((tag) => !tag.is_activity),
-                );
                 openScreen({
                     pathname: "/query-results",
                     params: {

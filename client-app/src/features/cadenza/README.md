@@ -32,7 +32,7 @@ tags, and metadata fields using the same predicate popup. Advanced also supports
 Both editors compile to the shared QueryJSON format and use `useQueryResults`. The result button
 uses the backend ID count directly; the editor does not load MusicKit track metadata or artwork.
 Empty, incomplete, pending, zero-match, and failed queries have distinct result states. Retry uses
-SWR's mutate. Opening results scores the query's positive tags and pushes `/query-results` with
+SWR's mutate. Opening results pushes `/query-results` with
 the query, matching scope, relevant tags, and its analytics description. Closing results preserves
 both drafts. The results route owns resolving matched IDs into playable tracks.
 
