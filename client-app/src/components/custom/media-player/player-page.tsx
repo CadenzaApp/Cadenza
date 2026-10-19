@@ -1,6 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { RepeatMode, ShuffleMode } from "@apple-musickit";
-import { useRouter } from "expo-router";
+import type { Href } from "expo-router";
 import { useTheme } from "expo-router/react-navigation";
 import { useEffect, useRef, useState } from "react";
 import { Alert, Image, useWindowDimensions, View } from "react-native";
@@ -19,6 +19,7 @@ import { SongOptionsMenu } from "@/components/custom/options-menu/song-options-m
 import { Text } from "@/components/ui/text";
 import { usePlayback } from "@/lib/playback";
 import { useSongFavoriteStatus } from "@/lib/musickit-hooks";
+import { useOpenScreen } from "@/lib/open-screen";
 import { SHEET_DETENT } from "@/lib/theme";
 
 import {
@@ -44,7 +45,8 @@ type PlayerView = "artwork" | "queue";
 /**
  * The Player page of the now playing native tabs: artwork or the queue, the song
  * and its scrubber, and the transport. It is the only page of the three that
- * touches playback - Comments and Tags both only ever read `focusedSong`.
+ * touches playback. Tags and Discuss only read `focusedSong`. Discuss lists
+ * that song's posts.
  *
  * The queue opens in place rather than as another page. Playback controls
  * stay on screen either way, which is the whole point of the layout.
@@ -72,7 +74,7 @@ export function PlayerPage() {
         canSkipToPrevious,
     } = usePlayback();
     const { colors } = useTheme();
-    const router = useRouter();
+    const openScreen = useOpenScreen();
     const insets = useSafeAreaInsets();
     const { width, height } = useWindowDimensions();
     const [view, setView] = useState<PlayerView>("artwork");
@@ -268,9 +270,8 @@ export function PlayerPage() {
      * presented sheet would render it in the sheet's box. Music does the same:
      * picking Go to Artist dismisses now playing first.
      */
-    function leaveFor(href: Parameters<typeof router.push>[0]) {
-        router.back();
-        router.push(href);
+    function leaveFor(href: Href) {
+        openScreen(href, { closing: "player" });
     }
 
     function toggleShuffle() {

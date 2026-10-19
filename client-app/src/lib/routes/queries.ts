@@ -58,7 +58,10 @@ export function useQueryResults(
         "/queries/results",
         body,
     );
-    return useParsedResults(body, x.data, x.isLoading, x.error);
+    return {
+        ...useParsedResults(body, x.data, x.isLoading, x.error),
+        refreshQueryResults: x.mutate,
+    };
 }
 
 /**
@@ -123,6 +126,7 @@ function useParsedResults(
         matchedSongIds,
         resultsCapped: response?.capped ?? false,
         queryResultsLoading: body !== null && isLoading,
-        queryResultsErr: error,
+        // an empty query has nothing to fail, whatever the last key left behind
+        queryResultsErr: body ? error : undefined,
     };
 }

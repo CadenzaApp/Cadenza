@@ -8,20 +8,20 @@ call into `src/db/` or `src/services/`, and shape the response.
 
 | file                | role                                                                                                                                                                                                    |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `mod.rs`            | Declares `json`, `analytics`, `comments`, `events`, `queries`, `social`, `tags`, `songs`.                                                                                                               |
-| `tags.rs`           | Tag CRUD for the signed-in user, tag score edits, default tag search, listing the activity tags, plus LLM tag suggestion. Mounted at `/tags`.                                                           |
+| `mod.rs`            | Declares `json`, `analytics`, `events`, `profile`, `queries`, `social`, `tags`, `songs`.                                                                                                                |
+| `tags.rs`           | Tag CRUD for the signed-in user, default tag search, listing the activity tags, plus LLM tag suggestion. Mounted at `/tags`.                                                                             |
 | `songs.rs`          | Adding and removing the user's songs, reading and changing user tags, reading default tags, reading activity tags, recording plays, and reporting an opened song. Mounted at `/songs`.                 |
 | `queries.rs`        | Runs a tag query and returns song ids by relevance. Mounted at `/queries`.                                                                                                                              |
-| `comments.rs`       | Reading, leaving, deleting, and voting on comments on songs. Mounted at `/comments`.                                                                                                                    |
+| `profile.rs`        | Reading, creating, and editing the signed-in user's public profile (username and bio). Mounted at `/profile`.                                                                                           |
 | `events.rs`         | Ingests a batch of listening events, and counts the `play_counted` ones towards the activity tags in the same transaction. Mounted at `/events`.                                                        |
 | `analytics.rs`      | Summary counts, time bucketed trends, the metric list, and the rankings (song, artist, album, playlist, query). Mounted at `/analytics`.                                                                                |
-| `social.rs`         | One catch-all handler that proxies `/social/*` to the social feed service with the caller's user id attached. No endpoint list of its own. Mounted at `/social`.                                        |
-| `json/mod.rs`       | `vec_into`, a small `Vec<A> -> Vec<B>` helper. Declares `analytics`, `comment`, `metadata_tag`, `query`, `tag`, and `tag_score`.                                                                                        |
+| `social.rs`         | The social feed, posts, likes, views, topic posts, and interest scores. Calls the python model only for embeddings and similarity. Mounted at `/social`.                                                 |
+| `json/mod.rs`       | `vec_into`, a small `Vec<A> -> Vec<B>` helper. Declares `analytics`, `metadata_tag`, `profile`, `query`, `social`, and `tag`.                                                                            |
 | `json/analytics.rs` | The `/events` request and response shapes, and the `/analytics` response shapes.                                                                                                                        |
 | `json/tag.rs`       | `TagType`, `Tag`, and `AppliedTag`, the wire shapes of a tag. `From<tags::Model>` drops `user_id` and keeps `is_activity`.                                                                              |
-| `json/tag_score.rs` | `ScoredTag`, one top tag as a `[score, color, source]` array, and `TagSource`, `"local"` or `"global"`.                                                                                                 |
 | `json/metadata_tag.rs`| `MetadataTag` and `metadata_tags_of`, a song's stored metadata as read-only `{key, type, value}` tags.                                                                                                  |
-| `json/comment.rs`   | `Comment` and `CommentThread`, the wire shapes of a comment and of a top level comment with its replies. Both take the reading user's id, to turn `user_id` into `mine`, and each comment's vote tally. |
+| `json/profile.rs`   | `Profile`, the wire shape of a public profile (`uid`, `username`, `bio`).                                                                                                                               |
+| `json/social.rs`    | `SocialPost`, `SocialUserProfile`, and the feed, create-post, user-posts, and topic-posts response envelopes.                                                                                           |
 | `json/query.rs`     | `Query`, `QueryNode`, `Filter`, `FilterOp`, `MetadataKey`: the input schema of a tag query. Both client builders produce it.                                                                            |
 
 ## Endpoints
@@ -35,8 +35,6 @@ Every route below requires `Authorization: Bearer <supabase jwt>`.
 | POST   | `/tags`                      | `{name, color, type?}`                                                                          | the new tag id, as a bare number in the body; 409 when the user already owns that normalized name                                                                                                                                                                                                                                                                                                                                                                     |
 | PATCH  | `/tags`                      | `{tag_id, name?, color?}`                                                                       | the updated tag. 404 if the tag is not yours; 409 when its new name matches another tag you own                                                                                                                                                                                                                                                                                                                                                                       |
 | DELETE | `/tags`                      | `{tag_id}`                                                                                      | empty. Silently no-ops if the tag is not yours                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| GET    | `/tags/scores`               | `?k=N`                                                                                          | `{tag_name: [score, color, "local" \| "global"]}`, the user's `k` highest scores, 0 and below and names with no tag left out. `k` is at most 200                                                                                                                                                                                                                                                                                                                      |
-| PATCH  | `/tags/scores`               | `{"pop": 5, "rock": 10, "jazz": -2}`                                                            | `{tag_name: score}`, the score every named tag is left at                                                                                                                                                                                                                                                                                                                                                                                                             |
 | GET    | `/tags/default-tags`         | `?search=...`                                                                                   | `[Tag]`, at most 5 default tags matching the search, most used first                                                                                                                                                                                                                                                                                                                                                                                                  |
 | GET    | `/tags/activity`             | none                                                                                            | `[Tag]`, every activity tag in display order. The same for every user                                                                                                                                                                                                                                                                                                                                                                                                 |
 | GET    | `/tags/suggest`              | `?song_desc=...&requested_tag_count=N`                                                          | `[{name, color}, ...]`                                                                                                                                                                                                                                                                                                                                                                                                                                                |
@@ -62,11 +60,20 @@ Every route below requires `Authorization: Bearer <supabase jwt>`.
 | GET    | `/analytics/top`             | `?dimension=song\|artist\|album\|playlist\|query&since=&until=&limit=`                                           | `{dimension, description, entries: [{key, label, sub_label, entity_id, sample_song_id, plays}]}`, most played first. `label` is null for songs, whose titles live in Apple Music. `limit` defaults to 20, clamped to 1..=100. 422 on an unknown dimension                                                                                                                                                                                                             |
 | GET    | `/analytics/top-tags`        | `?since=&until=&limit=`                                                                         | `{entries: [{id, name, color, type, plays, sample_song_id}]}`, the user's own tags by plays of the songs carrying them. `sample_song_id` is the tag's most played song in the window, for a cover. Activity tags are left out                                                                                                                                                                                                                                         |
 | GET    | `/analytics/heatmap`         | `?bucket=hour\|two_hour\|day\|week\|month\|year&since=&until=&tz=`                              | `{bucket, cells: [{start, plays, tag_id}], tags: [{id, name, color}]}`. Sparse: only buckets with a play. `two_hour` starts on even local hours and prints like an hour. `tag_id` is the tag played most in that bucket, ties to the name, null when nothing played carried one. `tags` lists each named tag once. `bucket` defaults to `day`, and the window is checked against the bucket cap like a trend                                                          |
+| GET    | `/analytics/tag-shares`      | `?since=&until=`                                                                                | `{total_ms, tagged_ms, tags: [{id, name, color, type, listening_ms}]}`. `total_ms` is the window's listening time, the summary's `listening_ms`. `tagged_ms` is the part on songs with any of the tags, each listen once. Each tag's `listening_ms` is the time on songs carrying it, every listen counted in full toward every tag on its song, so tags can sum past the total. Most first, every tag with any time, the user's own only |
 | POST   | `/queries/results`           | `{query, consider_default_tags?, sort?}`                                                        | `{songs: [{song_id, certain}], capped}`, in order. `sort` is `{key, direction}`, key `title`, `artist` or `album`, direction `ascending` or `descending`; without it, most relevant first. Every match that is the caller's own (`certain`) comes back, and the first 1000 of the rest. `capped` is true when more matched                                                                                                                                            |
-| GET    | `/comments`                  | `?song_id=...`                                                                                  | `[CommentThread]`, every user's comments on the song, newest first, each with its `replies` oldest first                                                                                                                                                                                                                                                                                                                                                              |
-| POST   | `/comments`                  | `{song_id, content, parent_id?}`                                                                | the new `Comment`. `parent_id` makes it a reply to a top level comment on that song. `content` is trimmed and must then be 1 to 2000 characters                                                                                                                                                                                                                                                                                                                       |
-| DELETE | `/comments`                  | `{comment_id}`                                                                                  | empty. Also deletes every reply to it. 404 if the user has no comment with that id                                                                                                                                                                                                                                                                                                                                                                                    |
-| POST   | `/comments/votes`            | `{comment_id, vote}`                                                                            | empty. `vote` is `"up"` or `"down"`, replacing the user's earlier vote, or `null` to take it back. 404 if an up or down vote names no comment                                                                                                                                                                                                                                                                                                                         |
+| GET    | `/profile`                   | none                                                                                            | `{uid, username, bio}`, the signed-in user's profile. 404 if there is no row                                                                                                                                                                                                                                                                                                                                                                                          |
+| POST   | `/profile`                   | `{username?, bio?}` or empty                                                                    | the new `{uid, username, bio}`. Username defaults to the email local part. 409 `ProfileAlreadyExists` or `UsernameAlreadyTaken`                                                                                                                                                                                                                                                                                                                                      |
+| PATCH  | `/profile`                   | `{username?, bio?}`                                                                             | the updated `{uid, username, bio}`. At least one field required. 404 if the user has no profile; 409 `UsernameAlreadyTaken`                                                                                                                                                                                                                                                                                                                                          |
+| GET    | `/social/feed`               | `?exclude=none\|loaded\|viewed` (default `none`)                                                | `{feed: [SocialPost]}`, at most 10, ranked. Marks returned ids `loaded`. `SocialPost` is `{post_id, content, likes, liked, created_at, author: {user_id, username}, topic_mk_id}` (`topic_mk_id` is an Apple Music catalog id or `null`)                                                                                                                                                                                                                        |
+| PATCH  | `/social/interests/update`   | `{delta_scores: [{name, itype, delta}]}`                                                        | `null`. `itype` is `genre` or `artist`. A new name is embedded on first use                                                                                                                                                                                                                                                                                                                                                                                         |
+| PATCH  | `/social/interests/decay`    | none                                                                                            | `null`. No-op when the user decayed in the last 6 hours or their top score is under 5                                                                                                                                                                                                                                                                                                                                                                               |
+| POST   | `/social/posts`              | `{content, topic_mk_id?, topic_song_title?, topic_artist_name?}`                                | `{post_id}`. `content` is at most 500 characters and is stored as sent. `topic_mk_id` is an optional Apple Music catalog id, at most 128 characters. Song and artist names (at most 200 characters) prefix the embedding only: `About the song {title} by {artist}: ` or `About the music artist {name}: `                                                                                                                                                  |
+| POST   | `/social/posts/views`        | `{post_ids: [n]}`                                                                               | `null`. Sets those posts to `viewed`                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| GET    | `/social/posts/topic`        | `?topic_mk_id=`                                                                                 | `{posts: [SocialPost]}`, most liked first, then newest, then post id. `topic_mk_id` is required and at most 128 characters; blank is 422                                                                                                                                                                                                                                                                                                                             |
+| GET    | `/social/posts/user/:id`     | path author id                                                                                  | `{profile: {user_id, username, bio}, posts: [SocialPost]}`, newest first. A missing profile uses username `"unknown"` and an empty bio                                                                                                                                                                                                                                                                                                                              |
+| POST   | `/social/posts/:id/likes`    | `{timestamp}`                                                                                   | `null`. `timestamp` is the click time in ms. An older click for the same user and post is ignored                                                                                                                                                                                                                                                                                                                                                                   |
+| DELETE | `/social/posts/:id/likes`    | `{timestamp}`                                                                                   | `null`. Same timestamp rule as like                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | GET    | `/test`                      | none                                                                                            | `server is reachable`. Defined inline in `main.rs`, not here                                                                                                                                                                                                                                                                                                                                                                                                          |
 
 `GET /tags` returns a serde-tagged enum, so the two shapes come back wrapped in `"One"` or
@@ -87,20 +94,11 @@ A `value` that does not fit the tag's type (not a number, not RFC 3339, not a
 any non-blank value on a `basic` tag) is rejected with `CadenzaError::InvalidTagValue` (422). See
 [../services/README.md](../services/README.md) for the exact per-type rules.
 
-`/social/*` is the one prefix with no endpoint table here. The handler takes any method and
-any path and forwards it to the social feed service, so that service owns its own routes. It
-adds the user id from the JWT (query string on a GET, JSON body otherwise) and relays the
-status, content type, and body back unchanged. A request body that is not a JSON object is
-rejected with `InvalidRequestBody` (422), and a service that cannot be reached gives
-`SocialFeedErr` (502). The paths the app actually calls are listed in
-[../../social-feed/README.md](../../social-feed/README.md) and hooked in
+`/social` reads and writes posts, likes, view status, and interest scores in postgres.
+The user id always comes from the JWT. A call the python model cannot answer is
+`SocialFeedErr` (502). What that process accepts is in
+[../../ml-service/README.md](../../ml-service/README.md). The app hooks are in
 `client-app/src/lib/routes/social.ts`.
-
-A `Comment` is `{id, content, created_at, mine, votes, my_vote}`, and a `CommentThread` is a top
-level `Comment` with a `replies` array of `Comment`s beside those fields. `mine` is true on the
-signed in user's comments and stands in for the author, whose user id never leaves the api.
-`created_at` is RFC 3339 in UTC, like `2026-09-15T18:03:11.482913Z`. `votes` is up votes minus down
-votes, and `my_vote` is the signed in user's vote: `"up"`, `"down"`, or `null`.
 
 ### Query JSON
 
@@ -194,27 +192,6 @@ Handlers take what they need out of `AppState` by `FromRef`, so most take
 take `State(tag_gen_service)`. Routes that operate only on shared defaults still require credentials
 with a bare `_: Claims<SupabaseClaims>`.
 
-`PATCH /tags/scores` tracks which tag names the signed in user is interested in. The body is a map
-of tag name to how far to move that name's score, so one interaction sends one request however many
-tags it touched. A name the user has no score for starts at its delta, a negative delta lowers the
-score, and the response is the score every named tag is left at.
-
-Scores go by tag name, not tag id, so they cover the user's own tags, default tags, and names they
-have no tag of at all. Names are lowercased, whitespace collapsed, and cut to 50 bytes by
-`services::tag_normalizer::normalize_tag_name` first, so `"Pop"` and `" pop "` are one score, and
-two names in one body that collapse into one have their deltas added together. See
-[../db/README.md](../db/README.md) for the upsert.
-
-`GET /tags/scores?k=N` reads them back: the signed in user's `k` highest scores, keyed by the same
-normalized tag name `PATCH` uses. Each value is a three element array, `[score, color, source]`,
-so the client can draw the name as a tag. `color` is the user's own tag's when they have a tag of
-that name, and `source` is then `"local"`. Otherwise it is the default tag's, and `source` is
-`"global"`. A map has no order, so the client sorts it.
-
-Scores of 0 and below are left out, and so are names with no tag at all, like one the user deleted.
-A user with fewer than `k` names left gets all of those. Where the `k`th place is a tie, the names
-that sort first make the cut, so the same scores always pick the same names.
-
 `GET /tags/default-tags` searches the shared default tag pool by name and is not song scoped.
 It is the odd one out next to `/songs/default-tags`, which reads the defaults applied to one song.
 Its results are ordered by how many songs carry the tag, most first.
@@ -287,28 +264,20 @@ the shared default tags, for matching and for ranking, and lets the query name a
 Default tags the caller removed do not count, same as the reads. The client sets it from the
 `Include suggested tags` toggle.
 
-`comments.rs` handlers convert models with `json::comment`, passing `claims.user_id` so each
-comment can say whether it is `mine`. `GET /comments` makes two reads, `db::comments::get_song_comments`
-for the threads and `db::comment_votes::get_song_vote_tallies` for the votes, and `json::comment`
-pairs them up by comment id. Grouping replies under their comments, the reply and content checks,
-and storing votes live in `db::comments` and `db::comment_votes`. See `../db/README.md`.
-
 `json/` exists so the wire format is decoupled from the SeaORM models. Anything that leaves the
 api as JSON should have a type here rather than serializing an entity model directly.
 
 ## Connects to
 
-- `crate::db::tags`, `crate::db::activity_tags`, `crate::db::tag_scores`, `crate::db::queries`, `crate::db::comments`, `crate::db::comment_votes`, and
+- `crate::db::tags`, `crate::db::activity_tags`, `crate::db::queries`, and
   `crate::db::user_songs` for all data access.
 - `crate::services::tag_generation::TagGenerationService` for `/tags/suggest`, and through
   `crate::services::default_tags` for the default tag reads.
 - `crate::services::song_metadata::SongMetadataService` for the titles those reads generate
   default tags from.
-- `crate::services::social_feed::SocialFeedService` for everything under `/social`.
+- `crate::db::social` and `crate::services::social_feed::SocialFeedService` for `/social`.
 - `crate::err::CadenzaError` for every error path.
-- Client side: `client-app/src/lib/routes/*.ts` wraps every one of these in an SWR hook,
-  including `client-app/src/lib/routes/comments.ts` for the `/comments` routes behind the
-  player sheet's `CommentsPage`.
+- Client side: `client-app/src/lib/routes/*.ts` wraps every one of these in an SWR hook.
 
 ## Gotchas
 
@@ -319,8 +288,11 @@ api as JSON should have a type here rather than serializing an entity model dire
   has no songs of their own, only the rest.
 - The response used to be a bare array of song ids. A client built before the `songs` / `capped`
   object reads it as no results.
-- `social.rs` does not read the proxied response, so nothing here validates what the social feed
-  service sends. A bad shape reaches the client as-is.
+- A like or unlike older than the last one this process accepted for that user and post is
+  ignored. The clock is in memory (the last 2000 pairs), so a restart forgets it.
+- The feed reuses a user's interest vector for 10 minutes. The cache holds the last 2000 users
+  and lives in this process, so a restart forgets it. An interest update is not reflected in
+  the feed until that user's entry is older than 10 minutes.
 - `tags.rs::get_songs_with_user_tag_handler` exists but is not routed anywhere. Dead code. The
   same data comes back from `GET /tags?tag_id=N`.
 - `GET /tags/suggest` uses `requested_tag_count` as a **required** query param, not optional, so
@@ -332,14 +304,7 @@ api as JSON should have a type here rather than serializing an entity model dire
   returns 5 tags rather than none. The cap of 5 is `DEFAULT_TAG_SEARCH_LIMIT` and is not a
   client-settable param.
 - `POST /tags` returns the id as a bare string body, not JSON.
-- `PATCH /tags/scores` caps a request at 200 tag names, and a name that normalizes to nothing (blank
-  or whitespace only) is a `QueryFormatError` (422) rather than being skipped.
-- A score delta of 0 still writes the row, which creates it at 0 for a name that had no score.
-- `GET /tags/scores` requires `k`. A missing or negative `k` is axum's own 400 with a plain text
-  body, not a `CadenzaError`. More than 200 is a `QueryFormatError` (422).
-- `GET /tags/scores` keys by the normalized name, so a user tag named `Road Trip` comes back as
-  `road trip`.
-- `DELETE /tags`, `DELETE /songs/local-tags`, and `DELETE /comments` take a JSON body. Some HTTP
+- `DELETE /tags` and `DELETE /songs/local-tags` take a JSON body. Some HTTP
   clients will not send one on a DELETE.
 - `GET /songs/local-tags` returns only the user's own tags. Default tags (`user_id IS NULL`) are
   available separately from `GET /songs/default-tags`.
@@ -396,24 +361,30 @@ api as JSON should have a type here rather than serializing an entity model dire
   The client sets them when a queue starts from a playlist or a query. A query's `source_id` is the
   query itself, JSON encoded with its suggested flag, so the same query ranks as one row and the
   client can run it again. Plays logged before the client wrote a source rank under neither.
-- `GET /tags/scores` has no client caller any more. The Analytics tab shows tags by plays in a
-  window, which `tag_scores` cannot answer because it has no timestamp. The scores are still
-  written and still decay weekly, as the input for recommendations, so this is not dead code.
 - Payload numbers must be whole and fit in an `i64`. The aggregates cast the stored text straight
   to `bigint` and the log is append only, so one row holding `1.5` would make the summary raise
   for that user with no way to delete it through the api.
-
-- `GET /comments` returns every comment on the song in one response. There is no paging.
-- Replies go one level deep. `POST /comments` answers `QueryFormatError` when `parent_id` names a
-  reply or a comment on another song, and `NotFound` when it names no comment.
-- Deleting a comment deletes every reply to it, other users' replies included.
-- A comment's author never leaves the api, only `mine`. There is no profile table, so the client
-  signs the user's own comments with their email and everyone else's with a placeholder.
-- `POST /comments/votes` treats a missing `vote` field like `null`, so it takes the vote back.
-- `GET /comments` reads comments and votes in two queries, so a comment or vote written between
-  them can come back with a stale tally until the next read.
+- Signup also inserts a `profile` row from an `auth.users` trigger (username = email local part).
+  The client still calls `POST /profile` after signup and ignores `ProfileAlreadyExists`.
 
 ---
 
 Touching files in this directory? Update this README in the same change.
 See [../../../AGENT_GUIDE.md](../../../AGENT_GUIDE.md).
+
+### Listening calendar endpoints
+
+- `GET /analytics/listening`: required `since`/`until`, optional `bucket`, `tz`, and one of `tag_id`
+  or `untagged=true` (songs with none of the user's own tags; suggested tags do not count). Returns
+  `total_ms` (unfiltered), `listening_ms`, `plays`, `session_count`, and sparse local-time `cells`
+  with `start`, `listening_ms`, and `plays`. The optional filter applies to all fields except `total_ms`. `/analytics/sessions` and
+  `/analytics/session-songs` take the same filter.
+- `GET /analytics/sessions`: required window, optional `tag_id`, `offset` and `limit`. Returns
+  `{entries, has_more}` with session `key`, recorded `start`/`end`, duration, and plays in that span.
+- `GET /analytics/session-songs`: the same window/filter/page parameters plus optional
+  `session_key`. Returns `{entries, has_more}` with song id, duration, plays and distinct tag names.
+  Without a key it covers every listen in the window (the heatmap's hour sheet). `unassigned`
+  addresses legacy events without a session id; other keys must be UUIDs.
+
+All reads derive the user from the JWT. Limits default to 25 and cap at 100. Tag selection uses
+only that user's non-activity tags. The original analytics endpoints are unchanged.

@@ -1,5 +1,7 @@
 import { supabase } from "./supabase";
 import { useState, useEffect, useRef, createContext, useContext } from "react";
+import { createProfile } from "./create-profile";
+import { clearSavedReads } from "./saved-reads-store";
 import { clearCache } from "./swr-utils";
 
 /**
@@ -85,6 +87,20 @@ export default function AccountProvider({ children }: Props) {
             id: data.user!.id,
             email: data.user!.email!,
         });
+
+        // auth.users trigger usually already wrote the row; this covers a
+        // missing trigger and ignores ProfileAlreadyExists either way
+        const token = data.session?.access_token;
+        if (token) {
+            try {
+                await createProfile(token);
+            } catch (profileError) {
+                console.warn(
+                    "Could not create profile after signup:",
+                    profileError,
+                );
+            }
+        }
     }
 
     async function signOut() {
@@ -93,6 +109,7 @@ export default function AccountProvider({ children }: Props) {
 
         setAccount(null);
         clearCache();
+        void clearSavedReads();
     }
 
     const [accountInfo, setAccountInfo] = useState<AccountInfo>({

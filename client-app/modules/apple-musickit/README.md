@@ -11,6 +11,10 @@ Import `Auth`, `MusicKit`, `Playback`, and their public types from
 `@apple-musickit`.
 
 - `Auth` authorizes the current user and restores or clears native tokens.
+- On iOS, authorization requests a fresh music-user token through MusicKit's
+  `MusicUserTokenProvider` with cache bypass after the user grants access. The old
+  `SKCloudServiceController.requestUserToken` path is deprecated and could return an opaque
+  StoreKit client-invalid error after a developer-token change.
 - `MusicKit` searches the catalog, reads library pages and playlist tracks,
   reads or changes favorite state for songs, albums, and playlists, writes to
   library playlists, and reads catalog and library artists.
@@ -18,7 +22,10 @@ Import `Auth`, `MusicKit`, `Playback`, and their public types from
   snapshot.
 
 Returned `MusicItem` values identify their `resourceKind`, `source`, canonical
-`id`, optional `catalogId` and `libraryId`, and required `playbackType`. Library
+`id`, optional `catalogId` and `libraryId`, and required `playbackType`. Catalog
+songs also carry `previewUrl` when Apple ships a ~30 second clip; library-only
+songs often have none. Topic cards play that clip instead of the full queue.
+Library
 requests accept `limit` and `offset`; results expose Apple's `next` path when a
 later page exists.
 

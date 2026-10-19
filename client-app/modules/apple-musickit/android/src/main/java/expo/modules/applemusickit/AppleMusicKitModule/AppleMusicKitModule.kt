@@ -1124,6 +1124,11 @@ class AppleMusicKitModule : Module() {
         if (durationMs != null) {
             result["songDuration"] = durationMs / 1000.0
         }
+        val previews = attributes?.get("previews") as? List<*>
+        val previewUrl = (previews?.firstOrNull() as? Map<*, *>)?.get("url")?.toString()
+        if (!previewUrl.isNullOrBlank()) {
+            result["previewUrl"] = previewUrl
+        }
 
         val releaseDateStr = attributes?.get("releaseDate")?.toString()
         if (releaseDateStr != null) {

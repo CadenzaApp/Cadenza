@@ -1,4 +1,13 @@
 import type { Tag } from "@/lib/types";
+import type { FilterOp } from "@/lib/query-json";
+
+export type QueryTagConstraint = { op: FilterOp; value?: string };
+
+export type TagPlacement = {
+    tag: Tag;
+    suggested: boolean;
+    conditionIds: string[];
+};
 
 export type QueryTag = {
     kind: "tag";
@@ -11,6 +20,7 @@ export type QueryTag = {
      * request carries `consider_default_tags`.
      */
     suggested: boolean;
+    constraint?: QueryTagConstraint;
     connector: QueryConnector;
     rememberedNextConnector?: QueryConnector;
     layoutId?: string;
@@ -41,8 +51,6 @@ export type DragPayload =
     | {
           source: "condition";
           condition: QueryCondition;
-          originIndex: number;
-          height: number;
       };
 
 export type DropTarget =
@@ -53,7 +61,4 @@ export type DropTarget =
 
 export type DragState = {
     payload: DragPayload;
-    x: number;
-    y: number;
-    releasing?: boolean;
 } | null;

@@ -3,8 +3,8 @@
 The Analytics tab: what the user's listening looks like over one calendar period, from the
 backend's event log.
 
-Five screens behind four routes: an overview, one dynamic `[dimension]` route serving every
-ranking, a playable songs list, and tags. `src/app/(tabs)/analytics/` only re-exports them.
+Six screens behind five routes: an overview, one dynamic `[dimension]` route serving every
+ranking, a playable songs list, tags, and the songs listened to in one heatmap hour. `src/app/(tabs)/analytics/` only re-exports them.
 Everything here is presentation: no number on this tab is computed in the client, the backend
 aggregates in SQL and this formats and lays out what comes back.
 
@@ -21,61 +21,62 @@ Listening events in `src/lib/README.md`.
 
 ## The overview
 
-Top to bottom: header, #1 hero, stats strip, heatmap, tag rail, then the trend chart, the
-rankings card, and on repeat. Every section sits on an `AnalyticsCard` (liquid glass), over a wash in the color of the
-period's most played tag, or the #1 song's artwork when nothing played was tagged.
+Top to bottom: header, #1 hero, stats strip, heatmap, tag rail, then the rankings card. Every section sits on an `AnalyticsCard` (liquid glass), over a nebula (`NebulaBackdrop`) in
+no two alike: the top five tags' colors, then the hero covers' colors to fill in for tags that
+share one (`distinctColors`), and only then repeats. The nebula is fixed to the screen and the
+page scrolls over it.
 
-The overview's rail floats with no background, so the wash shows through it. The detail pages pin
+The overview's rail floats with no background, so the nebula shows through it. The detail pages pin
 it, since their period bar sits fixed above the list. Every page pads the bottom by
 `contentBottomInset`, which clears the tab bar and player itself.
 
 ## Files
 
-| file                          | role                                                                                                                                  |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `AnalyticsOverviewScreen.tsx` | The overview shell, the page tint, and `OverviewBody`, which lays the sections out in order.                                          |
-| `AnalyticsScrollScreen.tsx`   | The shell the detail pages share: the period bar pinned above a scroll view, plus the error and loading states.                       |
-| `TopSongsScreen.tsx`          | The full most played songs list, as a playable `MusicList`. Not the shared shell, because a `MusicList` cannot nest in a scroll view. |
-| `TopEntityScreen.tsx`         | Any full ranking but songs. Serves every dimension off its descriptor, so it is the whole of `analytics/[dimension]`.                 |
-| `TopTagsScreen.tsx`           | The full tag ranking.                                                                                                                 |
-| `range.ts`                    | Pure: a grain and an offset to the period's window, buckets, heatmap shape and labels. Tested in `range.test.ts`.                     |
-| `analytics-period.tsx`        | `AnalyticsPeriodProvider` and `useAnalyticsPeriod`: the period every screen shares.                                                   |
-| `PeriodControls.tsx`          | `GrainPicker`, `PeriodStepper`, and `PeriodBar`, the one-row version the detail pages use.                                            |
-| `AnalyticsHeader.tsx`         | The overview's header: title, dates, grain, arrows, and when it last updated.                                                         |
-| `analytics-hooks.ts`          | `usePageTint` and `useUpdatedAgo`.                                                                                                    |
-| `AnalyticsCard.tsx`           | The glass card every section sits on.                                                                                                 |
-| `SectionHeading.tsx`          | A section title, an optional line under it, and an optional "See all".                                                                |
-| `HeroCarousel.tsx`            | The period's top three songs as a fan of covers. Swipe or tap to pick one; Play starts the top songs from it.                         |
-| `StatsStrip.tsx`              | A few headline numbers with icons on one card. Takes its stats as data.                                                               |
-| `Heatmap.tsx`                 | When the user listens, colored by tag. Draws what `heatmap-layout.ts` lays out.                                                       |
-| `heatmap-layout.ts`           | Pure: a heatmap shape to a grid of keyed cells, and `heatLevel`. Tested in `heatmap-layout.test.ts`.                                  |
-| `TagRotation.tsx`             | The tags played this period as a sideways rail of square tiles. Each opens its tag.                                                   |
-| `dimensions.ts`               | Pure: one descriptor per dimension, and where each one's rows go. Tested in `dimensions.test.ts`.                                     |
-| `ChipRow.tsx`                 | One row of selectable chips, for the trend chart's metric picker.                                                                     |
-| `TrendChart.tsx`              | One metric over the period, as bars, with the headline metric picker.                                                                 |
-| `HoursChart.tsx`              | Plays across the hours of the local day. What a day shows instead of a trend.                                                         |
-| `BarChart.tsx`                | A single series of counts over an ordered axis. Tap a bar for its value.                                                              |
-| `TopRankingsCard.tsx`         | The overview's one card for every ranking, with the dimension picker.                                                                 |
-| `SegmentedBar.tsx`            | A small tab bar of icon and label segments with a sliding pill. The rankings card's picker.                                           |
-| `TopEntityList.tsx`           | Ranked rows with artwork and a play count. A song row plays, any other opens its page.                                                |
-| `TopTagList.tsx`              | The tag ranking as `TagPill`s, for the full tags page.                                                                                |
-| `format.ts`                   | Durations, percents, counts, hours, bucket labels, "updated ago", and `formatMetric`. Pure, tested in `format.test.ts`.               |
+| file                          | role                                                                                                                                                                                  |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AnalyticsOverviewScreen.tsx` | The overview shell, the page tint, and `OverviewBody`, which lays the sections out in order.                                                                                          |
+| `AnalyticsScrollScreen.tsx`   | The shell the detail pages share: the period bar pinned above a scroll view, plus the error and loading states.                                                                       |
+| `TopSongsScreen.tsx`          | The full most played songs list, as a playable `MusicList`. Not the shared shell, because a `MusicList` cannot nest in a scroll view.                                                 |
+| `TopEntityScreen.tsx`         | Any full ranking but songs. Serves every dimension off its descriptor, so it is the whole of `analytics/[dimension]`.                                                                 |
+| `TopTagsScreen.tsx`           | The full tag ranking.                                                                                                                                                                 |
+| `range.ts`                    | Pure: a grain and an offset to the period's window, buckets, heatmap shape and labels. Tested in `range.test.ts`.                                                                     |
+| `analytics-period.tsx`        | `AnalyticsPeriodProvider` and `useAnalyticsPeriod`: the period every screen shares.                                                                                                   |
+| `PeriodControls.tsx`          | `GrainPicker`, `PeriodStepper`, and `PeriodBar`, the one-row version the detail pages use.                                                                                            |
+| `AnalyticsHeader.tsx`         | The overview's header: period, dates, grain, arrows, and when it last updated.                                                                                                        |
+| `analytics-hooks.ts`          | `usePageTint`, `useNebulaColors` and `useUpdatedAgo`.                                                                                                                                 |
+| `AnalyticsCard.tsx`           | The glass card every section sits on.                                                                                                                                                 |
+| `SectionHeading.tsx`          | A section title, an optional line under it, and an optional "See all".                                                                                                                |
+| `HeroCarousel.tsx`            | The period's top three songs as a fan of covers. Swipe or tap to pick one; Play starts the top songs from it.                                                                         |
+| `StatsStrip.tsx`              | A few headline numbers with icons on one card. Takes its stats as data.                                                                                                               |
+| `Heatmap.tsx`                 | When the user listens, by listening time. Tap to pick, again to let go, double tap or "Open" to go one grain down, back arrow up. At a day, the button opens the picked hour's songs. |
+| `TagCarousel.tsx`             | The span's tags as a drifting row under the grid, and the heatmap's tag filter. A tapped tag fades out of the row; `TagShareChip` draws it.                                           |
+| `HeatmapGrid.tsx`             | Draws the fixed calendar or seven additive daily duration bars, with one accent.                                                                                                      |
+| `HeatmapDetail.tsx`           | The shown span in two lines: time listened and plays, or the tag's time and share when filtered.                                                                                      |
+| `ListenedSongsScreen.tsx`     | The songs listened to in one span, as a playable `MusicList` page. Opened from the heatmap's hour; loading more raises the read's limit.                                              |
+| `tag-share.ts`                | Pure: a tag's share of listening time, and the `TagFilter` type. Tested in `tag-share.test.ts`.                                                                                       |
+| `heatmap-layout.ts`           | Pure: a heatmap shape to a grid of keyed cells, what each cell picks, and `heatLevel`. Tested in `heatmap-layout.test.ts`.                                                            |
+| `TagRotation.tsx`             | The tags played this period as a sideways rail of square tiles. Each opens its tag.                                                                                                   |
+| `dimensions.ts`               | Pure: one descriptor per dimension, and where each one's rows go. Tested in `dimensions.test.ts`.                                                                                     |
+| `TopRankingsCard.tsx`         | The overview's one card for every ranking, with the dimension picker.                                                                                                                 |
+| `SegmentedBar.tsx`            | A small tab bar of icon and label segments with a sliding pill. The rankings card's picker.                                                                                           |
+| `TopEntityList.tsx`           | Ranked rows with artwork and a play count. A song row plays, any other opens its page.                                                                                                |
+| `TopTagList.tsx`              | The tag ranking as `TagPill`s, for the full tags page.                                                                                                                                |
+| `format.ts`                   | Durations, percents, counts, hours, bucket labels, "updated ago", and `formatMetric`. Pure, tested in `format.test.ts`.                                                               |
 
 ## The period owns everything
 
 One period drives every read on the tab. It is a grain plus how many of them back from now, so
 offset 0 always follows the clock. Weeks start Monday. Every bound is local midnight.
 
-| Grain | Window             | Chart         | Heatmap                            |
-| ----- | ------------------ | ------------- | ---------------------------------- |
-| Day   | midnight to next   | 24 hour bars  | hour cells, two rows of twelve     |
-| Week  | Monday to Monday   | 7 day bars    | two hour cells, weekdays by twelve |
-| Month | the 1st to the 1st | day bars      | day cells, as a calendar           |
-| Year  | Jan 1 to Jan 1     | 12 month bars | day cells, as a contribution grid  |
-| All   | the whole history  | `bucket=auto` | month cells, one row per year      |
+| Grain | Window             | Heatmap                         |
+| ----- | ------------------ | ------------------------------- |
+| Day   | midnight to next   | hour cells, four rows of six    |
+| Week  | Monday to Monday   | one duration bar per day        |
+| Month | the 1st to the 1st | day cells, as a calendar        |
+| Year  | Jan 1 to Jan 1     | month cells, four rows of three |
 
-Changing the grain jumps back to the current period. Forward is disabled on the current period,
-and All has no arrows.
+Changing the grain jumps back to the current period. Forward is disabled on the current period.
+There is no all time grain; other years are a step back on Year.
 
 `AnalyticsPeriodProvider` is mounted in the tab's `_layout`, above the stack, so the period
 survives navigating into a detail page and back.
@@ -89,32 +90,58 @@ survives navigating into a detail page and back.
 - **Heatmap cells are keyed by the backend's local bucket start**, `YYYY-MM-DD` or
   `YYYY-MM-DDTHH:00`. `heatmap-layout.ts` builds the same strings from local dates by hand. Going
   through `toISOString` would shift them into UTC and miss every cell.
-- **The heatmap is sparse.** Only buckets with a play come back; the layout decides the grid and
-  every other square draws empty. A square's color is its most played tag, gray when nothing in it
-  was tagged, and brightness is a square root step of plays over the period's peak.
+- **The heatmap drills down in place.** Nothing is picked at first, so the detail reads out the
+  whole level. A tap picks a span and the detail reads it out from a summary read of that span;
+  a second tap lets go. A double tap or "Open" opens the span one grain down: a year's month, a month's day opens its week, a week's day. The card holds a stack of
+  levels over the page's period, each with its pick, and fetches its own heatmap for the top
+  one, so back never goes above the page's period. A future span does not open. The
+  card never changes size: every part has a fixed height and every level fills one grid box
+  sized off the card's width. A level that is loading shows a skeleton, never the last level's
+  cells: the heatmap read does not keep previous data. A tap on Open while a level slides in is
+  dropped.
+- **The week shows one duration bar per day.** Each bar selects its whole day. Values and the peak label describe the bar scale; opening the day shows all 24 hours. The month always reserves six calendar rows.
+- **A tag's share is of listening time, and shares overlap.** `/analytics/tag-shares` counts each
+  listen in full toward every tag on its song, never split, so the carousel's percents can sum past
+  100%. Only the user's own tags come back, never activity or suggested ones.
+- **The carousel is the tag filter.** Selecting a tag recolors the grid and legend in the tag's
+  color, fades it out of the row, and fades it in across from the detail's date, where a tap lets it
+  go. It sits outside `HeatmapDetail`, which remounts per span, so picking a square never refades it.
+  The row lists the picked span's tags, or the level's with nothing picked, unfiltered. The read keeps
+  the last span's tags while the next loads and the row stays mounted, so tapping around swaps chips
+  in place. A tag let go joins the back of the row only once the back has drifted off screen, so
+  nothing visible shifts. The selection lives above the card and survives period changes; a span
+  without the tag still shows it, at zero, never another tag.
+- **Calendar and detail use `/analytics/listening`.** Its `total_ms` is unfiltered; `listening_ms`,
+  plays and cells match the pinned tag, so the filtered detail shows the tag's share of all time.
+- **Songs open per hour, from a day.** The button stays disabled until an hour is picked, then
+  pushes `/analytics/listened` with the hour's bounds, title and tag as plain params. It reads
+  `/analytics/session-songs` with no session key. A full page, not a sheet, so the songs can be
+  played, queued and navigated from like any other list.
+  The backend's session endpoints stay, but nothing on the card reads them for now.
+- **Listens and listening time can disagree.** A listen counts as a play at 15 seconds but only
+  gets its time when it ends, and only for time the app watched, so a span can have plays and no
+  time. The detail then reads `0m` next to its plays.
+- **The listening calendar is sparse.** Only buckets with time or counted plays come back. Untimed plays are retained in the counts but do not imply recorded duration. Future cells are dimmed and disabled. New period/filter reads do not hold the previous period's data under new labels; saved reads and errors stay scoped to their complete key.
 - **The hero and the heatmap are keyed by period** in `OverviewBody`, so a new period starts back
   on #1 with nothing selected, without an effect resetting state.
 - **"Updated" is the last fetch that landed**, from the summary read's `onSuccess`. A cache hit
   does not move it.
-- **The page tint runs the whole content height** and scrolls with it, with
-  `TintOverscrollBackdrop` behind for the pull. A short tint over a fixed backdrop shows the
-  backdrop's top color through the bottom of the page.
+- **The nebula is fixed to the screen**, behind the scroller, so the page and its overscroll
+  slide over it.
+- **Offline, the page keeps what it had.** Every analytics read saves its last good response on
+  the device, and a screen shows data over an error whenever it has any. The header then says
+  "Offline" in place of "Updated". The error state is only for a period never loaded on this
+  device.
 - **`MusicList` owns its own list and cannot go inside a `ScrollView`.** That is why the songs page
   is its own screen with the period bar above it, and why the scrolling pages use `TopEntityList`.
 - **Artwork comes from `sample_song_id`.** One `useTracksForSongIds` call per section resolves
   every row. For an album that is the album cover; for an artist or a tag it is the cover of one
-  of its songs.
+  of its songs. A playlist row fetches its own cover by id (`artworkCollection` on the descriptor)
+  and only falls back to the song's when the playlist has none.
 - **`useTracksForSongIds` drops ids it cannot resolve**, so an unavailable song falls out of the
   songs page rather than listing without a title. `TopEntityList` keeps the row and falls back to
   the key, and a tag tile falls back to a gradient of the tag's color.
-- **Bucket labels come off `trend.bucket`**, the bucket the response was computed with, not the
-  selected period. `keepPreviousData` holds the old series while a new request is in flight.
 - **A row with no recorded entity id renders inert.** Library-only plays carry no catalog id, so
   there is nothing to open; the descriptor's `hrefFor` returns null and the row does not navigate.
-- **`format.ts` parses `YYYY-MM-DD` by hand** rather than with `new Date()`, which would read a
-  bare date as UTC midnight and print it a day early west of Greenwich.
 - **A period with no plays gets a message**, keyed on `stats.plays === 0`, because a page of zeros
   reads as broken. The header stays, so the user can step to a period that has some.
-- **A trend's values are formatted by the `unit` the response carries**, not by the metric's name.
-- **Bars and their axis labels share one width cap.** Capping only the bars left the labels
-  spreading the full plot while the bars sat left, so every label named the wrong bar.

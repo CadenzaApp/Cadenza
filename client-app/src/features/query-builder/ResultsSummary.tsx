@@ -1,178 +1,81 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useState } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
-import type { MusicItem } from "@apple-musickit";
-
-import {
-    MusicList,
-    type MusicListPagination,
-} from "@/components/custom/music-list";
-import { Button } from "@/components/ui/button";
+import { useTheme } from "expo-router/react-navigation";
+import { ActivityIndicator, View } from "react-native";
 import { GlassButton } from "@/components/ui/glass-button";
-import { GlassSurface } from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
-import { THEME } from "@/lib/theme";
-import { useColorScheme } from "nativewind";
 
 import { matchCountLabel } from "./QueryUtils";
 
+/** Query evaluation is independent of loading artwork and playable tracks. */
 export function ResultsSummary({
-    songs,
     count,
     capped,
-    pagination,
     loading,
     error,
-    libraryLoading,
+    hasQuery,
     isLibraryConnected,
-    builderToggleLabel,
-    onBuilderToggle,
     onNext,
-    mostRelevantTags,
-    activityTagIds,
+    onRetry,
+    invalidMessage,
 }: {
-    /** The matched tracks loaded so far. More arrive through `pagination`. */
-    songs: MusicItem[];
     count: number;
     /** More songs from outside the user's own matched than `count`. */
     capped: boolean;
-    pagination: MusicListPagination;
     loading: boolean;
     error?: unknown;
-    libraryLoading: boolean;
+    hasQuery: boolean;
     isLibraryConnected: boolean;
-    builderToggleLabel: string;
-    onBuilderToggle: () => void;
     onNext: () => void;
-    mostRelevantTags?: readonly string[];
-    /** The activity tags the query filters on, shown on every preview row. */
-    activityTagIds?: readonly number[];
+    onRetry: () => void;
+    invalidMessage?: string | null;
 }) {
-    const [expanded, setExpanded] = useState(false);
-    const { colorScheme = "light" } = useColorScheme();
-    const theme = THEME[colorScheme];
-    const canAdvance = count > 0 && !error;
-    const countLabel = matchCountLabel(count, capped);
-    const previewRowCount = Math.max(1, Math.min(count || songs.length, 3));
-    const previewHeight = previewRowCount * 68;
-
+    const { colors } = useTheme();
+    const label = !hasQuery
+        ? invalidMessage
+            ? "Finish query"
+            : "Results"
+        : loading
+          ? "Finding results..."
+          : error
+            ? "Retry results"
+            : matchCountLabel(count, capped, "result");
+    const disabled =
+        !isLibraryConnected || !hasQuery || loading || (!error && count === 0);
     return (
-        <View className="relative z-30 border-b border-border bg-background px-2 pb-2 pt-1">
-            <View className="flex-row items-center gap-2">
-                <Pressable
-                    className="min-h-11 min-w-0 flex-1 flex-row items-center overflow-hidden rounded-xl border border-border px-2.5"
-                    onPress={() => setExpanded((value) => !value)}
-                    accessibilityRole="button"
-                    accessibilityState={{ expanded }}
-                    accessibilityLabel={`${countLabel} found`}
-                    accessibilityHint={
-                        expanded ? "Collapses results" : "Expands results"
-                    }
-                >
-                    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-                        <GlassSurface
-                            variant="regular"
-                            style={StyleSheet.absoluteFill}
-                        />
-                    </View>
+        <View className="max-w-72 items-end gap-2">
+            <GlassButton
+                className="h-9 rounded-full px-4"
+                onPress={error ? onRetry : onNext}
+                disabled={disabled}
+                accessibilityLabel={error ? "Retry loading results" : label}
+                accessibilityState={{ disabled }}
+            >
+                <Text className="flex-shrink text-sm font-semibold">
+                    {label}
+                </Text>
+                {loading ? (
+                    <ActivityIndicator color={colors.text} />
+                ) : (
                     <Ionicons
-                        name="musical-notes-outline"
+                        name={error ? "refresh" : "arrow-forward"}
                         size={19}
-                        color={theme.primary}
+                        color={colors.text}
                     />
-                    <Text
-                        className="ml-2 flex-1 text-sm font-semibold"
-                        numberOfLines={1}
-                    >
-                        {libraryLoading || loading
-                            ? "Finding songs..."
-                            : `${countLabel} found`}
-                    </Text>
-                    {libraryLoading || loading ? (
-                        <ActivityIndicator color={theme.primary} />
-                    ) : (
-                        <Ionicons
-                            name={expanded ? "chevron-up" : "chevron-down"}
-                            size={20}
-                            color={theme.mutedForeground}
-                        />
-                    )}
-                </Pressable>
-                <GlassButton
-                    className="h-11 rounded-xl px-3"
-                    onPress={onBuilderToggle}
-                    accessibilityLabel={`Switch to ${builderToggleLabel.toLowerCase()} query builder`}
-                >
-                    <Text className="text-sm font-semibold">
-                        {builderToggleLabel}
-                    </Text>
-                </GlassButton>
-                <View className="h-11 w-11">
-                    <Button
-                        onPress={onNext}
-                        disabled={!canAdvance}
-                        size="icon"
-                        className="h-11 w-11 rounded-full"
-                        accessibilityLabel="Show full query results"
-                    >
-                        <Ionicons
-                            name="arrow-forward"
-                            size={21}
-                            color={theme.primaryForeground}
-                        />
-                    </Button>
-                </View>
-            </View>
-
+                )}
+            </GlassButton>
             {!isLibraryConnected ? (
-                <Text className="mt-2 text-sm text-muted-foreground">
-                    Connect Apple Music to match songs from your library.
+                <Text className="text-sm text-muted-foreground">
+                    Connect Apple Music in Account to find songs in your
+                    library.
                 </Text>
             ) : error ? (
-                <Text className="mt-2 text-sm text-destructive">
-                    Results could not be refreshed. Your query is still safe.
-                </Text>
-            ) : null}
-
-            {expanded ? (
-                <View
-                    className="absolute left-2 right-2 overflow-hidden rounded-xl border border-border"
-                    style={{
-                        top: 56,
-                        height: previewHeight,
-                        zIndex: 100,
-                        elevation: 12,
-                    }}
+                <Text
+                    accessibilityLiveRegion="polite"
+                    className="text-sm text-destructive"
                 >
-                    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-                        <GlassSurface
-                            variant="regular"
-                            style={StyleSheet.absoluteFill}
-                        />
-                    </View>
-                    {count === 0 && !loading && !libraryLoading ? (
-                        <View className="flex-1 items-center justify-center px-6">
-                            <Text className="text-center text-muted-foreground">
-                                No songs match this query.
-                            </Text>
-                        </View>
-                    ) : (
-                        <MusicList
-                            tracks={songs}
-                            isLoading={loading || libraryLoading}
-                            anticipatedTrackCount={count}
-                            pagination={pagination}
-                            sorting={null}
-                            embedded
-                            showTags
-                            fullBleedRows
-                            fullBleedRowHorizontalPadding={12}
-                            rowSurfaceColor="card"
-                            mostRelevantTags={mostRelevantTags}
-                            activityTagIds={activityTagIds}
-                        />
-                    )}
-                </View>
+                    Could not load results. Your query is safe. Tap Retry
+                    results.
+                </Text>
             ) : null}
         </View>
     );

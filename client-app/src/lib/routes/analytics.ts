@@ -60,25 +60,8 @@ export type AnalyticsTopList = {
 
 export type AnalyticsTopTags = { entries: TagPlayCount[] };
 
-/**
- * What the trends endpoint answers with. Never `auto`: the server resolved it.
- *
- * `TrendBucket` in `features/analytics/range.ts` is this plus `auto`, which is a
- * request-only value.
- */
+/** A bucket size the backend answers with. */
 export type TrendBucketSize = "hour" | "day" | "week" | "month" | "year";
-
-/** What a metric's number means, so it can be formatted without a lookup table. */
-export type MetricUnit = "count" | "milliseconds";
-
-export type AnalyticsTrend = {
-    metric: string;
-    description: string;
-    unit: MetricUnit;
-    bucket: TrendBucketSize;
-    /** Dense: one point per bucket, zero where nothing happened. */
-    points: { bucket: string; value: number }[];
-};
 
 /** The window every read on this page shares. */
 export type AnalyticsWindow = { since?: string; until?: string };
@@ -100,7 +83,7 @@ export function deviceTimezone(): string {
  * The query params every analytics read shares. Undefined bounds are left out
  * rather than sent as undefined, so an all-time read has a stable cache key.
  */
-function windowParams(window?: AnalyticsWindow) {
+export function windowParams(window?: AnalyticsWindow) {
     return {
         tz: deviceTimezone(),
         ...(window?.since ? { since: window.since } : {}),
@@ -121,37 +104,12 @@ export function useAnalyticsSummary(
     const x = useAPIData<AnalyticsSummary>(
         "/analytics/summary",
         windowParams(window),
-        { keepPreviousData: true, onSuccess },
+        { keepPreviousData: true, onSuccess, save: true },
     );
     return {
         summary: x.data,
         summaryLoading: x.isLoading,
         summaryErr: x.error,
-    };
-}
-
-/**
- * `GET /analytics/trends`. One metric bucketed over time.
- *
- * The key covers the metric, the bucket and the window, so changing any of them
- * reads its own cache entry. `enabled` is how the Today range skips the request
- * altogether, since it shows the hours histogram instead.
- */
-export function useAnalyticsTrend(
-    metric: string | undefined,
-    bucket: string,
-    window?: AnalyticsWindow,
-    enabled = true,
-) {
-    const x = useAPIData<AnalyticsTrend>(
-        "/analytics/trends",
-        { metric, bucket, ...windowParams(window) },
-        { keepPreviousData: true, enabled },
-    );
-    return {
-        trend: x.data,
-        trendLoading: x.isLoading,
-        trendErr: x.error,
     };
 }
 
@@ -168,7 +126,7 @@ export function useAnalyticsTop(
             ...windowParams(window),
             ...(limit ? { limit } : {}),
         },
-        { keepPreviousData: true },
+        { keepPreviousData: true, save: true },
     );
     return {
         top: x.data,
@@ -195,12 +153,16 @@ export type AnalyticsHeatmap = {
 /**
  * `GET /analytics/heatmap`. Plays per bucket, each with its most played tag.
  * The key covers the bucket and the window.
+ *
+ * Does not keep the previous window's data while a new one loads: the heatmap
+ * card drills between windows cut in the same bucket, where old cells would
+ * land on the wrong squares.
  */
 export function useAnalyticsHeatmap(bucket: string, window?: AnalyticsWindow) {
     const x = useAPIData<AnalyticsHeatmap>(
         "/analytics/heatmap",
         { bucket, ...windowParams(window) },
-        { keepPreviousData: true },
+        { save: true },
     );
     return {
         heatmap: x.data,
@@ -209,12 +171,45 @@ export function useAnalyticsHeatmap(bucket: string, window?: AnalyticsWindow) {
     };
 }
 
+/** A tag and the listening time on songs carrying it. */
+export type TagListeningTime = Tag & { listening_ms: number };
+
+export type AnalyticsTagShares = {
+    /** The window's listening time, each listen once. */
+    total_ms: number;
+    /** The part of it on songs with any of the tags, each listen once. */
+    tagged_ms: number;
+    /**
+     * Most listened first, the user's own tags only. A listen counts in full
+     * toward every tag on its song, so these can sum past `total_ms`.
+     */
+    tags: TagListeningTime[];
+};
+
+/**
+ * `GET /analytics/tag-shares`. Each tag's share of a window's listening time.
+ * Keeps the last window's tags while a new one loads, so a list that follows
+ * the user's taps swaps in place rather than emptying between them.
+ */
+export function useAnalyticsTagShares(window?: AnalyticsWindow) {
+    const x = useAPIData<AnalyticsTagShares>(
+        "/analytics/tag-shares",
+        windowParams(window),
+        { save: true, keepPreviousData: true },
+    );
+    return {
+        tagShares: x.data,
+        tagSharesLoading: x.isLoading,
+        tagSharesErr: x.error,
+    };
+}
+
 /** `GET /analytics/top-tags`. The tags the user listens to, over a window. */
 export function useAnalyticsTopTags(window?: AnalyticsWindow, limit?: number) {
     const x = useAPIData<AnalyticsTopTags>(
         "/analytics/top-tags",
         { ...windowParams(window), ...(limit ? { limit } : {}) },
-        { keepPreviousData: true },
+        { keepPreviousData: true, save: true },
     );
     return {
         topTags: x.data,

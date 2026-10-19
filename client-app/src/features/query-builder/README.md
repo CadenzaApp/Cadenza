@@ -1,276 +1,102 @@
 # query-builder
 
-An ordered, tactile boolean query builder. Each top-level condition after the first has an AND/OR connector.
-A condition is either one tag or a flat group of two or more tags in `any` (OR), `all` (AND),
-or `none` (NOT OR) mode. A one-tag condition can be negated as a whole.
-When a top-level condition is removed, the condition before it remembers that boundary's connector.
-Adding a replacement in the same position restores the prior AND/OR choice. Reordering keeps
-connectors attached to visual boundaries instead of moving them with condition cards.
+Simple Boolean queries over basic tags, value tags, and song metadata. Cadenza owns drafts,
+history, settings, and results navigation; see [../cadenza/README.md](../cadenza/README.md).
 
-## Files
+## Entry points
 
-| file                 | role                                                                                                                     |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `types.ts`           | Condition, group, tag-instance (with `suggested`), drag, and drop types.                                                 |
-| `QueryUtils.ts`      | Pure condition edits, group collapse, derived labels, and JSON compilation.                                              |
-| `QueryUtils.test.ts` | Reducer invariants and wire-format tests.                                                                                |
-| `QueryBuilder.tsx`   | Composes the suggested-tag switch, scrollable workspace, and resizable palette.                                          |
-| `ResultsSummary.tsx` | Shared live count and compact-inset tagged preview used by both builders. The preview pages tracks in as it scrolls.     |
-| `ConditionList.tsx`  | Single conditions, groups, connectors, mode slider, and insertion targets.                                               |
-| `QueryTagPill.tsx`   | Shared tag-pill rendering for palette, suggested, query, and drag states.                                                |
-| `TagPalette.tsx`     | Usage-sorted palette, suggested-tag section, and query-tag delete target.                                                |
-| `DragContext.tsx`    | Drag payload state, shared-value coordinates, drop-zone registry, and hit testing.                                       |
-| `DraggablePill.tsx`  | Tag pans, condition-card taps, and handle-only condition pans.                                                           |
-| `DropSlot.tsx`       | Registers and highlights a typed drop target.                                                                            |
-| `DragGhost.tsx`      | Floating tag shown during an active drag.                                                                                |
-| `QueryResults.tsx`   | Configures the full-screen query-match view, gradient, sort, and save dialog. Records a `query_play` when a song starts. |
+| File                                                         | Responsibility                                                                        |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------- |
+| `QueryBuilder.tsx`                                           | Drop edits, tap placement, constraint editing, and palette position.                  |
+| `ConditionList.tsx`                                          | Cards, insertion gaps, connectors, and editor-action context.                         |
+| `MeasuredReorderList.tsx`, `reorder-utils.ts`                | Variable-height reorder gestures, springs, and release lifecycle.                     |
+| `DragContext.tsx`, `drag-utils.ts`                           | Drag sessions, measurements, hit testing, and targeted hover subscriptions.           |
+| `DropViewport.tsx`, `DropSlot.tsx`                           | Shared scroll/clipping geometry and registered drop targets.                          |
+| `DraggablePill.tsx`, `DragGhost.tsx`                         | Tag gestures and pickup presentation.                                                 |
+| `GroupModeControl.tsx`                                       | Compact sliders and optional interactive Venn diagrams.                               |
+| `TagPalette.tsx`, `palette-geometry.ts`                      | Sliding palette, search, sections, and height limits.                                 |
+| `TagConstraintDialog.tsx`, `QueryTagPill.tsx`                | Typed predicates and their pill labels.                                               |
+| `QueryUtils.ts`, `QueryConversion.ts`, `metadata-palette.ts` | Immutable edits, wire compilation, one-way Advanced seeding, and metadata identities. |
+| `ResultsSummary.tsx`, `QueryResults.tsx`                     | Result count/action and the full playable collection.                                 |
 
-## The model
+## Query semantics
 
-`QueryCondition[]` preserves the user's top-level order. Each appearance of a tag has a session
-ID, its own `negated` value, and a `suggested` flag recording whether it was dragged out of the
-suggested-tag section rather than `Your tags`. The flag survives grouping, extraction, and
-reordering, because those rewrite a tag rather than rebuild it. The same tag can appear in separate
-conditions, but a group rejects duplicate tag IDs. A group has `mode: "any"|"all"|"none"` and an
-ordered `members` array. Only a top-level one-tag condition can carry `negated: true`; group members
-are always positive. Helpers never leave a one-member group: removing or extracting a member
-immediately replaces that group with its remaining tag. Collapsing a `none` group creates a negated
-one-tag condition.
+Simple has one outer ALL/ANY rule. Every edit normalizes boundary connectors, so reordering
+cannot change Boolean meaning. The compiler also preserves left-to-right legacy mixed
+connectors; seeding Advanced expresses those explicitly as nested groups.
 
-`queryToJSON` emits the shared wire format in `@/lib/query-json`, the same one the advanced
-builder produces. Top-level connectors compose from left to right, with adjacent uses of the same
-operator flattened into one expression. A divider's connector belongs to the condition below it.
-An individual top-level condition retains the existing `{and: [...]}` wrapper, an any group becomes
-`{or: [...]}`, an all group becomes `{and: [...]}`, and a none group becomes `{not: {or: [...]}}`.
-A tag becomes an `is_applied` filter on it and a negated one-tag condition an `is_not_applied`
-filter, which is the only part of the format this builder uses. The whole tree is wrapped in
-`{where: ...}`. An empty query returns `null` and does not fetch.
+A condition is a single tag, optionally negated, or a flat group. ALL means AND, ANY means OR,
+and NONE means NOT OR. A positive single promoted to a group starts at ALL; a negative single
+starts at NONE. Removing a group's penultimate tag collapses it to a single, negated for NONE.
+A stable layout identity survives promotion and collapse. Groups reject duplicate tag IDs.
+Value tags share Advanced's operators, typed inputs, and validation. Metadata pills use negative
+IDs only for presentation and compile to metadata fields rather than stored tag IDs.
 
-## Interaction flow
+## Construction and palette
 
-A glass `Include suggested tags` switch sits above the query heading, at the top of the builder.
-`CadenzaScreen` owns its state, so it survives mode and tab switches. Turning it on reveals a
-`Suggested tags` section in the palette, beneath `Your tags`. The section has its own search field
-and its own heading row, laid out like the one above it, and holds up to five shared default tags
-from `GET /tags/default-tags`, most used first. A blank search still fills it.
+Drag tags onto cards to join groups or onto insertion gaps/blank workspace to create groups.
+Tap a palette tag to add it immediately when empty; otherwise choose a dashed placement outline.
+Tap elsewhere to cancel. Tap a basic query tag to remove it; value tags open an edit/delete popup.
+New value tags enter the query only after Apply. Text predicates render quoted values.
+The keyboard-aware glass popup keeps value operators beside the input and valueless operators below.
 
-The toggle also sets `consider_default_tags` on the results request, so with it on a song's shared
-default tags count as tags on it for both matching and ranking. That flag is what makes a suggested
-tag in the query resolve at all, so the toggle both supplies the tags and licenses them.
+The palette has one outlined search field and basic, suggested, advanced, and metadata sections.
+Optional sections have compact headings and rules. Owned tags show applied-song counts;
+query pills omit counts. Your tags and Search scroll with the tags; the resize handle stays fixed.
+Memoized sections/cells and symmetric padded pill touch areas keep interaction costs bounded.
 
-Suggested tags stay solid wherever they appear, in the palette, in flight, and in the query. Italic
-text and a sparkles icon distinguish them from the user's own tags. They drag into the query exactly
-like the user's own tags.
+The sheet stays 450 points tall and moves with a UI-thread translation. Its initial visible height
+is 268 points plus any compatibility-player inset. The minimum includes the platform tab/player
+inset and 64 points for the handle/heading. Floating actions follow its top edge; query scroll
+clearance updates on release. A fixed bottom spacer lets the final tag row reach the top.
+Collapsing resets palette scroll and hides offscreen tag actions from accessibility.
 
-Turning the toggle off while the query holds a suggested tag clears the whole query.
-`CadenzaScreen` owns that, through `hasSuggestedTag`. Leaving the tag in place would send a query
-naming a default tag id without `consider_default_tags`, which the backend rejects as an unknown
-tag, so the same visible query would start returning nothing.
+## Gesture and rendering contracts
 
-Palette tags are drag-only and can be dropped on an insertion point. Tag drags begin as soon as
-movement passes the shared drag threshold on both iOS and Android. Tag coordinates travel through
-Reanimated shared values, so moving a tag does
-not rerender the complete builder on every pointer event; React state changes only when the active
-drop target changes. Whole-condition reorders likewise rerender only when a card crosses a reorder
-boundary, not for every movement frame. The palette sorts tags by the cached `/tags` application count from most used
-to least used, with tag name and ID as deterministic tie breakers. Search results keep that order.
-Its tag rows use a 2-pixel vertical gap while preserving the 8-pixel horizontal gap. The blank workspace all
-the way down to the palette is also an append target. A reserved bottom inset keeps some of this
-append target visible after the existing conditions. The empty state uses the base theme background
-instead of changing surface color. While a palette tag hovers over an empty query, the empty-state
-copy changes from `Drag a tag here to start a query` to `Create a new tag group` without showing
-the colored insertion line. Dropping a tag on a positive single creates an any group;
-dropping one on a negated single creates a none group, and dropping on a group adds a member.
-Query tags can be reordered, moved into another
-condition, extracted from a group, or dropped on the transformed palette to delete them. A
-single condition keeps a stable layout identity when it expands into or collapses from a group.
-The condition card uses the shared liquid-glass surface while keeping each tag pill solid. It clips
-its contents while its height animates, and the HAVE ANY/HAVE ALL/HAVE NONE control fades and
-shifts slightly down when added or up when removed. Tapping a one-tag condition toggles its
-condition-level NOT. The card tap stays in gesture-handler and is separate from both the nested tag
-pan and the handle-only condition pan, so it does not introduce a responder-system conflict on iOS
-or Android. A negated one-tag condition keeps the normal solid tag pill and shows `NOT APPLIED`
-after it. Adding another tag to that condition creates a `HAVE NONE` group. Multi-tag groups do not
-show `NOT APPLIED`. The HAVE ANY/HAVE ALL/HAVE NONE control selects the group mode. Its three
-compact segments have 5-pixel gaps and share an animated selection indicator that is 8 pixels wider
-than each segment and centered over it. The control keeps 6-pixel horizontal edge padding. Taps
-animate the indicator over 270 ms with an ease-in-out cubic curve to the chosen segment and produce a light selection haptic. A
-horizontal slide snaps the indicator toward the segment nearest the touch point and produces the
-same haptic each time it crosses into a new segment, but commits the query mode only when the finger
-releases. Vertical movement remains available to the surrounding scroll view. `HAVE NONE`
-separates members with NOR. Top-level connector dividers use solid rounded controls and toggle between AND and OR when tapped; dividers before a
-single-tag condition read `AND HAVE` or `OR HAVE`. Dragging the dedicated handle resizes the palette between 80 and 360
-pixels. The handle keeps its small visual indicator but uses a larger overlapping touch surface. At minimum height only the resize handle and heading/search row remain visible, providing a
-collapsed palette state. Its initial 208-pixel height increases by the visible mini-player inset so the player does
-not cover the first tag rows. Group tag rows use the same 2-pixel vertical gap as the palette, and
-their idle reorder grip uses the same muted foreground color as their AND/OR words. Its color
-animates to the theme primary color while that group is reordered. The heading and search field share one comfortably spaced row inside the
-same vertical scroll surface as the tags; only the resize handle stays fixed.
-Every top-level condition, including a single-tag condition, uses the screen background and can
-be reordered from its vertically centered leading 48-point Mono Icons `reorder-alt` drag handle.
-That grip has no press-and-hold delay and activates after 3 points of intentional movement. The rest of the card remains available to the
-scroll view and interactive controls, so scrolling or changing the group mode cannot activate a
-whole-condition drag. Query-tag drags use the same immediate movement threshold as palette tags. Tag destinations
-remain visual previews until release.
-Idle cards use their natural content height, including groups whose tags wrap across many rows.
-Only an active drag freezes the original card at its measured width and height and collapses a
-same-size source reservation. Release explicitly restores `auto` height so the native animated
-style cannot retain the reservation's zero height. The card remains locked horizontally and renders above every
-other condition while it follows vertical movement. The active card opts out of keyed layout transitions,
-and inverse source and destination offsets keep its vertical center anchored to the finger as the preview changes.
-Group drag hit-testing and release derive the card center from one stable gesture-translation coordinate space.
-Release is staged across two frames: the first arms the moved card's layout transition without changing
-its position, and the next animation frame commits the new order so settling begins at the finger's final coordinate.
-A synchronous release latch keeps finalization from clearing the captured reorder or delete target
-between those frames.
-Whole-condition drags suppress card-height, member-tag layout, and group-mode selector entrance or
-exit animations through the complete release settle. Non-dragged cards use a position-only transition,
-while position-keyed connector slots preserve the inter-card geometry throughout the live preview. The
-actively dragged condition opts out of that outer transition. On release, the card clears
-its inner drag transform and an interaction-free copy is placed in the full-screen portal at the exact
-absolute release center. The reordered card stays hidden while its final screen center is measured. The
-hidden card's connector and local spacer heights settle immediately before that measurement. The portal
-copy then performs the only release animation between those two absolute coordinates, so connector
-insertion and parent reflow cannot change either endpoint. The drag reservation does not clip the card
-while its final vertical translation settles, and the released card remains above sibling cards for that
-complete interval. The keyed outer wrapper owns layout and stacking, while separate nested wrappers own
-the removal fade and release visibility. Layout transitions animate geometry only, so they cannot
-overwrite either opacity effect. On release,
-preview spacers stop using the drag payload's old index and every connector slot immediately assumes its
-committed height before the destination is measured. A newly required connector stays invisible in that
-reserved space until the card settles. Its committed height remains locked through the complete fade and
-horizontal expansion, so revealing it cannot alter the gap between cards. Connector slots are keyed to
-visual boundary positions rather than condition cards. Reordering therefore updates the existing boundary
-in place instead of deleting one condition-owned connector and mounting another. The live destination
-reservation remains mounted until the reordered condition array reaches its final index, then swaps for
-the permanent boundary in the same render. Idle slots always use fixed geometry, so an old animated
-spacer value cannot reappear after the release completes. Connector and destination-spacer heights keep
-one shared animated value for their entire lifetime; committed heights update that value before paint
-instead of swapping between static and animated style ownership. Content
-transitions remain reserved for edits that actually change a condition's contents or size.
-The source layout
-slot collapses while an equal-height destination spacer opens. Crossing another condition's vertical
-center immediately animates every non-dragged condition into the order it would have after release;
-whole-condition drags do not display insertion labels. Dropping one on the tag palette deletes it in
-one action. A dragged condition's preceding connector fades and contracts toward its center without
-changing the reserved vertical space until the card leaves its original index. At that point the
-unused source gap closes and the destination reserves one card plus one connector. Keyed layout
-transitions carry the preview into the committed order on release. Connectors that become necessary
-after a reorder or new-condition insertion reserve their height while the preview is active, remain
-invisible until that reserved space has settled, then fade and expand horizontally at their final
-vertical coordinate. Reorder, compensation, and connector-space changes share a softer 320 ms easing
-curve. Switching group modes animates member tags into the space required by the changing OR and
-AND labels, including movement between wrapped rows.
-Removing a top-level condition, including by moving its only tag into another group, fades the
-old condition out while the destination updates.
+- Keep pan gestures stable during pickup. Replacing a gesture during drag can cancel it.
+  Handles reorder cards; other card controls and surfaces retain their own interactions.
+- Commands, presentation, and keyed hover subscriptions are separate. Only the old and new
+  hover targets are notified. Coordinates and palette motion stay on the UI runtime.
+- Drop sessions await pickup measurements and remeasure on release. Version checks reject
+  canceled/stale sessions; native measurement times out if a view disappears. Cached rectangles
+  follow scroll/sheet offsets and clip against the heading, palette, and navigation/player.
+- Settled reorder rows use natural layout. Transforms spring neighbors aside during drag.
+  Release keeps the source elevated until its spring, commit, React order, and native layout
+  all agree. Canceled, rejected, and failed drops roll back and complete cleanup.
+- Do not apply native entering/exiting opacity animations to glass ancestors. Group entry uses
+  a separate translation wrapper; scroll clipping is disabled to keep native glass attached.
+  On iOS 26, animating an ancestor through zero opacity can leave its material transparent.
+- Keep shared-constant defaults inside worklet bodies; serialized default arguments cannot
+  access captured constants before the closure is unpacked.
+- Avoid dynamically switching NativeWind shadow/alpha utilities on these controls; use inline
+  dynamic styles to avoid the existing native navigation-context failure.
 
-Out-of-group drop targets in a non-empty query preview insertion with a tag-colored line labeled
-`create new tag group`. The line animates outward from its center. The palette search field uses native liquid glass
-when available and retains its outlined themed surface on Android and older iOS. The palette delete
-target fades a black surface over its contents, then fades in
-a destructive trash icon and label. Both layers fade away when the drag leaves the palette.
-Palette and query tags use the shared app-wide solid-color `TagPill` styling. Reordering, grouping,
-extracting, and deleting query tags are drag-only interactions; pills have no inline controls.
-
-The Cadenza tab owns conditions, so returning from the full list preserves the query. Full results
-are a normal opaque root-stack view rather than a zoom/pull-dismissed card. It keeps its own safe
-area and floating close control, and the app-level compact player renders over it. The results surface uses
-`TrackCollectionView` with a weighted artwork
-mosaic, play and shuffle queues, backend sorting, and a caller-supplied save option.
-`useCollectionArtworkTint` ranks the artwork once and reuses those cells for the mosaic and color
-sampling. It averages their representative colors in Oklab, then hands that one source color to
-TrackCollectionView's mode-aware Oklch gradient. Fixed solid endpoint colors sit under the
-scrolling gradient so elastic overscroll meets the exact color at either edge. One
-distinct artwork renders as a single image instead of a repeated grid. The results surface owns the
-save-name popup, rendered through the same reliable liquid-glass modal path as Sort. Its round Save
-Query action is glass too. The dialog stays at 75 percent of the screen width and sits above the keyboard; submit
-currently logs that persistence is not implemented. Search text and preview expansion live inside
-their surfaces and reset when those surfaces unmount. Query results show row tags and enable Music
-List multi-selection with its built-in Add to Queue action.
-
-## The full result list
+## Full results
 
 A query runs over every song Cadenza knows, not just the library (see the query compiler in
-`backend-api/src/db/README.md`), so a negative query like "not pop" can match thousands of songs.
-The `/query-results` route therefore:
+`backend-api/src/db/README.md`), so "not pop" can match thousands of songs. `/query-results`:
 
-- Reads the result through `useQueryResultsSnapshot`, which fetches once and holds the answer for
-  as long as the screen is open. Tagging or playing a song invalidates `/queries/results`, and a
-  list that refetched under the user would skip or repeat rows as they scrolled. Changing the sort
-  fetches a new result; a change to the data shows the next time the screen opens.
-- Turns ids into tracks with `usePagedTracksForSongIds`, 50 at a time as the list scrolls. Rows
-  only append: an id still being looked up ends the list until it resolves, and an id Apple Music
-  cannot see is left out.
-- Sorts on the backend. The list's Title, Artist and Album sort is `strategy: "remote"`, so it
-  orders the whole result rather than the loaded rows. It opens on Title, ascending, the same as
-  other song lists.
-- Shows the count as `matchCountLabel`, like `1,042+ songs` when the backend capped the songs from
-  outside the user's own at 1000. Once every row has loaded, a footer says that these are all the
-  matching songs Cadenza knows, or that the list was capped.
-- Plays every song that is certainly the user's own (`certain` in the response), even ones the
-  list has not reached, plus the other songs already loaded, in list order. `queryQueueIds` picks
-  those, and `resolveTracks` asks Apple Music for any it has not resolved yet, so Play and Shuffle
-  ignore a second tap while that runs. Shuffle starts the same queue at a random song with shuffle
-  on, and Play turns shuffle off, the same as an album or playlist.
+- Reads `useQueryResultsSnapshot`, fetched once and held while the screen is open. Tagging or
+  playing a song invalidates `/queries/results`, and a list that refetched under the user would
+  skip or repeat rows. Changing the sort fetches a new result.
+- Resolves ids with `usePagedTracksForSongIds`, 50 at a time as the list scrolls. Rows only append:
+  an id still being looked up ends the list until it resolves, an id Apple Music cannot see is
+  left out, and two ids for one track show it once. Never resolve a whole result at once.
+- Sorts on the backend (`strategy: "remote"`, Title/Artist/Album, opening on Title ascending), so
+  the sort orders the whole result rather than the loaded rows.
+- Counts with `matchCountLabel`, like `1,042+ songs` when the backend capped the songs from outside
+  the user's own at 1000. A footer says when the list is complete or capped.
+- Plays every song that is certainly the user's own (`certain`), loaded or not, plus the others
+  already loaded, in list order (`queryQueueIds`, then `resolveTracks`). A second tap while that
+  resolves is ignored. Play turns shuffle off and Shuffle turns it on, like an album.
 
-The Cadenza screen's preview uses the same paging but the live `useQueryResults`, so it refreshes
-as the query or the data changes.
+## Validation
 
-The Cadenza screen owns the shared result summary. Its result-count control and mode button use
-liquid glass, with the mode button sitting between the count and next arrow. Expanding the count
-opens a liquid-glass preview layered over the editor instead of resizing or shifting it. The mode
-button swaps this editor for the filter-based advanced builder without navigating or discarding
-either query tree. Both modes compile to the same wire format and open `/query-results`, which
-renders the same full-screen hero. See
-[../advanced-query-builder/README.md](../advanced-query-builder/README.md).
-
-## Connects to
-
-- `src/features/cadenza/CadenzaScreen.tsx` for session state, the suggested-tag switch value, and
-  full-library result wiring.
-- `@/lib/routes/queries::useQueryResults` for live query evaluation, and `useQueryResultsSnapshot`
-  for the full list.
-- `@/lib/listening-events::useListeningEvents` to record a `query_play`, which is what the
-  analytics query play rate is built from. Only the song that starts playing is recorded: the rest
-  of the queue is also from the query, but nothing tracks where a running queue came from.
-- `@/lib/routes/tags::useDefaultTags` for the suggested-tag section.
-- `@/lib/musickit-hooks::usePagedTracksForSongIds` for turning matched ids back into tracks a
-  page at a time, and `@/lib/paged-tracks` for the paging and play queue rules.
-- `@/components/custom/music-list` for preview and full results.
-- Backend `POST /queries/results` for correct NOT behavior on completely untagged songs, and for
-  `consider_default_tags`. The wire types are in `@/lib/query-json`.
-
-## Gotchas
-
-- Do not use a React Native `Pressable` to arbitrate a query-builder tap against a drag. Keep both
-  interactions in gesture-handler. `DraggablePill` gives condition-card taps and the dedicated
-  reorder handle separate gesture detectors, while tag pans use the same movement threshold.
-- Drop rectangles are measured when dragging activates. Scrolling while a drag is active can
-  make those cached coordinates stale.
-- Do not dynamically toggle NativeWind shadow or alpha (`/…`) utilities on query-builder
-  controls. In the current Expo Router/NativeWind combination that can surface as a misleading
-  missing-navigation-context error; use an inline style for a stateful visual instead.
-- A query request carries no song ids. The backend runs it over the user's `user_songs` rows, the
-  songs carrying their tags, and every song it has stored metadata for, so which songs are the
-  user's own is only as current as the last library sync.
-- The ids that come back are not guaranteed to be ids the library read knows. Most are songs the
-  user does not have, `user_songs` also holds songs that only live in a playlist, and a song can be
-  stored under its catalog id or its library id depending on which Apple Music read put it there.
-  Resolve them with `usePagedTracksForSongIds` (or `useTracksForSongIds` for a short list), never
-  by matching `catalogId ?? id` against the cached library, which silently drops every id it does
-  not recognize. Two ids can resolve to one track; both hooks show it once.
-- Never resolve a whole result at once. It can be thousands of ids, most of them a catalog read
-  each.
-- A disconnected Apple Music account can edit a query, but cannot produce results.
-- Turning `Include suggested tags` off clears the query if it holds a suggested tag. It is the only
-  thing in the builder that discards work without a drag, so it is worth knowing before changing
-  the toggle's wiring.
-- A suggested tag and a user tag can never collide on id, so group deduplication treats them as the
-  distinct tags they are.
-- Both search fields in the palette are independent. The `Your tags` one filters the already
-  loaded list on the client; the `Suggested tags` one is a backend request per keystroke.
-
----
-
-Touching files in this directory? Update this README in the same change.
-See [../../../../AGENT_GUIDE.md](../../../../AGENT_GUIDE.md).
+`QueryUtils.test.ts` checks edits, wire shapes, and count labels. `@/lib/paged-tracks.test.ts`
+checks result paging and the play queue. `QueryConversion.test.ts` checks one-way
+seeding, metadata/value predicates, truth tables, and reorder invariance. `drag-utils.test.ts`
+covers clipping, fast/stale drops, measurement failure, and targeted hover notifications.
+`reorder-utils.test.ts` covers variable heights, repeated swaps, native layout acknowledgement,
+edge scrolling, and release rollback. `scripts/palette-worklets.test.cjs` executes the transformed
+palette helpers in an isolated runtime. History/draft tests live in Cadenza.
+Native gesture smoothness and glass rendering require real-device verification.

@@ -1,7 +1,6 @@
 import ExpoModulesCore
 import Foundation
 @preconcurrency import MusicKit
-import StoreKit
 
 /// An error this module throws across the bridge.
 ///
@@ -221,6 +220,9 @@ public class AppleMusicKitModule: Module {
         if let duration = song.duration {
             dict["songDuration"] = duration
         }
+        if let previewURL = song.previewAssets?.first?.url {
+            dict["previewUrl"] = previewURL.absoluteString
+        }
         if let albumId = song.albums?.first?.id.rawValue {
             dict["albumID"] = albumId
         }
@@ -347,6 +349,12 @@ public class AppleMusicKitModule: Module {
         }
         if let duration = attributes["durationInMillis"] as? NSNumber {
             result["songDuration"] = duration.doubleValue / 1000
+        }
+        if let previews = attributes["previews"] as? [[String: Any]],
+           let previewURL = previews.first?["url"] as? String,
+           !previewURL.isEmpty
+        {
+            result["previewUrl"] = previewURL
         }
 
         if let artwork = attributes["artwork"] as? [String: Any] {
@@ -649,6 +657,18 @@ public class AppleMusicKitModule: Module {
         return queue.entries.firstIndex(where: { $0.id == current.id })
     }
 
+    /// Runs a skip with repeat one lifted, then puts it back. A press of back or
+    /// forward should always move to another song, whatever the repeat mode.
+    private func skipIgnoringRepeatOne(_ skip: () async throws -> Void) async throws {
+        guard #available(iOS 16.0, *) else { return try await skip() }
+        let state = ApplicationMusicPlayer.shared.state
+        let mode = state.repeatMode
+        guard mode == .one else { return try await skip() }
+        state.repeatMode = MusicKit.MusicPlayer.RepeatMode.none
+        defer { state.repeatMode = mode }
+        try await skip()
+    }
+
     @available(iOS 16.0, *)
     private func replaceSongPlaybackQueue(
         ids: [String],
@@ -694,30 +714,22 @@ public class AppleMusicKitModule: Module {
             case .authorized:
                 guard !developerToken.isEmpty else { return ["status": "authorized"] }
                 do {
-                    let userToken: String = try await withCheckedThrowingContinuation {
-                        continuation in
-                        SKCloudServiceController().requestUserToken(
-                            forDeveloperToken: developerToken
-                        ) { token, error in
-                            if let error = error {
-                                continuation.resume(throwing: error)
-                            } else if let token = token {
-                                continuation.resume(returning: token)
-                            } else {
-                                continuation.resume(
-                                    throwing: NSError(
-                                        domain: "AppleMusicKit", code: -1,
-                                        userInfo: [
-                                            NSLocalizedDescriptionKey:
-                                                "requestUserToken returned neither a token nor an error."
-                                        ]))
-                            }
-                        }
-                    }
+                    // MusicKit owns user-token acquisition on Apple platforms.
+                    // StoreKit's requestUserToken API is deprecated and was
+                    // returning SKError.clientInvalid after token renewal.
+                    let provider = StaticDeveloperTokenProvider(token: developerToken)
+                    MusicDataRequest.tokenProvider = provider
+                    let userToken = try await provider.userToken(
+                        for: developerToken,
+                        options: [.ignoreCache]
+                    )
                     self.userToken = userToken
                     return ["status": "authorized", "userToken": userToken]
                 } catch {
-                    return ["status": "failed", "error": error.localizedDescription]
+                    return [
+                        "status": "failed",
+                        "error": "Apple Music couldn't connect. Check your connection and try again."
+                    ]
                 }
             case .denied: return ["status": "denied"]
             case .restricted: return ["status": "restricted"]
@@ -769,12 +781,16 @@ public class AppleMusicKitModule: Module {
 
         AsyncFunction("skipToNextEntry") { () async throws -> Void in
             guard #available(iOS 15.0, *) else { return }
-            try await ApplicationMusicPlayer.shared.skipToNextEntry()
+            try await self.skipIgnoringRepeatOne {
+                try await ApplicationMusicPlayer.shared.skipToNextEntry()
+            }
         }
 
         AsyncFunction("skipToPreviousEntry") { () async throws -> Void in
             guard #available(iOS 15.0, *) else { return }
-            try await ApplicationMusicPlayer.shared.skipToPreviousEntry()
+            try await self.skipIgnoringRepeatOne {
+                try await ApplicationMusicPlayer.shared.skipToPreviousEntry()
+            }
         }
 
         AsyncFunction("restartCurrentEntry") { () -> Void in
@@ -864,7 +880,9 @@ public class AppleMusicKitModule: Module {
             // Fetch Catalog Songs
             if !catalogIds.isEmpty {
                 let musicItemIds = catalogIds.map { MusicItemID($0) }
-                let request = MusicCatalogResourceRequest<Song>(matching: \.id, memberOf: musicItemIds)
+                var request = MusicCatalogResourceRequest<Song>(matching: \.id, memberOf: musicItemIds)
+                // albums are not loaded by default, and albumID is read off them
+                request.properties = [.albums]
                 let response = try await request.response()
 
                 let catalogFormatted = response.items.map { self.formatSong($0, playbackType: "song") }
@@ -1248,8 +1266,10 @@ public class AppleMusicKitModule: Module {
 
             if index < current {
                 // MusicKit will not move the cursor directly, so walk it back.
-                for _ in 0..<(current - index) {
-                    try await player.skipToPreviousEntry()
+                try await self.skipIgnoringRepeatOne {
+                    for _ in 0..<(current - index) {
+                        try await player.skipToPreviousEntry()
+                    }
                 }
                 return
             }
@@ -1259,7 +1279,9 @@ public class AppleMusicKitModule: Module {
             if index > current + 1 {
                 player.queue.entries.removeSubrange((current + 1)..<index)
             }
-            try await player.skipToNextEntry()
+            try await self.skipIgnoringRepeatOne {
+                try await player.skipToNextEntry()
+            }
         }
 
         AsyncFunction("setShuffleMode") { (mode: String) throws -> Void in

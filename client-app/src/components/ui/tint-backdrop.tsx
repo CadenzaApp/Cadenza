@@ -1,19 +1,24 @@
 import { LinearGradient } from "expo-linear-gradient";
-import { StyleSheet, View } from "react-native";
+import { StyleSheet, View, type LayoutChangeEvent } from "react-native";
+import Animated, {
+    useAnimatedStyle,
+    useSharedValue,
+    type SharedValue,
+} from "react-native-reanimated";
 
+import { Crossfade } from "@/components/ui/crossfade";
 import type { TintGradient } from "@/lib/artwork-color-utils";
 
 type TintBackdropProps = {
     /** Shared mode-aware gradient. Renders nothing when null. */
     gradient: TintGradient | null;
-    /**
-     * Runs the gradient over only this much from the top and holds its end
-     * color below. For a long scrolling page: a gradient layer as tall as
-     * the whole page is expensive to composite, and the tab bar's glass
-     * resamples it every frame it animates. A flat color costs nothing.
-     */
-    span?: number;
 };
+
+/**
+ * Height in points of the bitmap the gradient is drawn into. The page sees it
+ * stretched to its own height, which a smooth top to bottom fade survives.
+ */
+const BITMAP_HEIGHT = 256;
 
 /**
  * The shared colored wash behind a page. Its Oklch stops are calculated before
@@ -21,33 +26,71 @@ type TintBackdropProps = {
  *
  * Absolutely positioned to fill its parent, so it takes no part in the layout
  * it is dropped into. Inside a scroller's content it runs the whole content
- * height and scrolls with it, with nothing measured. Renders null for a null gradient, so every caller can mount it
- * unconditionally and let the color decide.
+ * height and scrolls with it, which is what the stops expect: they place the
+ * color by how far down the page it is. Draws nothing for a null gradient, so
+ * every caller can mount it unconditionally and let the color decide.
+ *
+ * On iOS expo-linear-gradient draws its colors into a bitmap the size of the
+ * view, on the main thread, and draws it again on every size change. A page
+ * tall view made that bitmap tens of megabytes, redrawn each time the content
+ * height moved (the player docking changes the bottom inset), which stalled
+ * the tab bar's glass. So the gradient is drawn once at a fixed small height
+ * and scaled to the page on the UI thread, and a size change only moves the
+ * scale.
+ *
+ * A change of gradient, including a page's first one, fades in over a second
+ * rather than swapping. Null fades the last one out.
  */
-export function TintBackdrop({ gradient, span }: TintBackdropProps) {
-    if (!gradient) return null;
+export function TintBackdrop({ gradient }: TintBackdropProps) {
+    const height = useSharedValue(0);
 
-    if (span === undefined) {
-        return (
-            <LinearGradient
-                pointerEvents="none"
-                style={StyleSheet.absoluteFill}
-                colors={gradient.colors}
-            />
-        );
+    function measure(event: LayoutChangeEvent) {
+        height.set(event.nativeEvent.layout.height);
     }
 
     return (
-        <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-            <LinearGradient style={{ height: span }} colors={gradient.colors} />
-            <View
-                className="flex-1"
-                style={{
-                    backgroundColor:
-                        gradient.colors[gradient.colors.length - 1],
-                }}
+        <View
+            pointerEvents="none"
+            style={StyleSheet.absoluteFill}
+            onLayout={measure}
+        >
+            <Crossfade
+                value={gradient}
+                keyOf={tintKey}
+                // the gradient and the overscroll color under it both appear at
+                // once; fading in together let the two tone underlay show through
+                fadeFromNothing={false}
+                render={(shown) => (
+                    <StretchedGradient gradient={shown} height={height} />
+                )}
             />
         </View>
+    );
+}
+
+/** One gradient drawn at `BITMAP_HEIGHT` and scaled to `height`. */
+function StretchedGradient({
+    gradient,
+    height,
+}: {
+    gradient: TintGradient;
+    height: SharedValue<number>;
+}) {
+    const stretch = useAnimatedStyle(() => ({
+        // scale runs about the center, so shift it back to the top edge
+        transform: [
+            { translateY: (height.get() - BITMAP_HEIGHT) / 2 },
+            { scaleY: height.get() / BITMAP_HEIGHT },
+        ],
+    }));
+
+    return (
+        <Animated.View style={[{ height: BITMAP_HEIGHT }, stretch]}>
+            <LinearGradient
+                style={StyleSheet.absoluteFill}
+                colors={gradient.colors}
+            />
+        </Animated.View>
     );
 }
 
@@ -59,21 +102,32 @@ export function TintBackdrop({ gradient, span }: TintBackdropProps) {
 export function TintOverscrollBackdrop({
     gradient,
 }: Pick<TintBackdropProps, "gradient">) {
-    if (!gradient) return null;
-
     return (
-        <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-            <View
-                className="flex-1"
-                style={{ backgroundColor: gradient.colors[0] }}
-            />
-            <View
-                className="flex-1"
-                style={{
-                    backgroundColor:
-                        gradient.colors[gradient.colors.length - 1],
-                }}
-            />
-        </View>
+        <Crossfade
+            value={gradient}
+            keyOf={tintKey}
+            // the gradient and the overscroll color under it both appear at
+            // once; fading in together let the two tone underlay show through
+            fadeFromNothing={false}
+            render={(shown) => (
+                <>
+                    <View
+                        className="flex-1"
+                        style={{ backgroundColor: shown.colors[0] }}
+                    />
+                    <View
+                        className="flex-1"
+                        style={{
+                            backgroundColor:
+                                shown.colors[shown.colors.length - 1],
+                        }}
+                    />
+                </>
+            )}
+        />
     );
+}
+
+function tintKey(gradient: TintGradient) {
+    return gradient.colors.join(",");
 }

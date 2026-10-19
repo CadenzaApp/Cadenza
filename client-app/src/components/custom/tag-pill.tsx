@@ -76,7 +76,8 @@ export function useTagScreenColor(tagColor: string) {
  * @param height    - Controls all sizing proportionally (font, icon, padding).
  * @param value     - If provided, renders the attribute tag's value after the
  *                   name, formatted for the tag's type.
- * @param count     - If provided, renders a count badge on the right side.
+ * @param count     - If provided, renders a count badge on the right side. A
+ *                   string shows as given, like a percent.
  * @param leadingIcon - Replaces the leading dot when provided.
  * @param showIcon  - Whether to render the leading dot or icon.
  * @param appearance - Solid for chosen tags, outline for available tags.
@@ -88,6 +89,7 @@ export const TagPill = memo(function TagPill({
     tag,
     height,
     value,
+    suffix,
     count,
     leadingIcon,
     leadingIconName,
@@ -99,7 +101,8 @@ export const TagPill = memo(function TagPill({
     tag: Tag;
     height: number;
     value?: string | null;
-    count?: number;
+    suffix?: string;
+    count?: number | string;
     leadingIcon?: ReactNode;
     leadingIconName?: ComponentProps<typeof Ionicons>["name"];
     showIcon?: boolean;
@@ -120,9 +123,9 @@ export const TagPill = memo(function TagPill({
     const iconSize = 1.15 * height;
     const fontSize = 1 * height;
     const countFontSize = 0.9 * height;
-    const countPaddingHorizontal = 0.9 * height;
+    const countPaddingHorizontal = 0.55 * height;
     const countPaddingVertical = 0.1 * height;
-    const displayedValue = formatTagValue(tag.type, value);
+    const displayedValue = suffix ?? formatTagValue(tag.type, value);
     const countGapAdjustment = count === undefined ? 0 : -0.05 * height;
 
     return (
@@ -200,6 +203,7 @@ export const TagPill = memo(function TagPill({
                         lineHeight: fontSize * 1.4,
                         opacity: 1.0,
                         maxWidth: 14 * height,
+                        marginLeft: suffix !== undefined ? -0.12 * height : 0,
                         marginRight: countGapAdjustment,
                     }}
                 >
@@ -213,12 +217,17 @@ export const TagPill = memo(function TagPill({
                         borderRadius: 999,
                         paddingHorizontal: countPaddingHorizontal,
                         paddingVertical: countPaddingVertical,
+                        marginLeft: -1,
+                        alignSelf: "center",
                         backgroundColor: hexToRgba(contentColor, 1.0),
                     }}
                 >
+                    {/* the bubble is filled with the content color, so its
+                        number takes the other one: the tag color on a solid
+                        pill, the screen color on an outline one */}
                     <Text
                         style={{
-                            color: tag.color,
+                            color: outlined ? screenColor : tag.color,
                             fontSize: countFontSize,
                             fontWeight: "500",
                             lineHeight: fontSize * 1.25,

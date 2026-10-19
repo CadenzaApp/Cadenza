@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import useSWR, { mutate } from "swr";
+import useSWR, { mutate, unstable_serialize, useSWRConfig } from "swr";
 import useSWRMutation from "swr/mutation";
 import { useAccount } from "./account";
+import { loadSavedRead, saveRead } from "./saved-reads-store";
 import { BACKEND_URL } from "./backend";
 import { getAccessToken } from "./supabase";
 import { matchesEndpoint, type APIDataEndpoint } from "./api-endpoints";
@@ -136,7 +137,7 @@ export function invalidateAPIData(endpoints: APIDataEndpoint[]) {
 /** When triggered, invalidates `useAPIData`s using the given endpoints */
 export function useAPIMutation<RequestBody, Response>(
     method: string,
-    path: string,
+    path: string | ((body: RequestBody) => string),
     invalidatedEndpoints:
         | ((body: RequestBody) => APIDataEndpoint[])
         | APIDataEndpoint[] = [],
@@ -153,13 +154,18 @@ export function useAPIMutation<RequestBody, Response>(
 ) {
     const { account } = useAccount();
 
+    const pathKey = typeof path === "string" ? path : path.name;
     return useSWRMutation(
-        [method, path, account?.id],
+        [method, pathKey, account?.id],
         async (_: any, { arg: body }: { arg: RequestBody }) => {
-            const data = await apiRequest<Response>(BACKEND_URL + path, {
-                method,
-                body,
-            });
+            const resolvedPath = typeof path === "string" ? path : path(body);
+            const data = await apiRequest<Response>(
+                BACKEND_URL + resolvedPath,
+                {
+                    method,
+                    body,
+                },
+            );
 
             const invalidationMode =
                 options?.invalidation ??
@@ -198,28 +204,74 @@ export function useAPIData<Output>(
         enabled?: boolean;
         /** Called after each successful fetch, not on a cache hit. */
         onSuccess?: (data: Output) => void;
+        /**
+         * Keep the last good response on the device and show it while the
+         * request fails or is in flight, even after a cold start. For reads a
+         * screen should still show offline.
+         */
+        save?: boolean;
     },
 ) {
     const { account } = useAccount();
+    const { cache } = useSWRConfig();
 
     // disable this query if any param value is null/undefined
     const enabled =
         (options?.enabled ?? true) &&
         Boolean(account) &&
         (!params || !Object.values(params).some((val) => val == null));
+    const key = enabled
+        ? { keyType: "api-data", path, params, accountId: account?.id }
+        : null;
+    const save = Boolean(options?.save);
+    const savedKey = save && key ? unstable_serialize(key) : null;
+    const saved = useSavedRead<Output>(savedKey);
 
-    return useSWR(
-        enabled
-            ? { keyType: "api-data", path, params, accountId: account?.id }
-            : null,
+    const swr = useSWR(
+        key,
         () => apiRequest<Output>(BACKEND_URL + path + queryParamsToStr(params)),
         {
             keepPreviousData: options?.keepPreviousData,
             // SWR merges config with a spread, so an explicit undefined would
             // replace its default no-op and every fetch would throw calling it
-            ...(options?.onSuccess ? { onSuccess: options.onSuccess } : {}),
+            ...(options?.onSuccess || save
+                ? {
+                      onSuccess: (data: Output, serializedKey: string) => {
+                          if (save) void saveRead(serializedKey, data);
+                          options?.onSuccess?.(data);
+                      },
+                  }
+                : {}),
         },
     );
+    if (!savedKey) return swr;
+
+    // this key's own response first, then its saved one, and only then the
+    // last key's response that keepPreviousData holds on to
+    const current = cache.get(savedKey)?.data as Output | undefined;
+    return { ...swr, data: current ?? saved ?? swr.data };
+}
+
+/**
+ * The response saved on the device for a serialized key, once it has loaded.
+ * Undefined while it loads, when there is none, or for a null key.
+ */
+function useSavedRead<T>(key: string | null): T | undefined {
+    const [saved, setSaved] = useState<{ key: string; data: T } | null>(null);
+
+    useEffect(() => {
+        if (!key) return;
+        let live = true;
+        void (async () => {
+            const data = await loadSavedRead<T>(key);
+            if (live && data !== undefined) setSaved({ key, data });
+        })();
+        return () => {
+            live = false;
+        };
+    }, [key]);
+
+    return saved?.key === key ? saved.data : undefined;
 }
 
 /** Cached idempotent read that uses POST because its request body may be large. */
@@ -402,6 +454,14 @@ export function useAPIFetch<Input extends Record<string, any>, Output>(
     return useSWRMutation(path, (_: any, { arg: params }: { arg: Input }) =>
         apiRequest<Output>(BACKEND_URL + path + queryParamsToStr(params)),
     );
+}
+
+/** One GET against a backend path. Used by infinite readers that build their own SWR keys. */
+export function fetchAPIData<Output>(
+    path: string,
+    params?: Record<string, any>,
+) {
+    return apiRequest<Output>(BACKEND_URL + path + queryParamsToStr(params));
 }
 
 export { matchesEndpoint, type APIDataEndpoint };

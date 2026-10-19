@@ -25,7 +25,7 @@ and a backend rejection is a bare `{ error_type }`. The cause still reaches the 
 `badge`, `button`, `card`, `dialog`, `glass-surface`, `glass-button`, `glass-confirm-dialog`,
 `glass-icon-button`, `glass-toggle`, `input`,
 `label`, `separator`, `skeleton`, `tabs`, `text`, `native-only-animated-view`, `detail-screen`,
-`tint-backdrop`, `floating-close-button`, plus `sign-in-form` and `sign-up-form`.
+`tint-backdrop`, `nebula-backdrop`, `crossfade`, `floating-close-button`, plus `sign-in-form` and `sign-up-form`.
 
 `floating-close-button.tsx` exports `FloatingCloseButton`, the X a screen that draws its own hero
 floats in the top right. It closes through `@/lib/zoom-dismiss::useCloseScreen`, so it plays the
@@ -37,6 +37,9 @@ glass controls and compatibility surfaces. It renders liquid glass on iOS 26, an
 older, and a flat translucent card on web, all behind one component. It paints a background and
 nothing else; the caller supplies size, radius, and `overflow: "hidden"`. Its optional
 `tintColor` reaches native liquid glass and gets a translucent approximation on fallbacks.
+Glass does not stack: a `GlassSurface` under another one, or under a `GlassLayer`, paints a flat
+fill instead. A container whose glass is a sibling under its content (like `AnalyticsCard`) wraps
+that content in `GlassLayer`.
 
 `glass-button.tsx` and `glass-confirm-dialog.tsx` provide regular and destructive glass actions.
 Destructive actions keep neutral glass and use red foreground content. The confirmation is used
@@ -57,12 +60,28 @@ nav theme's notification color while on. Account settings and the query builder 
 `tint-backdrop.tsx` exports `TintBackdrop`, the colored wash behind a page. It requires the single
 gradient object returned by `useTintGradient`, which reduces the source chroma and interpolates the
 light/dark-mode endpoints in Oklch before the native RGB renderer sees them. Dropped into a
-scroller's content it fills and scrolls with it. On a long page pass `span` (a screen height) so
-the gradient covers only that much and its end color fills the rest: a page tall gradient is costly
-to composite under the tab bar's glass. It renders nothing for a null gradient, so callers mount it
-unconditionally. `TintOverscrollBackdrop` paints the exact start color above the exact end color
+scroller's content it fills and scrolls with it, and every page runs it the full length. The color
+at a point depends on how far down the page it is: the top color keeps a 1/x share with x going 1
+to 2 down the page (`tintFadeAt`), so a long page never bottoms out in the end color. It renders
+nothing for a null gradient, so callers mount it unconditionally. On iOS expo-linear-gradient redraws a
+bitmap the size of the view on every resize, so the gradient is drawn at a fixed 256pt and scaled
+to the page. Do not swap in a page-tall `LinearGradient`: the redraw stalls the tab bar's glass. A new gradient, a page's first one included, fades in over a second through
+`crossfade.tsx`, which fades the new layer in over the old one and drops the old one once it lands.
+The artist hero's bottom fade runs through it too, so it keeps pace with the page. `TintOverscrollBackdrop` paints the exact start color above the exact end color
 under a scrolling gradient. Its center boundary stays covered by content, while elastic scrolling
 reveals a matching solid endpoint. `DetailScreen` and `TrackCollectionView` share that same hook.
+
+`nebula-backdrop.tsx` exports `NebulaBackdrop`, soft SVG blobs of up to five colors glowing up
+from the bottom, used only by the Analytics overview. Unlike `TintBackdrop` it is fixed to the
+screen: mount it behind the scroller. Each blob slowly changes size, brightness and position on the
+UI thread. Every so often a blob fades out, hands its color to the back of a shared queue
+(`src/lib/color-queue.ts`) and fades back in with the one at the front, so colors move around.
+There are always five blobs in fixed places (fewer colors repeat). A new set of colors keeps them
+mid motion and crossfades each to its new color, so stepping periods never remounts them. The
+glows are see through, so they pass `Crossfade` their `alpha`, which fades the old layer out at the
+rate that keeps the pair as opaque as one. Without it the overlap flashes brighter mid fade.
+Under reduced motion it holds still and keeps its colors. `nebulaColor` clamps each color's lightness and
+chroma per mode, so dark or neon tags still read as a soft glow.
 
 `reorderable-list.tsx` is in `custom/` rather than `ui/` only because nothing else needs it yet.
 It knows nothing about songs: `data`, `itemHeight`, `renderItem`, and an `onReorder(from, to)`.
@@ -125,6 +144,7 @@ variables), `tailwind.config.js`, and `global.css`. Class merging goes through
 | `index.tsx`                        | The `MusicList` itself. Owns sort state, paging, selection, density, and the modals.                                                |
 | `music-list-item.tsx`              | One row, plus `MusicListItemSkeleton`.                                                                                              |
 | `tag-fade-rail.tsx`                | Overflow-aware horizontal tag rail whose alpha mask preserves the surface behind it. User tags with values, then unfilled defaults. |
+| `row-tags.tsx`                     | The list's tag reads and a per-list store rows read their own song from, so a tag response re-renders only the rows it changes.     |
 | `music-list-sort-button.tsx`       | The floating sort control.                                                                                                          |
 | `music-list-action-button.tsx`     | One button in the selection toolbar.                                                                                                |
 | `music-list-selection-toolbar.tsx` | The bar that slides up while rows are selected.                                                                                     |
@@ -196,17 +216,36 @@ sitting above a list that owns the scroll.
 `MusicList` hides its scroll indicator. Overscrolling at the top is how a detail screen closes,
 and an indicator flicking in over the shrinking card is noise.
 
-Overflowing tag rails use `MaskedView` with an opaque-to-transparent trailing mask. Rails that fit
-skip that compositing layer. Do not replace the mask with a gradient painted in a theme color:
-rows also sit over artwork tints, so no single fill color can match every screen.
+Overflowing tag rails use `MaskedView` with a fixed-width opaque-to-transparent trailing mask.
+Rails that fit skip it: a mask makes iOS draw the row offscreen on every frame it moves, which on
+every row cost the whole app its frame rate. The widths live in refs and only whether they
+overflow is state, so a rail renders again at most once. Do not replace the mask
+with a gradient painted in a theme color: rows also sit over artwork tints, so no single fill
+color can match every screen.
+
+`MusicList` is a `FlashList`, wrapped by Reanimated so `useScreenScroll`'s worklet handler attaches
+to it. It renders only rows on screen plus a short way past them and reuses row slots, so a row's
+React key changes only on the density pinch; anything a row holds for one song is tied to that
+song (the artwork remembers which url failed, rather than a failed flag). Loading renders inside the list too,
+placeholder rows where the empty message goes, so the background and header are there from the
+first frame and the header is never rebuilt when the rows land. `FlashList` wraps its `ScrollView` in a container view, so the list
+supplies its own scroller through `renderScrollComponent` with `ScreenScrollMarker` inside it: the
+marker needs the `ScrollView` as its only child and asserts otherwise.
+
+Tags never live on `MusicList` itself. `RowTagSource` runs the tag reads and pushes them into a
+per-list store, and each row subscribes to its own song (`useRowTags`). A tag response re-renders
+the rows whose tags changed, not the list. The selection toolbar renders inside `RowTagSource`,
+since it needs the same reads.
 
 `TrackCollectionView` owns the standard mosaic or single-artwork header, play/shuffle row,
 caller-supplied simple glass options, and the `MusicList`. Routes can supply pagination, playback
 overrides, one background source color, close controls, and opt the standard header into the
 device's top safe area. The view turns that color into the shared Oklch gradient for the active
 color mode, including matching fixed overscroll endpoints. The gradient is
-a scroll-translated sibling behind the virtualized list, so removing an offscreen header cannot
-remove the page background. `useCollectionArtworkTint` selects one representative four-cell sample
+`MusicList`'s `contentBackground`: drawn inside the scroll content behind the rows, filling it, so
+it spans the real content height with nothing measured, and is not a virtualized cell an offscreen
+header could take with it. Sized from a measured content height it ended early whenever the list's
+estimate of unmeasured rows came in short, leaving a hard edge over the fixed end color. `useCollectionArtworkTint` selects one representative four-cell sample
 for both the mosaic and its Oklab-averaged source color. Routes can also append actions to each track's
 shared options menu; the tag detail uses that to preserve Remove this tag. A caller can replace
 the standard title row, which the tag detail does with `TagPill` and its song count. Gradient-backed routes pair scrolling content
@@ -215,10 +254,15 @@ without placing a second gradient seam at the bounce boundary. Artist uses its c
 rail through the header/footer inputs, while album and playlist details use the standard layout
 and open `CollectionOptionsMenu` from a supplied option.
 
+On a pushed screen `TrackCollectionView` holds its rows back until the open transition ends
+(`useOpenTransitionSettled`), showing the header and placeholder rows meanwhile. Rows built during
+the push run on the main thread the animation needs, and with a prefetched first page they used to
+arrive mid-animation and stutter it.
+
 `MusicList` takes a `header` for exactly that case, and a `footer` for the other end. It also
 reports its content size through `onContentSizeChange`, which is how the artist screen sizes a
 backdrop to its own content rather than to the screen. It owns its
-own `FlatList`, so anything above the first row or below the last has to go inside it rather than
+own `FlashList`, so anything above the first row or below the last has to go inside it rather than
 beside it. The search tab's Artists section is the header's current user; `RecentlyAddedGrid`
 takes a `header` for the same reason. The artist screen uses both at once: the artist image as
 the header, the albums rail as the footer. The footer sits below the pagination skeleton, so a
@@ -237,15 +281,16 @@ scroll view for inset, scroll-to-top, and tab-bar/accessory minimization.
 
 ### custom/options-menu/
 
-| file                          | role                                                                                                                                                                                                                                                                      |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `song-options-menu.tsx`       | `SongOptionsMenu`. Favorite + Share, then Modify Tags, Add to Playlist, Play Next, Add to Queue, Go to Album, and Go to Artist. Modify Tags swaps the menu for an inline selector popup. Self-contained from just a `track`; used by list rows and the now-playing sheet. |
-| `collection-options-menu.tsx` | `CollectionOptionsMenu`. Favorite + Share for the album/playlist itself, then Play Next / Add to Queue against its songs. Used by `/collection/[kind]/[id]`.                                                                                                              |
-| `favorite-share-row.tsx`      | `FavoriteShareRow`, the icon row + divider both menus lead with. Generic over the target type.                                                                                                                                                                            |
+| file                          | role                                                                                                                                                                                                                                                                                                                                                            |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `song-options-menu.tsx`       | `SongOptionsMenu`. Favorite + Share, then Modify Tags, Add to Playlist, Play Next, Add to Queue, Go to Album, Go to Artist, and Discuss. Discuss opens `/discuss/:songId` for that song and does not change playback. Modify Tags swaps the menu for an inline selector popup. Self-contained from just a `track`; used by list rows and the now-playing sheet. |
+| `collection-options-menu.tsx` | `CollectionOptionsMenu`. Favorite + Share for the album/playlist itself, then Play Next / Add to Queue against its songs. Used by `/collection/[kind]/[id]`.                                                                                                                                                                                                    |
+| `favorite-share-row.tsx`      | `FavoriteShareRow`, the icon row + divider both menus lead with. Generic over the target type.                                                                                                                                                                                                                                                                  |
 
 Both menus render through the liquid-glass default in `ModalPopup`. `SongOptionsMenu` takes an
-optional `navigate` (defaulting to a plain `router.push`), so the now-playing sheet can dismiss
-itself before opening full-screen destinations. Modify Tags does not navigate. It replaces the
+optional `navigate` (defaulting to `useOpenScreen`), so the now-playing sheet can dismiss
+itself before opening full-screen destinations. Discuss is one of those: `/discuss/:songId`.
+Modify Tags does not navigate. It replaces the
 options popup with a `TagSelector` popup for that song.
 
 Gotchas carried over from before the two "..." menus were merged: `SongOptionsMenu` resolves the

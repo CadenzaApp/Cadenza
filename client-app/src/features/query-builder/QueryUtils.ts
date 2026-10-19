@@ -1,5 +1,6 @@
 import type { QueryJSON, QueryJSONNode } from "@/lib/query-json";
 import type { Tag, TagMetadata } from "@/lib/types";
+import { isMetadataPaletteTag } from "./metadata-palette.ts";
 
 import type {
     QueryCondition,
@@ -7,6 +8,7 @@ import type {
     QueryGroup,
     QueryGroupMode,
     QueryTag,
+    QueryTagConstraint,
 } from "./types";
 
 let nextQueryId = 0;
@@ -25,15 +27,16 @@ export function sortTagsByApplicationCount(
     });
 }
 
-export function makeQueryId(prefix: "tag" | "group" | "condition"): string {
+function makeQueryId(prefix: "tag" | "group" | "condition"): string {
     nextQueryId += 1;
     return `${prefix}-${Date.now().toString(36)}-${nextQueryId.toString(36)}`;
 }
 
-export function makeQueryTag(
+function makeQueryTag(
     tag: Tag,
     connector: QueryConnector = "and",
     suggested = false,
+    constraint?: QueryTagConstraint,
 ): QueryTag {
     return {
         kind: "tag",
@@ -42,6 +45,7 @@ export function makeQueryTag(
         tag,
         negated: false,
         suggested,
+        constraint,
         connector,
     };
 }
@@ -50,6 +54,7 @@ export function appendTag(
     conditions: readonly QueryCondition[],
     tag: Tag,
     suggested = false,
+    constraint?: QueryTagConstraint,
 ): QueryCondition[] {
     return [
         ...conditions,
@@ -57,6 +62,7 @@ export function appendTag(
             tag,
             connectorForInsertion(conditions, conditions.length),
             suggested,
+            constraint,
         ),
     ];
 }
@@ -66,6 +72,7 @@ export function insertTag(
     tag: Tag,
     index: number,
     suggested = false,
+    constraint?: QueryTagConstraint,
 ): QueryCondition[] {
     const next = [...conditions];
     const insertionIndex = clampInsertionIndex(index, next.length);
@@ -76,6 +83,7 @@ export function insertTag(
             tag,
             connectorForInsertion(conditions, insertionIndex),
             suggested,
+            constraint,
         ),
     );
     return next;
@@ -86,12 +94,33 @@ export function addTagToCondition(
     tag: Tag,
     conditionId: string,
     suggested = false,
+    constraint?: QueryTagConstraint,
 ): QueryCondition[] {
     return addQueryTagToCondition(
         conditions,
-        makeQueryTag(tag, "and", suggested),
+        makeQueryTag(tag, "and", suggested, constraint),
         conditionId,
     );
+}
+
+export function updateQueryTagConstraint(
+    conditions: readonly QueryCondition[],
+    queryTagId: string,
+    constraint: QueryTagConstraint,
+): QueryCondition[] {
+    const update = (tag: QueryTag): QueryTag =>
+        tag.id !== queryTagId ||
+        (tag.constraint?.op === constraint.op &&
+            tag.constraint?.value === constraint.value)
+            ? tag
+            : { ...tag, constraint };
+    return conditions.map((condition) => {
+        if (condition.kind === "tag") return update(condition);
+        const members = condition.members.map(update);
+        return members.every((item, index) => item === condition.members[index])
+            ? condition
+            : { ...condition, members };
+    });
 }
 
 export function toggleConditionNegation(
@@ -111,35 +140,12 @@ export function setGroupMode(
     mode: QueryGroupMode,
 ): QueryCondition[] {
     return conditions.map((condition) =>
-        condition.kind === "group" && condition.id === groupId
+        condition.kind === "group" &&
+        condition.id === groupId &&
+        condition.mode !== mode
             ? { ...condition, mode }
             : condition,
     );
-}
-
-export function toggleConditionConnector(
-    conditions: readonly QueryCondition[],
-    conditionId: string,
-): QueryCondition[] {
-    return conditions.map((condition, index) =>
-        index > 0 && condition.id === conditionId
-            ? {
-                  ...condition,
-                  connector: condition.connector === "and" ? "or" : "and",
-              }
-            : condition,
-    );
-}
-
-export function conditionConnectorLabel(condition: QueryCondition): string {
-    const connector = condition.connector.toUpperCase();
-    const itemCount = condition.kind === "group" ? condition.members.length : 1;
-    return itemCount === 1 ? `${connector} HAVE` : connector;
-}
-
-export function groupMemberConnectorLabel(mode: QueryGroupMode): string {
-    if (mode === "any") return "OR";
-    return mode === "none" ? "NOR" : "AND";
 }
 
 export function removeQueryTag(
@@ -181,40 +187,11 @@ export function moveConditionToIndex(
     const [condition] = next.splice(conditionIndex, 1);
     const adjustedIndex = conditionIndex < index ? index - 1 : index;
     next.splice(clampInsertionIndex(adjustedIndex, next.length), 0, condition);
-    return next.map((item, nextIndex) => ({
-        ...item,
-        connector: nextIndex === 0 ? "and" : connectorSlots[nextIndex - 1],
-    }));
-}
-
-export function getConditionReorderPosition(
-    conditions: readonly Pick<QueryCondition, "id">[],
-    conditionId: string,
-    draggedCenterY: number,
-    conditionCenters: ReadonlyMap<string, number>,
-): { finalIndex: number; insertionIndex: number } | null {
-    const originIndex = conditions.findIndex(
-        (condition) => condition.id === conditionId,
-    );
-    if (originIndex === -1) return null;
-
-    let finalIndex = 0;
-    for (const condition of conditions) {
-        if (condition.id === conditionId) continue;
-        const center = conditionCenters.get(condition.id);
-        if (center == null) {
-            return {
-                finalIndex: Math.min(originIndex, conditions.length - 1),
-                insertionIndex: originIndex,
-            };
-        }
-        if (draggedCenterY > center) finalIndex += 1;
-    }
-
-    return {
-        finalIndex,
-        insertionIndex: finalIndex > originIndex ? finalIndex + 1 : finalIndex,
-    };
+    return next.map((item, nextIndex) => {
+        const connector =
+            nextIndex === 0 ? "and" : connectorSlots[nextIndex - 1];
+        return item.connector === connector ? item : { ...item, connector };
+    });
 }
 
 export function moveQueryTagToIndex(
@@ -272,8 +249,8 @@ export function moveQueryTagToCondition(
 
 /**
  * Compiles the tree into the shared wire format, the same one the advanced
- * builder produces. A tag becomes an "is applied" filter on it, and a negated
- * tag an "is not applied" filter.
+ * builder produces. A basic tag checks application; a value tag carries its
+ * selected operator and typed value.
  */
 export function queryToJSON(
     conditions: readonly QueryCondition[],
@@ -329,12 +306,6 @@ export function usedTagIds(
     return used;
 }
 
-export function queryHeading(conditions: readonly QueryCondition[]): string {
-    return conditions[0]?.kind === "group"
-        ? "Find me all songs that:"
-        : "Find me all songs that have:";
-}
-
 function addQueryTagToCondition(
     conditions: readonly QueryCondition[],
     queryTag: QueryTag,
@@ -352,7 +323,7 @@ function addQueryTagToCondition(
         return {
             kind: "group",
             id: makeQueryId("group"),
-            mode: condition.negated ? "none" : "any",
+            mode: condition.negated ? "none" : "all",
             connector: condition.connector,
             rememberedNextConnector: condition.rememberedNextConnector,
             layoutId: condition.layoutId ?? makeQueryId("condition"),
@@ -449,13 +420,23 @@ function conditionToJSON(condition: QueryCondition): QueryJSONNode {
 }
 
 function queryTagToJSON(queryTag: QueryTag): QueryJSONNode {
-    return {
+    const metadataKey = isMetadataPaletteTag(queryTag.tag)
+        ? queryTag.tag.metadataKey
+        : null;
+    const filter: QueryJSONNode = {
         filter: {
-            field: "tag",
-            tag_id: queryTag.tag.id,
-            op: queryTag.negated ? "is_not_applied" : "is_applied",
+            ...(metadataKey
+                ? { field: "metadata" as const, key: metadataKey }
+                : { field: "tag" as const, tag_id: queryTag.tag.id }),
+            op:
+                queryTag.constraint?.op ??
+                (queryTag.negated ? "is_not_applied" : "is_applied"),
+            ...(queryTag.constraint?.value !== undefined
+                ? { value: queryTag.constraint.value }
+                : {}),
         },
     };
+    return queryTag.constraint && queryTag.negated ? { not: filter } : filter;
 }
 
 function joinJSONNodes(
@@ -545,13 +526,18 @@ function clampInsertionIndex(index: number, length: number): number {
 /**
  * How many songs a query matched, like `1 song`, `42 songs`, or `1,042+ songs`.
  * `capped` adds the `+`: the backend stopped returning songs from outside the
- * user's own, so more than `count` matched.
+ * user's own, so more than `count` matched. `noun` is the singular word, for a
+ * label that counts `results` instead.
  */
-export function matchCountLabel(count: number, capped: boolean): string {
+export function matchCountLabel(
+    count: number,
+    capped: boolean,
+    noun = "song",
+): string {
     const digits = String(Math.max(0, Math.trunc(count))).replace(
         /\B(?=(\d{3})+(?!\d))/g,
         ",",
     );
-    const noun = count === 1 && !capped ? "song" : "songs";
-    return `${digits}${capped ? "+" : ""} ${noun}`;
+    const word = count === 1 && !capped ? noun : `${noun}s`;
+    return `${digits}${capped ? "+" : ""} ${word}`;
 }

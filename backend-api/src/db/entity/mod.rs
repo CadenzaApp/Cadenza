@@ -2,8 +2,8 @@
 
 pub mod prelude;
 
-pub mod comment;
-pub mod comment_votes;
+pub mod comment_likes;
+pub mod comments;
 pub mod default_tag_activity;
 pub mod default_tags_applied;
 pub mod default_tags_generation;
@@ -14,10 +14,11 @@ pub mod interests;
 pub mod listening_events;
 pub mod metadata_albums;
 pub mod metadata_song_tags_applied;
+pub mod post_likes;
+pub mod post_view_status;
 pub mod posts;
+pub mod profile;
 pub mod sea_orm_active_enums;
-pub mod tag_scores;
-pub mod tag_scores_metadata;
 pub mod tags;
 pub mod user_songs;
 pub mod user_tags_applied;

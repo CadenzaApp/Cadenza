@@ -13,9 +13,11 @@ logic out.
 | `auth/index.tsx`                     | `/auth`                   | Sign in / sign up. Takes an `initialMode` search param.                                                       |
 | `(tabs)/_layout.tsx`                 |                           | Protected native tab group, its five triggers, and the media-player bottom accessory.                         |
 | `(tabs)/*/_layout.tsx`               |                           | One native `Stack` per tab, using `TabStack` for the shared top rail.                                         |
-| `(tabs)/social/index.tsx`            | `/social`                 | Static previews of planned social features.                                                                   |
-| `(tabs)/analytics/index.tsx`         | `/analytics`              | The overview: header, #1 hero, stats, heatmap, tag rail, the chart, and one card for every ranking.           |
+| `(tabs)/social/index.tsx`            | `/social`                 | The ranked social feed.                                                                                       |
+| `(tabs)/social/user/[userId].tsx`    | `/social/user/:userId`    | One user's public profile (username, bio) and their posts, newest first.                                      |
+| `(tabs)/analytics/index.tsx`         | `/analytics`              | The overview: header, #1 hero, stats, heatmap, tag rail, and one card for every ranking.                      |
 | `(tabs)/analytics/[dimension].tsx`   | `/analytics/[dimension]`  | One full ranking. `dimension` is a name from the client's dimension registry.                                 |
+| `(tabs)/analytics/listened.tsx`      | `/analytics/listened`     | The songs listened to in one heatmap hour. Params: `since`, `until`, `title`, optional `tag`.                 |
 | `(tabs)/cadenza/index.tsx`           | `/cadenza`                | The simple / advanced query workspace and shared result preview.                                              |
 | `(tabs)/library/index.tsx`           | `/library`                | Library index: a row per category, then Recently Added.                                                       |
 | `(tabs)/library/category/[kind].tsx` | `/library/category/:kind` | One category's normal Library-stack view; preserves the tab bar and bottom player.                            |
@@ -24,8 +26,9 @@ logic out.
 | `appearance.tsx`                     | `/appearance`             | Appearance preview sheet. Wires `AppearanceSettingsScreen`.                                                   |
 | `player/_layout.tsx`                 | `/player/*`               | Now playing sheet shell and provider stack for its always-mounted horizontal pager.                           |
 | `player/index.tsx`                   | `/player`                 | Opens the always-mounted player pager with Player selected.                                                   |
-| `player/comments.tsx`                | `/player/comments`        | Opens the same pager with Comments selected.                                                                  |
+| `player/discuss.tsx`                 | `/player/discuss`         | Opens the same pager with Discuss selected and optional focused-song params.                                  |
 | `player/tags.tsx`                    | `/player/tags`            | Opens the same pager with Tags selected and optional focused-song params.                                     |
+| `discuss/[songId].tsx`               | `/discuss/:songId`        | Posts about one song, outside the now playing sheet.                                                          |
 | `library-categories.tsx`             | `/library-categories`     | Picks which rows the library shows.                                                                           |
 | `category/[kind].tsx`                | `/category/:kind`         | Compatibility root host for the shared library-category body.                                                 |
 | `collection/[kind]/[id].tsx`         | `/collection/:kind/:id`   | The songs in one album or playlist.                                                                           |
@@ -54,7 +57,7 @@ GestureHandlerRootView
                   ZoomOriginProvider          per-navigation zoom launch measurements
                     Stack                     the routes
                     AppleMusicSessionGuard    opens /account when the apple music token dies
-                    TagScoreTracker           scores the tags, artist, and genres of each song played for 5 seconds
+                    InterestPlayTracker       scores the artist and genres of each song played for 5 seconds
                     InterestDecay             decays the user's interest scores once per launch
                     TasksHost                 background task status
                     PortalHost                where dialogs and modals render
@@ -69,10 +72,10 @@ GestureHandlerRootView
 music-user token, so a library that cannot load turns into a reconnect instead of an error. It
 skips the splash and auth routes.
 
-`TagScoreTracker` (`@/lib/tag-scores`) renders nothing. It sits beside the root `Stack` because
-it only needs to be inside `PlaybackProvider` and `AccountProvider`, and it sends one
-`PATCH /tags/scores` and one `PATCH /social/interests/update` per song that plays for 5 seconds.
-See [../lib/README.md](../lib/README.md).
+`InterestPlayTracker` (`@/lib/interest-play-tracker`) renders nothing. It sits beside the root
+`Stack` because it only needs to be inside `PlaybackProvider` and `AccountProvider`, and it sends
+one `PATCH /social/interests/update` per song that plays for 5 seconds. See
+[../lib/README.md](../lib/README.md).
 
 `InterestDecay` (`@/lib/interest-decay`) renders nothing. It sends one
 `PATCH /social/interests/decay` per launch as soon as an account is signed in, whether restored
@@ -129,8 +132,8 @@ past the threshold finishes from that exact progress and pops. The pull does not
 the threshold while the finger continues down.
 
 Because it is a card over another screen rather than a rectangle replacing it, it keeps rounded
-continuous corners while it shrinks. The visible corner size is compensated for the card's scale,
-and the card lands its top-left edge on the artwork rather than hovering around its center.
+continuous corners while it shrinks. Like Music, the page fades away early and what is left is the
+artwork itself, shrinking until it lands exactly on the tile it came from.
 
 The artwork hero screens paint the artwork tint as their own background rather than leaving it to the
 gradient inside the list. During the close, the list counters iOS's downward overscroll so the
@@ -169,7 +172,8 @@ detail pages. Android always pins, since its scroll views have no content inset.
 
 A screen adds its own controls to the rail with `navigation.setOptions({ headerRight })`; the
 `header` render prop in `(tabs)/_layout.tsx` passes them through as `actions`. The library screen
-is the one caller, adding the button that opens `/library-categories`.
+adds the button that opens `/library-categories`. Cadenza adds query settings, including the
+shared suggested-tag matching scope.
 
 ## Sheets
 
@@ -191,6 +195,11 @@ animation**. That is what the zoom below needs, since it has to grow out of and 
 screen that is still on display underneath. The cost is the native back swipe, which a transparent
 modal has no edge for; the pull down at the top replaces it.
 
+Open a detail screen with `useOpenScreen` (`@/lib/open-screen`), not `router.push`. Opening one
+already on the stack goes back to it, so artist -> playlist -> the same artist lands on the first
+artist, and the artist you are on does nothing. Past `MAX_DETAIL_DEPTH` the oldest detail screens
+are dropped. Since each one is a transparent modal, everything under it stays mounted.
+
 ## The detail shell
 
 Both kinds render their body inside `DetailScreen` (`@/components/ui/detail-screen`), which
@@ -199,9 +208,16 @@ prop is the whole difference: a sheet starts below the status bar and gets the g
 top padding, a screen pays the full top inset. It also sets `InsideSheetContext`, which keeps
 `useScreenOverlayInsets` in sheet-local coordinates.
 
-`/player` is pushed by the mini player rather than by a header button. It is a root sheet whose
-three routes all render one always-mounted Comments / Player / Tags pager. Song menus edit tags in
-their own `TagSelector` popup instead of routing through this sheet.
+`/player` is pushed by the mini player rather than by a header button. It is a root sheet.
+`/player`, `/player/discuss`, and `/player/tags` each render one always-mounted Discuss /
+Player / Tags pager. The route selects the first page. A song's Discuss action opens
+`/discuss/:songId` instead of that sheet. That screen is the posts list for the chosen song:
+no "Now Playing" title and no Discuss / Player / Tags selector, and it does not start or
+replace whatever is playing. The sheet's own Discuss page is still the pager tab for the
+song the sheet is focused on. Tapping an author on either Discuss surface closes that
+screen and opens `/social/user/:userId` on the Social tab, with the feed still underneath.
+Song menus edit tags in their own `TagSelector` popup
+instead of routing through this sheet.
 
 The player sheet paints one tint in `DetailScreen`, behind its header and the transparent pager.
 All three pages stay mounted side by side, so a swipe reveals live adjacent content continuously
@@ -230,6 +246,11 @@ and the now playing sheet's `...` menu. `/collection/:kind/:id` is reached throu
 artist, both artwork sizes, and the artwork color so the hero and the tint are there before the
 song fetch lands.
 
+Go to Album opens the full catalog album through `useAlbumRouteForTrack`, since a library album
+holds only the songs the user added. Its `fallbackId` is the library album, shown when the full one
+fails or is empty. Its `highlight` param names the song it came from, and that row shimmers once,
+the first time it is on screen.
+
 These root routes render above the native tab controller, so its bottom accessory cannot appear
 over them. Every zoom-dismiss card owns a compact player layer, which makes the player transform
 with that card and lets a nested close reveal the parent card's already-mounted player. Query
@@ -240,7 +261,7 @@ lists reserve exactly the compact player's height.
 ## Connects to
 
 - `@/lib/account`, `@/lib/apple-music-auth`, `@/lib/playback` for the providers, and
-  `@/lib/tag-scores` for the tag scoring the root layout mounts.
+  `@/lib/interest-play-tracker` for the interest scoring the root layout mounts.
 - `@/lib/routes/*` and `@/lib/musickit-hooks` for data.
 - `@/features/account` from the Account and Appearance sheets.
 - `@/features/cadenza` from the Cadenza tab, which toggles between `@/features/query-builder`
@@ -263,7 +284,7 @@ lists reserve exactly the compact player's height.
   native scroll view for automatic insets and scroll-to-top behavior.
 - Native tabs support at most five items on Android. The current set already uses all five.
 - Keep `player/` as a root-stack sibling of `(tabs)`. Its sheet covers the primary tab controller,
-  and its Comments / Player / Tags pager is local presentation state rather than navigation.
+  and its Discuss / Player / Tags pager is local presentation state rather than navigation.
 
 ---
 

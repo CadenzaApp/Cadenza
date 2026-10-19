@@ -169,7 +169,7 @@ export function FilterRow({ filter, connector, tags, actions }: Props) {
                         />
                         <Text
                             className={cn(
-                                "text-base",
+                                "text-sm",
                                 !filter.field && "text-muted-foreground",
                             )}
                             numberOfLines={1}
@@ -191,7 +191,7 @@ export function FilterRow({ filter, connector, tags, actions }: Props) {
                                 accessibilityLabel="Choose an operator"
                                 className="h-10 flex-row items-center gap-1.5 px-3 active:bg-accent"
                             >
-                                <Text className="text-base">
+                                <Text className="text-sm">
                                     {OPERATOR_LABELS[filter.op]}
                                 </Text>
                                 <Ionicons

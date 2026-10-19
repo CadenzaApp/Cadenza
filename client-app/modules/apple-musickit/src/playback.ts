@@ -158,6 +158,10 @@ let playbackStateRevision = 0;
 let optimisticPlaybackUntil = 0;
 let playbackLoadDeadline = 0;
 let playbackCommandQueue = Promise.resolve();
+/** Native commands sent and not yet finished. */
+let pendingPlaybackCommands = 0;
+/** Past this a pending command is treated as hung, so polling resumes. */
+let pendingPlaybackDeadline = 0;
 let playbackRefreshPromise: Promise<PlaybackSnapshot> | null = null;
 const listeners = new Set<() => void>();
 
@@ -174,6 +178,8 @@ interface PlaybackImplementationApi {
     getPlaybackStateRevision(): number;
     /** @internal Returns when optimistic playback state may be reconciled. */
     getOptimisticPlaybackUntil(): number;
+    /** @internal Whether a native command is still running, so native state is stale. */
+    isPlaybackCommandInFlight(): boolean;
     /** @internal Publishes an optimistic playing state and returns its revision. */
     setOptimisticPlaybackState(nextState: boolean): number;
     /** @internal Starts a playback command revision. */
@@ -279,6 +285,13 @@ const playbackImplementation: PlaybackImplementationApi = {
     /** @internal Returns when optimistic playback state may be reconciled. */
     getOptimisticPlaybackUntil(): number {
         return optimisticPlaybackUntil;
+    },
+
+    /** @internal Whether a native command is still running, so native state is stale. */
+    isPlaybackCommandInFlight(): boolean {
+        return (
+            pendingPlaybackCommands > 0 && Date.now() < pendingPlaybackDeadline
+        );
     },
 
     /** @internal Publishes an optimistic playing state and returns its revision. */
@@ -412,9 +425,21 @@ const playbackImplementation: PlaybackImplementationApi = {
         // x86 emulators can't load Apple's ARM-only player; skip it, keep the UI.
         if (process.env.EXPO_PUBLIC_MUSICKIT_TARGET === "android_studio")
             return Promise.resolve();
+        pendingPlaybackCommands += 1;
+        pendingPlaybackDeadline = Date.now() + PLAYBACK_LOAD_TIMEOUT_MS;
         const result = playbackCommandQueue.then(command, command);
         playbackCommandQueue = result.catch(() => undefined);
-        return result;
+        // native reports the old state until the command returns, and a resume
+        // can take longer than the settle delay. so the settle window starts
+        // when the command finishes, not when it was sent, or a poll in between
+        // flips play back to pause and then to play again
+        return result.finally(() => {
+            pendingPlaybackCommands -= 1;
+            optimisticPlaybackUntil = Math.max(
+                optimisticPlaybackUntil,
+                Date.now() + PLAYBACK_STATE_SETTLE_DELAY_MS,
+            );
+        });
     },
 
     /** @internal Waits until the optimistic playback window has elapsed. */
@@ -443,7 +468,9 @@ const playbackImplementation: PlaybackImplementationApi = {
         }
         if (
             !ignoreSettleDelay &&
-            Date.now() < playbackImplementation.getOptimisticPlaybackUntil()
+            (playbackImplementation.isPlaybackCommandInFlight() ||
+                Date.now() <
+                    playbackImplementation.getOptimisticPlaybackUntil())
         ) {
             return playbackImplementation.getPlaybackSnapshot();
         }

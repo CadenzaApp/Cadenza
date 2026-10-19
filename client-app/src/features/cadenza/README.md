@@ -1,71 +1,45 @@
 # cadenza
 
-The simple and advanced query workspaces rendered by the Cadenza tab. This feature owns both
-query trees, the active mode, tag data, library metadata, and the shared result preview, so an
-in-progress mix survives switching modes or tabs.
+The Cadenza tab owns Simple and Advanced query drafts, matching scope, history, and results
+navigation. Tags are managed in Library. Queries run over the last synced music library.
 
-Tags used to share this screen behind a Query / Tags segmented control. They are a library
-category now, opened from the library screen, so this tab is only the query builder. See
-[../library/README.md](../library/README.md).
+## Entry points
 
-## Files
+- `CadenzaScreen.tsx`: tag reads, stable tag-colored nebula, wrapping query heading, header
+  controls, result count, and results navigation.
+- `query-workspace.ts`: pure draft transitions and bounded history; `use-query-workspace.ts`
+  binds them to React. `use-tag-placement.ts` owns pending placement and cancellation.
+- `query-settings.ts`: device-local preference persistence and lifecycle.
+- `query-controls.tsx`: settings dialog/tooltips and history buttons.
+- [../query-builder/README.md](../query-builder/README.md): Simple gestures and wire semantics.
+  Advanced's tree and validation live in `../advanced-query-builder`.
 
-| file                | role                                                                              |
-| ------------------- | --------------------------------------------------------------------------------- |
-| `CadenzaScreen.tsx` | The query builder, tag data, query state, live preview, and results-route launch. |
+## Drafts and history
 
-## How it works
+Drafts last for the mounted tab's lifetime. The first switch to Advanced seeds it from Simple
+only if Advanced has no existing state. Later switches preserve both drafts, including an
+intentionally emptied Advanced draft. Switching back never converts Advanced into Simple.
+Switching is silent navigation and creates no undo step.
 
-`CadenzaScreen` fetches the user's tags, the activity tags, and the complete Apple Music song
-library. Activity tags go to the advanced builder only, in their own picker section; the simple
-builder's palette stays the user's own tags. It also holds the
-simple builder's `Include suggested tags` switch, which reveals the palette's suggested-tag
-section, makes default tags count in the query, and clears the query when it is turned off with a
-suggested tag still in it. The mode button in
-the result-summary row switches between the tactile simple builder and the filter-based advanced
-builder without discarding either tree. The simple path compiles `QueryCondition[]` with
-`queryToJSON` and the advanced path compiles its tree with `buildAdvancedQuery`, but both produce
-the same wire format, so the active mode only decides which tree is sent. One
-`useQueryResults` call handles both. Returned ids map back to tracks a page at a time and
-render the same `ResultsSummary`; its arrow opens the current mode's results.
+Each editor has its own 20-edit history. Consecutive value typing coalesces within 1500ms.
+Snapshots retain only the active draft; unchanged edits preserve references instead of serializing
+both trees. Undoing in one editor cannot replace the other's draft.
 
-The request carries no song ids. The backend evaluates the query over every song it knows: the
-library it holds in `user_songs`, the songs carrying the user's tags, and every song it has stored
-metadata for. That is what lets a negated query include songs with no Cadenza tags at all, and
-songs the user does not have. The preview turns matched ids into tracks with
-`usePagedTracksForSongIds`, which reads the cached library first and asks Apple Music for the
-rest, one page at a time as the preview scrolls.
+## Preferences and results
 
-The conditions live on the tab screen, so they survive tab switches. Opening the full result set
-pushes `/query-results` with the serialized query and a `suggested` flag, and the route renders
-the same normal full-screen `QueryResults` view. The builder remains mounted underneath, so going back returns to
-the existing query and active mode.
+All five settings persist across launches: Venn diagrams, Undo/Redo, suggested tags, advanced
+tags, and metadata tags. Metadata is off by default. Suggested visibility also controls
+`consider_default_tags` for both editors and cannot turn off while either draft references a
+suggested tag. Remembered suggestions remain identifiable after seeding or undo.
+Each setting has a tap-triggered tooltip. Hiding palette sections never removes query filters.
 
-That same arrow press is when the query's tags score. `useScoreQueryTags` from
-`@/lib/tag-scores` gives every tag the query uses positively 10 points. Live edits do not score,
-since the preview reruns the query on every change. Tag ids resolve to names through `userTags`
-plus the simple builder's own condition tags, so suggested tags in a simple query score too.
+The untinted glass results button uses backend IDs without loading artwork/playable metadata.
+A query runs over every song Cadenza knows, not just the library, so the count can read like
+`1,042+ results` when the backend capped the songs from outside the user's own at 1000.
+Empty/incomplete queries do not submit; failed requests offer SWR retry. Opening `/query-results`
+passes the query, matching scope, relevant tags, and analytics description while preserving drafts.
+That route resolves playable tracks and records query playback. Save Query logs the name only.
 
-## Connects to
-
-- `@/features/query-builder` for the simple query and shared result presentation.
-- `@/features/advanced-query-builder` for advanced filter construction and compilation.
-- `@/lib/routes/tags` and `@/lib/routes/queries` for backend data.
-- `@/lib/musickit-hooks::usePagedTracksForSongIds` for result metadata.
-- `@/features/library` owns tags now, including tag creation.
-
-## Gotchas
-
-- Both query trees last for the lifetime of the mounted Cadenza tab. They are not persisted across app
-  launches. The `Include suggested tags` switch has the same lifetime. It shows the suggested-tag
-  section in the palette and sets `consider_default_tags` on the results request.
-- Turning that switch off discards the whole simple query when a suggested tag is in it, because a
-  default tag id does not resolve without `consider_default_tags`. The advanced tree is untouched:
-  its tag picker only ever offers the user's own tags.
-- Tag creation lives in the Tags library sheet, not here. Query needs tags to exist before it is
-  useful, so a user with no tags has to go make one from the library first.
-
----
-
-Touching files in this directory? Update this README in the same change.
-See [../../../../AGENT_GUIDE.md](../../../../AGENT_GUIDE.md).
+Clear sits beside the heading. Undo/Redo share a capsule on iOS and remain separate on Android;
+unavailable actions dim. Simple's floating actions follow the palette. Advanced's sit above
+the navigation/player inset. Scroll clearance keeps the final condition reachable.

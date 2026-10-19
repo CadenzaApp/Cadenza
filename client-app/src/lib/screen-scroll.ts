@@ -13,7 +13,7 @@ import {
     type AnimatedRef,
 } from "react-native-reanimated";
 import type Animated from "react-native-reanimated";
-import type { Component } from "react";
+import type { Component, ElementType } from "react";
 import type { StyleProp, ViewStyle } from "react-native";
 
 import { useIsPushedDetailScreen } from "./screen-overlay";
@@ -28,11 +28,14 @@ import {
 /** Short and eased out, so the rail settles in rather than snapping. */
 const RAIL_TIMING = { duration: 200, easing: Easing.out(Easing.cubic) };
 
-type ScreenScrollProps<T extends Component> = {
+/** A scroller instance, or a component type whose ref is one. */
+type Scroller = Component | ElementType;
+
+type ScreenScrollProps<T extends Scroller> = {
     ref: AnimatedRef<T>;
     onScroll: ReturnType<typeof useAnimatedScrollHandler>;
     scrollEventThrottle: number;
-    style: AnimatedStyle<ViewStyle>;
+    style: AnimatedStyle<ViewStyle> | undefined;
     /**
      * The top padding a floating rail needs, undefined with none. A scroller
      * with its own content style lists this last in it, so it wins over the
@@ -40,6 +43,9 @@ type ScreenScrollProps<T extends Component> = {
      */
     contentContainerStyle: StyleProp<ViewStyle>;
 };
+
+/** What `useScreenScroll()` returns for an animated scroll view. */
+export type ScreenScrollBinding = ScreenScrollProps<Animated.ScrollView>;
 
 /**
  * Wiring for a tab screen's top-level scroller. Spread it onto an
@@ -62,7 +68,7 @@ type ScreenScrollProps<T extends Component> = {
  * native insets, scroll-to-top, and tab-bar/accessory minimization.
  */
 export function useScreenScroll<
-    T extends Component = Animated.ScrollView,
+    T extends Scroller = Animated.ScrollView,
 >(): ScreenScrollProps<T> {
     const ref = useAnimatedRef<T>();
     const isFocused = useIsFocused();
@@ -74,6 +80,10 @@ export function useScreenScroll<
     const spareZoomProgress = useSharedValue(0);
     const spareClosing = useSharedValue(false);
     const pullOffset = useSharedValue(0);
+    // the close follows a finger pulling past the top, nothing else: momentum
+    // and a list nudging its own offset while it lays out rows report negative
+    // offsets too, and with no drag ending after them nothing let the close go
+    const dragging = useSharedValue(false);
     // a screen without a floating rail still gets one shape of handler
     const spareProgress = useSharedValue(1);
     const spareTarget = useSharedValue(1);
@@ -123,13 +133,25 @@ export function useScreenScroll<
                 // the scroll view up by the same amount so the hero stays
                 // anchored inside the shrinking card instead of growing a
                 // large empty area above it.
-                pullOffset.set(compensatesZoomPull ? Math.min(offset, 0) : 0);
+                // Written only when they change: a write reruns every style
+                // that reads it, and these run on every scroll frame. Most of
+                // the time both are 0, and rewriting 0 restyled the whole card
+                // on each frame of an ordinary scroll.
+                const pull = compensatesZoomPull ? Math.min(offset, 0) : 0;
+                if (pull !== pullOffset.get()) pullOffset.set(pull);
 
                 // Once the close is committed the animation owns progress.
-                if (!canPullToDismiss || closing.get()) return;
-                progress.set(zoomProgressForScrollOffset(offset));
+                if (!canPullToDismiss || closing.get() || !dragging.get()) {
+                    return;
+                }
+                const next = zoomProgressForScrollOffset(offset);
+                if (next !== progress.get()) progress.set(next);
+            },
+            onBeginDrag: () => {
+                dragging.set(true);
             },
             onEndDrag: (event) => {
+                dragging.set(false);
                 if (!canPullToDismiss || closing.get()) return;
                 if (shouldDismissZoom(event.contentOffset.y)) {
                     // Claim the animation before iOS starts rebounding the
@@ -140,8 +162,14 @@ export function useScreenScroll<
                 }
                 resetZoomProgress(progress);
             },
+            onMomentumEnd: () => {
+                // whatever moved it, a resting list is never mid close
+                if (!canPullToDismiss || closing.get()) return;
+                if (progress.get() > 0) resetZoomProgress(progress);
+            },
         },
         [
+            dragging,
             dismiss,
             canPullToDismiss,
             compensatesZoomPull,
@@ -163,7 +191,8 @@ export function useScreenScroll<
         ref,
         onScroll,
         scrollEventThrottle: 16,
-        style: pullCompensationStyle,
+        // A no-op transform still clips the iOS refresh indicator.
+        style: compensatesZoomPull ? pullCompensationStyle : undefined,
         // padding rather than a native content inset: 0 stays the top, so
         // scroll-to-top and the first frame need nothing special
         contentContainerStyle:

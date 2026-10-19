@@ -137,7 +137,7 @@ export function OptionPicker({
                             className="flex-row items-center justify-between gap-3"
                             style={{ paddingTop: 8, paddingBottom: 8 }}
                         >
-                            <Text className="flex-1 text-xl font-semibold text-popover-foreground">
+                            <Text className="flex-1 text-xl font-bold text-popover-foreground">
                                 {title}
                             </Text>
                             <Pressable
@@ -162,7 +162,7 @@ export function OptionPicker({
                                 placeholder="Search"
                                 autoCorrect={false}
                                 autoCapitalize="none"
-                                className="h-12 text-lg"
+                                className="h-12 text-sm"
                             />
                         )}
 
@@ -173,7 +173,7 @@ export function OptionPicker({
                             showsVerticalScrollIndicator
                         >
                             {visibleSections.length === 0 && (
-                                <Text className="py-4 text-lg text-muted-foreground">
+                                <Text className="py-4 text-sm text-muted-foreground">
                                     {emptyText}
                                 </Text>
                             )}
@@ -219,7 +219,7 @@ export function OptionPicker({
                                                         }
                                                     />
                                                 )}
-                                                <Text className="flex-1 shrink text-lg">
+                                                <Text className="flex-1 shrink text-sm">
                                                     {option.label}
                                                 </Text>
                                                 {selected && (

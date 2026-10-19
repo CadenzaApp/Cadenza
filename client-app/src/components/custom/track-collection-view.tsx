@@ -2,10 +2,9 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import type { MusicItem } from "@apple-musickit";
 import { useTheme } from "expo-router/react-navigation";
 import type { ComponentProps, ReactNode } from "react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
     Image,
-    useWindowDimensions,
     View,
     type ColorValue,
     type StyleProp,
@@ -14,11 +13,15 @@ import {
 import Animated, {
     Extrapolation,
     interpolate,
+    useAnimatedReaction,
     useAnimatedScrollHandler,
     useAnimatedStyle,
     useSharedValue,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useIsPushedDetailScreen } from "@/lib/screen-overlay";
+import { useOpenTransitionSettled } from "@/lib/use-open-transition-settled";
+import { useZoomDismiss } from "@/lib/zoom-dismiss";
 
 import {
     MusicList,
@@ -45,6 +48,29 @@ import {
 
 const ARTWORK_SIZE = 224;
 const ARTWORK_SCROLL_SCALE_DISTANCE = 120;
+
+/** How far the hero artwork has shrunk, scrolled this far down. */
+function artworkScale(scrollY: number) {
+    "worklet";
+    return interpolate(
+        scrollY,
+        [0, ARTWORK_SCROLL_SCALE_DISTANCE],
+        [1, 0.8],
+        Extrapolation.CLAMP,
+    );
+}
+
+/**
+ * The hero artwork as measured once at full size: its unshrunk size, the
+ * point it shrinks toward, and the scroll it was measured at.
+ */
+type ArtworkBase = {
+    centerX: number;
+    bottom: number;
+    width: number;
+    height: number;
+    scrollY: number;
+};
 const ARTWORK_SHADOW: ViewStyle = {
     shadowColor: "#000",
     shadowOpacity: 0.16,
@@ -78,6 +104,8 @@ type Props = {
     titleContent?: ReactNode;
     tracks: MusicItem[];
     isLoading: boolean;
+    /** A song to point out; see `MusicListProps`. */
+    highlightTrackId?: string;
     error?: unknown;
     anticipatedTrackCount?: number;
     onBackPress?: () => void;
@@ -98,6 +126,13 @@ type Props = {
     backgroundColor?: string | null;
     containerStyle?: StyleProp<ViewStyle>;
     pagination?: MusicListPagination | null;
+    /**
+     * Load every page, each as soon as the last lands, rather than when the
+     * list nears its end. For a screen that shows every song and a count of
+     * them. Held until the open has finished, so a page landing never lands
+     * mid animation.
+     */
+    loadAllPages?: boolean;
     sorting?: MusicListSorting | null;
     onContentSizeChange?: (width: number, height: number) => void;
     removeClippedSubviews?: boolean;
@@ -116,6 +151,7 @@ export function TrackCollectionView({
     titleContent,
     tracks,
     isLoading,
+    highlightTrackId,
     error,
     anticipatedTrackCount,
     onBackPress,
@@ -133,6 +169,7 @@ export function TrackCollectionView({
     backgroundColor = null,
     containerStyle,
     pagination = null,
+    loadAllPages = false,
     sorting = {
         strategy: "local",
         defaultValue: { option: "title", direction: "ascending" },
@@ -147,12 +184,19 @@ export function TrackCollectionView({
     respectTopSafeArea = false,
 }: Props) {
     const { colors } = useTheme();
-    const { height: windowHeight } = useWindowDimensions();
     const insets = useSafeAreaInsets();
     const { playQueue } = usePlaybackCommands();
     const [optionsOpen, setOptionsOpen] = useState(false);
-    const [contentHeight, setContentHeight] = useState(windowHeight * 1.5);
+    const settled = useOpenTransitionSettled(useIsPushedDetailScreen());
     const scrollY = useSharedValue(0);
+    const hasNextPage = pagination?.hasNextPage ?? false;
+    const loadingNextPage = pagination?.isLoadingNextPage ?? false;
+    const loadNextPage = pagination?.onLoadNextPage;
+    useEffect(() => {
+        if (!loadAllPages || !settled || !hasNextPage || loadingNextPage)
+            return;
+        void loadNextPage?.();
+    }, [hasNextPage, loadAllPages, loadNextPage, loadingNextPage, settled]);
     const derivedArtworkUrls = useMemo(
         () =>
             artworkUrlsOverride || header ? [] : collectionArtworkGrid(tracks),
@@ -168,21 +212,76 @@ export function TrackCollectionView({
     const onScroll = useAnimatedScrollHandler((event) => {
         scrollY.set(Math.max(0, event.contentOffset.y));
     });
+    // where the hero artwork is, for the close to land it on its tile
+    const zoom = useZoomDismiss();
+    const zoomFocus = zoom?.focus;
+    const setZoomArtwork = zoom?.setArtwork;
+    const zoomPageRef = zoom?.pageRef;
+    const artworkRef = useRef<View>(null);
+    const artworkBase = useSharedValue<ArtworkBase | null>(null);
+    // measured against the page by layout, which ignores the card's
+    // transforms, so it is right before the open has even run. layout knows
+    // nothing of scrolling either, so this is the artwork at the top
+    function measureArtwork() {
+        const page = zoomPageRef?.current;
+        if (!page || header) return;
+        artworkRef.current?.measureLayout(page, (left, top, width, height) => {
+            if (width <= 0 || height <= 0) return;
+            artworkBase.set({
+                centerX: left + width / 2,
+                bottom: top + height,
+                width,
+                height,
+                scrollY: 0,
+            });
+        });
+    }
+    // the copy the card shows as the page fades, so the close reads as this
+    // artwork shrinking into its tile
+    useEffect(() => {
+        if (!setZoomArtwork || header) return;
+        setZoomArtwork({
+            node: (
+                <View style={ARTWORK_SHADOW}>
+                    <ArtworkMosaic
+                        artworkUrls={artworkUrls}
+                        placeholderColor={colors.text}
+                    />
+                </View>
+            ),
+            width: ARTWORK_SIZE,
+            height: ARTWORK_SIZE,
+        });
+        return () => setZoomArtwork(null);
+    }, [artworkUrls, colors.text, header, setZoomArtwork]);
+    useAnimatedReaction(
+        () => {
+            const base = artworkBase.get();
+            if (!base) return null;
+            const scrolled = scrollY.get();
+            const scale = artworkScale(scrolled);
+            const width = base.width * scale;
+            const height = base.height * scale;
+            const bottom = base.bottom - (scrolled - base.scrollY);
+            return {
+                x: base.centerX - width / 2,
+                y: bottom - height,
+                width,
+                height,
+            };
+        },
+        (rect) => {
+            zoomFocus?.set(rect);
+        },
+    );
+
     const artworkStyle = useAnimatedStyle(() => ({
         transformOrigin: "center bottom",
         transform: [
             {
-                scale: interpolate(
-                    scrollY.get(),
-                    [0, ARTWORK_SCROLL_SCALE_DISTANCE],
-                    [1, 0.8],
-                    Extrapolation.CLAMP,
-                ),
+                scale: artworkScale(scrollY.get()),
             },
         ],
-    }));
-    const backdropStyle = useAnimatedStyle(() => ({
-        transform: [{ translateY: -scrollY.get() }],
     }));
 
     function playAll() {
@@ -222,11 +321,6 @@ export function TrackCollectionView({
         });
     }
 
-    function handleContentSizeChange(width: number, height: number) {
-        setContentHeight(Math.max(windowHeight, height));
-        onContentSizeChange?.(width, height);
-    }
-
     const defaultHeader = (
         <View
             className="relative px-4 pb-4"
@@ -234,10 +328,16 @@ export function TrackCollectionView({
         >
             <View className="items-center">
                 <Animated.View style={[artworkStyle, ARTWORK_SHADOW]}>
-                    <ArtworkMosaic
-                        artworkUrls={artworkUrls}
-                        placeholderColor={colors.text}
-                    />
+                    <View
+                        ref={artworkRef}
+                        collapsable={false}
+                        onLayout={measureArtwork}
+                    >
+                        <ArtworkMosaic
+                            artworkUrls={artworkUrls}
+                            placeholderColor={colors.text}
+                        />
+                    </View>
                 </Animated.View>
                 {titleContent ? (
                     <View className="mt-4" style={TITLE_CONTENT_SHADOW}>
@@ -335,32 +435,24 @@ export function TrackCollectionView({
     return (
         <View className="flex-1 bg-background" style={containerStyle}>
             <TintOverscrollBackdrop gradient={gradient} />
-            {gradient ? (
-                <Animated.View
-                    pointerEvents="none"
-                    style={[
-                        {
-                            position: "absolute",
-                            top: 0,
-                            left: 0,
-                            right: 0,
-                            height: contentHeight,
-                        },
-                        backdropStyle,
-                    ]}
-                >
-                    <TintBackdrop gradient={gradient} />
-                </Animated.View>
-            ) : null}
             <MusicList
-                tracks={tracks}
-                isLoading={isLoading}
+                // held back until the open animation ends; the rows
+                // are ready by then, so they appear as it lands
+                tracks={settled ? tracks : NO_TRACKS}
+                isLoading={isLoading || !settled}
+                highlightTrackId={highlightTrackId}
                 pagination={pagination}
                 sorting={sorting}
                 anticipatedTrackCount={anticipatedTrackCount}
                 header={listHeader}
                 footer={footer}
-                onContentSizeChange={handleContentSizeChange}
+                onContentSizeChange={onContentSizeChange}
+                // inside the scroll content, so it always spans exactly the
+                // rows. sized from a measured content height it ended early
+                // whenever the list's estimate came in short
+                contentBackground={
+                    gradient ? <TintBackdrop gradient={gradient} /> : null
+                }
                 removeClippedSubviews={removeClippedSubviews}
                 onScroll={onScroll}
                 multiSelect={multiSelect}
@@ -490,3 +582,6 @@ function ArtworkMosaic({
         </View>
     );
 }
+
+/** Stable, so the held-back list does not get a new array each render. */
+const NO_TRACKS: MusicItem[] = [];

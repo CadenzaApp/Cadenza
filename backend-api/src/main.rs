@@ -18,17 +18,16 @@ use std::time::Duration;
 use crate::{
     auth::{SupabaseClaims, new_jwt_decoder},
     routes::{
-        analytics::get_analytics_router, comments::get_comments_router, events::get_events_router,
+        analytics::get_analytics_router, events::get_events_router, profile::get_profile_router,
         queries::get_queries_router, social::get_social_router, songs::get_songs_router,
         tags::get_tags_router,
     },
     services::{
         default_tags::{BackfillConfig, spawn_default_tag_backfill},
         metadata_tags::{MetadataCrawlConfig, MetadataCrawler, spawn_metadata_crawl},
-        social_feed::SocialFeedService,
+        social_feed::{self, SocialFeedService},
         song_metadata::SongMetadataService,
         tag_generation::{TagGenerationService, openai_tag_generator::OpenAiTagGenerator},
-        tag_score_decay::spawn_tag_score_decay,
     },
 };
 
@@ -88,6 +87,7 @@ async fn main() {
 
     let song_meta_service = SongMetadataService::new();
 
+    let _ml_service = social_feed::spawn_ml_service();
     let social_feed_service = SocialFeedService::new();
 
     // fills in default tags for songs nothing has read yet. off unless the
@@ -132,11 +132,6 @@ async fn main() {
         None => println!("metadata crawl: off"),
     }
 
-    // halves each user's tag scores once a week, so a name the user stopped using
-    // falls back behind the ones they still do. always on: it costs one short
-    // transaction per user a week and nothing outside the database
-    spawn_tag_score_decay(db.clone());
-
     let app_state = AppState {
         db,
         jwt_decoder,
@@ -151,7 +146,7 @@ async fn main() {
         .nest("/tags", get_tags_router())
         .nest("/songs", get_songs_router())
         .nest("/queries", get_queries_router())
-        .nest("/comments", get_comments_router())
+        .nest("/profile", get_profile_router())
         .nest("/social", get_social_router())
         .nest("/events", get_events_router())
         .nest("/analytics", get_analytics_router())
