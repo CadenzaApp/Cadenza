@@ -1,7 +1,7 @@
 # backend-api
 
-Rust HTTP api for Cadenza. Owns tags, tag application, the boolean query engine, LLM tag
-suggestion, and comments on songs. axum 0.8 for routing, SeaORM 2.0 over Supabase postgres, auth
+Rust HTTP api for Cadenza. Owns tags, tag application, the boolean query engine, and LLM tag
+suggestion. axum 0.8 for routing, SeaORM 2.0 over Supabase postgres, auth
 by verifying Supabase JWTs against Supabase's JWKS.
 
 It does not store song metadata. A song is just an id string that came from Apple Music. It can
@@ -12,21 +12,23 @@ nothing that comes back is persisted.
 
 | file | role |
 | --- | --- |
-| `src/main.rs` | Builds `AppState`, spawns the background jobs, nests the routers, binds the listener. |
+| `src/main.rs` | Builds `AppState`, starts the python model process, spawns the background jobs, nests the routers, binds the listener. |
 | `src/auth.rs` | `SupabaseClaims` and `new_jwt_decoder()`, which fetches Supabase's JWKS once at startup. |
 | `src/err.rs` | `CadenzaError` and its status code / JSON body mapping. |
 | `src/routes/` | HTTP handlers. See [src/routes/README.md](src/routes/README.md). |
 | `src/db/` | Query layer and generated entities. See [src/db/README.md](src/db/README.md). |
-| `src/services/` | Tag generation, normalization, Apple Music song metadata, default tag generation, the weekly tag score decay, the social feed proxy, and the listening analytics definitions. See [src/services/README.md](src/services/README.md). |
+| `src/services/` | Tag generation, normalization, Apple Music song metadata, default tag generation, the social feed model client, and the listening analytics definitions. See [src/services/README.md](src/services/README.md). |
 | `src/test_utils.rs` | Test helpers. Currently just `string_of_length`. |
 | `sql/` | The DDL for tables added by hand, so a fresh database can be stood up. Not a migration runner; see Schema changes. |
 | `certs/readme.md` | Leftover self-signed cert steps. No longer needed, the server is plain HTTP. |
 
 ## How it works
 
-`main.rs` loads `.env`, opens the db connection, builds the JWKS decoder, constructs the tag
-generation service, and packs all three into `AppState`. It also spawns the two background jobs,
-neither of which is in `AppState` because nothing serving a request talks to them.
+`main.rs` loads `.env`, opens the db connection, builds the JWKS decoder, starts the python
+model process, constructs the tag generation service, and packs the request-facing pieces into
+`AppState`. It also spawns the two background jobs, neither of which is in `AppState` because
+nothing serving a request talks to them. The model child is held in `main` until the listener
+exits, then killed.
 `AppState` derives `FromRef`, so a handler can extract just the piece it needs:
 
 ```rust
@@ -40,22 +42,23 @@ Seven routers get nested, plus a health route:
 /tags       get_tags_router()
 /songs      get_songs_router()
 /queries    get_queries_router()
-/comments   get_comments_router()
+/profile    get_profile_router()
 /social     get_social_router()
 /events     get_events_router()
 /analytics  get_analytics_router()
 /test       returns "server is reachable"
 ```
 
-`/social` is a proxy, not a resource. It forwards whatever path follows to the social feed
-service and adds the caller's user id. See [social-feed/README.md](social-feed/README.md).
+`/social` is the feed, posts, likes, and interests. It calls the python service
+only when it needs a sentence-transformer vector or a similarity score. See
+[ml-service/README.md](ml-service/README.md).
 
 Auth is per handler, not middleware. A handler that needs a user adds
 `Claims { claims, .. }: Claims<SupabaseClaims>` to its arguments, and `axum-jwt-auth` rejects
 the request with a 401 before the body runs. The user id is `claims.user_id`, taken from the
 JWT `sub`. Never read a user id off the request.
 
-Three `tokio` tasks run for the life of the process, all spawned from `main.rs` before the
+Two `tokio` tasks run for the life of the process, both spawned from `main.rs` before the
 listener binds:
 
 - **default tag backfill**, off unless `DEFAULT_TAG_BACKFILL_ENABLED` is `true`, because every
@@ -65,12 +68,8 @@ listener binds:
   songs and for every song on a queued album, so queries can filter on it. Woken straight away
   when a request queues an album, and hands back albums a stopped server left claimed when it
   starts.
-- **tag score decay**, always on. Once a week it halves each user's `tag_scores` in a transaction
-  of its own, skipping users whose highest score is below 5, and records each user's last decay
-  week in `tag_scores_metadata`. It checks once a day, and a day with nobody due costs one query,
-  so there is no env var to turn it off.
 
-All three are in `src/services/`. See [src/services/README.md](src/services/README.md).
+Both are in `src/services/`. See [src/services/README.md](src/services/README.md).
 
 Errors: every handler returns `Result<_, CadenzaError>`. `CadenzaError` implements
 `IntoResponse` and maps each variant to a status plus a JSON body of
@@ -94,7 +93,7 @@ that shape.
 | `METADATA_CRAWL_ALBUM_BATCH_SIZE` | no | Albums one pass crawls, in one Apple request. Defaults to 20, clamped to 1..=100, Apple's cap on album ids per request. |
 | `METADATA_CRAWL_LIBRARY_BATCH_SIZE` | no | Library songs without metadata the library walk stores each interval, newest additions first. Defaults to 300, capped at 1500. `0` turns the library walk off and leaves only the album queue. |
 | `METADATA_CRAWL_INTERVAL_SECS` | no | Seconds between passes when nothing wakes the crawl. Defaults to 60. A queued album does not wait for it: opening a song wakes the crawl. Zero and unparseable values fall back to the default. A pass Apple rate limited waits a fixed 300 seconds instead. |
-| `SOCIAL_FEED_URL` | no | Base url of the social feed service that `/social/*` forwards to. Defaults to `http://localhost:3001`. A trailing slash is trimmed. The service has no auth, so this must stay on a private address. |
+| `SOCIAL_FEED_URL` | no | Base url of the python embedding service (`POST /embedding`, `POST /posts/similarities`). Defaults to `http://localhost:3001`. A trailing slash is trimmed. `main.rs` starts that process on `127.0.0.1:3001`. The service has no auth, so this must stay on a private address. |
 
 ### Database connections
 

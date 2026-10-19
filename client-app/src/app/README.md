@@ -13,7 +13,8 @@ logic out.
 | `auth/index.tsx`                     | `/auth`                   | Sign in / sign up. Takes an `initialMode` search param.                                                       |
 | `(tabs)/_layout.tsx`                 |                           | Protected native tab group, its five triggers, and the media-player bottom accessory.                         |
 | `(tabs)/*/_layout.tsx`               |                           | One native `Stack` per tab, using `TabStack` for the shared top rail.                                         |
-| `(tabs)/social/index.tsx`            | `/social`                 | Static previews of planned social features.                                                                   |
+| `(tabs)/social/index.tsx`            | `/social`                 | The ranked social feed.                                                                                       |
+| `(tabs)/social/user/[userId].tsx`    | `/social/user/:userId`    | One user's public profile (username, bio) and their posts, newest first.                                      |
 | `(tabs)/analytics/index.tsx`         | `/analytics`              | The overview: header, #1 hero, stats, heatmap, tag rail, and one card for every ranking.                      |
 | `(tabs)/analytics/[dimension].tsx`   | `/analytics/[dimension]`  | One full ranking. `dimension` is a name from the client's dimension registry.                                 |
 | `(tabs)/analytics/listened.tsx`      | `/analytics/listened`     | The songs listened to in one heatmap hour. Params: `since`, `until`, `title`, optional `tag`.                 |
@@ -25,8 +26,9 @@ logic out.
 | `appearance.tsx`                     | `/appearance`             | Appearance preview sheet. Wires `AppearanceSettingsScreen`.                                                   |
 | `player/_layout.tsx`                 | `/player/*`               | Now playing sheet shell and provider stack for its always-mounted horizontal pager.                           |
 | `player/index.tsx`                   | `/player`                 | Opens the always-mounted player pager with Player selected.                                                   |
-| `player/comments.tsx`                | `/player/comments`        | Opens the same pager with Comments selected.                                                                  |
+| `player/discuss.tsx`                 | `/player/discuss`         | Opens the same pager with Discuss selected and optional focused-song params.                                  |
 | `player/tags.tsx`                    | `/player/tags`            | Opens the same pager with Tags selected and optional focused-song params.                                     |
+| `discuss/[songId].tsx`               | `/discuss/:songId`        | Posts about one song, outside the now playing sheet.                                                          |
 | `library-categories.tsx`             | `/library-categories`     | Picks which rows the library shows.                                                                           |
 | `category/[kind].tsx`                | `/category/:kind`         | Compatibility root host for the shared library-category body.                                                 |
 | `collection/[kind]/[id].tsx`         | `/collection/:kind/:id`   | The songs in one album or playlist.                                                                           |
@@ -55,7 +57,7 @@ GestureHandlerRootView
                   ZoomOriginProvider          per-navigation zoom launch measurements
                     Stack                     the routes
                     AppleMusicSessionGuard    opens /account when the apple music token dies
-                    TagScoreTracker           scores the tags, artist, and genres of each song played for 5 seconds
+                    InterestPlayTracker       scores the artist and genres of each song played for 5 seconds
                     InterestDecay             decays the user's interest scores once per launch
                     TasksHost                 background task status
                     PortalHost                where dialogs and modals render
@@ -70,10 +72,10 @@ GestureHandlerRootView
 music-user token, so a library that cannot load turns into a reconnect instead of an error. It
 skips the splash and auth routes.
 
-`TagScoreTracker` (`@/lib/tag-scores`) renders nothing. It sits beside the root `Stack` because
-it only needs to be inside `PlaybackProvider` and `AccountProvider`, and it sends one
-`PATCH /tags/scores` and one `PATCH /social/interests/update` per song that plays for 5 seconds.
-See [../lib/README.md](../lib/README.md).
+`InterestPlayTracker` (`@/lib/interest-play-tracker`) renders nothing. It sits beside the root
+`Stack` because it only needs to be inside `PlaybackProvider` and `AccountProvider`, and it sends
+one `PATCH /social/interests/update` per song that plays for 5 seconds. See
+[../lib/README.md](../lib/README.md).
 
 `InterestDecay` (`@/lib/interest-decay`) renders nothing. It sends one
 `PATCH /social/interests/decay` per launch as soon as an account is signed in, whether restored
@@ -205,9 +207,16 @@ prop is the whole difference: a sheet starts below the status bar and gets the g
 top padding, a screen pays the full top inset. It also sets `InsideSheetContext`, which keeps
 `useScreenOverlayInsets` in sheet-local coordinates.
 
-`/player` is pushed by the mini player rather than by a header button. It is a root sheet whose
-three routes all render one always-mounted Comments / Player / Tags pager. Song menus edit tags in
-their own `TagSelector` popup instead of routing through this sheet.
+`/player` is pushed by the mini player rather than by a header button. It is a root sheet.
+`/player`, `/player/discuss`, and `/player/tags` each render one always-mounted Discuss /
+Player / Tags pager. The route selects the first page. A song's Discuss action opens
+`/discuss/:songId` instead of that sheet. That screen is the posts list for the chosen song:
+no "Now Playing" title and no Discuss / Player / Tags selector, and it does not start or
+replace whatever is playing. The sheet's own Discuss page is still the pager tab for the
+song the sheet is focused on. Tapping an author on either Discuss surface closes that
+screen and opens `/social/user/:userId` on the Social tab, with the feed still underneath.
+Song menus edit tags in their own `TagSelector` popup
+instead of routing through this sheet.
 
 The player sheet paints one tint in `DetailScreen`, behind its header and the transparent pager.
 All three pages stay mounted side by side, so a swipe reveals live adjacent content continuously
@@ -251,7 +260,7 @@ lists reserve exactly the compact player's height.
 ## Connects to
 
 - `@/lib/account`, `@/lib/apple-music-auth`, `@/lib/playback` for the providers, and
-  `@/lib/tag-scores` for the tag scoring the root layout mounts.
+  `@/lib/interest-play-tracker` for the interest scoring the root layout mounts.
 - `@/lib/routes/*` and `@/lib/musickit-hooks` for data.
 - `@/features/account` from the Account and Appearance sheets.
 - `@/features/cadenza` from the Cadenza tab, which toggles between `@/features/query-builder`
@@ -274,7 +283,7 @@ lists reserve exactly the compact player's height.
   native scroll view for automatic insets and scroll-to-top behavior.
 - Native tabs support at most five items on Android. The current set already uses all five.
 - Keep `player/` as a root-stack sibling of `(tabs)`. Its sheet covers the primary tab controller,
-  and its Comments / Player / Tags pager is local presentation state rather than navigation.
+  and its Discuss / Player / Tags pager is local presentation state rather than navigation.
 
 ---
 

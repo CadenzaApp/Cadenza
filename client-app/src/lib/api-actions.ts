@@ -137,7 +137,7 @@ export function invalidateAPIData(endpoints: APIDataEndpoint[]) {
 /** When triggered, invalidates `useAPIData`s using the given endpoints */
 export function useAPIMutation<RequestBody, Response>(
     method: string,
-    path: string,
+    path: string | ((body: RequestBody) => string),
     invalidatedEndpoints:
         | ((body: RequestBody) => APIDataEndpoint[])
         | APIDataEndpoint[] = [],
@@ -154,13 +154,18 @@ export function useAPIMutation<RequestBody, Response>(
 ) {
     const { account } = useAccount();
 
+    const pathKey = typeof path === "string" ? path : path.name;
     return useSWRMutation(
-        [method, path, account?.id],
+        [method, pathKey, account?.id],
         async (_: any, { arg: body }: { arg: RequestBody }) => {
-            const data = await apiRequest<Response>(BACKEND_URL + path, {
-                method,
-                body,
-            });
+            const resolvedPath = typeof path === "string" ? path : path(body);
+            const data = await apiRequest<Response>(
+                BACKEND_URL + resolvedPath,
+                {
+                    method,
+                    body,
+                },
+            );
 
             const invalidationMode =
                 options?.invalidation ??
@@ -370,6 +375,14 @@ export function useAPIFetch<Input extends Record<string, any>, Output>(
     return useSWRMutation(path, (_: any, { arg: params }: { arg: Input }) =>
         apiRequest<Output>(BACKEND_URL + path + queryParamsToStr(params)),
     );
+}
+
+/** One GET against a backend path. Used by infinite readers that build their own SWR keys. */
+export function fetchAPIData<Output>(
+    path: string,
+    params?: Record<string, any>,
+) {
+    return apiRequest<Output>(BACKEND_URL + path + queryParamsToStr(params));
 }
 
 export { matchesEndpoint, type APIDataEndpoint };

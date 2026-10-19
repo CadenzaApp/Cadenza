@@ -1,13 +1,11 @@
 pub mod activity_tags;
 pub mod analytics;
-pub mod comment_votes;
-pub mod comments;
 pub mod entity;
 pub mod events;
 pub mod metadata_tags;
+pub mod profile;
 pub mod queries;
+pub mod social;
 pub mod tag_activity;
-pub mod tag_scores;
-pub mod tag_scores_metadata;
 pub mod tags;
 pub mod user_songs;

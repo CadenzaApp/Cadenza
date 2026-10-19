@@ -23,7 +23,6 @@ import {
     useActivityTags,
     useUserTags,
 } from "@/lib/routes/tags";
-import { useScoreQueryTags } from "@/lib/tag-scores";
 import type { Tag } from "@/lib/types";
 import { useOpenScreen } from "@/lib/open-screen";
 
@@ -42,7 +41,6 @@ export function CadenzaScreen() {
     // the user's own tags
     const { activityTags } = useActivityTags();
     const openScreen = useOpenScreen();
-    const scoreQueryTags = useScoreQueryTags();
     const [mode, setMode] = useState<BuilderMode>("simple");
     const [conditions, setConditions] = useState<QueryCondition[]>([]);
     // Not wired to the query yet: the switch only holds its own state.
@@ -136,13 +134,6 @@ export function CadenzaScreen() {
                 }
                 onNext={() => {
                     if (!query) return;
-                    // opening the full results is the user committing to the
-                    // query, so that is when its tags score. suggested tags are
-                    // not in userTags, so the simple builder's own tags come too
-                    void scoreQueryTags(query, [
-                        ...(userTags ?? []),
-                        ...(mode === "simple" ? conditionTags(conditions) : []),
-                    ]);
                     openScreen({
                         pathname: "/query-results",
                         params: {

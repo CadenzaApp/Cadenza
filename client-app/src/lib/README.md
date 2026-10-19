@@ -6,69 +6,71 @@ native module directly.
 
 ## Files
 
-| file                         | role                                                                                                                                                                                                                                                                                              |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `backend.ts`                 | `BACKEND_URL`. One constant, currently hardcoded.                                                                                                                                                                                                                                                 |
-| `api-actions.ts`             | The generic SWR wrappers: `useAPIData`, `useAPIPostData`, `useAPIPostDataBatched`, `useAPIFetch`, `useAPIMutation`.                                                                                                                                                                               |
-| `api-endpoints.ts`           | `matchesEndpoint`, the cache-key matcher behind invalidation. Import-free so it can be unit tested.                                                                                                                                                                                               |
-| `swr-utils.ts`               | `clearCache` and `useSimpleMutation`, for things that are not plain backend calls.                                                                                                                                                                                                                |
-| `routes/tags.ts`             | Hooks for `/tags`: `useUserTags`, `useTag`, `useCreateTag`, `useUpdateTag`, `useDeleteTag`, `useDefaultTags`, `useActivityTags`, `useActivityTagIdsInQuery`, `useSuggestTags`, `useEditTagScores`.                                                                                                |
-| `routes/songs.ts`            | Hooks for local, default, and activity tag reads (one song and batched), local tag writes, removing a suggested tag, recording a play, reporting an opened song, missing-default checks, generation, and editing the user's library.                                                              |
-| `routes/queries.ts`          | `useQueryResults`, the one cached hook for `/queries/results`. Both builders go through it, and it carries the suggested-tag flag. It sends no song ids: the backend queries the library it already has.                                                                                          |
-| `routes/comments.ts`         | Hooks for `/comments`: `useSongComments`, `useCreateComment`, `useDeleteComment`, `useVoteOnComment`.                                                                                                                                                                                             |
-| `routes/social.ts`           | `useDecayInterests` and `useEditInterestScores`, for `/social`, the proxy to the social feed service.                                                                                                                                                                                             |
-| `comment-votes.ts`           | `applyCommentVote`, the optimistic update `useVoteOnComment` makes to cached comment threads. `sortThreadsByVotes` and `orderThreadsLike`, which `CommentsPage` uses to sort threads by score and then hold that order while it is in view. Only type imports, tested in `comment-votes.test.ts`. |
-| `musickit-hooks.ts`          | SWR over the native module: song info, catalog search, paged and complete-library songs, albums, artists, playlists, collection metadata, favorites, artist search, and playlist writes.                                                                                                          |
-| `song-init.tsx`              | `SongInitProvider`, which runs the library sync job after account and Apple Music authorization.                                                                                                                                                                                                  |
-| `song-init-job.ts`           | Import-free, tested library sync job: walks Apple Music, diffs it against the local record, and sends the difference to `PATCH /songs`.                                                                                                                                                           |
-| `initialized-songs-db.ts`    | The expo-sqlite `initialized_songs` table, the device's record of what `user_songs` holds. Opens the database and hands the job an `InitializedSongsStore`.                                                                                                                                       |
-| `tag-scores.tsx`             | `TagScoreTracker`, which gives each of the user's own tags on a song 2 points and each default tag 1 point once that song has played for 5 seconds, plus 1 interest point to its artist and each genre, and `useScoreQueryTags`, which gives every tag a query uses positively 10 points.         |
-| `tag-score-deltas.ts`        | The `PATCH /tags/scores` body one play of a song, or one run of a query, is worth. Only type imports, tested in `tag-score-deltas.test.ts`.                                                                                                                                                       |
-| `interest-score-deltas.ts`   | The `PATCH /social/interests/update` deltas one play of a song is worth, from its artist and genres. Only type imports, tested in `interest-score-deltas.test.ts`.                                                                                                                                |
-| `interest-decay.tsx`         | `InterestDecay`, which sends one `PATCH /social/interests/decay` per app launch once someone is signed in.                                                                                                                                                                                        |
-| `account.tsx`                | `AccountProvider` / `useAccount`. Who is signed in (id and email), and sign in / sign up / sign out.                                                                                                                                                                                              |
-| `apple-music-auth.tsx`       | `AppleMusicProvider` / `useAppleMusic`. Apple Music tokens, persisted in secure store.                                                                                                                                                                                                            |
-| `playback.tsx`               | `PlaybackProvider`, broad `usePlayback`, lightweight `usePlaybackTrackState`, and stable `usePlaybackCommands`. Queue, native playback snapshot, and compact-player dismissal state.                                                                                                              |
-| `play-tracker.ts`            | Pure: folds playback snapshots into listening events. What counts as a play (15 seconds, or the whole of a shorter song, once per listen), and the `play_start` / `play_counted` / `play_complete` / `skip` / `seek` each listen emits. Tested in `play-tracker.test.ts`.                         |
-| `play-recorder.ts`           | `usePlayRecorder`, called by `PlaybackProvider`. Feeds each snapshot to `play-tracker.ts` and hands the events to `listening-events.tsx`.                                                                                                                                                         |
-| `song-opened.ts`             | `useReportOpenedSongs`, called by `PlaybackProvider`. Sends `POST /songs/metadata/opened` once per song the player opens, so the backend stores its metadata for the query builder's Metadata fields. Fire and forget; a failure is only logged.                                                  |
-| `song-metadata-tags.ts`      | Pure: turns `GET /songs/metadata-tags` into read-only pills for the Metadata Tags card, named like the query builder's fields. Tested in `song-metadata-tags.test.ts`.                                                                                                                            |
-| `listening-events.tsx`       | `ListeningEventProvider` and `useListeningEvents`. Owns the event queue, the session id, the flush and the retry. The one thing that sends events, so more than one screen can record them without racing on storage.                                                                             |
-| `track-metadata.ts`          | Pure: the artist and album off a track, plus the play source, which is what the backend ranks by. Tested in `track-metadata.test.ts`.                                                                                                                                                             |
-| `play-source.ts`             | Pure: `PlaySource`, the playlist or query a queue started from, and `encodeQuerySource` / `decodeQuerySource`. Tested in `play-source.test.ts`.                                                                                                                                                   |
-| `event-queue.ts`             | Pure: the listening event queue and the wire shape it sends. Enqueue with an oldest-first cap, batch, and drop only what the backend confirmed. Tested in `event-queue.test.ts`.                                                                                                                  |
-| `event-queue-store.ts`       | The AsyncStorage half of that queue. Keyed by user: a queue is sent under whoever's token is current, so one shared key could flush one user's plays into another's history.                                                                                                                      |
-| `saved-reads.ts`             | Pure: which saved reads to keep, newest first under a cap.                                                                                                                                                                                                                                        |
-| `saved-reads-store.ts`       | The AsyncStorage half: the last good response of each read that opts in with `useAPIData`'s `save`.                                                                                                                                                                                               |
-| `listening-session.ts`       | Pure: when a listening session ends, and what to do with a batch the backend refused. The two decisions that can lose a play, so they live where they can be tested. Tested in `listening-session.test.ts`.                                                                                       |
-| `queue-order.ts`             | Pure index math for the queue mirror. Tested in `queue-order.test.ts`.                                                                                                                                                                                                                            |
-| `transport.ts`               | What back and forward do: back restarts past 4s or with nothing before, forward always moves, and at the queue end replays, wraps, or rewinds paused by repeat mode.                                                                                                                              |
-| `color-queue.ts`             | `tradeColor`: hands a color to the back of a line and takes the first different one from the front. The nebula backdrop trades blob colors through it.                                                                                                                                            |
-| `supabase.ts`                | The Supabase client, backed by AsyncStorage, plus `getAccessToken()`, the fresh access token every backend request uses.                                                                                                                                                                          |
-| `theme.ts`                   | `NAV_THEME`, light and dark palettes for react-navigation, `sheetScreenOptions` for sheet routes, and `pushedScreenOptions` for the pushed detail routes.                                                                                                                                         |
-| `error-utils.ts`             | `getErrorDetails` / `getErrorMessage`, for unwrapping native and backend errors.                                                                                                                                                                                                                  |
-| `artwork-color.ts`           | `useArtworkTint`, the color a surface paints itself with, plus alpha, darkening, and multi-artwork averaging helpers.                                                                                                                                                                             |
-| `artwork-color-utils.ts`     | Native-free Oklab averaging for multi-artwork colors and shared Oklch tint-gradient sampling.                                                                                                                                                                                                     |
-| `use-tint-gradient.ts`       | Theme-aware hook that turns one source color into the shared light/dark Oklch gradient stops.                                                                                                                                                                                                     |
-| `tag-color-palette.ts`       | Curated RGB tag palette sorted by hue, followed by brown and gray. Every swatch has tested contrast against black and white.                                                                                                                                                                      |
-| `music-routes.ts`            | `collectionRoute` / `albumRouteForTrack`. Hrefs into the resource screens, params and all.                                                                                                                                                                                                        |
-| `album-route.ts`             | `useAlbumRouteForTrack`: the full catalog album for a song, not the library copy, with the song highlighted.                                                                                                                                                                                      |
-| `open-screen.ts`             | `useOpenScreen`, what opens a detail screen in place of `router.push`. Goes back to one already open instead of stacking a copy.                                                                                                                                                                  |
-| `detail-stack.ts`            | Pure: the root routes after opening a detail screen, with the identity and depth cap rules. Tested in `detail-stack.test.ts`.                                                                                                                                                                     |
-| `music-list-preferences.tsx` | `MusicListPreferencesProvider` / `useMusicListPreferences`. The persisted device-local preference for suggested tag pills in music-list rows.                                                                                                                                                     |
-| `share-track.ts`             | `shareTrack` / `shareCollection`. Builds and fires the native share sheet for a song, album, or playlist's canonical Apple Music link.                                                                                                                                                            |
-| `screen-overlay.ts`          | `useScreenOverlayInsets`, native tab/accessory visibility, extra overlay clearance, focused-screen and keyboard suppression, and pushed-screen detection.                                                                                                                                         |
-| `screen-overlay-geometry.ts` | Pure, tested bottom-inset arithmetic shared by tab-hosted and pushed-screen compact players.                                                                                                                                                                                                      |
-| `playable-item.ts`           | Pure identity and collection-membership helpers for library/catalog forms of a playable item.                                                                                                                                                                                                     |
-| `screen-scroll.ts`           | `useScreenScroll`, the props a screen's top-level scroller spreads to get tab-press-scrolls-to-top and pull-down-to-close.                                                                                                                                                                        |
-| `screen-scroll-marker.*`     | iOS registration wrapper for native-tab inset and scroll-to-top integration with nested and virtualized scrollers; a fragment elsewhere.                                                                                                                                                          |
-| `zoom-dismiss.tsx`           | `ZoomOriginProvider`, `useZoomSource`, `ZoomDismissScreen`, `useCloseScreen`. Closing a pushed screen by shrinking it back into the artwork that opened it.                                                                                                                                       |
-| `zoom-dismiss-geometry.ts`   | Pure pull, transform, timing, and corner math for `zoom-dismiss`, tested without React Native.                                                                                                                                                                                                    |
-| `types.ts`                   | Shared wire types: `TagType`, `Tag`, `AppliedTag` and `TagMetadata`.                                                                                                                                                                                                                              |
-| `query-json.ts`              | The tag query wire format: `QueryJSON`, `QueryJSONNode`, `FilterJSON`, `FilterOp`, plus the pure `positiveQueryTagNames`, `queryTagIds` and `describeQuery`. Import-free apart from types, so it stays testable under `node --test`.                                                              |
-| `tag-values.ts`              | Per-type tag helpers: `TAG_TYPES`, labels, descriptions, `TAG_TYPE_ICONS`, value validation, canonicalization, formatting, the date-only helpers, `unownedDefaultTags`, and the activity tag helper `activityTagDisplayValue`.                                                                    |
-| `app-error.ts`               | `classifyError`, turning any thrown value into an `AppError` with a title, a sentence, and an optional way out. Tested in `app-error.test.ts`.                                                                                                                                                    |
-| `utils.ts`                   | `cn()`, the clsx + tailwind-merge helper.                                                                                                                                                                                                                                                         |
+| file                         | role                                                                                                                                                                                                                                                                                                            |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `backend.ts`                 | `BACKEND_URL`. One constant, currently hardcoded.                                                                                                                                                                                                                                                               |
+| `api-actions.ts`             | The generic SWR wrappers: `useAPIData`, `useAPIPostData`, `useAPIPostDataBatched`, `useAPIFetch`, `useAPIMutation`.                                                                                                                                                                                             |
+| `api-endpoints.ts`           | `matchesEndpoint`, the cache-key matcher behind invalidation. Import-free so it can be unit tested.                                                                                                                                                                                                             |
+| `swr-utils.ts`               | `clearCache` and `useSimpleMutation`, for things that are not plain backend calls.                                                                                                                                                                                                                              |
+| `routes/tags.ts`             | Hooks for `/tags`: `useUserTags`, `useTag`, `useCreateTag`, `useUpdateTag`, `useDeleteTag`, `useDefaultTags`, `useActivityTags`, `useActivityTagIdsInQuery`, `useSuggestTags`.                                                                                                                                  |
+| `routes/songs.ts`            | Hooks for local, default, and activity tag reads (one song and batched), local tag writes, removing a suggested tag, recording a play, reporting an opened song, missing-default checks, generation, and editing the user's library.                                                                            |
+| `routes/queries.ts`          | `useQueryResults`, the one cached hook for `/queries/results`. Both builders go through it, and it carries the suggested-tag flag. It sends no song ids: the backend queries the library it already has.                                                                                                        |
+| `routes/profile.ts`          | Hooks for `/profile`: `useProfile`, `useCreateProfile`, `useUpdateProfile`.                                                                                                                                                                                                                                     |
+| `routes/social.ts`           | `useFeed`, `useMarkPostsViewed`, `useCreatePost`, likes, interests, `useTopicPosts`, and `useUserPosts`, for `/social`.                                                                                                                                                                                         |
+| `musickit-hooks.ts`          | SWR over the native module: song info, catalog search, paged and complete-library songs, albums, artists, playlists, collection metadata, favorites, artist search, and playlist writes.                                                                                                                        |
+| `song-init.tsx`              | `SongInitProvider`, which runs the library sync job after account and Apple Music authorization.                                                                                                                                                                                                                |
+| `song-init-job.ts`           | Import-free, tested library sync job: walks Apple Music, diffs it against the local record, and sends the difference to `PATCH /songs`.                                                                                                                                                                         |
+| `initialized-songs-db.ts`    | The expo-sqlite `initialized_songs` table, the device's record of what `user_songs` holds. Opens the database and hands the job an `InitializedSongsStore`.                                                                                                                                                     |
+| `interest-play-tracker.tsx`  | `InterestPlayTracker`, which gives 1 interest point to a song's artist and each genre once that song has played for 5 seconds.                                                                                                                                                                                  |
+| `interest-score-deltas.ts`   | The `PATCH /social/interests/update` deltas one play of a song is worth, from its artist and genres. Only type imports, tested in `interest-score-deltas.test.ts`.                                                                                                                                              |
+| `interest-decay.tsx`         | `InterestDecay`, which sends one `PATCH /social/interests/decay` per app launch once someone is signed in.                                                                                                                                                                                                      |
+| `account.tsx`                | `AccountProvider` / `useAccount`. Who is signed in (id and email), and sign in / sign up / sign out. Sign up calls `create-profile.ts` so a missing auth trigger still gets a row.                                                                                                                              |
+| `create-profile.ts`          | `createProfile(token)`, the post-signup `POST /profile`. Kept out of `routes/profile.ts` so account, the profile hooks, and the API wrappers do not import each other in a cycle.                                                                                                                               |
+| `apple-music-auth.tsx`       | `AppleMusicProvider` / `useAppleMusic`. Apple Music tokens, persisted in secure store.                                                                                                                                                                                                                          |
+| `playback.tsx`               | `PlaybackProvider`, broad `usePlayback`, lightweight `usePlaybackTrackState`, and stable `usePlaybackCommands`. Queue, native playback snapshot, and compact-player dismissal state.                                                                                                                            |
+| `topic-preview.ts`           | One Apple Music preview clip for social topic cards. Playing UI is keyed per card, so two posts with the same song only light up the one you tapped. Pauses the shared player while the clip plays and resumes it after, unless a queue command takes over. The feed stops the clip when you leave that screen. |
+| `play-tracker.ts`            | Pure: folds playback snapshots into listening events. What counts as a play (15 seconds, or the whole of a shorter song, once per listen), and the `play_start` / `play_counted` / `play_complete` / `skip` / `seek` each listen emits. Tested in `play-tracker.test.ts`.                                       |
+| `play-recorder.ts`           | `usePlayRecorder`, called by `PlaybackProvider`. Feeds each snapshot to `play-tracker.ts` and hands the events to `listening-events.tsx`.                                                                                                                                                                       |
+| `song-opened.ts`             | `useReportOpenedSongs`, called by `PlaybackProvider`. Sends `POST /songs/metadata/opened` once per song the player opens, so the backend stores its metadata for the query builder's Metadata fields. Fire and forget; a failure is only logged.                                                                |
+| `song-metadata-tags.ts`      | Pure: turns `GET /songs/metadata-tags` into read-only pills for the Metadata Tags card, named like the query builder's fields. Tested in `song-metadata-tags.test.ts`.                                                                                                                                          |
+| `listening-events.tsx`       | `ListeningEventProvider` and `useListeningEvents`. Owns the event queue, the session id, the flush and the retry. The one thing that sends events, so more than one screen can record them without racing on storage.                                                                                           |
+| `track-metadata.ts`          | Pure: the artist and album off a track, plus the play source, which is what the backend ranks by. Tested in `track-metadata.test.ts`.                                                                                                                                                                           |
+| `play-source.ts`             | Pure: `PlaySource`, the playlist or query a queue started from, and `encodeQuerySource` / `decodeQuerySource`. Tested in `play-source.test.ts`.                                                                                                                                                                 |
+| `event-queue.ts`             | Pure: the listening event queue and the wire shape it sends. Enqueue with an oldest-first cap, batch, and drop only what the backend confirmed. Tested in `event-queue.test.ts`.                                                                                                                                |
+| `event-queue-store.ts`       | The AsyncStorage half of that queue. Keyed by user: a queue is sent under whoever's token is current, so one shared key could flush one user's plays into another's history.                                                                                                                                    |
+| `saved-reads.ts`             | Pure: which saved reads to keep, newest first under a cap.                                                                                                                                                                                                                                                      |
+| `saved-reads-store.ts`       | The AsyncStorage half: the last good response of each read that opts in with `useAPIData`'s `save`.                                                                                                                                                                                                             |
+| `listening-session.ts`       | Pure: when a listening session ends, and what to do with a batch the backend refused. The two decisions that can lose a play, so they live where they can be tested. Tested in `listening-session.test.ts`.                                                                                                     |
+| `queue-order.ts`             | Pure index math for the queue mirror. Tested in `queue-order.test.ts`.                                                                                                                                                                                                                                          |
+| `transport.ts`               | What back and forward do: back restarts past 4s or with nothing before, forward always moves, and at the queue end replays, wraps, or rewinds paused by repeat mode.                                                                                                                                            |
+| `color-queue.ts`             | `tradeColor`: hands a color to the back of a line and takes the first different one from the front. The nebula backdrop trades blob colors through it.                                                                                                                                                          |
+| `supabase.ts`                | The Supabase client, backed by AsyncStorage, plus `getAccessToken()`, the fresh access token every backend request uses.                                                                                                                                                                                        |
+| `theme.ts`                   | `NAV_THEME`, light and dark palettes for react-navigation, `sheetScreenOptions` for sheet routes, and `pushedScreenOptions` for the pushed detail routes.                                                                                                                                                       |
+| `error-utils.ts`             | `getErrorDetails` / `getErrorMessage`, for unwrapping native and backend errors.                                                                                                                                                                                                                                |
+| `artwork-color.ts`           | `useArtworkTint`, the color a surface paints itself with, plus alpha, darkening, and multi-artwork averaging helpers.                                                                                                                                                                                           |
+| `artwork-color-utils.ts`     | Native-free Oklab averaging for multi-artwork colors and shared Oklch tint-gradient sampling.                                                                                                                                                                                                                   |
+| `use-tint-gradient.ts`       | Theme-aware hook that turns one source color into the shared light/dark Oklch gradient stops.                                                                                                                                                                                                                   |
+| `tag-color-palette.ts`       | Curated RGB tag palette sorted by hue, followed by brown and gray. Every swatch has tested contrast against black and white.                                                                                                                                                                                    |
+| `music-routes.ts`            | `collectionRoute` / `albumRouteForTrack`. Hrefs into the resource screens, params and all.                                                                                                                                                                                                                      |
+| `album-route.ts`             | `useAlbumRouteForTrack`: the full catalog album for a song, not the library copy, with the song highlighted.                                                                                                                                                                                                    |
+| `open-screen.ts`             | `useOpenScreen`, what opens a detail screen in place of `router.push`. Goes back to one already open instead of stacking a copy.                                                                                                                                                                                |
+| `open-profile.ts`            | Pure: the action that closes screens covering the tabs and opens `/social/user/:userId`. Tested in `open-profile.test.ts`.                                                                                                                                                                                      |
+| `use-open-social-profile.ts` | `useOpenSocialProfile`, what Discuss calls when an author is tapped.                                                                                                                                                                                                                                            |
+| `detail-stack.ts`            | Pure: the root routes after opening a detail screen, with the identity and depth cap rules. Tested in `detail-stack.test.ts`.                                                                                                                                                                                   |
+| `music-list-preferences.tsx` | `MusicListPreferencesProvider` / `useMusicListPreferences`. The persisted device-local preference for suggested tag pills in music-list rows.                                                                                                                                                                   |
+| `share-track.ts`             | `shareTrack` / `shareCollection`. Builds and fires the native share sheet for a song, album, or playlist's canonical Apple Music link.                                                                                                                                                                          |
+| `screen-overlay.ts`          | `useScreenOverlayInsets`, native tab/accessory visibility, extra overlay clearance, focused-screen and keyboard suppression, and pushed-screen detection.                                                                                                                                                       |
+| `screen-overlay-geometry.ts` | Pure, tested bottom-inset arithmetic shared by tab-hosted and pushed-screen compact players.                                                                                                                                                                                                                    |
+| `playable-item.ts`           | Pure identity and collection-membership helpers for library/catalog forms of a playable item.                                                                                                                                                                                                                   |
+| `screen-scroll.ts`           | `useScreenScroll`, the props a screen's top-level scroller spreads to get tab-press-scrolls-to-top and pull-down-to-close.                                                                                                                                                                                      |
+| `screen-scroll-marker.*`     | iOS registration wrapper for native-tab inset and scroll-to-top integration with nested and virtualized scrollers; a fragment elsewhere.                                                                                                                                                                        |
+| `zoom-dismiss.tsx`           | `ZoomOriginProvider`, `useZoomSource`, `ZoomDismissScreen`, `useCloseScreen`. Closing a pushed screen by shrinking it back into the artwork that opened it.                                                                                                                                                     |
+| `zoom-dismiss-geometry.ts`   | Pure pull, transform, timing, and corner math for `zoom-dismiss`, tested without React Native.                                                                                                                                                                                                                  |
+| `types.ts`                   | Shared wire types: `TagType`, `Tag`, `AppliedTag`, `TagMetadata`, `SocialPost`, and `PostTopic`.                                                                                                                                                                                                                |
+| `query-json.ts`              | The tag query wire format: `QueryJSON`, `QueryJSONNode`, `FilterJSON`, `FilterOp`, plus the pure `positiveQueryTagNames`, `queryTagIds` and `describeQuery`. Import-free apart from types, so it stays testable under `node --test`.                                                                            |
+| `tag-values.ts`              | Per-type tag helpers: `TAG_TYPES`, labels, descriptions, `TAG_TYPE_ICONS`, value validation, canonicalization, formatting, the date-only helpers, `unownedDefaultTags`, and the activity tag helper `activityTagDisplayValue`.                                                                                  |
+| `app-error.ts`               | `classifyError`, turning any thrown value into an `AppError` with a title, a sentence, and an optional way out. Tested in `app-error.test.ts`.                                                                                                                                                                  |
+| `utils.ts`                   | `cn()`, the clsx + tailwind-merge helper.                                                                                                                                                                                                                                                                       |
 
 ## The SWR wrappers
 
@@ -170,7 +172,6 @@ One file per backend router, and every backend endpoint has at least one hook.
 |                       | `GET /tags/default-tags`          | `tags.ts` -> `useDefaultTags(search)`           |
 |                       | `GET /tags/activity`              | `tags.ts` -> `useActivityTags()`                |
 |                       | `GET /tags/suggest`               | `tags.ts` -> `useSuggestTags()`                 |
-|                       | `PATCH /tags/scores`              | `tags.ts` -> `useEditTagScores()`               |
 | `routes/songs.rs`     | `GET /songs/local-tags`           | `songs.ts` -> `useTagsOnSong(songId)`           |
 |                       | `POST /songs/local-tags/batch`    | `songs.ts` -> `useTagsOnSongs(songIds)`         |
 |                       | `GET /songs/default-tags`         | `songs.ts` -> `useDefaultTagsOnSong(songId)`    |
@@ -191,30 +192,21 @@ One file per backend router, and every backend endpoint has at least one hook.
 |                       | `GET /analytics/heatmap`          | `analytics.ts` -> `useAnalyticsHeatmap()`       |
 |                       | `GET /analytics/tag-shares`       | `analytics.ts` -> `useAnalyticsTagShares()`     |
 | `routes/queries.rs`   | `POST /queries/results`           | `queries.ts` -> `useQueryResults()`             |
-| `routes/comments.rs`  | `GET /comments`                   | `comments.ts` -> `useSongComments(songId)`      |
-|                       | `POST /comments`                  | `comments.ts` -> `useCreateComment()`           |
-|                       | `DELETE /comments`                | `comments.ts` -> `useDeleteComment()`           |
-|                       | `POST /comments/votes`            | `comments.ts` -> `useVoteOnComment(songId)`     |
-| `routes/social.rs`    | `PATCH /social/interests/decay`   | `social.ts` -> `useDecayInterests()`            |
+| `routes/social.rs`    | `GET /social/feed`                | `social.ts` -> `useFeed()`                      |
+|                       | `PATCH /social/interests/decay`   | `social.ts` -> `useDecayInterests()`            |
 |                       | `PATCH /social/interests/update`  | `social.ts` -> `useEditInterestScores()`        |
+|                       | `POST /social/posts`              | `social.ts` -> `useCreatePost()`                |
+|                       | `POST /social/posts/{id}/likes`   | `social.ts` -> `useLikePost()`                  |
+|                       | `DELETE /social/posts/{id}/likes` | `social.ts` -> `useUnlikePost()`                |
+|                       | `POST /social/posts/views`        | `social.ts` -> `useMarkPostsViewed()`           |
+|                       | `GET /social/posts/topic`         | `social.ts` -> `useTopicPosts(topicMkId)`       |
+|                       | `GET /social/posts/user/:id`      | `social.ts` -> `useUserPosts(authorId)`         |
 
-`routes/social.rs` forwards any `/social/*` path to the social feed service and adds the
-user id, so it has no fixed endpoint list. Only the paths the app calls get a hook.
+`routes/social.rs` implements the paths above. The user id comes from the JWT.
 
 `GET /tags` has two hooks because the handler returns a tagged union: without `tag_id` it
 responds with `All { tags, metadata }`, with one it responds with `One { tag, song_ids }`.
 `useUserTags` and `useTag` each unwrap one variant.
-
-`useVoteOnComment(songId)` is the one backend write that updates optimistically. It runs the vote
-inside the bound `mutate` of that song's `/comments` read, with `comment-votes.ts::applyCommentVote`
-as the optimistic data and `rollbackOnError`, then revalidates the read whether the vote saved or
-not. So its `useAPIMutation` lists nothing to invalidate. `useDeleteComment` invalidates every
-song's comments, because its payload carries no song id.
-
-`GET /tags/scores` has no hook any more. The Analytics tab reads tags by plays over a window
-instead, through `useAnalyticsTopTags`, which `tag_scores` cannot answer because it has no
-timestamp. `useEditTagScores` still writes them and the backend still decays them weekly, as the
-input for recommendations.
 
 Adding an endpoint: add the route in `backend-api/src/routes/*.rs`, then add a hook in the
 matching `routes/*.ts` built on the shared wrappers. For writes, list the endpoints the
@@ -530,55 +522,24 @@ in the pass. Sends are logged before the request, so a batch that hangs still sh
 Default tags are not part of this. The backend generates them lazily, the first time a default
 tag read touches a song it has never generated for.
 
-## Scoring tags on playback
+## Scoring interests on playback
 
-The tags on a song score once that song has played for 5 seconds, which is how the backend learns
-which tags the user listens to rather than which ones they type or skip past.
-`tag-scores.tsx::TagScoreTracker` is mounted at the root, watches `usePlaybackTrackState()`, and
-sends one `PATCH /tags/scores` per play. The body is
-`tag-score-deltas.ts::playTagScoreDeltas`: 2 points for each of the user's own tags
-(`LOCAL_TAG_PLAY_SCORE_DELTA`) and 1 for each default tag (`DEFAULT_TAG_PLAY_SCORE_DELTA`), added
-up by tag name, since scores go by name rather than by tag id. A default tag whose name is also
-one of the user's tags on the song counts as local only, so it gets 2, not 3. Names are compared
-trimmed, whitespace collapsed, and lowercased, the way the backend keys a score.
+The social feed ranks posts by the user's interest in artists and genres.
+`interest-play-tracker.tsx::InterestPlayTracker` is mounted at the root, watches
+`usePlaybackTrackState()`, and sends one `PATCH /social/interests/update` per play that lasts
+`PLAY_SCORE_DELAY_MS` (5 seconds) of uninterrupted playing. The body is
+`interest-score-deltas.ts::playInterestScoreDeltas`: 1 point for the track's `artistName`
+(`ARTIST_PLAY_INTEREST_DELTA`) and 1 for each of its `genres` (`GENRE_PLAY_INTEREST_DELTA`),
+straight off the active track's Apple Music metadata. Apple's catch-all "Music" genre is dropped,
+since it is on nearly every song. It waits for an account. The Android playback snapshot carries
+no genres, so a track that is not also in the app's queue mirror scores its artist only.
 
 There is no native playback event, so plays are read off the polled snapshot. A play starts when
 the active track becomes a different song, and scores at most once. Resuming after a pause is not
 a new play, and neither is the same song repeating. A snapshot with no track in it is ignored, so
-losing the track for a poll and finding the same one again does not start a second play.
-
-A play scores after `PLAY_SCORE_DELAY_MS` (5 seconds) of uninterrupted playing. A timer runs while
-the track is playing and is cleared by a pause or a track change, so pausing starts the count over
-and skipping before it runs out drops the play. The play lives in state and is replaced during
-render when the track changes, so the scoring effect never pairs an old play with a new track.
-
-It reads the user's own tags through `useTagsOnSong` and the default tags through
-`useDefaultTagsOnSong`, both under the song's `catalogId ?? id`. Those are the same cache keys the
-player sheet's Tags page reads, and the list rows read the same data in batches, so the reads are
-usually already warm when a song starts. The play waits for both. If the default read fails, it
-scores the user's own tags alone.
-
-Reading a song's default tags generates them when nothing has yet, so playing a song that no list
-or player sheet has shown can spend an LLM call and holds the play's score until generation
-finishes.
-
-The same play also sends one `PATCH /social/interests/update`, which is what the social feed ranks
-posts by. The body is `interest-score-deltas.ts::playInterestScoreDeltas`: 1 point for the track's
-`artistName` (`ARTIST_PLAY_INTEREST_DELTA`) and 1 for each of its `genres`
-(`GENRE_PLAY_INTEREST_DELTA`), straight off the active track's Apple Music metadata. Apple's
-catch-all "Music" genre is dropped, since it is on nearly every song. It needs no read, so it does
-not wait on the tag reads, but it does wait for an account. The Android playback snapshot carries
-no genres, so a track that is not also in the app's queue mirror scores its artist only.
-
-## Scoring tags in queries
-
-`tag-scores.tsx::useScoreQueryTags` returns a callback that gives every tag a query uses
-positively 10 points (`QUERY_TAG_SCORE_DELTA`), in one `PATCH /tags/scores`. `CadenzaScreen` calls it when the user opens
-the full results, not on each live edit. The body is `tag-score-deltas.ts::queryTagScoreDeltas`,
-which walks the `QueryJSON` tree. A tag filter under an odd number of `not`s is negative, and
-`is_not_applied` counts as one more `not`. A tag counts once per query however often it appears,
-and counts if it is used positively anywhere. `tag_name`, `tag_value`, and `tag_type` filters name
-no one tag and score nothing. Tag ids resolve to names through the tag list the caller passes.
+losing the track for a poll and finding the same one again does not start a second play. A timer
+runs while the track is playing and is cleared by a pause or a track change, so pausing starts the
+count over and skipping before it runs out drops the play.
 
 ## Connects to
 
@@ -636,8 +597,8 @@ times in one sitting" answerable. Going to the background ends the listen in fli
 `flushListen` rather than losing it.
 
 Note that there are now two separate things watching playback: this, and
-`tag-scores.tsx::TagScoreTracker`, which scores tags and interests off its own 5 second rule. They
-do not share a definition of a play. Worth unifying.
+`interest-play-tracker.tsx::InterestPlayTracker`, which scores interests off its own 5 second
+rule. They do not share a definition of a play. Worth unifying.
 
 ## Gotchas
 
@@ -679,11 +640,9 @@ do not share a definition of a play. Worth unifying.
 - Plays are only counted while `PlaybackProvider` is polling, which is only in the foreground. A
   song that plays start to finish with the app in the background is never counted, and the gap
   shows up across the analytics as well as in the play count.
-- `TagScoreTracker` counts a play at 5 seconds and `play-tracker.ts` at 15, so tag scores and the
-  analytics play count will not agree. Both are deliberate for their own purpose; neither is the
-  other's definition.
-- A comment vote is absolute (`"up"`, `"down"`, or `null`), and the server keeps whichever request
-  it handles last. Two quick taps on one comment send two requests that can land out of order.
+- `InterestPlayTracker` counts a play at 5 seconds and `play-tracker.ts` at 15, so interest
+  scores and the analytics play count will not agree. Both are deliberate for their own purpose;
+  neither is the other's definition.
 - Opening the app while Apple Music is already playing scores that song. The first snapshot looks
   exactly like a song that just started, and nothing in it says when playback began. A reload in
   development does the same.

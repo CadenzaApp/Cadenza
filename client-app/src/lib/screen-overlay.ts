@@ -50,6 +50,7 @@ const PUSHED_DETAIL_SEGMENTS = new Set([
     "artist",
     "collection",
     "category",
+    "discuss",
     "tag",
     "library-categories",
     "add-to-playlist",

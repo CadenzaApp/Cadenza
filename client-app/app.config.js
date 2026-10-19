@@ -65,6 +65,14 @@ module.exports = {
                     },
                 },
             ],
+            [
+                "expo-audio",
+                {
+                    microphonePermission: false,
+                    recordAudioAndroid: false,
+                    enableBackgroundPlayback: false,
+                },
+            ],
             "expo-font",
             "expo-sqlite",
             "expo-image",

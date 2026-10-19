@@ -44,6 +44,9 @@ type ScreenScrollProps<T extends Scroller> = {
     contentContainerStyle: StyleProp<ViewStyle>;
 };
 
+/** What `useScreenScroll()` returns for an animated scroll view. */
+export type ScreenScrollBinding = ScreenScrollProps<Animated.ScrollView>;
+
 /**
  * Wiring for a tab screen's top-level scroller. Spread it onto an
  * `Animated.FlatList` or `Animated.ScrollView`:
@@ -188,7 +191,8 @@ export function useScreenScroll<
         ref,
         onScroll,
         scrollEventThrottle: 16,
-        style: pullCompensationStyle,
+        // A no-op transform still clips the iOS refresh indicator.
+        style: compensatesZoomPull ? pullCompensationStyle : undefined,
         // padding rather than a native content inset: 0 stays the top, so
         // scroll-to-top and the first frame need nothing special
         contentContainerStyle:

@@ -1,0 +1,11 @@
+[project]
+name = "ml-service"
+version = "0.1.0"
+description = "Sentence-transformer embeddings for the Cadenza social feed"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi[standard]>=0.141.1",
+    "python-dotenv>=1.2.3",
+    "sentence-transformers>=6.1.0",
+]
