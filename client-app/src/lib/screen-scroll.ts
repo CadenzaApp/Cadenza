@@ -44,6 +44,9 @@ type ScreenScrollProps<T extends Scroller> = {
     contentContainerStyle: StyleProp<ViewStyle>;
 };
 
+/** What `useScreenScroll()` returns for an animated scroll view. */
+export type ScreenScrollBinding = ScreenScrollProps<Animated.ScrollView>;
+
 /**
  * Wiring for a tab screen's top-level scroller. Spread it onto an
  * `Animated.FlatList` or `Animated.ScrollView`:

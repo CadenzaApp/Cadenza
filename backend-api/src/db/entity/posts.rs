@@ -22,14 +22,24 @@ pub struct Model {
         nullable
     )]
     pub embedding_w_bday: Option<String>,
+    #[sea_orm(column_type = "Text", nullable)]
+    pub topic_mk_id: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
+    #[sea_orm(has_many = "super::comments::Entity")]
+    Comments,
     #[sea_orm(has_many = "super::post_likes::Entity")]
     PostLikes,
     #[sea_orm(has_many = "super::post_view_status::Entity")]
     PostViewStatus,
+}
+
+impl Related<super::comments::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Comments.def()
+    }
 }
 
 impl Related<super::post_likes::Entity> for Entity {

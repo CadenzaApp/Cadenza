@@ -1,5 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useNavigation } from "expo-router";
+import { useFocusEffect, useNavigation } from "expo-router";
 import { useTheme } from "expo-router/react-navigation";
 import {
     useCallback,
@@ -30,11 +30,13 @@ import {
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { useScreenScroll } from "@/lib/screen-scroll";
 import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
+import { stopTopicPreview } from "@/lib/topic-preview";
 import { useTopRailInset } from "@/lib/top-rail";
 
 import { CreatePostDialog } from "./CreatePostDialog";
 import { PostCard } from "./PostCard";
-import type { SocialPost } from "./types";
+import { topicCreateFields, topicMkId } from "./topic";
+import type { PostTopic, SocialPost } from "./types";
 
 const VIEWABILITY_CONFIG = {
     itemVisiblePercentThreshold: 50,
@@ -91,7 +93,18 @@ export function SocialFeedScreen() {
         };
     }, [flushPendingViewed]);
 
+    useFocusEffect(
+        useCallback(() => {
+            return () => {
+                void stopTopicPreview();
+            };
+        }, []),
+    );
+
     const [created, setCreated] = useState<SocialPost[]>([]);
+    const [localTopics, setLocalTopics] = useState<Record<number, PostTopic>>(
+        {},
+    );
     const [refreshing, setRefreshing] = useState(false);
     const [composeOpen, setComposeOpen] = useState(false);
     const [toast, setToast] = useState<string | null>(null);
@@ -147,7 +160,7 @@ export function SocialFeedScreen() {
     }, [navigation, colors.text]);
 
     const handleCreate = useCallback(
-        (content: string) => {
+        (content: string, topic?: PostTopic | null) => {
             nextTempId.current -= 1;
             const tempId = nextTempId.current;
             const post: SocialPost = {
@@ -160,16 +173,28 @@ export function SocialFeedScreen() {
                     user_id: profile?.uid ?? "",
                     username: profile?.username ?? "unknown",
                 },
+                topic_mk_id: topic ? topicMkId(topic) : null,
             };
             setCreated((current) => [post, ...current]);
+            if (topic) {
+                setLocalTopics((current) => ({ ...current, [tempId]: topic }));
+            }
 
             function dropTemp() {
                 setCreated((current) =>
                     current.filter((item) => item.post_id !== tempId),
                 );
+                setLocalTopics((current) => {
+                    const next = { ...current };
+                    delete next[tempId];
+                    return next;
+                });
             }
 
-            void createPost({ content })
+            void createPost({
+                content,
+                ...(topic ? topicCreateFields(topic) : {}),
+            })
                 .then((post_id) => {
                     if (post_id == null) {
                         dropTemp();
@@ -183,6 +208,14 @@ export function SocialFeedScreen() {
                                 : item,
                         ),
                     );
+                    setLocalTopics((current) => {
+                        const attached = current[tempId];
+                        if (!attached) return current;
+                        const next = { ...current };
+                        delete next[tempId];
+                        next[post_id] = attached;
+                        return next;
+                    });
                 })
                 .catch(() => {
                     dropTemp();
@@ -220,12 +253,20 @@ export function SocialFeedScreen() {
             : `${item.post.post_id}-${index}`;
     }, []);
 
-    const renderItem = useCallback<ListRenderItem<FeedRow>>(({ item }) => {
-        if (item.kind === "caught-up") {
-            return <CaughtUpSeparator />;
-        }
-        return <PostCard post={item.post} />;
-    }, []);
+    const renderItem = useCallback<ListRenderItem<FeedRow>>(
+        ({ item }) => {
+            if (item.kind === "caught-up") {
+                return <CaughtUpSeparator />;
+            }
+            return (
+                <PostCard
+                    post={item.post}
+                    topicHint={localTopics[item.post.post_id]}
+                />
+            );
+        },
+        [localTopics],
+    );
 
     const onEndReached = useCallback(() => {
         if (hasNextPage && !isLoadingNextPage) {
@@ -314,9 +355,7 @@ export function SocialFeedScreen() {
     );
 }
 
-type FeedRow =
-    | { kind: "post"; post: SocialPost }
-    | { kind: "caught-up" };
+type FeedRow = { kind: "post"; post: SocialPost } | { kind: "caught-up" };
 
 function PostSeparator() {
     return <View className="h-3" />;

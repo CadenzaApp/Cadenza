@@ -25,9 +25,9 @@ type SongOptionsMenuProps = {
     track: MusicItem | null;
     onClose: () => void;
     /**
-     * How Add to Playlist / Go to Album / Go to Artist navigate. Defaults to
-     * `useOpenScreen`. The now-playing sheet passes a function that dismisses
-     * itself first, since those are full-screen routes pushed on top of it.
+     * How Add to Playlist, Go to Album, Go to Artist, and Discuss navigate.
+     * Defaults to `useOpenScreen`. The now-playing sheet passes a function
+     * that dismisses itself first, since those are full-screen routes.
      */
     navigate?: NavigateFn;
     /** Caller-specific actions appended after the standard song actions. */
@@ -108,6 +108,22 @@ export const SongOptionsMenu = memo(function SongOptionsMenu({
         });
     }
 
+    function openDiscuss() {
+        const songId = selectedTrack.catalogId ?? selectedTrack.id;
+        onClose();
+        // Its own screen, not the now playing sheet. Nothing here starts or
+        // replaces the song that is already playing.
+        go({
+            pathname: "/discuss/[songId]",
+            params: {
+                songId,
+                title: selectedTrack.title,
+                artworkUrl: selectedTrack.artworkUrl ?? "",
+                artworkColor: selectedTrack.artworkColor ?? "",
+            },
+        });
+    }
+
     const rowActions: MusicListAction<MusicItem>[] = [
         {
             id: "modify-tags",
@@ -150,6 +166,12 @@ export const SongOptionsMenu = memo(function SongOptionsMenu({
             label: "Go to Artist",
             icon: "mic-outline",
             onPress: openArtist,
+        },
+        {
+            id: "discuss",
+            label: "Discuss",
+            icon: "chatbubble-outline",
+            onPress: openDiscuss,
         },
     ];
 

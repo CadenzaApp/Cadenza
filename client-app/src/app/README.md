@@ -26,8 +26,9 @@ logic out.
 | `appearance.tsx`                     | `/appearance`             | Appearance preview sheet. Wires `AppearanceSettingsScreen`.                                                   |
 | `player/_layout.tsx`                 | `/player/*`               | Now playing sheet shell and provider stack for its always-mounted horizontal pager.                           |
 | `player/index.tsx`                   | `/player`                 | Opens the always-mounted player pager with Player selected.                                                   |
-| `player/comments.tsx`                | `/player/comments`        | Opens the same pager with Comments selected.                                                                  |
+| `player/discuss.tsx`                 | `/player/discuss`         | Opens the same pager with Discuss selected and optional focused-song params.                                  |
 | `player/tags.tsx`                    | `/player/tags`            | Opens the same pager with Tags selected and optional focused-song params.                                     |
+| `discuss/[songId].tsx`               | `/discuss/:songId`        | Posts about one song, outside the now playing sheet.                                                          |
 | `library-categories.tsx`             | `/library-categories`     | Picks which rows the library shows.                                                                           |
 | `category/[kind].tsx`                | `/category/:kind`         | Compatibility root host for the shared library-category body.                                                 |
 | `collection/[kind]/[id].tsx`         | `/collection/:kind/:id`   | The songs in one album or playlist.                                                                           |
@@ -206,9 +207,16 @@ prop is the whole difference: a sheet starts below the status bar and gets the g
 top padding, a screen pays the full top inset. It also sets `InsideSheetContext`, which keeps
 `useScreenOverlayInsets` in sheet-local coordinates.
 
-`/player` is pushed by the mini player rather than by a header button. It is a root sheet whose
-three routes all render one always-mounted Comments / Player / Tags pager. Song menus edit tags in
-their own `TagSelector` popup instead of routing through this sheet.
+`/player` is pushed by the mini player rather than by a header button. It is a root sheet.
+`/player`, `/player/discuss`, and `/player/tags` each render one always-mounted Discuss /
+Player / Tags pager. The route selects the first page. A song's Discuss action opens
+`/discuss/:songId` instead of that sheet. That screen is the posts list for the chosen song:
+no "Now Playing" title and no Discuss / Player / Tags selector, and it does not start or
+replace whatever is playing. The sheet's own Discuss page is still the pager tab for the
+song the sheet is focused on. Tapping an author on either Discuss surface closes that
+screen and opens `/social/user/:userId` on the Social tab, with the feed still underneath.
+Song menus edit tags in their own `TagSelector` popup
+instead of routing through this sheet.
 
 The player sheet paints one tint in `DetailScreen`, behind its header and the transparent pager.
 All three pages stay mounted side by side, so a swipe reveals live adjacent content continuously
@@ -275,7 +283,7 @@ lists reserve exactly the compact player's height.
   native scroll view for automatic insets and scroll-to-top behavior.
 - Native tabs support at most five items on Android. The current set already uses all five.
 - Keep `player/` as a root-stack sibling of `(tabs)`. Its sheet covers the primary tab controller,
-  and its Comments / Player / Tags pager is local presentation state rather than navigation.
+  and its Discuss / Player / Tags pager is local presentation state rather than navigation.
 
 ---
 

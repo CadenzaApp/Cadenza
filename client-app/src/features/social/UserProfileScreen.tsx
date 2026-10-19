@@ -19,7 +19,8 @@ type Props = {
 
 /**
  * One user's public profile: avatar, username, bio, then their posts newest
- * first. Opened by tapping an author on the feed.
+ * first. Opened by tapping an author on the feed, or from Discuss, which
+ * closes itself and lands here on the Social tab.
  */
 export function UserProfileScreen({ userId }: Props) {
     const { listBottomInset } = useScreenOverlayInsets();
@@ -95,7 +96,9 @@ function ProfileHeader({
     if (loading) {
         return (
             <View className="mb-4 gap-3 py-2">
-                <Text className="text-muted-foreground">Loading profile...</Text>
+                <Text className="text-muted-foreground">
+                    Loading profile...
+                </Text>
             </View>
         );
     }
@@ -123,7 +126,9 @@ function ProfileHeader({
                     {trimmedBio}
                 </Text>
             ) : (
-                <Text className="text-sm text-muted-foreground">No bio yet.</Text>
+                <Text className="text-sm text-muted-foreground">
+                    No bio yet.
+                </Text>
             )}
         </View>
     );

@@ -1,28 +1,65 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRouter } from "expo-router";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 
 import { GlassSurface } from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
-import { useLikePost, useUnlikePost } from "@/lib/routes/social";
+import {
+    useLikePost,
+    useUnlikePost,
+    useUpdateCachedPostLike,
+} from "@/lib/routes/social";
 import { cn } from "@/lib/utils";
 
 import { formatRelativeTime, initialsFromUsername } from "./format";
-import type { SocialPost } from "./types";
+import { PostTopicCard } from "./PostTopicCard";
+import { useResolvedTopic } from "./topic";
+import type { PostTopic, SocialPost } from "./types";
 
 type Props = {
     post: SocialPost;
+    /** Full topic from compose, used until MusicKit hydrates the stored id. */
+    topicHint?: PostTopic | null;
+    /** Song or artist card under the author. Off on a page that is already that topic. */
+    showTopic?: boolean;
+    /**
+     * When set, the like stays on this card. The caller writes the cached
+     * lists later, after the screen that owns the card closes.
+     */
+    onLikedChange?: (postId: number, liked: boolean) => void;
+    /**
+     * Author tap. Defaults to pushing `/social/user/:userId` on the current
+     * stack, which is what the feed wants. Discuss passes a handler that
+     * closes itself first.
+     */
+    onAuthorPress?: (userId: string) => void;
 };
 
-/** One feed row: author, body, and the like control. */
-export function PostCard({ post }: Props) {
+/** One feed row: author, attached topic, body, and the like control. */
+export function PostCard({
+    post,
+    topicHint,
+    showTopic = true,
+    onLikedChange,
+    onAuthorPress,
+}: Props) {
     const router = useRouter();
     const { likePost } = useLikePost();
     const { unlikePost } = useUnlikePost();
+    const updateCachedPostLike = useUpdateCachedPostLike();
+    const topic = useResolvedTopic(
+        showTopic ? post.topic_mk_id : null,
+        showTopic ? topicHint : null,
+    );
     const [liked, setLiked] = useState(post.liked);
     const likedRef = useRef(liked);
-    likedRef.current = liked;
+    // The card remounts from the cached post after a navigation. Follow that
+    // post, or an unlike that already saved still paints as liked.
+    useEffect(() => {
+        likedRef.current = post.liked;
+        setLiked(post.liked);
+    }, [post.liked, post.post_id]);
 
     const likes = post.likes + (liked ? 1 : 0) - (post.liked ? 1 : 0);
 
@@ -31,19 +68,30 @@ export function PostCard({ post }: Props) {
         likedRef.current = nowLiked;
         setLiked(nowLiked);
         if (post.post_id < 0) return;
+        if (onLikedChange) onLikedChange(post.post_id, nowLiked);
+        else void updateCachedPostLike(post.post_id, nowLiked);
         const request = nowLiked
             ? likePost(post.post_id)
             : unlikePost(post.post_id);
-        void request.catch(() => {
-            if (likedRef.current !== nowLiked) return;
-            likedRef.current = !nowLiked;
-            setLiked(!nowLiked);
-        });
+        void request
+            .then(() => {
+                if (likedRef.current !== nowLiked || onLikedChange) return;
+                return updateCachedPostLike(post.post_id, nowLiked);
+            })
+            .catch(() => {
+                if (likedRef.current !== nowLiked) return;
+                likedRef.current = !nowLiked;
+                setLiked(!nowLiked);
+                if (onLikedChange) onLikedChange(post.post_id, !nowLiked);
+                else void updateCachedPostLike(post.post_id, !nowLiked);
+            });
     }
 
     function openAuthor() {
-        if (!post.author.user_id) return;
-        router.push(`/social/user/${post.author.user_id}`);
+        const userId = post.author.user_id;
+        if (!userId) return;
+        if (onAuthorPress) onAuthorPress(userId);
+        else router.push(`/social/user/${userId}`);
     }
 
     const authorRow = (
@@ -84,6 +132,10 @@ export function PostCard({ post }: Props) {
             >
                 {authorRow}
             </Pressable>
+
+            {topic ? (
+                <PostTopicCard topic={topic} cardId={String(post.post_id)} />
+            ) : null}
 
             <Text className="text-base leading-6 text-foreground">
                 {post.content}

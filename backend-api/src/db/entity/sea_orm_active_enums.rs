@@ -14,18 +14,6 @@ pub enum Interest {
 #[sea_orm(
     rs_type = "String",
     db_type = "Enum",
-    enum_name = "post_view_status_kind"
-)]
-pub enum PostViewStatusKind {
-    #[sea_orm(string_value = "loaded")]
-    Loaded,
-    #[sea_orm(string_value = "viewed")]
-    Viewed,
-}
-#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
-#[sea_orm(
-    rs_type = "String",
-    db_type = "Enum",
     enum_name = "metadata_crawl_status"
 )]
 pub enum MetadataCrawlStatus {
@@ -37,6 +25,18 @@ pub enum MetadataCrawlStatus {
     Done,
     #[sea_orm(string_value = "failed")]
     Failed,
+}
+#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
+#[sea_orm(
+    rs_type = "String",
+    db_type = "Enum",
+    enum_name = "post_view_status_kind"
+)]
+pub enum PostViewStatusKind {
+    #[sea_orm(string_value = "loaded")]
+    Loaded,
+    #[sea_orm(string_value = "viewed")]
+    Viewed,
 }
 #[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "tag_gen_status")]

@@ -37,14 +37,14 @@ from a playlist or a query carries that source the same way, for the playlist an
 Two halves:
 
 - `client-app/` - Expo / React Native app, expo-router, nativewind. Runs on iOS and Android.
-  Talks to Apple Music through a local native Expo module, and to our own backend for tags,
-  queries, and comments.
+  Talks to Apple Music through a local native Expo module, and to our own backend for tags
+  and queries.
 - `backend-api/` - Rust, axum 0.8 + SeaORM 2.0 over Supabase postgres. Owns tags, tag
-  application, the query engine, LLM tag generation, and comments on songs. Auth is Supabase
+  application, the query engine, and LLM tag generation. Auth is Supabase
   JWT, verified against Supabase's JWKS.
 
-Apple Music owns song metadata and playback. We store a song id (a string) and the tags and
-comments attached to it. The one exception is `metadata_song_tags_applied`, a copy of each
+Apple Music owns song metadata and playback. We store a song id (a string) and the tags
+attached to it. The one exception is `metadata_song_tags_applied`, a copy of each
 song's title, artist, album, genre, release date, length, rating, and total plays across every
 user, so queries can filter on
 them (the query builder's Metadata fields) and the Tags page can show them as Metadata Tags. Nothing else
@@ -86,7 +86,7 @@ directories with only a few straightforward files do not need documentation.
 | ------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------- |
 | [backend-api/README.md](backend-api/README.md)                                                                     | Backend setup, env vars, `main.rs` wiring, auth, errors         |
 | [backend-api/src/routes/README.md](backend-api/src/routes/README.md)                                               | Every HTTP endpoint and its request/response shape              |
-| [backend-api/src/db/README.md](backend-api/src/db/README.md)                                                       | Query layer, the tag and comment schema, the query compiler     |
+| [backend-api/src/db/README.md](backend-api/src/db/README.md)                                                       | Query layer, the tag schema, and the query compiler             |
 | [backend-api/src/services/README.md](backend-api/src/services/README.md)                                           | LLM tag generation, the `TagGenerator` trait, tag normalization |
 | [backend-api/ml-service/README.md](backend-api/ml-service/README.md)                                               | The python embedding service started by the api: post vectors and feed similarity |
 | [client-app/README.md](client-app/README.md)                                                                       | Client setup, env vars, path aliases, scripts                   |

@@ -100,7 +100,12 @@ fn prefix_child_lines(
 }
 
 fn ml_python(dir: &Path) -> PathBuf {
-    let python = dir.join(".venv").join("bin").join("python");
+    let venv = dir.join(".venv");
+    let python = if cfg!(windows) {
+        venv.join("Scripts").join("python.exe")
+    } else {
+        venv.join("bin").join("python")
+    };
     if !python.exists() {
         panic!(
             "ml-service venv missing at {}; run `uv sync` in backend-api/ml-service",
@@ -139,17 +144,29 @@ impl SocialFeedService {
     }
 
     /// Embeds `content`, stores the post, and returns its id.
+    ///
+    /// When `topic_mk_id` is set, the embedding is prefixed with the song or
+    /// artist names from the request. Stored `content` is the user's text.
     pub async fn create_post(
         &self,
         db: &DatabaseConnection,
         user_id: Uuid,
         content: &str,
+        topic_mk_id: Option<&str>,
+        topic_song_title: Option<&str>,
+        topic_artist_name: Option<&str>,
     ) -> Result<i64, CadenzaError> {
-        let embedding = self.embed_post(content).await?;
+        let to_embed = match topic_mk_id
+            .and_then(|_| topic_embedding_prefix(topic_song_title, topic_artist_name))
+        {
+            Some(prefix) => format!("{prefix}{content}"),
+            None => content.to_owned(),
+        };
+        let embedding = self.embed_post(&to_embed).await?;
         let mut with_bday = Vec::with_capacity(embedding.len() + 1);
         with_bday.push(social::days_since_posts_epoch(Utc::now()) as f64);
         with_bday.extend_from_slice(&embedding);
-        social::insert_post(db, user_id, content, &embedding, &with_bday).await
+        social::insert_post(db, user_id, content, &embedding, &with_bday, topic_mk_id).await
     }
 
     /// Ranked posts for `user_id`. Marks the returned ids `loaded`.
@@ -229,6 +246,16 @@ impl SocialFeedService {
             social::get_posts(db, user_id, &page_ids),
         )?;
         Ok(page)
+    }
+
+    /// Posts whose topic is `topic_mk_id`, most liked first.
+    pub async fn topic_posts(
+        &self,
+        db: &DatabaseConnection,
+        viewer_id: Uuid,
+        topic_mk_id: &str,
+    ) -> Result<Vec<SocialPost>, CadenzaError> {
+        social::get_topic_posts(db, viewer_id, topic_mk_id).await
     }
 
     /// Profile header plus that author's posts, newest first.
@@ -462,9 +489,19 @@ impl SocialFeedService {
     }
 }
 
-/// A stored vector is reused until it is over 5 hours old.
+/// Prefix for the embedding when a post has a topic. Names come from the
+/// create-post body, not Apple. `None` when there is not enough to format.
+fn topic_embedding_prefix(song_title: Option<&str>, artist_name: Option<&str>) -> Option<String> {
+    match (song_title, artist_name) {
+        (Some(song), Some(artist)) => Some(format!("About the song {song} by {artist}: ")),
+        (None, Some(artist)) => Some(format!("About the music artist {artist}: ")),
+        _ => None,
+    }
+}
+
+/// A stored vector is reused until it is over 10 minutes old.
 fn user_vector_is_fresh(calculated_at: DateTime<Utc>, now: DateTime<Utc>) -> bool {
-    now.signed_duration_since(calculated_at) <= chrono::Duration::hours(5)
+    now.signed_duration_since(calculated_at) <= chrono::Duration::minutes(10)
 }
 
 #[derive(Default)]
@@ -612,6 +649,20 @@ mod tests {
     use super::*;
 
     #[test]
+    fn topic_prefix_uses_song_and_artist_or_just_the_artist() {
+        assert_eq!(
+            topic_embedding_prefix(Some("As It Was"), Some("Harry Styles")).as_deref(),
+            Some("About the song As It Was by Harry Styles: ")
+        );
+        assert_eq!(
+            topic_embedding_prefix(None, Some("Harry Styles")).as_deref(),
+            Some("About the music artist Harry Styles: ")
+        );
+        assert_eq!(topic_embedding_prefix(Some("As It Was"), None), None);
+        assert_eq!(topic_embedding_prefix(None, None), None);
+    }
+
+    #[test]
     fn an_older_click_is_ignored_and_a_newer_one_replaces_it() {
         let mut memory = LikeMemory::default();
         let user = Uuid::nil();
@@ -621,20 +672,20 @@ mod tests {
     }
 
     #[test]
-    fn a_vector_is_reused_until_it_is_over_five_hours_old() {
+    fn a_vector_is_reused_until_it_is_over_ten_minutes_old() {
         let mut cache = UserVectorCache::default();
         let user = Uuid::nil();
         let now = Utc::now();
         cache.insert(user, Some(vec![1.0, 0.0]), now);
 
         assert_eq!(
-            cache.get(user, now + chrono::Duration::hours(5)),
+            cache.get(user, now + chrono::Duration::minutes(10)),
             Some(Some(vec![1.0, 0.0]))
         );
         assert_eq!(
             cache.get(
                 user,
-                now + chrono::Duration::hours(5) + chrono::Duration::seconds(1)
+                now + chrono::Duration::minutes(10) + chrono::Duration::seconds(1)
             ),
             None
         );

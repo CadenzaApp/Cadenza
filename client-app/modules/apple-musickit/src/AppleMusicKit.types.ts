@@ -103,6 +103,12 @@ export interface MusicItem {
     albumName?: string;
     /** Song duration in seconds. */
     songDuration?: number;
+    /**
+     * Apple's ~30 second preview clip. Catalog songs usually have one;
+     * library-only songs often do not. Played from social topic cards
+     * instead of the full Apple Music queue.
+     */
+    previewUrl?: string;
     /** Release date represented as Unix epoch milliseconds. */
     releaseDate?: number;
     /** Date the song was added to the user's library, as Unix epoch milliseconds. */

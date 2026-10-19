@@ -3,30 +3,30 @@
 use sea_orm::entity::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
-#[sea_orm(table_name = "comment_votes")]
+#[sea_orm(table_name = "comment_likes")]
 pub struct Model {
+    #[sea_orm(primary_key)]
+    pub comment_id: i64,
     #[sea_orm(primary_key, auto_increment = false)]
     pub user_id: Uuid,
-    #[sea_orm(primary_key, auto_increment = false)]
-    pub comment_id: i64,
-    pub is_upvote: bool,
+    pub date: DateTimeWithTimeZone,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
     #[sea_orm(
-        belongs_to = "super::comment::Entity",
+        belongs_to = "super::comments::Entity",
         from = "Column::CommentId",
-        to = "super::comment::Column::Id",
+        to = "super::comments::Column::CommentId",
         on_update = "NoAction",
         on_delete = "Cascade"
     )]
-    Comment,
+    Comments,
 }
 
-impl Related<super::comment::Entity> for Entity {
+impl Related<super::comments::Entity> for Entity {
     fn to() -> RelationDef {
-        Relation::Comment.def()
+        Relation::Comments.def()
     }
 }
 

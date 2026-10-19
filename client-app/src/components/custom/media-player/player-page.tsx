@@ -45,7 +45,8 @@ type PlayerView = "artwork" | "queue";
 /**
  * The Player page of the now playing native tabs: artwork or the queue, the song
  * and its scrubber, and the transport. It is the only page of the three that
- * touches playback - Comments and Tags both only ever read `focusedSong`.
+ * touches playback. Tags and Discuss only read `focusedSong`. Discuss lists
+ * that song's posts.
  *
  * The queue opens in place rather than as another page. Playback controls
  * stay on screen either way, which is the whole point of the layout.

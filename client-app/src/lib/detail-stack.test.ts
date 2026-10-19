@@ -46,6 +46,10 @@ test("a concrete path binds its dynamic segments", () => {
         name: "tag/[tagId]",
         params: { tagId: "12" },
     });
+    assert.deepEqual(detailRouteFor("/discuss/song-1"), {
+        name: "discuss/[songId]",
+        params: { songId: "song-1" },
+    });
 });
 
 test("query results resolve and anything else does not", () => {
@@ -83,6 +87,16 @@ test("identity ignores drawing hints", () => {
         }),
     );
     assert.equal(detailIdentity(tabs), null);
+    assert.equal(
+        detailIdentity({
+            name: "discuss/[songId]",
+            params: { songId: "s1", title: "Blue" },
+        }),
+        detailIdentity({
+            name: "discuss/[songId]",
+            params: { songId: "s1", title: "Red", artworkUrl: "http://x" },
+        }),
+    );
 });
 
 // ----- opening -----

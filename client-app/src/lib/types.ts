@@ -59,9 +59,37 @@ export type InterestScoreDelta = {
 };
 
 /**
- * One social feed post as `/social/feed` and `/social/posts/user/:id` return
- * it. Author comes from `profile`; a missing profile row shows username
- * `"unknown"`.
+ * A song or artist attached to a social post. The wire only stores the
+ * MusicKit catalog id; the client asks Apple whether that id is a song or
+ * an artist.
+ */
+export type PostTopic =
+    | {
+          kind: "song";
+          id: string;
+          title: string;
+          artistName?: string;
+          artworkUrl?: string;
+          artworkColor?: string;
+          catalogId?: string;
+          playbackId?: string;
+          songDuration?: number;
+          previewUrl?: string;
+      }
+    | {
+          kind: "artist";
+          id: string;
+          name: string;
+          artworkUrl?: string;
+          artworkColor?: string;
+          catalogId?: string;
+      };
+
+/**
+ * One social feed post as `/social/feed`, `/social/posts/user/:id`, and
+ * `/social/posts/topic` return it. Author comes from `profile`; a missing
+ * profile row shows username `"unknown"`. `topic_mk_id` is the Apple Music
+ * catalog id of an attached song or artist, or null.
  */
 export type SocialPost = {
     post_id: number;
@@ -76,6 +104,8 @@ export type SocialPost = {
         user_id: string;
         username: string;
     };
+    /** Apple Music catalog id of the attached song or artist, or null. */
+    topic_mk_id: string | null;
 };
 
 /** Public profile header from `GET /social/posts/user/:author_id`. */
@@ -83,25 +113,4 @@ export type SocialUserProfile = {
     user_id: string;
     username: string;
     bio: string;
-};
-
-export type CommentVote = "up" | "down";
-
-/** a comment on a song, as the signed in user sees it */
-export type Comment = {
-    id: number;
-    content: string;
-    /** RFC 3339 in UTC, e.g. "2026-09-15T18:03:11.482913Z" */
-    created_at: string;
-    /** whether the signed in user left it. the backend never says who else did */
-    mine: boolean;
-    /** up votes minus down votes */
-    votes: number;
-    /** the signed in user's vote on it */
-    my_vote: CommentVote | null;
-};
-
-/** a top level comment with its replies, oldest reply first */
-export type CommentThread = Comment & {
-    replies: Comment[];
 };
