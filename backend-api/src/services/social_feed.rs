@@ -100,7 +100,12 @@ fn prefix_child_lines(
 }
 
 fn ml_python(dir: &Path) -> PathBuf {
-    let python = dir.join(".venv").join("bin").join("python");
+    let venv = dir.join(".venv");
+    let python = if cfg!(windows) {
+        venv.join("Scripts").join("python.exe")
+    } else {
+        venv.join("bin").join("python")
+    };
     if !python.exists() {
         panic!(
             "ml-service venv missing at {}; run `uv sync` in backend-api/ml-service",
