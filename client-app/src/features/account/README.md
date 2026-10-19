@@ -7,7 +7,7 @@ actions. Appearance and the other marked settings are local previews only.
 
 | file                            | role                                                                                                                                               |
 | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `account-settings.tsx`          | Account cards, profile username/bio editing, authentication actions, suggested-tag display setting, content toggle, privacy, and sync stub.         |
+| `account-settings.tsx`          | Account cards, profile username/bio editing, authentication actions, suggested-tag display setting, content toggle, privacy, and sync stub.        |
 | `appearance-settings.tsx`       | Session-only color controls and preview.                                                                                                           |
 | `settings-ui.tsx`               | Shared glass panels, rows, icons, and the TODO badge.                                                                                              |
 | `apple-music-session-guard.tsx` | `AppleMusicSessionGuard`: renders nothing, opens this sheet once when Apple rejects the stored music-user token. Mounted in `src/app/_layout.tsx`. |
