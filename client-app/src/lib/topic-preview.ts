@@ -91,7 +91,9 @@ function onStatus(status: AudioStatus) {
     if (!state.cardId) return;
     const duration = status.duration > 0 ? status.duration : 0;
     const progress =
-        duration > 0 ? Math.min(1, status.currentTime / duration) : state.progress;
+        duration > 0
+            ? Math.min(1, status.currentTime / duration)
+            : state.progress;
     if (status.didJustFinish) {
         void stopPreview({ resume: true });
         return;
@@ -116,7 +118,10 @@ async function stopPreview({ resume }: { resume: boolean }) {
         try {
             await Playback.play();
         } catch (error) {
-            console.error("Failed to resume Apple Music after a preview:", error);
+            console.error(
+                "Failed to resume Apple Music after a preview:",
+                error,
+            );
         }
     }
 }

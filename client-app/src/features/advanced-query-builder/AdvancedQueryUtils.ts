@@ -266,7 +266,9 @@ export function setConjunction(
     groupId: string,
     conjunction: GroupConjunction,
 ): AdvancedGroupNode {
-    return mapGroup(root, groupId, (group) => ({ ...group, conjunction }));
+    return mapGroup(root, groupId, (group) =>
+        group.conjunction === conjunction ? group : { ...group, conjunction },
+    );
 }
 
 /** Removes a filter or group. The root itself cannot be removed. */
@@ -280,7 +282,10 @@ export function removeNode(
         const children = group.children
             .filter((child) => child.id !== id)
             .map((child) => (child.kind === "group" ? without(child) : child));
-        return { ...group, children };
+        return children.length === group.children.length &&
+            children.every((child, index) => child === group.children[index])
+            ? group
+            : { ...group, children };
     }
     return without(root);
 }
@@ -291,7 +296,7 @@ export function updateFilter(
     update: (filter: AdvancedFilterNode) => AdvancedFilterNode,
 ): AdvancedGroupNode {
     return mapNode(root, filterId, (node) =>
-        node.kind === "filter" ? update(node) : node,
+        node.kind === "filter" ? preserveFilter(node, update(node)) : node,
     ) as AdvancedGroupNode;
 }
 
@@ -476,7 +481,7 @@ function withValue<T extends object>(
 }
 
 /** The value to send, or undefined for operators that take none. */
-function filterValue(
+export function filterValue(
     kind: FieldKind,
     op: FilterOp,
     raw: string,
@@ -517,4 +522,26 @@ function filterValue(
             if (!value) throw new BuildError("Pick a tag type.");
             return value;
     }
+}
+
+function preserveFilter(
+    previous: AdvancedFilterNode,
+    next: AdvancedFilterNode,
+): AdvancedFilterNode {
+    const a = previous.field;
+    const b = next.field;
+    const sameField =
+        a === b ||
+        (a !== null &&
+            b !== null &&
+            a.kind === b.kind &&
+            (a.kind !== "tag" || (b.kind === "tag" && a.tagId === b.tagId)) &&
+            (a.kind !== "metadata" ||
+                (b.kind === "metadata" && a.key === b.key)));
+    return previous.id === next.id &&
+        previous.op === next.op &&
+        previous.value === next.value &&
+        sameField
+        ? previous
+        : next;
 }

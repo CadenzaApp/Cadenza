@@ -438,12 +438,15 @@ remaining distance. A short pull still springs back to full size.
 
 ## The providers
 
-- `AppleMusicProvider` exposes `sessionExpired`, set when Apple rejects the stored
-  music-user token. Every Apple Music read in `musickit-hooks.ts` goes through a local
+- `AppleMusicProvider` exposes `sessionExpired`, set when Apple rejects a request with the
+  current credentials. It does not prove the music-user token itself expired. Every Apple
+  Music read in `musickit-hooks.ts` goes through a local
   `read()` wrapper that retries once on `ERR_APPLE_MUSIC_AUTH` and, if that fails too, calls
-  `reportAppleMusicAuthFailure()`. That drops the dead token and flips `sessionExpired`, which
-  `AppleMusicSessionGuard` turns into the Account sheet. A new musickit read that skips `read()`
-  will hang on a dead token instead of prompting a reconnect.
+  `reportAppleMusicAuthFailure()`. That clears the rejected credentials and flips
+  `sessionExpired`, which `AppleMusicSessionGuard` turns into the Account sheet. Reads capture
+  an auth generation, so a failure from before reconnect cannot clear a newer session;
+  reconnect waits for any pending credential reset. A new musickit read that skips `read()`
+  will keep replaying rejected credentials instead of prompting a reconnect.
 - `AccountProvider` owns who is signed in, id and email only. `signIn`, `signUp`, `signOut`, and
   `tryRestoreSession`. Every account change calls `clearCache()`, so switching users cannot leak
   cached data. It does not log session tokens or account details. It has no loading state on
@@ -453,8 +456,11 @@ remaining distance. A short pull still springs back to full size.
   every request 401s. Tokens are not held here, `getAccessToken()` in `supabase.ts` hands out a
   fresh one per request.
 - `AppleMusicProvider` owns the Apple Music developer and user tokens, restores them from
-  `expo-secure-store` on mount, and pushes them into the native module. `isConnected` means
-  authorized **and** holding a user token. `ensureConnected()` before any playback call.
+  `expo-secure-store` on mount, and pushes them into the native module. Stored user tokens are
+  associated with the exact developer JWT that acquired them; changing that JWT or finding a
+  legacy unscoped entry discards the stored user token before it can be restored. This matters
+  on iOS because Keychain entries may survive deleting and reinstalling the app. `isConnected`
+  means authorized **and** holding a user token. `ensureConnected()` before any playback call.
 - `SongInitProvider` runs after account and Apple Music authorization. It walks the library and
   library playlists and syncs what it finds into the backend's `user_songs`, which is what
   queries run over. It no longer generates default tags: the backend does that lazily, the first

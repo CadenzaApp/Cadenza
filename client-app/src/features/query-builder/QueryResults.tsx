@@ -90,9 +90,7 @@ export default function QueryResults({
     function submitSave() {
         const name = saveName.trim();
         if (!name) return;
-        console.info(
-            `[QueryResults] Saving query "${name}" is not implemented yet.`,
-        );
+        console.info(`[QueryResults] Save query requested: "${name}".`);
         closeSaveDialog();
     }
 

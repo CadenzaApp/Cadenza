@@ -2,7 +2,9 @@ import { useEffect, useRef, type ReactNode } from "react";
 import { View, type StyleProp, type ViewStyle } from "react-native";
 
 import { cn } from "@/lib/utils";
-import { useDrag } from "./DragContext";
+import { useDragCommands, useDropHover } from "./DragContext";
+import { useDropViewport } from "./DropViewport";
+import { measureDropRect } from "./drag-utils";
 import type { DropTarget } from "./types";
 
 export function DropSlot({
@@ -23,12 +25,9 @@ export function DropSlot({
     children?: ReactNode;
 }) {
     const ref = useRef<View>(null);
-    const {
-        dragState,
-        hoveredTargetKey,
-        registerDropZone,
-        unregisterDropZone,
-    } = useDrag();
+    const { registerDropZone, unregisterDropZone } = useDragCommands();
+    const hovered = useDropHover(targetKey);
+    const viewport = useDropViewport();
     const targetKind = target.kind;
     const targetConditionId =
         target.kind === "condition" ? target.conditionId : undefined;
@@ -43,20 +42,13 @@ export function DropSlot({
         registerDropZone(targetKey, {
             target: registeredTarget,
             priority,
-            measure: () =>
-                new Promise((resolve) => {
-                    if (!ref.current) {
-                        resolve(null);
-                        return;
-                    }
-                    ref.current.measureInWindow((x, y, width, height) =>
-                        resolve({ x, y, width, height }),
-                    );
-                }),
+            viewport,
+            measure: () => measureDropRect(ref.current),
         });
         return () => unregisterDropZone(targetKey);
     }, [
         priority,
+        viewport,
         registerDropZone,
         targetConditionId,
         targetIndex,
@@ -65,10 +57,10 @@ export function DropSlot({
         unregisterDropZone,
     ]);
 
-    const hovered = dragState && hoveredTargetKey === targetKey;
     return (
         <View
             ref={ref}
+            collapsable={false}
             className={cn(className, hovered && hoveredClassName)}
             style={style}
         >

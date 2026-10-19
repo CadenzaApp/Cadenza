@@ -161,11 +161,11 @@ export function useDeleteTag() {
  * Every keystroke is a new cache key, so the previous results stay up while the
  * next ones load rather than emptying the shelf.
  */
-export function useDefaultTags(search: string) {
+export function useDefaultTags(search: string, enabled = true) {
     const x = useAPIData<Tag[]>(
         "/tags/default-tags",
         { search },
-        { keepPreviousData: true },
+        { keepPreviousData: true, enabled },
     );
 
     return {
@@ -194,4 +194,3 @@ export function useSuggestTags() {
         suggestTags: x.trigger,
     };
 }
-

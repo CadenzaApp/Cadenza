@@ -378,7 +378,7 @@ export function AccountSettingsScreen() {
                                 </Text>
                                 {sessionExpired && !connectionMessage ? (
                                     <Text className="text-sm leading-5 text-destructive">
-                                        Your Apple Music token expired.
+                                        Apple Music connection needs attention.
                                         Reconnect to keep using your library.
                                     </Text>
                                 ) : null}
@@ -547,6 +547,8 @@ function appleMusicStatusLabel(
             return "Restricted";
         case AuthStatus.NotDetermined:
             return "Not Connected";
+        case AuthStatus.Failed:
+            return "Connection Failed";
         default:
             return "Unknown";
     }

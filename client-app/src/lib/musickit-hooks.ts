@@ -14,7 +14,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import useSWR, { unstable_serialize, useSWRConfig } from "swr";
 import useSWRInfinite from "swr/infinite";
 import { isAppleMusicAuthError } from "./app-error";
-import { reportAppleMusicAuthFailure, useAppleMusic } from "./apple-music-auth";
+import {
+    getAppleMusicAuthGeneration,
+    reportAppleMusicAuthFailure,
+    useAppleMusic,
+} from "./apple-music-auth";
 import { collectionRoute } from "./music-routes";
 
 const MUSIC_LIST_PAGE_SIZE = 25;
@@ -49,6 +53,7 @@ const AUTH_RETRY_DELAY_MS = 400;
  * will hang on a dead token instead of prompting a reconnect.
  */
 async function read<T>(fetchOnce: () => Promise<T>): Promise<T> {
+    const readGeneration = getAppleMusicAuthGeneration();
     try {
         return await fetchOnce();
     } catch (error) {
@@ -62,7 +67,7 @@ async function read<T>(fetchOnce: () => Promise<T>): Promise<T> {
             return await fetchOnce();
         } catch (retryError) {
             if (isAppleMusicAuthError(retryError)) {
-                reportAppleMusicAuthFailure();
+                reportAppleMusicAuthFailure(readGeneration);
             }
             throw retryError;
         }

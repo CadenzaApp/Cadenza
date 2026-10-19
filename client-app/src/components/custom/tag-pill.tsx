@@ -89,6 +89,7 @@ export const TagPill = memo(function TagPill({
     tag,
     height,
     value,
+    suffix,
     count,
     leadingIcon,
     leadingIconName,
@@ -100,6 +101,7 @@ export const TagPill = memo(function TagPill({
     tag: Tag;
     height: number;
     value?: string | null;
+    suffix?: string;
     count?: number | string;
     leadingIcon?: ReactNode;
     leadingIconName?: ComponentProps<typeof Ionicons>["name"];
@@ -121,9 +123,9 @@ export const TagPill = memo(function TagPill({
     const iconSize = 1.15 * height;
     const fontSize = 1 * height;
     const countFontSize = 0.9 * height;
-    const countPaddingHorizontal = 0.9 * height;
+    const countPaddingHorizontal = 0.55 * height;
     const countPaddingVertical = 0.1 * height;
-    const displayedValue = formatTagValue(tag.type, value);
+    const displayedValue = suffix ?? formatTagValue(tag.type, value);
     const countGapAdjustment = count === undefined ? 0 : -0.05 * height;
 
     return (
@@ -201,6 +203,7 @@ export const TagPill = memo(function TagPill({
                         lineHeight: fontSize * 1.4,
                         opacity: 1.0,
                         maxWidth: 14 * height,
+                        marginLeft: suffix !== undefined ? -0.12 * height : 0,
                         marginRight: countGapAdjustment,
                     }}
                 >
@@ -214,6 +217,8 @@ export const TagPill = memo(function TagPill({
                         borderRadius: 999,
                         paddingHorizontal: countPaddingHorizontal,
                         paddingVertical: countPaddingVertical,
+                        marginLeft: -1,
+                        alignSelf: "center",
                         backgroundColor: hexToRgba(contentColor, 1.0),
                     }}
                 >

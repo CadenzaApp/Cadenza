@@ -94,7 +94,7 @@ export function classifyError(error: unknown): AppError {
         case "ERR_MISSING_USER_TOKEN":
             return {
                 kind: "apple-music-auth",
-                title: "Apple Music session expired",
+                title: "Apple Music connection needs attention",
                 detail: "Reconnect Apple Music to keep using your library.",
                 action: RECONNECT_ACTION,
                 retryable: false,

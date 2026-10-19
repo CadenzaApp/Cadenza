@@ -1,312 +1,158 @@
-import { useCallback, useEffect, useMemo, type ReactNode } from "react";
-import { StyleSheet } from "react-native";
+import * as Haptics from "expo-haptics";
+import {
+    useCallback,
+    useLayoutEffect,
+    useMemo,
+    useRef,
+    type ReactNode,
+} from "react";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
-    Easing,
+    ReduceMotion,
+    runOnJS,
     useAnimatedStyle,
     useSharedValue,
-    withSpring,
     withTiming,
 } from "react-native-reanimated";
-
+import { useDragCommands } from "./DragContext";
 import type { DragPayload } from "./types";
-import { useDrag } from "./DragContext";
 
-const DRAG_SETTLE_DURATION = 320;
-const DRAG_SETTLE_EASING = Easing.bezier(0.22, 0.8, 0.3, 1);
-const DRAG_MIN_DISTANCE = 12;
-// The dedicated reorder grip has no tap action to protect, so it should
-// engage at the first intentional movement rather than feeling like a hold.
-const HANDLE_DRAG_MIN_DISTANCE = 3;
-
-class ReleaseLatch {
-    private pending = false;
-
-    begin() {
-        this.pending = true;
-    }
-
-    end() {
-        this.pending = false;
-    }
-
-    isPending() {
-        return this.pending;
-    }
-}
-
+/** Tag motion stays on the UI thread; React handles pickup, hover, and drop. */
 export function DraggablePill({
     payload,
     children,
-    dragHandle,
-    onContentTap,
-    onPrepareDrag,
-    verticalOnly = false,
-    layoutCompensationY = 0,
 }: {
     payload: DragPayload;
     children: ReactNode;
-    dragHandle?: ReactNode;
-    onContentTap?: () => void;
-    onPrepareDrag?: () => void;
-    verticalOnly?: boolean;
-    layoutCompensationY?: number;
 }) {
-    const { beginDrag, moveDrag, prepareDragRelease, finishDrag, cancelDrag } =
-        useDrag();
-    const startX = useSharedValue(0);
-    const startY = useSharedValue(0);
-    const touchOffsetY = useSharedValue(0);
+    const { beginDrag, moveDrag, finishDrag, cancelDrag, dragX, dragY } =
+        useDragCommands();
+    const handlers = useRef({
+        payload,
+        beginDrag,
+        moveDrag,
+        finishDrag,
+        cancelDrag,
+    });
+    useLayoutEffect(() => {
+        handlers.current = {
+            payload,
+            beginDrag,
+            moveDrag,
+            finishDrag,
+            cancelDrag,
+        };
+    }, [payload, beginDrag, moveDrag, finishDrag, cancelDrag]);
+    const origin = useSharedValue({ x: 0, y: 0 });
     const opacity = useSharedValue(1);
-    const translateY = useSharedValue(0);
-    const isDragging = useSharedValue(0);
-    const releaseLatch = useMemo(() => new ReleaseLatch(), []);
-    const measuredWidth = useSharedValue(0);
-    const measuredHeight = useSharedValue(0);
-    const reservationHeight = useSharedValue(0);
-    const compensationY = useSharedValue(layoutCompensationY);
-
-    useEffect(() => {
-        compensationY.set(
-            withTiming(layoutCompensationY, {
-                duration: DRAG_SETTLE_DURATION,
-                easing: DRAG_SETTLE_EASING,
-            }),
-        );
-    }, [compensationY, layoutCompensationY]);
-
+    const started = useSharedValue(false);
+    const released = useSharedValue(false);
+    const lastHover = useSharedValue(0);
     const start = useCallback(
-        (x: number, y: number) => void beginDrag(payload, x, y),
-        [beginDrag, payload],
+        (x: number, y: number, offset: { x: number; y: number }) => {
+            void handlers.current.beginDrag(
+                handlers.current.payload,
+                x,
+                y,
+                offset,
+            );
+            void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(
+                () => {},
+            );
+        },
+        [],
     );
     const move = useCallback(
-        (x: number, y: number) => moveDrag(payload, x, y),
-        [moveDrag, payload],
+        (x: number, y: number) => handlers.current.moveDrag(x, y),
+        [],
     );
     const finish = useCallback(
-        (x: number, y: number) => finishDrag(payload, x, y),
-        [finishDrag, payload],
-    );
-
-    const pan = useMemo(() => {
-        const gesture = Gesture.Pan()
-            .minDistance(
-                dragHandle ? HANDLE_DRAG_MIN_DISTANCE : DRAG_MIN_DISTANCE,
-            )
-            .maxPointers(1)
-            .runOnJS(true);
-        return gesture
-            .onBegin((event) => {
-                onPrepareDrag?.();
-                startX.set(event.absoluteX);
-                startY.set(event.absoluteY);
-                touchOffsetY.set(event.y);
-            })
-            .onStart(() => {
-                if (verticalOnly) {
-                    reservationHeight.set(measuredHeight.get());
-                    reservationHeight.set(
-                        withTiming(0, {
-                            duration: DRAG_SETTLE_DURATION,
-                            easing: DRAG_SETTLE_EASING,
-                        }),
-                    );
-                }
-                isDragging.set(1);
-                if (!verticalOnly) opacity.set(0);
-                start(
-                    startX.get(),
-                    verticalOnly
-                        ? startY.get() -
-                              touchOffsetY.get() +
-                              measuredHeight.get() / 2
-                        : startY.get(),
+        async (x: number, y: number) => {
+            try {
+                await handlers.current.finishDrag(
+                    handlers.current.payload,
+                    x,
+                    y,
                 );
-            })
-            .onUpdate((event) => {
-                if (!isDragging.get()) return;
-                if (verticalOnly) translateY.set(event.translationY);
-                move(
-                    verticalOnly
-                        ? startX.get()
-                        : startX.get() + event.translationX,
-                    verticalOnly
-                        ? startY.get() -
-                              touchOffsetY.get() +
-                              measuredHeight.get() / 2 +
-                              event.translationY
-                        : startY.get() + event.translationY,
-                );
-            })
-            .onEnd((event) => {
-                if (!isDragging.get()) return;
-                const endX = verticalOnly
-                    ? startX.get()
-                    : startX.get() + event.translationX;
-                const endY = verticalOnly
-                    ? startY.get() -
-                      touchOffsetY.get() +
-                      measuredHeight.get() / 2 +
-                      event.translationY
-                    : startY.get() + event.translationY;
-                if (verticalOnly) {
-                    releaseLatch.begin();
-                    const releaseTranslationY = event.translationY;
-                    translateY.set(releaseTranslationY);
-                    const settlesThroughLayout = prepareDragRelease(endX, endY);
-                    requestAnimationFrame(() => {
-                        finish(endX, endY);
-                        isDragging.set(0);
-                        if (settlesThroughLayout) {
-                            // The keyed card layout consumes the complete
-                            // rendered offset. Clearing both pieces here
-                            // leaves one Y animation instead of two competing
-                            // animations in different coordinate spaces.
-                            translateY.set(0);
-                            compensationY.set(0);
-                        } else {
-                            translateY.set(
-                                withTiming(0, {
-                                    duration: DRAG_SETTLE_DURATION,
-                                    easing: DRAG_SETTLE_EASING,
-                                }),
-                            );
-                        }
-                        opacity.set(withSpring(1));
-                        releaseLatch.end();
-                        cancelDrag();
-                    });
-                    return;
-                }
-                finish(endX, endY);
-            })
-            .onFinalize(() => {
-                const didDrag = isDragging.get() === 1;
-                if (releaseLatch.isPending()) return;
-                isDragging.set(0);
-                translateY.set(
-                    withTiming(0, {
-                        duration: DRAG_SETTLE_DURATION,
-                        easing: DRAG_SETTLE_EASING,
+            } finally {
+                opacity.set(
+                    withTiming(1, {
+                        duration: 100,
+                        reduceMotion: ReduceMotion.System,
                     }),
                 );
-                opacity.set(withSpring(1));
-                if (didDrag) cancelDrag();
-            });
-    }, [
-        cancelDrag,
-        dragHandle,
-        finish,
-        compensationY,
-        isDragging,
-        move,
-        onPrepareDrag,
-        measuredHeight,
-        opacity,
-        prepareDragRelease,
-        releaseLatch,
-        reservationHeight,
-        start,
-        startX,
-        startY,
-        translateY,
-        touchOffsetY,
-        verticalOnly,
-    ]);
-    const contentTap = useMemo(
+            }
+        },
+        [opacity],
+    );
+    const cancel = useCallback(() => handlers.current.cancelDrag(), []);
+    // These callbacks execute later on the UI runtime, never during render.
+    /* eslint-disable react-hooks/refs, react-hooks/purity */
+    const pan = useMemo(
         () =>
-            Gesture.Tap()
-                .maxDistance(DRAG_MIN_DISTANCE)
-                .runOnJS(true)
-                .onEnd((_event, success) => {
-                    if (success) onContentTap?.();
+            Gesture.Pan()
+                .minDistance(6)
+                .maxPointers(1)
+                .onBegin((event) => {
+                    origin.set({ x: event.x, y: event.y });
+                    started.set(false);
+                    released.set(false);
+                })
+                .onStart((event) => {
+                    started.set(true);
+                    opacity.set(0);
+                    dragX.set(event.absoluteX);
+                    dragY.set(event.absoluteY);
+                    runOnJS(start)(
+                        event.absoluteX,
+                        event.absoluteY,
+                        origin.get(),
+                    );
+                })
+                .onUpdate((event) => {
+                    dragX.set(event.absoluteX);
+                    dragY.set(event.absoluteY);
+                    const now = Date.now();
+                    if (now - lastHover.get() >= 80) {
+                        lastHover.set(now);
+                        runOnJS(move)(event.absoluteX, event.absoluteY);
+                    }
+                })
+                .onEnd((event) => {
+                    released.set(true);
+                    dragX.set(event.absoluteX);
+                    dragY.set(event.absoluteY);
+                    runOnJS(finish)(event.absoluteX, event.absoluteY);
+                })
+                .onFinalize(() => {
+                    if (!released.get())
+                        opacity.set(
+                            withTiming(1, {
+                                duration: 100,
+                                reduceMotion: ReduceMotion.System,
+                            }),
+                        );
+                    if (started.get() && !released.get()) runOnJS(cancel)();
                 }),
-        [onContentTap],
-    );
-    const animatedStyle = useAnimatedStyle(() => ({
-        width:
-            verticalOnly && isDragging.get() && measuredWidth.get() > 0
-                ? measuredWidth.get()
-                : undefined,
-        height: verticalOnly
-            ? isDragging.get() && measuredHeight.get() > 0
-                ? measuredHeight.get()
-                : "auto"
-            : undefined,
-        opacity: opacity.get(),
-        transform: [
-            {
-                translateY: verticalOnly
-                    ? translateY.get() + compensationY.get()
-                    : 0,
-            },
+        [
+            origin,
+            opacity,
+            started,
+            released,
+            dragX,
+            dragY,
+            lastHover,
+            start,
+            move,
+            finish,
+            cancel,
         ],
-        zIndex: isDragging.get() ? 1001 : 0,
-        elevation: isDragging.get() ? 24 : 0,
-        overflow: "visible",
-    }));
-    const reservationStyle = useAnimatedStyle(() => {
-        return {
-            height:
-                verticalOnly && isDragging.get()
-                    ? reservationHeight.get()
-                    : verticalOnly
-                      ? "auto"
-                      : undefined,
-            // The child continues translating after release. Clipping this
-            // reservation makes a settling condition look like its height is
-            // animating even though the card itself remains full-size.
-            overflow: verticalOnly ? "visible" : "hidden",
-            zIndex: isDragging.get() ? 1000 : 0,
-            elevation: isDragging.get() ? 23 : 0,
-        };
-    });
-
-    const content = (
-        <Animated.View style={reservationStyle}>
-            <Animated.View
-                style={animatedStyle}
-                onLayout={(event) => {
-                    const { width, height } = event.nativeEvent.layout;
-                    if (width > 0) {
-                        measuredWidth.set(width);
-                    }
-                    if (height > 0) {
-                        measuredHeight.set(height);
-                    }
-                }}
-            >
-                {onContentTap ? (
-                    <GestureDetector gesture={contentTap}>
-                        {children}
-                    </GestureDetector>
-                ) : (
-                    children
-                )}
-                {dragHandle ? (
-                    <GestureDetector gesture={pan}>
-                        <Animated.View style={styles.dragHandle}>
-                            {dragHandle}
-                        </Animated.View>
-                    </GestureDetector>
-                ) : null}
-            </Animated.View>
-        </Animated.View>
     );
-
-    return dragHandle ? (
-        content
-    ) : (
-        <GestureDetector gesture={pan}>{content}</GestureDetector>
+    /* eslint-enable react-hooks/refs, react-hooks/purity */
+    const style = useAnimatedStyle(() => ({ opacity: opacity.get() }));
+    return (
+        <GestureDetector gesture={pan}>
+            <Animated.View style={style}>{children}</Animated.View>
+        </GestureDetector>
     );
 }
-
-const styles = StyleSheet.create({
-    dragHandle: {
-        position: "absolute",
-        left: 0,
-        top: "50%",
-        transform: [{ translateY: -24 }],
-        zIndex: 2,
-    },
-});

@@ -1,44 +1,40 @@
-import {
-    useCallback,
-    useEffect,
-    useLayoutEffect,
-    useMemo,
-    useRef,
-    useState,
-} from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import * as Haptics from "expo-haptics";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import { createContext, useContext, useEffect, useMemo } from "react";
+import { Pressable, StyleSheet, View } from "react-native";
+import { GestureDetector } from "react-native-gesture-handler";
 import Animated, {
     Easing,
+    FadeIn,
     FadeOut,
-    Keyframe,
+    ReduceMotion,
     interpolateColor,
-    runOnJS,
-    useAnimatedStyle,
     useAnimatedProps,
+    useAnimatedStyle,
     useSharedValue,
-    withDelay,
     withTiming,
-    type LayoutAnimationFunction,
+    type AnimatedRef,
     type SharedValue,
 } from "react-native-reanimated";
 import Svg, { Path } from "react-native-svg";
+import {
+    GroupModeControl,
+    QuerySegmentedControl,
+    VennDiagram,
+} from "./GroupModeControl";
+import { MeasuredReorderList, useReorderHandle } from "./MeasuredReorderList";
 
+import { TagPill } from "@/components/custom/tag-pill";
 import { GlassSurface } from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
 import { THEME } from "@/lib/theme";
+import type { Tag } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { useColorScheme } from "nativewind";
+import { useDrag, useDragCommands, useDropHover } from "./DragContext";
 import { DraggablePill } from "./DraggablePill";
-import { useDrag } from "./DragContext";
 import { DropSlot } from "./DropSlot";
 import { QueryTagPill } from "./QueryTagPill";
-import {
-    conditionConnectorLabel,
-    getConditionReorderPosition,
-    groupMemberConnectorLabel,
-} from "./QueryUtils";
 import type {
     DragPayload,
     QueryCondition,
@@ -49,375 +45,130 @@ import type {
 const REORDER_DURATION = 320;
 const CONNECTOR_REVEAL_DURATION = 220;
 const SOFT_EASING = Easing.bezier(0.22, 0.8, 0.3, 1);
-const CONDITION_LAYOUT_TRANSITION: LayoutAnimationFunction = (values) => {
-    "worklet";
-    return {
-        initialValues: {
-            originX: values.currentOriginX,
-            originY: values.currentOriginY,
-            width: values.currentWidth,
-            height: values.currentHeight,
-        },
-        animations: {
-            originX: withTiming(values.targetOriginX, {
-                duration: REORDER_DURATION,
-                easing: SOFT_EASING,
-            }),
-            originY: withTiming(values.targetOriginY, {
-                duration: REORDER_DURATION,
-                easing: SOFT_EASING,
-            }),
-            width: withTiming(values.targetWidth, {
-                duration: REORDER_DURATION,
-                easing: SOFT_EASING,
-            }),
-            height: withTiming(values.targetHeight, {
-                duration: REORDER_DURATION,
-                easing: SOFT_EASING,
-            }),
-        },
-    };
-};
-const POSITION_ONLY_LAYOUT_TRANSITION: LayoutAnimationFunction = (values) => {
-    "worklet";
-    return {
-        initialValues: {
-            originX: values.targetOriginX,
-            originY: values.currentOriginY,
-            width: values.targetWidth,
-            height: values.targetHeight,
-        },
-        animations: {
-            originY: withTiming(values.targetOriginY, {
-                duration: REORDER_DURATION,
-                easing: SOFT_EASING,
-            }),
-        },
-    };
-};
-const TAG_LAYOUT_TRANSITION = CONDITION_LAYOUT_TRANSITION;
-const CONNECTOR_HEIGHT = 42;
-const GROUP_MODES = ["any", "all", "none"] as const;
-const MODE_OPTION_WIDTH = 70;
-const MODE_OPTION_GAP = 5;
-const MODE_OPTION_STEP = MODE_OPTION_WIDTH + MODE_OPTION_GAP;
-const MODE_KNOB_WIDTH = MODE_OPTION_WIDTH + 8;
-const MODE_KNOB_OFFSET = (MODE_KNOB_WIDTH - MODE_OPTION_WIDTH) / 2;
-const MODE_CONTROL_VERTICAL_PADDING = 2;
-const MODE_CONTROL_HORIZONTAL_PADDING = 6;
-const MODE_KNOB_EASING = {
-    duration: 270,
-    easing: Easing.inOut(Easing.cubic),
-};
+const CONNECTOR_HEIGHT = 32;
 const AnimatedPath = Animated.createAnimatedComponent(Path);
-const SELECTOR_ENTER_TRANSITION = new Keyframe({
-    0: { opacity: 0, transform: [{ translateY: -6 }] },
-    100: { opacity: 1, transform: [{ translateY: 0 }] },
-}).duration(220);
-const SELECTOR_EXIT_TRANSITION = new Keyframe({
-    0: { opacity: 1, transform: [{ translateY: 0 }] },
-    100: { opacity: 0, transform: [{ translateY: -6 }] },
-}).duration(180);
+
+export const EditorActionsContext = createContext({
+    showVennDiagrams: true,
+    toggleOuterConnector: () => {},
+    removeGroup: (_id: string) => {},
+    removeQueryTag: (_id: string) => {},
+    editQueryTag: (_tag: QueryTag) => {},
+    pendingTag: null as { tag: Tag; suggested: boolean } | null,
+    placeTagInCondition: (_id: string) => {},
+    placeTagInNewCondition: () => {},
+});
+const useEditorActions = () => useContext(EditorActionsContext);
 
 export function ConditionList({
     conditions,
     onToggleConditionNegation,
     onModeChange,
-    onConnectorToggle,
+    scrollRef,
+    scrollOffset,
+    viewportTopInset,
+    viewportBottomInset,
+    bottomClearance,
 }: {
+    scrollRef: AnimatedRef<Animated.ScrollView>;
+    scrollOffset: SharedValue<number>;
+    viewportTopInset: number;
+    viewportBottomInset: SharedValue<number>;
+    bottomClearance: number;
     conditions: readonly QueryCondition[];
     onToggleConditionNegation: (conditionId: string) => void;
     onModeChange: (groupId: string, mode: QueryGroupMode) => void;
-    onConnectorToggle: (conditionId: string) => void;
 }) {
-    const {
-        conditionLayoutAnimationsSuppressed,
-        conditionRelease,
-        dragState,
-        hoveredTargetKey,
-        settlingConditionId,
-        setConditionReleaseTarget,
-        setConditionReorderIndex,
-        setConditionReorderResolver,
-    } = useDrag();
-    const [conditionCenters, setConditionCenters] = useState(
-        () => new Map<string, number>(),
-    );
-    const conditionCentersRef = useRef(conditionCenters);
-    const conditionRefs = useRef(new Map<string, View>());
-    const queryEndHovered = hoveredTargetKey === "query-end";
+    const { beginDrag, moveDrag, finishDrag, cancelDrag } = useDragCommands();
+    const { dragState } = useDrag();
     const conditionDrag =
         dragState?.payload.source === "condition" ? dragState.payload : null;
-    const releaseConditionId = conditionRelease?.condition.id ?? null;
-    const releaseCommitted = Boolean(
-        conditionRelease &&
-        conditions.findIndex(
-            (condition) => condition.id === conditionRelease.condition.id,
-        ) === conditionRelease.finalIndex,
-    );
-    // Keep the live destination reservation until the reordered array has
-    // committed. The following render swaps it atomically for the permanent
-    // boundary slot, so there is never a frame with neither reservation.
-    const previewConditionDrag =
-        conditionRelease && releaseCommitted ? null : conditionDrag;
-    const queryEndPreviewVisible = Boolean(queryEndHovered && !conditionDrag);
+    const { pendingTag, placeTagInNewCondition } = useEditorActions();
+    const endHovered = useDropHover("query-end");
+    const workspaceHovered = useDropHover("workspace-end");
+    const queryEndHovered = endHovered || workspaceHovered;
     const previewColor = dragState ? dragTagColor(dragState.payload) : null;
-    const previewLabel = "CREATE A NEW TAG GROUP";
-    const updateConditionCenter = useCallback(
-        (conditionId: string, centerY: number) => {
-            if (conditionCentersRef.current.get(conditionId) === centerY) {
-                return;
-            }
-            const next = new Map(conditionCentersRef.current);
-            next.set(conditionId, centerY);
-            conditionCentersRef.current = next;
-            setConditionCenters(next);
-        },
-        [],
-    );
-    const recordConditionCenter = useCallback(
-        (conditionId: string, centerY: number) => {
-            if (conditionDrag) return;
-            updateConditionCenter(conditionId, centerY);
-        },
-        [conditionDrag, updateConditionCenter],
-    );
-    const registerConditionRef = useCallback(
-        (conditionId: string, view: View | null) => {
-            if (view) conditionRefs.current.set(conditionId, view);
-            else conditionRefs.current.delete(conditionId);
-        },
-        [],
-    );
-    const refreshConditionCenters = useCallback(() => {
-        conditionRefs.current.forEach((view, conditionId) => {
-            view.measureInWindow((_x, y, _width, height) => {
-                if (height <= 0) return;
-                updateConditionCenter(conditionId, y + height / 2);
-            });
-        });
-    }, [updateConditionCenter]);
-    const resolveConditionReorderIndex = useCallback(
-        (payload: Extract<DragPayload, { source: "condition" }>, y: number) =>
-            getConditionReorderPosition(
-                conditions,
-                payload.condition.id,
-                y,
-                conditionCentersRef.current,
-            )?.insertionIndex ?? null,
-        [conditions],
-    );
-    useEffect(() => {
-        setConditionReorderResolver(resolveConditionReorderIndex);
-        return () => setConditionReorderResolver(null);
-    }, [resolveConditionReorderIndex, setConditionReorderResolver]);
-    useEffect(() => {
-        if (!releaseConditionId || !settlingConditionId || dragState) return;
-        let secondFrame: number | undefined;
-        const firstFrame = requestAnimationFrame(() => {
-            secondFrame = requestAnimationFrame(() => {
-                conditionRefs.current
-                    .get(releaseConditionId)
-                    ?.measureInWindow((_x, y, _width, height) => {
-                        if (height > 0) {
-                            setConditionReleaseTarget(y + height / 2);
-                        }
-                    });
-            });
-        });
-        return () => {
-            cancelAnimationFrame(firstFrame);
-            if (secondFrame != null) cancelAnimationFrame(secondFrame);
-        };
-    }, [
-        dragState,
-        releaseConditionId,
-        settlingConditionId,
-        setConditionReleaseTarget,
-    ]);
-
-    const reorderPosition =
-        previewConditionDrag && dragState
-            ? getConditionReorderPosition(
-                  conditions,
-                  previewConditionDrag.condition.id,
-                  dragState.y,
-                  conditionCenters,
-              )
-            : null;
-    const reorderFinalIndex = reorderPosition?.finalIndex ?? null;
-    const reorderInsertionIndex = reorderPosition?.insertionIndex ?? null;
-    useEffect(() => {
-        setConditionReorderIndex(reorderInsertionIndex);
-    }, [reorderInsertionIndex, setConditionReorderIndex]);
-
-    const remainingConditions = previewConditionDrag
-        ? conditions.filter(
-              (condition) => condition.id !== previewConditionDrag.condition.id,
-          )
-        : [];
-    const originalFinalIndex = previewConditionDrag
-        ? Math.min(previewConditionDrag.originIndex, remainingConditions.length)
-        : null;
-    const effectiveFinalIndex = reorderFinalIndex ?? originalFinalIndex;
-    const staysAtOrigin = Boolean(
-        previewConditionDrag && effectiveFinalIndex === originalFinalIndex,
-    );
-    const movedFromOrigin = Boolean(previewConditionDrag && !staysAtOrigin);
-    const collapsedConnectorIndex = movedFromOrigin
-        ? previewConditionDrag!.originIndex === 0
-            ? 1
-            : previewConditionDrag!.originIndex
-        : undefined;
-    const releaseConnectorIndex = conditionRelease
-        ? conditionRelease.originIndex === 0
-            ? 1
-            : conditionRelease.originIndex
-        : undefined;
-    const spacerBeforeId = previewConditionDrag
-        ? staysAtOrigin
-            ? undefined
-            : remainingConditions[effectiveFinalIndex ?? -1]?.id
-        : undefined;
-    const spacerAfterId = staysAtOrigin
-        ? previewConditionDrag?.condition.id
-        : undefined;
-    const spacerAtEnd = Boolean(
-        previewConditionDrag && !staysAtOrigin && !spacerBeforeId,
-    );
-    const movingUp = Boolean(
-        previewConditionDrag &&
-        effectiveFinalIndex != null &&
-        originalFinalIndex != null &&
-        effectiveFinalIndex < originalFinalIndex,
-    );
-    const destinationHeight = previewConditionDrag
-        ? previewConditionDrag.height + (movedFromOrigin ? CONNECTOR_HEIGHT : 0)
-        : 0;
-
+    const payloadFor = (
+        condition: QueryCondition,
+    ): Extract<DragPayload, { source: "condition" }> => ({
+        source: "condition",
+        condition,
+    });
     return (
         <DropSlot
             targetKey="query-end"
             target={{ kind: "query-end" }}
             className={cn(
-                "min-h-40 rounded-xl",
-                conditions.length > 0 && "pb-14",
+                "rounded-xl",
+                conditions.length > 0 && "pb-1",
                 conditions.length === 0 && "items-center justify-center",
-                conditions.length === 0 &&
-                    "border border-dashed border-border bg-background",
             )}
-            style={{ flexGrow: 1 }}
+            style={{ flexGrow: conditions.length === 0 ? 1 : 0 }}
         >
             {conditions.length === 0 ? (
-                <Text className="px-5 text-center text-sm text-muted-foreground">
-                    {queryEndHovered
-                        ? "Create a new tag group."
-                        : "Drag a tag here to start a query."}
+                <Text className="px-4 py-8 text-center text-sm text-muted-foreground">
+                    Drag a tag here to start.
                 </Text>
             ) : (
                 <>
-                    {conditions.flatMap((condition, index) => [
-                        <InsertionSlot
-                            key={`connector-slot-${index}`}
-                            index={index}
-                            condition={condition}
-                            settleImmediately={!previewConditionDrag}
-                            collapse={collapsedConnectorIndex === index}
-                            deferReveal={movedFromOrigin}
-                            hidden={
-                                releaseConnectorIndex === index ||
-                                previewConditionDrag?.condition.id ===
-                                    condition.id ||
-                                collapsedConnectorIndex === index
+                    <View className="-mt-7">
+                        <MeasuredReorderList
+                            data={conditions}
+                            keyFor={(condition) =>
+                                condition.layoutId ?? condition.id
                             }
-                            visible={index > 0}
-                            expanded={index === 0}
-                            onConnectorToggle={() =>
-                                onConnectorToggle(condition.id)
-                            }
-                        />,
-                        <Animated.View
-                            key={`condition-${condition.layoutId ?? condition.id}`}
-                            collapsable={false}
-                            layout={
-                                conditionDrag?.condition.id === condition.id ||
-                                settlingConditionId === condition.id
-                                    ? undefined
-                                    : conditionLayoutAnimationsSuppressed
-                                      ? POSITION_ONLY_LAYOUT_TRANSITION
-                                      : CONDITION_LAYOUT_TRANSITION
-                            }
-                            style={{
-                                zIndex:
-                                    conditionDrag?.condition.id ===
-                                        condition.id ||
-                                    settlingConditionId === condition.id
-                                        ? 1000
-                                        : 0,
+                            scrollRef={scrollRef}
+                            scrollOffset={scrollOffset}
+                            viewportTopInset={viewportTopInset}
+                            viewportBottomInset={viewportBottomInset}
+                            bottomClearance={bottomClearance}
+                            onStart={(condition, index, x, y) => {
+                                void Haptics.impactAsync(
+                                    Haptics.ImpactFeedbackStyle.Light,
+                                ).catch(() => {});
+                                void beginDrag(payloadFor(condition), x, y);
                             }}
-                        >
-                            <Animated.View
-                                exiting={FadeOut.duration(180).easing(
-                                    SOFT_EASING,
-                                )}
-                            >
-                                <View
-                                    style={{
-                                        opacity:
-                                            releaseConditionId === condition.id
-                                                ? 0
-                                                : 1,
-                                    }}
-                                >
-                                    <ReorderSpacer
-                                        active={spacerBeforeId === condition.id}
-                                        height={destinationHeight}
-                                        settleImmediately={
-                                            !previewConditionDrag
-                                        }
+                            onMove={moveDrag}
+                            onDrop={(condition, from, to, x, y) =>
+                                finishDrag(
+                                    payloadFor(condition),
+                                    x,
+                                    y,
+                                    to > from ? to + 1 : to,
+                                )
+                            }
+                            onCancel={cancelDrag}
+                            renderItem={(condition, index) => (
+                                <>
+                                    <InsertionSlot
+                                        index={index}
+                                        condition={condition}
+                                        visible={index > 0}
                                     />
                                     <DraggableCondition
                                         condition={condition}
-                                        index={index}
-                                        layoutCompensationY={
-                                            previewConditionDrag?.condition
-                                                .id === condition.id
-                                                ? movingUp
-                                                    ? -previewConditionDrag.height
-                                                    : movedFromOrigin &&
-                                                        index > 0
-                                                      ? CONNECTOR_HEIGHT
-                                                      : 0
-                                                : 0
-                                        }
                                         onToggleConditionNegation={
                                             onToggleConditionNegation
                                         }
                                         onModeChange={onModeChange}
-                                        onCenterChange={recordConditionCenter}
-                                        onPrepareDrag={refreshConditionCenters}
-                                        onRefChange={registerConditionRef}
                                     />
-                                    <ReorderSpacer
-                                        active={spacerAfterId === condition.id}
-                                        height={destinationHeight}
-                                        settleImmediately={
-                                            !previewConditionDrag
-                                        }
-                                    />
-                                </View>
-                            </Animated.View>
-                        </Animated.View>,
-                    ])}
-                    <ReorderSpacer
-                        active={spacerAtEnd}
-                        height={destinationHeight}
-                        settleImmediately={!previewConditionDrag}
-                    />
-                    {queryEndPreviewVisible && previewColor ? (
+                                </>
+                            )}
+                        />
+                    </View>
+                    {pendingTag && !dragState ? (
+                        <View className="mt-3 self-start">
+                            <TagPlacementOutline
+                                tag={pendingTag.tag}
+                                onPress={placeTagInNewCondition}
+                                accessibilityLabel={`Add ${pendingTag.tag.name} as a new tag group`}
+                            />
+                        </View>
+                    ) : null}
+                    {queryEndHovered && !conditionDrag && previewColor ? (
                         <NewGroupInsertionPreview
                             color={previewColor}
-                            label={previewLabel}
+                            label="CREATE A NEW TAG GROUP"
                         />
                     ) : null}
                 </>
@@ -428,98 +179,33 @@ export function ConditionList({
 
 function DraggableCondition({
     condition,
-    index,
-    layoutCompensationY,
     onToggleConditionNegation,
     onModeChange,
-    onCenterChange,
-    onPrepareDrag,
-    onRefChange,
 }: {
     condition: QueryCondition;
-    index: number;
-    layoutCompensationY: number;
-    onToggleConditionNegation: (conditionId: string) => void;
-    onModeChange: (groupId: string, mode: QueryGroupMode) => void;
-    onCenterChange: (conditionId: string, centerY: number) => void;
-    onPrepareDrag: () => void;
-    onRefChange: (conditionId: string, view: View | null) => void;
+    onToggleConditionNegation: (id: string) => void;
+    onModeChange: (id: string, mode: QueryGroupMode) => void;
 }) {
-    const conditionRef = useRef<View>(null);
-    const [height, setHeight] = useState(0);
-    const setConditionRef = useCallback(
-        (view: View | null) => {
-            conditionRef.current = view;
-            onRefChange(condition.id, view);
-        },
-        [condition.id, onRefChange],
-    );
-    const dragPayload = useMemo(
-        () => ({
-            source: "condition" as const,
-            condition,
-            originIndex: index,
-            height,
-        }),
-        [condition, height, index],
-    );
-    const toggleNegation = useCallback(
-        () => onToggleConditionNegation(condition.id),
-        [condition.id, onToggleConditionNegation],
-    );
+    const gesture = useReorderHandle();
     return (
-        <DraggablePill
-            payload={dragPayload}
-            dragHandle={<ConditionDragHandle condition={condition} />}
-            layoutCompensationY={layoutCompensationY}
-            onContentTap={condition.kind === "tag" ? toggleNegation : undefined}
-            onPrepareDrag={onPrepareDrag}
-            verticalOnly
-        >
-            <View
-                ref={setConditionRef}
-                accessible={condition.kind === "tag"}
-                accessibilityRole={
-                    condition.kind === "tag" ? "button" : undefined
-                }
-                accessibilityLabel={
-                    condition.kind === "tag"
-                        ? `${condition.tag.name}, ${condition.negated ? "not applied" : "applied"}`
-                        : undefined
-                }
-                accessibilityHint={
-                    condition.kind === "tag"
-                        ? "Toggles whether this tag must not be applied"
-                        : undefined
-                }
-                onAccessibilityTap={
-                    condition.kind === "tag" ? toggleNegation : undefined
-                }
-                onLayout={(event) => {
-                    setHeight(event.nativeEvent.layout.height);
-                    conditionRef.current?.measureInWindow(
-                        (_x, y, _width, measuredHeight) =>
-                            onCenterChange(
-                                condition.id,
-                                y + measuredHeight / 2,
-                            ),
-                    );
-                }}
-            >
-                <ConditionCard
-                    condition={condition}
-                    onModeChange={onModeChange}
-                />
-            </View>
-        </DraggablePill>
+        <View>
+            <ConditionCard
+                condition={condition}
+                onModeChange={onModeChange}
+                onToggleConditionNegation={onToggleConditionNegation}
+            />
+            {gesture ? (
+                <GestureDetector gesture={gesture}>
+                    <View className="absolute left-0 top-2 z-10">
+                        <ConditionDragHandle condition={condition} />
+                    </View>
+                </GestureDetector>
+            ) : null}
+        </View>
     );
 }
 
-export function ConditionDragHandle({
-    condition,
-}: {
-    condition: QueryCondition;
-}) {
+function ConditionDragHandle({ condition }: { condition: QueryCondition }) {
     const { colorScheme = "light" } = useColorScheme();
     const theme = THEME[colorScheme];
     const label = condition.kind === "group" ? "tag group" : "tag";
@@ -549,15 +235,15 @@ export function ConditionDragHandle({
 
     return (
         <View
-            className="h-12 w-12 items-center justify-center"
+            className="h-8 w-8 items-center justify-center"
             accessible
             accessibilityRole="button"
             accessibilityLabel={`Reorder ${label}`}
             accessibilityHint="Drag to move this condition"
         >
             <Svg
-                width={22}
-                height={22}
+                width={17}
+                height={17}
                 viewBox="0 0 24 24"
                 accessible={false}
                 importantForAccessibility="no"
@@ -571,360 +257,198 @@ export function ConditionDragHandle({
     );
 }
 
-function ReorderSpacer({
-    active,
-    height,
-    settleImmediately = false,
-}: {
-    active: boolean;
-    height: number;
-    settleImmediately?: boolean;
-}) {
-    const targetHeight = active ? height : 0;
-    const spacerHeight = useSharedValue(targetHeight);
-    useLayoutEffect(() => {
-        spacerHeight.set(
-            settleImmediately
-                ? targetHeight
-                : withTiming(targetHeight, {
-                      duration: REORDER_DURATION,
-                      easing: SOFT_EASING,
-                  }),
-        );
-    }, [settleImmediately, spacerHeight, targetHeight]);
-    const animatedStyle = useAnimatedStyle(() => ({
-        height: spacerHeight.get(),
-    }));
-    return <Animated.View pointerEvents="none" style={animatedStyle} />;
-}
+const SINGLE_OPTIONS = [
+    { value: "include", label: "have" },
+    { value: "exclude", label: "don't have" },
+] as const;
 
 function ConditionCard({
     condition,
     onModeChange,
+    onToggleConditionNegation,
 }: {
     condition: QueryCondition;
-    onModeChange: (groupId: string, mode: QueryGroupMode) => void;
+    onModeChange: (id: string, mode: QueryGroupMode) => void;
+    onToggleConditionNegation: (id: string) => void;
 }) {
     const group = condition.kind === "group" ? condition : null;
-    const members = group ? group.members : [condition as QueryTag];
+    const members =
+        condition.kind === "group" ? condition.members : [condition];
     const { colorScheme = "light" } = useColorScheme();
     const theme = THEME[colorScheme];
-    const { conditionLayoutAnimationsSuppressed, dragState, hoveredTargetKey } =
-        useDrag();
-    const hovered = Boolean(
-        dragState && hoveredTargetKey === `condition-${condition.id}`,
-    );
-    const contents = (
-        <DropSlot
-            targetKey={`condition-${condition.id}`}
-            target={{ kind: "condition", conditionId: condition.id }}
-            priority={30}
-            className={cn(
-                "pl-12 pr-3",
-                group ? "pb-2.5 pt-2" : "min-h-12 flex-row items-center py-1.5",
-                hovered && "bg-accent",
-            )}
-        >
-            {group ? (
-                <Animated.View
-                    collapsable={false}
-                    entering={
-                        conditionLayoutAnimationsSuppressed
-                            ? undefined
-                            : SELECTOR_ENTER_TRANSITION
-                    }
-                    exiting={
-                        conditionLayoutAnimationsSuppressed
-                            ? undefined
-                            : SELECTOR_EXIT_TRANSITION
+    const editor = useEditorActions();
+    const { dragState } = useDrag();
+    const hovered = useDropHover(`condition-${condition.id}`);
+    const body = (
+        <View className="gap-2.5 px-3 py-2">
+            <View className="flex-row items-center gap-1 pl-6">
+                <View
+                    className="min-w-0 flex-1"
+                    pointerEvents={editor.pendingTag ? "none" : "auto"}
+                >
+                    {group ? (
+                        <GroupModeControl
+                            mode={group.mode}
+                            onChange={(mode) => onModeChange(group.id, mode)}
+                        />
+                    ) : (
+                        <View className="flex-row flex-wrap items-center gap-1">
+                            <QuerySegmentedControl
+                                value={
+                                    condition.kind === "tag" &&
+                                    condition.negated
+                                        ? "exclude"
+                                        : "include"
+                                }
+                                options={SINGLE_OPTIONS}
+                                segmentWidths={[52, 82]}
+                                label="Tag requirement"
+                                onChange={(value) => {
+                                    if (
+                                        condition.kind === "tag" &&
+                                        condition.negated !==
+                                            (value === "exclude")
+                                    )
+                                        onToggleConditionNegation(condition.id);
+                                }}
+                            />
+                            <Text className="text-sm font-bold text-foreground">
+                                the tag:
+                            </Text>
+                        </View>
+                    )}
+                </View>
+                <Pressable
+                    className="h-7 w-7 items-center justify-center"
+                    disabled={!!editor.pendingTag}
+                    hitSlop={4}
+                    onPress={() => editor.removeGroup(condition.id)}
+                    accessibilityRole="button"
+                    accessibilityLabel="Delete tag group"
+                >
+                    <Ionicons
+                        name="trash-outline"
+                        size={17}
+                        color={theme.destructive}
+                    />
+                </Pressable>
+            </View>
+            <View className="relative">
+                <View
+                    className={
+                        editor.showVennDiagrams
+                            ? "min-h-8 flex-row flex-wrap items-center gap-x-1.5 gap-y-0.5 pr-10"
+                            : "min-h-8 flex-row flex-wrap items-center gap-x-1.5 gap-y-0.5"
                     }
                 >
-                    <ModeToggle
-                        mode={group.mode}
-                        onChange={(mode) => onModeChange(group.id, mode)}
-                    />
-                </Animated.View>
-            ) : null}
-            <View
-                className={cn(
-                    "flex-row flex-wrap items-center gap-x-2 gap-y-0.5",
-                    group && "mt-2",
-                )}
-            >
-                {members.map((queryTag, index) => (
-                    <Animated.View
-                        key={queryTag.id}
-                        layout={
-                            conditionLayoutAnimationsSuppressed
-                                ? undefined
-                                : TAG_LAYOUT_TRANSITION
-                        }
-                        className="flex-row items-center gap-2"
-                    >
-                        {group && index > 0 ? (
-                            <Text
-                                className="text-[10px] font-bold"
-                                style={{ color: theme.mutedForeground }}
-                            >
-                                {groupMemberConnectorLabel(group.mode)}
-                            </Text>
-                        ) : null}
+                    {members.map((queryTag, index) => (
                         <Animated.View
-                            layout={
-                                conditionLayoutAnimationsSuppressed
-                                    ? undefined
-                                    : TAG_LAYOUT_TRANSITION
-                            }
+                            key={queryTag.id}
+                            className="flex-row items-center gap-1.5"
+                            entering={FadeIn.duration(160).reduceMotion(
+                                ReduceMotion.System,
+                            )}
+                            exiting={FadeOut.duration(130).reduceMotion(
+                                ReduceMotion.System,
+                            )}
                         >
+                            {group && index > 0 ? (
+                                <Text className="text-sm font-normal text-muted-foreground">
+                                    {group.mode === "all"
+                                        ? "and"
+                                        : group.mode === "none"
+                                          ? "nor"
+                                          : "or"}
+                                </Text>
+                            ) : null}
                             <DraggableQueryTag
                                 queryTag={queryTag}
                                 conditionId={condition.id}
                             />
                         </Animated.View>
-                        {condition.kind === "tag" && condition.negated ? (
-                            <Text className="text-[10px] font-bold text-muted-foreground">
-                                NOT APPLIED
-                            </Text>
-                        ) : null}
-                    </Animated.View>
-                ))}
+                    ))}
+                    {editor.pendingTag &&
+                    !dragState &&
+                    !members.some(
+                        (member) => member.tag.id === editor.pendingTag?.tag.id,
+                    ) ? (
+                        <TagPlacementOutline
+                            tag={editor.pendingTag.tag}
+                            onPress={() =>
+                                editor.placeTagInCondition(condition.id)
+                            }
+                            accessibilityLabel={`Add ${editor.pendingTag.tag.name} to this tag group`}
+                        />
+                    ) : null}
+                </View>
+                {editor.showVennDiagrams ? (
+                    <Pressable
+                        className="absolute bottom-1 right-0"
+                        disabled={!!dragState || !!editor.pendingTag}
+                        hitSlop={4}
+                        accessibilityRole="button"
+                        accessibilityLabel={
+                            group
+                                ? `Have ${group.mode} tags. Change matching mode`
+                                : condition.kind === "tag" && condition.negated
+                                  ? "Don't have tag. Change to have"
+                                  : "Have tag. Change to don't have"
+                        }
+                        onPress={() => {
+                            void Haptics.selectionAsync().catch(() => {});
+                            if (group) {
+                                onModeChange(
+                                    group.id,
+                                    group.mode === "all"
+                                        ? "any"
+                                        : group.mode === "any"
+                                          ? "none"
+                                          : "all",
+                                );
+                            } else {
+                                onToggleConditionNegation(condition.id);
+                            }
+                        }}
+                    >
+                        <VennDiagram
+                            single={!group}
+                            mode={
+                                group
+                                    ? group.mode
+                                    : condition.kind === "tag" &&
+                                        condition.negated
+                                      ? "none"
+                                      : "any"
+                            }
+                        />
+                    </Pressable>
+                ) : null}
             </View>
-        </DropSlot>
+        </View>
     );
     return (
-        <Animated.View
-            layout={
-                conditionLayoutAnimationsSuppressed
-                    ? undefined
-                    : CONDITION_LAYOUT_TRANSITION
-            }
-            className={cn(
-                "overflow-hidden rounded-xl border",
-                hovered ? "border-ring" : "border-border",
-            )}
+        <View
+            className="overflow-hidden rounded-xl border"
+            style={{
+                borderColor: hovered ? theme.primary : theme.border,
+            }}
         >
             <View pointerEvents="none" style={StyleSheet.absoluteFill}>
                 <GlassSurface
                     variant="regular"
-                    style={StyleSheet.absoluteFill}
-                />
-            </View>
-            {contents}
-        </Animated.View>
-    );
-}
-
-function ModeToggle({
-    mode,
-    onChange,
-}: {
-    mode: QueryGroupMode;
-    onChange: (mode: QueryGroupMode) => void;
-}) {
-    const { colorScheme = "light" } = useColorScheme();
-    const theme = THEME[colorScheme];
-    const modeIndex = GROUP_MODES.indexOf(mode);
-    const previewIndex = useSharedValue(modeIndex);
-    const thumbX = useSharedValue(modeIndex * MODE_OPTION_STEP);
-    const isSliding = useSharedValue(0);
-    const slideCompleted = useSharedValue(0);
-
-    useEffect(() => {
-        if (isSliding.get()) return;
-        previewIndex.set(modeIndex);
-        thumbX.set(withTiming(modeIndex * MODE_OPTION_STEP, MODE_KNOB_EASING));
-    }, [isSliding, modeIndex, previewIndex, thumbX]);
-
-    const commitIndex = useCallback(
-        (index: number) => onChange(GROUP_MODES[index]),
-        [onChange],
-    );
-    const animateAndCommit = useCallback(
-        (index: number) => {
-            if (previewIndex.get() !== index) triggerModeHaptic();
-            previewIndex.set(index);
-            thumbX.set(withTiming(index * MODE_OPTION_STEP, MODE_KNOB_EASING));
-            commitIndex(index);
-        },
-        [commitIndex, previewIndex, thumbX],
-    );
-    const gesture = useMemo(() => {
-        const indexForTouch = (x: number) => {
-            "worklet";
-            return Math.max(
-                0,
-                Math.min(
-                    GROUP_MODES.length - 1,
-                    Math.round(
-                        (x -
-                            MODE_CONTROL_HORIZONTAL_PADDING -
-                            MODE_OPTION_WIDTH / 2) /
-                            MODE_OPTION_STEP,
-                    ),
-                ),
-            );
-        };
-        const snapToTouch = (x: number) => {
-            "worklet";
-            const nextIndex = indexForTouch(x);
-            if (previewIndex.get() === nextIndex) return;
-            previewIndex.set(nextIndex);
-            thumbX.set(
-                withTiming(nextIndex * MODE_OPTION_STEP, MODE_KNOB_EASING),
-            );
-            runOnJS(triggerModeHaptic)();
-        };
-        const pan = Gesture.Pan()
-            .activeOffsetX([-4, 4])
-            .failOffsetY([-8, 8])
-            .onStart((event) => {
-                isSliding.set(1);
-                slideCompleted.set(0);
-                snapToTouch(event.x);
-            })
-            .onUpdate((event) => snapToTouch(event.x))
-            .onEnd(() => {
-                slideCompleted.set(1);
-                runOnJS(commitIndex)(previewIndex.get());
-            })
-            .onFinalize(() => {
-                if (isSliding.get() && !slideCompleted.get()) {
-                    previewIndex.set(modeIndex);
-                    thumbX.set(
-                        withTiming(
-                            modeIndex * MODE_OPTION_STEP,
-                            MODE_KNOB_EASING,
-                        ),
-                    );
-                }
-                isSliding.set(0);
-            });
-        const tap = Gesture.Tap()
-            .maxDistance(8)
-            .onEnd((event, success) => {
-                if (!success) return;
-                const nextIndex = indexForTouch(event.x);
-                if (previewIndex.get() !== nextIndex) {
-                    runOnJS(triggerModeHaptic)();
-                }
-                previewIndex.set(nextIndex);
-                thumbX.set(
-                    withTiming(nextIndex * MODE_OPTION_STEP, MODE_KNOB_EASING),
-                );
-                runOnJS(commitIndex)(nextIndex);
-            });
-        return Gesture.Race(pan, tap);
-    }, [
-        commitIndex,
-        isSliding,
-        modeIndex,
-        previewIndex,
-        slideCompleted,
-        thumbX,
-    ]);
-    const thumbStyle = useAnimatedStyle(() => ({
-        transform: [{ translateX: thumbX.get() }],
-    }));
-
-    return (
-        <GestureDetector gesture={gesture}>
-            <View
-                className="self-start flex-row rounded-full bg-secondary"
-                style={{
-                    paddingHorizontal: MODE_CONTROL_HORIZONTAL_PADDING,
-                    paddingVertical: MODE_CONTROL_VERTICAL_PADDING,
-                    gap: MODE_OPTION_GAP,
-                }}
-                accessibilityRole="radiogroup"
-            >
-                <Animated.View
-                    pointerEvents="none"
-                    className="absolute rounded-full"
                     style={[
-                        {
-                            left:
-                                MODE_CONTROL_HORIZONTAL_PADDING -
-                                MODE_KNOB_OFFSET,
-                            top: MODE_CONTROL_VERTICAL_PADDING,
-                            bottom: MODE_CONTROL_VERTICAL_PADDING,
-                            width: MODE_KNOB_WIDTH,
-                            backgroundColor: theme.background,
-                        },
-                        thumbStyle,
+                        StyleSheet.absoluteFill,
+                        { borderRadius: 11, overflow: "hidden" },
                     ]}
                 />
-                {GROUP_MODES.map((option, index) => (
-                    <ModeOption
-                        key={option}
-                        label={`HAVE ${option.toUpperCase()}`}
-                        index={index}
-                        mode={mode}
-                        option={option}
-                        thumbX={thumbX}
-                        foreground={theme.foreground}
-                        mutedForeground={theme.mutedForeground}
-                        onAccessibilitySelect={() => animateAndCommit(index)}
-                    />
-                ))}
             </View>
-        </GestureDetector>
-    );
-}
-
-function triggerModeHaptic() {
-    void Haptics.selectionAsync().catch(() => {
-        // Haptics are best-effort and should never block mode selection.
-    });
-}
-
-function ModeOption({
-    label,
-    index,
-    mode,
-    option,
-    thumbX,
-    foreground,
-    mutedForeground,
-    onAccessibilitySelect,
-}: {
-    label: string;
-    index: number;
-    mode: QueryGroupMode;
-    option: QueryGroupMode;
-    thumbX: SharedValue<number>;
-    foreground: string;
-    mutedForeground: string;
-    onAccessibilitySelect: () => void;
-}) {
-    const textStyle = useAnimatedStyle(() => {
-        const distance = Math.min(
-            1,
-            Math.abs(thumbX.get() / MODE_OPTION_STEP - index),
-        );
-        return {
-            color: interpolateColor(
-                distance,
-                [0, 1],
-                [foreground, mutedForeground],
-            ),
-        };
-    });
-    return (
-        <View
-            className="min-h-7 items-center justify-center"
-            style={{ width: MODE_OPTION_WIDTH }}
-            accessible
-            accessibilityRole="radio"
-            accessibilityState={{ checked: mode === option }}
-            accessibilityLabel={label}
-            onAccessibilityTap={onAccessibilitySelect}
-        >
-            <Animated.Text
-                className="text-[10px] font-bold tracking-wider"
-                style={textStyle}
+            <DropSlot
+                targetKey={`condition-${condition.id}`}
+                target={{ kind: "condition", conditionId: condition.id }}
+                priority={30}
             >
-                {label}
-            </Animated.Text>
+                {body}
+            </DropSlot>
         </View>
     );
 }
@@ -932,86 +456,46 @@ function ModeOption({
 function InsertionSlot({
     index,
     condition,
-    settleImmediately = false,
-    collapse = false,
-    deferReveal = false,
-    hidden = false,
     visible = true,
-    expanded = false,
-    onConnectorToggle,
 }: {
     index: number;
     condition: QueryCondition;
-    settleImmediately?: boolean;
-    collapse?: boolean;
-    deferReveal?: boolean;
-    hidden?: boolean;
     visible?: boolean;
-    expanded?: boolean;
-    onConnectorToggle: () => void;
 }) {
-    const { dragState, hoveredTargetKey } = useDrag();
-    const hovered = Boolean(
-        dragState && hoveredTargetKey === `insert-${index}`,
-    );
+    const { toggleOuterConnector, pendingTag } = useEditorActions();
+    const { dragState } = useDrag();
+    const hovered = useDropHover(`insert-${index}`);
     const conditionDrag =
         dragState?.payload.source === "condition" ? dragState.payload : null;
     const previewVisible = Boolean(hovered && !conditionDrag);
     const previewColor = dragState ? dragTagColor(dragState.payload) : null;
     const previewLabel = "CREATE A NEW TAG GROUP";
-    const connectorVisible = visible && !hidden && !previewVisible;
-    const baseHeight = collapse
-        ? 0
-        : previewVisible
-          ? CONNECTOR_HEIGHT
-          : visible
-            ? CONNECTOR_HEIGHT
-            : expanded
-              ? 16
-              : 8;
-    const slotHeight = useSharedValue(baseHeight);
-    const connectorProgress = useSharedValue(0);
-    const connectorNeedsSettling = useRef(false);
-    useLayoutEffect(() => {
-        slotHeight.set(
-            settleImmediately
-                ? baseHeight
-                : withTiming(baseHeight, {
-                      duration: REORDER_DURATION,
-                      easing: SOFT_EASING,
-                  }),
-        );
-    }, [baseHeight, settleImmediately, slotHeight]);
+    const connectorVisible = visible && !previewVisible;
+    const connectorProgress = useSharedValue(connectorVisible ? 1 : 0);
     useEffect(() => {
-        const animation = withTiming(connectorVisible ? 1 : 0, {
-            duration: CONNECTOR_REVEAL_DURATION,
-            easing: SOFT_EASING,
-        });
-        if (!connectorVisible) {
-            connectorNeedsSettling.current = deferReveal;
-        }
         connectorProgress.set(
-            connectorVisible && connectorNeedsSettling.current
-                ? withDelay(REORDER_DURATION, animation)
-                : animation,
+            withTiming(connectorVisible ? 1 : 0, {
+                duration: CONNECTOR_REVEAL_DURATION,
+                easing: SOFT_EASING,
+            }),
         );
-        if (connectorVisible) connectorNeedsSettling.current = false;
-    }, [connectorProgress, connectorVisible, deferReveal]);
+    }, [connectorProgress, connectorVisible]);
     const connectorStyle = useAnimatedStyle(() => ({
         opacity: connectorProgress.get(),
         transform: [{ scaleX: connectorProgress.get() }],
     }));
-    const slotStyle = useAnimatedStyle(() => ({
-        height: slotHeight.get(),
-    }));
-
     return (
-        <Animated.View style={slotStyle}>
+        // A fixed slot travels with each card. Only its contents animate;
+        // hiding the first connector never changes the measured row height.
+        <View
+            className="relative shrink-0"
+            style={{ height: CONNECTOR_HEIGHT }}
+        >
             <DropSlot
                 targetKey={`insert-${index}`}
                 target={{ kind: "insert", index }}
                 priority={20}
-                className="flex-1 flex-row items-center"
+                className="absolute inset-0 justify-center"
             >
                 {previewVisible && previewColor ? (
                     <NewGroupInsertionPreview
@@ -1020,32 +504,36 @@ function InsertionSlot({
                     />
                 ) : (
                     <Pressable
-                        onPress={onConnectorToggle}
-                        className="flex-1 flex-row items-center"
-                        accessible={connectorVisible}
-                        disabled={!connectorVisible}
-                        pointerEvents={connectorVisible ? "auto" : "none"}
-                        style={({ pressed }) => ({
-                            opacity: pressed ? 0.72 : 1,
-                        })}
+                        className="h-full w-full justify-center"
+                        disabled={
+                            !connectorVisible || !!dragState || !!pendingTag
+                        }
+                        onPress={toggleOuterConnector}
                         accessibilityRole="button"
-                        accessibilityLabel={`${conditionConnectorLabel(condition)} connector`}
-                        accessibilityHint={`Changes this connector to ${condition.connector === "and" ? "OR" : "AND"}`}
+                        accessibilityLabel={
+                            condition.connector === "and"
+                                ? "Match any group"
+                                : "Match all groups"
+                        }
                     >
                         <Animated.View
-                            className="flex-1 flex-row items-center"
+                            className="w-full flex-row items-center"
                             style={connectorStyle}
                         >
                             <View className="h-px flex-1 bg-border" />
-                            <Text className="mx-2 overflow-hidden rounded-full bg-secondary px-3 py-1.5 text-[10px] font-bold text-secondary-foreground">
-                                {conditionConnectorLabel(condition)}
-                            </Text>
+                            <View className="mx-2 rounded-full border border-border bg-secondary px-3 py-0.5">
+                                <Text className="text-[10px] font-bold text-secondary-foreground">
+                                    {condition.connector === "and"
+                                        ? "AND"
+                                        : "OR"}
+                                </Text>
+                            </View>
                             <View className="h-px flex-1 bg-border" />
                         </Animated.View>
                     </Pressable>
                 )}
             </DropSlot>
-        </Animated.View>
+        </View>
     );
 }
 
@@ -1078,7 +566,7 @@ function NewGroupInsertionPreview({
                     className="h-0.5 flex-1"
                     style={[{ backgroundColor: color }, lineStyle]}
                 />
-                <View className="bg-background px-3">
+                <View className="px-3">
                     <Text className="text-[10px] font-bold" style={{ color }}>
                         {label}
                     </Text>
@@ -1108,6 +596,7 @@ function DraggableQueryTag({
     queryTag: QueryTag;
     conditionId: string;
 }) {
+    const { removeQueryTag, editQueryTag, pendingTag } = useEditorActions();
     const dragPayload = useMemo(
         () => ({
             source: "query" as const,
@@ -1118,7 +607,44 @@ function DraggableQueryTag({
     );
     return (
         <DraggablePill payload={dragPayload}>
-            <QueryTagPill queryTag={queryTag} />
+            <Pressable
+                disabled={!!pendingTag}
+                className="py-[4px]"
+                onPress={() =>
+                    queryTag.tag.type === "basic"
+                        ? removeQueryTag(queryTag.id)
+                        : editQueryTag(queryTag)
+                }
+                accessibilityRole="button"
+                accessibilityLabel={`${queryTag.tag.type === "basic" ? "Remove" : "Edit"} ${queryTag.tag.name} in query`}
+            >
+                <QueryTagPill queryTag={queryTag} />
+            </Pressable>
         </DraggablePill>
+    );
+}
+
+function TagPlacementOutline({
+    tag,
+    onPress,
+    accessibilityLabel,
+}: {
+    tag: QueryTag["tag"];
+    onPress: () => void;
+    accessibilityLabel: string;
+}) {
+    return (
+        <Pressable
+            onPress={onPress}
+            onTouchEnd={(event) => event.stopPropagation()}
+            accessibilityRole="button"
+            accessibilityLabel={accessibilityLabel}
+            className="min-h-8 self-start rounded-full border border-dashed"
+            style={{ borderColor: tag.color }}
+        >
+            <View pointerEvents="none" style={{ opacity: 0 }}>
+                <TagPill tag={tag} height={14} />
+            </View>
+        </Pressable>
     );
 }

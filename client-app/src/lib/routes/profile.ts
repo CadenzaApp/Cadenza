@@ -56,4 +56,3 @@ export function useUpdateProfile() {
         updateProfile: x.trigger,
     };
 }
-

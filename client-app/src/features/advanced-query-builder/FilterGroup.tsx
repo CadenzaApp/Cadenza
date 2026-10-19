@@ -1,6 +1,12 @@
 import { useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import Animated, {
+    FadeInDown,
+    FadeOutUp,
+    LinearTransition,
+    ReduceMotion,
+} from "react-native-reanimated";
 import { useTheme } from "expo-router/react-navigation";
 
 import { Text } from "@/components/ui/text";
@@ -93,7 +99,7 @@ export function FilterGroup({ group, isRoot, tags, actions }: Props) {
                         { borderColor: colors.border },
                     ]}
                 >
-                    <Text className="text-base font-medium">
+                    <Text className="text-sm font-semibold">
                         {CONJUNCTION_LABELS[group.conjunction]}
                     </Text>
                     <Ionicons
@@ -117,24 +123,35 @@ export function FilterGroup({ group, isRoot, tags, actions }: Props) {
                 </Text>
             )}
 
-            {group.children.map((child, index) =>
-                child.kind === "filter" ? (
-                    <FilterRow
-                        key={child.id}
-                        filter={child}
-                        connector={connectorLabel(group.conjunction, index)}
-                        tags={tags}
-                        actions={actions}
-                    />
-                ) : (
-                    <FilterGroup
-                        key={child.id}
-                        group={child}
-                        tags={tags}
-                        actions={actions}
-                    />
-                ),
-            )}
+            {group.children.map((child, index) => (
+                <Animated.View
+                    key={child.id}
+                    entering={FadeInDown.duration(200).reduceMotion(
+                        ReduceMotion.System,
+                    )}
+                    exiting={FadeOutUp.duration(160).reduceMotion(
+                        ReduceMotion.System,
+                    )}
+                    layout={LinearTransition.duration(200).reduceMotion(
+                        ReduceMotion.System,
+                    )}
+                >
+                    {child.kind === "filter" ? (
+                        <FilterRow
+                            filter={child}
+                            connector={connectorLabel(group.conjunction, index)}
+                            tags={tags}
+                            actions={actions}
+                        />
+                    ) : (
+                        <FilterGroup
+                            group={child}
+                            tags={tags}
+                            actions={actions}
+                        />
+                    )}
+                </Animated.View>
+            ))}
 
             <View
                 className="flex-row flex-wrap"

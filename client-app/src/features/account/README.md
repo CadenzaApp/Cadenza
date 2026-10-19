@@ -7,7 +7,7 @@ actions. Appearance and the other marked settings are local previews only.
 
 | file                            | role                                                                                                                                               |
 | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `account-settings.tsx`          | Account cards, profile username/bio editing, authentication actions, suggested-tag display setting, content toggle, privacy, and sync stub.         |
+| `account-settings.tsx`          | Account cards, profile username/bio editing, authentication actions, suggested-tag display setting, content toggle, privacy, and sync stub.        |
 | `appearance-settings.tsx`       | Session-only color controls and preview.                                                                                                           |
 | `settings-ui.tsx`               | Shared glass panels, rows, icons, and the TODO badge.                                                                                              |
 | `apple-music-session-guard.tsx` | `AppleMusicSessionGuard`: renders nothing, opens this sheet once when Apple rejects the stored music-user token. Mounted in `src/app/_layout.tsx`. |
@@ -22,9 +22,10 @@ The Profile panel loads the signed-in user's row from `GET /profile` and saves w
 `PATCH /profile`. Username is capped at 64 characters and cannot contain `@`. Bio is capped
 at 500. Empty bio is allowed.
 
-When `useAppleMusic().sessionExpired` is set, the Apple Music card says the token expired and
-to reconnect. That flag is set by `reportAppleMusicAuthFailure()` after an Apple Music read has
-taken a 403 twice, and `AppleMusicSessionGuard` is what brings the person here to act on it.
+When `useAppleMusic().sessionExpired` is set, the Apple Music card says the connection needs
+attention and offers a reconnect. This does not prove the user token expired: the flag is set
+after an Apple Music read returns an authentication error twice. `AppleMusicSessionGuard`
+brings the person here to act on it.
 
 The account avatar and action surfaces use neutral glass. Destructive button labels and icons
 carry the red treatment without tinting the entire surface.

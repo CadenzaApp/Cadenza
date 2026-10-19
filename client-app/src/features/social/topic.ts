@@ -109,9 +109,7 @@ export function useResolvedTopic(
     );
     const song = useMemo(() => {
         if (!id) return undefined;
-        return songInfo.find(
-            (item) => item.id === id || item.catalogId === id,
-        );
+        return songInfo.find((item) => item.id === id || item.catalogId === id);
     }, [id, songInfo]);
     const tryArtist =
         Boolean(id) &&

@@ -4,7 +4,7 @@ Obsidian-style filter builder for attribute tags. Instead of dragging tags into 
 the user builds nested groups of `where <tag> <operator> <value>` lines, so a query can look at
 a tag's value ("created_at on or after 1950-01-01"), at tag names, values, and types across
 every tag on a song, or at the song's own Apple Music metadata ("Artist starts with P"). Rendered inside `features/cadenza/CadenzaScreen.tsx`, which owns the tree,
-submitted query, shared preview, and the Simple / Advanced mode toggle.
+submitted query, shared results action, and the Simple / Advanced mode toggle.
 
 ## Files
 
@@ -12,10 +12,10 @@ submitted query, shared preview, and the Simple / Advanced mode toggle.
 | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `types.ts`                 | The builder tree (`AdvancedGroupNode`, `AdvancedFilterNode`), `FilterField`, and `FieldKind`. Re-exports `FilterOp`; the wire format itself lives in `@/lib/query-json`.                                   |
 | `AdvancedQueryUtils.ts`    | Pure: operator tables and labels, immutable tree ops, date helpers, and `buildAdvancedQuery`, which compiles the tree to `QueryJSON`. Unit tested in `AdvancedQueryUtils.test.ts`.                         |
-| `AdvancedQueryBuilder.tsx` | Scrollable root group. Binds the tree ops into a `BuilderActions` object; the shared result-summary arrow owns navigation.                                                                                 |
+| `AdvancedQueryBuilder.tsx` | Scrollable root group. Binds tree ops to `BuilderActions`; shared results/history actions float above the navigation/player inset.                                                                         |
 | `FilterGroup.tsx`          | One group: the all / any / none selector, its children, and the "Add filter" / "Add filter group" buttons. Recursive. Exports `BuilderTags` and `BuilderActions`.                                          |
 | `FilterRow.tsx`            | One filter line: connector word, field picker (Properties, Metadata, Your tags), operator picker, value input, and the remove button. Exports `RemoveButton`.                                              |
-| `FilterValueInput.tsx`     | The value input for a line: text, number, a calendar day, a date and time, or a tag type.                                                                                                                  |
+| `FilterValueInput.tsx`     | The value input for a line: text, number, a calendar day, a date and time, or a tag type. Its compact width is shared with Simple's value-tag popup.                                                       |
 | `OptionPicker.tsx`         | Liquid-glass popup list with optional sections and search. Its own `Modal`, sized for a phone: near full width, up to 80% of the screen tall, 56pt rows. Scrolls vertically and wraps long labels.         |
 | `field-icons.ts`           | `TYPE_ICONS` (an alias of `@/lib/tag-values::TAG_TYPE_ICONS`, shared with `TagPill`), the three "property" fields (tag name, tag value, tag type), and the metadata fields, each with its tag type's icon. |
 
@@ -78,9 +78,15 @@ than only the applied filters.
 
 The Cadenza screen compiles the tree as it changes and sends every successfully built query through
 `useQueryResults(query, considerDefaultTags)` from `@/lib/routes/queries`, in the body of
-`POST /queries/results`. Song ids come back most relevant first and are mapped to the complete
-cached Apple Music library. The advanced builder has no separate submit button. It uses the same `ResultsSummary` count, preview, and next arrow as
-the simple builder; the arrow opens the shared `/query-results` full-screen `QueryResults` route.
+`POST /queries/results`. Song ids come back most relevant first; the editor uses their count directly. The advanced builder has no separate submit button. It uses the same `ResultsSummary` count button as the simple builder. The button opens the shared
+`/query-results` full-screen `QueryResults` route, where MusicKit tracks and artwork are resolved.
+
+The first switch from Simple seeds Advanced with its current query, including value-tag and
+metadata predicates, only if no Advanced draft exists. The editors then keep separate drafts,
+including empty drafts, and separate 20-edit undo histories. Switching never converts Advanced
+back into Simple or prompts about drafts. Consecutive value typing coalesces into one undo step.
+Suggested tags already used in Simple are available here while Show suggested tags is on.
+Header settings apply to both editors and cannot disable suggestions while either draft uses one.
 
 ## Connects to
 

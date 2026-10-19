@@ -1,7 +1,6 @@
 import ExpoModulesCore
 import Foundation
 @preconcurrency import MusicKit
-import StoreKit
 
 /// An error this module throws across the bridge.
 ///
@@ -715,30 +714,22 @@ public class AppleMusicKitModule: Module {
             case .authorized:
                 guard !developerToken.isEmpty else { return ["status": "authorized"] }
                 do {
-                    let userToken: String = try await withCheckedThrowingContinuation {
-                        continuation in
-                        SKCloudServiceController().requestUserToken(
-                            forDeveloperToken: developerToken
-                        ) { token, error in
-                            if let error = error {
-                                continuation.resume(throwing: error)
-                            } else if let token = token {
-                                continuation.resume(returning: token)
-                            } else {
-                                continuation.resume(
-                                    throwing: NSError(
-                                        domain: "AppleMusicKit", code: -1,
-                                        userInfo: [
-                                            NSLocalizedDescriptionKey:
-                                                "requestUserToken returned neither a token nor an error."
-                                        ]))
-                            }
-                        }
-                    }
+                    // MusicKit owns user-token acquisition on Apple platforms.
+                    // StoreKit's requestUserToken API is deprecated and was
+                    // returning SKError.clientInvalid after token renewal.
+                    let provider = StaticDeveloperTokenProvider(token: developerToken)
+                    MusicDataRequest.tokenProvider = provider
+                    let userToken = try await provider.userToken(
+                        for: developerToken,
+                        options: [.ignoreCache]
+                    )
                     self.userToken = userToken
                     return ["status": "authorized", "userToken": userToken]
                 } catch {
-                    return ["status": "failed", "error": error.localizedDescription]
+                    return [
+                        "status": "failed",
+                        "error": "Apple Music couldn't connect. Check your connection and try again."
+                    ]
                 }
             case .denied: return ["status": "denied"]
             case .restricted: return ["status": "restricted"]

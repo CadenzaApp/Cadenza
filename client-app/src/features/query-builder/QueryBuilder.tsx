@@ -2,25 +2,33 @@ import {
     useCallback,
     useEffect,
     useRef,
+    useMemo,
     useState,
     type Dispatch,
+    type ReactNode,
     type SetStateAction,
 } from "react";
-import { KeyboardAvoidingView, Platform, Pressable, View } from "react-native";
-import Ionicons from "@expo/vector-icons/Ionicons";
-import Animated from "react-native-reanimated";
+import { KeyboardAvoidingView, Platform, View } from "react-native";
+import Animated, {
+    useAnimatedStyle,
+    useScrollOffset,
+    useSharedValue,
+    type SharedValue,
+} from "react-native-reanimated";
+import { DropSlot } from "./DropSlot";
+import { DropViewport } from "./DropViewport";
+import { TAG_PALETTE_MAX_HEIGHT, clampPaletteHeight } from "./palette-geometry";
 
-import { GlassToggle } from "@/components/ui/glass-toggle";
-import { Text } from "@/components/ui/text";
-import { THEME } from "@/lib/theme";
-import type { Tag, TagMetadata } from "@/lib/types";
-import { useScreenOverlayInsets } from "@/lib/screen-overlay";
-import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
+import {
+    supportsNativeTabBottomAccessory,
+    useScreenOverlayInsets,
+} from "@/lib/screen-overlay";
 import { useScreenScroll } from "@/lib/screen-scroll";
-import { useColorScheme } from "nativewind";
-import { ConditionList } from "./ConditionList";
+import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
+import type { Tag, TagMetadata } from "@/lib/types";
+import { ConditionList, EditorActionsContext } from "./ConditionList";
+import { DragProvider, useDrag, useRefreshDragHover } from "./DragContext";
 import { DragGhost } from "./DragGhost";
-import { DragProvider } from "./DragContext";
 import {
     addTagToCondition,
     appendTag,
@@ -28,59 +36,129 @@ import {
     moveConditionToIndex,
     moveQueryTagToCondition,
     moveQueryTagToIndex,
-    queryHeading,
     removeCondition,
     removeQueryTag,
     setGroupMode,
-    toggleConditionConnector,
     toggleConditionNegation,
+    updateQueryTagConstraint,
+    usedTagIds as collectUsedTagIds,
 } from "./QueryUtils";
+import { TagConstraintDialog } from "./TagConstraintDialog";
 import { TagPalette } from "./TagPalette";
 import type {
     DragPayload,
     DropTarget,
     QueryCondition,
+    QueryConnector,
     QueryGroupMode,
+    QueryTag,
+    QueryTagConstraint,
+    TagPlacement,
 } from "./types";
 
 type Props = {
+    headingOverlapHeight: number;
+    resultsAction: ReactNode;
+    historyAction: ReactNode;
+    showVennDiagrams: boolean;
+    showAdvancedTags: boolean;
+    showMetadataTags: boolean;
     tags: Tag[];
     tagMetadata?: Readonly<Record<number, TagMetadata>>;
     conditions: QueryCondition[];
     setConditions: Dispatch<SetStateAction<QueryCondition[]>>;
+    pendingTag: TagPlacement | null;
+    setPendingTag: Dispatch<SetStateAction<TagPlacement | null>>;
     includeSuggestedTags: boolean;
-    onIncludeSuggestedTagsChange: (value: boolean) => void;
+    outerConnector: QueryConnector;
+    onOuterConnectorChange: (value: QueryConnector) => void;
 };
-const DEFAULT_PALETTE_HEIGHT = 208;
+const DEFAULT_PALETTE_HEIGHT = 268;
 
 export function QueryBuilder({
+    headingOverlapHeight,
+    resultsAction,
+    historyAction,
+    showVennDiagrams,
+    showAdvancedTags,
+    showMetadataTags,
     tags,
     tagMetadata,
     conditions,
     setConditions,
+    pendingTag,
+    setPendingTag,
     includeSuggestedTags,
-    onIncludeSuggestedTagsChange,
+    outerConnector,
+    onOuterConnectorChange,
 }: Props) {
     const { compactPlayerVisible, playerBottomInset } =
         useScreenOverlayInsets();
+    // UIKit already removes the native accessory's space from this screen.
+    // Growing the palette by the full bottom inset duplicates that footprint.
     const defaultPaletteHeight =
-        DEFAULT_PALETTE_HEIGHT + (compactPlayerVisible ? playerBottomInset : 0);
+        DEFAULT_PALETTE_HEIGHT +
+        (compactPlayerVisible && !supportsNativeTabBottomAccessory()
+            ? playerBottomInset
+            : 0);
     const paletteWasResized = useRef(false);
     const [paletteHeight, setPaletteHeight] = useState(defaultPaletteHeight);
-    const { colorScheme = "light" } = useColorScheme();
-    const theme = THEME[colorScheme];
+    const visiblePaletteHeight = useSharedValue(defaultPaletteHeight);
+    const handlePaletteHeightChange = useCallback(
+        (height: number) => {
+            paletteWasResized.current = true;
+            const next = clampPaletteHeight(height, 0);
+            visiblePaletteHeight.set(next);
+            setPaletteHeight(next);
+        },
+        [visiblePaletteHeight],
+    );
+    const usedTagIds = useMemo(
+        () => collectUsedTagIds(conditions),
+        [conditions],
+    );
     const scroll = useScreenScroll();
+    const scrollOffset = useScrollOffset(scroll.ref);
+    const [constraintDraft, setConstraintDraft] = useState<
+        | { kind: "add"; tag: Tag; suggested: boolean; target: DropTarget }
+        | { kind: "edit"; queryTag: QueryTag }
+        | null
+    >(null);
     useEffect(() => {
         if (!paletteWasResized.current) {
             setPaletteHeight(defaultPaletteHeight);
         }
     }, [defaultPaletteHeight]);
-    const handlePaletteHeightChange = useCallback((height: number) => {
-        paletteWasResized.current = true;
-        setPaletteHeight(height);
-    }, []);
     const handleDrop = useCallback(
         (payload: DragPayload, target: DropTarget) => {
+            if (
+                payload.source === "palette" &&
+                payload.tag.type !== "basic" &&
+                target.kind !== "delete"
+            ) {
+                if (target.kind === "condition") {
+                    const destination = conditions.find(
+                        (item) => item.id === target.conditionId,
+                    );
+                    if (
+                        destination &&
+                        (destination.kind === "tag"
+                            ? destination.tag.id === payload.tag.id
+                            : destination.members.some(
+                                  (member) => member.tag.id === payload.tag.id,
+                              ))
+                    )
+                        return;
+                }
+                setPendingTag(null);
+                setConstraintDraft({
+                    kind: "add",
+                    tag: payload.tag,
+                    suggested: payload.suggested,
+                    target,
+                });
+                return;
+            }
             setConditions((current) => {
                 if (payload.source === "condition") {
                     if (target.kind === "delete") {
@@ -153,7 +231,7 @@ export function QueryBuilder({
                 );
             });
         },
-        [setConditions],
+        [conditions, setConditions, setPendingTag],
     );
     const toggleNegation = useCallback(
         (id: string) =>
@@ -165,80 +243,294 @@ export function QueryBuilder({
             setConditions((current) => setGroupMode(current, id, mode)),
         [setConditions],
     );
-    const toggleConnector = useCallback(
-        (id: string) =>
-            setConditions((current) => toggleConditionConnector(current, id)),
-        [setConditions],
+    const selectPaletteTag = useCallback(
+        (tag: Tag, suggested: boolean) => {
+            if (conditions.length === 0) {
+                setPendingTag(null);
+                if (tag.type === "basic") {
+                    setConditions((current) =>
+                        appendTag(current, tag, suggested),
+                    );
+                } else {
+                    setConstraintDraft({
+                        kind: "add",
+                        tag,
+                        suggested,
+                        target: { kind: "query-end" },
+                    });
+                }
+            } else {
+                setPendingTag({
+                    tag,
+                    suggested,
+                    conditionIds: conditions.map((condition) => condition.id),
+                });
+            }
+        },
+        [conditions, setConditions, setPendingTag],
+    );
+    const placeTagInCondition = useCallback(
+        (conditionId: string) => {
+            if (!pendingTag) return;
+            if (pendingTag.tag.type === "basic") {
+                setConditions((current) =>
+                    addTagToCondition(
+                        current,
+                        pendingTag.tag,
+                        conditionId,
+                        pendingTag.suggested,
+                    ),
+                );
+            } else {
+                setConstraintDraft({
+                    kind: "add",
+                    tag: pendingTag.tag,
+                    suggested: pendingTag.suggested,
+                    target: { kind: "condition", conditionId },
+                });
+            }
+            setPendingTag(null);
+        },
+        [pendingTag, setConditions, setPendingTag],
+    );
+    const placeTagInNewCondition = useCallback(() => {
+        if (!pendingTag) return;
+        if (pendingTag.tag.type === "basic") {
+            setConditions((current) =>
+                appendTag(current, pendingTag.tag, pendingTag.suggested),
+            );
+        } else {
+            setConstraintDraft({
+                kind: "add",
+                tag: pendingTag.tag,
+                suggested: pendingTag.suggested,
+                target: { kind: "query-end" },
+            });
+        }
+        setPendingTag(null);
+    }, [pendingTag, setConditions, setPendingTag]);
+    const saveConstraint = useCallback(
+        (constraint: QueryTagConstraint) => {
+            if (!constraintDraft) return;
+            if (constraintDraft.kind === "edit") {
+                setConditions((current) =>
+                    updateQueryTagConstraint(
+                        current,
+                        constraintDraft.queryTag.id,
+                        constraint,
+                    ),
+                );
+            } else {
+                const { tag, suggested, target } = constraintDraft;
+                setConditions((current) => {
+                    if (target.kind === "condition")
+                        return addTagToCondition(
+                            current,
+                            tag,
+                            target.conditionId,
+                            suggested,
+                            constraint,
+                        );
+                    if (target.kind === "insert")
+                        return insertTag(
+                            current,
+                            tag,
+                            target.index,
+                            suggested,
+                            constraint,
+                        );
+                    return appendTag(current, tag, suggested, constraint);
+                });
+            }
+            setConstraintDraft(null);
+        },
+        [constraintDraft, setConditions],
     );
 
     return (
-        <DragProvider onDrop={handleDrop}>
-            <KeyboardAvoidingView
-                className="flex-1 bg-background"
-                behavior={Platform.OS === "ios" ? "padding" : undefined}
-                keyboardVerticalOffset={80}
-            >
-                <View className="flex-1 bg-background">
-                    <View className="flex-row items-center gap-3 px-4 pt-2">
-                        <Ionicons
-                            name="sparkles-outline"
-                            size={17}
-                            color={theme.mutedForeground}
-                        />
-                        <Text className="flex-1 text-sm font-medium text-muted-foreground">
-                            Consider suggested tags too
-                        </Text>
-                        <GlassToggle
-                            value={includeSuggestedTags}
-                            onValueChange={onIncludeSuggestedTagsChange}
-                            accessibilityLabel="Consider suggested tags too"
-                        />
-                    </View>
-                    <View className="flex-row items-center px-4 pb-1 pt-2">
-                        <Text className="flex-1 text-lg font-bold">
-                            {queryHeading(conditions)}
-                        </Text>
-                        {conditions.length ? (
-                            <Pressable
-                                onPress={() => setConditions([])}
-                                className="h-8 w-8 items-center justify-center rounded-full active:bg-accent"
-                                accessibilityRole="button"
-                                accessibilityLabel="Clear query"
+        <EditorActionsContext.Provider
+            value={{
+                showVennDiagrams,
+                toggleOuterConnector: () =>
+                    onOuterConnectorChange(
+                        outerConnector === "and" ? "or" : "and",
+                    ),
+                removeGroup: (id) =>
+                    setConditions((current) => removeCondition(current, id)),
+                removeQueryTag: (id) =>
+                    setConditions((current) => removeQueryTag(current, id)),
+                editQueryTag: (queryTag) =>
+                    setConstraintDraft({ kind: "edit", queryTag }),
+                pendingTag,
+                placeTagInCondition,
+                placeTagInNewCondition,
+            }}
+        >
+            <DragProvider onDrop={handleDrop} bottomInset={playerBottomInset}>
+                <KeyboardAvoidingView
+                    className="flex-1"
+                    style={
+                        headingOverlapHeight
+                            ? { marginTop: -headingOverlapHeight }
+                            : undefined
+                    }
+                    behavior={Platform.OS === "ios" ? "padding" : undefined}
+                    keyboardVerticalOffset={80}
+                >
+                    <QueryDropViewport
+                        scrollY={scrollOffset}
+                        visibleHeight={visiblePaletteHeight}
+                        topInset={headingOverlapHeight}
+                    >
+                        <ScreenScrollMarker>
+                            <Animated.ScrollView
+                                {...scroll}
+                                removeClippedSubviews={false}
+                                className="flex-1"
+                                contentContainerClassName="flex-grow px-[18px]"
+                                contentContainerStyle={{
+                                    paddingTop: headingOverlapHeight,
+                                    paddingBottom: paletteHeight + 64,
+                                }}
+                                keyboardShouldPersistTaps="handled"
                             >
-                                <Ionicons
-                                    name="refresh-outline"
-                                    size={19}
-                                    color={theme.mutedForeground}
+                                <ConditionList
+                                    scrollRef={scroll.ref}
+                                    scrollOffset={scrollOffset}
+                                    viewportTopInset={headingOverlapHeight}
+                                    viewportBottomInset={visiblePaletteHeight}
+                                    bottomClearance={paletteHeight + 64}
+                                    conditions={conditions}
+                                    onToggleConditionNegation={toggleNegation}
+                                    onModeChange={changeMode}
                                 />
-                            </Pressable>
-                        ) : null}
-                    </View>
-                    <ScreenScrollMarker>
-                        <Animated.ScrollView
-                            {...scroll}
-                            className="flex-1"
-                            contentContainerClassName="flex-grow px-5 pb-2"
-                            keyboardShouldPersistTaps="handled"
-                        >
-                            <ConditionList
-                                conditions={conditions}
-                                onToggleConditionNegation={toggleNegation}
-                                onModeChange={changeMode}
-                                onConnectorToggle={toggleConnector}
-                            />
-                        </Animated.ScrollView>
-                    </ScreenScrollMarker>
-                </View>
+                                {conditions.length > 0 ? (
+                                    <>
+                                        <DropSlot
+                                            targetKey="workspace-end"
+                                            target={{ kind: "query-end" }}
+                                            className="min-h-12 flex-1"
+                                        />
+                                    </>
+                                ) : null}
+                            </Animated.ScrollView>
+                        </ScreenScrollMarker>
+                        <FloatingActions
+                            historyAction={historyAction}
+                            resultsAction={resultsAction}
+                            visibleHeight={visiblePaletteHeight}
+                        />
+                    </QueryDropViewport>
 
-                <TagPalette
-                    tags={tags}
-                    tagMetadata={tagMetadata}
-                    height={paletteHeight}
-                    onHeightChange={handlePaletteHeightChange}
-                    includeSuggestedTags={includeSuggestedTags}
-                />
-            </KeyboardAvoidingView>
-            <DragGhost />
-        </DragProvider>
+                    <View
+                        pointerEvents="box-none"
+                        className="absolute inset-0 overflow-hidden"
+                    >
+                        <TagPalette
+                            tags={tags}
+                            tagMetadata={tagMetadata}
+                            height={paletteHeight}
+                            visibleHeight={visiblePaletteHeight}
+                            onHeightChange={handlePaletteHeightChange}
+                            includeSuggestedTags={includeSuggestedTags}
+                            showAdvancedTags={showAdvancedTags}
+                            showMetadataTags={showMetadataTags}
+                            pendingTag={pendingTag}
+                            onTagTap={selectPaletteTag}
+                            usedTagIds={usedTagIds}
+                        />
+                    </View>
+                </KeyboardAvoidingView>
+                <DragGhost />
+                {constraintDraft ? (
+                    <TagConstraintDialog
+                        key={
+                            constraintDraft.kind === "edit"
+                                ? constraintDraft.queryTag.id
+                                : `${constraintDraft.tag.id}-${constraintDraft.target.kind}`
+                        }
+                        tag={
+                            constraintDraft.kind === "edit"
+                                ? constraintDraft.queryTag.tag
+                                : constraintDraft.tag
+                        }
+                        initial={
+                            constraintDraft.kind === "edit"
+                                ? (constraintDraft.queryTag.constraint ?? {
+                                      op: "is_applied",
+                                  })
+                                : undefined
+                        }
+                        onClose={() => setConstraintDraft(null)}
+                        onSave={saveConstraint}
+                        onDelete={
+                            constraintDraft.kind === "edit"
+                                ? () => {
+                                      setConditions((current) =>
+                                          removeQueryTag(
+                                              current,
+                                              constraintDraft.queryTag.id,
+                                          ),
+                                      );
+                                      setConstraintDraft(null);
+                                  }
+                                : undefined
+                        }
+                    />
+                ) : null}
+            </DragProvider>
+        </EditorActionsContext.Provider>
+    );
+}
+
+function QueryDropViewport({
+    children,
+    scrollY,
+    visibleHeight,
+    topInset,
+}: {
+    children: ReactNode;
+    scrollY: SharedValue<number>;
+    visibleHeight: SharedValue<number>;
+    topInset: number;
+}) {
+    useRefreshDragHover(scrollY, visibleHeight);
+    return (
+        <DropViewport
+            className="flex-1"
+            scrollY={scrollY}
+            topInset={topInset}
+            bottomInset={visibleHeight}
+        >
+            {children}
+        </DropViewport>
+    );
+}
+
+function FloatingActions({
+    historyAction,
+    resultsAction,
+    visibleHeight,
+}: {
+    historyAction: ReactNode;
+    resultsAction: ReactNode;
+    visibleHeight: SharedValue<number>;
+}) {
+    const { dragState } = useDrag();
+    const positionStyle = useAnimatedStyle(() => ({
+        transform: [
+            { translateY: TAG_PALETTE_MAX_HEIGHT - visibleHeight.get() },
+        ],
+    }));
+    if (dragState) return null;
+    return (
+        <Animated.View
+            pointerEvents="box-none"
+            className="absolute right-5 left-5 flex-row items-start justify-between"
+            style={[{ bottom: TAG_PALETTE_MAX_HEIGHT + 12 }, positionStyle]}
+        >
+            <View>{historyAction}</View>
+            {resultsAction}
+        </Animated.View>
     );
 }

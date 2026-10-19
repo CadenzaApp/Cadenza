@@ -35,7 +35,7 @@ type ScreenScrollProps<T extends Scroller> = {
     ref: AnimatedRef<T>;
     onScroll: ReturnType<typeof useAnimatedScrollHandler>;
     scrollEventThrottle: number;
-    style: AnimatedStyle<ViewStyle>;
+    style: AnimatedStyle<ViewStyle> | undefined;
     /**
      * The top padding a floating rail needs, undefined with none. A scroller
      * with its own content style lists this last in it, so it wins over the
