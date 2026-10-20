@@ -41,12 +41,18 @@ struct AppState {
     social_feed_service: SocialFeedService,
 }
 
-/// One shared pool per backend process, independent of the number of app clients.
+/// The pool we are allowed to open against Supabase's pooler.
 ///
-/// Session-mode Supabase connections reserve a slot for each open SQLx connection.
-/// Cloning this handle shares the pool; it does not create another one. Idle and
-/// lifetime limits retire connections while this process is running, not after
-/// a crash. Keep session mode for SQLx's named prepared statements.
+/// Sea-ORM defaults to 100 connections, which no Supabase pool can serve.
+/// Point `DATABASE_URL` at the transaction-mode port (6543) so the pooler
+/// multiplexes these across far fewer server connections; the session-mode
+/// port (5432) pins one server connection per client for its whole life and
+/// runs out at `pool_size`, and a backend killed mid-run leaves those pinned
+/// until the pooler reaps them.
+///
+/// `max_lifetime` and `idle_timeout` are what keep a crash from stranding
+/// connections for long: the pool hands them back on its own rather than
+/// waiting to be asked.
 fn db_connect_options(db_url: String) -> ConnectOptions {
     let mut options = ConnectOptions::new(db_url);
     options
@@ -55,12 +61,11 @@ fn db_connect_options(db_url: String) -> ConnectOptions {
         .acquire_timeout(Duration::from_secs(10))
         .idle_timeout(Duration::from_secs(60))
         .max_lifetime(Duration::from_secs(30 * 60))
-        .set_application_name(format!("cadenza-backend-api:{}", std::process::id()))
         .sqlx_logging(false);
     options
 }
 
-/// Per-process cap. Other processes and pooler-retained clients use separate slots.
+/// Well under any Supabase pool so one run cannot exhaust it on its own.
 const MAX_DB_CONNECTIONS: u32 = 10;
 
 #[tokio::main]
@@ -73,12 +78,6 @@ async fn main() {
     let db = Database::connect(db_connect_options(db_url))
         .await
         .expect("error connecting to db");
-
-    println!(
-        "[db] pid={} pool_max={} pool_min=0 idle_timeout=60s max_lifetime=1800s",
-        std::process::id(),
-        MAX_DB_CONNECTIONS
-    );
 
     // builds a decoder used for parsing JSON Web Tokens into SupabaseClaims structs, which contain auth info like user id and token expiration time.
     let jwt_decoder = new_jwt_decoder().await;
@@ -133,7 +132,6 @@ async fn main() {
         None => println!("metadata crawl: off"),
     }
 
-    let log_db = db.clone();
     let app_state = AppState {
         db,
         jwt_decoder,
@@ -154,10 +152,7 @@ async fn main() {
         .nest("/analytics", get_analytics_router())
         .route("/test", axum::routing::get(async || "server is reachable"))
         .with_state(app_state)
-        .layer(middleware::from_fn_with_state(
-            log_db,
-            request_log::log_request,
-        ));
+        .layer(middleware::from_fn(request_log::log_request));
 
     // show time baby
     // Defaults to loopback. Set BIND_ADDR=0.0.0.0:3000 to accept connections
@@ -172,24 +167,4 @@ async fn main() {
         .serve(app.into_make_service())
         .await
         .unwrap();
-}
-
-#[cfg(test)]
-mod connection_pool_tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn database_handles_share_one_bounded_pool() {
-        // Lazy and min=0: this test must not contact a real database.
-        let mut options = db_connect_options("postgres://test:test@localhost/test".to_owned());
-        options.connect_lazy(true);
-        let db = Database::connect(options).await.expect("lazy pool");
-        let pool = db.get_postgres_connection_pool();
-        assert_eq!(pool.options().get_max_connections(), MAX_DB_CONNECTIONS);
-        assert_eq!(pool.options().get_min_connections(), 0);
-        assert_eq!(pool.size(), 0);
-        let other_handle = db.clone();
-        other_handle.close().await.expect("close shared pool");
-        assert!(pool.is_closed(), "cloning must not create another pool");
-    }
 }
