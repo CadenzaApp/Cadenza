@@ -114,7 +114,9 @@ above their native tab bar with the same swipe-away behavior.
 
 Native tabs apply scrolling content insets. `useScreenOverlayInsets` now adds only app spacing
 for scroll content and keeps a conservative maximum chrome footprint for absolute controls such
-as floating buttons and the selection toolbar. Expo does not expose native tab-bar measurement.
+as floating buttons and the selection toolbar. A tab screen the native bar floats over, like the
+Cadenza query workspace, uses `floatingOverTabBarBottom` instead, which clears the whole bar.
+Expo does not expose native tab-bar measurement.
 The focused Search state hides both the native bar and the accessory through the existing token
 based visibility context.
 

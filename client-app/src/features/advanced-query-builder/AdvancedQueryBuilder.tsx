@@ -46,8 +46,10 @@ export function AdvancedQueryBuilder({
     setRoot,
     message,
 }: Props) {
-    const { contentBottomInset, floatingActionBottom } =
-        useScreenOverlayInsets();
+    // the native tab bar floats over this screen, so the floating actions
+    // and the editor's bottom edge clear all of it, the same as the palette
+    // in the simple builder
+    const { floatingOverTabBarBottom } = useScreenOverlayInsets();
     const builderTags = useMemo<BuilderTags>(() => {
         const every = [...tags, ...activityTags];
         return {
@@ -91,7 +93,7 @@ export function AdvancedQueryBuilder({
     return (
         <View
             className="flex-1 gap-3 px-4 pt-4"
-            style={{ paddingBottom: contentBottomInset + 16 }}
+            style={{ paddingBottom: floatingOverTabBarBottom }}
         >
             <ScrollView
                 className="flex-1"
@@ -109,7 +111,7 @@ export function AdvancedQueryBuilder({
             <View
                 pointerEvents="box-none"
                 className="absolute right-5 left-5 flex-row items-start justify-between"
-                style={{ bottom: floatingActionBottom }}
+                style={{ bottom: floatingOverTabBarBottom }}
             >
                 <View>{historyAction}</View>
                 {resultsAction}
