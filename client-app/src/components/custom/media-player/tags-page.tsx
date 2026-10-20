@@ -91,6 +91,7 @@ export function TagsPage({
                             onDismissSuggested={setMenuTag}
                             onCreateTag={onTagCreated}
                             errorMessage={editorError}
+                            scrollableGrid={false}
                         />
                         <MetadataTagSection
                             key={focusedSong.id}
@@ -126,26 +127,33 @@ export function TagsPage({
  * backend stores it for queries, so a pill shows exactly what a metadata query
  * matches on, then the activity tags that listening sets. Both load only once
  * the section is expanded.
+ *
+ * The spinner is only for the first answer from each read. SWR retries a failed
+ * read and revalidates on focus or invalidation, and while it does `isLoading`
+ * can flip back on. Swapping the pills for a spinner then would shrink the page
+ * under the user's scroll and throw them back up it.
  */
 function MetadataTagSection({ songId }: { songId: string }) {
     const [expanded, setExpanded] = useState(false);
     const { colors } = useTheme();
     const {
-        activityTagsOnSong: activityTags = [],
-        activityTagsOnSongLoading: activityLoading,
+        activityTagsOnSong: activityTags,
         activityTagsOnSongErr: activityError,
     } = useActivityTagsOnSong(expanded ? songId : undefined);
     const {
         metadataTagsOnSong: metadataTags,
-        metadataTagsOnSongLoading: metadataLoading,
         metadataTagsOnSongErr: metadataError,
     } = useMetadataTagsOnSong(expanded ? songId : undefined);
 
-    const loading = activityLoading || metadataLoading;
+    // answered means data or an error, so a retry after a failure keeps the
+    // section as it is instead of going back to the spinner
+    const loading =
+        (activityTags === undefined && !activityError) ||
+        (metadataTags === undefined && !metadataError);
     const tags = useMemo(
         () => [
             ...metadataTagPills(metadataTags ?? []),
-            ...activityTags.map((tag) => ({
+            ...(activityTags ?? []).map((tag) => ({
                 tag,
                 value: activityTagDisplayValue(tag),
             })),

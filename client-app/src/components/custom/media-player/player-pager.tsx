@@ -2,6 +2,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTheme } from "expo-router/react-navigation";
 import { useEffect, useRef, useState } from "react";
 import {
+    Platform,
     Pressable,
     ScrollView,
     StyleSheet,
@@ -97,47 +98,50 @@ export function PlayerPager() {
 
     return (
         <View className="flex-1">
-            <Animated.ScrollView
-                ref={scrollRef}
-                horizontal
-                pagingEnabled
-                bounces={false}
-                directionalLockEnabled
-                removeClippedSubviews={false}
-                showsHorizontalScrollIndicator={false}
-                scrollEventThrottle={16}
-                contentOffset={{ x: selectedIndex * width, y: 0 }}
-                onScroll={scrollHandler}
-                onMomentumScrollEnd={(event) => {
-                    const index = Math.max(
-                        0,
-                        Math.min(
-                            PLAYER_TABS.length - 1,
-                            Math.round(
-                                event.nativeEvent.contentOffset.x / width,
+            <View className="flex-1">
+                <SheetScrollRegion active={selectedTab !== "player"} />
+                <Animated.ScrollView
+                    ref={scrollRef}
+                    horizontal
+                    pagingEnabled
+                    bounces={false}
+                    directionalLockEnabled
+                    removeClippedSubviews={false}
+                    showsHorizontalScrollIndicator={false}
+                    scrollEventThrottle={16}
+                    contentOffset={{ x: selectedIndex * width, y: 0 }}
+                    onScroll={scrollHandler}
+                    onMomentumScrollEnd={(event) => {
+                        const index = Math.max(
+                            0,
+                            Math.min(
+                                PLAYER_TABS.length - 1,
+                                Math.round(
+                                    event.nativeEvent.contentOffset.x / width,
+                                ),
                             ),
-                        ),
-                    );
-                    activateTab(PLAYER_TABS[index]);
-                }}
-            >
-                <View style={{ width }}>
-                    <DiscussPage
-                        focusedSong={focusedSong}
-                        enabled={visitedTabs.has("discuss")}
-                        active={selectedTab === "discuss"}
-                    />
-                </View>
-                <View style={{ width }}>
-                    <PlayerPage />
-                </View>
-                <View style={{ width }}>
-                    <TagsPage
-                        focusedSong={focusedSong}
-                        enabled={visitedTabs.has("tags")}
-                    />
-                </View>
-            </Animated.ScrollView>
+                        );
+                        activateTab(PLAYER_TABS[index]);
+                    }}
+                >
+                    <View style={{ width }}>
+                        <DiscussPage
+                            focusedSong={focusedSong}
+                            enabled={visitedTabs.has("discuss")}
+                            active={selectedTab === "discuss"}
+                        />
+                    </View>
+                    <View style={{ width }}>
+                        <PlayerPage />
+                    </View>
+                    <View style={{ width }}>
+                        <TagsPage
+                            focusedSong={focusedSong}
+                            enabled={visitedTabs.has("tags")}
+                        />
+                    </View>
+                </Animated.ScrollView>
+            </View>
 
             <View
                 className="items-center px-4 pt-2"
@@ -201,6 +205,45 @@ export function PlayerPager() {
         </View>
     );
 }
+
+/**
+ * Android only: tells the native sheet where its content scrolls.
+ *
+ * Android's sheet is a Material `BottomSheetBehavior`. It lets a vertical drag
+ * through to the content only inside one view, the first nested-scrolling view
+ * it finds when it lays out, and takes every other vertical drag to move the
+ * sheet. Left alone it finds Discuss's pull-to-refresh list, the first page, so
+ * the Tags page could not scroll at all.
+ *
+ * This empty scroll view is placed first so it is the one the sheet finds, and
+ * it covers the pages while Discuss or Tags is selected so their own scroll
+ * views get the drag. On Player it shrinks to nothing, so pulling the artwork
+ * down still drags the sheet closed. It is underneath the pager and takes no
+ * touches; the sheet only measures its bounds. iOS needs none of this.
+ */
+function SheetScrollRegion({ active }: { active: boolean }) {
+    if (Platform.OS !== "android") return null;
+    return (
+        <ScrollView
+            nestedScrollEnabled
+            scrollEnabled={false}
+            pointerEvents="none"
+            accessible={false}
+            importantForAccessibility="no-hide-descendants"
+            style={active ? StyleSheet.absoluteFill : styles.collapsedRegion}
+        />
+    );
+}
+
+const styles = StyleSheet.create({
+    collapsedRegion: {
+        position: "absolute",
+        top: 0,
+        left: 0,
+        width: 0,
+        height: 0,
+    },
+});
 
 function PlayerTabButton({
     tab,

@@ -210,7 +210,9 @@ logged, so a song favorited elsewhere reads false.
 
 Nothing hardcodes their ids. `get_activity_tags` selects by `is_activity` and name, and inserts any
 that are missing with `ON CONFLICT (name) WHERE is_activity DO NOTHING`, so two requests racing to
-create one both end up with the same row, and a wiped table heals on the next request.
+create one both end up with the same row, and a wiped table heals on the next request. That
+conflict target is the partial unique index in `sql/activity_tags.sql`; without it Postgres refuses
+the insert, and every activity tag read and `POST /events` fails once a new tag is added.
 
 They all share one color, `ACTIVITY_TAG_COLOR`. `get_activity_tags` also recolors any row whose
 color differs, so changing the constant recolors existing rows on the next request with no SQL.
