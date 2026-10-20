@@ -228,16 +228,21 @@ only, so it invalidates both default-tag reads plus `/queries/results`, which co
 tags when the caller asks it to. It leaves `/tags` and the local tag reads alone, since the
 user's own tags do not change.
 
-Activity tags (My Plays, First Played, Last Played) are shared tags whose values the backend
-sets from listening. `useUserTags` never returns them, so they stay off the Tags pages;
+Activity tags (My Plays, First Played, Last Played, In My Library, Favorited, Tagged) are shared
+tags whose values the backend sets. `useUserTags` never returns them, so they stay off the Tags pages;
 `useActivityTags` lists them for the advanced query builder, and `useActivityTagsOnSong` /
 `useActivityTagsOnSongs` read their values, with every tag present for every song.
 `useActivityTagIdsInQuery` picks the activity tags a query filters on, which the query result
 rows show. Nothing writes them directly any more: `play-recorder.ts` posts a `play_counted`
-event to `POST /events`, and the backend moves the three tags in the same transaction that stores
-the event. `useRecordEvents` always invalidates the analytics reads, and invalidates the activity
-reads and `/queries/results` only when the batch held a `play_counted`, since nothing else moves
-those values.
+event to `POST /events`, and the backend moves the three play tags in the same transaction that
+stores the event. `useSongFavoriteStatus` records `song_favorited` / `song_unfavorited` the same
+way once Apple Music accepts a change, which is all Favorited knows: a favorite changed outside
+Cadenza never reaches it. In My Library and Tagged are computed by the backend on read, so library
+sync and the tag writes (`useApplyTag`, `useUnapplyTag`, the batch tag writes, `useDeleteTag`)
+invalidate the activity reads too. `routes/activity-tag-reads.ts` holds that list.
+`useRecordEvents` always invalidates the analytics reads, and invalidates the activity reads and
+`/queries/results` only when the batch held a `play_counted` or a favorite change, since nothing
+else in a batch moves those values.
 
 `musickit-hooks.ts` does the same job for the native module, using plain `useSWR` with tuple
 keys like `["MusicKit.getSongInfo", ids]`. `useSongFavoriteStatus` and `useCollectionFavoriteStatus`

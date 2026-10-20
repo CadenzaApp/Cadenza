@@ -9,7 +9,7 @@ use crate::{
     AppState,
     auth::SupabaseClaims,
     db::{
-        activity_tags::record_plays_within,
+        activity_tags::{record_plays_within, set_favorites_within},
         events::{NewEvent, insert_events},
     },
     err::CadenzaError,
@@ -76,6 +76,7 @@ async fn record_events_handler(
     let txn = db.begin().await?;
     let stored = insert_events(&txn, claims.user_id, &events).await?;
     count_plays(&txn, claims.user_id, &events, &stored.inserted).await?;
+    apply_favorites(&txn, claims.user_id, &events, &stored.inserted).await?;
     txn.commit().await?;
 
     Ok(Json(EventBatchResponse {
@@ -116,6 +117,36 @@ async fn count_plays(
         .collect();
 
     record_plays_within(db, user_id, &plays).await
+}
+
+/// Sets the Favorited activity tag on every song a newly stored `song_favorited`
+/// or `song_unfavorited` event is about, from the user's latest such event for it.
+///
+/// Keyed on the inserted ids for the same reason as [`count_plays`]: a retried
+/// batch moves nothing.
+async fn apply_favorites(
+    db: &impl sea_orm::ConnectionTrait,
+    user_id: uuid::Uuid,
+    events: &[NewEvent],
+    inserted: &[String],
+) -> Result<(), CadenzaError> {
+    let inserted: HashSet<&str> = inserted.iter().map(String::as_str).collect();
+
+    let songs: Vec<String> = events
+        .iter()
+        .filter(|event| {
+            matches!(
+                event.event_type,
+                EventType::SongFavorited | EventType::SongUnfavorited
+            )
+        })
+        .filter(|event| inserted.contains(event.client_event_id.as_str()))
+        .filter_map(|event| event.song_id.clone())
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+
+    set_favorites_within(db, user_id, &songs).await
 }
 
 /// Turns one event off the wire into a storable one, or says why it cannot be

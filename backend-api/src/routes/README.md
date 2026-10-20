@@ -13,7 +13,7 @@ call into `src/db/` or `src/services/`, and shape the response.
 | `songs.rs`          | Adding and removing the user's songs, reading and changing user tags, reading default tags, reading activity tags, recording plays, and reporting an opened song. Mounted at `/songs`.                 |
 | `queries.rs`        | Runs a tag query and returns song ids by relevance. Mounted at `/queries`.                                                                                                                              |
 | `profile.rs`        | Reading, creating, and editing the signed-in user's public profile (username and bio). Mounted at `/profile`.                                                                                           |
-| `events.rs`         | Ingests a batch of listening events, and counts the `play_counted` ones towards the activity tags in the same transaction. Mounted at `/events`.                                                        |
+| `events.rs`         | Ingests a batch of listening events, and moves the activity tags they feed (plays, favorites) in the same transaction. Mounted at `/events`.                                                            |
 | `analytics.rs`      | Summary counts, time bucketed trends, the metric list, and the rankings (song, artist, album, playlist, query). Mounted at `/analytics`.                                                                                |
 | `social.rs`         | The social feed, posts, likes, views, topic posts, and interest scores. Calls the python model only for embeddings and similarity. Mounted at `/social`.                                                 |
 | `json/mod.rs`       | `vec_into`, a small `Vec<A> -> Vec<B>` helper. Declares `analytics`, `metadata_tag`, `profile`, `query`, `social`, and `tag`.                                                                            |
@@ -233,11 +233,15 @@ the generation path still treats the song as having defaults. The two reads abov
 with `consider_default_tags` all leave out this user's removals, so the tag stops coming back for
 them.
 
-Activity tags (My Plays, First Played, Last Played) are shared tag rows with `is_activity` set.
+Activity tags (My Plays, First Played, Last Played, In My Library, Favorited, Tagged) are shared
+tag rows with `is_activity` set.
 `GET /tags` leaves them out, since they belong to no user, and so do the default tag routes.
 `GET /tags/activity` lists them for the query builders, and `GET /songs/activity-tags` and its
-batch read their values per song. The only write is `POST /songs/plays`, which goes to
-`db::activity_tags::record_play`. Writing one by hand through `/songs/local-tags` fails:
+batch read their values per song. The writes are `POST /songs/plays`, which goes to
+`db::activity_tags::record_play`, and `POST /events`, whose `play_counted` events move the play
+tags and whose `song_favorited` / `song_unfavorited` events move Favorited. In My Library and Tagged
+are computed on read from the user's library and own tags, so adding a song or applying a tag
+changes them with no activity tag write. Writing one by hand through `/songs/local-tags` fails:
 `POST` and `PATCH` are `NotFound` because the tag is not the user's, and `DELETE` is
 `ActivityTagReadOnly` (403). The client decides what counts as a play; see
 `client-app/src/lib/play-tracker.ts`.

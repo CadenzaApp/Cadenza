@@ -3,8 +3,8 @@ use std::collections::{HashMap, HashSet};
 use chrono::{DateTime, NaiveDate, Utc};
 use sea_orm::prelude::Uuid;
 use sea_orm::{
-    ColumnTrait, Condition, DatabaseConnection, DbBackend, EntityTrait, FromQueryResult,
-    QueryFilter, Statement,
+    ColumnTrait, Condition, ConnectionTrait, DatabaseConnection, DbBackend, EntityTrait,
+    FromQueryResult, QueryFilter, Statement,
 };
 
 use crate::db::activity_tags::ActivityTag;
@@ -133,13 +133,13 @@ pub async fn run_query(
     collect_tag_ids(&query.root, &mut tag_ids);
     let QueryableTags {
         tag_types,
-        number_defaults,
+        defaults,
     } = get_queryable_tags(db, user_id, &tag_ids, consider_default_tags).await?;
 
     let (sql, values) = compile_query(
         query,
         &tag_types,
-        &number_defaults,
+        &defaults,
         user_id,
         consider_default_tags,
         library_only,
@@ -174,9 +174,23 @@ fn cap_discovered(mut songs: Vec<QueryMatch>) -> QueryMatches {
 struct QueryableTags {
     /// The type of every tag the query mentions.
     tag_types: HashMap<i64, TagType>,
+    /// How the activity tags among them read on a song with no row.
+    defaults: TagDefaults,
+}
+
+/// What an activity tag counts as on a song with no row for it, where that is not
+/// simply empty. User tags have none of these.
+#[derive(Default)]
+struct TagDefaults {
     /// Number tags whose missing row reads as a value rather than as empty,
     /// which is how "My Plays < 2" matches a song the user never played.
-    number_defaults: HashMap<i64, f64>,
+    numbers: HashMap<i64, f64>,
+    /// Checkbox tags whose missing row reads as `false`, so "Favorited is false"
+    /// matches a song the user never favorited.
+    false_checkboxes: HashSet<i64>,
+    /// Checkbox tags with no rows at all, worked out from other tables instead:
+    /// In My Library and Tagged. See [`ActivityTag::is_derived`].
+    derived: HashMap<i64, ActivityTag>,
 }
 
 /// Looks up every tag the query mentions. A tag that does not exist or belongs
@@ -186,7 +200,7 @@ struct QueryableTags {
 /// `consider_default_tags` a shared default tag (`user_id IS NULL`) is
 /// queryable as well, so the query may name one.
 async fn get_queryable_tags(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     user_id: Uuid,
     tag_ids: &HashSet<i64>,
     consider_default_tags: bool,
@@ -210,12 +224,19 @@ async fn get_queryable_tags(
         .await?
     {
         if tag.is_activity
-            && tag.r#type == TagType::Number
-            && let Some(default) = ActivityTag::from_name(&tag.name)
-                .and_then(ActivityTag::default_value)
-                .and_then(|value| value.parse::<f64>().ok())
+            && let Some(activity) = ActivityTag::from_name(&tag.name)
         {
-            queryable.number_defaults.insert(tag.tag_id, default);
+            let defaults = &mut queryable.defaults;
+            let default = activity.default_value();
+            if activity.is_derived() {
+                defaults.derived.insert(tag.tag_id, activity);
+            } else if tag.r#type == TagType::Number
+                && let Some(number) = default.and_then(|value| value.parse::<f64>().ok())
+            {
+                defaults.numbers.insert(tag.tag_id, number);
+            } else if tag.r#type == TagType::Checkbox && default == Some("false") {
+                defaults.false_checkboxes.insert(tag.tag_id);
+            }
         }
         queryable.tag_types.insert(tag.tag_id, tag.r#type);
     }
@@ -312,9 +333,8 @@ fn applied_tags_source(consider_default_tags: bool) -> &'static str {
 }
 
 /// Converts the query to a full SQL statement and its values. `tag_types` must
-/// hold the type of every tag id the query mentions. `number_defaults` holds
-/// the number tags a song without the tag counts as having a value for (see
-/// [`QueryableTags::number_defaults`]).
+/// hold the type of every tag id the query mentions. `defaults` holds how the
+/// activity tags read on a song with no row for them (see [`TagDefaults`]).
 ///
 /// Every filter becomes one correlated `EXISTS` (or `NOT EXISTS`) over the
 /// song's applied tags. A song without the tag at all counts as empty, so
@@ -336,7 +356,7 @@ fn applied_tags_source(consider_default_tags: bool) -> &'static str {
 fn compile_query(
     query: &Query,
     tag_types: &HashMap<i64, TagType>,
-    number_defaults: &HashMap<i64, f64>,
+    defaults: &TagDefaults,
     user_id: Uuid,
     consider_default_tags: bool,
     library_only: bool,
@@ -345,7 +365,7 @@ fn compile_query(
     let applied_tags = applied_tags_source(consider_default_tags);
     let mut compiler = Compiler {
         tag_types,
-        number_defaults,
+        defaults,
         values: vec![sea_query::Value::Uuid(Some(user_id))],
         applied_tags,
     };
@@ -436,7 +456,7 @@ fn order_by(sort: Option<QuerySort>) -> String {
 
 struct Compiler<'a> {
     tag_types: &'a HashMap<i64, TagType>,
-    number_defaults: &'a HashMap<i64, f64>,
+    defaults: &'a TagDefaults,
     /// `$1` is always the user id, so the first filter binds at `$2`.
     values: Vec<sea_query::Value>,
     /// The `FROM` item every filter reads its tags through.
@@ -800,6 +820,10 @@ impl Compiler<'_> {
         let tag_type = self.tag_types.get(&tag_id).cloned().ok_or_else(|| {
             CadenzaError::QueryFormatError(format!("tag {} does not exist", tag_id))
         })?;
+        // no rows to look through, so nothing to bind
+        if let Some(derived) = self.defaults.derived.get(&tag_id) {
+            return derived_filter(*derived, op, value);
+        }
         let tag_param = self.bind(sea_query::Value::BigInt(Some(tag_id)));
 
         // Every tag type offers these. They ask only whether the tag is on the
@@ -814,8 +838,9 @@ impl Compiler<'_> {
             return Ok(tag_exists(self.applied_tags, &tag_param, false, matched));
         }
 
-        // For a number tag with a default, whether a song without the tag
-        // passes: the operator applied to the default rather than to nothing.
+        // For a number or checkbox tag with a default, whether a song without
+        // the tag passes: the operator applied to the default rather than to
+        // nothing.
         let mut missing_passes = None;
 
         let matched = match tag_type {
@@ -844,7 +869,7 @@ impl Compiler<'_> {
                 | FilterOp::Gt
                 | FilterOp::Ge => {
                     let number = parse_number(required_value(op, value)?)?;
-                    if let Some(default) = self.number_defaults.get(&tag_id) {
+                    if let Some(default) = self.defaults.numbers.get(&tag_id) {
                         missing_passes = Some(match op {
                             FilterOp::Eq => *default == number,
                             FilterOp::Ne => *default != number,
@@ -876,6 +901,10 @@ impl Compiler<'_> {
 
             TagType::Checkbox => {
                 no_value(op, value)?;
+                if self.defaults.false_checkboxes.contains(&tag_id) {
+                    // a missing row is false, which is never null
+                    missing_passes = Some(op == FilterOp::IsFalse);
+                }
                 match op {
                     FilterOp::IsTrue => Match::Any("filter_check.value = 'true'".to_string()),
                     FilterOp::IsFalse => Match::Any("filter_check.value = 'false'".to_string()),
@@ -906,6 +935,47 @@ impl Compiler<'_> {
             _ => snippet,
         })
     }
+}
+
+/// A filter on a derived activity tag, In My Library or Tagged. It has no rows, so
+/// it is a check on the table it comes from: true when the song is in the user's
+/// library, or carries a tag the user owns. Never null, so `is_null` matches
+/// nothing, and `is_applied` means true, the same as for a stored checkbox.
+fn derived_filter(
+    tag: ActivityTag,
+    op: FilterOp,
+    value: &Option<String>,
+) -> Result<String, CadenzaError> {
+    no_value(op, value)?;
+    let holds = match tag {
+        ActivityTag::InMyLibrary => {
+            "EXISTS (
+                SELECT 1 FROM user_songs AS library
+                WHERE library.user_id=$1 AND library.song_id=query_songs.song_id
+            )"
+        }
+        // the user's own tags carry their user id; activity and default tags none
+        ActivityTag::Tagged => {
+            "EXISTS (
+                SELECT 1 FROM user_tags_applied AS own_applied
+                JOIN tags AS own_tag ON own_tag.tag_id=own_applied.tag_id
+                WHERE own_applied.user_id=$1 AND own_tag.user_id=$1
+                    AND own_applied.song_id=query_songs.song_id
+            )"
+        }
+        _ => {
+            return Err(CadenzaError::QueryFormatError(format!(
+                "'{}' is not a derived tag",
+                tag.name()
+            )));
+        }
+    };
+    Ok(match op {
+        FilterOp::IsTrue | FilterOp::IsApplied => holds.to_string(),
+        FilterOp::IsFalse | FilterOp::IsNotApplied => format!("NOT {holds}"),
+        FilterOp::IsNull => "FALSE".to_string(),
+        _ => return Err(unsupported_op(op, "checkbox tags")),
+    })
 }
 
 /// `EXISTS` over the song's applications of one tag.
@@ -1077,7 +1147,7 @@ mod tests {
         compile_query(
             &parse(json),
             &tag_types(),
-            &HashMap::new(),
+            &TagDefaults::default(),
             Uuid::nil(),
             false,
             false,
@@ -1089,7 +1159,7 @@ mod tests {
         compile_query(
             &parse(json),
             &tag_types(),
-            &HashMap::new(),
+            &TagDefaults::default(),
             Uuid::nil(),
             true,
             false,
@@ -1103,7 +1173,10 @@ mod tests {
         compile_query(
             &parse(json),
             &tag_types(),
-            &HashMap::from([(4, 0.0)]),
+            &TagDefaults {
+                numbers: HashMap::from([(4, 0.0)]),
+                ..TagDefaults::default()
+            },
             Uuid::nil(),
             false,
             false,
@@ -1599,7 +1672,7 @@ mod tests {
                 r#"{ "field": "tag", "tag_id": 1, "op": "is_not_applied" }"#,
             )),
             &tag_types(),
-            &HashMap::new(),
+            &TagDefaults::default(),
             Uuid::nil(),
             false,
             true,
@@ -1624,6 +1697,109 @@ mod tests {
         assert!(sql.contains("ORDER BY score DESC"), "{sql}");
     }
 
+    /// Tag 7 is In My Library, 8 is Tagged, and 9 is Favorited, as
+    /// `get_queryable_tags` would describe them.
+    fn compile_activity_checkbox(tag_id: i64, op: &str) -> Result<String, CadenzaError> {
+        let defaults = TagDefaults {
+            false_checkboxes: HashSet::from([9]),
+            derived: HashMap::from([(7, ActivityTag::InMyLibrary), (8, ActivityTag::Tagged)]),
+            ..TagDefaults::default()
+        };
+        compile_query(
+            &parse(&filter(&format!(
+                r#"{{ "field": "tag", "tag_id": {tag_id}, "op": "{op}" }}"#
+            ))),
+            &HashMap::from([
+                (7, TagType::Checkbox),
+                (8, TagType::Checkbox),
+                (9, TagType::Checkbox),
+            ]),
+            &defaults,
+            Uuid::nil(),
+            false,
+            false,
+            None,
+        )
+        .map(|(sql, _)| squash(&sql))
+    }
+
+    /// In My Library has no rows: it is whether the song has a `user_songs` row.
+    #[test]
+    fn in_my_library_checks_the_library() {
+        let in_library = "EXISTS ( SELECT 1 FROM user_songs AS library WHERE library.user_id=$1 AND library.song_id=query_songs.song_id )";
+
+        let sql = compile_activity_checkbox(7, "is_true").unwrap();
+        assert!(sql.contains(&format!("WHERE {in_library} )")), "{sql}");
+        let sql = compile_activity_checkbox(7, "is_false").unwrap();
+        assert!(sql.contains(&format!("WHERE NOT {in_library} )")), "{sql}");
+        // never null, so nothing is
+        let sql = compile_activity_checkbox(7, "is_null").unwrap();
+        assert!(sql.contains("WHERE FALSE )"), "{sql}");
+        // applied means true, the same as a stored checkbox
+        let sql = compile_activity_checkbox(7, "is_applied").unwrap();
+        assert!(sql.contains(&format!("WHERE {in_library} )")), "{sql}");
+        // the tag id is never bound: there are no rows to match it against
+        assert!(!sql.contains("filter_check.tag_id"), "{sql}");
+    }
+
+    /// Tagged is whether the song carries a tag the user owns. Activity tags and
+    /// default tags have no user id, so they do not count.
+    #[test]
+    fn tagged_checks_for_a_tag_the_user_owns() {
+        let sql = compile_activity_checkbox(8, "is_true").unwrap();
+        assert!(
+            sql.contains("FROM user_tags_applied AS own_applied JOIN tags AS own_tag ON own_tag.tag_id=own_applied.tag_id WHERE own_applied.user_id=$1 AND own_tag.user_id=$1 AND own_applied.song_id=query_songs.song_id"),
+            "{sql}"
+        );
+        let sql = compile_activity_checkbox(8, "is_not_applied").unwrap();
+        assert!(
+            sql.contains("WHERE NOT EXISTS ( SELECT 1 FROM user_tags_applied AS own_applied"),
+            "{sql}"
+        );
+    }
+
+    #[test]
+    fn derived_tags_take_only_checkbox_operators() {
+        assert!(matches!(
+            compile_activity_checkbox(7, "gt"),
+            Err(CadenzaError::QueryFormatError(_))
+        ));
+        assert!(matches!(
+            compile_query(
+                &parse(&filter(
+                    r#"{ "field": "tag", "tag_id": 7, "op": "is_true", "value": "true" }"#
+                )),
+                &HashMap::from([(7, TagType::Checkbox)]),
+                &TagDefaults {
+                    derived: HashMap::from([(7, ActivityTag::InMyLibrary)]),
+                    ..TagDefaults::default()
+                },
+                Uuid::nil(),
+                false,
+                false,
+                None,
+            ),
+            Err(CadenzaError::QueryFormatError(_))
+        ));
+    }
+
+    /// A song the user never favorited has no Favorited row, which reads false.
+    #[test]
+    fn a_missing_favorite_is_false() {
+        // false takes in the songs with no row
+        let sql = compile_activity_checkbox(9, "is_false").unwrap();
+        assert!(sql.contains("OR NOT EXISTS"), "{sql}");
+        // true does not
+        let sql = compile_activity_checkbox(9, "is_true").unwrap();
+        assert!(
+            !sql.contains("OR NOT") && !sql.contains("AND EXISTS"),
+            "{sql}"
+        );
+        // and nothing is null: a missing row is false, so is_null rules it back out
+        let sql = compile_activity_checkbox(9, "is_null").unwrap();
+        assert!(sql.contains("AND EXISTS"), "{sql}");
+    }
+
     /// The cap's sort and the final sort have to agree, or the cap would keep songs the
     /// list does not show first.
     #[test]
@@ -1638,7 +1814,7 @@ mod tests {
             let (sql, _) = compile_query(
                 &parse(r#"{ "where": { "and": [] } }"#),
                 &tag_types(),
-                &HashMap::new(),
+                &TagDefaults::default(),
                 Uuid::nil(),
                 false,
                 false,
@@ -2040,7 +2216,7 @@ mod tests {
         let (sql, values) = compile_query(
             &parse(json),
             tag_types,
-            &HashMap::new(),
+            &TagDefaults::default(),
             user_id,
             false,
             false,
@@ -2284,7 +2460,7 @@ mod tests {
             let (sql, values) = compile_query(
                 &parse(&json),
                 &types,
-                &HashMap::new(),
+                &TagDefaults::default(),
                 user_id,
                 false,
                 true,
@@ -2319,6 +2495,120 @@ mod tests {
             run("is_not_applied").await,
             vec!["test-q-n1", "test-q-p2", "test-q-x1"]
         );
+    }
+
+    /// The three checkbox activity tags, queried for real: In My Library from
+    /// `user_songs`, Tagged from the user's own tags, and Favorited from its rows,
+    /// with a song that has none of them reading false for each.
+    #[tokio::test]
+    #[ignore]
+    async fn checkbox_activity_tags_match_what_they_describe() {
+        let (txn, user_id) = metadata_library().await;
+        // not in the library, played more than anything real so the cap keeps it
+        store_discovered(&txn, &[("d1", "Elsewhere", "Someone", 1_000_000_000_000)]).await;
+
+        let activity: HashMap<ActivityTag, i64> = crate::db::activity_tags::get_activity_tags(&txn)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|(tag, model)| (tag, model.tag_id))
+            .collect();
+        let own_tag: i64 = txn
+            .query_one_raw(Statement::from_sql_and_values(
+                DbBackend::Postgres,
+                "INSERT INTO tags (name, color, user_id) VALUES ('test-q-own', '#000000', $1) RETURNING tag_id",
+                [user_id.into()],
+            ))
+            .await
+            .unwrap()
+            .unwrap()
+            .try_get_by_index(0)
+            .unwrap();
+        // p1 carries the user's own tag, p2 is favorited, and x1 has only a play
+        txn.execute_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            "INSERT INTO user_tags_applied (song_id, user_id, tag_id, value) VALUES
+                ('test-q-p1', $1, $2, NULL), ('test-q-p2', $1, $3, 'true'), ('test-q-x1', $1, $4, '1')",
+            [
+                user_id.into(),
+                own_tag.into(),
+                activity[&ActivityTag::Favorited].into(),
+                activity[&ActivityTag::MyPlays].into(),
+            ],
+        ))
+        .await
+        .unwrap();
+
+        // what run_query would look up for these three
+        let QueryableTags {
+            tag_types: types,
+            defaults,
+        } = get_queryable_tags(
+            &txn,
+            user_id,
+            &HashSet::from([
+                activity[&ActivityTag::InMyLibrary],
+                activity[&ActivityTag::Tagged],
+                activity[&ActivityTag::Favorited],
+            ]),
+            false,
+        )
+        .await
+        .unwrap();
+        assert_eq!(defaults.derived.len(), 2);
+        assert_eq!(
+            defaults.false_checkboxes,
+            HashSet::from([activity[&ActivityTag::Favorited]])
+        );
+        let run = |tag: ActivityTag, op: &'static str| {
+            let json = format!(
+                r#"{{ "where": {{ "filter": {{ "field": "tag", "tag_id": {}, "op": "{op}" }} }} }}"#,
+                activity[&tag]
+            );
+            let (sql, values) = compile_query(
+                &parse(&json),
+                &types,
+                &defaults,
+                user_id,
+                false,
+                false,
+                None,
+            )
+            .unwrap();
+            let txn = &txn;
+            async move {
+                let mut ids: Vec<String> = QueryMatch::find_by_statement(
+                    Statement::from_sql_and_values(DbBackend::Postgres, sql, values),
+                )
+                .all(txn)
+                .await
+                .unwrap()
+                .into_iter()
+                .filter(|song| song.song_id.starts_with("test-q-"))
+                .map(|song| song.song_id.trim_start_matches("test-q-").to_owned())
+                .collect();
+                ids.sort();
+                ids
+            }
+        };
+
+        assert_eq!(
+            run(ActivityTag::InMyLibrary, "is_true").await,
+            ["n1", "p1", "p2", "x1"]
+        );
+        assert_eq!(run(ActivityTag::InMyLibrary, "is_false").await, ["d1"]);
+        assert_eq!(run(ActivityTag::Tagged, "is_true").await, ["p1"]);
+        assert_eq!(
+            run(ActivityTag::Tagged, "is_false").await,
+            ["d1", "n1", "p2", "x1"]
+        );
+        assert_eq!(run(ActivityTag::Favorited, "is_true").await, ["p2"]);
+        assert_eq!(
+            run(ActivityTag::Favorited, "is_false").await,
+            ["d1", "n1", "p1", "x1"]
+        );
+        assert!(run(ActivityTag::Favorited, "is_null").await.is_empty());
+        assert!(run(ActivityTag::Tagged, "is_null").await.is_empty());
     }
 
     /// Most relevant first: the user's own songs before the rest when the score ties, then
@@ -2451,7 +2741,7 @@ mod tests {
         let (sql, values) = compile_query(
             &parse(ZZ_TITLES),
             &tag_types(),
-            &HashMap::new(),
+            &TagDefaults::default(),
             user_id,
             false,
             false,

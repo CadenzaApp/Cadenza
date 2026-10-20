@@ -19,6 +19,7 @@ import {
     reportAppleMusicAuthFailure,
     useAppleMusic,
 } from "./apple-music-auth";
+import { useListeningEvents } from "./listening-events";
 import { collectionRoute } from "./music-routes";
 import { catalogIdsToFetch, resolvedTracks, uniqueBy } from "./paged-tracks";
 
@@ -991,9 +992,18 @@ export function useCollectionSongsOrFallback(
         : { ...primary, collectionId };
 }
 
-/** Returns and updates the cached favorite status for one Apple Music song. */
+/**
+ * Returns and updates the cached favorite status for one Apple Music song.
+ *
+ * A change that Apple Music accepts is also logged as a `song_favorited` or
+ * `song_unfavorited` event, which is how the backend's Favorited activity tag
+ * learns about it. Apple Music owns favorites, so a change made outside Cadenza
+ * never reaches that tag. `songId` should be the id tags use,
+ * `catalogId ?? id`, so the tag lands on the same song.
+ */
 export function useSongFavoriteStatus(songId?: string) {
     const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
+    const { recordEvent } = useListeningEvents();
     const key =
         isConnected && songId
             ? ([
@@ -1020,6 +1030,15 @@ export function useSongFavoriteStatus(songId?: string) {
         });
         if (!nextStatus) {
             throw new Error("Apple Music did not return a favorite status.");
+        }
+        try {
+            await recordEvent(
+                nextStatus.isFavorite ? "song_favorited" : "song_unfavorited",
+                songId,
+            );
+        } catch (error) {
+            // the favorite itself went through; only the activity tag misses it
+            console.error("Recording a favorite change failed:", error);
         }
         return nextStatus;
     }

@@ -106,6 +106,8 @@ Header settings apply to both editors and cannot disable suggestions while eithe
 - Activity tags (`BuilderTags.activity`) are filtered like any other tag of their type. They come
   from `useActivityTags` by way of the screen, and the screen adds their types to the map
   `buildAdvancedQuery` checks, or a filter on one would read as a deleted tag.
+- The checkbox activity tags (In My Library, Favorited, Tagged) are never empty: a song without
+  one is false, so `is false` and `is not applied` match it and `is null` matches nothing.
 - The query is evaluated over every song Cadenza knows, not just tagged songs or the library, so
   a song with no Cadenza tags at all can match `is not applied` and the other negative operators.
   Of the songs that are not the user's own, only the first 1000 come back.

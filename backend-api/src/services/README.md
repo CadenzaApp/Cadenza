@@ -15,7 +15,7 @@ listening analytics are computed from.
 | `mod.rs` | Declares `analytics`, `default_tags`, `metadata_tags`, `social_feed`, `song_metadata`, `tag_generation`, `tag_normalizer`, and `tag_values`. |
 | `analytics/dimension.rs` | `Dimension`, what a ranking can be grouped by (song, artist, album, playlist, query) and the SQL that pulls each one's key, label and id out of a play. Unit tested. |
 | `analytics/mod.rs` | `TimeWindow`, the future-clock guard, and `sanitize_timezone`. Unit tested. |
-| `analytics/event_type.rs` | `EventType`, the nine listening event types, and the payload validation each one requires. Unit tested. |
+| `analytics/event_type.rs` | `EventType`, the eleven listening event types, and the payload validation each one requires. Unit tested. |
 | `analytics/metrics.rs` | `Metric`, the registry pairing a metric name with one SQL aggregate and a `MetricUnit`, and `Bucket` (hour, day, week, month, year) with its `date_trunc` unit, series step, label format, size caps, and `fit`, which is what `bucket=auto` resolves to. `fit` never picks hours. Unit tested. |
 | `tag_normalizer.rs` | `normalize_tag_name`: trim, collapse whitespace, truncate to 50 bytes on a character boundary, lowercase. Unit tested. |
 | `tag_generation/mod.rs` | The `TagGenerator` trait, its `TagGenerationError`, and the `TagGenerationService` wrapper. |
