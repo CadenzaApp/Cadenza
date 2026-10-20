@@ -19,6 +19,7 @@ export type QueryResultSong = { songId: string; certain: boolean };
 type QueryResultsBody = {
     query: QueryJSON;
     consider_default_tags: boolean;
+    library_only?: true;
     sort?: QueryResultsSort;
 };
 
@@ -43,8 +44,10 @@ const NO_MATCHES: string[] = [];
  * matched.
  *
  * `considerDefaultTags` widens what the backend counts as a tag on a song to
- * include the shared default tags. It is part of the cache key, so turning it on
- * and off refetches rather than reusing the other answer.
+ * include the shared default tags. `libraryOnly` narrows the songs to the
+ * user's library, so every match is their own and nothing is capped. Both are
+ * part of the cache key, so turning one on and off refetches rather than
+ * reusing the other answer.
  *
  * Revalidates like any other read, so it suits a live preview. A list the user
  * scrolls through wants `useQueryResultsSnapshot`.
@@ -52,8 +55,14 @@ const NO_MATCHES: string[] = [];
 export function useQueryResults(
     query: QueryJSON | null,
     considerDefaultTags: boolean,
+    libraryOnly: boolean,
 ) {
-    const body = useQueryResultsBody(query, considerDefaultTags, null);
+    const body = useQueryResultsBody(
+        query,
+        considerDefaultTags,
+        libraryOnly,
+        null,
+    );
     const x = useAPIPostData<QueryResultsBody, QueryResultsResponse>(
         "/queries/results",
         body,
@@ -74,9 +83,15 @@ export function useQueryResults(
 export function useQueryResultsSnapshot(
     query: QueryJSON | null,
     considerDefaultTags: boolean,
+    libraryOnly: boolean,
     sort: QueryResultsSort | null,
 ) {
-    const body = useQueryResultsBody(query, considerDefaultTags, sort);
+    const body = useQueryResultsBody(
+        query,
+        considerDefaultTags,
+        libraryOnly,
+        sort,
+    );
     const x = useAPIPostSnapshot<QueryResultsBody, QueryResultsResponse>(
         "/queries/results",
         body,
@@ -87,6 +102,7 @@ export function useQueryResultsSnapshot(
 function useQueryResultsBody(
     query: QueryJSON | null,
     considerDefaultTags: boolean,
+    libraryOnly: boolean,
     sort: QueryResultsSort | null,
 ) {
     return useMemo<QueryResultsBody | null>(() => {
@@ -94,9 +110,12 @@ function useQueryResultsBody(
         return {
             query,
             consider_default_tags: considerDefaultTags,
+            // left out when off, so the usual request and its cache key stay
+            // the same as before the setting existed
+            ...(libraryOnly ? { library_only: true as const } : {}),
             ...(sort ? { sort } : {}),
         };
-    }, [considerDefaultTags, query, sort]);
+    }, [considerDefaultTags, libraryOnly, query, sort]);
 }
 
 function useParsedResults(

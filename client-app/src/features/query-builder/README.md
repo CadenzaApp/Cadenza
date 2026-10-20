@@ -84,8 +84,9 @@ A query runs over every song Cadenza knows, not just the library (see the query 
   left out, and two ids for one track show it once. Never resolve a whole result at once.
 - Sorts on the backend (`strategy: "remote"`, Title/Artist/Album, opening on Title ascending), so
   the sort orders the whole result rather than the loaded rows.
-- Counts with `matchCountLabel`, like `1,042+ songs` when the backend capped the songs from outside
-  the user's own at 1000. A footer says when the list is complete or capped.
+- Counts with `matchCountLabel`, which reads `999+ songs` from 1000 matches up, and whenever the
+  backend capped the songs from outside the user's own at 1000. A footer says when the list is
+  complete or capped.
 - Plays every song that is certainly the user's own (`certain`), loaded or not, plus the others
   already loaded, in list order (`queryQueueIds`, then `resolveTracks`). A second tap while that
   resolves is ignored. Play turns shuffle off and Shuffle turns it on, like an album.

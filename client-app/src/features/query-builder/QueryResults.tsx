@@ -33,6 +33,8 @@ type Props = {
     matchCount: number;
     /** More songs from outside the user's own matched than came back. */
     capped: boolean;
+    /** The query matched only songs in the user's library. */
+    libraryOnly: boolean;
     pagination: MusicListPagination;
     sort: MusicListSort;
     /** The backend sorts, so a new sort is a new result. */
@@ -56,6 +58,7 @@ export default function QueryResults({
     error,
     matchCount,
     capped,
+    libraryOnly,
     pagination,
     sort,
     onSortChange,
@@ -178,7 +181,9 @@ export default function QueryResults({
                         <Text className="px-6 py-4 text-center text-sm text-muted-foreground">
                             {capped
                                 ? "These are your matching songs and the first 1,000 others Cadenza knows. Narrow the query to see more."
-                                : "These are all the songs Cadenza knows that match."}
+                                : libraryOnly
+                                  ? "These are all the songs in your library that match."
+                                  : "These are all the songs Cadenza knows that match."}
                         </Text>
                     ) : null
                 }

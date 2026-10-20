@@ -21,17 +21,21 @@ export default function QueryResultsScreen() {
     const {
         query: encodedQuery,
         suggested,
+        library,
         relevantTags,
         name,
     } = useLocalSearchParams<{
         query?: string;
         /** "1" when the builder had Include suggested tags on. */
         suggested?: string;
+        /** "1" when Show songs only in your library was on. */
+        library?: string;
         relevantTags?: string;
         /** The query as one readable line, for the analytics ranking. */
         name?: string;
     }>();
     const query = useMemo(() => parseQuery(encodedQuery), [encodedQuery]);
+    const libraryOnly = library === "1";
     const [sort, setSort] = useState<MusicListSort>(DEFAULT_SORT);
     const resultsSort = useMemo(() => toResultsSort(sort), [sort]);
     // what a play from here is credited to
@@ -62,7 +66,12 @@ export default function QueryResultsScreen() {
         resultsCapped,
         queryResultsLoading,
         queryResultsErr,
-    } = useQueryResultsSnapshot(query, suggested === "1", resultsSort);
+    } = useQueryResultsSnapshot(
+        query,
+        suggested === "1",
+        libraryOnly,
+        resultsSort,
+    );
     const {
         tracks,
         loadedCount,
@@ -87,6 +96,7 @@ export default function QueryResultsScreen() {
             error={queryResultsErr ?? tracksErr}
             matchCount={matchedSongIds.length}
             capped={resultsCapped}
+            libraryOnly={libraryOnly}
             pagination={{
                 hasNextPage,
                 isLoadingNextPage,

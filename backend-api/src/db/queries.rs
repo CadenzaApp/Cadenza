@@ -37,6 +37,12 @@ const OWN_SONGS: &str = "
     SELECT song_id FROM user_tags_applied WHERE user_id=$1
 ";
 
+/// The user's own songs when a query is limited to their library: only their `user_songs`
+/// rows, not songs that carry one of their tags without being in the library.
+const LIBRARY_SONGS: &str = "
+    SELECT song_id FROM user_songs WHERE user_id=$1
+";
+
 /// The user's own songs as rows a query runs over, as a `FROM` item: every one is
 /// `certain`, with whatever metadata is stored for it. Untagged songs are in here too, which
 /// is what lets a negative filter match a song with no tag rows at all.
@@ -106,6 +112,9 @@ pub struct QueryMatch {
 /// id. Otherwise only the user's own tags exist as far as the query is
 /// concerned.
 ///
+/// With `library_only` the query runs over the user's library alone, their `user_songs`
+/// rows: no songs from elsewhere, so the result is never capped.
+///
 /// Without a `sort`, songs come back most relevant first: by how many of the tags the query
 /// names they carry, then the user's own before the rest, then by every user's plays. With
 /// one, by that title, artist or album, then by title, then by plays. Song id breaks every
@@ -115,6 +124,7 @@ pub async fn run_query(
     query: &Query,
     user_id: Uuid,
     consider_default_tags: bool,
+    library_only: bool,
     sort: Option<QuerySort>,
 ) -> Result<QueryMatches, CadenzaError> {
     check_size(&query.root)?;
@@ -132,6 +142,7 @@ pub async fn run_query(
         &number_defaults,
         user_id,
         consider_default_tags,
+        library_only,
         sort,
     )?;
 
@@ -315,6 +326,9 @@ fn applied_tags_source(consider_default_tags: bool) -> &'static str {
 /// the order [`run_query`] describes: every certain song, and the first
 /// [`MAX_DISCOVERED_SONGS`] + 1 of the rest.
 ///
+/// With `library_only` the user's own songs are only their `user_songs` rows
+/// ([`LIBRARY_SONGS`]) and there is no second half, so nothing is capped.
+///
 /// The two run as separate halves of a `UNION ALL` with the same where clause. The user's
 /// own songs are few. The rest can be hundreds of thousands, and a `LIMIT` on that half
 /// lets postgres keep only the first while it sorts, instead of sorting them all. Ranking
@@ -325,6 +339,7 @@ fn compile_query(
     number_defaults: &HashMap<i64, f64>,
     user_id: Uuid,
     consider_default_tags: bool,
+    library_only: bool,
     sort: Option<QuerySort>,
 ) -> Result<(String, Vec<sea_query::Value>), CadenzaError> {
     let applied_tags = applied_tags_source(consider_default_tags);
@@ -358,20 +373,32 @@ fn compile_query(
         )
     };
     let own = matched(OWN_QUERY_SONGS);
-    let discovered = matched(DISCOVERED_QUERY_SONGS);
+    let (own_songs, discovered) = if library_only {
+        (LIBRARY_SONGS, String::new())
+    } else {
+        let discovered = matched(DISCOVERED_QUERY_SONGS);
+        (
+            OWN_SONGS,
+            format!(
+                r#"
+                    UNION ALL
+                    (
+                        SELECT * FROM ({discovered}) AS discovered
+                        ORDER BY {order}
+                        LIMIT {discovered_limit}
+                    )
+                "#
+            ),
+        )
+    };
 
     let sql = format!(
         r#"
-            WITH own_songs AS ({OWN_SONGS})
+            WITH own_songs AS ({own_songs})
             SELECT song_id, certain
             FROM (
                 ({own})
-                UNION ALL
-                (
-                    SELECT * FROM ({discovered}) AS discovered
-                    ORDER BY {order}
-                    LIMIT {discovered_limit}
-                )
+                {discovered}
             ) AS ranked
             ORDER BY {order}
         "#
@@ -1053,6 +1080,7 @@ mod tests {
             &HashMap::new(),
             Uuid::nil(),
             false,
+            false,
             None,
         )
     }
@@ -1064,6 +1092,7 @@ mod tests {
             &HashMap::new(),
             Uuid::nil(),
             true,
+            false,
             None,
         )
     }
@@ -1076,6 +1105,7 @@ mod tests {
             &tag_types(),
             &HashMap::from([(4, 0.0)]),
             Uuid::nil(),
+            false,
             false,
             None,
         )
@@ -1560,6 +1590,40 @@ mod tests {
         assert_eq!(sql.matches("LIMIT").count(), 1, "{sql}");
     }
 
+    /// Limited to the library, the query runs over the user's `user_songs` rows alone:
+    /// not their tagged songs outside it, and no stored songs from elsewhere.
+    #[test]
+    fn a_library_only_query_runs_over_the_library_alone() {
+        let (sql, _) = compile_query(
+            &parse(&filter(
+                r#"{ "field": "tag", "tag_id": 1, "op": "is_not_applied" }"#,
+            )),
+            &tag_types(),
+            &HashMap::new(),
+            Uuid::nil(),
+            false,
+            true,
+            None,
+        )
+        .unwrap();
+        let sql = squash(&sql);
+
+        assert!(
+            sql.contains(&format!("WITH own_songs AS ( {} )", squash(LIBRARY_SONGS))),
+            "{sql}"
+        );
+        assert!(
+            !sql.contains("SELECT song_id FROM user_tags_applied WHERE user_id=$1"),
+            "{sql}"
+        );
+        assert!(!sql.contains("FALSE AS certain"), "{sql}");
+        assert!(!sql.contains("UNION ALL ("), "{sql}");
+        assert!(!sql.contains("LIMIT"), "{sql}");
+        // the filter and the ranking still run
+        assert!(sql.contains("NOT EXISTS"), "{sql}");
+        assert!(sql.contains("ORDER BY score DESC"), "{sql}");
+    }
+
     /// The cap's sort and the final sort have to agree, or the cap would keep songs the
     /// list does not show first.
     #[test]
@@ -1576,6 +1640,7 @@ mod tests {
                 &tag_types(),
                 &HashMap::new(),
                 Uuid::nil(),
+                false,
                 false,
                 sort,
             )
@@ -1978,6 +2043,7 @@ mod tests {
             &HashMap::new(),
             user_id,
             false,
+            false,
             sort,
         )
         .unwrap();
@@ -2184,6 +2250,77 @@ mod tests {
         );
     }
 
+    /// Limited to the library, only `user_songs` rows match: a song carrying the user's tag
+    /// outside the library and a stored song from elsewhere both drop out.
+    #[tokio::test]
+    #[ignore]
+    async fn a_library_only_query_matches_only_library_songs() {
+        let (txn, user_id) = metadata_library().await;
+        store_discovered(&txn, &[("d1", "Elsewhere", "Someone", 1_000_000_000_000)]).await;
+        let tag_id: i64 = txn
+            .query_one_raw(Statement::from_sql_and_values(
+                DbBackend::Postgres,
+                "INSERT INTO tags (name, color, user_id) VALUES ('test-q-pop', '#000000', $1) RETURNING tag_id",
+                [user_id.into()],
+            ))
+            .await
+            .unwrap()
+            .unwrap()
+            .try_get_by_index(0)
+            .unwrap();
+        store_discovered(&txn, &[("t1", "Tagged", "Someone", 0)]).await;
+        txn.execute_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            "INSERT INTO user_tags_applied (song_id, user_id, tag_id) VALUES ('test-q-p1', $1, $2), ('test-q-t1', $1, $2)",
+            [user_id.into(), tag_id.into()],
+        ))
+        .await
+        .unwrap();
+        let types = HashMap::from([(tag_id, TagType::Basic)]);
+        let run = |op: &'static str| {
+            let json = format!(
+                r#"{{ "where": {{ "filter": {{ "field": "tag", "tag_id": {tag_id}, "op": "{op}" }} }} }}"#
+            );
+            let (sql, values) = compile_query(
+                &parse(&json),
+                &types,
+                &HashMap::new(),
+                user_id,
+                false,
+                true,
+                None,
+            )
+            .unwrap();
+            let txn = &txn;
+            async move {
+                let rows = QueryMatch::find_by_statement(Statement::from_sql_and_values(
+                    DbBackend::Postgres,
+                    sql,
+                    values,
+                ))
+                .all(txn)
+                .await
+                .unwrap();
+                let mut ids: Vec<String> = rows
+                    .into_iter()
+                    .filter(|song| song.song_id.starts_with("test-q-"))
+                    .map(|song| {
+                        assert!(song.certain, "{}", song.song_id);
+                        song.song_id
+                    })
+                    .collect();
+                ids.sort();
+                ids
+            }
+        };
+
+        assert_eq!(run("is_applied").await, vec!["test-q-p1"]);
+        assert_eq!(
+            run("is_not_applied").await,
+            vec!["test-q-n1", "test-q-p2", "test-q-x1"]
+        );
+    }
+
     /// Most relevant first: the user's own songs before the rest when the score ties, then
     /// every user's plays, then song id.
     #[tokio::test]
@@ -2316,6 +2453,7 @@ mod tests {
             &tag_types(),
             &HashMap::new(),
             user_id,
+            false,
             false,
             Some(QuerySort {
                 key: QuerySortKey::Title,

@@ -15,6 +15,9 @@ struct QueryResultsBody {
     /// only its own tags.
     #[serde(default)]
     consider_default_tags: bool,
+    /// Defaults to false: the query runs over every song Cadenza knows.
+    #[serde(default)]
+    library_only: bool,
     /// Omitted for most relevant first.
     #[serde(default)]
     sort: Option<QuerySort>,
@@ -37,11 +40,15 @@ struct QueryResultsBody {
 /// shared default tags, for matching and for ranking, and lets the query name a
 /// default tag id.
 ///
+/// `library_only` narrows the songs to the caller's `user_songs` rows alone. Every match
+/// is then `certain`, and `capped` is always false.
+///
 /// Request JSON:
 /// ```json
 /// {
 ///   "query": { "where": { "filter": { "field": "tag", "tag_id": 3, "op": "is_not_applied" } } },
 ///   "consider_default_tags": false,
+///   "library_only": false,
 ///   "sort": { "key": "title", "direction": "ascending" }
 /// }
 /// ```
@@ -67,6 +74,7 @@ async fn query_results_handler(
             &body.query,
             claims.user_id,
             body.consider_default_tags,
+            body.library_only,
             body.sort,
         )
         .await?

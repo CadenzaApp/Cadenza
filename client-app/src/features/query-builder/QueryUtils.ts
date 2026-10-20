@@ -523,21 +523,24 @@ function clampInsertionIndex(index: number, length: number): number {
     return Math.max(0, Math.min(Math.trunc(index), length));
 }
 
+/** The most a match count shows exactly. Anything past it reads `999+`. */
+const MAX_EXACT_MATCH_COUNT = 999;
+
 /**
- * How many songs a query matched, like `1 song`, `42 songs`, or `1,042+ songs`.
- * `capped` adds the `+`: the backend stopped returning songs from outside the
- * user's own, so more than `count` matched. `noun` is the singular word, for a
- * label that counts `results` instead.
+ * How many songs a query matched, like `1 song` or `42 songs`. A count of 1000
+ * or more reads `999+ songs`, and so does a `capped` one: the backend stopped
+ * returning songs from outside the user's own, so its count is the user's own
+ * plus the first 1000 others, a number that means nothing to read exactly.
+ * `noun` is the singular word, for a label that counts `results` instead.
  */
 export function matchCountLabel(
     count: number,
     capped: boolean,
     noun = "song",
 ): string {
-    const digits = String(Math.max(0, Math.trunc(count))).replace(
-        /\B(?=(\d{3})+(?!\d))/g,
-        ",",
-    );
-    const word = count === 1 && !capped ? noun : `${noun}s`;
-    return `${digits}${capped ? "+" : ""} ${word}`;
+    const exact = Math.max(0, Math.trunc(count));
+    if (capped || exact > MAX_EXACT_MATCH_COUNT) {
+        return `${MAX_EXACT_MATCH_COUNT}+ ${noun}s`;
+    }
+    return `${exact} ${exact === 1 ? noun : `${noun}s`}`;
 }

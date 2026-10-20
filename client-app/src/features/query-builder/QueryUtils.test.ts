@@ -458,13 +458,15 @@ test("a suggested tag compiles to the same filter as any other tag", () => {
     });
 });
 
-test("a match count reads as songs, with a plus when capped", () => {
+test("a match count reads as songs, and 999+ from 1000 up", () => {
     assert.equal(matchCountLabel(0, false), "0 songs");
     assert.equal(matchCountLabel(1, false), "1 song");
     assert.equal(matchCountLabel(42, false), "42 songs");
-    assert.equal(matchCountLabel(1000, false), "1,000 songs");
-    assert.equal(matchCountLabel(1042, true), "1,042+ songs");
-    assert.equal(matchCountLabel(1234567, false), "1,234,567 songs");
+    assert.equal(matchCountLabel(999, false), "999 songs");
+    assert.equal(matchCountLabel(1000, false), "999+ songs");
+    assert.equal(matchCountLabel(1234567, false), "999+ songs");
+    // a capped count is the user's own plus the first 1000 others
+    assert.equal(matchCountLabel(1009, true), "999+ songs");
     assert.equal(matchCountLabel(1, false, "result"), "1 result");
-    assert.equal(matchCountLabel(1042, true, "result"), "1,042+ results");
+    assert.equal(matchCountLabel(1013, true, "result"), "999+ results");
 });
