@@ -10,11 +10,20 @@ import {
  * Converts one source color into the shared light/dark Oklch gradient used by
  * artwork- and tag-tinted surfaces.
  */
-export function useTintGradient(sourceColor?: string | null) {
+export function useTintGradient(
+    sourceColor?: string | null,
+    useLoadingFallback = false,
+) {
     const { colorScheme = "light" } = useColorScheme();
+    const color =
+        sourceColor ??
+        (useLoadingFallback
+            ? colorScheme === "dark"
+                ? "#000000"
+                : "#ffffff"
+            : null);
     return useMemo<TintGradient | null>(
-        () =>
-            sourceColor ? createTintGradient(sourceColor, colorScheme) : null,
-        [colorScheme, sourceColor],
+        () => (color ? createTintGradient(color, colorScheme) : null),
+        [colorScheme, color],
     );
 }

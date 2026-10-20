@@ -1,7 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTheme } from "expo-router/react-navigation";
 import type { ReactNode } from "react";
-import { Platform, View } from "react-native";
+import { Platform, View, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { GlassIconButton } from "@/components/ui/glass-icon-button";
@@ -10,6 +10,7 @@ import { TintBackdrop } from "@/components/ui/tint-backdrop";
 import { MediaPlayerZoomOverlay } from "@/components/custom/media-player";
 import { InsideSheetContext } from "@/lib/screen-overlay";
 import { useTintGradient } from "@/lib/use-tint-gradient";
+import { contrastPalette, gradientColorAt } from "@/lib/artwork-color-utils";
 import { useCloseScreen, ZoomDismissScreen } from "@/lib/zoom-dismiss";
 
 /**
@@ -119,10 +120,22 @@ function DetailScreenBody({
     children: ReactNode;
 }) {
     const close = useCloseScreen();
-    const gradient = useTintGradient(tint);
+    const gradient = useTintGradient(tint, !isSheet);
+    const { height } = useWindowDimensions();
+    const palette = gradient
+        ? contrastPalette(
+              gradientColorAt(gradient.colors, (insetTop + 32) / height),
+          )
+        : null;
+    const foreground = palette?.foreground ?? textColor;
 
     return (
-        <View className="flex-1 bg-card">
+        <View
+            className="flex-1 bg-card"
+            style={
+                gradient ? { backgroundColor: gradient.colors[0] } : undefined
+            }
+        >
             {/* Behind the header as well as the body, so the color runs to the
                 top edge of the sheet rather than starting under the title. */}
             <TintBackdrop gradient={gradient} />
@@ -142,6 +155,7 @@ function DetailScreenBody({
                 <View className="h-16 flex-row items-center justify-between px-5">
                     <Text
                         className="flex-1 text-3xl font-bold tracking-tight"
+                        style={{ color: foreground }}
                         numberOfLines={1}
                     >
                         {title}
@@ -149,13 +163,15 @@ function DetailScreenBody({
                     <View className="flex-row items-center gap-2">
                         {headerRight}
                         <GlassIconButton
+                            bordered={false}
+                            surfaceScheme={palette?.scheme}
                             accessibilityLabel={`Close ${title.toLowerCase()}`}
                             onPress={onClose ?? close}
                         >
                             <Ionicons
                                 name="close"
                                 size={22}
-                                color={textColor}
+                                color={foreground}
                             />
                         </GlassIconButton>
                     </View>

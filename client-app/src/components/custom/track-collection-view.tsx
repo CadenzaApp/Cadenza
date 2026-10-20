@@ -1,11 +1,12 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type { MusicItem } from "@apple-musickit";
-import { useTheme } from "expo-router/react-navigation";
+import { useIsFocused, useTheme } from "expo-router/react-navigation";
 import type { ComponentProps, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
     Image,
     View,
+    useWindowDimensions,
     type ColorValue,
     type StyleProp,
     type ViewStyle,
@@ -32,12 +33,15 @@ import {
 } from "@/components/custom/music-list";
 import { ModalPopup } from "@/components/custom/modal-popup";
 import { Button } from "@/components/ui/button";
-import { GlassIconButton } from "@/components/ui/glass-icon-button";
-import { Text } from "@/components/ui/text";
 import {
-    TintBackdrop,
-    TintOverscrollBackdrop,
-} from "@/components/ui/tint-backdrop";
+    ContrastGlassIconButton as GlassIconButton,
+    ContrastRegion,
+    ContrastText as Text,
+    ContrastIcon,
+    SurfaceContrastProvider,
+} from "@/lib/surface-contrast-context";
+import type { ArtworkSurface, TintGradient } from "@/lib/artwork-color-utils";
+import { TintOverscrollBackdrop } from "@/components/ui/tint-backdrop";
 import { usePlaybackCommands } from "@/lib/playback";
 import { useTintGradient } from "@/lib/use-tint-gradient";
 
@@ -124,6 +128,9 @@ type Props = {
     footer?: ReactNode;
     /** Source color for the mode-aware Oklch background gradient. */
     backgroundColor?: string | null;
+    artworkSurface?: ArtworkSurface;
+    backgroundGradient?: TintGradient | null;
+    gradientMinHeight?: number;
     containerStyle?: StyleProp<ViewStyle>;
     pagination?: MusicListPagination | null;
     /**
@@ -167,6 +174,9 @@ export function TrackCollectionView({
     header,
     footer,
     backgroundColor = null,
+    artworkSurface,
+    backgroundGradient,
+    gradientMinHeight = 0,
     containerStyle,
     pagination = null,
     loadAllPages = false,
@@ -185,18 +195,35 @@ export function TrackCollectionView({
 }: Props) {
     const { colors } = useTheme();
     const insets = useSafeAreaInsets();
+    const { height: windowHeight } = useWindowDimensions();
+    const [viewportHeight, setViewportHeight] = useState(windowHeight);
+    const [contentHeight, setContentHeight] = useState(windowHeight);
     const { playQueue } = usePlaybackCommands();
     const [optionsOpen, setOptionsOpen] = useState(false);
+    const isFocused = useIsFocused();
     const settled = useOpenTransitionSettled(useIsPushedDetailScreen());
     const scrollY = useSharedValue(0);
     const hasNextPage = pagination?.hasNextPage ?? false;
     const loadingNextPage = pagination?.isLoadingNextPage ?? false;
     const loadNextPage = pagination?.onLoadNextPage;
     useEffect(() => {
-        if (!loadAllPages || !settled || !hasNextPage || loadingNextPage)
+        if (
+            !isFocused ||
+            !loadAllPages ||
+            !settled ||
+            !hasNextPage ||
+            loadingNextPage
+        )
             return;
         void loadNextPage?.();
-    }, [hasNextPage, loadAllPages, loadNextPage, loadingNextPage, settled]);
+    }, [
+        hasNextPage,
+        isFocused,
+        loadAllPages,
+        loadNextPage,
+        loadingNextPage,
+        settled,
+    ]);
     const derivedArtworkUrls = useMemo(
         () =>
             artworkUrlsOverride || header ? [] : collectionArtworkGrid(tracks),
@@ -207,7 +234,13 @@ export function TrackCollectionView({
         () => summaryOverride ?? formatTrackCollectionSummary(tracks),
         [summaryOverride, tracks],
     );
-    const gradient = useTintGradient(backgroundColor);
+    const defaultGradient = useTintGradient(backgroundColor, true);
+    const gradient = backgroundGradient ?? defaultGradient;
+    const gradientHeight = Math.max(
+        viewportHeight,
+        contentHeight,
+        gradientMinHeight,
+    );
     const actionsDisabled = tracks.length === 0 || isLoading;
     const onScroll = useAnimatedScrollHandler((event) => {
         scrollY.set(Math.max(0, event.contentOffset.y));
@@ -239,7 +272,7 @@ export function TrackCollectionView({
     // the copy the card shows as the page fades, so the close reads as this
     // artwork shrinking into its tile
     useEffect(() => {
-        if (!setZoomArtwork || header) return;
+        if (!settled || !setZoomArtwork || header) return;
         setZoomArtwork({
             node: (
                 <View style={ARTWORK_SHADOW}>
@@ -253,7 +286,7 @@ export function TrackCollectionView({
             height: ARTWORK_SIZE,
         });
         return () => setZoomArtwork(null);
-    }, [artworkUrls, colors.text, header, setZoomArtwork]);
+    }, [artworkUrls, colors.text, header, setZoomArtwork, settled]);
     useAnimatedReaction(
         () => {
             const base = artworkBase.get();
@@ -275,14 +308,15 @@ export function TrackCollectionView({
         },
     );
 
-    const artworkStyle = useAnimatedStyle(() => ({
-        transformOrigin: "center bottom",
-        transform: [
-            {
-                scale: artworkScale(scrollY.get()),
-            },
-        ],
-    }));
+    const hasDefaultHero = header == null;
+    const artworkStyle = useAnimatedStyle(() =>
+        hasDefaultHero
+            ? {
+                  transformOrigin: "center bottom",
+                  transform: [{ scale: artworkScale(scrollY.get()) }],
+              }
+            : {},
+    );
 
     function playAll() {
         const command = onPlay ? onPlay() : playQueue({ tracks });
@@ -324,7 +358,9 @@ export function TrackCollectionView({
     const defaultHeader = (
         <View
             className="relative px-4 pb-4"
-            style={{ paddingTop: 32 + (respectTopSafeArea ? insets.top : 0) }}
+            style={{
+                paddingTop: 32 + (respectTopSafeArea ? insets.top : 0),
+            }}
         >
             <View className="items-center">
                 <Animated.View style={[artworkStyle, ARTWORK_SHADOW]}>
@@ -346,7 +382,7 @@ export function TrackCollectionView({
                 ) : (
                     <View className="mt-4 flex-row items-center justify-center gap-2">
                         {titleIcon ? (
-                            <Ionicons
+                            <ContrastIcon
                                 name={titleIcon}
                                 size={24}
                                 color={colors.text}
@@ -381,7 +417,7 @@ export function TrackCollectionView({
                         size={25}
                         color={colors.background}
                     />
-                    <Text className="font-semibold">
+                    <Text tone="theme" className="font-semibold">
                         {isPlaying ? "Pause" : "Play"}
                     </Text>
                 </Button>
@@ -393,7 +429,9 @@ export function TrackCollectionView({
                     accessibilityLabel={`Shuffle ${title}`}
                 >
                     <Ionicons name="shuffle" size={25} color={colors.text} />
-                    <Text className="font-semibold">Shuffle</Text>
+                    <Text tone="theme" className="font-semibold">
+                        Shuffle
+                    </Text>
                 </Button>
                 {options.length === 1 ? (
                     <GlassIconButton
@@ -401,7 +439,7 @@ export function TrackCollectionView({
                         onPress={() => runOption(options[0])}
                         accessibilityLabel={options[0].label}
                     >
-                        <Ionicons
+                        <ContrastIcon
                             name={options[0].icon}
                             size={25}
                             color={colors.text}
@@ -414,7 +452,7 @@ export function TrackCollectionView({
                         accessibilityLabel={`More options for ${title}`}
                         accessibilityState={{ expanded: optionsOpen }}
                     >
-                        <Ionicons
+                        <ContrastIcon
                             name="ellipsis-vertical"
                             size={25}
                             color={colors.text}
@@ -424,17 +462,43 @@ export function TrackCollectionView({
             </View>
 
             {error ? (
-                <Text className="mt-3 text-center text-destructive">
+                <Text
+                    tone="theme"
+                    className="mt-3 text-center text-destructive"
+                >
                     Failed to load tracks.
                 </Text>
             ) : null}
         </View>
     );
-    const listHeader = header ?? defaultHeader;
+    const listHeader = header ?? (
+        <ContrastRegion
+            offset={ARTWORK_SIZE + 80 + (respectTopSafeArea ? insets.top : 0)}
+        >
+            {defaultHeader}
+        </ContrastRegion>
+    );
 
     return (
-        <View className="flex-1 bg-background" style={containerStyle}>
-            <TintOverscrollBackdrop gradient={gradient} />
+        <SurfaceContrastProvider
+            colors={gradient?.colors}
+            height={gradientHeight}
+            contentHeight={Math.max(viewportHeight, contentHeight)}
+            viewportHeight={viewportHeight}
+            scrollY={scrollY}
+            artwork={artworkSurface}
+            style={containerStyle}
+            onLayout={(event) =>
+                setViewportHeight(event.nativeEvent.layout.height)
+            }
+        >
+            <TintOverscrollBackdrop
+                gradient={gradient}
+                scrollY={scrollY}
+                contentHeight={contentHeight}
+                gradientMinHeight={gradientMinHeight}
+                viewportHeight={viewportHeight}
+            />
             <MusicList
                 // held back until the open animation ends; the rows
                 // are ready by then, so they appear as it lands
@@ -446,13 +510,10 @@ export function TrackCollectionView({
                 anticipatedTrackCount={anticipatedTrackCount}
                 header={listHeader}
                 footer={footer}
-                onContentSizeChange={onContentSizeChange}
-                // inside the scroll content, so it always spans exactly the
-                // rows. sized from a measured content height it ended early
-                // whenever the list's estimate came in short
-                contentBackground={
-                    gradient ? <TintBackdrop gradient={gradient} /> : null
-                }
+                onContentSizeChange={(width, height) => {
+                    setContentHeight(height);
+                    onContentSizeChange?.(width, height);
+                }}
                 removeClippedSubviews={removeClippedSubviews}
                 onScroll={onScroll}
                 multiSelect={multiSelect}
@@ -510,6 +571,7 @@ export function TrackCollectionView({
                             }
                         />
                         <Text
+                            tone="theme"
                             className={
                                 option.destructive
                                     ? "text-destructive"
@@ -521,7 +583,7 @@ export function TrackCollectionView({
                     </Button>
                 ))}
             </ModalPopup>
-        </View>
+        </SurfaceContrastProvider>
     );
 }
 

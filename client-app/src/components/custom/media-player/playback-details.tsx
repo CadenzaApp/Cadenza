@@ -1,6 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type { MusicItem, SongFavoriteStatus } from "@apple-musickit";
-import type { ReactNode } from "react";
+import type { ReactNode, Ref } from "react";
 import {
     ActivityIndicator,
     Image,
@@ -37,6 +37,9 @@ export function MediaPlayerTrackHeading({
     compact = false,
     onFavoriteToggle,
     onOpenMenu,
+    onOpenArtist,
+    artistNameRef,
+    artworkRef,
 }: {
     track: MusicItem;
     favoriteStatus: SongFavoriteStatus | null | undefined;
@@ -46,6 +49,9 @@ export function MediaPlayerTrackHeading({
     compact?: boolean;
     onFavoriteToggle: () => void;
     onOpenMenu: () => void;
+    onOpenArtist?: () => void;
+    artistNameRef?: Ref<View>;
+    artworkRef?: Ref<View>;
 }) {
     const artworkUrl = track.artworkUrl?.trim();
     const canRenderArtwork =
@@ -56,14 +62,16 @@ export function MediaPlayerTrackHeading({
     return (
         <View className="flex-row items-center gap-3">
             {canRenderArtwork ? (
-                <Image
-                    source={{ uri: artworkUrl }}
-                    style={{
-                        width: COMPACT_ARTWORK_SIZE,
-                        height: COMPACT_ARTWORK_SIZE,
-                    }}
-                    className="rounded-lg bg-muted"
-                />
+                <View ref={artworkRef} collapsable={false}>
+                    <Image
+                        source={{ uri: artworkUrl }}
+                        style={{
+                            width: COMPACT_ARTWORK_SIZE,
+                            height: COMPACT_ARTWORK_SIZE,
+                        }}
+                        className="rounded-lg bg-muted"
+                    />
+                </View>
             ) : null}
 
             <View className="flex-1">
@@ -77,16 +85,28 @@ export function MediaPlayerTrackHeading({
                 >
                     {track.title || "Unknown Title"}
                 </Text>
-                <Text
-                    className={
-                        compact
-                            ? "text-base text-muted-foreground"
-                            : "mt-0.5 text-xl text-muted-foreground"
-                    }
-                    numberOfLines={1}
+                <Pressable
+                    ref={artistNameRef}
+                    collapsable={false}
+                    accessibilityRole="link"
+                    accessibilityLabel={`View ${track.artistName || "artist"}`}
+                    accessibilityState={{ disabled: !onOpenArtist }}
+                    disabled={!onOpenArtist}
+                    onPress={onOpenArtist}
+                    hitSlop={4}
+                    className="max-w-full self-start active:opacity-60"
                 >
-                    {track.artistName || "Unknown Artist"}
-                </Text>
+                    <Text
+                        className={
+                            compact
+                                ? "text-base text-muted-foreground"
+                                : "mt-0.5 text-xl text-muted-foreground"
+                        }
+                        numberOfLines={1}
+                    >
+                        {track.artistName || "Unknown Artist"}
+                    </Text>
+                </Pressable>
             </View>
 
             <Pressable

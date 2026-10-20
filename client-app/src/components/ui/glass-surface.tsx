@@ -27,6 +27,8 @@ import { cn } from "@/lib/utils";
 export type GlassSurfaceVariant = "regular" | "clear";
 
 type GlassSurfaceProps = ViewProps & {
+    /** Override the material appearance for an artwork-derived surface. */
+    colorScheme?: "light" | "dark";
     variant?: GlassSurfaceVariant;
     /** Optional color washed into the glass. */
     tintColor?: ColorValue;
@@ -111,6 +113,7 @@ const ANDROID_FILL_OPACITY: Record<GlassSurfaceVariant, number> = {
  * so keep the shadow on a parent rather than on this view.
  */
 export function GlassSurface({
+    colorScheme: surfaceScheme,
     variant = "regular",
     tintColor,
     intensity,
@@ -119,7 +122,7 @@ export function GlassSurface({
     ...rest
 }: GlassSurfaceProps) {
     const { colorScheme } = useColorScheme();
-    const scheme = colorScheme === "dark" ? "dark" : "light";
+    const scheme = surfaceScheme ?? (colorScheme === "dark" ? "dark" : "light");
     const blurTarget = useContext(BlurTargetContext);
     const nested = useContext(GlassLayerContext);
 
@@ -147,7 +150,16 @@ export function GlassSurface({
 
     if (Platform.OS === "web") {
         return (
-            <View className={cn("bg-card/80", className)} {...rest}>
+            <View
+                className={cn("bg-card/80", className)}
+                {...rest}
+                style={[
+                    rest.style,
+                    surfaceScheme
+                        ? { backgroundColor: ANDROID_FILL[scheme] + "cc" }
+                        : undefined,
+                ]}
+            >
                 <FallbackTint color={tintColor} />
                 {content}
             </View>

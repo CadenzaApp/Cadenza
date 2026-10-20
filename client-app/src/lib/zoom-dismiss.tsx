@@ -12,6 +12,7 @@ import {
     type RefObject,
 } from "react";
 import {
+    Platform,
     StyleSheet,
     useWindowDimensions,
     View,
@@ -21,6 +22,7 @@ import Animated, {
     Easing,
     makeMutable,
     runOnJS,
+    runOnUI,
     useAnimatedReaction,
     useAnimatedStyle,
     useSharedValue,
@@ -34,10 +36,14 @@ import {
     zoomCloseDuration,
     zoomFrame,
     zoomOpenFrame,
+    zoomSourceFromSheet,
+    zoomPointFrame,
     zoomPageOpacity,
     ZOOM_OPEN_DURATION,
     type ZoomRect,
 } from "./zoom-dismiss-geometry";
+
+import { SkeletonAnimationContext } from "@/components/ui/skeleton";
 
 /**
  * Closing a pushed screen by shrinking it back into whatever opened it.
@@ -63,19 +69,64 @@ type ZoomViewport = {
     height: number;
 };
 
+type ZoomAnchor = "artwork" | "point";
+
 type ZoomLaunchTicket = {
+    anchor: ZoomAnchor;
     createdAt: number;
     viewport: ZoomViewport;
     origin: SharedValue<ZoomOrigin | null>;
 };
 
 type ZoomOriginStore = {
-    beginLaunch: (viewport: ZoomViewport) => ZoomLaunchTicket;
+    beginLaunch: (
+        viewport: ZoomViewport,
+        anchor: ZoomAnchor,
+    ) => ZoomLaunchTicket;
     peekLaunch: (viewport: ZoomViewport) => ZoomLaunchTicket | null;
     consumeLaunch: (ticket: ZoomLaunchTicket) => void;
 };
 
 const ZoomOriginContext = createContext<ZoomOriginStore | null>(null);
+
+type MeasureSource = (
+    source: RNView,
+    receive: (rect: ZoomRect) => void,
+) => void;
+const ZoomSheetSourceContext = createContext<MeasureSource | null>(null);
+
+/** Give sheet links a physical window target, including the native sheet offset. */
+export function ZoomSheetSourceScope({ children }: { children: ReactNode }) {
+    const ref = useRef<RNView>(null);
+    const { width, height } = useWindowDimensions();
+    const measureSource = useCallback<MeasureSource>(
+        (source, receive) => {
+            const sheet = ref.current;
+            if (!sheet) return;
+            sheet.measureInWindow((x, y, sheetWidth, sheetHeight) => {
+                if (sheetWidth <= 0 || sheetHeight <= 0) return;
+                source.measureInWindow((sx, sy, sw, sh) => {
+                    receive(
+                        zoomSourceFromSheet(
+                            { x: sx, y: sy, width: sw, height: sh },
+                            { x, y, width: sheetWidth, height: sheetHeight },
+                            { width, height },
+                        ),
+                    );
+                });
+            });
+        },
+        [width, height],
+    );
+    if (Platform.OS !== "ios") return children;
+    return (
+        <ZoomSheetSourceContext.Provider value={measureSource}>
+            <View ref={ref} collapsable={false} className="flex-1">
+                {children}
+            </View>
+        </ZoomSheetSourceContext.Provider>
+    );
+}
 
 /** A copy of a screen's artwork, and the size it draws at unscaled. */
 export type ZoomArtwork = { node: ReactNode; width: number; height: number };
@@ -116,15 +167,19 @@ const ZoomDismissContext = createContext<ZoomDismissController | null>(null);
  */
 export function ZoomOriginProvider({ children }: { children: ReactNode }) {
     const pendingLaunch = useRef<ZoomLaunchTicket | null>(null);
-    const beginLaunch = useCallback((viewport: ZoomViewport) => {
-        const ticket = {
-            createdAt: Date.now(),
-            viewport,
-            origin: makeMutable<ZoomOrigin | null>(null),
-        };
-        pendingLaunch.current = ticket;
-        return ticket;
-    }, []);
+    const beginLaunch = useCallback(
+        (viewport: ZoomViewport, anchor: ZoomAnchor) => {
+            const ticket = {
+                anchor,
+                createdAt: Date.now(),
+                viewport,
+                origin: makeMutable<ZoomOrigin | null>(null),
+            };
+            pendingLaunch.current = ticket;
+            return ticket;
+        },
+        [],
+    );
     const peekLaunch = useCallback((viewport: ZoomViewport) => {
         const ticket = pendingLaunch.current;
         if (!ticket) return null;
@@ -167,22 +222,34 @@ export function ZoomOriginProvider({ children }: { children: ReactNode }) {
  * can land a frame after the push. That is why the origin is a shared value the
  * animation reads every frame rather than a snapshot taken at mount.
  */
-export function useZoomSource() {
+export function useZoomSource(anchor: ZoomAnchor = "artwork") {
     const store = useContext(ZoomOriginContext);
+    const measureSheetSource = useContext(ZoomSheetSourceContext);
     const ref = useRef<RNView>(null);
     const viewport = useWindowDimensions();
 
     const capture = useCallback(() => {
         if (!store) return;
-        const ticket = store.beginLaunch({
-            width: viewport.width,
-            height: viewport.height,
-        });
-        ref.current?.measureInWindow((x, y, width, height) => {
-            if (width <= 0 || height <= 0) return;
-            ticket.origin.set({ x, y, width, height });
-        });
-    }, [store, viewport.height, viewport.width]);
+        const ticket = store.beginLaunch(
+            {
+                width: viewport.width,
+                height: viewport.height,
+            },
+            anchor,
+        );
+        const source = ref.current;
+        if (!source) return;
+        const receive = (rect: ZoomRect) => {
+            if (rect.width > 0 && rect.height > 0) ticket.origin.set(rect);
+        };
+        if (measureSheetSource) {
+            measureSheetSource(source, receive);
+        } else {
+            source.measureInWindow((x, y, width, height) =>
+                receive({ x, y, width, height }),
+            );
+        }
+    }, [anchor, store, measureSheetSource, viewport.height, viewport.width]);
 
     return { ref, capture };
 }
@@ -272,6 +339,7 @@ export function ZoomDismissScreen({
     const launchMatchesViewport =
         launch?.viewport.width === width && launch.viewport.height === height;
     const origin = launchMatchesViewport ? launch.origin : fallbackOrigin;
+    const pointAnchor = launch?.anchor === "point";
 
     useLayoutEffect(() => {
         if (launch) store?.consumeLaunch(launch);
@@ -281,9 +349,7 @@ export function ZoomDismissScreen({
         if (artwork) artworkWidth.set(artwork.width);
     }, [artwork, artworkWidth, hasArtwork]);
 
-    // The open waits for the screen to report its artwork, so it grows from
-    // the artwork rather than from a guess, and starts the moment it can.
-    // grows from the tile at once, the page opaque the whole way
+    // Start at once. Data and duplicate artwork layers do not gate the open.
     useEffect(() => {
         progress.set(
             withTiming(0, {
@@ -296,7 +362,7 @@ export function ZoomDismissScreen({
     // own callback reports unfinished whenever anything else settles it.
     // from here on every move is a close, which fades and lands the artwork
     useAnimatedReaction(
-        () => opening.get() && progress.get() === 0,
+        () => !closing.get() && progress.get() === 0,
         (atRest, wasAtRest) => {
             if (!atRest || wasAtRest) return;
             opening.set(false);
@@ -325,39 +391,49 @@ export function ZoomDismissScreen({
         progress.set(withSpring(0, { damping: 20, stiffness: 220 }));
     }, [cardVisible, closing, progress, router]);
 
-    const runCloseAnimation = useCallback(() => {
+    const finishGestureClose = useCallback(() => {
+        "worklet";
+        if (closing.get()) return;
+        opening.set(false);
+        movingFocus.set(focus.get());
+        closing.set(true);
         const generation = animationGeneration.get() + 1;
         animationGeneration.set(generation);
-        const duration = zoomCloseDuration(progress.get());
         progress.set(
-            withTiming(1, { duration, easing: ZOOM_EASING }, (finished) => {
-                if (animationGeneration.get() !== generation) return;
-                if (!finished) {
-                    closing.set(false);
-                    progress.set(
-                        withSpring(0, { damping: 20, stiffness: 220 }),
-                    );
-                    return;
-                }
-                // Reveal the source immediately. A delayed JS pop cannot
-                // leave the minimized card hovering over the artwork.
-                cardVisible.set(0);
-                runOnJS(pop)();
-            }),
+            withTiming(
+                1,
+                {
+                    duration: zoomCloseDuration(progress.get()),
+                    easing: ZOOM_EASING,
+                },
+                (finished) => {
+                    if (animationGeneration.get() !== generation) return;
+                    if (!finished) {
+                        closing.set(false);
+                        progress.set(
+                            withSpring(0, { damping: 20, stiffness: 220 }),
+                        );
+                        return;
+                    }
+                    cardVisible.set(0);
+                    runOnJS(pop)();
+                },
+            ),
         );
-    }, [animationGeneration, cardVisible, closing, pop, progress]);
+    }, [
+        closing,
+        opening,
+        movingFocus,
+        focus,
+        animationGeneration,
+        progress,
+        cardVisible,
+        pop,
+    ]);
 
     const close = useCallback(() => {
-        if (closing.get()) return;
-        closing.set(true);
-        runCloseAnimation();
-    }, [closing, runCloseAnimation]);
-
-    const finishGestureClose = useCallback(() => {
-        // The scroll handler sets `closing` before returning to iOS, so the
-        // rebound cannot pull progress back toward zero during this handoff.
-        runCloseAnimation();
-    }, [runCloseAnimation]);
+        runOnUI(finishGestureClose)();
+    }, [finishGestureClose]);
 
     const controller = useMemo(
         () => ({
@@ -387,15 +463,20 @@ export function ZoomDismissScreen({
     const pageStyle = useAnimatedStyle(() => {
         const p = progress.get();
         const isOpening = opening.get();
-        const frame = isOpening
-            ? zoomOpenFrame(width, height, origin.get(), p)
-            : zoomFrame(width, height, origin.get(), movingFocus.get(), p);
+        const target = origin.get();
+        const frame = pointAnchor
+            ? zoomPointFrame(width, height, target, p)
+            : isOpening
+              ? zoomOpenFrame(width, height, target, p)
+              : zoomFrame(width, height, target, movingFocus.get(), p);
         return {
             // only a close fades the page, and only with an artwork copy to
             // leave behind. the open never does: see `zoomOpenFrame`
             opacity:
                 cardVisible.get() *
-                (!isOpening && hasArtwork.get() ? zoomPageOpacity(p) : 1),
+                (!pointAnchor && !isOpening && hasArtwork.get()
+                    ? zoomPageOpacity(p)
+                    : 1),
             borderRadius: frame.borderRadius,
             transform: [
                 { translateX: frame.translateX },
@@ -417,7 +498,9 @@ export function ZoomDismissScreen({
         );
         return {
             // only a close shows it, and only once the card has moved
-            opacity: cardVisible.get() * (!opening.get() && p > 0.001 ? 1 : 0),
+            opacity:
+                cardVisible.get() *
+                (!pointAnchor && !opening.get() && p > 0.001 ? 1 : 0),
             transform: [
                 { translateX: frame.translateX },
                 { translateY: frame.translateY },
@@ -472,8 +555,10 @@ export function ZoomDismissScreen({
                     ref={pageRef}
                     style={[styles.page, { width, height }, pageStyle]}
                 >
-                    {children}
-                    {overlay}
+                    <SkeletonAnimationContext.Provider value={opened}>
+                        {children}
+                        {overlay}
+                    </SkeletonAnimationContext.Provider>
                 </Animated.View>
             </View>
         </ZoomDismissContext.Provider>

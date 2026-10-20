@@ -20,6 +20,23 @@ export type ZoomRect = {
     height: number;
 };
 
+/**
+ * Native form sheets are bottom-anchored, but Fabric can report their children
+ * relative to the layout tree rather than the sheet's UIKit frame. Cancel that
+ * tree origin using a measurement of the sheet, then add its physical origin.
+ */
+export function zoomSourceFromSheet(
+    source: ZoomRect,
+    sheet: ZoomRect,
+    viewport: { width: number; height: number },
+): ZoomRect {
+    return {
+        ...source,
+        x: source.x - sheet.x + (viewport.width - sheet.width) / 2,
+        y: source.y - sheet.y + viewport.height - sheet.height,
+    };
+}
+
 export type ZoomFrame = {
     /** The page's scale, from its top-left corner. */
     scale: number;
@@ -117,6 +134,34 @@ export function zoomOpenFrame(
         scale,
         translateX: target.x * p,
         translateY: target.y * p,
+        visibleRadius,
+        borderRadius: visibleRadius / scale,
+    };
+}
+
+/** A whole card expanding from, and collapsing into, the center of a label. */
+export function zoomPointFrame(
+    viewportWidth: number,
+    viewportHeight: number,
+    origin: ZoomRect | null,
+    progress: number,
+): ZoomFrame {
+    "worklet";
+    const p = Math.min(Math.max(progress, 0), 1);
+    const target = origin ?? centeredSquare(viewportWidth, viewportHeight);
+    const endScale = Math.min(
+        0.15,
+        Math.max(0.04, Math.min(target.width, target.height) / viewportWidth),
+    );
+    const scale = lerp(1, endScale, p);
+    const visibleRadius = lerp(FULL_VISIBLE_RADIUS, 8, p);
+    return {
+        scale,
+        translateX:
+            (target.x + target.width / 2 - (viewportWidth * endScale) / 2) * p,
+        translateY:
+            (target.y + target.height / 2 - (viewportHeight * endScale) / 2) *
+            p,
         visibleRadius,
         borderRadius: visibleRadius / scale,
     };

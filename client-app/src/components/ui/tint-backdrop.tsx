@@ -2,11 +2,12 @@ import { LinearGradient } from "expo-linear-gradient";
 import { StyleSheet, View, type LayoutChangeEvent } from "react-native";
 import Animated, {
     useAnimatedStyle,
+    useDerivedValue,
     useSharedValue,
     type SharedValue,
 } from "react-native-reanimated";
 
-import { Crossfade } from "@/components/ui/crossfade";
+import { tintViewport } from "@/lib/artwork-color-utils";
 import type { TintGradient } from "@/lib/artwork-color-utils";
 
 type TintBackdropProps = {
@@ -38,8 +39,7 @@ const BITMAP_HEIGHT = 256;
  * and scaled to the page on the UI thread, and a size change only moves the
  * scale.
  *
- * A change of gradient, including a page's first one, fades in over a second
- * rather than swapping. Null fades the last one out.
+ * New color information is applied immediately, without a crossfade.
  */
 export function TintBackdrop({ gradient }: TintBackdropProps) {
     const height = useSharedValue(0);
@@ -54,16 +54,9 @@ export function TintBackdrop({ gradient }: TintBackdropProps) {
             style={StyleSheet.absoluteFill}
             onLayout={measure}
         >
-            <Crossfade
-                value={gradient}
-                keyOf={tintKey}
-                // the gradient and the overscroll color under it both appear at
-                // once; fading in together let the two tone underlay show through
-                fadeFromNothing={false}
-                render={(shown) => (
-                    <StretchedGradient gradient={shown} height={height} />
-                )}
-            />
+            {gradient ? (
+                <StretchedGradient gradient={gradient} height={height} />
+            ) : null}
         </View>
     );
 }
@@ -94,40 +87,42 @@ function StretchedGradient({
     );
 }
 
-/**
- * Fixed colors beneath a scrolling tint. The scrolling gradient hides the
- * center boundary; elastic overscroll reveals only the matching endpoint at
- * the edge being pulled.
- */
+/** One continuous gradient behind the scroller, clamped through elastic overscroll. */
 export function TintOverscrollBackdrop({
     gradient,
-}: Pick<TintBackdropProps, "gradient">) {
-    return (
-        <Crossfade
-            value={gradient}
-            keyOf={tintKey}
-            // the gradient and the overscroll color under it both appear at
-            // once; fading in together let the two tone underlay show through
-            fadeFromNothing={false}
-            render={(shown) => (
-                <>
-                    <View
-                        className="flex-1"
-                        style={{ backgroundColor: shown.colors[0] }}
-                    />
-                    <View
-                        className="flex-1"
-                        style={{
-                            backgroundColor:
-                                shown.colors[shown.colors.length - 1],
-                        }}
-                    />
-                </>
-            )}
-        />
+    scrollY,
+    contentHeight,
+    gradientMinHeight = 0,
+    viewportHeight,
+}: Pick<TintBackdropProps, "gradient"> & {
+    scrollY: SharedValue<number>;
+    contentHeight: number;
+    gradientMinHeight?: number;
+    viewportHeight: number;
+}) {
+    const height = useDerivedValue(() =>
+        Math.max(contentHeight, viewportHeight, gradientMinHeight),
     );
-}
-
-function tintKey(gradient: TintGradient) {
-    return gradient.colors.join(",");
+    const position = useAnimatedStyle(() => {
+        const frame = tintViewport(
+            contentHeight,
+            viewportHeight,
+            scrollY.get(),
+            gradientMinHeight,
+        );
+        return { transform: [{ translateY: -frame.offset }] };
+    });
+    const size = useAnimatedStyle(() => ({ height: height.get() }));
+    return (
+        <View
+            pointerEvents="none"
+            style={[StyleSheet.absoluteFill, { overflow: "hidden" }]}
+        >
+            {gradient ? (
+                <Animated.View style={[size, position]}>
+                    <StretchedGradient gradient={gradient} height={height} />
+                </Animated.View>
+            ) : null}
+        </View>
+    );
 }

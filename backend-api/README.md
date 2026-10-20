@@ -108,6 +108,12 @@ statements: two client connections land on one server connection and the second 
 save it, because the name collides across clients rather than within one. The queries in
 `src/db/` are prepared statements, so the app needs session mode.
 
+One app client can start many reads; `/analytics/summary` starts six concurrently through the
+shared pool. `EMAXCONNSESSION` is remote pooler admission failure, whereas local pool exhaustion
+waits for acquire timeout. `pg_stat_activity` includes Supavisor's reusable idle backends; use
+pooler logs/client metrics to count attached clients. Startup and database-error logs include the
+PID, cap, and request-time pool counts; connections use `cadenza-backend-api:<pid>` for correlation.
+
 The cost of session mode is that each client pins a server connection for its whole life. A
 backend killed with SIGKILL leaves its connections pinned until the pooler reaps them, which
 takes minutes, and until then a restart cannot get a slot. `idle_timeout` and `max_lifetime`

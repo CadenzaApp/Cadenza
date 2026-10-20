@@ -1,9 +1,15 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { RepeatMode, ShuffleMode } from "@apple-musickit";
 import type { Href } from "expo-router";
-import { useTheme } from "expo-router/react-navigation";
+import { useIsFocused, useTheme } from "expo-router/react-navigation";
 import { useEffect, useRef, useState } from "react";
-import { Alert, Image, useWindowDimensions, View } from "react-native";
+import {
+    Alert,
+    Image,
+    Pressable,
+    useWindowDimensions,
+    View,
+} from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
     cancelAnimation,
@@ -15,10 +21,19 @@ import Animated, {
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { ModalPopup } from "@/components/custom/modal-popup";
 import { SongOptionsMenu } from "@/components/custom/options-menu/song-options-menu";
+import { MusicListActionButton } from "@/components/custom/music-list/music-list-action-button";
+import { useAlbumRouteForTrack } from "@/lib/album-route";
 import { Text } from "@/components/ui/text";
 import { usePlayback } from "@/lib/playback";
-import { useSongFavoriteStatus } from "@/lib/musickit-hooks";
+import {
+    useArtistPreview,
+    useSongArtists,
+    useSongFavoriteStatus,
+} from "@/lib/musickit-hooks";
+import { detailRouteFor } from "@/lib/detail-stack";
+import { useZoomSource } from "@/lib/zoom-dismiss";
 import { useOpenScreen } from "@/lib/open-screen";
 import { SHEET_DETENT } from "@/lib/theme";
 
@@ -30,6 +45,13 @@ import { MediaPlayerQueue } from "./queue-view";
 import { MediaPlayerTransport } from "./transport-controls";
 
 const PLAYBACK_PROGRESS_INTERPOLATION_MS = 800;
+const FULLSCREEN_ARTWORK_STYLE = {
+    width: "100%",
+    maxWidth: "100%",
+    height: "100%",
+    borderRadius: 0,
+    padding: 0,
+} as const;
 
 /** Room the artwork must leave for everything stacked below it. */
 const TRANSPORT_ROW_HEIGHT = 80;
@@ -75,10 +97,21 @@ export function PlayerPage() {
     } = usePlayback();
     const { colors } = useTheme();
     const openScreen = useOpenScreen();
+    const focused = useIsFocused();
+    const { ref: albumArtworkRef, capture: captureAlbumArtwork } =
+        useZoomSource();
+    const { ref: artistNameRef, capture: captureArtistName } =
+        useZoomSource("point");
     const insets = useSafeAreaInsets();
     const { width, height } = useWindowDimensions();
     const [view, setView] = useState<PlayerView>("artwork");
     const [menuOpen, setMenuOpen] = useState(false);
+    const [artworkView, setArtworkView] = useState<"menu" | "image" | null>(
+        null,
+    );
+    const { albumRoute, albumRouteLoading } = useAlbumRouteForTrack(
+        focused ? activeTrack : null,
+    );
     const [bodyHeight, setBodyHeight] = useState(0);
     const [progressBarWidth, setProgressBarWidth] = useState(0);
     const [scrubPosition, setScrubPosition] = useState<number | null>(null);
@@ -96,6 +129,10 @@ export function PlayerPage() {
         favoriteStatusLoading: isFavoriteStatusLoading,
         setSongFavoriteStatus,
     } = useSongFavoriteStatus(favoriteSongId);
+
+    const { artistIds } = useSongArtists(focused ? favoriteSongId : undefined);
+    const artistId = artistIds?.[0] ?? activeTrack?.artistId;
+    useArtistPreview(focused ? artistId : undefined);
 
     const artworkUrl = activeTrack?.artworkUrl?.trim();
     const fullArtworkUrl = activeTrack?.artworkUrlLarge?.trim() || artworkUrl;
@@ -264,14 +301,28 @@ export function PlayerPage() {
         }
     }
 
-    /**
-     * Puts the sheet away, then goes. Everything the menu leads to is a full
-     * screen route with the bottom bars over it, and pushing one from inside a
-     * presented sheet would render it in the sheet's box. Music does the same:
-     * picking Go to Artist dismisses now playing first.
-     */
+    /** Artist and album destinations retain this player for native back. */
     function leaveFor(href: Href) {
-        openScreen(href, { closing: "player" });
+        const destination = detailRouteFor(href);
+        const isAlbum =
+            destination?.name === "collection/[kind]/[id]" &&
+            (destination.params as { kind?: string })?.kind === "album";
+        const isArtist = destination?.name === "artist/[id]";
+        if (isAlbum) captureAlbumArtwork();
+        if (isArtist) captureArtistName();
+        const preservesPlayer = isArtist || isAlbum;
+        openScreen(
+            href,
+            preservesPlayer ? { fromPlayer: true } : { closing: "player" },
+        );
+    }
+
+    function openArtist() {
+        if (!artistId) return;
+        leaveFor({
+            pathname: "/artist/[id]",
+            params: { id: artistId, name: track.artistName ?? "Artist" },
+        });
     }
 
     function toggleShuffle() {
@@ -316,6 +367,9 @@ export function PlayerPage() {
                     isUpdatingFavorite={isUpdatingFavorite}
                     textColor={colors.text}
                     onFavoriteToggle={() => void handleFavoriteToggle()}
+                    artworkRef={albumArtworkRef}
+                    artistNameRef={artistNameRef}
+                    onOpenArtist={artistId ? openArtist : undefined}
                     onOpenMenu={() => setMenuOpen(true)}
                     onToggleShuffle={toggleShuffle}
                     onCycleRepeat={cycleRepeat}
@@ -336,17 +390,26 @@ export function PlayerPage() {
                 <>
                     <View className="flex-1 items-center justify-center">
                         {canRenderFullArtwork ? (
-                            <Image
-                                source={{ uri: fullArtworkUrl }}
-                                style={{
-                                    width: artworkSize,
-                                    height: artworkSize,
-                                }}
-                                className="rounded-xl bg-muted"
-                                onError={() =>
-                                    setFailedArtworkUrl(fullArtworkUrl)
-                                }
-                            />
+                            <Pressable
+                                ref={albumArtworkRef}
+                                collapsable={false}
+                                accessibilityRole="button"
+                                accessibilityLabel="Artwork options"
+                                onPress={() => setArtworkView("menu")}
+                                className="active:opacity-80"
+                            >
+                                <Image
+                                    source={{ uri: fullArtworkUrl }}
+                                    style={{
+                                        width: artworkSize,
+                                        height: artworkSize,
+                                    }}
+                                    className="rounded-xl bg-muted"
+                                    onError={() =>
+                                        setFailedArtworkUrl(fullArtworkUrl)
+                                    }
+                                />
+                            </Pressable>
                         ) : (
                             <View
                                 style={{
@@ -371,6 +434,8 @@ export function PlayerPage() {
                         isUpdatingFavorite={isUpdatingFavorite}
                         textColor={colors.text}
                         onFavoriteToggle={() => void handleFavoriteToggle()}
+                        artistNameRef={artistNameRef}
+                        onOpenArtist={artistId ? openArtist : undefined}
                         onOpenMenu={() => setMenuOpen(true)}
                     />
                 </>
@@ -424,6 +489,69 @@ export function PlayerPage() {
                     )
                 }
             />
+
+            <ModalPopup
+                visible={artworkView !== null}
+                onClose={() => setArtworkView(null)}
+                variant={artworkView === "image" ? "transparent" : "solid"}
+                contentStyle={
+                    artworkView === "image"
+                        ? FULLSCREEN_ARTWORK_STYLE
+                        : undefined
+                }
+                backdropClassName={
+                    artworkView === "image" ? "bg-black p-0" : undefined
+                }
+            >
+                {artworkView === "image" ? (
+                    <View className="flex-1 items-center justify-center bg-black">
+                        <Image
+                            source={{ uri: fullArtworkUrl }}
+                            resizeMode="contain"
+                            className="h-full w-full"
+                            accessibilityLabel={`${track.title} artwork`}
+                        />
+                        <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel="Close artwork"
+                            onPress={() => setArtworkView(null)}
+                            className="absolute right-4 h-11 w-11 items-center justify-center rounded-full bg-black/60"
+                            style={{ top: insets.top + 12 }}
+                        >
+                            <Ionicons name="close" size={28} color="white" />
+                        </Pressable>
+                    </View>
+                ) : (
+                    <>
+                        <MusicListActionButton
+                            target={track}
+                            action={{
+                                id: "view-artwork",
+                                label: "View artwork",
+                                icon: "expand-outline",
+                                onPress: () => {
+                                    setArtworkView("image");
+                                },
+                            }}
+                        />
+                        <MusicListActionButton
+                            target={track}
+                            busy={albumRouteLoading}
+                            disabled={!albumRoute || albumRouteLoading}
+                            action={{
+                                id: "go-to-album",
+                                label: "Go to album",
+                                icon: "disc-outline",
+                                onPress: () => {
+                                    if (!albumRoute) return;
+                                    setArtworkView(null);
+                                    leaveFor(albumRoute);
+                                },
+                            }}
+                        />
+                    </>
+                )}
+            </ModalPopup>
 
             {menuOpen ? (
                 <SongOptionsMenu

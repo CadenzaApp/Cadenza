@@ -10,8 +10,11 @@ import {
     type SearchResult,
     type SongFavoriteStatus,
 } from "@apple-musickit";
+import { Image } from "expo-image";
+import { useArtworkTint } from "./artwork-color";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import useSWR, { unstable_serialize, useSWRConfig } from "swr";
+import useSWRImmutable from "swr/immutable";
 import useSWRInfinite from "swr/infinite";
 import { isAppleMusicAuthError } from "./app-error";
 import {
@@ -1024,7 +1027,7 @@ export function useSongArtists(songId?: string) {
         isConnected && songId
             ? (["MusicKit.getSongArtists", sessionRevision, songId] as const)
             : null;
-    const x = useSWR<string[]>(key, () =>
+    const x = useSWRImmutable<string[]>(key, () =>
         read(() => MusicKit.getSongArtists(songId!)),
     );
 
@@ -1042,7 +1045,7 @@ export function useArtist(artistId?: string) {
         isConnected && artistId
             ? (["MusicKit.getArtist", sessionRevision, artistId] as const)
             : null;
-    const x = useSWR<ArtistDetail>(key, () =>
+    const x = useSWRImmutable<ArtistDetail>(key, () =>
         read(() => MusicKit.getArtist(artistId!)),
     );
 
@@ -1051,6 +1054,23 @@ export function useArtist(artistId?: string) {
         artistLoading: x.isLoading || isInitializing,
         artistErr: x.error,
     };
+}
+
+/** Warm the same artist data, tint, and image caches the destination uses. */
+export function useArtistPreview(artistId?: string) {
+    const { artist } = useArtist(artistId);
+    useArtworkTint(artist);
+    const thumbnail = artist?.artworkUrlSmall;
+    const hero = artist?.artworkUrl;
+    useSWRImmutable(
+        thumbnail || hero ? ["Artist.previewArtwork", thumbnail, hero] : null,
+        async () => {
+            const urls = [thumbnail, hero].filter((url): url is string =>
+                Boolean(url),
+            );
+            return await Image.prefetch(urls, "memory-disk");
+        },
+    );
 }
 
 /**

@@ -28,7 +28,8 @@ The `...` menu and its tag editor are **not** in this directory any more. They m
 `@/components/custom/options-menu::SongOptionsMenu` and `@/components/custom/song-tag-editor`,
 since the list-row song menu needed the same Favorite/Share/Add to Playlist/Go to Album/Go to
 Artist/Discuss/Modify Tags shape this sheet already had. `player-page.tsx` renders `SongOptionsMenu`
-with a `navigate` that dismisses the sheet before pushing full-screen routes. Discuss is one of
+with a `navigate` that keeps the sheet beneath artist and album routes, and closes it for other
+full-screen destinations. Discuss is one of
 those routes: `/discuss/:songId`, the posts list with no now-playing chrome. Modify Tags stays in
 place and swaps the options menu for the shared selector popup (see Connects to).
 
@@ -111,6 +112,13 @@ transport. The top block is artwork or, once the queue button is on, `queue-view
 opens **in place** rather than as a second page or a second sheet, so playback stays reachable
 while you reorder. `player-page.tsx` holds that as one `view` state and nothing else changes.
 
+The artist name opens an artist card around the measured label center; artwork opens View artwork
+and Go to album actions. The image viewer supports close/native back. Artist and album cards keep
+the player underneath, and albums return to the measured cover in either artwork or queue layout.
+`ZoomSheetSourceScope` includes the physical sheet position and Now Playing header in that target.
+The provider key follows player routes only, so covering the player preserves its mounted layout.
+Artist lookup/prefetch and album resolution pause while covered. The song menu shares these caches.
+
 Queue positions are converted in exactly one place. `queue-view.tsx` works in upcoming-list
 positions, because the playing song is its heading rather than a row; `usePlayback()` works in
 whole-queue positions, because that is what native takes. `queuePositionOf` in `player-page.tsx`
@@ -138,9 +146,8 @@ smoothly between the 750ms native snapshot polls, and scrubbing overrides it wit
 - `@/components/custom/reorderable-list::ReorderableList` for the up-next list.
 - `@/components/custom/options-menu::SongOptionsMenu` for the `...` menu, documented in
   [../../README.md](../../README.md). `player-page.tsx` passes it a `navigate` that dismisses the
-  sheet before opening (`router.back()` then `useOpenScreen`), since Add to Playlist / Go to
-  Album / Go to Artist are full screen routes and a push from inside a presented sheet would
-  land inside its box. Discuss opens `/discuss/:songId` for that song, dismissing the sheet when
+  sheet before opening other destinations. Artist and album links use transparent full-screen
+  presentation so the player remains visible throughout opening and dismissal. Discuss opens `/discuss/:songId` for that song, dismissing the sheet when
   it is already up, and does not change playback. Modify Tags opens the menu's selector popup
   without navigating.
 - Mounted by `src/app/(tabs)/_layout.tsx`; the sheet navigator is declared by

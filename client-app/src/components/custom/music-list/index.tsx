@@ -29,6 +29,10 @@ import Animated, {
     withTiming,
 } from "react-native-reanimated";
 
+import {
+    ContrastRegion,
+    useSurfacePalette,
+} from "@/lib/surface-contrast-context";
 import { Text } from "@/components/ui/text";
 import { SongOptionsMenu } from "@/components/custom/options-menu/song-options-menu";
 import { usePlaybackCommands } from "@/lib/playback";
@@ -167,10 +171,13 @@ export function MusicList({
     sorting,
 }: MusicListProps) {
     const header = headerProp ?? listHeader;
+    const tinted = useSurfacePalette() != null;
+    const [headerHeight, setHeaderHeight] = useState(0);
     const { togglePlayback } = usePlaybackCommands();
     const { showSuggestedTags } = useMusicListPreferences();
     const [internalCompact, setInternalCompact] = useState(false);
     const isCompact = compact ?? internalCompact;
+    const rowHeight = MUSIC_LIST_ITEM_HEIGHT[isCompact ? "compact" : "regular"];
     const [densityTransitionRevision, setDensityTransitionRevision] =
         useState(0);
     const [densityTransitioning, setDensityTransitioning] = useState(false);
@@ -487,6 +494,10 @@ export function MusicList({
                                     }
                                 >
                                     <MusicListRow
+                                        surfaceOffset={
+                                            headerHeight +
+                                            (index + 0.5) * rowHeight
+                                        }
                                         store={rowTagStore}
                                         songId={item.catalogId ?? item.id}
                                         item={item}
@@ -526,7 +537,21 @@ export function MusicList({
                                 },
                                 scroll.contentContainerStyle,
                             ]}
-                            ListHeaderComponent={header ? <>{header}</> : null}
+                            ListHeaderComponent={
+                                header && tinted ? (
+                                    <View
+                                        onLayout={(event) =>
+                                            setHeaderHeight(
+                                                event.nativeEvent.layout.height,
+                                            )
+                                        }
+                                    >
+                                        {header}
+                                    </View>
+                                ) : header ? (
+                                    <>{header}</>
+                                ) : null
+                            }
                             ListEmptyComponent={
                                 isLoading ? (
                                     <View>
@@ -564,7 +589,14 @@ export function MusicList({
                                             compact={isCompact}
                                         />
                                     ) : null}
-                                    {footer}
+                                    <ContrastRegion
+                                        offset={
+                                            headerHeight +
+                                            displayedTracks.length * rowHeight
+                                        }
+                                    >
+                                        {footer}
+                                    </ContrastRegion>
                                 </>
                             }
                             onContentSizeChange={onContentSizeChange}
@@ -663,6 +695,7 @@ export {
 const MusicListRow = memo(function MusicListRow({
     store,
     songId,
+    surfaceOffset,
     ...props
 }: Omit<
     MusicListItemProps,
@@ -670,7 +703,12 @@ const MusicListRow = memo(function MusicListRow({
 > & {
     store: RowTagStore;
     songId: string;
+    surfaceOffset: number;
 }) {
     const rowTags = useRowTags(store, songId);
-    return <MusicListItem {...props} {...rowTags} />;
+    return (
+        <ContrastRegion offset={surfaceOffset}>
+            <MusicListItem {...props} {...rowTags} />
+        </ContrastRegion>
+    );
 });

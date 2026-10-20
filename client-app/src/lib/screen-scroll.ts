@@ -95,6 +95,7 @@ export function useScreenScroll<
     const lastOffset = useSharedValue(0);
     const progress = zoom?.progress ?? spareZoomProgress;
     const closing = zoom?.closing ?? spareClosing;
+    const finishZoomClose = zoom?.finishGestureClose;
     const compensatesZoomPull = canPullToDismiss && zoom != null;
 
     // `useScrollToTop` types itself against the navigation scrollables rather
@@ -105,12 +106,8 @@ export function useScreenScroll<
     // iOS gesture. The X is on every one of these screens regardless.
     const dismiss = useCallback(() => {
         if (!isFocused || !canPullToDismiss) return;
-        if (zoom) {
-            zoom.finishGestureClose();
-            return;
-        }
         if (router.canGoBack()) router.back();
-    }, [isFocused, canPullToDismiss, zoom, router]);
+    }, [isFocused, canPullToDismiss, router]);
 
     const onScroll = useAnimatedScrollHandler(
         {
@@ -141,7 +138,12 @@ export function useScreenScroll<
                 if (pull !== pullOffset.get()) pullOffset.set(pull);
 
                 // Once the close is committed the animation owns progress.
-                if (!canPullToDismiss || closing.get() || !dragging.get()) {
+                if (
+                    !isFocused ||
+                    !canPullToDismiss ||
+                    closing.get() ||
+                    !dragging.get()
+                ) {
                     return;
                 }
                 const next = zoomProgressForScrollOffset(offset);
@@ -152,25 +154,31 @@ export function useScreenScroll<
             },
             onEndDrag: (event) => {
                 dragging.set(false);
-                if (!canPullToDismiss || closing.get()) return;
+                if (!isFocused || !canPullToDismiss || closing.get()) return;
                 if (shouldDismissZoom(event.contentOffset.y)) {
-                    // Claim the animation before iOS starts rebounding the
-                    // scroll view. The JS callback only finishes the close.
-                    closing.set(true);
-                    runOnJS(dismiss)();
+                    // Continue straight from the scroll worklet. A busy JS
+                    // thread must not pause the card at the release point.
+                    if (finishZoomClose) {
+                        finishZoomClose();
+                    } else {
+                        closing.set(true);
+                        runOnJS(dismiss)();
+                    }
                     return;
                 }
                 resetZoomProgress(progress);
             },
             onMomentumEnd: () => {
                 // whatever moved it, a resting list is never mid close
-                if (!canPullToDismiss || closing.get()) return;
+                if (!isFocused || !canPullToDismiss || closing.get()) return;
                 if (progress.get() > 0) resetZoomProgress(progress);
             },
         },
         [
             dragging,
             dismiss,
+            finishZoomClose,
+            isFocused,
             canPullToDismiss,
             compensatesZoomPull,
             closing,
