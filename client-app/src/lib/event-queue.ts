@@ -36,7 +36,9 @@ export type ListeningEventType =
     | "query_run"
     | "query_play"
     | "tag_applied"
-    | "tag_removed";
+    | "tag_removed"
+    | "song_favorited"
+    | "song_unfavorited";
 
 /** One event as `POST /events` takes it. */
 export type QueuedEvent = {

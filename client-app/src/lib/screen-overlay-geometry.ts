@@ -40,6 +40,18 @@ export function calculateScreenOverlayInsets({
         : bottomBarsVisible && nativePlayerAccessory
           ? safeAreaBottom + OVERLAY_GAP
           : playerBottomInset + OVERLAY_GAP;
+    // For a tab screen the native tab bar floats over, like Cadenza's query
+    // workspace: clear the bar itself, plus the player where it floats over
+    // the screen too. On iOS 26 UIKit already takes the accessory's space out
+    // of the screen, the same allowance the query palette makes.
+    const floatingOverTabBarBottom =
+        (bottomBarsVisible
+            ? safeAreaBottom +
+              nativeTabBarHeight +
+              (compactPlayerVisible && !nativePlayerAccessory
+                  ? ACCESSORY_GAP + COMPACT_PLAYER_HEIGHT
+                  : 0)
+            : playerBottomInset) + OVERLAY_GAP;
     // The tab screens turn off UIKit's automatic content insets (see
     // `(tabs)/_layout.tsx`), so on iOS a scroller clears the tab bar and the
     // player itself. Android's tab screen already ends above its tab bar.
@@ -58,6 +70,7 @@ export function calculateScreenOverlayInsets({
         compactPlayerVisible,
         playerBottomInset,
         floatingActionBottom,
+        floatingOverTabBarBottom,
         contentBottomInset,
         listBottomInset: Math.max(
             40,

@@ -15,7 +15,7 @@ listening analytics are computed from.
 | `mod.rs` | Declares `analytics`, `default_tags`, `metadata_tags`, `social_feed`, `song_metadata`, `tag_generation`, `tag_normalizer`, and `tag_values`. |
 | `analytics/dimension.rs` | `Dimension`, what a ranking can be grouped by (song, artist, album, playlist, query) and the SQL that pulls each one's key, label and id out of a play. Unit tested. |
 | `analytics/mod.rs` | `TimeWindow`, the future-clock guard, and `sanitize_timezone`. Unit tested. |
-| `analytics/event_type.rs` | `EventType`, the nine listening event types, and the payload validation each one requires. Unit tested. |
+| `analytics/event_type.rs` | `EventType`, the eleven listening event types, and the payload validation each one requires. Unit tested. |
 | `analytics/metrics.rs` | `Metric`, the registry pairing a metric name with one SQL aggregate and a `MetricUnit`, and `Bucket` (hour, day, week, month, year) with its `date_trunc` unit, series step, label format, size caps, and `fit`, which is what `bucket=auto` resolves to. `fit` never picks hours. Unit tested. |
 | `tag_normalizer.rs` | `normalize_tag_name`: trim, collapse whitespace, truncate to 50 bytes on a character boundary, lowercase. Unit tested. |
 | `tag_generation/mod.rs` | The `TagGenerator` trait, its `TagGenerationError`, and the `TagGenerationService` wrapper. |
@@ -119,7 +119,8 @@ the rest behind a `next` path, which it follows. Music videos are left out. A 42
 call is `CadenzaError::SongMetadataRateLimited`.
 
 Every caller that needs a title still asks Apple fresh. The only copy kept is the one below,
-which metadata queries and a song's Metadata Tags read and nothing else does.
+which queries (to filter, to find songs beyond the user's own, and to sort) and a song's Metadata
+Tags read and nothing else does.
 
 It returns a `HashMap<String, SongMetadata>` keyed by the id each song was found under, never
 a positional list, so an id Apple knows nothing about is simply absent rather than shifting

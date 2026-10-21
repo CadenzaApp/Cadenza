@@ -4,9 +4,12 @@ import { ActivityIndicator, View } from "react-native";
 import { GlassButton } from "@/components/ui/glass-button";
 import { Text } from "@/components/ui/text";
 
+import { matchCountLabel } from "./QueryUtils";
+
 /** Query evaluation is independent of loading artwork and playable tracks. */
 export function ResultsSummary({
     count,
+    capped,
     loading,
     error,
     hasQuery,
@@ -16,6 +19,8 @@ export function ResultsSummary({
     invalidMessage,
 }: {
     count: number;
+    /** More songs from outside the user's own matched than `count`. */
+    capped: boolean;
     loading: boolean;
     error?: unknown;
     hasQuery: boolean;
@@ -33,7 +38,7 @@ export function ResultsSummary({
           ? "Finding results..."
           : error
             ? "Retry results"
-            : `${count} ${count === 1 ? "result" : "results"}`;
+            : matchCountLabel(count, capped, "result");
     const disabled =
         !isLibraryConnected || !hasQuery || loading || (!error && count === 0);
     return (

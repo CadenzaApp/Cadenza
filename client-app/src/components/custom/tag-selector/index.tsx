@@ -65,6 +65,12 @@ type TagSelectorProps = {
     contextKey?: string;
     /** Recoverable mutation failure displayed without dismissing the selector. */
     errorMessage?: string | null;
+    /**
+     * Whether the tag grid scrolls inside a box of about six rows. Pass false
+     * when the selector already sits in a scrolling page, so the whole page is
+     * one scroll rather than a scroll box inside another.
+     */
+    scrollableGrid?: boolean;
 };
 
 export function TagSelector(props: TagSelectorProps) {
@@ -92,6 +98,7 @@ function TagSelectorSession({
     pageSize = DEFAULT_PAGE_SIZE,
     emptyLabel = "You have no tags yet.",
     errorMessage,
+    scrollableGrid = true,
 }: TagSelectorProps) {
     const { colorScheme } = useColorScheme();
     const footerButtonTint =
@@ -186,11 +193,7 @@ function TagSelectorSession({
                 {loading ? (
                     <ActivityIndicator accessibilityLabel="Loading tags" />
                 ) : visibleTags.length ? (
-                    <ScrollView
-                        nestedScrollEnabled
-                        showsVerticalScrollIndicator
-                        style={{ maxHeight: TAG_GRID_MAX_HEIGHT }}
-                    >
+                    <TagGridScroll scrollable={scrollableGrid}>
                         <View className="flex-row flex-wrap gap-2">
                             {visibleTags.map((tag) => (
                                 <Pressable
@@ -218,7 +221,7 @@ function TagSelectorSession({
                                 </Pressable>
                             ))}
                         </View>
-                    </ScrollView>
+                    </TagGridScroll>
                 ) : (
                     <Text className="text-sm text-muted-foreground">
                         {emptyLabel}
@@ -337,6 +340,26 @@ function TagSelectorSession({
                 <Text className="text-sm text-destructive">{errorMessage}</Text>
             ) : null}
         </View>
+    );
+}
+
+/** The capped scroll box around the tag grid, or nothing when it is off. */
+function TagGridScroll({
+    scrollable,
+    children,
+}: {
+    scrollable: boolean;
+    children: ReactNode;
+}) {
+    if (!scrollable) return children;
+    return (
+        <ScrollView
+            nestedScrollEnabled
+            showsVerticalScrollIndicator
+            style={{ maxHeight: TAG_GRID_MAX_HEIGHT }}
+        >
+            {children}
+        </ScrollView>
     );
 }
 

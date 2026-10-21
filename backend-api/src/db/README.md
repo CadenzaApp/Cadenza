@@ -11,10 +11,10 @@ The data access layer. Everything that touches postgres lives here, so handlers 
 | `profile.rs` | Profile reads and writes: own profile, create with a default username from the email local part, and update username/bio. Unit tested. |
 | `events.rs` | The write path for `listening_events`: `NewEvent` and `insert_events`, which is idempotent on `client_event_id` and reports which rows were new. |
 | `analytics.rs` | The read path for `listening_events`: the metric summary, dense time bucketed trends, the song, artist, album, playlist and query rankings, replays, top tags with a cover song, tags played, the tag-colored heatmap, plays by hour, active days, and the event bounds. Integration tested against a real database (`--ignored`). |
-| `activity_tags.rs` | `ActivityTag` (My Plays, First Played, Last Played), finding their rows by `is_activity` and name and creating missing ones, `record_play`, and reading their values per song with defaults filled in. Unit tested. |
+| `activity_tags.rs` | `ActivityTag` (My Plays, First Played, Last Played, In My Library, Favorited, Tagged), finding their rows by `is_activity` and name, creating missing ones and recoloring stale ones, `record_play`, `set_favorites_within`, and reading their values per song with defaults filled in. Unit tested. |
 | `tags.rs` | User tag CRUD and applied values, plus searching, reading, and applying default tags, and claiming, finishing, and dropping a song's default tag generation. User tag reads never copy or return defaults. |
 | `tag_activity.rs` | Not activity tags. Counts applies and removes of a tag name on a song in `default_tag_activity`, and promotes popular names to default tags. |
-| `queries.rs` | Compiles a tag query to SQL, runs it, and ranks the matches. Unit tested, plus metadata filters run against a real database (`--ignored`). |
+| `queries.rs` | Compiles a tag query to SQL, runs it over every song Cadenza knows, and ranks or sorts the matches. Unit tested, plus integration tests against a real database (`--ignored`) that need `sql/metadata_tags.sql` and `sql/query_sort.sql`. |
 | `social.rs` | Posts, likes, view status, interest scores, and the feed's SQL and score math. `post_likes` writes use the generated entity; `hot_score` and embeddings stay raw SQL. Embeddings come from `services::social_feed`. `topic_mk_id` is an optional Apple Music catalog id; song vs artist is not stored. `get_topic_posts` returns the posts for one catalog id, most liked first. Unit tested for the vector math. |
 | `metadata_tags.rs` | The copy of Apple Music song metadata that queries and metadata tags read in `metadata_song_tags_applied`, and the album crawl queue in `metadata_albums`: storing songs, finding ones with no row, and queueing, claiming, finishing, and releasing albums. Unit tested, plus integration tests against a real database (`--ignored`). |
 | `user_songs.rs` | `edit_user_songs`: adds and removes the user's songs in one transaction. `get_recent_songs_without_generated_default_tags`: the newest songs nothing has generated default tags for, which the backfill job walks. |
@@ -58,10 +58,9 @@ Most of the tables below are keyed on song ids that come from Apple Music.
   database stamps it rather than the api's clock. `user_songs_user_id_idx` on `user_id` alone so a
   whole-library read does not scan the table, and `user_songs_created_at_idx` on `created_at DESC`
   for the backfill job's walk of the newest songs. `user_id` references `auth.users` and cascades. `PATCH /songs` is the only thing that
-  writes it, through `user_songs.rs::edit_user_songs`. The query compiler reads it: it is the set
-  of songs a query runs over. Tag reads still work off `user_tags_applied` and do not check it, so a song can
-  carry tags without a row here, and then no query will return it. This table was called
-  `song_meta` before.
+  writes it, through `user_songs.rs::edit_user_songs`. The query compiler reads it: a song here
+  is one of the user's own, which a query always returns in full when it matches. Tag reads still
+  work off `user_tags_applied` and do not check it. This table was called `song_meta` before.
 - `listening_events` - the append only log of what a user did while listening. `event_id`
   (bigserial pk), `user_id` (uuid, references `auth.users`, cascades), `event_type` (text),
   nullable `song_id` (text), `occurred_at` (timestamptz, the client's clock), `created_at`
@@ -88,8 +87,9 @@ Most of the tables below are keyed on song ids that come from Apple Music.
   `duration_in_millis`, `genre_names` (`text[]`, never null, without Apple's catch-all "Music"),
   `release_date` (a year-only date is stored as January 1), `content_rating` (`explicit`, `clean`,
   or null for unrated), `fetched_at`, and `total_plays` (bigint, every user's counted plays of
-  the song). Not user scoped and not authoritative. Read by metadata
-  query filters and by `GET /songs/metadata-tags`, nothing else. Written only through
+  the song). Not user scoped and not authoritative. Read by the query compiler, where it is the
+  set of songs from outside the user's own a query can return, what metadata filters look at, and
+  what a sorted query sorts by, and by `GET /songs/metadata-tags`. Written only through
   `metadata_tags.rs`. DDL in `sql/metadata_tags.sql`.
 - `metadata_albums` - the album crawl's state and work queue. `album_id` pk, `status`
   (`metadata_crawl_status` enum: `pending`, `in_flight`, `done`, `failed`), `attempts`,
@@ -157,7 +157,8 @@ before either relation write, keeping SQL and lock acquisition deterministic.
 
 `listening_events` is the source of truth for everything in `analytics.rs`. Activity tags are a
 derived view of it: a `play_counted` event is what moves My Plays, First Played, and Last Played,
-and `routes::events` does both in one transaction so the two cannot drift.
+a `song_favorited` or `song_unfavorited` event is what moves Favorited, and `routes::events` does
+both in one transaction so the two cannot drift.
 
 Event types live in `services::analytics::EventType`, not in the database. The column is plain
 text and nothing constrains it, so adding a type is a Rust variant rather than an `ALTER TYPE`.
@@ -190,14 +191,31 @@ cannot disagree, and each listen counts once per tag on its song, never split.
 ## Activity tags
 
 An activity tag is one shared row in `tags` whose values the api writes per user as they listen.
-There are three, the variants of `activity_tags.rs::ActivityTag`: My Plays (number), First Played
-and Last Played (datetime). Their values are ordinary `user_tags_applied` rows keyed on the
-listening user, so every reader of that table, the query compiler included, sees them the same way
-as any other tag value.
+There are six, the variants of `activity_tags.rs::ActivityTag`: My Plays (number), First Played
+and Last Played (datetime), and In My Library, Favorited and Tagged (checkbox). The values of the
+first four are ordinary `user_tags_applied` rows keyed on the listening user, so every reader of
+that table, the query compiler included, sees them the same way as any other tag value.
+
+In My Library and Tagged are derived (`ActivityTag::is_derived`) and never have a row. In My
+Library is whether the song is in the user's `user_songs`. Tagged is whether the user has applied
+any tag they own to the song: a suggested tag the user taps becomes their own tag first, so it
+counts, while a suggested tag merely shown on the song and activity tags themselves do not. Both
+are always current, with nothing to write or backfill.
+
+Favorited is stored, as `"true"` or no row. `set_favorites_within` sets it for each song from the
+user's latest `song_favorited` / `song_unfavorited` event in `listening_events`, by `occurred_at`,
+not from the event that just arrived, so an older favorite flushed late from an offline queue
+cannot undo a newer unfavorite. Apple Music owns favorites, and only changes made in Cadenza are
+logged, so a song favorited elsewhere reads false.
 
 Nothing hardcodes their ids. `get_activity_tags` selects by `is_activity` and name, and inserts any
 that are missing with `ON CONFLICT (name) WHERE is_activity DO NOTHING`, so two requests racing to
-create one both end up with the same row, and a wiped table heals on the next request.
+create one both end up with the same row, and a wiped table heals on the next request. That
+conflict target is the partial unique index in `sql/activity_tags.sql`; without it Postgres refuses
+the insert, and every activity tag read and `POST /events` fails once a new tag is added.
+
+They all share one color, `ACTIVITY_TAG_COLOR`. `get_activity_tags` also recolors any row whose
+color differs, so changing the constant recolors existing rows on the next request with no SQL.
 
 `record_play` upserts all three in one transaction: My Plays adds 1 to what is there, First
 Played keeps the earlier of the stored and new time, and Last Played keeps the later. Values use
@@ -210,8 +228,9 @@ nothing: when its row is created, `store_song_metadata` counts its `play_counted
 `listening_events` in the same transaction, using `listening_events_play_counted_song_idx`.
 
 `get_activity_tags_on_songs` returns every activity tag for every requested song, filling a
-missing row with `ActivityTag::default_value`: `"0"` for My Plays, `None` for the dates. That
-default is also what the query compiler uses for a missing My Plays row, below.
+missing row with `ActivityTag::default_value`: `"0"` for My Plays, `"false"` for the checkboxes,
+`None` for the dates. The derived two are computed per song. Those defaults are also what the
+query compiler uses for a missing row, below.
 
 Activity tags have a null `user_id`, the same as default tags, so every default tag read and write
 in `tags.rs` also filters `is_activity = false`. User tag reads filter `tags.user_id` to the user,
@@ -231,13 +250,27 @@ refuses a username that still contains `@`. `update_profile` needs at least one 
 ## The query compiler
 
 `queries.rs::run_query` is the interesting part. It takes the typed `Query` from
-`routes/json/query.rs` (see [../routes/README.md](../routes/README.md) for the JSON) and a
-`consider_default_tags` flag, and returns matching song ids most relevant first. There is one
-compiler; the drag and drop builder just sends a query built only from `is_applied` and
-`is_not_applied` tag filters.
+`routes/json/query.rs` (see [../routes/README.md](../routes/README.md) for the JSON), a
+`consider_default_tags` flag, and an optional `QuerySort`, and returns the matching songs in
+order, each marked `certain` or not, plus whether the list was `capped`. There is one compiler;
+the drag and drop builder just sends a query built only from `is_applied` and `is_not_applied` tag
+filters.
 
-The songs a query runs over are the user's `user_songs` rows, always. The caller does not supply
-them: it used to send its Apple Music library as `song_ids` on the request, and that is gone.
+A query runs over every song Cadenza knows, in two groups. The caller does not supply them.
+
+- The user's own songs, `certain`: their `user_songs` rows and every song carrying one of their
+  `user_tags_applied` rows, activity tags included. Every match among these comes back.
+- Every other `metadata_song_tags_applied` row with `found` set: songs Cadenza stored from
+  another library or an album crawl. Only the first `MAX_DISCOVERED_SONGS` (1000) matches come
+  back, in the order the query asked for, and `capped` says when more matched.
+
+Default tags do not make a song the user's own. They sit on songs from every user's library, so
+counting them would let "not pop" with suggested tags on return thousands of other people's songs
+uncapped.
+
+With `library_only` (the app's Show songs only in your library setting) the user's own songs are
+just their `user_songs` rows, `LIBRARY_SONGS`, and the statement drops the second half, so nothing
+is capped.
 
 Before compiling it checks the tree size (`MAX_NODES` 200, `MAX_DEPTH` 20), then looks up the type
 of every tag id the query mentions. `get_queryable_tags` is user scoped, so another user's tag
@@ -246,26 +279,35 @@ or a deleted one is a `QueryFormatError`. Activity tags are always queryable. Wi
 a default tag the user removed is valid and simply matches nothing of theirs.
 
 `applied_tags_source` is the single definition of what counts as a tag on a song, and every part
-of the statement reads through it: the ranking left join and each filter subquery. Without the flag it is the user's own applied tags. With it, those `UNION ALL` the rows
+of the statement reads through it: the ranking join and each filter subquery. Without the flag it is the user's own applied tags. With it, those `UNION ALL` the rows
 in `default_tags_applied` that the user has no `default_tags_removed` row for, whose `value` comes
 through as `NULL::text` because that table has no value column. So a default tag behaves exactly like an attribute tag applied without a value, and
 `is_empty` matches a song that carries only the default. It is a subquery rather than a CTE so
 postgres can push the correlated song id down into both branches and keep using the song id
 indexes.
 
-`compile_query` is pure and emits `(song id, tag id)` pairs in one shape. It starts from
-`LIBRARY_SONGS_SOURCE`, the user's `user_songs` rows, and left joins their tag rows for scoring,
-which is what lets a library song with no tag rows satisfy a negative filter:
+`compile_query` is pure and emits `(song id, certain)` rows already in their final order. The
+same where clause runs over each group in its own half of a `UNION ALL`, and only the second half
+has a `LIMIT`, so postgres keeps the first 1001 songs from outside the user's own while it sorts
+rather than sorting every stored song. That is also why ranking happens in SQL. Each half starts
+from songs rather than tags, which is what lets a song with no tag rows satisfy a negative filter:
 
 ```sql
-SELECT query_songs.song_id, applied_tags.tag_id
-FROM (SELECT song_id FROM user_songs WHERE user_id=$1) AS query_songs
-LEFT JOIN <applied tags source> AS applied_tags
-    ON applied_tags.song_id=query_songs.song_id
-WHERE <compiled where clause>
+WITH own_songs AS (<user_songs UNION the user's tagged songs>)
+SELECT song_id, certain FROM (
+    (SELECT ... FROM <own_songs with their stored metadata> AS query_songs
+        <score join> WHERE <compiled where clause>)
+    UNION ALL
+    (SELECT * FROM (SELECT ... FROM <stored songs not in own_songs> AS query_songs
+        <score join> WHERE <compiled where clause>) AS discovered
+     ORDER BY <order> LIMIT 1001)
+) AS ranked
+ORDER BY <order>
 ```
 
-`query_songs` is the row every filter correlates against.
+`query_songs` is the row every filter correlates against. Both halves bind the same placeholders.
+`run_query` drops the 1001st song from outside the user's own, if there is one, and sets
+`capped`.
 
 - `and` / `or` join children, and an empty one is `TRUE` / `FALSE`. `not` wraps `NOT (...)`
   directly; there is no De Morgan pass here.
@@ -273,11 +315,17 @@ WHERE <compiled where clause>
   filter looks at that tag's application on the song; `tag_name`, `tag_value` and `tag_type` look
   at every applied tag, joined to `tags`. The user id lives inside the source, not in each
   subquery's `WHERE`.
-- A missing tag counts as empty, except for a number tag in `number_defaults` (My Plays), where a
+- A missing tag counts as empty, except for a number tag in `TagDefaults::numbers` (My Plays), where a
   missing row counts as its default, 0. The compiler works out whether the default passes the
   comparison and, when that differs from how a missing row would fare, adds `OR NOT EXISTS <tag on
   the song>` or `AND EXISTS <tag on the song>`. So "My Plays < 2" and "My Plays = 0" match songs
   never played, and "My Plays != 0" does not. `is_empty` / `is_not_empty` still look at the row.
+  A checkbox in `TagDefaults::false_checkboxes` (Favorited) works the same way: a missing row is false, so
+  `is_false` matches it.
+- A derived activity tag (`TagDefaults::derived`: In My Library, Tagged) has no rows, so
+  `derived_filter` compiles it straight to `EXISTS` on `user_songs`, or on the user's own tags in
+  `user_tags_applied`. `is_true` / `is_applied` are that `EXISTS`, `is_false` / `is_not_applied`
+  its `NOT`, `is_null` is `FALSE`, and any other operator is a `QueryFormatError`.
 - Otherwise a missing tag counts as empty. So positive operators (`is`, `contains`, `before`, `gt`,
   `is_true`, `is_not_empty`, ...) are `EXISTS` a matching value, and negative ones (`is_not`,
   `not_on`, `ne`, `is_empty`, `is_null`, `is_not_applied`) are `NOT EXISTS` of the positive
@@ -308,20 +356,32 @@ WHERE <compiled where clause>
 Operator / type mismatches, missing or extra values, bad numbers, and bad dates are all
 `CadenzaError::QueryFormatError` (422) with a message saying which.
 
-## Ranking
+## Ranking and sorting
 
-The statement returns pairs rather than bare song ids so `rank_songs` can score each song by how
-many of the tag ids the query names it actually carries, most first. Equal scores fall back to
-song id, so the same query comes back in the same order every time.
+Without a sort, songs come back most relevant first. A song's score is how many of the tag ids
+the query names it carries, counted in one grouped join over the applied tags source. Then the
+user's own songs come before the rest, then songs with more `total_plays` (every user's plays),
+then song id.
 
-A query built only from `tag_name`, `tag_value` or `tag_type` filters names no tag ids at all, so
-every song scores zero and the whole list is ordered by song id.
+With a sort, songs come back by their stored `name`, `artist_name` or `album_name`, ascending or
+descending, then by title for an artist or album sort, then by `total_plays`, then song id. Text
+compares in the `natural_sort` collation from `sql/query_sort.sql`, ICU with numeric ordering, so
+"Track 9" comes before "Track 10" the way the app sorts. A song with no stored row, one Apple has
+no entry for, or an empty value sorts last either way. Both groups sort into one list.
+
+Song id breaks every tie, compared byte by byte (`COLLATE "C"`), so the order is total and the
+same query over the same data comes back in the same order every time. The cap's sort and the
+final sort use one `order_by` string, so they always agree.
+
+A query built only from `tag_name`, `tag_value`, `tag_type` or metadata filters names no tag ids
+at all, so every song scores zero.
 
 ## Connects to
 
 - Called by `src/routes/tags.rs`, `src/routes/songs.rs`, `src/routes/queries.rs`,
   `src/routes/profile.rs`.
-- `queries.rs` reads its input types from `src/routes/json/query.rs`.
+- `queries.rs` reads its input types from `src/routes/json/query.rs`, and `QueryMatches`
+  converts to `routes::json::query::QueryResults` for the response.
 - Models convert to wire types through `From<tags::Model> for routes::json::tag::Tag`, and a
   model paired with its applied value through `From<(tags::Model, Option<String>)> for
   routes::json::tag::AppliedTag`.
@@ -393,8 +453,14 @@ every song scores zero and the whole list is ordered by song id.
   `CAST(... AS tag_gen_status)` postgres needs. `sea_query::ExprTrait::as_enum` shadows it in
   `tags.rs`, which is why the call is written out as `ActiveEnum::as_enum(&...)`.
 - Nothing deletes a user's `user_songs` rows when their tags go, or vice versa. The two tables
-  are independent, so a tagged song missing from `user_songs` still comes back from the tag
-  reads while no query returns it. A user with no `user_songs` rows matches nothing at all.
+  are independent. A tagged song missing from `user_songs` is still one of the user's own to a
+  query, because it carries their tag.
+- A query needs `sql/query_sort.sql` applied. Without the `natural_sort` collation every sorted
+  query fails, and without `sql/metadata_tags.sql` every query does.
+- A song stored under its library id in `user_songs` and under its catalog id in
+  `metadata_song_tags_applied` can come back twice, once as the user's own and once not. The
+  client shows one track for both. It is rare: `user_songs` and tags use the catalog id whenever
+  Apple Music gives one.
 - The `user_songs` pk leads with `song_id`, so the query compiler's `WHERE user_id=$1` cannot use
   it. `user_songs_user_id_idx` exists for that read. A lookup of one `(song_id, user_id)` pair
   still goes through the pk.

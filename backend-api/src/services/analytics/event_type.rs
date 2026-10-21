@@ -35,10 +35,15 @@ pub enum EventType {
     TagApplied,
     /// The user took a tag off a song.
     TagRemoved,
+    /// The user favorited a song in Cadenza. Sets its Favorited activity tag.
+    SongFavorited,
+    /// The user took a song out of their favorites in Cadenza. Clears its
+    /// Favorited activity tag.
+    SongUnfavorited,
 }
 
 impl EventType {
-    pub const ALL: [EventType; 9] = [
+    pub const ALL: [EventType; 11] = [
         Self::PlayStart,
         Self::PlayCounted,
         Self::PlayComplete,
@@ -48,6 +53,8 @@ impl EventType {
         Self::QueryPlay,
         Self::TagApplied,
         Self::TagRemoved,
+        Self::SongFavorited,
+        Self::SongUnfavorited,
     ];
 
     /// The string stored in the column and sent over the wire.
@@ -62,6 +69,8 @@ impl EventType {
             Self::QueryPlay => "query_play",
             Self::TagApplied => "tag_applied",
             Self::TagRemoved => "tag_removed",
+            Self::SongFavorited => "song_favorited",
+            Self::SongUnfavorited => "song_unfavorited",
         }
     }
 

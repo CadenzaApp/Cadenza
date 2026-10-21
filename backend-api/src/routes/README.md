@@ -13,7 +13,7 @@ call into `src/db/` or `src/services/`, and shape the response.
 | `songs.rs`          | Adding and removing the user's songs, reading and changing user tags, reading default tags, reading activity tags, recording plays, and reporting an opened song. Mounted at `/songs`.                 |
 | `queries.rs`        | Runs a tag query and returns song ids by relevance. Mounted at `/queries`.                                                                                                                              |
 | `profile.rs`        | Reading, creating, and editing the signed-in user's public profile (username and bio). Mounted at `/profile`.                                                                                           |
-| `events.rs`         | Ingests a batch of listening events, and counts the `play_counted` ones towards the activity tags in the same transaction. Mounted at `/events`.                                                        |
+| `events.rs`         | Ingests a batch of listening events, and moves the activity tags they feed (plays, favorites) in the same transaction. Mounted at `/events`.                                                            |
 | `analytics.rs`      | Summary counts, time bucketed trends, the metric list, and the rankings (song, artist, album, playlist, query). Mounted at `/analytics`.                                                                                |
 | `social.rs`         | The social feed, posts, likes, views, topic posts, and interest scores. Calls the python model only for embeddings and similarity. Mounted at `/social`.                                                 |
 | `json/mod.rs`       | `vec_into`, a small `Vec<A> -> Vec<B>` helper. Declares `analytics`, `metadata_tag`, `profile`, `query`, `social`, and `tag`.                                                                            |
@@ -61,7 +61,7 @@ Every route below requires `Authorization: Bearer <supabase jwt>`.
 | GET    | `/analytics/top-tags`        | `?since=&until=&limit=`                                                                         | `{entries: [{id, name, color, type, plays, sample_song_id}]}`, the user's own tags by plays of the songs carrying them. `sample_song_id` is the tag's most played song in the window, for a cover. Activity tags are left out                                                                                                                                                                                                                                         |
 | GET    | `/analytics/heatmap`         | `?bucket=hour\|two_hour\|day\|week\|month\|year&since=&until=&tz=`                              | `{bucket, cells: [{start, plays, tag_id}], tags: [{id, name, color}]}`. Sparse: only buckets with a play. `two_hour` starts on even local hours and prints like an hour. `tag_id` is the tag played most in that bucket, ties to the name, null when nothing played carried one. `tags` lists each named tag once. `bucket` defaults to `day`, and the window is checked against the bucket cap like a trend                                                          |
 | GET    | `/analytics/tag-shares`      | `?since=&until=`                                                                                | `{total_ms, tagged_ms, tags: [{id, name, color, type, listening_ms}]}`. `total_ms` is the window's listening time, the summary's `listening_ms`. `tagged_ms` is the part on songs with any of the tags, each listen once. Each tag's `listening_ms` is the time on songs carrying it, every listen counted in full toward every tag on its song, so tags can sum past the total. Most first, every tag with any time, the user's own only |
-| POST   | `/queries/results`           | `{query, consider_default_tags?}`                                                               | `["songid", ...]`, most relevant first                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| POST   | `/queries/results`           | `{query, consider_default_tags?, library_only?, sort?}`                                         | `{songs: [{song_id, certain}], capped}`, in order. `sort` is `{key, direction}`, key `title`, `artist` or `album`, direction `ascending` or `descending`; without it, most relevant first. Every match that is the caller's own (`certain`) comes back, and the first 1000 of the rest. `capped` is true when more matched                                                                                                                                            |
 | GET    | `/profile`                   | none                                                                                            | `{uid, username, bio}`, the signed-in user's profile. 404 if there is no row                                                                                                                                                                                                                                                                                                                                                                                          |
 | POST   | `/profile`                   | `{username?, bio?}` or empty                                                                    | the new `{uid, username, bio}`. Username defaults to the email local part. 409 `ProfileAlreadyExists` or `UsernameAlreadyTaken`                                                                                                                                                                                                                                                                                                                                      |
 | PATCH  | `/profile`                   | `{username?, bio?}`                                                                             | the updated `{uid, username, bio}`. At least one field required. 404 if the user has no profile; 409 `UsernameAlreadyTaken`                                                                                                                                                                                                                                                                                                                                          |
@@ -233,24 +233,38 @@ the generation path still treats the song as having defaults. The two reads abov
 with `consider_default_tags` all leave out this user's removals, so the tag stops coming back for
 them.
 
-Activity tags (My Plays, First Played, Last Played) are shared tag rows with `is_activity` set.
+Activity tags (My Plays, First Played, Last Played, In My Library, Favorited, Tagged) are shared
+tag rows with `is_activity` set.
 `GET /tags` leaves them out, since they belong to no user, and so do the default tag routes.
 `GET /tags/activity` lists them for the query builders, and `GET /songs/activity-tags` and its
-batch read their values per song. The only write is `POST /songs/plays`, which goes to
-`db::activity_tags::record_play`. Writing one by hand through `/songs/local-tags` fails:
+batch read their values per song. The writes are `POST /songs/plays`, which goes to
+`db::activity_tags::record_play`, and `POST /events`, whose `play_counted` events move the play
+tags and whose `song_favorited` / `song_unfavorited` events move Favorited. In My Library and Tagged
+are computed on read from the user's library and own tags, so adding a song or applying a tag
+changes them with no activity tag write. Writing one by hand through `/songs/local-tags` fails:
 `POST` and `PATCH` are `NotFound` because the tag is not the user's, and `DELETE` is
 `ActivityTagReadOnly` (403). The client decides what counts as a play; see
 `client-app/src/lib/play-tracker.ts`.
 
 `queries.rs` is one handler. The query arrives already typed, because serde parses the body
 straight into `Query`, so a bad shape is a `QueryFormatError` carrying serde's message. The
-handler hands it straight to `db::queries::run_query`, which does the compiling, running, and
-ranking.
+handler hands it straight to `db::queries::run_query`, which does the compiling, running,
+ranking, and sorting, and converts the result to `json::query::QueryResults`.
 
-The query runs over the caller's `user_songs` rows, which is what lets `is_not_applied` and other
-negative filters match songs with no Cadenza tag rows. The client used to send its Apple Music
-library as `song_ids`, capped at 50,000; that field is gone, and `PATCH /songs` is now how the
-backend learns what is in the library.
+The query runs over every song Cadenza knows: the caller's `user_songs` rows, every song carrying
+one of their tags, and every song stored in `metadata_song_tags_applied`. That is what lets
+`is_not_applied` and other negative filters match songs with no Cadenza tag rows, including songs
+the caller does not have. The caller's own songs come back `certain` and in full; the rest stop at
+1000, with `capped` set when more matched. See the query compiler in `../db/README.md`. The client
+used to send its Apple Music library as `song_ids`, capped at 50,000; that field is gone, and
+`PATCH /songs` is now how the backend learns what is in the library.
+
+`library_only` defaults to false. True limits the query to the caller's `user_songs` rows: every
+match is `certain` and `capped` is false.
+
+`sort` is optional. Without it songs come back most relevant first. With it they come back by the
+stored title, artist or album, so a whole result sorts at once rather than one loaded page at a
+time. It needs the `natural_sort` collation from `sql/query_sort.sql`.
 
 `consider_default_tags` defaults to false. True widens what counts as a tag on a song to include
 the shared default tags, for matching and for ranking, and lets the query name a default tag id.
@@ -277,8 +291,10 @@ api as JSON should have a type here rather than serializing an entity model dire
 - Saved queries are gone from the route. It used to take a `query_id` param whose branch was a
   `todo!()` that panicked the handler.
 - `POST /queries/results` ignores an unknown field, so a client still sending `song_ids` gets no
-  error, just results over whatever `PATCH /songs` last put in `user_songs`. A user who has never
-  synced their library matches nothing.
+  error, just results over every song Cadenza knows. A user who has never synced their library
+  has no songs of their own, only the rest.
+- The response used to be a bare array of song ids. A client built before the `songs` / `capped`
+  object reads it as no results.
 - A like or unlike older than the last one this process accepted for that user and post is
   ignored. The clock is in memory (the last 2000 pairs), so a restart forgets it.
 - The feed reuses a user's interest vector for 10 minutes. The cache holds the last 2000 users

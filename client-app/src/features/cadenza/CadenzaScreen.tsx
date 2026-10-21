@@ -88,6 +88,7 @@ export function CadenzaScreen() {
         dispatch,
     );
     const {
+        libraryOnly,
         showVennDiagrams,
         showUndoRedo,
         showAdvancedTags,
@@ -135,10 +136,11 @@ export function CadenzaScreen() {
     );
     const {
         matchedSongIds,
+        resultsCapped,
         queryResultsLoading,
         queryResultsErr,
         refreshQueryResults,
-    } = useQueryResults(query, includeSuggested);
+    } = useQueryResults(query, includeSuggested, libraryOnly);
     const relevantTagNames = useMemo(
         () => (query ? positiveQueryTagNames(query, allTags) : []),
         [query, allTags],
@@ -207,6 +209,7 @@ export function CadenzaScreen() {
     const resultsAction = (
         <ResultsSummary
             count={matchedSongIds.length}
+            capped={resultsCapped}
             loading={queryResultsLoading}
             error={queryResultsErr}
             hasQuery={query !== null}
@@ -234,6 +237,7 @@ export function CadenzaScreen() {
                     params: {
                         query: JSON.stringify(query),
                         suggested: includeSuggested ? "1" : "",
+                        library: libraryOnly ? "1" : "",
                         relevantTags: JSON.stringify(relevantTagNames),
                         name: describeQuery(query, allTags),
                     },
