@@ -13,6 +13,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import { formatRelativeTime, initialsFromUsername } from "./format";
+import { PostCommentsDialog } from "./PostCommentsDialog";
 import { PostTopicCard } from "./PostTopicCard";
 import { useResolvedTopic } from "./topic";
 import type { PostTopic, SocialPost } from "./types";
@@ -36,7 +37,7 @@ type Props = {
     onAuthorPress?: (userId: string) => void;
 };
 
-/** One feed row: author, attached topic, body, and the like control. */
+/** One feed row: author, attached topic, body, likes, and comments. */
 export function PostCard({
     post,
     topicHint,
@@ -54,6 +55,7 @@ export function PostCard({
     );
     const [liked, setLiked] = useState(post.liked);
     const likedRef = useRef(liked);
+    const [commentsOpen, setCommentsOpen] = useState(false);
     // The card remounts from the cached post after a navigation. Follow that
     // post, or an unlike that already saved still paints as liked.
     useEffect(() => {
@@ -61,7 +63,48 @@ export function PostCard({
         setLiked(post.liked);
     }, [post.liked, post.post_id]);
 
+    const propCommentCount = post.comment_count ?? 0;
+    // Posts the user just created sit outside SWR, so the cache write never
+    // reaches this card. Drop the extra once the prop count moves, or a later
+    // cache update would add the same comment twice. A new post id starts over.
+    const [commentBump, setCommentBump] = useState({
+        postId: post.post_id,
+        count: propCommentCount,
+        extra: 0,
+    });
+    if (
+        commentBump.postId !== post.post_id ||
+        commentBump.count !== propCommentCount
+    ) {
+        setCommentBump({
+            postId: post.post_id,
+            count: propCommentCount,
+            extra: 0,
+        });
+    }
+
     const likes = post.likes + (liked ? 1 : 0) - (post.liked ? 1 : 0);
+    const commentCount =
+        propCommentCount +
+        (commentBump.postId === post.post_id &&
+        commentBump.count === propCommentCount
+            ? commentBump.extra
+            : 0);
+
+    function noteCommentCreated() {
+        setCommentBump((current) => {
+            const count = post.comment_count ?? 0;
+            if (current.postId !== post.post_id || current.count !== count) {
+                return { postId: post.post_id, count, extra: 1 };
+            }
+            return { ...current, extra: current.extra + 1 };
+        });
+    }
+
+    function openComments() {
+        if (post.post_id < 0) return;
+        setCommentsOpen(true);
+    }
 
     function toggleLike() {
         const nowLiked = !likedRef.current;
@@ -87,11 +130,11 @@ export function PostCard({
             });
     }
 
-    function openAuthor() {
-        const userId = post.author.user_id;
-        if (!userId) return;
-        if (onAuthorPress) onAuthorPress(userId);
-        else router.push(`/social/user/${userId}`);
+    function openAuthor(userId?: string) {
+        const id = userId || post.author.user_id;
+        if (!id) return;
+        if (onAuthorPress) onAuthorPress(id);
+        else router.push(`/social/user/${id}`);
     }
 
     const authorRow = (
@@ -116,53 +159,104 @@ export function PostCard({
     );
 
     return (
-        <View className="gap-3 overflow-hidden rounded-3xl border border-border p-4">
-            <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-                <GlassSurface
-                    variant="regular"
-                    style={StyleSheet.absoluteFill}
-                />
-            </View>
-
+        <>
             <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={`View ${post.author.username}'s profile`}
-                onPress={openAuthor}
-                className="flex-row items-center gap-3 active:opacity-60"
+                accessibilityLabel="View post comments"
+                onPress={openComments}
+                className="gap-3 overflow-hidden rounded-3xl border border-border p-4"
             >
-                {authorRow}
-            </Pressable>
+                <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+                    <GlassSurface
+                        variant="regular"
+                        style={StyleSheet.absoluteFill}
+                    />
+                </View>
 
-            {topic ? (
-                <PostTopicCard topic={topic} cardId={String(post.post_id)} />
-            ) : null}
-
-            <Text className="text-base leading-6 text-foreground">
-                {post.content}
-            </Text>
-
-            <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={liked ? "Unlike post" : "Like post"}
-                accessibilityState={{ selected: liked }}
-                onPress={toggleLike}
-                hitSlop={8}
-                className="flex-row items-center gap-1.5 self-start active:opacity-60"
-            >
-                <Ionicons
-                    name={liked ? "heart" : "heart-outline"}
-                    size={18}
-                    color="#e11d48"
-                />
-                <Text
-                    className={cn(
-                        "text-sm",
-                        liked ? "text-rose-600" : "text-muted-foreground",
-                    )}
+                <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`View ${post.author.username}'s profile`}
+                    onPress={(event) => {
+                        event.stopPropagation();
+                        openAuthor();
+                    }}
+                    className="flex-row items-center gap-3 active:opacity-60"
                 >
-                    {likes}
+                    {authorRow}
+                </Pressable>
+
+                {topic ? (
+                    <PostTopicCard
+                        topic={topic}
+                        cardId={String(post.post_id)}
+                    />
+                ) : null}
+
+                <Text className="text-base leading-6 text-foreground">
+                    {post.content}
                 </Text>
+
+                <View className="flex-row items-center gap-4 self-start">
+                    <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={liked ? "Unlike post" : "Like post"}
+                        accessibilityState={{ selected: liked }}
+                        onPress={(event) => {
+                            event.stopPropagation();
+                            toggleLike();
+                        }}
+                        hitSlop={8}
+                        className="flex-row items-center gap-1.5 active:opacity-60"
+                    >
+                        <Ionicons
+                            name={liked ? "heart" : "heart-outline"}
+                            size={18}
+                            color="#e11d48"
+                        />
+                        <Text
+                            className={cn(
+                                "text-sm",
+                                liked
+                                    ? "text-rose-600"
+                                    : "text-muted-foreground",
+                            )}
+                        >
+                            {likes}
+                        </Text>
+                    </Pressable>
+
+                    <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="View comments"
+                        onPress={(event) => {
+                            event.stopPropagation();
+                            openComments();
+                        }}
+                        hitSlop={8}
+                        className="flex-row items-center gap-1.5 active:opacity-60"
+                    >
+                        <Ionicons
+                            name="chatbubble-outline"
+                            size={18}
+                            color="#a1a1a1"
+                        />
+                        <Text className="text-sm text-muted-foreground">
+                            {commentCount}
+                        </Text>
+                    </Pressable>
+                </View>
             </Pressable>
-        </View>
+
+            <PostCommentsDialog
+                open={commentsOpen}
+                onOpenChange={setCommentsOpen}
+                post={post}
+                topicHint={topicHint}
+                showTopic={showTopic}
+                onLikedChange={onLikedChange}
+                onAuthorPress={openAuthor}
+                onCommentCreated={noteCommentCreated}
+            />
+        </>
     );
 }
