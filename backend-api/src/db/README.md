@@ -15,7 +15,7 @@ The data access layer. Everything that touches postgres lives here, so handlers 
 | `tags.rs` | User tag CRUD and applied values, plus searching, reading, and applying default tags, and claiming, finishing, and dropping a song's default tag generation. User tag reads never copy or return defaults. |
 | `tag_activity.rs` | Not activity tags. Counts applies and removes of a tag name on a song in `default_tag_activity`, and promotes popular names to default tags. |
 | `queries.rs` | Compiles a tag query to SQL, runs it, and ranks the matches. Unit tested, plus metadata filters run against a real database (`--ignored`). |
-| `social.rs` | Posts, likes, view status, interest scores, and the feed's SQL and score math. `post_likes` writes use the generated entity; `hot_score` and embeddings stay raw SQL. Embeddings come from `services::social_feed`. `topic_mk_id` is an optional Apple Music catalog id; song vs artist is not stored. `get_topic_posts` returns the posts for one catalog id, most liked first. Unit tested for the vector math. |
+| `social.rs` | Posts, likes, comments, view status, interest scores, and the feed's SQL and score math. `comments`, `post_likes`, and `comment_likes` use the generated entities. `hot_score` and embeddings stay raw SQL. Embeddings come from `services::social_feed`. `topic_mk_id` is an optional Apple Music catalog id; song vs artist is not stored. `get_topic_posts` returns the posts for one catalog id, most liked first. `get_post_comments` returns a post's comments, most liked first. A post's `comment_count` is `posts.comments`, bumped when a comment is inserted. Unit tested for the vector math and the comments select. |
 | `metadata_tags.rs` | The copy of Apple Music song metadata that queries and metadata tags read in `metadata_song_tags_applied`, and the album crawl queue in `metadata_albums`: storing songs, finding ones with no row, and queueing, claiming, finishing, and releasing albums. Unit tested, plus integration tests against a real database (`--ignored`). |
 | `user_songs.rs` | `edit_user_songs`: adds and removes the user's songs in one transaction. `get_recent_songs_without_generated_default_tags`: the newest songs nothing has generated default tags for, which the backfill job walks. |
 | `entity/` | sea-orm-codegen output. Includes tag, default-tag, and related tables, plus `prelude` and `mod`. Do not hand edit. |
@@ -75,8 +75,14 @@ Most of the tables below are keyed on song ids that come from Apple Music.
   See Listening events below.
 - `posts` - a social feed post. `post_id` (identity pk), `user_id` (uuid, references
   `auth.users`, cascades), `content`, `embedding` / `embedding_w_bday` (pgvector), `likes`,
-  `created_at`, `hot_score`, and nullable `topic_mk_id` (text), an Apple Music catalog id of
-  the song or artist the post is about. Kind is not stored: the client asks MusicKit.
+  `created_at`, `hot_score`, `comments` (bigint, how many comments the post has, default 0,
+  bumped when a comment is inserted), and nullable `topic_mk_id` (text), an Apple Music catalog
+  id of the song or artist the post is about. Kind is not stored: the client asks MusicKit.
+- `comments` - a comment on a post. `comment_id` (identity pk), `user_id` (uuid, references
+  `auth.users`, cascades), `post_id` (references `posts`, cascades), `content`, `likes`, and
+  `created_at`.
+- `comment_likes` - one row per user who liked a comment, composite pk of `(comment_id,
+  user_id)`, plus `date`. Cascades from `comments`.
 - `profile` - one public profile per auth user. `uid` (uuid pk, references `auth.users`, cascades),
   `username` (text, unique), and `bio` (text, defaults to `''`). A trigger on `auth.users` insert
   creates the row with username equal to the email local part (everything before `@`), appending

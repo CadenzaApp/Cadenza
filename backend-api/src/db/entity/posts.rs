@@ -24,6 +24,7 @@ pub struct Model {
     pub embedding_w_bday: Option<String>,
     #[sea_orm(column_type = "Text", nullable)]
     pub topic_mk_id: Option<String>,
+    pub comments: i64,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

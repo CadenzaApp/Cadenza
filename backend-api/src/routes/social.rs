@@ -15,12 +15,14 @@ use crate::{
     db::social::{FeedExclude, InterestDelta},
     err::CadenzaError,
     routes::json::social::{
-        CreatePostResponse, FeedResponse, SocialPost, TopicPostsResponse, UserPostsResponse,
+        CreateCommentResponse, CreatePostResponse, FeedResponse, PostCommentsResponse,
+        SocialComment, SocialPost, TopicPostsResponse, UserPostsResponse,
     },
     services::social_feed::SocialFeedService,
 };
 
 const POST_CONTENT_MAX: usize = 500;
+const COMMENT_CONTENT_MAX: usize = 500;
 const TOPIC_MK_ID_MAX: usize = 128;
 const TOPIC_NAME_MAX: usize = 200;
 
@@ -30,7 +32,7 @@ const TOPIC_NAME_MAX: usize = 200;
 /// posts. Each returned id is marked `loaded`.
 ///
 /// ```json
-/// { "feed": [ { "post_id": 1, "content": "hi", "likes": 0, "liked": false, "created_at": "2026-10-16T18:00:00Z", "author": { "user_id": "...", "username": "ada" }, "topic_mk_id": null } ] }
+/// { "feed": [ { "post_id": 1, "content": "hi", "likes": 0, "liked": false, "created_at": "2026-10-16T18:00:00Z", "author": { "user_id": "...", "username": "ada" }, "topic_mk_id": null, "comment_count": 0 } ] }
 /// ```
 async fn get_feed(
     State(db): State<DatabaseConnection>,
@@ -209,7 +211,7 @@ struct TopicPostsQuery {
 /// Posts whose topic is this Apple Music catalog id, most liked first.
 ///
 /// ```json
-/// { "posts": [ { "post_id": 1, "content": "hi", "likes": 3, "liked": false, "created_at": "2026-10-16T18:00:00Z", "author": { "user_id": "...", "username": "ada" }, "topic_mk_id": "1615585008" } ] }
+/// { "posts": [ { "post_id": 1, "content": "hi", "likes": 3, "liked": false, "created_at": "2026-10-16T18:00:00Z", "author": { "user_id": "...", "username": "ada" }, "topic_mk_id": "1615585008", "comment_count": 0 } ] }
 /// ```
 async fn topic_posts(
     State(db): State<DatabaseConnection>,
@@ -282,6 +284,90 @@ async fn unlike_post(
     Ok(Json(Value::Null))
 }
 
+/// Comments on this post, most liked first, then newest.
+///
+/// ```json
+/// { "comments": [ { "comment_id": 1, "post_id": 4, "content": "this", "likes": 2, "liked": false, "created_at": "2026-10-16T18:00:00Z", "author": { "user_id": "...", "username": "ada" } } ] }
+/// ```
+async fn get_comments(
+    State(db): State<DatabaseConnection>,
+    State(social): State<SocialFeedService>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Path(post_id): Path<i64>,
+) -> Result<Json<PostCommentsResponse>, CadenzaError> {
+    let comments = social
+        .get_post_comments(&db, claims.user_id, post_id)
+        .await?;
+    Ok(Json(PostCommentsResponse {
+        comments: comments.into_iter().map(SocialComment::from).collect(),
+    }))
+}
+
+#[derive(Deserialize)]
+struct CreateCommentBody {
+    content: String,
+}
+
+/// Creates a comment on this post for the signed-in user. `content` is at
+/// most 500 characters. 404 when the post is gone.
+///
+/// ```json
+/// { "comment_id": 1 }
+/// ```
+async fn create_comment(
+    State(db): State<DatabaseConnection>,
+    State(social): State<SocialFeedService>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Path(post_id): Path<i64>,
+    Json(body): Json<CreateCommentBody>,
+) -> Result<Json<CreateCommentResponse>, CadenzaError> {
+    let content = body.content.trim();
+    if content.is_empty() {
+        return Err(CadenzaError::InvalidRequestBody(
+            "content is required".into(),
+        ));
+    }
+    if content.chars().count() > COMMENT_CONTENT_MAX {
+        return Err(CadenzaError::InvalidRequestBody(
+            "content is longer than 500 characters".into(),
+        ));
+    }
+    let comment_id = social
+        .create_comment(&db, claims.user_id, post_id, content)
+        .await?;
+    Ok(Json(CreateCommentResponse { comment_id }))
+}
+
+/// Likes a comment. `timestamp` is the client's click time in milliseconds.
+/// Same older-click rule as post likes. Responds with `null`.
+async fn like_comment(
+    State(db): State<DatabaseConnection>,
+    State(social): State<SocialFeedService>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Path(comment_id): Path<i64>,
+    Json(body): Json<LikeBody>,
+) -> Result<Json<Value>, CadenzaError> {
+    social
+        .like_comment(&db, claims.user_id, comment_id, body.timestamp)
+        .await?;
+    Ok(Json(Value::Null))
+}
+
+/// Removes the signed-in user's comment like. Same timestamp rule as like.
+/// Responds with `null`.
+async fn unlike_comment(
+    State(db): State<DatabaseConnection>,
+    State(social): State<SocialFeedService>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Path(comment_id): Path<i64>,
+    Json(body): Json<LikeBody>,
+) -> Result<Json<Value>, CadenzaError> {
+    social
+        .unlike_comment(&db, claims.user_id, comment_id, body.timestamp)
+        .await?;
+    Ok(Json(Value::Null))
+}
+
 pub fn get_social_router() -> Router<AppState> {
     Router::new()
         .route("/feed", get(get_feed))
@@ -294,5 +380,13 @@ pub fn get_social_router() -> Router<AppState> {
         .route(
             "/posts/{post_id}/likes",
             post(like_post).delete(unlike_post),
+        )
+        .route(
+            "/posts/{post_id}/comments",
+            get(get_comments).post(create_comment),
+        )
+        .route(
+            "/comments/{comment_id}/likes",
+            post(like_comment).delete(unlike_comment),
         )
 }

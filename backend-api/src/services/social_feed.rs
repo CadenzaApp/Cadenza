@@ -18,7 +18,8 @@ use sea_orm::prelude::Uuid;
 use serde::{Deserialize, Serialize};
 
 use crate::db::social::{
-    self, FeedCandidate, FeedExclude, InterestDelta, PublicProfile, SocialPost, UpsertedInterest,
+    self, FeedCandidate, FeedExclude, InterestDelta, PublicProfile, SocialComment, SocialPost,
+    UpsertedInterest,
 };
 use crate::err::CadenzaError;
 
@@ -122,6 +123,7 @@ pub struct SocialFeedService {
     base_url: String,
     http: Client,
     likes: Arc<Mutex<LikeMemory>>,
+    comment_likes: Arc<Mutex<LikeMemory>>,
     vectors: Arc<Mutex<UserVectorCache>>,
 }
 
@@ -139,6 +141,7 @@ impl SocialFeedService {
                 .build()
                 .expect("failed to build http client for SocialFeedService"),
             likes: Arc::new(Mutex::new(LikeMemory::default())),
+            comment_likes: Arc::new(Mutex::new(LikeMemory::default())),
             vectors: Arc::new(Mutex::new(UserVectorCache::default())),
         }
     }
@@ -390,6 +393,81 @@ impl SocialFeedService {
         post_ids: &[i64],
     ) -> Result<(), CadenzaError> {
         social::mark_posts_viewed(db, user_id, post_ids).await
+    }
+
+    /// Comments on `post_id`, most liked first.
+    pub async fn get_post_comments(
+        &self,
+        db: &DatabaseConnection,
+        viewer_id: Uuid,
+        post_id: i64,
+    ) -> Result<Vec<SocialComment>, CadenzaError> {
+        social::get_post_comments(db, viewer_id, post_id).await
+    }
+
+    /// Stores a comment on `post_id` and returns its id. `NotFound` when the
+    /// post is gone.
+    pub async fn create_comment(
+        &self,
+        db: &DatabaseConnection,
+        user_id: Uuid,
+        post_id: i64,
+        content: &str,
+    ) -> Result<i64, CadenzaError> {
+        social::insert_comment(db, user_id, post_id, content).await
+    }
+
+    /// Likes `comment_id` unless `timestamp` is older than the last click this
+    /// process accepted for the pair.
+    pub async fn like_comment(
+        &self,
+        db: &DatabaseConnection,
+        user_id: Uuid,
+        comment_id: i64,
+        timestamp: i64,
+    ) -> Result<(), CadenzaError> {
+        if !self
+            .comment_likes
+            .lock()
+            .expect("comment like memory")
+            .accept(user_id, comment_id, timestamp)
+        {
+            return Ok(());
+        }
+        if let Err(err) = social::like_comment(db, user_id, comment_id).await {
+            self.comment_likes
+                .lock()
+                .expect("comment like memory")
+                .forget(user_id, comment_id, timestamp);
+            return Err(err);
+        }
+        Ok(())
+    }
+
+    /// Removes a comment like. Same timestamp rule as [`Self::like_comment`].
+    pub async fn unlike_comment(
+        &self,
+        db: &DatabaseConnection,
+        user_id: Uuid,
+        comment_id: i64,
+        timestamp: i64,
+    ) -> Result<(), CadenzaError> {
+        if !self
+            .comment_likes
+            .lock()
+            .expect("comment like memory")
+            .accept(user_id, comment_id, timestamp)
+        {
+            return Ok(());
+        }
+        if let Err(err) = social::unlike_comment(db, user_id, comment_id).await {
+            self.comment_likes
+                .lock()
+                .expect("comment like memory")
+                .forget(user_id, comment_id, timestamp);
+            return Err(err);
+        }
+        Ok(())
     }
 
     async fn embed_post(&self, content: &str) -> Result<Vec<f64>, CadenzaError> {
