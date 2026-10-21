@@ -1,5 +1,5 @@
 import { TabStack } from "@/components/custom/tab-stack";
 
 export default function SocialLayout() {
-    return <TabStack title="Your Feed" />;
+    return <TabStack title="Your Feed" opensOwnSocialPage />;
 }
