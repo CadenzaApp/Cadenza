@@ -26,6 +26,7 @@ import { classifyError } from "@/lib/app-error";
 import { useAppleMusic } from "@/lib/apple-music-auth";
 import { useMusicListPreferences } from "@/lib/music-list-preferences";
 import { useProfile, useUpdateProfile } from "@/lib/routes/profile";
+import { useOpenSocialProfile } from "@/lib/use-open-social-profile";
 
 import { GlassSettingsPanel, SettingsIcon, SettingsRow } from "./settings-ui";
 
@@ -41,6 +42,7 @@ export function AccountSettingsScreen() {
     const insets = useSafeAreaInsets();
     const { colors } = useTheme();
     const { account, signOut } = useAccount();
+    const openSocialProfile = useOpenSocialProfile();
     const { profile, profileLoading, profileErr } = useProfile();
     const { updateProfile, updateProfileLoading, resetUpdateProfile } =
         useUpdateProfile();
@@ -355,6 +357,23 @@ export function AccountSettingsScreen() {
                             </>
                         )}
                     </View>
+                </GlassSettingsPanel>
+
+                <GlassSettingsPanel>
+                    <SettingsRow
+                        icon="person-circle-outline"
+                        title="Your Social Page"
+                        description="See your public profile and posts."
+                        onPress={() => openSocialProfile(account.id)}
+                        accessibilityLabel="Open your social page"
+                        trailing={
+                            <Ionicons
+                                name="chevron-forward"
+                                size={20}
+                                color={colors.text}
+                            />
+                        }
+                    />
                 </GlassSettingsPanel>
 
                 <GlassSettingsPanel>

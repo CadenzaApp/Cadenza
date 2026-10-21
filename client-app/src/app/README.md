@@ -154,7 +154,8 @@ already.
 
 Every tab is a directory with a native `Stack` from `TabStack`. `TopRail` is that stack's
 header. The page title sits on the left, the account
-initials button sits on the right, and the button opens `/account`.
+initials button sits on the right, and the button opens `/account`. On the Social tab
+(`opensOwnSocialPage`) it opens your own profile (`/social/user/:userId`) instead.
 
 The rail floats over the page; it is not part of it. The screen's scroller pads its content's top
 by the rail's measured height plus `RAIL_CONTENT_GAP`, the same on every page, replacing the page's
@@ -216,6 +217,9 @@ no "Now Playing" title and no Discuss / Player / Tags selector, and it does not 
 replace whatever is playing. The sheet's own Discuss page is still the pager tab for the
 song the sheet is focused on. Tapping an author on either Discuss surface closes that
 screen and opens `/social/user/:userId` on the Social tab, with the feed still underneath.
+Account's "Your Social Page" row uses that same navigation for your own page. The Social
+tab's initials button pushes `/social/user/:userId` on the social stack, like a feed author
+tap.
 Song menus edit tags in their own `TagSelector` popup
 instead of routing through this sheet.
 
