@@ -7,6 +7,7 @@ import {
     Alert,
     Image,
     Pressable,
+    StyleSheet,
     useWindowDimensions,
     View,
 } from "react-native";
@@ -45,13 +46,6 @@ import { MediaPlayerQueue } from "./queue-view";
 import { MediaPlayerTransport } from "./transport-controls";
 
 const PLAYBACK_PROGRESS_INTERPOLATION_MS = 800;
-const FULLSCREEN_ARTWORK_STYLE = {
-    width: "100%",
-    maxWidth: "100%",
-    height: "100%",
-    borderRadius: 0,
-    padding: 0,
-} as const;
 
 /** Room the artwork must leave for everything stacked below it. */
 const TRANSPORT_ROW_HEIGHT = 80;
@@ -494,21 +488,14 @@ export function PlayerPage() {
                 visible={artworkView !== null}
                 onClose={() => setArtworkView(null)}
                 variant={artworkView === "image" ? "transparent" : "solid"}
-                contentStyle={
-                    artworkView === "image"
-                        ? FULLSCREEN_ARTWORK_STYLE
-                        : undefined
-                }
-                backdropClassName={
-                    artworkView === "image" ? "bg-black p-0" : undefined
-                }
+                fullscreen={artworkView === "image"}
             >
                 {artworkView === "image" ? (
-                    <View className="flex-1 items-center justify-center bg-black">
+                    <View className="bg-black" style={StyleSheet.absoluteFill}>
                         <Image
                             source={{ uri: fullArtworkUrl }}
                             resizeMode="contain"
-                            className="h-full w-full"
+                            style={StyleSheet.absoluteFill}
                             accessibilityLabel={`${track.title} artwork`}
                         />
                         <Pressable

@@ -166,6 +166,9 @@ smoothly between the 750ms native snapshot polls, and scrubbing overrides it wit
 - A sheet belongs in `SHEET_SEGMENTS` so base-route and sheet-local inset calculations keep using
   the screen beneath it. Sheets do not explicitly hide the primary bars; their native surface
   covers bars that remain mounted underneath.
+- Fullscreen artwork uses `ModalPopup` `fullscreen`. The centered card's percentage
+  height resolves to 0 on Android, so that viewer was a black screen. The image
+  fills its flex parent with absolute edges instead of `h-full`.
 - The artwork size is derived from the sheet body measured by `onLayout`, not the window, because
   the sheet leaves out the status bar and the header. `SHEET_DETENT` (imported from
   `@/lib/theme`, so it cannot drift from `sheetScreenOptions`) and `SHEET_HEADER_HEIGHT` in
