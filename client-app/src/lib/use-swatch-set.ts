@@ -1,4 +1,4 @@
-import { useUserSettings, type UserSettingsPatch } from "./routes/settings";
+import { useSaveSettings, useUserSettings } from "./routes/settings";
 import type { SwatchSlots } from "./swatch-slots";
 import {
     SWATCH_SETS,
@@ -15,13 +15,8 @@ import {
  */
 export function useSwatchSet(kind: SwatchSetKind) {
     const set: SwatchSet = SWATCH_SETS[kind];
-    const { settings, settingsLoaded, updateSettings } = useUserSettings();
-
-    function save(change: UserSettingsPatch) {
-        void updateSettings(change).catch((error) =>
-            console.error(`Failed to save ${kind} colors:`, error),
-        );
-    }
+    const { settingsLoaded } = useUserSettings();
+    const { settings, save } = useSaveSettings(`${kind} colors`);
 
     return {
         set,

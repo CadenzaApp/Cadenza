@@ -2,7 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useEffect, type ReactNode } from "react";
 
 import { useAccount } from "./account";
-import { useUserSettings } from "./routes/settings";
+import { useSaveSettings, useUserSettings } from "./routes/settings";
 
 /** Where this preference lived before it moved to `/settings`. */
 const LEGACY_SHOW_SUGGESTED_TAGS_KEY = "cadenza.music-list.show-suggested-tags";
@@ -12,17 +12,12 @@ const LEGACY_SHOW_SUGGESTED_TAGS_KEY = "cadenza.music-list.show-suggested-tags";
  * settings. `showSuggestedTags` only hides suggested pills in list rows.
  */
 export function useMusicListPreferences() {
-    const { settings, updateSettings } = useUserSettings();
+    const { settings, save } = useSaveSettings("music-list tag preference");
 
     return {
         showSuggestedTags: settings.show_suggested_tags,
         setShowSuggestedTags: (show: boolean) =>
-            void updateSettings({ show_suggested_tags: show }).catch((error) =>
-                console.error(
-                    "Failed to save music-list tag preference:",
-                    error,
-                ),
-            ),
+            save({ show_suggested_tags: show }),
     };
 }
 

@@ -148,3 +148,19 @@ export function useUserSettings(): UserSettingsState {
         throw new Error("useUserSettings requires UserSettingsProvider.");
     return state;
 }
+
+/**
+ * `settings` plus a `save` that applies a change and only logs a failure, for
+ * a screen that shows `saveErr` itself. `label` names it in the log.
+ */
+export function useSaveSettings(label: string) {
+    const { settings, updateSettings, updateSettingsErr } = useUserSettings();
+
+    function save(change: UserSettingsPatch) {
+        void updateSettings(change).catch((error) =>
+            console.error(`Failed to save ${label}:`, error),
+        );
+    }
+
+    return { settings, save, saveErr: updateSettingsErr };
+}

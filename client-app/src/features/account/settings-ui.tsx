@@ -2,14 +2,17 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { Children, Fragment, type ReactNode } from "react";
 import {
     Pressable,
+    ScrollView,
     StyleSheet,
     View,
     type ColorValue,
     type PressableProps,
 } from "react-native";
 
+import { DetailScreen } from "@/components/ui/detail-screen";
 import { GlassLayer, GlassSurface } from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAppTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 
@@ -18,6 +21,51 @@ import { cn } from "@/lib/utils";
 // under nativewind.
 
 export type IoniconName = keyof typeof Ionicons.glyphMap;
+
+/**
+ * Every settings screen: a `DetailScreen` sheet with a padded scroll body.
+ * `overlay` renders outside the scroll, for dialogs.
+ */
+export function SettingsSheet({
+    title,
+    overlay,
+    className,
+    children,
+}: {
+    title: string;
+    overlay?: ReactNode;
+    /** Classes for the scroll content, like a wider `gap-5`. */
+    className?: string;
+    children: ReactNode;
+}) {
+    const insets = useSafeAreaInsets();
+
+    return (
+        <DetailScreen presentation="sheet" title={title}>
+            <ScrollView
+                className="flex-1"
+                contentContainerClassName={cn("gap-4 px-5 pt-2", className)}
+                contentContainerStyle={{
+                    paddingBottom: Math.max(insets.bottom, 16) + 16,
+                }}
+                showsVerticalScrollIndicator={false}
+            >
+                {children}
+            </ScrollView>
+            {overlay}
+        </DetailScreen>
+    );
+}
+
+/** The line a settings screen shows when a save fails. */
+export function SaveError({ error }: { error: unknown }) {
+    if (!error) return null;
+    return (
+        <Text className="px-2 text-sm text-destructive">
+            Could not save that change. Please try again.
+        </Text>
+    );
+}
 
 /** A rounded glass card. Every block on the settings sheets sits on one. */
 export function GlassSettingsPanel({

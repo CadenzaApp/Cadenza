@@ -1,13 +1,12 @@
-import { ScrollView, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { View } from "react-native";
 
-import { DetailScreen } from "@/components/ui/detail-screen";
 import { Text } from "@/components/ui/text";
 
 import {
     GlassSettingsPanel,
     SettingsIcon,
     type IoniconName,
+    SettingsSheet,
 } from "./settings-ui";
 
 type PrivacyPoint = { icon: IoniconName; title: string; body: string };
@@ -32,34 +31,23 @@ const POINTS: PrivacyPoint[] = [
 
 /** What Cadenza stores and what it does not. Read only. */
 export function PrivacySettingsScreen() {
-    const insets = useSafeAreaInsets();
-
     return (
-        <DetailScreen presentation="sheet" title="Privacy & data">
-            <ScrollView
-                className="flex-1"
-                contentContainerClassName="gap-4 px-5 pt-2"
-                contentContainerStyle={{
-                    paddingBottom: Math.max(insets.bottom, 16) + 16,
-                }}
-                showsVerticalScrollIndicator={false}
-            >
-                {POINTS.map((point) => (
-                    <GlassSettingsPanel key={point.title}>
-                        <View className="flex-row gap-3.5 px-4 py-4">
-                            <SettingsIcon name={point.icon} />
-                            <View className="flex-1 gap-1">
-                                <Text className="text-base font-semibold">
-                                    {point.title}
-                                </Text>
-                                <Text className="text-sm leading-5 text-muted-foreground">
-                                    {point.body}
-                                </Text>
-                            </View>
+        <SettingsSheet title="Privacy & data">
+            {POINTS.map((point) => (
+                <GlassSettingsPanel key={point.title}>
+                    <View className="flex-row gap-3.5 px-4 py-4">
+                        <SettingsIcon name={point.icon} />
+                        <View className="flex-1 gap-1">
+                            <Text className="text-base font-semibold">
+                                {point.title}
+                            </Text>
+                            <Text className="text-sm leading-5 text-muted-foreground">
+                                {point.body}
+                            </Text>
                         </View>
-                    </GlassSettingsPanel>
-                ))}
-            </ScrollView>
-        </DetailScreen>
+                    </View>
+                </GlassSettingsPanel>
+            ))}
+        </SettingsSheet>
     );
 }

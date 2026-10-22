@@ -2,12 +2,10 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { LinearGradient } from "expo-linear-gradient";
 import { Redirect, useRouter, type Href } from "expo-router";
 import { useState } from "react";
-import { Pressable, ScrollView, StyleSheet, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Pressable, StyleSheet, View } from "react-native";
 
 import { getAccountInitials } from "@/components/custom/account-initials";
 import { AppleMusicLogo } from "@/components/custom/apple-music-logo";
-import { DetailScreen } from "@/components/ui/detail-screen";
 import { GlassPill } from "@/components/ui/glass-pill";
 import { GlassConfirmDialog } from "@/components/ui/glass-confirm-dialog";
 import { Text } from "@/components/ui/text";
@@ -32,6 +30,7 @@ import {
     SettingsTile,
     StatusDot,
     type IoniconName,
+    SettingsSheet,
 } from "./settings-ui";
 
 const AVATAR_SIZE = 96;
@@ -58,7 +57,6 @@ const THEME_MODE_ICON: Record<ThemeMode, IoniconName> = {
  */
 export function AccountSettingsScreen() {
     const router = useRouter();
-    const insets = useSafeAreaInsets();
     const { account, signOut } = useAccount();
     const { profile } = useProfile(Boolean(account));
     const { settings } = useUserSettings();
@@ -100,91 +98,85 @@ export function AccountSettingsScreen() {
     }
 
     return (
-        <DetailScreen presentation="sheet" title="Account">
-            <ScrollView
-                className="flex-1"
-                contentContainerClassName="gap-4 px-5 pt-2"
-                contentContainerStyle={{
-                    paddingBottom: Math.max(insets.bottom, 16) + 16,
-                }}
-                showsVerticalScrollIndicator={false}
-            >
-                <View className="items-center gap-1 pb-3">
-                    <AccountAvatar initial={initial} />
-                    <Text
-                        className="mt-3 text-center text-2xl font-bold"
-                        numberOfLines={1}
-                    >
-                        {displayName}
-                    </Text>
-                    <Text
-                        className="text-center text-base text-muted-foreground"
-                        numberOfLines={1}
-                    >
-                        {account.email}
-                    </Text>
-                    <View className="mt-3">
-                        <GlassPill
-                            size="md"
-                            icon="person-outline"
-                            label="View public profile"
-                            chevron
-                            onPress={() => openSocialProfile(account.id)}
-                        />
-                    </View>
-                </View>
-
-                <AppleMusicCard
-                    onOpen={() => router.push("/apple-music" as Href)}
+        <SettingsSheet
+            title="Account"
+            overlay={
+                <GlassConfirmDialog
+                    open={confirmOpen}
+                    title="Sign out of Cadenza?"
+                    description="You will need to sign in again to use Cadenza."
+                    confirmLabel="Sign Out"
+                    pendingLabel="Signing out..."
+                    pending={signingOut}
+                    error={signOutError}
+                    onOpenChange={setConfirmation}
+                    onConfirm={() => void handleSignOut()}
                 />
-
-                <View className="flex-row gap-4">
-                    <SettingsTile
-                        icon="pricetag-outline"
-                        title="Listening preferences"
-                        subtitle="Tags & explicit content"
-                        onPress={() =>
-                            router.push("/listening-preferences" as Href)
-                        }
-                    />
-                    <SettingsTile
-                        icon={THEME_MODE_ICON[settings.theme_mode]}
-                        title="Appearance"
-                        subtitle={THEME_MODE_LABEL[settings.theme_mode]}
-                        onPress={() => router.push("/appearance" as Href)}
+            }
+        >
+            <View className="items-center gap-1 pb-3">
+                <AccountAvatar initial={initial} />
+                <Text
+                    className="mt-3 text-center text-2xl font-bold"
+                    numberOfLines={1}
+                >
+                    {displayName}
+                </Text>
+                <Text
+                    className="text-center text-base text-muted-foreground"
+                    numberOfLines={1}
+                >
+                    {account.email}
+                </Text>
+                <View className="mt-3">
+                    <GlassPill
+                        size="md"
+                        icon="person-outline"
+                        label="View public profile"
+                        chevron
+                        onPress={() => openSocialProfile(account.id)}
                     />
                 </View>
+            </View>
 
-                <SettingsGroup>
-                    <SettingsRow
-                        icon="shield-checkmark-outline"
-                        title="Privacy & data"
-                        chevron
-                        onPress={() => router.push("/privacy" as Href)}
-                    />
-                    <SettingsRow
-                        icon="person-outline"
-                        title="Account details"
-                        chevron
-                        onPress={() => router.push("/account-details" as Href)}
-                    />
-                </SettingsGroup>
-
-                <SignOutButton onPress={() => setConfirmation(true)} />
-            </ScrollView>
-
-            <GlassConfirmDialog
-                open={confirmOpen}
-                title="Sign out of Cadenza?"
-                description="You will need to sign in again to use Cadenza."
-                confirmLabel="Sign Out"
-                pendingLabel="Signing out..."
-                pending={signingOut}
-                error={signOutError}
-                onOpenChange={setConfirmation}
-                onConfirm={() => void handleSignOut()}
+            <AppleMusicCard
+                onOpen={() => router.push("/apple-music" as Href)}
             />
-        </DetailScreen>
+
+            <View className="flex-row gap-4">
+                <SettingsTile
+                    icon="pricetag-outline"
+                    title="Listening preferences"
+                    subtitle="Tags & explicit content"
+                    onPress={() =>
+                        router.push("/listening-preferences" as Href)
+                    }
+                />
+                <SettingsTile
+                    icon={THEME_MODE_ICON[settings.theme_mode]}
+                    title="Appearance"
+                    subtitle={THEME_MODE_LABEL[settings.theme_mode]}
+                    onPress={() => router.push("/appearance" as Href)}
+                />
+            </View>
+
+            <SettingsGroup>
+                <SettingsRow
+                    icon="shield-checkmark-outline"
+                    title="Privacy & data"
+                    chevron
+                    onPress={() => router.push("/privacy" as Href)}
+                />
+                <SettingsRow
+                    icon="person-outline"
+                    title="Account details"
+                    chevron
+                    onPress={() => router.push("/account-details" as Href)}
+                />
+            </SettingsGroup>
+
+            <SignOutButton onPress={() => setConfirmation(true)} />
+        </SettingsSheet>
     );
 }
 

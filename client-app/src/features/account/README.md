@@ -20,7 +20,8 @@ glass, color slots, explicit filter, tag suggestions) go through `useUserSetting
 
 ## How it works
 
-Every screen here is a `DetailScreen` sheet. Each tile and row on `/account` pushes its own sheet.
+Every screen here is a `SettingsSheet` (a `DetailScreen` sheet with a padded scroll body) from
+`settings-ui.tsx`, and saves through `useSaveSettings` with `SaveError` for the failure line. Each tile and row on `/account` pushes its own sheet.
 
 The display name is `profile.username` from `useProfile`, with the email local part while it
 loads. Username and bio are edited on the social page, not here.

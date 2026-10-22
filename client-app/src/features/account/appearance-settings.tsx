@@ -1,21 +1,18 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Redirect } from "expo-router";
 import type { ReactNode } from "react";
-import { Pressable, ScrollView, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Pressable, View } from "react-native";
 
-import { DetailScreen } from "@/components/ui/detail-screen";
 import { GlassPill } from "@/components/ui/glass-pill";
 import { GlassToggle } from "@/components/ui/glass-toggle";
 import { Text } from "@/components/ui/text";
 import { useAccount } from "@/lib/account";
 import {
     DEFAULT_USER_SETTINGS,
-    useUserSettings,
+    useSaveSettings,
     type GlassStyle,
     type UserSettings,
     type ThemeMode,
-    type UserSettingsPatch,
 } from "@/lib/routes/settings";
 import { customBackground } from "@/lib/swatch-sets";
 import { GLASS_TINT_PRESETS, PALETTE, useAppTheme } from "@/lib/theme";
@@ -25,6 +22,8 @@ import {
     SettingsIcon,
     SettingsRow,
     type IoniconName,
+    SettingsSheet,
+    SaveError,
 } from "./settings-ui";
 import { SettingsSwatchGrid } from "./settings-swatch-grid";
 
@@ -56,9 +55,8 @@ const APPEARANCE_KEYS = [
  * to the account and repaints the app at once.
  */
 export function AppearanceSettingsScreen() {
-    const insets = useSafeAreaInsets();
     const { account } = useAccount();
-    const { settings, updateSettings, updateSettingsErr } = useUserSettings();
+    const { settings, save, saveErr } = useSaveSettings("appearance");
     const { scheme } = useAppTheme();
 
     if (!account) {
@@ -67,144 +65,124 @@ export function AppearanceSettingsScreen() {
 
     const background = customBackground(settings);
 
-    function save(change: UserSettingsPatch) {
-        void updateSettings(change).catch((error) =>
-            console.error("Failed to save appearance:", error),
-        );
-    }
-
     return (
-        <DetailScreen presentation="sheet" title="Appearance">
-            <ScrollView
-                className="flex-1"
-                contentContainerClassName="gap-5 px-5 pt-2"
-                contentContainerStyle={{
-                    paddingBottom: Math.max(insets.bottom, 16) + 16,
-                }}
-                showsVerticalScrollIndicator={false}
-            >
-                <AppearancePreview />
+        <SettingsSheet title="Appearance" className="gap-5">
+            <AppearancePreview />
 
-                <Section title="Mode">
-                    <GlassSettingsPanel>
-                        <View
-                            accessibilityRole="radiogroup"
-                            className="flex-row gap-2 p-2"
-                        >
-                            {MODES.map(({ mode, label, icon }) => (
-                                <Segment
-                                    key={mode}
-                                    label={label}
-                                    icon={icon}
-                                    selected={settings.theme_mode === mode}
-                                    onPress={() =>
-                                        save(
-                                            mode === "custom" &&
-                                                !settings.background_color
-                                                ? {
-                                                      theme_mode: mode,
-                                                      background_color:
-                                                          background,
-                                                  }
-                                                : { theme_mode: mode },
-                                        )
-                                    }
-                                />
-                            ))}
-                        </View>
-                    </GlassSettingsPanel>
-                </Section>
-
-                {settings.theme_mode === "custom" ? (
-                    <Section
-                        title="Background"
-                        footnote="Text turns light or dark to suit the background."
+            <Section title="Mode">
+                <GlassSettingsPanel>
+                    <View
+                        accessibilityRole="radiogroup"
+                        className="flex-row gap-2 p-2"
                     >
-                        <SwatchPanel>
-                            <SettingsSwatchGrid
-                                kind="background"
-                                pickerTitle="Background"
-                                selected={background}
-                                newColorStart={background}
+                        {MODES.map(({ mode, label, icon }) => (
+                            <Segment
+                                key={mode}
+                                label={label}
+                                icon={icon}
+                                selected={settings.theme_mode === mode}
+                                onPress={() =>
+                                    save(
+                                        mode === "custom" &&
+                                            !settings.background_color
+                                            ? {
+                                                  theme_mode: mode,
+                                                  background_color: background,
+                                              }
+                                            : { theme_mode: mode },
+                                    )
+                                }
                             />
-                        </SwatchPanel>
-                    </Section>
-                ) : null}
+                        ))}
+                    </View>
+                </GlassSettingsPanel>
+            </Section>
 
+            {settings.theme_mode === "custom" ? (
                 <Section
-                    title="Accent"
-                    footnote="Hold a color to change or remove it."
+                    title="Background"
+                    footnote="Text turns light or dark to suit the background."
                 >
                     <SwatchPanel>
                         <SettingsSwatchGrid
-                            kind="accent"
-                            pickerTitle="Accent color"
-                            fixed={{
-                                label: "Default",
-                                color: PALETTE[scheme].brand,
-                            }}
-                            newColorStart={PALETTE[scheme].brand}
+                            kind="background"
+                            pickerTitle="Background"
+                            selected={background}
+                            newColorStart={background}
                         />
                     </SwatchPanel>
                 </Section>
+            ) : null}
 
-                <Section title="Glass tint">
-                    <SwatchPanel>
-                        <SettingsSwatchGrid
-                            kind="glassTint"
-                            pickerTitle="Glass tint"
-                            fixed={{ label: "None", color: null }}
-                            newColorStart={GLASS_TINT_PRESETS[0]}
-                        />
-                    </SwatchPanel>
-                </Section>
-
-                <Section
-                    title="Glass"
-                    footnote="Tinted makes glass more opaque, for more contrast. The same choice as Liquid Glass in iOS Settings, which Cadenza cannot read."
-                >
-                    <GlassSettingsPanel>
-                        <View
-                            accessibilityRole="radiogroup"
-                            className="flex-row gap-2 p-2"
-                        >
-                            {GLASS_STYLES.map(({ style, label, icon }) => (
-                                <Segment
-                                    key={style}
-                                    label={label}
-                                    icon={icon}
-                                    selected={settings.glass_style === style}
-                                    onPress={() => save({ glass_style: style })}
-                                />
-                            ))}
-                        </View>
-                    </GlassSettingsPanel>
-                </Section>
-
-                {updateSettingsErr ? (
-                    <Text className="px-2 text-sm text-destructive">
-                        Could not save that change. Please try again.
-                    </Text>
-                ) : null}
-
-                <View className="items-center">
-                    <GlassPill
-                        icon="refresh-outline"
-                        label="Reset to defaults"
-                        onPress={() =>
-                            save(
-                                Object.fromEntries(
-                                    APPEARANCE_KEYS.map((key) => [
-                                        key,
-                                        DEFAULT_USER_SETTINGS[key],
-                                    ]),
-                                ),
-                            )
-                        }
+            <Section
+                title="Accent"
+                footnote="Hold a color to change or remove it."
+            >
+                <SwatchPanel>
+                    <SettingsSwatchGrid
+                        kind="accent"
+                        pickerTitle="Accent color"
+                        fixed={{
+                            label: "Default",
+                            color: PALETTE[scheme].brand,
+                        }}
+                        newColorStart={PALETTE[scheme].brand}
                     />
-                </View>
-            </ScrollView>
-        </DetailScreen>
+                </SwatchPanel>
+            </Section>
+
+            <Section title="Glass tint">
+                <SwatchPanel>
+                    <SettingsSwatchGrid
+                        kind="glassTint"
+                        pickerTitle="Glass tint"
+                        fixed={{ label: "None", color: null }}
+                        newColorStart={GLASS_TINT_PRESETS[0]}
+                    />
+                </SwatchPanel>
+            </Section>
+
+            <Section
+                title="Glass"
+                footnote="Tinted makes glass more opaque, for more contrast. The same choice as Liquid Glass in iOS Settings, which Cadenza cannot read."
+            >
+                <GlassSettingsPanel>
+                    <View
+                        accessibilityRole="radiogroup"
+                        className="flex-row gap-2 p-2"
+                    >
+                        {GLASS_STYLES.map(({ style, label, icon }) => (
+                            <Segment
+                                key={style}
+                                label={label}
+                                icon={icon}
+                                selected={settings.glass_style === style}
+                                onPress={() => save({ glass_style: style })}
+                            />
+                        ))}
+                    </View>
+                </GlassSettingsPanel>
+            </Section>
+
+            <SaveError error={saveErr} />
+
+            <View className="items-center">
+                <GlassPill
+                    icon="refresh-outline"
+                    label="Reset to defaults"
+                    onPress={() =>
+                        save(
+                            Object.fromEntries(
+                                APPEARANCE_KEYS.map((key) => [
+                                    key,
+                                    DEFAULT_USER_SETTINGS[key],
+                                ]),
+                            ),
+                        )
+                    }
+                />
+            </View>
+        </SettingsSheet>
     );
 }
 
