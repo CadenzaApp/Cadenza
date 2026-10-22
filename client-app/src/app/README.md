@@ -14,7 +14,7 @@ logic out.
 | `(tabs)/_layout.tsx`                 |                           | Protected native tab group, its five triggers, and the media-player bottom accessory.                         |
 | `(tabs)/*/_layout.tsx`               |                           | One native `Stack` per tab, using `TabStack` for the shared top rail.                                         |
 | `(tabs)/social/index.tsx`            | `/social`                 | The ranked social feed.                                                                                       |
-| `(tabs)/social/user/[userId].tsx`    | `/social/user/:userId`    | One user's public profile (username, bio) and their posts, newest first. Your own page edits both. |
+| `(tabs)/social/user/[userId].tsx`    | `/social/user/:userId`    | One user's public profile (username, bio) and their posts, newest first. Your own page edits both.            |
 | `(tabs)/analytics/index.tsx`         | `/analytics`              | The overview: header, #1 hero, stats, heatmap, tag rail, and one card for every ranking.                      |
 | `(tabs)/analytics/[dimension].tsx`   | `/analytics/[dimension]`  | One full ranking. `dimension` is a name from the client's dimension registry.                                 |
 | `(tabs)/analytics/listened.tsx`      | `/analytics/listened`     | The songs listened to in one heatmap hour. Params: `since`, `until`, `title`, optional `tag`.                 |
@@ -23,7 +23,11 @@ logic out.
 | `(tabs)/library/category/[kind].tsx` | `/library/category/:kind` | One category's normal Library-stack view; preserves the tab bar and bottom player.                            |
 | `(tabs)/search/index.tsx`            | `/search`                 | Search. A tag shelf until you tap the field, then recents, a scope switch, and results (artists, then songs). |
 | `account.tsx`                        | `/account`                | Account sheet. Wires `AccountSettingsScreen`.                                                                 |
-| `appearance.tsx`                     | `/appearance`             | Appearance preview sheet. Wires `AppearanceSettingsScreen`.                                                   |
+| `appearance.tsx`                     | `/appearance`             | Appearance sheet: mode, accent, glass. Wires `AppearanceSettingsScreen`.                                      |
+| `apple-music.tsx`                    | `/apple-music`            | Apple Music sheet: status, sync, connect, disconnect.                                                         |
+| `listening-preferences.tsx`          | `/listening-preferences`  | Tag suggestions and Hide explicit content toggles.                                                            |
+| `privacy.tsx`                        | `/privacy`                | What Cadenza stores. Read only.                                                                               |
+| `account-details.tsx`                | `/account-details`        | Email and username.                                                                                           |
 | `player/_layout.tsx`                 | `/player/*`               | Now playing sheet shell and provider stack for its always-mounted horizontal pager.                           |
 | `player/index.tsx`                   | `/player`                 | Opens the always-mounted player pager with Player selected.                                                   |
 | `player/discuss.tsx`                 | `/player/discuss`         | Opens the same pager with Discuss selected and optional focused-song params.                                  |
@@ -51,8 +55,8 @@ GestureHandlerRootView
       TasksProvider        background task state
         SongInitProvider   syncs the apple music library into user_songs after auth
           PlaybackProvider     reads the native playback snapshot
-            ThemeProvider      light/dark nav theme from nativewind's colorScheme
-              MusicListPreferencesProvider persisted music-list presentation preferences
+            AppThemeProvider   user's mode, accent, and glass into css vars, nav theme, useAppTheme
+              MusicListPreferencesProvider moves the old device-local tag preference onto /settings once
                 BottomBarVisibilityProvider   temporary native-tab visibility exceptions
                   ZoomOriginProvider          per-navigation zoom launch measurements
                     Stack                     the routes
@@ -63,7 +67,7 @@ GestureHandlerRootView
                     PortalHost                where dialogs and modals render
 ```
 
-`LibraryCategoriesProvider` (`@/features/library`) sits inside `ThemeProvider` and wraps both
+`LibraryCategoriesProvider` (`@/features/library`) sits inside `AppThemeProvider` and wraps both
 `Stack` and the hosts, because the library screen reads the category selection and the
 `/library-categories` screen writes it, and those are separate routes.
 
@@ -181,9 +185,10 @@ shared suggested-tag matching scope.
 
 ## Sheets
 
-**Three** routes are sheets: `/account`, `/appearance`, and `/player`. A sheet is a native surface
+The settings routes (`/account`, `/apple-music`, `/listening-preferences`, `/appearance`,
+`/privacy`, `/account-details`) and `/player` are sheets. A sheet is a native surface
 over the whole app, so it covers the primary native tab bar and compact player while leaving them
-mounted underneath. Appearance stacks from Account and keeps the same modal context. They are presented
+mounted underneath. Every settings sheet stacks from Account and keeps the same modal context. They are presented
 with `sheetScreenOptions` from `@/lib/theme`, the single definition of what a sheet looks like:
 a rounded `formSheet` at the `SHEET_DETENT` detent with a visible native grabber. That detent is
 `1`, the system's large one, so a sheet is full width, runs to the bottom edge, and stops just
