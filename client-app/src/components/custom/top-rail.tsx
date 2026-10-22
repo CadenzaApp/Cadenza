@@ -1,5 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { usePathname, useRouter } from "expo-router";
+import { useRouter } from "expo-router";
 import { useTheme } from "expo-router/react-navigation";
 import type { ReactNode } from "react";
 import { View } from "react-native";
@@ -25,10 +25,6 @@ type Props = {
      * `@/lib/top-rail`.
      */
     route?: { key: string; name: string };
-    /**
-     * Social tab: the initials button opens your own posts instead of Account.
-     */
-    opensOwnSocialPage?: boolean;
 };
 
 /** How far a floating rail drifts as it fades, kept small on purpose. */
@@ -40,18 +36,10 @@ const DRIFT = 8;
  * Floating, it sits over the page with no background of its own, in the room
  * the page's scroller keeps clear for it, and fades in and out with a small
  * drift. Hidden, it is moved off screen so it cannot catch taps meant for the
- * page under it. Pinned, it is a plain bar above the screen. On the Social
- * tab the initials button opens your own posts page.
+ * page under it. Pinned, it is a plain bar above the screen.
  */
-export function TopRail({
-    title,
-    onBack,
-    actions,
-    route,
-    opensOwnSocialPage,
-}: Props) {
+export function TopRail({ title, onBack, actions, route }: Props) {
     const router = useRouter();
-    const pathname = usePathname();
     const { colors } = useTheme();
     const { account } = useAccount();
     const insets = useSafeAreaInsets();
@@ -60,11 +48,6 @@ export function TopRail({
     const height = floating?.height ?? 0;
 
     function handleProfilePress() {
-        if (opensOwnSocialPage && account?.id) {
-            const href = `/social/user/${account.id}`;
-            if (pathname !== href) router.push(href);
-            return;
-        }
         router.push("/account");
     }
 
@@ -121,11 +104,7 @@ export function TopRail({
                 <View className="flex-row items-center gap-2">
                     {actions}
                     <GlassIconButton
-                        accessibilityLabel={
-                            opensOwnSocialPage
-                                ? "Open your social page"
-                                : "Open account"
-                        }
+                        accessibilityLabel="Open account"
                         onPress={handleProfilePress}
                     >
                         <Text className="text-sm font-semibold">

@@ -1,5 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useFocusEffect, useNavigation } from "expo-router";
+import { useFocusEffect, useNavigation, useRouter } from "expo-router";
 import { useTheme } from "expo-router/react-navigation";
 import {
     useCallback,
@@ -19,8 +19,10 @@ import {
 } from "react-native";
 import Animated from "react-native-reanimated";
 
+import { GlassButton } from "@/components/ui/glass-button";
 import { GlassIconButton } from "@/components/ui/glass-icon-button";
 import { Text } from "@/components/ui/text";
+import { useAccount } from "@/lib/account";
 import { useProfile } from "@/lib/routes/profile";
 import {
     useCreatePost,
@@ -56,6 +58,8 @@ export function SocialFeedScreen() {
     const railInset = useTopRailInset() ?? 0;
     const scroll = useScreenScroll<FlatList<FeedRow>>();
     const navigation = useNavigation();
+    const router = useRouter();
+    const { account } = useAccount();
     const { colors } = useTheme();
     const {
         posts,
@@ -149,15 +153,32 @@ export function SocialFeedScreen() {
     useLayoutEffect(() => {
         navigation.setOptions({
             headerRight: () => (
-                <GlassIconButton
-                    accessibilityLabel="Create a new post"
-                    onPress={() => setComposeOpen(true)}
-                >
-                    <Ionicons name="add" size={24} color={colors.text} />
-                </GlassIconButton>
+                <View className="flex-row items-center gap-2">
+                    <GlassButton
+                        className="h-10 rounded-full px-3"
+                        accessibilityLabel="Me"
+                        onPress={() => {
+                            if (!account?.id) return;
+                            router.push(`/social/user/${account.id}`);
+                        }}
+                    >
+                        <Text
+                            numberOfLines={1}
+                            className="text-sm font-semibold"
+                        >
+                            Me
+                        </Text>
+                    </GlassButton>
+                    <GlassIconButton
+                        accessibilityLabel="Create a new post"
+                        onPress={() => setComposeOpen(true)}
+                    >
+                        <Ionicons name="add" size={24} color={colors.text} />
+                    </GlassIconButton>
+                </View>
             ),
         });
-    }, [navigation, colors.text]);
+    }, [navigation, colors.text, account?.id, router]);
 
     const handleCreate = useCallback(
         (content: string, topic?: PostTopic | null) => {

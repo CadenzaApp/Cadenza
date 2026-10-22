@@ -10,11 +10,6 @@ type Props = {
      * fixed bar above their scroller, which a floating rail would cover.
      */
     pinnedRail?: readonly string[];
-    /**
-     * Social tab: the initials button opens your own posts page instead of
-     * Account.
-     */
-    opensOwnSocialPage?: boolean;
 };
 
 /**
@@ -22,7 +17,7 @@ type Props = {
  * The rail floats over each screen, fading away as its scroller runs down and
  * back once it reaches the top, unless the route is in `pinnedRail`.
  */
-export function TabStack({ title, pinnedRail, opensOwnSocialPage }: Props) {
+export function TabStack({ title, pinnedRail }: Props) {
     return (
         <TopRailProvider pinned={pinnedRail}>
             <Stack
@@ -41,7 +36,6 @@ export function TabStack({ title, pinnedRail, opensOwnSocialPage }: Props) {
                             actions={options.headerRight?.({
                                 canGoBack: navigation.canGoBack(),
                             })}
-                            opensOwnSocialPage={opensOwnSocialPage}
                         />
                     ),
                 }}

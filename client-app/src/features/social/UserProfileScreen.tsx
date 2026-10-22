@@ -19,9 +19,9 @@ type Props = {
 
 /**
  * One user's public profile: avatar, username, bio, then their posts newest
- * first. Opened by tapping an author on the feed, the Social tab's profile
- * button (your own page), Account settings, or from Discuss, which closes
- * itself and lands here on the Social tab.
+ * first. Opened by tapping an author on the feed, the feed's "Me"
+ * button, Account settings, or from Discuss, which closes itself and lands
+ * here on the Social tab.
  */
 export function UserProfileScreen({ userId }: Props) {
     const { listBottomInset } = useScreenOverlayInsets();
