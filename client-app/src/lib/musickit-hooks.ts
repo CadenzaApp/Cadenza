@@ -60,7 +60,8 @@ const AUTH_RETRY_DELAY_MS = 400;
  * that cannot work.
  *
  * Every SWR fetcher in this file goes through here. A new read that skips it
- * will hang on a dead token instead of prompting a reconnect.
+ * will hang on a dead token instead of prompting a reconnect. Exported as
+ * `readAppleMusic` for reads outside this file, like the library sync.
  */
 async function read<T>(fetchOnce: () => Promise<T>): Promise<T> {
     const readGeneration = getAppleMusicAuthGeneration();
@@ -408,13 +409,13 @@ export function useTracksFromLibrary({
     enabled?: boolean;
     sort?: LibrarySongSort;
 } = {}) {
-    const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
+    const { isConnected, isInitializing, libraryRevision } = useAppleMusic();
     const page = usePagedLibraryResult(
         (offset, limit) =>
             enabled && isConnected
                 ? ([
                       "MusicKit.getLibrarySongs",
-                      sessionRevision,
+                      libraryRevision,
                       limit,
                       sort?.option ?? null,
                       sort?.direction ?? null,
@@ -446,10 +447,10 @@ export function useTracksFromLibrary({
 
 /** Returns every song in the current Apple Music library as one cached read. */
 export function useAllTracksFromLibrary(enabled = true) {
-    const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
+    const { isConnected, isInitializing, libraryRevision } = useAppleMusic();
     const x = useSWR(
         enabled && isConnected
-            ? (["MusicKit.getAllLibrarySongs", sessionRevision] as const)
+            ? (["MusicKit.getAllLibrarySongs", libraryRevision] as const)
             : null,
         async () => {
             const pages: MusicItem[] = [];
@@ -686,13 +687,13 @@ export function indexTracksById(tracks: readonly MusicItem[]) {
 
 /** Returns the user's paginated library albums. */
 export function useLibraryAlbums(enabled = true) {
-    const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
+    const { isConnected, isInitializing, libraryRevision } = useAppleMusic();
     const page = usePagedLibraryResult(
         (offset, limit) =>
             enabled && isConnected
                 ? ([
                       "MusicKit.getLibraryAlbums",
-                      sessionRevision,
+                      libraryRevision,
                       limit,
                       offset,
                   ] as const)
@@ -714,13 +715,13 @@ export function useLibraryAlbums(enabled = true) {
 /** Returns the user's paginated library playlists. */
 /** Returns the user's paginated library artists. */
 export function useLibraryArtists(enabled = true) {
-    const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
+    const { isConnected, isInitializing, libraryRevision } = useAppleMusic();
     const page = usePagedLibraryResult<LibraryArtistPageKey, ArtistItem>(
         (offset) =>
             enabled && isConnected
                 ? ([
                       "MusicKit.getLibraryArtists",
-                      sessionRevision,
+                      libraryRevision,
                       MUSIC_LIST_PAGE_SIZE,
                       offset,
                   ] as const)
@@ -803,13 +804,13 @@ export function useLibraryArtistSearch(term?: string, enabled = true) {
 }
 
 export function useUserPlaylists(enabled = true) {
-    const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
+    const { isConnected, isInitializing, libraryRevision } = useAppleMusic();
     const page = usePagedLibraryResult(
         (offset, limit) =>
             enabled && isConnected
                 ? ([
                       "MusicKit.getUserPlaylists",
-                      sessionRevision,
+                      libraryRevision,
                       limit,
                       offset,
                   ] as const)
@@ -834,13 +835,13 @@ export function useUserPlaylists(enabled = true) {
  * them, so a whole album added at once is one item and not twelve.
  */
 export function useRecentlyAdded(enabled = true) {
-    const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
+    const { isConnected, isInitializing, libraryRevision } = useAppleMusic();
     const page = usePagedLibraryResult(
         (offset) =>
             enabled && isConnected
                 ? ([
                       "MusicKit.getRecentlyAdded",
-                      sessionRevision,
+                      libraryRevision,
                       RECENTLY_ADDED_PAGE_SIZE,
                       offset,
                   ] as const)
@@ -868,12 +869,12 @@ export function useCollectionSongs(
     kind: LibraryCollectionKind,
     collectionId?: string,
 ) {
-    const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
+    const { isConnected, isInitializing, libraryRevision } = useAppleMusic();
     const page = usePagedLibraryResult(
         (offset, limit) =>
             isConnected && collectionId
                 ? collectionSongsKey(
-                      sessionRevision,
+                      libraryRevision,
                       kind,
                       collectionId,
                       limit,
@@ -897,7 +898,7 @@ export function useCollectionSongs(
 }
 
 function collectionSongsKey(
-    sessionRevision: number,
+    libraryRevision: number,
     kind: LibraryCollectionKind,
     collectionId: string,
     limit: number,
@@ -905,7 +906,7 @@ function collectionSongsKey(
 ): CollectionSongsPageKey {
     return [
         "MusicKit.getCollectionSongs",
-        sessionRevision,
+        libraryRevision,
         kind,
         collectionId,
         limit,
@@ -937,7 +938,7 @@ const prefetching = new Map<string, Promise<PagedResult<MusicItem>>>();
  * sending its own.
  */
 export function usePrefetchCollectionSongs() {
-    const { isConnected, sessionRevision } = useAppleMusic();
+    const { isConnected, libraryRevision } = useAppleMusic();
     const { cache, mutate } = useSWRConfig();
     return useCallback(
         (collection: MusicItem) => {
@@ -946,7 +947,7 @@ export function usePrefetchCollectionSongs() {
             if (!isConnected || !id) return;
             if (kind !== "album" && kind !== "playlist") return;
             const key = collectionSongsKey(
-                sessionRevision,
+                libraryRevision,
                 kind,
                 id,
                 FIRST_PAGE_SIZE,
@@ -971,7 +972,7 @@ export function usePrefetchCollectionSongs() {
                 }
             })();
         },
-        [cache, isConnected, mutate, sessionRevision],
+        [cache, isConnected, mutate, libraryRevision],
     );
 }
 
@@ -1273,3 +1274,5 @@ function appendWithoutDuplicates<Item extends { id: string }>(items: Item[]) {
         return true;
     });
 }
+
+export { read as readAppleMusic };
