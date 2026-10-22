@@ -18,6 +18,9 @@ struct QueryResultsBody {
     /// Defaults to false: the query runs over every song Cadenza knows.
     #[serde(default)]
     library_only: bool,
+    /// Defaults to false. When true a song Apple rates explicit never matches.
+    #[serde(default)]
+    hide_explicit: bool,
     /// Omitted for most relevant first.
     #[serde(default)]
     sort: Option<QuerySort>,
@@ -43,12 +46,15 @@ struct QueryResultsBody {
 /// `library_only` narrows the songs to the caller's `user_songs` rows alone. Every match
 /// is then `certain`, and `capped` is always false.
 ///
+/// `hide_explicit` drops every song whose stored metadata says explicit, before the cap.
+///
 /// Request JSON:
 /// ```json
 /// {
 ///   "query": { "where": { "filter": { "field": "tag", "tag_id": 3, "op": "is_not_applied" } } },
 ///   "consider_default_tags": false,
 ///   "library_only": false,
+///   "hide_explicit": false,
 ///   "sort": { "key": "title", "direction": "ascending" }
 /// }
 /// ```
@@ -75,6 +81,7 @@ async fn query_results_handler(
             claims.user_id,
             body.consider_default_tags,
             body.library_only,
+            body.hide_explicit,
             body.sort,
         )
         .await?

@@ -100,6 +100,9 @@ pub struct QueryMatch {
     pub certain: bool,
 }
 
+/// The stored metadata condition for a song Apple rates explicit.
+const EXPLICIT_RATING: &str = "meta.content_rating = 'explicit'";
+
 /// Returns every song matching the given query, in order.
 ///
 /// The query runs over every song Cadenza knows (see [`OWN_QUERY_SONGS`] and
@@ -115,6 +118,9 @@ pub struct QueryMatch {
 /// With `library_only` the query runs over the user's library alone, their `user_songs`
 /// rows: no songs from elsewhere, so the result is never capped.
 ///
+/// With `hide_explicit` a song Apple rates explicit never matches. A song with no stored
+/// metadata has no rating, so it is not hidden here.
+///
 /// Without a `sort`, songs come back most relevant first: by how many of the tags the query
 /// names they carry, then the user's own before the rest, then by every user's plays. With
 /// one, by that title, artist or album, then by title, then by plays. Song id breaks every
@@ -125,6 +131,7 @@ pub async fn run_query(
     user_id: Uuid,
     consider_default_tags: bool,
     library_only: bool,
+    hide_explicit: bool,
     sort: Option<QuerySort>,
 ) -> Result<QueryMatches, CadenzaError> {
     check_size(&query.root)?;
@@ -143,6 +150,7 @@ pub async fn run_query(
         user_id,
         consider_default_tags,
         library_only,
+        hide_explicit,
         sort,
     )?;
 
@@ -360,6 +368,7 @@ fn compile_query(
     user_id: Uuid,
     consider_default_tags: bool,
     library_only: bool,
+    hide_explicit: bool,
     sort: Option<QuerySort>,
 ) -> Result<(String, Vec<sea_query::Value>), CadenzaError> {
     let applied_tags = applied_tags_source(consider_default_tags);
@@ -369,7 +378,12 @@ fn compile_query(
         values: vec![sea_query::Value::Uuid(Some(user_id))],
         applied_tags,
     };
-    let where_clause = compiler.node(&query.root)?;
+    let mut where_clause = compiler.node(&query.root)?;
+    if hide_explicit {
+        // before the cap, so hidden songs never take a discovered slot
+        let explicit = metadata_exists(Match::None(EXPLICIT_RATING.to_string()));
+        where_clause = format!("({where_clause}) AND {explicit}");
+    }
     let (score, score_join) = compiler.score(&query.root);
     let order = order_by(sort);
     let discovered_limit = MAX_DISCOVERED_SONGS + 1;
@@ -685,7 +699,7 @@ impl Compiler<'_> {
 
             MetadataKey::Explicit => {
                 no_value(op, value)?;
-                let explicit = "meta.content_rating = 'explicit'".to_string();
+                let explicit = EXPLICIT_RATING.to_string();
                 match op {
                     FilterOp::IsTrue => Match::Any(explicit),
                     FilterOp::IsFalse => Match::None(explicit),
@@ -1151,6 +1165,7 @@ mod tests {
             Uuid::nil(),
             false,
             false,
+            false,
             None,
         )
     }
@@ -1162,6 +1177,7 @@ mod tests {
             &TagDefaults::default(),
             Uuid::nil(),
             true,
+            false,
             false,
             None,
         )
@@ -1178,6 +1194,7 @@ mod tests {
                 ..TagDefaults::default()
             },
             Uuid::nil(),
+            false,
             false,
             false,
             None,
@@ -1676,6 +1693,7 @@ mod tests {
             Uuid::nil(),
             false,
             true,
+            false,
             None,
         )
         .unwrap();
@@ -1716,6 +1734,7 @@ mod tests {
             ]),
             &defaults,
             Uuid::nil(),
+            false,
             false,
             false,
             None,
@@ -1777,6 +1796,7 @@ mod tests {
                 Uuid::nil(),
                 false,
                 false,
+                false,
                 None,
             ),
             Err(CadenzaError::QueryFormatError(_))
@@ -1816,6 +1836,7 @@ mod tests {
                 &tag_types(),
                 &TagDefaults::default(),
                 Uuid::nil(),
+                false,
                 false,
                 false,
                 sort,
@@ -2071,6 +2092,38 @@ mod tests {
     }
 
     #[test]
+    fn hide_explicit_keeps_explicit_songs_out_of_every_half() {
+        let json = filter(r#"{ "field": "tag", "tag_id": 1, "op": "is_not_applied" }"#);
+        let compile_hiding = |hide_explicit| {
+            squash(
+                &compile_query(
+                    &parse(&json),
+                    &tag_types(),
+                    &TagDefaults::default(),
+                    Uuid::nil(),
+                    false,
+                    false,
+                    hide_explicit,
+                    None,
+                )
+                .unwrap()
+                .0,
+            )
+        };
+
+        let hidden = compile_hiding(true);
+        // once in the user's own half and once in the discovered half
+        assert_eq!(
+            hidden
+                .matches("AND meta.content_rating = 'explicit' )")
+                .count(),
+            2,
+            "{hidden}"
+        );
+        assert!(!compile_hiding(false).contains("content_rating"));
+    }
+
+    #[test]
     fn metadata_keys_only_take_their_own_operators() {
         assert!(is_format_err(compile(&metadata_filter(
             "artist",
@@ -2218,6 +2271,7 @@ mod tests {
             tag_types,
             &TagDefaults::default(),
             user_id,
+            false,
             false,
             false,
             sort,
@@ -2464,6 +2518,7 @@ mod tests {
                 user_id,
                 false,
                 true,
+                false,
                 None,
             )
             .unwrap();
@@ -2570,6 +2625,7 @@ mod tests {
                 &types,
                 &defaults,
                 user_id,
+                false,
                 false,
                 false,
                 None,
@@ -2743,6 +2799,7 @@ mod tests {
             &tag_types(),
             &TagDefaults::default(),
             user_id,
+            false,
             false,
             false,
             Some(QuerySort {

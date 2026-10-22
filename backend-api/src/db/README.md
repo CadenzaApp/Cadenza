@@ -7,8 +7,9 @@ The data access layer. Everything that touches postgres lives here, so handlers 
 
 | file | role |
 | --- | --- |
-| `mod.rs` | Declares `activity_tags`, `analytics`, `entity`, `events`, `metadata_tags`, `profile`, `queries`, `social`, `tag_activity`, `tags`, `user_songs`. |
+| `mod.rs` | Declares `activity_tags`, `analytics`, `entity`, `events`, `metadata_tags`, `profile`, `queries`, `settings`, `social`, `tag_activity`, `tags`, `user_songs`. |
 | `profile.rs` | Profile reads and writes: own profile, create with a default username from the email local part, and update username/bio. Unit tested. |
+| `settings.rs` | Private per user settings in `user_settings`: read with defaults for a user with no row, and a partial upsert. Unit tested. |
 | `events.rs` | The write path for `listening_events`: `NewEvent` and `insert_events`, which is idempotent on `client_event_id` and reports which rows were new. |
 | `analytics.rs` | The read path for `listening_events`: the metric summary, dense time bucketed trends, the song, artist, album, playlist and query rankings, replays, top tags with a cover song, tags played, the tag-colored heatmap, plays by hour, active days, and the event bounds. Integration tested against a real database (`--ignored`). |
 | `activity_tags.rs` | `ActivityTag` (My Plays, First Played, Last Played, In My Library, Favorited, Tagged), finding their rows by `is_activity` and name, creating missing ones and recoloring stale ones, `record_play`, `set_favorites_within`, and reading their values per song with defaults filled in. Unit tested. |
@@ -252,6 +253,20 @@ through `get_owned_tag`.
 refuses a username that still contains `@`. `update_profile` needs at least one of `username` or
 `bio`. Duplicate `uid` maps to `ProfileAlreadyExists`, duplicate `username` to
 `UsernameAlreadyTaken`, both through `err.rs` on the unique constraints.
+
+## Settings
+
+`user_settings` (`sql/user_settings.sql`) is one private row per user: theme mode (system, light, dark, or custom), accent
+color, the custom background color,
+glass tint and style (clear or tinted), the accent, tint, tag, and background color slots (jsonb, null for
+the presets), hide explicit, show suggested tags. It is separate from `profile`,
+which is public. `settings::get_settings` returns the defaults for a user with no row, and they
+must match the column defaults in the SQL. `update_settings` upserts and writes only the columns
+the patch names, so two devices changing different settings do not clobber each other.
+
+`hide_explicit` also reaches the query compiler: `compile_query` ANDs a `NOT EXISTS` on
+`content_rating = 'explicit'` onto both halves before the discovered cap. A song with no stored
+metadata has no rating and is not hidden.
 
 ## The query compiler
 
