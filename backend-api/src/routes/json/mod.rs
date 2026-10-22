@@ -3,6 +3,7 @@ pub mod analytics;
 pub mod metadata_tag;
 pub mod profile;
 pub mod query;
+pub mod settings;
 pub mod social;
 pub mod tag;
 
