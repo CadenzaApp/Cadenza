@@ -49,6 +49,7 @@ import {
     collectionArtworkGrid,
     formatTrackCollectionSummary,
 } from "./track-collection-utils";
+import { useAppTheme } from "@/lib/theme";
 
 const ARTWORK_SIZE = 224;
 const ARTWORK_SCROLL_SCALE_DISTANCE = 120;
@@ -194,6 +195,7 @@ export function TrackCollectionView({
     respectTopSafeArea = false,
 }: Props) {
     const { colors } = useTheme();
+    const { destructive } = useAppTheme().colors;
     const insets = useSafeAreaInsets();
     const { height: windowHeight } = useWindowDimensions();
     const [viewportHeight, setViewportHeight] = useState(windowHeight);
@@ -565,9 +567,7 @@ export function TrackCollectionView({
                             name={option.icon}
                             size={19}
                             color={
-                                option.destructive
-                                    ? colors.notification
-                                    : colors.text
+                                option.destructive ? destructive : colors.text
                             }
                         />
                         <Text

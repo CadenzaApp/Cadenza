@@ -27,6 +27,7 @@ import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
 import { initialsFromUsername } from "./format";
 import { PostCard } from "./PostCard";
 import type { SocialPost } from "./types";
+import { useAppTheme } from "@/lib/theme";
 
 /** Matches `MAX_USERNAME_CHARS` in backend-api/src/db/profile.rs. */
 const MAX_USERNAME_CHARS = 64;
@@ -244,6 +245,7 @@ function ProfileEditor({
     onCancel: () => void;
     onSaved: (profile: SavedProfile) => void;
 }) {
+    const { mutedForeground } = useAppTheme().colors;
     const { colors } = useTheme();
     const { updateProfile, updateProfileLoading, resetUpdateProfile } =
         useUpdateProfile([{ path: `/social/posts/user/${userId}` }]);
@@ -326,7 +328,7 @@ function ProfileEditor({
                             setSaveError(null);
                         }}
                         placeholder="Say something about yourself"
-                        placeholderTextColor="#888888"
+                        placeholderTextColor={mutedForeground}
                         multiline
                         maxLength={MAX_BIO_CHARS}
                         editable={!updateProfileLoading}
