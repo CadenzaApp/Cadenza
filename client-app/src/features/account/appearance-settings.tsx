@@ -100,7 +100,10 @@ export function AppearanceSettingsScreen() {
 
                 <Section title="Mode">
                     <GlassSettingsPanel>
-                        <View className="flex-row gap-2 p-2">
+                        <View
+                            accessibilityRole="radiogroup"
+                            className="flex-row gap-2 p-2"
+                        >
                             {MODES.map(({ mode, label, icon }) => (
                                 <Segment
                                     key={mode}
@@ -220,7 +223,10 @@ export function AppearanceSettingsScreen() {
                     footnote="Tinted makes glass more opaque, for more contrast. The same choice as Liquid Glass in iOS Settings, which Cadenza cannot read."
                 >
                     <GlassSettingsPanel>
-                        <View className="flex-row gap-2 p-2">
+                        <View
+                            accessibilityRole="radiogroup"
+                            className="flex-row gap-2 p-2"
+                        >
                             {GLASS_STYLES.map(({ style, label, icon }) => (
                                 <Segment
                                     key={style}
@@ -313,9 +319,9 @@ function Segment({
 
     return (
         <Pressable
-            accessibilityRole="button"
+            accessibilityRole="radio"
             accessibilityLabel={label}
-            accessibilityState={{ selected }}
+            accessibilityState={{ checked: selected }}
             onPress={onPress}
             className="flex-1 active:opacity-60"
         >

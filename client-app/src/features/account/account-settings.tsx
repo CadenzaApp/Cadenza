@@ -238,7 +238,23 @@ function AppleMusicCard({ onOpen }: { onOpen: () => void }) {
     return (
         <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Open Apple Music settings"
+            accessibilityLabel={`Apple Music, ${status.label}`}
+            accessibilityHint="Opens Apple Music settings"
+            // VoiceOver merges the card into one element, so the pill's
+            // action is offered on the card as well
+            accessibilityActions={
+                status.action === "sync"
+                    ? [{ name: "sync", label: "Sync now" }]
+                    : status.action
+                      ? [{ name: "connect", label: "Connect" }]
+                      : undefined
+            }
+            onAccessibilityAction={(event) => {
+                if (event.nativeEvent.actionName === "sync" && canSync)
+                    void syncNow();
+                if (event.nativeEvent.actionName === "connect")
+                    void connectAppleMusic();
+            }}
             onPress={onOpen}
             className="active:opacity-60"
         >

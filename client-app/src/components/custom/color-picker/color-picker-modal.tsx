@@ -43,6 +43,8 @@ export function ColorPickerModal({
     // what the hex field shows while being typed in, before it is valid
     const [hexDraft, setHexDraft] = useState<string | null>(null);
     const color = hsvToHex(hsv);
+    // a half typed hex would otherwise save the last valid color
+    const draftInvalid = hexDraft !== null && normalizeHex(hexDraft) === null;
     const wheelSize = Math.min(MAX_WHEEL_SIZE, width - WHEEL_INSET);
 
     // a tap outside the keyboard closes the keyboard first, and only a tap
@@ -124,6 +126,7 @@ export function ColorPickerModal({
                 <GlassPill
                     icon="checkmark"
                     label="Done"
+                    disabled={draftInvalid}
                     onPress={() => onDone(color)}
                 />
             </View>

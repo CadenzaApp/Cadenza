@@ -2,6 +2,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useMemo, useState } from "react";
 import {
     View,
+    type AccessibilityActionEvent,
     type GestureResponderEvent,
     type LayoutChangeEvent,
 } from "react-native";
@@ -19,6 +20,16 @@ import { hsvToHex, type HSV } from "@/lib/color-math";
 const WEDGES = 180;
 const THUMB_SIZE = 30;
 const SLIDER_HEIGHT = 32;
+/** How far one screen reader swipe moves hue and brightness. */
+const HUE_STEP = 15;
+const BRIGHTNESS_STEP = 0.05;
+
+const ADJUST_ACTIONS = [{ name: "increment" }, { name: "decrement" }];
+
+/** +1 for a screen reader increment, -1 for a decrement. */
+function adjustDirection(event: AccessibilityActionEvent) {
+    return event.nativeEvent.actionName === "increment" ? 1 : -1;
+}
 
 type ColorWheelProps = {
     value: HSV;
@@ -68,7 +79,23 @@ function HueSaturationWheel({
     const thumbY = radius + Math.sin(angle) * value.s * radius;
 
     return (
-        <View style={{ width: size, height: size }} {...dragHandlers(pick)}>
+        <View
+            style={{ width: size, height: size }}
+            {...dragHandlers(pick)}
+            accessible
+            accessibilityRole="adjustable"
+            accessibilityLabel="Hue"
+            accessibilityValue={{ text: `${Math.round(value.h)} degrees` }}
+            accessibilityActions={ADJUST_ACTIONS}
+            onAccessibilityAction={(event) =>
+                onChange({
+                    ...value,
+                    h:
+                        (value.h + adjustDirection(event) * HUE_STEP + 360) %
+                        360,
+                })
+            }
+        >
             {/* nothing inside takes the touch, so locationX is the wheel's */}
             <View pointerEvents="none">
                 <Svg width={size} height={size}>
@@ -140,6 +167,27 @@ function BrightnessSlider({
                 setTrackWidth(event.nativeEvent.layout.width)
             }
             {...dragHandlers(pick)}
+            accessible
+            accessibilityRole="adjustable"
+            accessibilityLabel="Brightness"
+            accessibilityValue={{
+                min: 0,
+                max: 100,
+                now: Math.round(value.v * 100),
+            }}
+            accessibilityActions={ADJUST_ACTIONS}
+            onAccessibilityAction={(event) =>
+                onChange({
+                    ...value,
+                    v: Math.min(
+                        1,
+                        Math.max(
+                            0,
+                            value.v + adjustDirection(event) * BRIGHTNESS_STEP,
+                        ),
+                    ),
+                })
+            }
         >
             <View pointerEvents="none" className="flex-1 justify-center">
                 <LinearGradient

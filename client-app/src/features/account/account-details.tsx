@@ -14,7 +14,7 @@ import { SettingsGroup, SettingsRow } from "./settings-ui";
 export function AccountDetailsScreen() {
     const insets = useSafeAreaInsets();
     const { account } = useAccount();
-    const { profile } = useProfile(Boolean(account));
+    const { profile, profileLoading } = useProfile(Boolean(account));
     const openSocialProfile = useOpenSocialProfile();
 
     if (!account) {
@@ -40,7 +40,10 @@ export function AccountDetailsScreen() {
                     <SettingsRow
                         icon="at-outline"
                         title="Username"
-                        description={profile?.username ?? "Not set"}
+                        description={
+                            profile?.username ??
+                            (profileLoading ? "Loading..." : "Not set")
+                        }
                         chevron
                         onPress={() => openSocialProfile(account.id)}
                         accessibilityLabel="Edit your username on your social page"

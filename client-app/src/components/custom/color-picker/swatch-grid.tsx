@@ -103,7 +103,7 @@ export function SwatchGrid({
             <Swatch
                 key={`slot-${index}`}
                 size={swatchSize}
-                label={`Color ${color}`}
+                label={`Color ${index + 1}, ${color}`}
                 color={color}
                 selected={index === selectedIndex}
                 onPress={() => onSelect(color)}
@@ -148,7 +148,7 @@ export function SwatchGrid({
     const editingColor = editing ? slots[editing.index] : null;
 
     return (
-        <View className="gap-3">
+        <View accessibilityRole="radiogroup" className="gap-3">
             {rows.map((row, index) => (
                 <View key={index} className="flex-row justify-between">
                     {row}
@@ -199,12 +199,12 @@ function Swatch({
 
     return (
         <Pressable
-            accessibilityRole="button"
+            accessibilityRole="radio"
             accessibilityLabel={label}
             accessibilityHint={
                 onLongPress ? "Hold to change or remove" : undefined
             }
-            accessibilityState={{ selected }}
+            accessibilityState={{ checked: selected }}
             onPress={onPress}
             onLongPress={onLongPress}
             delayLongPress={350}
