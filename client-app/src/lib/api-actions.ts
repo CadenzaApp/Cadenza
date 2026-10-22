@@ -212,6 +212,10 @@ export function useAPIData<Output>(
         save?: boolean;
     },
 ) {
+    // reads the SWR cache during render below. The React Compiler would cache
+    // that read on `cache` and `savedKey`, which never change, so a saved read
+    // would keep its first value until remount and never show a mutate
+    "use no memo";
     const { account } = useAccount();
     const { cache } = useSWRConfig();
 
