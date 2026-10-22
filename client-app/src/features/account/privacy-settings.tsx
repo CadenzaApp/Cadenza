@@ -1,13 +1,9 @@
 import { View } from "react-native";
 
+import { GlassPanel } from "@/components/ui/glass-panel";
 import { Text } from "@/components/ui/text";
 
-import {
-    GlassSettingsPanel,
-    SettingsIcon,
-    type IoniconName,
-    SettingsSheet,
-} from "./settings-ui";
+import { SettingsIcon, type IoniconName, SettingsSheet } from "./settings-ui";
 
 type PrivacyPoint = { icon: IoniconName; title: string; body: string };
 
@@ -34,7 +30,7 @@ export function PrivacySettingsScreen() {
     return (
         <SettingsSheet title="Privacy & data">
             {POINTS.map((point) => (
-                <GlassSettingsPanel key={point.title}>
+                <GlassPanel key={point.title}>
                     <View className="flex-row gap-3.5 px-4 py-4">
                         <SettingsIcon name={point.icon} />
                         <View className="flex-1 gap-1">
@@ -46,7 +42,7 @@ export function PrivacySettingsScreen() {
                             </Text>
                         </View>
                     </View>
-                </GlassSettingsPanel>
+                </GlassPanel>
             ))}
         </SettingsSheet>
     );

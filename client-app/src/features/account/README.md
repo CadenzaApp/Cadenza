@@ -15,7 +15,7 @@ glass, color slots, explicit filter, tag suggestions) go through `useUserSetting
 | `privacy-settings.tsx`          | `/privacy`. Read only: what Cadenza keeps and what it does not.                                                                                                     |
 | `account-details.tsx`           | `/account-details`. Email and username. The username row opens the social page, where it is edited.                                                                 |
 | `apple-music-connection.ts`     | Shared by the card and the sheet: `appleMusicStatus`, `useConnectAppleMusic`, `useLastSyncedLabel`.                                                                 |
-| `settings-ui.tsx`               | Panels, rows, groups, tiles, plain accent icons, status dots.                                                                                                       |
+| `settings-ui.tsx`               | `SettingsSheet`, sections, rows, groups, tiles, plain accent icons, status dots, `SaveError`.                                                                       |
 | `apple-music-session-guard.tsx` | `AppleMusicSessionGuard`: renders nothing, opens `/account` once when Apple rejects the stored music-user token. Mounted in `src/app/_layout.tsx`.                  |
 
 ## How it works

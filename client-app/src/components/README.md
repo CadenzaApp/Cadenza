@@ -23,7 +23,7 @@ and a backend rejection is a bare `{ error_type }`. The cause still reaches the 
 ### ui/
 
 `badge`, `button`, `card`, `dialog`, `glass-surface`, `glass-button`, `glass-confirm-dialog`,
-`glass-icon-button`, `glass-pill`, `glass-toggle`, `input`,
+`glass-icon-button`, `glass-panel`, `glass-pill`, `glass-toggle`, `segmented-control`, `input`,
 `label`, `separator`, `skeleton`, `tabs`, `text`, `native-only-animated-view`, `detail-screen`,
 `tint-backdrop`, `nebula-backdrop`, `crossfade`, `floating-close-button`, plus `sign-in-form` and `sign-up-form`.
 
@@ -43,6 +43,8 @@ that content in `GlassLayer`.
 
 `glass-button.tsx` and `glass-confirm-dialog.tsx` provide regular and destructive glass actions.
 `glass-pill.tsx` is a small rounded glass button with an optional icon, spinner, and chevron.
+`glass-panel.tsx` is a rounded glass card whose children count as on glass. `segmented-control.tsx`
+is a row of equal options on one. `ionicon-name.ts` is the shared `IoniconName` type.
 Destructive actions keep neutral glass and use red foreground content. The confirmation is used
 by both Account sign-out flows.
 

@@ -3,14 +3,13 @@ import { Children, Fragment, type ReactNode } from "react";
 import {
     Pressable,
     ScrollView,
-    StyleSheet,
     View,
     type ColorValue,
     type PressableProps,
 } from "react-native";
 
 import { DetailScreen } from "@/components/ui/detail-screen";
-import { GlassLayer, GlassSurface } from "@/components/ui/glass-surface";
+import { GlassPanel } from "@/components/ui/glass-panel";
 import { Text } from "@/components/ui/text";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAppTheme } from "@/lib/theme";
@@ -58,6 +57,31 @@ export function SettingsSheet({
     );
 }
 
+/** A titled block of a settings screen, with an optional note under it. */
+export function SettingsSection({
+    title,
+    footnote,
+    children,
+}: {
+    title: string;
+    footnote?: string;
+    children: ReactNode;
+}) {
+    return (
+        <View className="gap-2">
+            <Text className="px-2 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+                {title}
+            </Text>
+            {children}
+            {footnote ? (
+                <Text className="px-2 text-sm leading-5 text-muted-foreground">
+                    {footnote}
+                </Text>
+            ) : null}
+        </View>
+    );
+}
+
 /** The line a settings screen shows when a save fails. */
 export function SaveError({ error }: { error: unknown }) {
     if (!error) return null;
@@ -65,37 +89,6 @@ export function SaveError({ error }: { error: unknown }) {
         <Text className="px-2 text-sm text-destructive">
             Could not save that change. Please try again.
         </Text>
-    );
-}
-
-/** A rounded glass card. Every block on the settings sheets sits on one. */
-export function GlassSettingsPanel({
-    children,
-    className,
-    tintColor,
-}: {
-    children: ReactNode;
-    className?: string;
-    tintColor?: ColorValue;
-}) {
-    return (
-        <View
-            className={cn(
-                "overflow-hidden rounded-3xl border border-border",
-                className,
-            )}
-        >
-            <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-                <GlassSurface
-                    variant="regular"
-                    tintColor={tintColor}
-                    style={StyleSheet.absoluteFill}
-                />
-            </View>
-            {/* the glass is a sibling layer, so tell the children they sit on
-                it. pills and toggles then skip the tint the panel already has */}
-            <GlassLayer>{children}</GlassLayer>
-        </View>
     );
 }
 
@@ -217,7 +210,7 @@ export function SettingsRow({
 export function SettingsGroup({ children }: { children: ReactNode }) {
     const rows = Children.toArray(children);
     return (
-        <GlassSettingsPanel>
+        <GlassPanel>
             {rows.map((row, index) => (
                 <Fragment key={index}>
                     {index > 0 ? (
@@ -226,7 +219,7 @@ export function SettingsGroup({ children }: { children: ReactNode }) {
                     {row}
                 </Fragment>
             ))}
-        </GlassSettingsPanel>
+        </GlassPanel>
     );
 }
 
@@ -255,7 +248,7 @@ export function SettingsTile({
             onPress={onPress}
             className="flex-1 active:opacity-60"
         >
-            <GlassSettingsPanel className="flex-1">
+            <GlassPanel className="flex-1">
                 <View className="min-h-36 flex-1 justify-between gap-3 p-4">
                     <View className="flex-row items-start justify-between">
                         <SettingsIcon name={icon} size={28} />
@@ -275,7 +268,7 @@ export function SettingsTile({
                         ) : null}
                     </View>
                 </View>
-            </GlassSettingsPanel>
+            </GlassPanel>
         </Pressable>
     );
 }

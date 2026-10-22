@@ -1,11 +1,10 @@
-import Ionicons from "@expo/vector-icons/Ionicons";
 import { Redirect } from "expo-router";
 import type { ReactNode } from "react";
-import { Pressable, View } from "react-native";
+import { View } from "react-native";
 
+import { GlassPanel } from "@/components/ui/glass-panel";
 import { GlassPill } from "@/components/ui/glass-pill";
 import { GlassToggle } from "@/components/ui/glass-toggle";
-import { Text } from "@/components/ui/text";
 import { useAccount } from "@/lib/account";
 import {
     DEFAULT_USER_SETTINGS,
@@ -18,28 +17,30 @@ import { customBackground } from "@/lib/swatch-sets";
 import { GLASS_TINT_PRESETS, PALETTE, useAppTheme } from "@/lib/theme";
 
 import {
-    GlassSettingsPanel,
     SettingsIcon,
     SettingsRow,
-    type IoniconName,
     SettingsSheet,
     SaveError,
+    SettingsSection,
 } from "./settings-ui";
+import {
+    SegmentedControl,
+    type SegmentOption,
+} from "@/components/ui/segmented-control";
 import { SettingsSwatchGrid } from "./settings-swatch-grid";
 
-const MODES: { mode: ThemeMode; label: string; icon: IoniconName }[] = [
-    { mode: "system", label: "System", icon: "contrast-outline" },
-    { mode: "light", label: "Light", icon: "sunny-outline" },
-    { mode: "dark", label: "Dark", icon: "moon-outline" },
-    { mode: "custom", label: "Custom", icon: "color-palette-outline" },
+const MODES: readonly SegmentOption<ThemeMode>[] = [
+    { value: "system", label: "System", icon: "contrast-outline" },
+    { value: "light", label: "Light", icon: "sunny-outline" },
+    { value: "dark", label: "Dark", icon: "moon-outline" },
+    { value: "custom", label: "Custom", icon: "color-palette-outline" },
 ];
 
 /** The same two choices iOS 26.1 offers for Liquid Glass in Settings. */
-const GLASS_STYLES: { style: GlassStyle; label: string; icon: IoniconName }[] =
-    [
-        { style: "clear", label: "Clear", icon: "water-outline" },
-        { style: "tinted", label: "Tinted", icon: "color-fill-outline" },
-    ];
+const GLASS_STYLES: readonly SegmentOption<GlassStyle>[] = [
+    { value: "clear", label: "Clear", icon: "water-outline" },
+    { value: "tinted", label: "Tinted", icon: "color-fill-outline" },
+];
 
 /** What Reset to defaults puts back. The color slots are left alone. */
 const APPEARANCE_KEYS = [
@@ -69,37 +70,25 @@ export function AppearanceSettingsScreen() {
         <SettingsSheet title="Appearance" className="gap-5">
             <AppearancePreview />
 
-            <Section title="Mode">
-                <GlassSettingsPanel>
-                    <View
-                        accessibilityRole="radiogroup"
-                        className="flex-row gap-2 p-2"
-                    >
-                        {MODES.map(({ mode, label, icon }) => (
-                            <Segment
-                                key={mode}
-                                label={label}
-                                icon={icon}
-                                selected={settings.theme_mode === mode}
-                                onPress={() =>
-                                    save(
-                                        mode === "custom" &&
-                                            !settings.background_color
-                                            ? {
-                                                  theme_mode: mode,
-                                                  background_color: background,
-                                              }
-                                            : { theme_mode: mode },
-                                    )
-                                }
-                            />
-                        ))}
-                    </View>
-                </GlassSettingsPanel>
-            </Section>
+            <SettingsSection title="Mode">
+                <SegmentedControl
+                    options={MODES}
+                    value={settings.theme_mode}
+                    onChange={(mode) =>
+                        save(
+                            mode === "custom" && !settings.background_color
+                                ? {
+                                      theme_mode: mode,
+                                      background_color: background,
+                                  }
+                                : { theme_mode: mode },
+                        )
+                    }
+                />
+            </SettingsSection>
 
             {settings.theme_mode === "custom" ? (
-                <Section
+                <SettingsSection
                     title="Background"
                     footnote="Text turns light or dark to suit the background."
                 >
@@ -111,10 +100,10 @@ export function AppearanceSettingsScreen() {
                             newColorStart={background}
                         />
                     </SwatchPanel>
-                </Section>
+                </SettingsSection>
             ) : null}
 
-            <Section
+            <SettingsSection
                 title="Accent"
                 footnote="Hold a color to change or remove it."
             >
@@ -129,9 +118,9 @@ export function AppearanceSettingsScreen() {
                         newColorStart={PALETTE[scheme].brand}
                     />
                 </SwatchPanel>
-            </Section>
+            </SettingsSection>
 
-            <Section title="Glass tint">
+            <SettingsSection title="Glass tint">
                 <SwatchPanel>
                     <SettingsSwatchGrid
                         kind="glassTint"
@@ -140,29 +129,18 @@ export function AppearanceSettingsScreen() {
                         newColorStart={GLASS_TINT_PRESETS[0]}
                     />
                 </SwatchPanel>
-            </Section>
+            </SettingsSection>
 
-            <Section
+            <SettingsSection
                 title="Glass"
                 footnote="Tinted makes glass more opaque, for more contrast. The same choice as Liquid Glass in iOS Settings, which Cadenza cannot read."
             >
-                <GlassSettingsPanel>
-                    <View
-                        accessibilityRole="radiogroup"
-                        className="flex-row gap-2 p-2"
-                    >
-                        {GLASS_STYLES.map(({ style, label, icon }) => (
-                            <Segment
-                                key={style}
-                                label={label}
-                                icon={icon}
-                                selected={settings.glass_style === style}
-                                onPress={() => save({ glass_style: style })}
-                            />
-                        ))}
-                    </View>
-                </GlassSettingsPanel>
-            </Section>
+                <SegmentedControl
+                    options={GLASS_STYLES}
+                    value={settings.glass_style}
+                    onChange={(style) => save({ glass_style: style })}
+                />
+            </SettingsSection>
 
             <SaveError error={saveErr} />
 
@@ -188,87 +166,16 @@ export function AppearanceSettingsScreen() {
 
 function SwatchPanel({ children }: { children: ReactNode }) {
     return (
-        <GlassSettingsPanel>
+        <GlassPanel>
             <View className="p-4">{children}</View>
-        </GlassSettingsPanel>
-    );
-}
-
-function Section({
-    title,
-    footnote,
-    children,
-}: {
-    title: string;
-    footnote?: string;
-    children: ReactNode;
-}) {
-    return (
-        <View className="gap-2">
-            <Text className="px-2 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-                {title}
-            </Text>
-            {children}
-            {footnote ? (
-                <Text className="px-2 text-sm leading-5 text-muted-foreground">
-                    {footnote}
-                </Text>
-            ) : null}
-        </View>
-    );
-}
-
-/**
- * One option of a segmented row, an equal share of its width. The selected
- * one fills with the accent. Selection colors are inline styles: toggled
- * classes lagged a step behind when the theme changed under them.
- */
-function Segment({
-    label,
-    icon,
-    selected,
-    onPress,
-}: {
-    label: string;
-    icon?: IoniconName;
-    selected: boolean;
-    onPress: () => void;
-}) {
-    const { colors } = useAppTheme();
-    const contentColor = selected ? colors.brandForeground : colors.foreground;
-
-    return (
-        <Pressable
-            accessibilityRole="radio"
-            accessibilityLabel={label}
-            accessibilityState={{ checked: selected }}
-            onPress={onPress}
-            className="flex-1 active:opacity-60"
-        >
-            <View
-                className="h-16 items-center justify-center gap-1 rounded-2xl"
-                style={{
-                    backgroundColor: selected ? colors.brand : "transparent",
-                }}
-            >
-                {icon ? (
-                    <Ionicons name={icon} size={20} color={contentColor} />
-                ) : null}
-                <Text
-                    className="text-sm font-semibold"
-                    style={{ color: contentColor }}
-                >
-                    {label}
-                </Text>
-            </View>
-        </Pressable>
+        </GlassPanel>
     );
 }
 
 /** A small sample of the controls the choices above repaint. */
 function AppearancePreview() {
     return (
-        <GlassSettingsPanel>
+        <GlassPanel>
             <SettingsRow
                 icon="color-palette-outline"
                 title="Preview"
@@ -287,6 +194,6 @@ function AppearancePreview() {
                 <View className="flex-1" />
                 <GlassPill icon="sparkles-outline" label="Glass" />
             </View>
-        </GlassSettingsPanel>
+        </GlassPanel>
     );
 }

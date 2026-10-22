@@ -3,6 +3,7 @@ import { useState } from "react";
 import { View } from "react-native";
 
 import { AppleMusicLogo } from "@/components/custom/apple-music-logo";
+import { GlassPanel } from "@/components/ui/glass-panel";
 import { GlassPill } from "@/components/ui/glass-pill";
 import { GlassConfirmDialog } from "@/components/ui/glass-confirm-dialog";
 import { Text } from "@/components/ui/text";
@@ -16,7 +17,6 @@ import {
     useLastSyncedLabel,
 } from "./apple-music-connection";
 import {
-    GlassSettingsPanel,
     SettingsGroup,
     SettingsRow,
     StatusDot,
@@ -86,7 +86,7 @@ export function AppleMusicSettingsScreen() {
                 />
             }
         >
-            <GlassSettingsPanel>
+            <GlassPanel>
                 <View className="items-center gap-2 px-5 py-6">
                     <AppleMusicLogo size={64} />
                     <Text className="mt-1 text-xl font-semibold">
@@ -125,7 +125,7 @@ export function AppleMusicSettingsScreen() {
                         </View>
                     ) : null}
                 </View>
-            </GlassSettingsPanel>
+            </GlassPanel>
 
             {isConnected ? (
                 <SettingsGroup>

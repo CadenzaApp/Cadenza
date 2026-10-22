@@ -6,6 +6,7 @@ import { Pressable, StyleSheet, View } from "react-native";
 
 import { getAccountInitials } from "@/components/custom/account-initials";
 import { AppleMusicLogo } from "@/components/custom/apple-music-logo";
+import { GlassPanel } from "@/components/ui/glass-panel";
 import { GlassPill } from "@/components/ui/glass-pill";
 import { GlassConfirmDialog } from "@/components/ui/glass-confirm-dialog";
 import { Text } from "@/components/ui/text";
@@ -23,7 +24,6 @@ import {
     useLastSyncedLabel,
 } from "./apple-music-connection";
 import {
-    GlassSettingsPanel,
     SettingsChevron,
     SettingsGroup,
     SettingsRow,
@@ -250,7 +250,7 @@ function AppleMusicCard({ onOpen }: { onOpen: () => void }) {
             onPress={onOpen}
             className="active:opacity-60"
         >
-            <GlassSettingsPanel>
+            <GlassPanel>
                 <View className="gap-3 p-4">
                     <View className="flex-row items-center gap-3.5">
                         <AppleMusicLogo size={52} />
@@ -299,7 +299,7 @@ function AppleMusicCard({ onOpen }: { onOpen: () => void }) {
                         </View>
                     ) : null}
                 </View>
-            </GlassSettingsPanel>
+            </GlassPanel>
         </Pressable>
     );
 }
