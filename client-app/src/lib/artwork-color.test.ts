@@ -4,6 +4,13 @@ import test from "node:test";
 
 import {
     averageArtworkColors,
+    createArtistGradient,
+    contrastPalette,
+    gradientColorAt,
+    oklabLightness,
+    mixSurfaceColor,
+    surfaceColorAt,
+    tintViewport,
     createTintGradient,
     distinctColors,
     nebulaColor,
@@ -76,4 +83,165 @@ test("distinct colors stops at the count", () => {
         "#ff0000",
         "#00ff00",
     ]);
+});
+
+test("loading gradients stay pure black in dark mode and pure white in light mode", () => {
+    assert.ok(
+        createTintGradient("#000000", "dark").colors.every(
+            (color) => color === "#000000",
+        ),
+    );
+    assert.ok(
+        createTintGradient("#ffffff", "light").colors.every(
+            (color) => color === "#ffffff",
+        ),
+    );
+});
+
+const toOklch = converter("oklch");
+test("portrait gradients start at the exact sample and approach a mode-aware Oklch shade", () => {
+    for (const sample of [
+        "#bf7983",
+        "#658bab",
+        "#e9d9a0",
+        "#ffffff",
+        "#000000",
+    ]) {
+        const original = toOklch(sample)!;
+        for (const mode of ["dark", "light"] as const) {
+            const { colors } = createArtistGradient(sample, mode);
+            assert.equal(colors[0], sample);
+            assert.equal(colors.length, 9);
+            const target = toOklch(colors.at(-1)!)!;
+            assert.ok(target.c <= original.c * 0.12 + 0.005);
+            const expectedL =
+                mode === "dark"
+                    ? original.l * 0.15
+                    : original.l + (1 - original.l) * 0.92;
+            assert.ok(Math.abs(target.l - expectedL) < 0.01);
+            let previous = original.l;
+            for (const color of colors.slice(1)) {
+                const lightness = toOklch(color)!.l;
+                assert.ok(
+                    mode === "dark"
+                        ? lightness <= previous + 0.001
+                        : lightness >= previous - 0.001,
+                );
+                previous = lightness;
+            }
+        }
+    }
+});
+
+const toOklab = converter("oklab");
+test("portrait alpha-mask sampling reveals the background at the same vertical position", () => {
+    const colors = ["#ffffff", "#000000"];
+    const artwork = { color: "#ff0000", height: 400, fadeStart: 0.2 };
+    assert.equal(surfaceColorAt(colors, 2400, 80, artwork), artwork.color);
+    assert.equal(
+        surfaceColorAt(colors, 2400, 240, artwork),
+        mixSurfaceColor(artwork.color, gradientColorAt(colors, 0.1), 0.5),
+    );
+    assert.equal(
+        surfaceColorAt(colors, 2400, 400, artwork),
+        gradientColorAt(colors, 400 / 2400),
+    );
+});
+test("worklet Oklab lightness agrees with culori for neutral and saturated surfaces", () => {
+    for (const color of [
+        "#ffffff",
+        "#000000",
+        "#808080",
+        "#ff0000",
+        "#00ff00",
+        "#0000ff",
+        "#abcd12",
+    ]) {
+        assert.ok(
+            Math.abs(oklabLightness(color) - toOklab(color)!.l) < 0.000001,
+        );
+    }
+});
+test("white artwork gets black ink and black artwork gets white ink regardless of app theme", () => {
+    assert.equal(contrastPalette("#ffffff").foreground, "#000000");
+    assert.equal(contrastPalette("#000000").foreground, "#ffffff");
+    assert.equal(contrastPalette("#ff0000").foreground, "#000000");
+    assert.equal(contrastPalette("#0000ff").foreground, "#ffffff");
+});
+test("secondary text stays on the same contrast side with sufficient perceptual separation", () => {
+    for (const color of [
+        "#ffffff",
+        "#000000",
+        "#555555",
+        "#999999",
+        "#ff0000",
+        "#0000ff",
+    ]) {
+        const palette = contrastPalette(color);
+        const primaryDelta = Math.abs(
+            oklabLightness(palette.foreground) - oklabLightness(color),
+        );
+        const secondaryDelta = Math.abs(
+            oklabLightness(palette.secondary) - oklabLightness(color),
+        );
+        assert.ok(secondaryDelta < primaryDelta);
+        assert.ok(secondaryDelta >= primaryDelta * 0.73);
+    }
+});
+test("sampling follows native stop interpolation and clamps overscroll", () => {
+    const colors = ["#ffffff", "#000000"];
+    assert.equal(gradientColorAt(colors, -1), "#ffffff");
+    assert.equal(gradientColorAt(colors, 0.5), "#808080");
+    assert.equal(gradientColorAt(colors, 2), "#000000");
+    assert.equal(
+        contrastPalette(surfaceColorAt(colors, 1000, 50)).foreground,
+        "#000000",
+    );
+    assert.equal(
+        contrastPalette(surfaceColorAt(colors, 1000, 950)).foreground,
+        "#ffffff",
+    );
+});
+test("artist hero uses the image's representative color before blending into the page", () => {
+    const colors = ["#ffffff", "#000000"];
+    const artwork = { color: "#ffffff", height: 400 };
+    assert.equal(surfaceColorAt(colors, 1000, 50, artwork), "#ffffff");
+    assert.equal(
+        surfaceColorAt(colors, 1000, 400, artwork),
+        gradientColorAt(colors, 0.4),
+    );
+});
+
+test("a longer gradient does not extend actual scroll bounds", () => {
+    assert.deepEqual(tintViewport(1200, 800, 600, 2400), {
+        height: 2400,
+        offset: 400,
+    });
+    assert.deepEqual(tintViewport(200, 800, -200, 2400), {
+        height: 2400,
+        offset: 0,
+    });
+});
+
+test("rubber banding cannot expose a seam or move the gradient away from the top", () => {
+    assert.deepEqual(tintViewport(2400, 800, -200), {
+        height: 2400,
+        offset: 0,
+    });
+    assert.deepEqual(tintViewport(2400, 800, 300), {
+        height: 2400,
+        offset: 300,
+    });
+});
+test("bottom overscroll and short content always leave the entire viewport covered", () => {
+    assert.deepEqual(tintViewport(2400, 800, 2000), {
+        height: 2400,
+        offset: 1600,
+    });
+    assert.deepEqual(tintViewport(200, 800, 50), { height: 800, offset: 0 });
+    for (const scroll of [-1000, 0, 500, 1600, 3000]) {
+        const { height, offset } = tintViewport(2400, 800, scroll);
+        assert.ok(-offset <= 0);
+        assert.ok(height - offset >= 800);
+    }
 });

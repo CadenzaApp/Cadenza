@@ -1,5 +1,5 @@
 import { ImageColor } from "@image-color";
-import useSWR from "swr";
+import useSWRImmutable from "swr/immutable";
 
 import { readableTextColor } from "@/components/custom/tag-pill";
 export { averageArtworkColors } from "@/lib/artwork-color-utils";
@@ -75,7 +75,7 @@ export function useArtworkTint(source?: ArtworkSource | null): ArtworkTint {
         !appleColor && artworkUrl
             ? (["ImageColor.getAverageColor", artworkUrl] as const)
             : null;
-    const averaged = useSWR<string | null>(key, () =>
+    const averaged = useSWRImmutable<string | null>(key, () =>
         ImageColor.getAverageColor(artworkUrl),
     );
 
@@ -105,7 +105,7 @@ export function useArtworkColors(
             : null,
     );
     const urls = toAverage.filter((url): url is string => url !== null);
-    const averaged = useSWR<(string | null)[]>(
+    const averaged = useSWRImmutable<(string | null)[]>(
         urls.length > 0 ? ["ImageColor.getAverageColors", ...urls] : null,
         () => Promise.all(urls.map((url) => ImageColor.getAverageColor(url))),
     );

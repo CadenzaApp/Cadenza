@@ -1,9 +1,12 @@
-import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTheme } from "expo-router/react-navigation";
 import { View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { GlassIconButton } from "@/components/ui/glass-icon-button";
+import {
+    AnimatedContrastIcon,
+    useFloatingSurfaceContrast,
+} from "@/lib/surface-contrast-context";
 import { useCloseScreen } from "@/lib/zoom-dismiss";
 
 /** Gap between the safe area and the button. */
@@ -28,6 +31,9 @@ export function FloatingCloseButton({
     const insets = useSafeAreaInsets();
     const close = useCloseScreen();
     const { colors } = useTheme();
+    const { iconStyle, scheme } = useFloatingSurfaceContrast(
+        insets.top + TOP_GAP + (size ?? 40) / 2,
+    );
 
     return (
         <View
@@ -37,10 +43,17 @@ export function FloatingCloseButton({
         >
             <GlassIconButton
                 size={size}
+                bordered={false}
+                surfaceScheme={scheme}
                 accessibilityLabel={label}
                 onPress={close}
             >
-                <Ionicons name="close" size={22} color={colors.text} />
+                <AnimatedContrastIcon
+                    name="close"
+                    size={22}
+                    color={colors.text}
+                    style={iconStyle}
+                />
             </GlassIconButton>
         </View>
     );

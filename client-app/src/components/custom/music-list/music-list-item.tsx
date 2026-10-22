@@ -18,6 +18,10 @@ import type { MusicItem } from "@apple-musickit";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
+import {
+    ContrastText,
+    useSurfacePalette,
+} from "@/lib/surface-contrast-context";
 import { THEME, type ThemeColorToken } from "@/lib/theme";
 import type { AppliedTag, Tag, TagMetadata } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -90,6 +94,8 @@ export const MusicListItem = memo(function MusicListItem({
     accessory,
 }: MusicListItemProps) {
     const { colors } = useTheme();
+    const palette = useSurfacePalette();
+    const foreground = palette?.foreground ?? colors.text;
     const { colorScheme = "light" } = useColorScheme();
     const theme = THEME[colorScheme];
     const [rowPressed, setRowPressed] = useState(false);
@@ -100,7 +106,10 @@ export const MusicListItem = memo(function MusicListItem({
         () => pickActivityTags(activityTags, activityTagIds),
         [activityTags, activityTagIds],
     );
-    const selectionColor = hexWithAlpha(theme.foreground, 0.12);
+    const selectionColor = hexWithAlpha(
+        palette?.foreground ?? theme.foreground,
+        0.12,
+    );
     const animatedRowStyle = useAnimatedStyle(
         () => ({
             backgroundColor: withTiming(
@@ -188,7 +197,7 @@ export const MusicListItem = memo(function MusicListItem({
                                             : "ellipse-outline"
                                     }
                                     size={28}
-                                    color={colors.text}
+                                    color={foreground}
                                 />
                             </Animated.View>
                         </Button>
@@ -295,7 +304,7 @@ export const MusicListItem = memo(function MusicListItem({
                         <Ionicons
                             name="ellipsis-horizontal"
                             size={24}
-                            color={colors.text}
+                            color={foreground}
                         />
                     </Button>
                 </Animated.View>
@@ -421,19 +430,19 @@ const TrackTitle = memo(function TrackTitle({
 }) {
     return (
         <View pointerEvents="none">
-            <Text
+            <ContrastText
                 className="text-base font-bold leading-tight text-foreground"
                 numberOfLines={1}
             >
                 {title}
-            </Text>
-            <Text
+            </ContrastText>
+            <ContrastText
                 className="text-sm leading-tight text-muted-foreground"
                 style={ARTIST_STYLE}
                 numberOfLines={1}
             >
                 {artistName}
-            </Text>
+            </ContrastText>
         </View>
     );
 });

@@ -7,3 +7,10 @@ export function tabFromPathname(pathname: string): PlayerTab {
     if (pathname.endsWith("/tags")) return "tags";
     return "player";
 }
+
+/** Covering Now Playing with a detail route must not remount its providers. */
+export function playerLayoutKey(pathname: string, previous = "/player") {
+    return pathname === "/player" || pathname.startsWith("/player/")
+        ? pathname
+        : previous;
+}

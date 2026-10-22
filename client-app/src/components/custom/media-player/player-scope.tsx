@@ -1,4 +1,5 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { useIsFocused } from "expo-router/react-navigation";
 import {
     createContext,
     useContext,
@@ -29,6 +30,7 @@ const PlayerScopeContext = createContext<PlayerScopeValue | null>(null);
  */
 export function PlayerScopeProvider({ children }: { children: ReactNode }) {
     const router = useRouter();
+    const focused = useIsFocused();
     const { activeTrack } = usePlaybackTrackState();
     const params = useLocalSearchParams<{
         tagsSongId?: string;
@@ -68,10 +70,10 @@ export function PlayerScopeProvider({ children }: { children: ReactNode }) {
     // Playback can stop while the sheet is open. A route target still leaves
     // Discuss and Tags with a useful song, so only the plain player closes.
     useEffect(() => {
-        if (!activeTrack && !pinnedSong && router.canGoBack()) {
+        if (focused && !activeTrack && !pinnedSong && router.canGoBack()) {
             router.back();
         }
-    }, [activeTrack, pinnedSong, router]);
+    }, [activeTrack, pinnedSong, focused, router]);
 
     const value = focusedSong ? { focusedSong } : null;
 

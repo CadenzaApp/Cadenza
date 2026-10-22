@@ -239,20 +239,25 @@ and a caller-supplied action that opens `CollectionOptionsMenu`. A tag uses the 
 uses its tag pill and song count as the title, and supplies its tag color as the page color,
 and offers rename, recolor, and delete actions. Query results use the standard
 weighted mosaic and an edge-to-edge tint, but use a normal opaque stack presentation rather than
-the collection's zoom transition. Each gradient-backed `TrackCollectionView` also paints fixed
-start and end colors beneath the list, so either elastic overscroll edge meets the scrolling
-gradient without a seam. `TrackCollectionView` turns every route's source color into the shared
-mode-aware Oklch gradient object; callers provide only that source color.
+the collection's zoom transition. Each gradient-backed `TrackCollectionView` paints one continuous
+backdrop outside the list and clamps its scroll offset through elastic overscroll. It normally
+turns the route's source color into the shared mode-aware Oklch gradient; the artist supplies its
+own portrait gradient and a minimum gradient height.
 Under the last row it prints the song count and running time, but only once every page is in,
 since a count off a half-loaded list is a wrong number. Everything the collection draws over its
 tint stays inside the same scroll surface. Either way the hero is the `MusicList` header inside
 `TrackCollectionView`, because that list owns the scroll.
 
 `/artist/:id` is reached from the Search tab's Artists section, the library's Artists category,
-and the now playing sheet's `...` menu. `/collection/:kind/:id` is reached through
+and the now playing sheet's artist name and `...` menu. `/collection/:kind/:id` is reached through
 `collectionRoute` and `albumRouteForTrack` in `@/lib/music-routes`, which carry the title, the
 artist, both artwork sizes, and the artwork color so the hero and the tint are there before the
 song fetch lands.
+
+The artist shell and cached hero render immediately, with skeletons for missing data. Its portrait
+alpha mask reveals a separate gradient from the sampled portrait color toward a less chromatic,
+darker/light-mode lighter Oklch shade over at least three screen heights. Colors change immediately.
+Artist and album links retain the player beneath the transparent zoom card.
 
 Go to Album opens the full catalog album through `useAlbumRouteForTrack`, since a library album
 holds only the songs the user added. Its `fallbackId` is the library album, shown when the full one

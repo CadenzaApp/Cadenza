@@ -149,3 +149,18 @@ function stringParams(params: object): Record<string, string> {
     }
     return out;
 }
+
+/** Keep the player and its history below a full-screen destination. */
+export function routesAfterOpeningFromPlayer<R extends StackRoute>(
+    routes: readonly R[],
+    target: StackRoute,
+): (R | StackRoute)[] {
+    const playerIndex = routes.findLastIndex(
+        (route) => route.name === "player",
+    );
+    if (playerIndex < 0) return routesAfterOpening(routes, target);
+    return [
+        ...routes.slice(0, playerIndex + 1),
+        ...routesAfterOpening(routes.slice(playerIndex + 1), target),
+    ];
+}
