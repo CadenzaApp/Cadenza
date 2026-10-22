@@ -56,6 +56,8 @@ export function useAppleMusicSync() {
 
 /** One run in flight. `cancel` stops it before its next request. */
 type SyncRun = {
+    /** The account and Apple Music session it syncs for. */
+    owner: string;
     cancelled: boolean;
     done: Promise<void>;
     cancel: () => void;
@@ -98,6 +100,7 @@ export function SongInitProvider({ children }: { children: ReactNode }) {
     const currentRun = useRef<SyncRun | null>(null);
 
     const canSync = Boolean(accountId && isConnected && MusicKit.isAvailable());
+    const owner = `${accountId}:${sessionRevision}`;
 
     useEffect(() => {
         if (!accountId) return;
@@ -114,8 +117,16 @@ export function SongInitProvider({ children }: { children: ReactNode }) {
     // Not SWR on purpose: this is a one-off background job that reads only to
     // decide what to write. Nothing it finds is rendered from here.
     const startRun = useCallback((): SyncRun | null => {
+        const running = currentRun.current;
+        if (running && running.owner === owner && canSync) return running;
+        // a run for another account or session, or one that lost Apple
+        // Music, must not keep writing. what it already sent stays sent
+        if (running) {
+            running.cancel();
+            currentRun.current = null;
+            setIsSyncing(false);
+        }
         if (!accountId || !canSync) return null;
-        if (currentRun.current) return currentRun.current;
 
         let taskId: number | null = addTask(SYNC_LABEL);
         const endTask = (failure?: string) => {
@@ -126,6 +137,7 @@ export function SongInitProvider({ children }: { children: ReactNode }) {
         };
 
         const run: SyncRun = {
+            owner,
             cancelled: false,
             done: Promise.resolve(),
             // ends the task now rather than when the run next checks
@@ -194,26 +206,26 @@ export function SongInitProvider({ children }: { children: ReactNode }) {
     }, [
         accountId,
         canSync,
+        owner,
         editUserSongs,
         addTask,
         endTaskSuccess,
         endTaskFail,
     ]);
 
-    // a new account or session stops the run before its next request. what it
-    // already sent stays sent, and the store already records it
+    // runs on its own for each account and session. startRun stops a run
+    // that no longer matches, so this effect needs no cleanup of its own
     useEffect(() => {
-        const run = startRun();
-        return () => {
-            if (!run) return;
-            run.cancel();
-            if (currentRun.current === run) {
-                currentRun.current = null;
-                setIsSyncing(false);
-            }
-        };
-        // sessionRevision restarts the run on a new Apple Music session
-    }, [startRun, sessionRevision]);
+        startRun();
+    }, [startRun]);
+
+    useEffect(
+        () => () => {
+            currentRun.current?.cancel();
+            currentRun.current = null;
+        },
+        [],
+    );
 
     const syncNow = useCallback(async () => {
         const run = startRun();

@@ -12,7 +12,7 @@ import {
 } from "@apple-musickit";
 import { Image } from "expo-image";
 import { useArtworkTint } from "./artwork-color";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import useSWR, { unstable_serialize, useSWRConfig } from "swr";
 import useSWRImmutable from "swr/immutable";
 import useSWRInfinite from "swr/infinite";
@@ -338,6 +338,23 @@ export function useLibrarySongSearch(enabled = true) {
 }
 
 /**
+ * Revalidates a mounted library read in place when `refreshLibrary()` runs,
+ * like after a manual sync. In place rather than under a new key, so a long
+ * list keeps its loaded pages and scroll position and the old copy is not
+ * left in the cache.
+ */
+function useLibraryRefresh(revalidate: () => unknown) {
+    const { libraryRevision } = useAppleMusic();
+    // the revision this reader last answered, so mounting does not refetch
+    const seen = useRef(libraryRevision);
+    useEffect(() => {
+        if (seen.current === libraryRevision) return;
+        seen.current = libraryRevision;
+        void revalidate();
+    }, [libraryRevision, revalidate]);
+}
+
+/**
  * Pages through any Apple Music library collection. `getKey` is handed the
  * offset of the page being requested and returns the SWR key for it, or null
  * when the read is not authorized or its inputs are missing.
@@ -369,6 +386,7 @@ function usePagedLibraryResult<
         // again first and waits for it, which doubled every load more
         { revalidateFirstPage: false },
     );
+    useLibraryRefresh(x.mutate);
 
     const items = useMemo(
         () =>
@@ -409,13 +427,13 @@ export function useTracksFromLibrary({
     enabled?: boolean;
     sort?: LibrarySongSort;
 } = {}) {
-    const { isConnected, isInitializing, libraryRevision } = useAppleMusic();
+    const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
     const page = usePagedLibraryResult(
         (offset, limit) =>
             enabled && isConnected
                 ? ([
                       "MusicKit.getLibrarySongs",
-                      libraryRevision,
+                      sessionRevision,
                       limit,
                       sort?.option ?? null,
                       sort?.direction ?? null,
@@ -447,10 +465,10 @@ export function useTracksFromLibrary({
 
 /** Returns every song in the current Apple Music library as one cached read. */
 export function useAllTracksFromLibrary(enabled = true) {
-    const { isConnected, isInitializing, libraryRevision } = useAppleMusic();
+    const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
     const x = useSWR(
         enabled && isConnected
-            ? (["MusicKit.getAllLibrarySongs", libraryRevision] as const)
+            ? (["MusicKit.getAllLibrarySongs", sessionRevision] as const)
             : null,
         async () => {
             const pages: MusicItem[] = [];
@@ -488,6 +506,7 @@ export function useAllTracksFromLibrary(enabled = true) {
             revalidateOnReconnect: false,
         },
     );
+    useLibraryRefresh(x.mutate);
 
     return {
         allLibraryTracks: x.data ?? EMPTY_SONGS,
@@ -687,13 +706,13 @@ export function indexTracksById(tracks: readonly MusicItem[]) {
 
 /** Returns the user's paginated library albums. */
 export function useLibraryAlbums(enabled = true) {
-    const { isConnected, isInitializing, libraryRevision } = useAppleMusic();
+    const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
     const page = usePagedLibraryResult(
         (offset, limit) =>
             enabled && isConnected
                 ? ([
                       "MusicKit.getLibraryAlbums",
-                      libraryRevision,
+                      sessionRevision,
                       limit,
                       offset,
                   ] as const)
@@ -715,13 +734,13 @@ export function useLibraryAlbums(enabled = true) {
 /** Returns the user's paginated library playlists. */
 /** Returns the user's paginated library artists. */
 export function useLibraryArtists(enabled = true) {
-    const { isConnected, isInitializing, libraryRevision } = useAppleMusic();
+    const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
     const page = usePagedLibraryResult<LibraryArtistPageKey, ArtistItem>(
         (offset) =>
             enabled && isConnected
                 ? ([
                       "MusicKit.getLibraryArtists",
-                      libraryRevision,
+                      sessionRevision,
                       MUSIC_LIST_PAGE_SIZE,
                       offset,
                   ] as const)
@@ -804,13 +823,13 @@ export function useLibraryArtistSearch(term?: string, enabled = true) {
 }
 
 export function useUserPlaylists(enabled = true) {
-    const { isConnected, isInitializing, libraryRevision } = useAppleMusic();
+    const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
     const page = usePagedLibraryResult(
         (offset, limit) =>
             enabled && isConnected
                 ? ([
                       "MusicKit.getUserPlaylists",
-                      libraryRevision,
+                      sessionRevision,
                       limit,
                       offset,
                   ] as const)
@@ -835,13 +854,13 @@ export function useUserPlaylists(enabled = true) {
  * them, so a whole album added at once is one item and not twelve.
  */
 export function useRecentlyAdded(enabled = true) {
-    const { isConnected, isInitializing, libraryRevision } = useAppleMusic();
+    const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
     const page = usePagedLibraryResult(
         (offset) =>
             enabled && isConnected
                 ? ([
                       "MusicKit.getRecentlyAdded",
-                      libraryRevision,
+                      sessionRevision,
                       RECENTLY_ADDED_PAGE_SIZE,
                       offset,
                   ] as const)
@@ -869,12 +888,12 @@ export function useCollectionSongs(
     kind: LibraryCollectionKind,
     collectionId?: string,
 ) {
-    const { isConnected, isInitializing, libraryRevision } = useAppleMusic();
+    const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
     const page = usePagedLibraryResult(
         (offset, limit) =>
             isConnected && collectionId
                 ? collectionSongsKey(
-                      libraryRevision,
+                      sessionRevision,
                       kind,
                       collectionId,
                       limit,
@@ -898,7 +917,7 @@ export function useCollectionSongs(
 }
 
 function collectionSongsKey(
-    libraryRevision: number,
+    sessionRevision: number,
     kind: LibraryCollectionKind,
     collectionId: string,
     limit: number,
@@ -906,7 +925,7 @@ function collectionSongsKey(
 ): CollectionSongsPageKey {
     return [
         "MusicKit.getCollectionSongs",
-        libraryRevision,
+        sessionRevision,
         kind,
         collectionId,
         limit,
@@ -938,7 +957,7 @@ const prefetching = new Map<string, Promise<PagedResult<MusicItem>>>();
  * sending its own.
  */
 export function usePrefetchCollectionSongs() {
-    const { isConnected, libraryRevision } = useAppleMusic();
+    const { isConnected, sessionRevision } = useAppleMusic();
     const { cache, mutate } = useSWRConfig();
     return useCallback(
         (collection: MusicItem) => {
@@ -947,7 +966,7 @@ export function usePrefetchCollectionSongs() {
             if (!isConnected || !id) return;
             if (kind !== "album" && kind !== "playlist") return;
             const key = collectionSongsKey(
-                libraryRevision,
+                sessionRevision,
                 kind,
                 id,
                 FIRST_PAGE_SIZE,
@@ -972,7 +991,7 @@ export function usePrefetchCollectionSongs() {
                 }
             })();
         },
-        [cache, isConnected, mutate, libraryRevision],
+        [cache, isConnected, mutate, sessionRevision],
     );
 }
 

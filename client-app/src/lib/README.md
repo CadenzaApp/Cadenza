@@ -497,10 +497,11 @@ remaining distance. A short pull still springs back to full size.
   means authorized **and** holding a user token. `ensureConnected()` before any playback call.
 - `SongInitProvider` runs after account and Apple Music authorization. It walks the library and
   library playlists and syncs what it finds into the backend's `user_songs`, which is what
-  queries run over. One run at a time: `syncNow` joins a running sync, then bumps
-  `libraryRevision` so every library read refetches. Library SWR keys use `libraryRevision`, not
-  `sessionRevision`, so a manual refresh does not restart the sync or drop artist caches. It no longer generates default tags: the backend does that lazily, the first
-  time something reads a song's default tags.
+  queries run over. One run at a time, tied to its account and Apple Music session: `syncNow`
+  joins a matching run, and a run for an old account or session is cancelled. After a manual sync,
+  `refreshLibrary()` revalidates mounted library reads in place (same keys, pages kept). It no
+  longer generates default tags: the backend does that lazily, the first time something reads a
+  song's default tags.
 - `PlaybackProvider` hands the queue to the native player (`playSongQueue`, `appendSongQueue`)
   and mirrors it, since the snapshot reports the current track but not its position in the
   queue. It finds the index by matching the snapshot track against the mirrored list, searching

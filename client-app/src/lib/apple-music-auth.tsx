@@ -22,12 +22,11 @@ type AppleMusicContextType = {
     /** Non-secret cache namespace that changes whenever MusicKit auth changes. */
     sessionRevision: number;
     /**
-     * Cache namespace for library reads. Changes with `sessionRevision` and on
-     * `refreshLibrary()`, so a manual sync can refetch the library without
-     * counting as a new session.
+     * Bumped by `refreshLibrary()`. Library reads revalidate in place when it
+     * changes, keeping the pages they have. Not part of any cache key.
      */
     libraryRevision: number;
-    /** Drops every cached library read so the next render refetches it. */
+    /** Refetches every mounted library read in place. */
     refreshLibrary: () => void;
     /**
      * Apple rejected the stored music-user token, so reads keep failing until
@@ -87,11 +86,6 @@ export function AppleMusicProvider({ children }: { children: ReactNode }) {
     const [libraryRevision, setLibraryRevision] = useState(0);
     const [sessionExpired, setSessionExpired] = useState(false);
 
-    const bumpSession = useCallback(() => {
-        setSessionRevision((revision) => revision + 1);
-        setLibraryRevision((revision) => revision + 1);
-    }, []);
-
     const refreshLibrary = useCallback(() => {
         setLibraryRevision((revision) => revision + 1);
     }, []);
@@ -126,7 +120,7 @@ export function AppleMusicProvider({ children }: { children: ReactNode }) {
                     ) {
                         await restoreNativeTokens(savedAuth);
                         setAuthResult(savedAuth);
-                        bumpSession();
+                        setSessionRevision((revision) => revision + 1);
                     } else {
                         await clearStoredAuth();
                         await restoreNativeTokens(null);
@@ -147,7 +141,7 @@ export function AppleMusicProvider({ children }: { children: ReactNode }) {
         }
         // required to make this inline function to handle async stuff. Unless there's a better way, idk.
         initAppleMusic();
-    }, [bumpSession, restoreNativeTokens]);
+    }, [restoreNativeTokens]);
 
     /**
      * Prompts the user to authorize Apple Music and stores the result securely,
@@ -167,7 +161,7 @@ export function AppleMusicProvider({ children }: { children: ReactNode }) {
                 await restoreNativeTokens(null);
             }
             setAuthResult(result);
-            bumpSession();
+            setSessionRevision((revision) => revision + 1);
             setSessionExpired(
                 !(result.status === AuthStatus.Authorized && result.userToken),
             );
@@ -178,7 +172,7 @@ export function AppleMusicProvider({ children }: { children: ReactNode }) {
         } finally {
             authGeneration.endTransition();
         }
-    }, [bumpSession, restoreNativeTokens]);
+    }, [restoreNativeTokens]);
 
     const ensureConnected = useCallback(async () => {
         if (
@@ -199,7 +193,7 @@ export function AppleMusicProvider({ children }: { children: ReactNode }) {
         authGeneration.beginTransition();
         try {
             setAuthResult(null);
-            bumpSession();
+            setSessionRevision((revision) => revision + 1);
             setSessionExpired(false);
             await clearStoredAuth();
 
@@ -217,7 +211,7 @@ export function AppleMusicProvider({ children }: { children: ReactNode }) {
         authFailureHandler = () => {
             setSessionExpired(true);
             setAuthResult(null);
-            bumpSession();
+            setSessionRevision((revision) => revision + 1);
             const clearStored = clearStoredAuth().catch((error) =>
                 console.error("Failed to clear Apple Music auth:", error),
             );
@@ -234,7 +228,7 @@ export function AppleMusicProvider({ children }: { children: ReactNode }) {
         return () => {
             authFailureHandler = null;
         };
-    }, [bumpSession, restoreNativeTokens]);
+    }, [restoreNativeTokens]);
 
     return (
         <AppleMusicContext.Provider
