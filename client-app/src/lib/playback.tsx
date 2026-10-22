@@ -11,6 +11,8 @@ import { Alert, AppState } from "react-native";
 import { MusicItem, Playback, RepeatMode, ShuffleMode } from "@apple-musickit";
 
 import { useAppleMusic } from "./apple-music-auth";
+import { withoutExplicit } from "./explicit-filter";
+import { useHideExplicit } from "./use-visible-items";
 import type { PlaySource } from "./play-source";
 import { usePlayRecorder } from "./play-recorder";
 import { useReportOpenedSongs } from "./song-opened";
@@ -122,6 +124,7 @@ export function usePlaybackCommands() {
 
 export function PlaybackProvider({ children }: { children: ReactNode }) {
     const { isConnected, ensureConnected } = useAppleMusic();
+    const hideExplicit = useHideExplicit();
     const snapshot = Playback.usePlaybackSnapshot();
     const [queue, setQueue] = useState<MusicItem[]>([]);
     const [queueIndex, setQueueIndex] = useState(-1);
@@ -232,17 +235,26 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
         startIndex = 0,
         source,
     }: PlaybackQueue) {
-        const playableTracks = tracks.filter((track) =>
-            Boolean(track.playbackId ?? track.id),
+        // the song picked to start still plays. hiding explicit content drops
+        // the explicit songs around it, so shuffle and play all skip them
+        const startTrack = tracks[startIndex];
+        const playableTracks = tracks.filter(
+            (track) =>
+                Boolean(track.playbackId ?? track.id) &&
+                (track === startTrack || !(hideExplicit && track.isExplicit)),
         );
         if (playableTracks.length === 0) return;
 
         await ensureConnected();
         await abandonTopicPreview();
-        const boundedIndex = Math.max(
-            0,
-            Math.min(startIndex, playableTracks.length - 1),
-        );
+        // dropped tracks shift the start, so find it again by identity
+        const startPosition = startTrack
+            ? playableTracks.indexOf(startTrack)
+            : -1;
+        const boundedIndex =
+            startPosition >= 0
+                ? startPosition
+                : Math.max(0, Math.min(startIndex, playableTracks.length - 1));
         const previousQueue = queue;
         const previousQueueIndex = queueIndex;
         const previousQueueSource = queueSource;
@@ -377,8 +389,9 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     }
 
     async function playNext(tracks: readonly MusicItem[]) {
-        const playableTracks = tracks.filter((track) =>
-            Boolean(track.playbackId ?? track.id),
+        const playableTracks = withoutExplicit(
+            tracks.filter((track) => Boolean(track.playbackId ?? track.id)),
+            hideExplicit,
         );
         if (playableTracks.length === 0) return;
 

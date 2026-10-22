@@ -40,6 +40,7 @@ import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { useScreenScroll } from "@/lib/screen-scroll";
 import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
 import { useMusicListPreferences } from "@/lib/music-list-preferences";
+import { useVisibleItems } from "@/lib/use-visible-items";
 
 import {
     MusicListItem,
@@ -143,7 +144,7 @@ const HIGHLIGHT_VIEWABILITY = {
 type HighlightPhase = "waiting" | "playing" | "done";
 
 export function MusicList({
-    tracks,
+    tracks: givenTracks,
     isLoading,
     highlightTrackId,
     onTrackPressOverride = null,
@@ -171,6 +172,7 @@ export function MusicList({
     sorting,
 }: MusicListProps) {
     const header = headerProp ?? listHeader;
+    const tracks = useVisibleItems(givenTracks);
     const tinted = useSurfacePalette() != null;
     const [headerHeight, setHeaderHeight] = useState(0);
     const { togglePlayback } = usePlaybackCommands();

@@ -2,6 +2,7 @@ import { useMemo } from "react";
 
 import type { QueryJSON } from "@/lib/query-json";
 import { useAPIPostData, useAPIPostSnapshot } from "../api-actions";
+import { useUserSettings } from "./settings";
 
 /** What the results can be sorted by. Leaving it out sorts most relevant first. */
 export type QueryResultsSort = {
@@ -20,6 +21,7 @@ type QueryResultsBody = {
     query: QueryJSON;
     consider_default_tags: boolean;
     library_only?: true;
+    hide_explicit?: true;
     sort?: QueryResultsSort;
 };
 
@@ -47,7 +49,8 @@ const NO_MATCHES: string[] = [];
  * include the shared default tags. `libraryOnly` narrows the songs to the
  * user's library, so every match is their own and nothing is capped. Both are
  * part of the cache key, so turning one on and off refetches rather than
- * reusing the other answer.
+ * reusing the other answer. The user's Hide explicit content setting is sent
+ * the same way.
  *
  * Revalidates like any other read, so it suits a live preview. A list the user
  * scrolls through wants `useQueryResultsSnapshot`.
@@ -105,6 +108,7 @@ function useQueryResultsBody(
     libraryOnly: boolean,
     sort: QueryResultsSort | null,
 ) {
+    const hideExplicit = useUserSettings().settings.hide_explicit;
     return useMemo<QueryResultsBody | null>(() => {
         if (!query) return null;
         return {
@@ -113,9 +117,10 @@ function useQueryResultsBody(
             // left out when off, so the usual request and its cache key stay
             // the same as before the setting existed
             ...(libraryOnly ? { library_only: true as const } : {}),
+            ...(hideExplicit ? { hide_explicit: true as const } : {}),
             ...(sort ? { sort } : {}),
         };
-    }, [considerDefaultTags, libraryOnly, query, sort]);
+    }, [considerDefaultTags, hideExplicit, libraryOnly, query, sort]);
 }
 
 function useParsedResults(
