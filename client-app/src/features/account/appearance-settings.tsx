@@ -55,8 +55,8 @@ const SWATCH_COLUMNS = 6;
 const SWATCH_SLOTS = 10;
 
 /**
- * Light or dark, the accent color, and the glass tint and style. Every
- * change saves to the account and repaints the app at once.
+ * Mode, custom background, accent, glass tint and style. Every change saves
+ * to the account and repaints the app at once.
  */
 export function AppearanceSettingsScreen() {
     const insets = useSafeAreaInsets();

@@ -31,6 +31,11 @@ import { nextAction, previousAction } from "./transport";
 export type PlaybackQueue = {
     tracks: MusicItem[];
     startIndex?: number;
+    /**
+     * The user tapped the start song, so it plays even when it is explicit
+     * and explicit songs are hidden. Play all and shuffle leave it out.
+     */
+    chosenStart?: boolean;
     /** The playlist or query these tracks came from, for the play log. */
     source?: PlaySource;
 };
@@ -233,28 +238,25 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     async function startQueue({
         tracks,
         startIndex = 0,
+        chosenStart = false,
         source,
     }: PlaybackQueue) {
-        // the song picked to start still plays. hiding explicit content drops
-        // the explicit songs around it, so shuffle and play all skip them
-        const startTrack = tracks[startIndex];
-        const playableTracks = tracks.filter(
-            (track) =>
-                Boolean(track.playbackId ?? track.id) &&
-                (track === startTrack || !(hideExplicit && track.isExplicit)),
-        );
+        // hiding explicit content drops explicit songs from every queue. only
+        // a song the user tapped to start still plays
+        const startTrack = chosenStart ? tracks[startIndex] : undefined;
+        const keep = (track: MusicItem) =>
+            Boolean(track.playbackId ?? track.id) &&
+            (track === startTrack || !(hideExplicit && track.isExplicit));
+        const playableTracks = tracks.filter(keep);
         if (playableTracks.length === 0) return;
 
         await ensureConnected();
         await abandonTopicPreview();
-        // dropped tracks shift the start, so find it again by identity
-        const startPosition = startTrack
-            ? playableTracks.indexOf(startTrack)
-            : -1;
-        const boundedIndex =
-            startPosition >= 0
-                ? startPosition
-                : Math.max(0, Math.min(startIndex, playableTracks.length - 1));
+        // the start song if it was kept, else the next kept song after it
+        const boundedIndex = Math.min(
+            tracks.slice(0, Math.max(0, startIndex)).filter(keep).length,
+            playableTracks.length - 1,
+        );
         const previousQueue = queue;
         const previousQueueIndex = queueIndex;
         const previousQueueSource = queueSource;
@@ -303,7 +305,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
                 // Song lookup/list playback intentionally creates a one-song
                 // queue today. Playlist and shuffle surfaces can pass a larger
                 // track array through playQueue without changing this provider.
-                await playQueue({ tracks: [track], source });
+                await playQueue({ tracks: [track], chosenStart: true, source });
             }
         } catch (e) {
             console.error("Failed to toggle playback:", e);
@@ -318,8 +320,9 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     }
 
     async function addToQueue(tracks: readonly MusicItem[]) {
-        const playableTracks = tracks.filter((track) =>
-            Boolean(track.playbackId ?? track.id),
+        const playableTracks = withoutExplicit(
+            tracks.filter((track) => Boolean(track.playbackId ?? track.id)),
+            hideExplicit,
         );
         if (playableTracks.length === 0) return;
 

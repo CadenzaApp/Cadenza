@@ -256,13 +256,14 @@ refuses a username that still contains `@`. `update_profile` needs at least one 
 
 ## Settings
 
-`user_settings` (`sql/user_settings.sql`) is one private row per user: theme mode (system, light, dark, or custom), accent
-color, the custom background color,
-glass tint and style (clear or tinted), the accent, tint, tag, and background color slots (jsonb, null for
-the presets), hide explicit, show suggested tags. It is separate from `profile`,
-which is public. `settings::get_settings` returns the defaults for a user with no row, and they
-must match the column defaults in the SQL. `update_settings` upserts and writes only the columns
-the patch names, so two devices changing different settings do not clobber each other.
+`user_settings` (`sql/user_settings.sql`) is one private row per user, separate from the public
+`profile`: theme mode, accent, custom background, glass tint and style, four color slot lists
+(jsonb, null means the presets), hide explicit, show suggested tags. `update_settings` upserts
+only the columns the patch names, so two devices changing different settings do not clobber
+each other. A whole slot list is one column, so two devices editing the same list do.
+
+`get_settings` returns defaults for a user with no row. They must match the column defaults in
+the SQL and `DEFAULT_USER_SETTINGS` in `client-app/src/lib/routes/settings.tsx`.
 
 `hide_explicit` also reaches the query compiler: `compile_query` ANDs a `NOT EXISTS` on
 `content_rating = 'explicit'` onto both halves before the discovered cap. A song with no stored

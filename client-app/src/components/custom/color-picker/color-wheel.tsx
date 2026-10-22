@@ -100,15 +100,13 @@ function HueSaturationWheel({
                         r={radius}
                         fill="url(#wheelWhite)"
                     />
-                    {/* brightness darkens the whole wheel */}
-                    <Circle
-                        cx={radius}
-                        cy={radius}
-                        r={radius}
-                        fill="#000000"
-                        opacity={1 - value.v}
-                    />
                 </Svg>
+                {/* brightness darkens the whole wheel. a view over the svg, so
+                    a brightness drag never redraws the wedges */}
+                <View
+                    className="absolute inset-0 rounded-full bg-black"
+                    style={{ opacity: 1 - value.v }}
+                />
                 <Thumb x={thumbX} y={thumbY} color={hsvToHex(value)} />
             </View>
         </View>

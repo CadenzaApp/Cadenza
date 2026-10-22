@@ -45,8 +45,7 @@ impl ThemeMode {
     }
 }
 
-/// How opaque glass is. `Clear` is plain liquid glass, `Tinted` more opaque:
-/// the choice iOS 26.1 offers in Settings, which apps cannot read.
+/// How opaque glass is. `Clear` is plain liquid glass, `Tinted` more opaque.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum GlassStyle {

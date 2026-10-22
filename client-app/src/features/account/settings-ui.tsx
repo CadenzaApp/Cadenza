@@ -15,8 +15,7 @@ import { cn } from "@/lib/utils";
 
 // Every Pressable here takes its layout and pressed state from `className`
 // (`active:opacity-60`). A `style` function on a Pressable loses its layout
-// under nativewind, which is what squeezed the tiles and stacked the sign out
-// button.
+// under nativewind.
 
 export type IoniconName = keyof typeof Ionicons.glyphMap;
 

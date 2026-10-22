@@ -50,11 +50,17 @@ test("css var names are kebab case", () => {
     assert.equal(cssVarName("brand"), "--brand");
 });
 
-test("an accent override replaces only brand", () => {
+test("an accent override replaces only brand and the text on it", () => {
     const palette = resolvePalette("dark", { accent: "#3a81f6" });
     assert.equal(palette.brand, "#3a81f6");
+    assert.equal(palette.brandForeground, PALETTE.dark.foreground);
     assert.equal(palette.card, PALETTE.dark.card);
     assert.equal(resolvePalette("light", { accent: null }), PALETTE.light);
+});
+
+test("a light accent gets dark text on it", () => {
+    const palette = resolvePalette("dark", { accent: "#30d158" });
+    assert.equal(palette.brandForeground, PALETTE.light.foreground);
 });
 
 test("palette css vars cover every css token", () => {

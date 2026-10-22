@@ -309,10 +309,7 @@ export function GlassBlurTarget({ children, ...rest }: ViewProps) {
     );
 }
 
-/**
- * How much of the card color Tinted glass lays over the glass. iOS 26.1's own
- * Tinted setting raises opacity the same way, and apps cannot read it.
- */
+/** How much of the card color Tinted glass lays over the glass. */
 const TINTED_FILL_OPACITY = 0.55;
 
 /** The extra opacity of Tinted glass. */

@@ -192,7 +192,8 @@ export function schemeForBackground(background: string): ColorScheme {
 }
 
 /**
- * The palette for `scheme`, with the user's accent as `brand` and, for the
+ * The palette for `scheme`, with the user's accent as `brand` (and text on it
+ * as `brandForeground`) and, for the
  * custom mode, their background with every surface mixed from it.
  */
 export function resolvePalette(
@@ -210,7 +211,13 @@ export function resolvePalette(
         );
         palette = { ...palette, ...surfaces, background };
     }
-    return overrides.accent ? { ...palette, brand: overrides.accent } : palette;
+    if (!overrides.accent) return palette;
+    // text on the accent turns dark on a light accent, or it would vanish
+    const brandForeground =
+        schemeForBackground(overrides.accent) === "light"
+            ? PALETTE.light.foreground
+            : PALETTE.dark.foreground;
+    return { ...palette, brand: overrides.accent, brandForeground };
 }
 
 function hexChannels(hex: string): [number, number, number] {

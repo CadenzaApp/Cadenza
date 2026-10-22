@@ -12,7 +12,7 @@ import { useAPIData, useAPIMutation } from "../api-actions";
 /** Custom draws `background_color`, with light or dark text picked from it. */
 export type ThemeMode = "system" | "light" | "dark" | "custom";
 
-/** Clear is plain liquid glass, tinted more opaque, as in iOS 26.1 Settings. */
+/** Clear is plain liquid glass, tinted more opaque. */
 export type GlassStyle = "clear" | "tinted";
 
 /** The signed-in user's private settings, from `GET /settings`. */

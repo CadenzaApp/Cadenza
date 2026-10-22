@@ -506,6 +506,8 @@ remaining distance. A short pull still springs back to full size.
   and mirrors it, since the snapshot reports the current track but not its position in the
   queue. It finds the index by matching the snapshot track against the mirrored list, searching
   outward from the index it already believes in, and falls back to the last index it set.
+  With Hide explicit content on, every queue drops explicit songs. Only a start song passed with
+  `chosenStart` (a tapped row) still plays.
   Searching outward is what makes a queue holding the same song twice work. It polls
   `refreshPlaybackSnapshot()` every 750ms while the app is foregrounded. This is deliberately
   not SWR: it is a subscription to continuously changing native state, not a cached read.

@@ -328,10 +328,11 @@ caches to warm artist details, portrait color, and artwork while the menu is ope
   It will render nothing if you host a screen outside that tree.
 - Native tabs inset scroll content themselves. App-owned floating actions and compatibility
   surfaces use `@/lib/screen-overlay::useScreenOverlayInsets` for extra clearance.
-- Every color comes from `@/lib/theme/tokens.ts`. Classes (`bg-card`, `text-brand`) read it as CSS
-  variables, JS reads it through `useAppTheme().colors`. `brand` is the user's accent; `accent` is
-  shadcn's neutral pressed color. A new color goes in `tokens.ts`, and in `global.css` too if a
-  class needs it, or `tokens.test.ts` fails.
+- Every theme color comes from `@/lib/theme/tokens.ts`. Classes (`bg-card`, `text-brand`) read it
+  as CSS variables, JS through `useAppTheme().colors`. `brand` is the user's accent; `accent` is
+  shadcn's neutral pressed color. A new color goes in `tokens.ts`. If a class needs it, also add it
+  to `CSS_TOKENS`, `global.css` (checked by `tokens.test.ts`) and `tailwind.config.js` (not
+  checked).
 - Never put a `className` and a `style={({ pressed }) => ...}` function on the same `Pressable`.
   Nativewind folds the class into `style`, `Pressable` then sees an array rather than a
   function, and it stops tracking the pressed state, so the feedback silently dies. Use

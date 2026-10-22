@@ -43,8 +43,9 @@ impl From<user_settings::Model> for UserSettings {
     }
 }
 
-/// `PATCH /settings` body. Every field is optional. For the colors, a missing
-/// key leaves it alone and `null` resets it to the default.
+/// `PATCH /settings` body. Every field is optional. A missing key is left
+/// alone. `null` resets a color or slot list, and is ignored on the other
+/// fields.
 #[derive(Deserialize, Default)]
 pub struct PatchUserSettings {
     pub theme_mode: Option<ThemeMode>,

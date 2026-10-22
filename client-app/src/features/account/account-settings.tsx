@@ -210,8 +210,9 @@ function AccountAvatar({ initial }: { initial: string }) {
             {/* a capital sits high in its line box, so nudge it down to
                 look centered in the circle */}
             <Text
-                className="text-5xl font-bold text-white"
+                className="text-5xl font-bold"
                 style={{
+                    color: colors.brandForeground,
                     transform: [{ translateY: AVATAR_SIZE * INITIAL_NUDGE }],
                     includeFontPadding: false,
                 }}

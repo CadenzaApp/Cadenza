@@ -77,6 +77,7 @@ export function TopEntityList({ dimension, entries }: Props) {
                 await playQueue({
                     tracks,
                     startIndex: startIndex >= 0 ? startIndex : 0,
+                    chosenStart: true,
                 });
             } catch {
                 // the playback provider owns the user-facing error

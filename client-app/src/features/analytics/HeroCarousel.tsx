@@ -123,6 +123,7 @@ export function HeroCarousel({ songs, phrase, accent }: Props) {
         await playQueue({
             tracks,
             startIndex: Math.max(0, tracks.indexOf(track)),
+            chosenStart: true,
         });
     }
 
