@@ -235,6 +235,9 @@ public class AppleMusicKitModule: Module {
         if let url = song.url {
             dict["shareUrl"] = url.absoluteString
         }
+        if song.contentRating == .explicit {
+            dict["isExplicit"] = true
+        }
 
         return dict
     }
@@ -253,6 +256,9 @@ public class AppleMusicKitModule: Module {
         ]
         if let artworkColor = artworkColorHex(from: album.artwork) {
             result["artworkColor"] = artworkColor
+        }
+        if album.contentRating == .explicit {
+            result["isExplicit"] = true
         }
         return result
     }
@@ -340,6 +346,9 @@ public class AppleMusicKitModule: Module {
         }
         if let albumName = attributes["albumName"] as? String {
             result["albumName"] = albumName
+        }
+        if attributes["contentRating"] as? String == "explicit" {
+            result["isExplicit"] = true
         }
         if let genres = attributes["genreNames"] as? [String] {
             result["genres"] = genres

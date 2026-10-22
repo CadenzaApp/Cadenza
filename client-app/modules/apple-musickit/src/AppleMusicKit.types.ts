@@ -117,6 +117,11 @@ export interface MusicItem {
     genres?: string[];
     /** Canonical Apple Music URL suitable for sharing outside the app. */
     shareUrl?: string;
+    /**
+     * True when Apple rates the song or album explicit. Missing means clean or
+     * unrated. Playlists are never rated.
+     */
+    isExplicit?: boolean;
 }
 
 /** How the player picks the next entry in the queue. */
