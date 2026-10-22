@@ -8,8 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { classifyError, type AppErrorKind } from "@/lib/app-error";
 import { cn } from "@/lib/utils";
-
-type IoniconName = keyof typeof Ionicons.glyphMap;
+import type { IoniconName } from "@/components/ui/ionicon-name";
 
 const ICONS: Record<AppErrorKind, IoniconName> = {
     "apple-music-auth": "musical-notes-outline",

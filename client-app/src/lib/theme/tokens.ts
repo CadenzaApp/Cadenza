@@ -6,6 +6,8 @@
  * (through `useAppTheme`). Kept free of imports so it can be unit tested.
  */
 
+import { mixHex, relativeLuminance } from "../color-math.ts";
+
 export type ColorScheme = "light" | "dark";
 
 export type Palette = {
@@ -183,12 +185,9 @@ const SURFACE_MIX: Partial<Record<ThemeColorToken, number>> = {
 
 /** Light text on a dark background, dark text on a light one. */
 export function schemeForBackground(background: string): ColorScheme {
-    const [r, g, b] = hexChannels(background).map((channel) => {
-        const c = channel / 255;
-        return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-    });
-    const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-    return luminance > LIGHT_BACKGROUND_LUMINANCE ? "light" : "dark";
+    return relativeLuminance(background) > LIGHT_BACKGROUND_LUMINANCE
+        ? "light"
+        : "dark";
 }
 
 /**
@@ -218,24 +217,6 @@ export function resolvePalette(
             ? PALETTE.light.foreground
             : PALETTE.dark.foreground;
     return { ...palette, brand: overrides.accent, brandForeground };
-}
-
-function hexChannels(hex: string): [number, number, number] {
-    const value = parseInt(hex.slice(1), 16);
-    return [(value >> 16) & 255, (value >> 8) & 255, value & 255];
-}
-
-/** `from` moved `amount` of the way to `to`, both `#rrggbb`. */
-function mixHex(from: string, to: string, amount: number): string {
-    const a = hexChannels(from);
-    const b = hexChannels(to);
-    return `#${a
-        .map((channel, i) =>
-            Math.round(channel + (b[i] - channel) * amount)
-                .toString(16)
-                .padStart(2, "0"),
-        )
-        .join("")}`;
 }
 
 /** The CSS variables for a palette, for nativewind's `vars()`. */

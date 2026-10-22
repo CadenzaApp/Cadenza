@@ -15,12 +15,13 @@ import { Text } from "@/components/ui/text";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAppTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
+import type { IoniconName } from "@/components/ui/ionicon-name";
+
+export type { IoniconName };
 
 // Every Pressable here takes its layout and pressed state from `className`
 // (`active:opacity-60`). A `style` function on a Pressable loses its layout
 // under nativewind.
-
-export type IoniconName = keyof typeof Ionicons.glyphMap;
 
 /**
  * Every settings screen: a `DetailScreen` sheet with a padded scroll body.
@@ -121,7 +122,7 @@ export function StatusDot({ tone }: { tone: StatusTone }) {
         <View
             className={cn(
                 "h-2.5 w-2.5 rounded-full",
-                tone === "good" && "bg-green-500",
+                tone === "good" && "bg-success",
                 tone === "warn" && "bg-orange-500",
                 tone === "bad" && "bg-destructive",
                 tone === "idle" && "bg-muted-foreground",

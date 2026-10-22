@@ -11,8 +11,7 @@ import { GlassSurface } from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
-
-type IoniconName = keyof typeof Ionicons.glyphMap;
+import type { IoniconName } from "@/components/ui/ionicon-name";
 
 export type GlassPillProps = Omit<PressableProps, "children" | "style"> & {
     label: string;

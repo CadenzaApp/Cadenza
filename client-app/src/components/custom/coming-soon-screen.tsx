@@ -15,8 +15,7 @@ import { Text } from "@/components/ui/text";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { useScreenScroll } from "@/lib/screen-scroll";
 import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
-
-type IoniconName = keyof typeof Ionicons.glyphMap;
+import type { IoniconName } from "@/components/ui/ionicon-name";
 
 export type FeaturePreview = {
     icon: IoniconName;
