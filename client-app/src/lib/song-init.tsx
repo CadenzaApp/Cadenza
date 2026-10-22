@@ -27,6 +27,7 @@ import { LOG_TAG, syncLibrary } from "./song-init-job";
 
 const SYNC_LABEL = "Syncing with Apple Music";
 const SYNC_FAILURE = "Could not sync with Apple Music";
+const SYNC_PARTIAL = "Part of the library could not be read";
 
 type AppleMusicSyncValue = {
     /**
@@ -38,7 +39,10 @@ type AppleMusicSyncValue = {
     isSyncing: boolean;
     /** Epoch milliseconds of this device's last complete sync, or null. */
     lastSyncedAt: number | null;
-    /** Why the last run failed, cleared when the next one starts. */
+    /**
+     * Why the last run failed or missed part of the library, cleared when the
+     * next one starts.
+     */
     error: string | null;
     /** False without an account, a connected session, or MusicKit. */
     canSync: boolean;
@@ -182,12 +186,16 @@ export function SongInitProvider({ children }: { children: ReactNode }) {
                         ...ACTIVITY_TAG_READS,
                     ]);
                 }
-                // a walk that missed a source did not see the whole library
-                if (result.complete) {
-                    const finishedAt = Date.now();
-                    setSynced({ accountId, at: finishedAt });
-                    void saveLastSyncedAt(accountId, finishedAt);
+                // a walk that missed a source did not see the whole library,
+                // so it keeps the old stamp and says so
+                if (!result.complete) {
+                    setError(SYNC_PARTIAL);
+                    endTask(SYNC_PARTIAL);
+                    return;
                 }
+                const finishedAt = Date.now();
+                setSynced({ accountId, at: finishedAt });
+                void saveLastSyncedAt(accountId, finishedAt);
                 endTask();
             } catch (runError) {
                 console.error(`${LOG_TAG} the run failed:`, runError);

@@ -231,7 +231,7 @@ function AccountAvatar({ initial }: { initial: string }) {
 function AppleMusicCard({ onOpen }: { onOpen: () => void }) {
     const { authResult, isInitializing, sessionExpired } = useAppleMusic();
     const { syncNow, isSyncing, canSync } = useAppleMusicSync();
-    const { connectAppleMusic, isConnecting } = useConnectAppleMusic();
+    const { connectAppleMusic, isConnecting, message } = useConnectAppleMusic();
     const syncedLabel = useLastSyncedLabel();
     const status = appleMusicStatus(authResult, isInitializing, sessionExpired);
 
@@ -265,7 +265,8 @@ function AppleMusicCard({ onOpen }: { onOpen: () => void }) {
                             >
                                 {status.action === "sync"
                                     ? syncedLabel
-                                    : "Connect to use your library"}
+                                    : (message ??
+                                      "Connect to use your library")}
                             </Text>
                             {status.action === "sync" ? (
                                 <GlassPill
