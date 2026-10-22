@@ -10,21 +10,15 @@ import { GlassToggle } from "@/components/ui/glass-toggle";
 import { Text } from "@/components/ui/text";
 import { useAccount } from "@/lib/account";
 import {
+    DEFAULT_USER_SETTINGS,
     useUserSettings,
     type GlassStyle,
+    type UserSettings,
     type ThemeMode,
     type UserSettingsPatch,
 } from "@/lib/routes/settings";
-import {
-    ACCENT_PRESETS,
-    BACKGROUND_PRESETS,
-    GLASS_TINT_PRESETS,
-    PALETTE,
-    useAppTheme,
-} from "@/lib/theme";
-
-import { SwatchGrid } from "@/components/custom/color-picker";
-import { resolveSwatchSlots } from "@/lib/swatch-slots";
+import { customBackground } from "@/lib/swatch-sets";
+import { GLASS_TINT_PRESETS, PALETTE, useAppTheme } from "@/lib/theme";
 
 import {
     GlassSettingsPanel,
@@ -32,6 +26,7 @@ import {
     SettingsRow,
     type IoniconName,
 } from "./settings-ui";
+import { SettingsSwatchGrid } from "./settings-swatch-grid";
 
 const MODES: { mode: ThemeMode; label: string; icon: IoniconName }[] = [
     { mode: "system", label: "System", icon: "contrast-outline" },
@@ -40,9 +35,6 @@ const MODES: { mode: ThemeMode; label: string; icon: IoniconName }[] = [
     { mode: "custom", label: "Custom", icon: "color-palette-outline" },
 ];
 
-/** Background slots: two rows of six with the + in the last cell. */
-const BACKGROUND_SLOTS = 11;
-
 /** The same two choices iOS 26.1 offers for Liquid Glass in Settings. */
 const GLASS_STYLES: { style: GlassStyle; label: string; icon: IoniconName }[] =
     [
@@ -50,9 +42,14 @@ const GLASS_STYLES: { style: GlassStyle; label: string; icon: IoniconName }[] =
         { style: "tinted", label: "Tinted", icon: "color-fill-outline" },
     ];
 
-/** Two rows of six: the fixed color, ten slots, and the + button. */
-const SWATCH_COLUMNS = 6;
-const SWATCH_SLOTS = 10;
+/** What Reset to defaults puts back. The color slots are left alone. */
+const APPEARANCE_KEYS = [
+    "theme_mode",
+    "accent_color",
+    "background_color",
+    "glass_tint",
+    "glass_style",
+] as const satisfies readonly (keyof UserSettings)[];
 
 /**
  * Mode, custom background, accent, glass tint and style. Every change saves
@@ -61,24 +58,14 @@ const SWATCH_SLOTS = 10;
 export function AppearanceSettingsScreen() {
     const insets = useSafeAreaInsets();
     const { account } = useAccount();
-    const { settings, settingsLoaded, updateSettings, updateSettingsErr } =
-        useUserSettings();
+    const { settings, updateSettings, updateSettingsErr } = useUserSettings();
     const { scheme } = useAppTheme();
 
     if (!account) {
         return <Redirect href="/auth?initialMode=signin" />;
     }
 
-    const backgroundSlots = resolveSwatchSlots(
-        settings.background_swatches,
-        BACKGROUND_PRESETS,
-        BACKGROUND_SLOTS,
-    );
-    // what the custom mode draws: the picked background, else the first one
-    const customBackground =
-        settings.background_color ??
-        backgroundSlots.find((slot) => slot !== null) ??
-        BACKGROUND_PRESETS[0];
+    const background = customBackground(settings);
 
     function save(change: UserSettingsPatch) {
         void updateSettings(change).catch((error) =>
@@ -117,7 +104,7 @@ export function AppearanceSettingsScreen() {
                                                 ? {
                                                       theme_mode: mode,
                                                       background_color:
-                                                          customBackground,
+                                                          background,
                                                   }
                                                 : { theme_mode: mode },
                                         )
@@ -134,29 +121,11 @@ export function AppearanceSettingsScreen() {
                         footnote="Text turns light or dark to suit the background."
                     >
                         <SwatchPanel>
-                            <SwatchGrid
+                            <SettingsSwatchGrid
+                                kind="background"
                                 pickerTitle="Background"
-                                columns={SWATCH_COLUMNS}
-                                slots={backgroundSlots}
-                                selected={customBackground}
-                                onSelect={(color) =>
-                                    save({ background_color: color })
-                                }
-                                onEdit={(slots, selected) =>
-                                    save({
-                                        background_swatches: slots,
-                                        // custom mode always draws something:
-                                        // removing the picked one moves on
-                                        background_color:
-                                            selected ??
-                                            slots.find(
-                                                (slot) => slot !== null,
-                                            ) ??
-                                            null,
-                                    })
-                                }
-                                newColorStart={customBackground}
-                                editable={settingsLoaded}
+                                selected={background}
+                                newColorStart={background}
                             />
                         </SwatchPanel>
                     </Section>
@@ -167,53 +136,25 @@ export function AppearanceSettingsScreen() {
                     footnote="Hold a color to change or remove it."
                 >
                     <SwatchPanel>
-                        <SwatchGrid
+                        <SettingsSwatchGrid
+                            kind="accent"
                             pickerTitle="Accent color"
-                            columns={SWATCH_COLUMNS}
                             fixed={{
                                 label: "Default",
                                 color: PALETTE[scheme].brand,
                             }}
-                            slots={resolveSwatchSlots(
-                                settings.accent_swatches,
-                                ACCENT_PRESETS,
-                                SWATCH_SLOTS,
-                            )}
-                            selected={settings.accent_color}
-                            onSelect={(color) => save({ accent_color: color })}
-                            onEdit={(slots, selected) =>
-                                save({
-                                    accent_swatches: slots,
-                                    accent_color: selected,
-                                })
-                            }
                             newColorStart={PALETTE[scheme].brand}
-                            editable={settingsLoaded}
                         />
                     </SwatchPanel>
                 </Section>
 
                 <Section title="Glass tint">
                     <SwatchPanel>
-                        <SwatchGrid
+                        <SettingsSwatchGrid
+                            kind="glassTint"
                             pickerTitle="Glass tint"
-                            columns={SWATCH_COLUMNS}
                             fixed={{ label: "None", color: null }}
-                            slots={resolveSwatchSlots(
-                                settings.glass_tint_swatches,
-                                GLASS_TINT_PRESETS,
-                                SWATCH_SLOTS,
-                            )}
-                            selected={settings.glass_tint}
-                            onSelect={(color) => save({ glass_tint: color })}
-                            onEdit={(slots, selected) =>
-                                save({
-                                    glass_tint_swatches: slots,
-                                    glass_tint: selected,
-                                })
-                            }
                             newColorStart={GLASS_TINT_PRESETS[0]}
-                            editable={settingsLoaded}
                         />
                     </SwatchPanel>
                 </Section>
@@ -251,13 +192,14 @@ export function AppearanceSettingsScreen() {
                         icon="refresh-outline"
                         label="Reset to defaults"
                         onPress={() =>
-                            save({
-                                theme_mode: "system",
-                                accent_color: null,
-                                background_color: null,
-                                glass_tint: null,
-                                glass_style: "clear",
-                            })
+                            save(
+                                Object.fromEntries(
+                                    APPEARANCE_KEYS.map((key) => [
+                                        key,
+                                        DEFAULT_USER_SETTINGS[key],
+                                    ]),
+                                ),
+                            )
                         }
                     />
                 </View>

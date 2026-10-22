@@ -47,13 +47,13 @@ the presets over them.
 ## Gotchas
 
 - Apple Music exposes connection status, not an account email or display name.
-- Custom mode draws `background_color` and picks light or dark text from its brightness
+- Custom mode draws `customBackground(settings)` from `@/lib/swatch-sets` and picks light or dark text from its brightness
   (`schemeForBackground` in `@/lib/theme/tokens.ts`). Cards, borders, and inputs are mixed from
   the background in `resolvePalette`. The Background grid only shows in Custom mode.
-- Accent's Default and tint's None are fixed. Removing the selected color falls back to them.
-  The grids are `SwatchGrid` from `@/components/custom/color-picker`.
-  Slots save as `accent_swatches`, `glass_tint_swatches`, `background_swatches`; null means the
-  matching `*_PRESETS` in `@/lib/theme/tokens.ts`. Reset to defaults leaves the slots alone.
+- Every saved color grid (accent, glass tint, background, tag colors) is an entry in
+  `SWATCH_SETS` (`@/lib/swatch-sets.ts`): presets, rows and columns, the slots key, and what is
+  picked when the pick is removed. A new grid is a new entry plus `<SettingsSwatchGrid kind>`.
+  Reset to defaults leaves the slots alone.
 - Clear or Tinted recreates iOS 26.1's Liquid Glass setting, which apps cannot read. Tinted lays
   the card color over top level glass in `GlassSurface`.
 - Pressable styling follows the rule in `src/components/README.md`: `className` with

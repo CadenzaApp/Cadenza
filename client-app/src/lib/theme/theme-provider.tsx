@@ -12,8 +12,9 @@ import { StyleSheet, View } from "react-native";
 import { useUserSettings, type GlassStyle } from "@/lib/routes/settings";
 
 import { navThemeFor } from "./nav-theme";
+import { customBackground } from "@/lib/swatch-sets";
+
 import {
-    BACKGROUND_PRESETS,
     paletteCssVars,
     resolvePalette,
     schemeForBackground,
@@ -62,11 +63,8 @@ export function useOptionalAppTheme(): AppTheme | null {
 export function AppThemeProvider({ children }: { children: ReactNode }) {
     const { settings } = useUserSettings();
     const { colorScheme, setColorScheme } = useColorScheme();
-    // custom mode with nothing picked yet starts on the first preset
     const background =
-        settings.theme_mode === "custom"
-            ? (settings.background_color ?? BACKGROUND_PRESETS[0])
-            : null;
+        settings.theme_mode === "custom" ? customBackground(settings) : null;
     // light and dark are read from the setting, not back from nativewind,
     // which only catches up after the effect below
     const scheme: ColorScheme = background
