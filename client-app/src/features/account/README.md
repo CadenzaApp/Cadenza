@@ -19,7 +19,7 @@ Supabase provider. Signing out of Apple Music clears only the local MusicKit aut
 Both destructive actions go through the same glass confirmation dialog.
 
 A row on this sheet closes it and opens your public profile on the Social tab, the same
-navigation Discuss uses for an author tap.
+navigation Discuss uses for an author tap. Username and bio are edited on that page.
 
 When `useAppleMusic().sessionExpired` is set, the Apple Music card says the connection needs
 attention and offers a reconnect. This does not prove the user token expired: the flag is set
