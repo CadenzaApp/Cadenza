@@ -1,1 +1,1 @@
-export type { PostTopic, SocialPost } from "@/lib/types";
+export type { PostTopic, SocialComment, SocialPost } from "@/lib/types";

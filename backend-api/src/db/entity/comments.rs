@@ -11,7 +11,7 @@ pub struct Model {
     pub content: String,
     pub likes: i64,
     pub created_at: DateTimeWithTimeZone,
-    #[sea_orm(primary_key, auto_increment = false)]
+    #[sea_orm(primary_key)]
     pub comment_id: i64,
 }
 

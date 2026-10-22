@@ -1,19 +1,20 @@
-//! Social posts, likes, view status, interests, and the ranked feed's SQL.
+//! Social posts, likes, comments, view status, interests, and the ranked feed's SQL.
 //!
 //! Ranking math that does not need the database lives here too. Turning text
 //! into vectors is `services::social_feed`, which calls the python model.
 
 use std::collections::HashMap;
 
-use crate::db::entity::post_likes;
+use crate::db::entity::{comment_likes, comments, post_likes, posts, profile};
 use crate::err::CadenzaError;
 use chrono::{DateTime, TimeZone, Utc};
 use sea_orm::prelude::Uuid;
 use sea_orm::{
     ActiveValue::{NotSet, Set},
     ColumnTrait, ConnectionTrait, DatabaseConnection, DbBackend, DbErr, EntityTrait,
-    FromQueryResult, QueryFilter, Statement, TransactionTrait, Value,
-    sea_query::{ArrayType, OnConflict},
+    FromQueryResult, JoinType, QueryFilter, QueryOrder, QuerySelect, QueryTrait, RuntimeErr,
+    Statement, TransactionTrait, Value,
+    sea_query::{ArrayType, Expr, ExprTrait, Func, OnConflict},
 };
 
 /// How many posts one `/feed` call returns. A shorter page means that exclude
@@ -53,6 +54,20 @@ pub struct SocialPost {
     /// Apple Music catalog id of the attached song or artist, when the author
     /// picked one. Kind is not stored; the client asks MusicKit.
     pub topic_mk_id: Option<String>,
+    pub comment_count: i64,
+}
+
+/// One comment on a post, most liked first.
+#[derive(Clone, Debug)]
+pub struct SocialComment {
+    pub comment_id: i64,
+    pub post_id: i64,
+    pub content: String,
+    pub likes: i64,
+    pub liked: bool,
+    pub created_at: DateTime<Utc>,
+    pub author_id: Uuid,
+    pub author_username: String,
 }
 
 /// Public header for someone else's profile page.
@@ -180,6 +195,172 @@ pub async fn unlike_post(
     Ok(())
 }
 
+/// Inserts a comment and returns its id. `NotFound` when the post is gone.
+pub async fn insert_comment(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+    post_id: i64,
+    content: &str,
+) -> Result<i64, CadenzaError> {
+    // `likes` and `created_at` stay unset so the database stamps them.
+    // A missing post fails `comments_post_id_fkey`, which becomes `NotFound`.
+    // `posts.comments` moves in the same transaction, so a failed insert
+    // never bumps the count.
+    let txn = db.begin().await?;
+    let inserted = comments::Entity::insert(comments::ActiveModel {
+        user_id: Set(user_id),
+        post_id: Set(post_id),
+        content: Set(content.to_owned()),
+        likes: NotSet,
+        created_at: NotSet,
+        comment_id: NotSet,
+    })
+    .exec(&txn)
+    .await;
+    let comment_id = match inserted {
+        Ok(row) => row.last_insert_id,
+        Err(err) if is_missing_post(&err) => {
+            txn.rollback().await?;
+            return Err(CadenzaError::NotFound);
+        }
+        Err(err) => return Err(err.into()),
+    };
+    posts::Entity::update_many()
+        .col_expr(
+            posts::Column::Comments,
+            Expr::col(posts::Column::Comments).add(1),
+        )
+        .filter(posts::Column::PostId.eq(post_id))
+        .exec(&txn)
+        .await?;
+    txn.commit().await?;
+    Ok(comment_id)
+}
+
+/// Comments on `post_id`, most liked first, then newest, then comment id.
+pub async fn get_post_comments(
+    db: &DatabaseConnection,
+    viewer_id: Uuid,
+    post_id: i64,
+) -> Result<Vec<SocialComment>, CadenzaError> {
+    let rows = comments_on_post(viewer_id, post_id)
+        .into_model::<CommentRow>()
+        .all(db)
+        .await?;
+    Ok(rows.iter().map(CommentRow::to_comment).collect())
+}
+
+/// The select behind [`get_post_comments`]. A missing profile becomes
+/// `"unknown"`. `liked` is whether `viewer_id` has a `comment_likes` row.
+fn comments_on_post(viewer_id: Uuid, post_id: i64) -> sea_orm::Select<comments::Entity> {
+    let liked = comment_likes::Entity::find()
+        .select_only()
+        .column(comment_likes::Column::CommentId)
+        .filter(
+            Expr::col((comment_likes::Entity, comment_likes::Column::CommentId))
+                .eq(Expr::col((comments::Entity, comments::Column::CommentId))),
+        )
+        .filter(comment_likes::Column::UserId.eq(viewer_id))
+        .into_query();
+
+    comments::Entity::find()
+        .select_only()
+        .column(comments::Column::CommentId)
+        .column(comments::Column::PostId)
+        .column_as(comments::Column::UserId, "author_id")
+        .column(comments::Column::Content)
+        .column(comments::Column::Likes)
+        .column(comments::Column::CreatedAt)
+        .expr_as(
+            Func::coalesce([
+                Expr::col((profile::Entity, profile::Column::Username)),
+                Expr::val("unknown"),
+            ]),
+            "username",
+        )
+        .expr_as(Expr::exists(liked), "liked")
+        .filter(comments::Column::PostId.eq(post_id))
+        .join(
+            JoinType::LeftJoin,
+            comments::Entity::belongs_to(profile::Entity)
+                .from(comments::Column::UserId)
+                .to(profile::Column::Uid)
+                .into(),
+        )
+        .order_by_desc(comments::Column::Likes)
+        .order_by_desc(comments::Column::CreatedAt)
+}
+
+/// Records a comment like and bumps `likes` only when the row is new.
+pub async fn like_comment(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+    comment_id: i64,
+) -> Result<(), CadenzaError> {
+    let txn = db.begin().await?;
+    let inserted = comment_likes::Entity::insert(comment_likes::ActiveModel {
+        comment_id: Set(comment_id),
+        user_id: Set(user_id),
+        date: NotSet,
+    })
+    .on_conflict(
+        OnConflict::columns([
+            comment_likes::Column::CommentId,
+            comment_likes::Column::UserId,
+        ])
+        .do_nothing()
+        .to_owned(),
+    )
+    .exec_with_returning(&txn)
+    .await;
+    match inserted {
+        Ok(_) => {}
+        Err(DbErr::RecordNotInserted) => {
+            txn.commit().await?;
+            return Ok(());
+        }
+        Err(err) => return Err(err.into()),
+    }
+    comments::Entity::update_many()
+        .col_expr(
+            comments::Column::Likes,
+            Expr::col(comments::Column::Likes).add(1),
+        )
+        .filter(comments::Column::CommentId.eq(comment_id))
+        .exec(&txn)
+        .await?;
+    txn.commit().await?;
+    Ok(())
+}
+
+/// Removes a comment like and drops `likes` only when a row was deleted.
+pub async fn unlike_comment(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+    comment_id: i64,
+) -> Result<(), CadenzaError> {
+    let txn = db.begin().await?;
+    let deleted = comment_likes::Entity::delete_many()
+        .filter(comment_likes::Column::CommentId.eq(comment_id))
+        .filter(comment_likes::Column::UserId.eq(user_id))
+        .exec_with_returning(&txn)
+        .await?;
+    if deleted.is_empty() {
+        txn.commit().await?;
+        return Ok(());
+    }
+    comments::Entity::update_many()
+        .col_expr(
+            comments::Column::Likes,
+            Func::greatest([Expr::col(comments::Column::Likes).sub(1), Expr::value(0)]).into(),
+        )
+        .filter(comments::Column::CommentId.eq(comment_id))
+        .exec(&txn)
+        .await?;
+    txn.commit().await?;
+    Ok(())
+}
+
 /// Inserts `loaded` for ids that have no row yet. Never downgrades `viewed`.
 pub async fn mark_posts_loaded(
     db: &DatabaseConnection,
@@ -247,7 +428,8 @@ pub async fn get_posts(
                  SELECT 1 FROM post_likes
                  WHERE post_likes.post_id = p.post_id
                    AND post_likes.user_id = $1
-             ) AS liked
+             ) AS liked,
+             p.comments AS comment_count
          FROM posts p
          LEFT JOIN profile pr ON pr.uid = p.user_id
          WHERE p.post_id = ANY($2::bigint[])",
@@ -307,7 +489,8 @@ pub async fn get_topic_posts(
                  SELECT 1 FROM post_likes
                  WHERE post_likes.post_id = p.post_id
                    AND post_likes.user_id = $1
-             ) AS liked
+             ) AS liked,
+             p.comments AS comment_count
          FROM posts p
          LEFT JOIN profile pr ON pr.uid = p.user_id
          WHERE p.topic_mk_id = $2
@@ -339,7 +522,8 @@ pub async fn get_author_posts(
                  SELECT 1 FROM post_likes
                  WHERE post_likes.post_id = p.post_id
                    AND post_likes.user_id = $1
-             ) AS liked
+             ) AS liked,
+             p.comments AS comment_count
          FROM posts p
          LEFT JOIN profile pr ON pr.uid = p.user_id
          WHERE p.user_id = $2
@@ -748,6 +932,18 @@ fn is_missing_user(err: &DbErr) -> bool {
     text.contains("23503") && text.contains("interest_scores")
 }
 
+/// True when inserting a comment failed because `post_id` is not in `posts`.
+fn is_missing_post(err: &DbErr) -> bool {
+    let DbErr::Query(RuntimeErr::SqlxError(sqlx_err)) = err else {
+        return false;
+    };
+    let Some(db_err) = sqlx_err.as_database_error() else {
+        return false;
+    };
+    db_err.code().as_deref() == Some("23503")
+        && db_err.constraint() == Some("comments_post_id_fkey")
+}
+
 #[derive(Debug, FromQueryResult)]
 struct PostRow {
     post_id: i64,
@@ -758,6 +954,7 @@ struct PostRow {
     username: String,
     liked: bool,
     topic_mk_id: Option<String>,
+    comment_count: i64,
 }
 
 impl PostRow {
@@ -771,6 +968,34 @@ impl PostRow {
             author_id: self.author_id,
             author_username: self.username.clone(),
             topic_mk_id: self.topic_mk_id.clone(),
+            comment_count: self.comment_count,
+        }
+    }
+}
+
+#[derive(Debug, FromQueryResult)]
+struct CommentRow {
+    comment_id: i64,
+    post_id: i64,
+    author_id: Uuid,
+    content: String,
+    likes: i64,
+    created_at: DateTime<chrono::FixedOffset>,
+    username: String,
+    liked: bool,
+}
+
+impl CommentRow {
+    fn to_comment(&self) -> SocialComment {
+        SocialComment {
+            comment_id: self.comment_id,
+            post_id: self.post_id,
+            content: self.content.clone(),
+            likes: self.likes,
+            liked: self.liked,
+            created_at: self.created_at.with_timezone(&Utc),
+            author_id: self.author_id,
+            author_username: self.username.clone(),
         }
     }
 }
@@ -835,5 +1060,27 @@ mod tests {
     fn vector_literal_round_trips() {
         let text = vector_literal(&[0.5, -1.0, 2.0]);
         assert_eq!(parse_vector(&text).unwrap(), vec![0.5, -1.0, 2.0]);
+    }
+
+    #[test]
+    fn comments_on_post_orders_by_likes_and_marks_the_viewer() {
+        let sql = comments_on_post(Uuid::nil(), 4)
+            .build(DbBackend::Postgres)
+            .to_string();
+        assert!(
+            sql.contains(r#"LEFT JOIN "profile" ON "comments"."user_id" = "profile"."uid""#),
+            "{sql}"
+        );
+        assert!(
+            sql.contains(r#"COALESCE("profile"."username", 'unknown') AS "username""#),
+            "{sql}"
+        );
+        assert!(sql.contains("EXISTS"), "{sql}");
+        assert!(
+            sql.contains(
+                r#"WHERE "comments"."post_id" = 4 ORDER BY "comments"."likes" DESC, "comments"."created_at" DESC, "comments"."comment_id" DESC"#
+            ),
+            "{sql}"
+        );
     }
 }

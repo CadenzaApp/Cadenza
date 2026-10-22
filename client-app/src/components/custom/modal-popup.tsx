@@ -60,27 +60,34 @@ export function ModalPopup({
                 enabled={keyboardAware && !fullscreen}
                 behavior={Platform.OS === "ios" ? "padding" : "height"}
             >
-                <Pressable
+                <View
                     className={cn(
                         fullscreen
                             ? "flex-1 bg-black"
                             : "flex-1 items-center justify-center bg-black/70 px-4 py-8",
                         backdropClassName,
                     )}
-                    onPress={onClose}
                 >
                     <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="Dismiss"
+                        onPress={onClose}
+                        style={StyleSheet.absoluteFill}
+                    />
+                    <View
                         accessibilityViewIsModal
+                        collapsable={false}
                         className={cn(
+                            "z-10",
                             fullscreen
                                 ? "flex-1 self-stretch"
                                 : "w-[70%] max-w-[400px] min-w-[240px] gap-2 overflow-hidden rounded-2xl p-4",
                             !fullscreen &&
-                                variant === "solid" &&
-                                "border border-border bg-popover shadow-lg shadow-black/5",
+                                (variant === "solid"
+                                    ? "border border-border bg-popover shadow-lg shadow-black/5"
+                                    : "bg-transparent"),
                         )}
                         style={fullscreen ? styles.fullscreen : contentStyle}
-                        onPress={(event) => event.stopPropagation()}
                     >
                         {variant === "glass" ? (
                             <View
@@ -104,8 +111,8 @@ export function ModalPopup({
                             </Text>
                         ) : null}
                         {children}
-                    </Pressable>
-                </Pressable>
+                    </View>
+                </View>
             </KeyboardAvoidingView>
         </Modal>
     );

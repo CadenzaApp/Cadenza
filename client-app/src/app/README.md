@@ -14,7 +14,7 @@ logic out.
 | `(tabs)/_layout.tsx`                 |                           | Protected native tab group, its five triggers, and the media-player bottom accessory.                         |
 | `(tabs)/*/_layout.tsx`               |                           | One native `Stack` per tab, using `TabStack` for the shared top rail.                                         |
 | `(tabs)/social/index.tsx`            | `/social`                 | The ranked social feed.                                                                                       |
-| `(tabs)/social/user/[userId].tsx`    | `/social/user/:userId`    | One user's public profile (username, bio) and their posts, newest first.                                      |
+| `(tabs)/social/user/[userId].tsx`    | `/social/user/:userId`    | One user's public profile (username, bio) and their posts, newest first. Your own page edits both. |
 | `(tabs)/analytics/index.tsx`         | `/analytics`              | The overview: header, #1 hero, stats, heatmap, tag rail, and one card for every ranking.                      |
 | `(tabs)/analytics/[dimension].tsx`   | `/analytics/[dimension]`  | One full ranking. `dimension` is a name from the client's dimension registry.                                 |
 | `(tabs)/analytics/listened.tsx`      | `/analytics/listened`     | The songs listened to in one heatmap hour. Params: `since`, `until`, `title`, optional `tag`.                 |
@@ -156,7 +156,9 @@ already.
 
 Every tab is a directory with a native `Stack` from `TabStack`. `TopRail` is that stack's
 header. The page title sits on the left, the account
-initials button sits on the right, and the button opens `/account`.
+initials button sits on the right, and the button opens `/account`. The Social feed
+adds a "Me" button next to create post; that button pushes
+`/social/user/:userId` on the social stack.
 
 The rail floats over the page; it is not part of it. The screen's scroller pads its content's top
 by the rail's measured height plus `RAIL_CONTENT_GAP`, the same on every page, replacing the page's
@@ -218,6 +220,10 @@ no "Now Playing" title and no Discuss / Player / Tags selector, and it does not 
 replace whatever is playing. The sheet's own Discuss page is still the pager tab for the
 song the sheet is focused on. Tapping an author on either Discuss surface closes that
 screen and opens `/social/user/:userId` on the Social tab, with the feed still underneath.
+Account's "Your Social Page" row uses that same navigation for your own page. The Social
+feed's "Me" button pushes `/social/user/:userId` on the social stack, like a feed
+author tap. On your own profile, Edit on the username row replaces the header with
+the username and bio form, and Save changes writes them with `PATCH /profile`.
 Song menus edit tags in their own `TagSelector` popup
 instead of routing through this sheet.
 

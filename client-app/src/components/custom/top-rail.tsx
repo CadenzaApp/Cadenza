@@ -47,6 +47,10 @@ export function TopRail({ title, onBack, actions, route }: Props) {
     const progress = floating?.reveal.progress;
     const height = floating?.height ?? 0;
 
+    function handleProfilePress() {
+        router.push("/account");
+    }
+
     const fadeStyle = useAnimatedStyle(() => {
         if (!progress) return {};
         const shown = progress.get();
@@ -101,7 +105,7 @@ export function TopRail({ title, onBack, actions, route }: Props) {
                     {actions}
                     <GlassIconButton
                         accessibilityLabel="Open account"
-                        onPress={() => router.push("/account")}
+                        onPress={handleProfilePress}
                     >
                         <Text className="text-sm font-semibold">
                             {getAccountInitials(account?.email)}
