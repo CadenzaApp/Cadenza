@@ -18,6 +18,7 @@ import {
     type ViewProps,
 } from "react-native";
 
+import { PALETTE, useOptionalAppTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 
 /**
@@ -62,14 +63,10 @@ const FALLBACK_TINT: Record<"light" | "dark", BlurTint> = {
 const GlassLayerContext = createContext(false);
 
 /**
- * The fill nested glass paints, a wash of the text color. `regular` reads a
- * step stronger than `clear`, so a pill still shows on its track.
+ * How strongly nested glass paints `glassNestedFill`, a wash of the text
+ * color. `regular` reads a step stronger than `clear`, so a pill still shows
+ * on its track.
  */
-const NESTED_FILL: Record<"light" | "dark", string> = {
-    light: "#000000",
-    dark: "#ffffff",
-};
-
 const NESTED_FILL_OPACITY: Record<GlassSurfaceVariant, number> = {
     regular: 0.1,
     clear: 0.05,
@@ -82,14 +79,9 @@ const FALLBACK_INTENSITY: Record<GlassSurfaceVariant, number> = {
 
 /**
  * Android glass has no live blur unless a `GlassBlurTarget` is mounted, so it
- * falls back to a near solid fill. These match `--card` in global.css. Raise
- * the opacity toward 1 if content still shows through too much.
+ * falls back to a near solid `card` fill. Raise the opacity toward 1 if
+ * content still shows through too much.
  */
-const ANDROID_FILL: Record<"light" | "dark", string> = {
-    light: "#fcfcfc",
-    dark: "#171717",
-};
-
 const ANDROID_FILL_OPACITY: Record<GlassSurfaceVariant, number> = {
     regular: 0.94,
     clear: 0.82,
@@ -125,6 +117,25 @@ export function GlassSurface({
     const scheme = surfaceScheme ?? (colorScheme === "dark" ? "dark" : "light");
     const blurTarget = useContext(BlurTargetContext);
     const nested = useContext(GlassLayerContext);
+    const appTheme = useOptionalAppTheme();
+    const userGlass = appTheme?.glass;
+    // the app's own resolved colors, so a custom background reaches the
+    // fallback fills. Artwork-colored glass keeps the stock palette
+    const palette =
+        appTheme && !surfaceScheme ? appTheme.colors : PALETTE[scheme];
+
+    // the user's glass choices apply to top level glass in the app's own
+    // colors. Glass on glass and artwork-colored glass keep their look, or the
+    // wash would stack
+    const followsUser = !nested && !surfaceScheme;
+    const resolvedTint =
+        tintColor ?? (followsUser ? (userGlass?.tint ?? undefined) : undefined);
+    // Tinted dims glass toward the card color. Glass that brings its own color,
+    // like a toggle on, keeps that color true
+    const tintedFill =
+        followsUser && tintColor == null && userGlass?.style === "tinted" ? (
+            <TintedFill color={palette.card} />
+        ) : null;
 
     // Everything below can hold children, so they learn they are on glass.
     const content = <GlassLayer>{children}</GlassLayer>;
@@ -137,12 +148,13 @@ export function GlassSurface({
                     style={[
                         StyleSheet.absoluteFill,
                         {
-                            backgroundColor: NESTED_FILL[scheme],
+                            backgroundColor: palette.glassNestedFill,
                             opacity: NESTED_FILL_OPACITY[variant],
                         },
                     ]}
                 />
-                <FallbackTint color={tintColor} />
+                <FallbackTint color={resolvedTint} />
+                {tintedFill}
                 {content}
             </View>
         );
@@ -156,11 +168,12 @@ export function GlassSurface({
                 style={[
                     rest.style,
                     surfaceScheme
-                        ? { backgroundColor: ANDROID_FILL[scheme] + "cc" }
+                        ? { backgroundColor: palette.card + "cc" }
                         : undefined,
                 ]}
             >
-                <FallbackTint color={tintColor} />
+                <FallbackTint color={resolvedTint} />
+                {tintedFill}
                 {content}
             </View>
         );
@@ -171,10 +184,11 @@ export function GlassSurface({
             <GlassView
                 glassEffectStyle={variant}
                 colorScheme={scheme}
-                tintColor={tintColor}
+                tintColor={resolvedTint}
                 className={className}
                 {...rest}
             >
+                {tintedFill}
                 {content}
             </GlassView>
         );
@@ -197,12 +211,13 @@ export function GlassSurface({
                     style={[
                         StyleSheet.absoluteFill,
                         {
-                            backgroundColor: ANDROID_FILL[scheme],
+                            backgroundColor: palette.card,
                             opacity: ANDROID_FILL_OPACITY[variant],
                         },
                     ]}
                 />
-                <FallbackTint color={tintColor} />
+                <FallbackTint color={resolvedTint} />
+                {tintedFill}
                 {content}
             </View>
         );
@@ -219,7 +234,8 @@ export function GlassSurface({
             className={className}
             {...rest}
         >
-            <FallbackTint color={tintColor} />
+            <FallbackTint color={resolvedTint} />
+            {tintedFill}
             {content}
         </BlurView>
     );
@@ -285,6 +301,25 @@ export function GlassBlurTarget({ children, ...rest }: ViewProps) {
                 {children}
             </BlurTargetContext.Provider>
         </BlurTargetView>
+    );
+}
+
+/**
+ * How much of the card color Tinted glass lays over the glass. iOS 26.1's own
+ * Tinted setting raises opacity the same way, and apps cannot read it.
+ */
+const TINTED_FILL_OPACITY = 0.55;
+
+/** The extra opacity of Tinted glass. */
+function TintedFill({ color }: { color: string }) {
+    return (
+        <View
+            pointerEvents="none"
+            style={[
+                StyleSheet.absoluteFill,
+                { backgroundColor: color, opacity: TINTED_FILL_OPACITY },
+            ]}
+        />
     );
 }
 
