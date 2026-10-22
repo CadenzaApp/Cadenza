@@ -332,7 +332,7 @@ artwork. Two sources, in order:
 1. `artworkColor` off the item, which is Apple's own and is what Music tints with. Free, and
    synchronous.
 2. Failing that, the average of the image, through `@image-color`. A download and a decode, so
-   it goes through SWR keyed on the artwork URL.
+   it goes through immutable SWR keyed on the artwork URL.
 
 Library artwork usually has no color of its own, which is the only reason the second path
 exists. Expo Go has no native module for it and returns null, and a null tint renders untinted.
@@ -344,8 +344,13 @@ page background. `DetailScreen` uses it for the full-screen player, and track co
 hand their source color to `TrackCollectionView`, which uses the same object over its full content
 height. Query results use the shared collection-artwork hook to
 rank one four-cell sample, convert those colors to Oklab, average their channels, and convert the
-result back to RGB for that source color. Fixed endpoint colors beneath the list keep elastic
-overscroll seamless.
+result back to RGB for that source color. One clamped backdrop keeps elastic overscroll seamless.
+Color sampling and artist gradients live in `artwork-color-utils.ts`; `surface-contrast-context.tsx`
+shares content-position palettes with headings, rows, and floating controls.
+
+`musickit-hooks.ts::useArtistPreview` warms artist details, portrait tint, and native image caches.
+It shares immutable SWR keys with the destination, avoiding repeat reads on mount/focus/reconnect.
+Artist keys include the Apple Music session revision; image/color keys use artwork URLs.
 
 Hand `useArtworkTint` the **small** artwork. Averaging only needs a thumbnail, and a hero-sized
 one costs a megabyte to reach the same answer. `ArtworkSource.artworkUrlSmall` wins over
@@ -430,6 +435,13 @@ whole way, and starts at once. Glass on a page that starts see-through renders f
 flat, so the page is never faded on the way in, only on the way out. A screen reports where its
 artwork is through `focus`, as it scrolls; `TrackCollectionView` measures its hero against the page
 with `measureLayout`, which ignores transforms, and the close snapshots it as it sets off.
+Source rectangles are full-window targets. iOS form sheets use `ZoomSheetSourceScope` to cancel
+the sheet's Fabric layout-tree origin and add its physical position from its measured height.
+This includes the Now Playing header without hardcoding its height. Destination cards already
+fill the window and consume these targets directly.
+The scroll worklet starts closing on the UI thread; JavaScript pops after the animation.
+`useZoomSource("point")` anchors artist cards at the label center. The `fromPlayer` option of
+`useOpenScreen` keeps the player and its history underneath the destination.
 `opened` says when the card has finished growing, and `useOpenTransitionSettled` waits for it, since
 these screens have no native transition to wait for. An earlier version resized a clip every frame
 to collapse the page first, and the layout work made both directions stutter.

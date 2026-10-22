@@ -52,24 +52,33 @@ behavior in this primitive rather than rebuilding a glass modal at each call sit
 
 `glass-icon-button.tsx` exports `GlassIconButton`, a round icon button built on it. Header actions,
 detail-screen controls, and every floating circular action use it. Reach for it rather than
-hand-rolling another circle of glass.
+hand-rolling another circle of glass. Close controls use `bordered={false}`; `surfaceScheme`
+selects the material appearance independently of the app theme.
 
 `glass-toggle.tsx` exports `GlassToggle`, the on/off switch. The track is glass and tints with the
 nav theme's notification color while on. Account settings and the query builder both use it.
 
 `tint-backdrop.tsx` exports `TintBackdrop`, the colored wash behind a page. It requires the single
-gradient object returned by `useTintGradient`, which reduces the source chroma and interpolates the
+gradient object, normally returned by `useTintGradient`, which reduces the source chroma and interpolates the
 light/dark-mode endpoints in Oklch before the native RGB renderer sees them. Dropped into a
 scroller's content it fills and scrolls with it, and every page runs it the full length. The color
 at a point depends on how far down the page it is: the top color keeps a 1/x share with x going 1
 to 2 down the page (`tintFadeAt`), so a long page never bottoms out in the end color. It renders
 nothing for a null gradient, so callers mount it unconditionally. On iOS expo-linear-gradient redraws a
 bitmap the size of the view on every resize, so the gradient is drawn at a fixed 256pt and scaled
-to the page. Do not swap in a page-tall `LinearGradient`: the redraw stalls the tab bar's glass. A new gradient, a page's first one included, fades in over a second through
-`crossfade.tsx`, which fades the new layer in over the old one and drops the old one once it lands.
-The artist hero's bottom fade runs through it too, so it keeps pace with the page. `TintOverscrollBackdrop` paints the exact start color above the exact end color
-under a scrolling gradient. Its center boundary stays covered by content, while elastic scrolling
-reveals a matching solid endpoint. `DetailScreen` and `TrackCollectionView` share that same hook.
+to the page. Do not swap in a page-tall `LinearGradient`: the redraw stalls the tab bar's glass.
+New colors apply immediately, with black/white collection loading backgrounds per mode.
+`TintOverscrollBackdrop` paints one continuous gradient outside the list, clamped through rubber
+banding. Its sizing depends on layout; scrolling only moves a transform. Do not split it into
+endpoint fills: their boundary becomes visible during dismissal.
+
+`SurfaceContrastProvider` owns the tinted container and shares its measured viewport with the
+backdrop and Oklab contrast sampling. Text regions sample their content position; close icons
+and glass update only when contrast polarity changes. Solid buttons retain their theme colors.
+The artist portrait uses a raster-cached alpha mask; its album rail virtualizes cached covers.
+Zoom opens pause skeletons with `animate-none`, avoiding NativeWind remounts when pulsing resumes.
+Heavy rows, duplicate closing artwork, and auto-pagination wait until the zoom settles; pagination
+also requires focus.
 
 `nebula-backdrop.tsx` exports `NebulaBackdrop`, soft SVG blobs of up to five colors glowing up
 from the bottom, used only by the Analytics overview. Unlike `TintBackdrop` it is fixed to the
@@ -296,7 +305,8 @@ options popup with a `TagSelector` popup for that song.
 Gotchas carried over from before the two "..." menus were merged: `SongOptionsMenu` resolves the
 song's artist (for Go to Artist) as soon as it mounts, which is only while the menu is open, so
 nothing above it costs a catalog lookup on every song that plays; Go to Artist is disabled for a
-library-only song, which has none.
+library-only song, which has none. `useArtistPreview` shares the destination's SWR and image
+caches to warm artist details, portrait color, and artwork while the menu is open.
 
 ## Connects to
 

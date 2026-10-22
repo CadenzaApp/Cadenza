@@ -6,7 +6,7 @@ import { View } from "react-native";
 import { CollectionOptionsMenu } from "@/components/custom/options-menu/collection-options-menu";
 import { TrackCollectionView } from "@/components/custom/track-collection-view";
 import { FloatingCloseButton } from "@/components/ui/floating-close-button";
-import { Text } from "@/components/ui/text";
+import { ContrastText as Text } from "@/lib/surface-contrast-context";
 import { useArtworkTint } from "@/lib/artwork-color";
 import { useCollectionSongsOrFallback } from "@/lib/musickit-hooks";
 import { isTrackInCollection } from "@/lib/playable-item";
