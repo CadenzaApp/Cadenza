@@ -103,6 +103,20 @@ pub struct QueryMatch {
 /// The stored metadata condition for a song Apple rates explicit.
 const EXPLICIT_RATING: &str = "meta.content_rating = 'explicit'";
 
+/// How a query runs, beyond the query itself. `Default` is every song Cadenza
+/// knows, only the user's own tags, nothing hidden, most relevant first.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct QueryOptions {
+    /// A song's shared default tags count as tags on it too.
+    pub consider_default_tags: bool,
+    /// Only the user's `user_songs` rows, so nothing is capped.
+    pub library_only: bool,
+    /// A song Apple rates explicit never matches.
+    pub hide_explicit: bool,
+    /// None for most relevant first.
+    pub sort: Option<QuerySort>,
+}
+
 /// Returns every song matching the given query, in order.
 ///
 /// The query runs over every song Cadenza knows (see [`OWN_QUERY_SONGS`] and
@@ -129,10 +143,7 @@ pub async fn run_query(
     db: &DatabaseConnection,
     query: &Query,
     user_id: Uuid,
-    consider_default_tags: bool,
-    library_only: bool,
-    hide_explicit: bool,
-    sort: Option<QuerySort>,
+    options: QueryOptions,
 ) -> Result<QueryMatches, CadenzaError> {
     check_size(&query.root)?;
 
@@ -141,18 +152,9 @@ pub async fn run_query(
     let QueryableTags {
         tag_types,
         defaults,
-    } = get_queryable_tags(db, user_id, &tag_ids, consider_default_tags).await?;
+    } = get_queryable_tags(db, user_id, &tag_ids, options.consider_default_tags).await?;
 
-    let (sql, values) = compile_query(
-        query,
-        &tag_types,
-        &defaults,
-        user_id,
-        consider_default_tags,
-        library_only,
-        hide_explicit,
-        sort,
-    )?;
+    let (sql, values) = compile_query(query, &tag_types, &defaults, user_id, options)?;
 
     let songs = QueryMatch::find_by_statement(Statement::from_sql_and_values(
         DbBackend::Postgres,
@@ -366,11 +368,14 @@ fn compile_query(
     tag_types: &HashMap<i64, TagType>,
     defaults: &TagDefaults,
     user_id: Uuid,
-    consider_default_tags: bool,
-    library_only: bool,
-    hide_explicit: bool,
-    sort: Option<QuerySort>,
+    options: QueryOptions,
 ) -> Result<(String, Vec<sea_query::Value>), CadenzaError> {
+    let QueryOptions {
+        consider_default_tags,
+        library_only,
+        hide_explicit,
+        sort,
+    } = options;
     let applied_tags = applied_tags_source(consider_default_tags);
     let mut compiler = Compiler {
         tag_types,
@@ -1163,10 +1168,12 @@ mod tests {
             &tag_types(),
             &TagDefaults::default(),
             Uuid::nil(),
-            false,
-            false,
-            false,
-            None,
+            QueryOptions {
+                consider_default_tags: false,
+                library_only: false,
+                hide_explicit: false,
+                sort: None,
+            },
         )
     }
 
@@ -1176,10 +1183,12 @@ mod tests {
             &tag_types(),
             &TagDefaults::default(),
             Uuid::nil(),
-            true,
-            false,
-            false,
-            None,
+            QueryOptions {
+                consider_default_tags: true,
+                library_only: false,
+                hide_explicit: false,
+                sort: None,
+            },
         )
     }
 
@@ -1194,10 +1203,12 @@ mod tests {
                 ..TagDefaults::default()
             },
             Uuid::nil(),
-            false,
-            false,
-            false,
-            None,
+            QueryOptions {
+                consider_default_tags: false,
+                library_only: false,
+                hide_explicit: false,
+                sort: None,
+            },
         )
         .unwrap()
         .0
@@ -1691,10 +1702,12 @@ mod tests {
             &tag_types(),
             &TagDefaults::default(),
             Uuid::nil(),
-            false,
-            true,
-            false,
-            None,
+            QueryOptions {
+                consider_default_tags: false,
+                library_only: true,
+                hide_explicit: false,
+                sort: None,
+            },
         )
         .unwrap();
         let sql = squash(&sql);
@@ -1734,10 +1747,12 @@ mod tests {
             ]),
             &defaults,
             Uuid::nil(),
-            false,
-            false,
-            false,
-            None,
+            QueryOptions {
+                consider_default_tags: false,
+                library_only: false,
+                hide_explicit: false,
+                sort: None,
+            },
         )
         .map(|(sql, _)| squash(&sql))
     }
@@ -1794,10 +1809,12 @@ mod tests {
                     ..TagDefaults::default()
                 },
                 Uuid::nil(),
-                false,
-                false,
-                false,
-                None,
+                QueryOptions {
+                    consider_default_tags: false,
+                    library_only: false,
+                    hide_explicit: false,
+                    sort: None
+                },
             ),
             Err(CadenzaError::QueryFormatError(_))
         ));
@@ -1836,10 +1853,12 @@ mod tests {
                 &tag_types(),
                 &TagDefaults::default(),
                 Uuid::nil(),
-                false,
-                false,
-                false,
-                sort,
+                QueryOptions {
+                    consider_default_tags: false,
+                    library_only: false,
+                    hide_explicit: false,
+                    sort,
+                },
             )
             .unwrap();
             let order = order_by(sort);
@@ -2101,10 +2120,12 @@ mod tests {
                     &tag_types(),
                     &TagDefaults::default(),
                     Uuid::nil(),
-                    false,
-                    false,
-                    hide_explicit,
-                    None,
+                    QueryOptions {
+                        consider_default_tags: false,
+                        library_only: false,
+                        hide_explicit,
+                        sort: None,
+                    },
                 )
                 .unwrap()
                 .0,
@@ -2271,10 +2292,12 @@ mod tests {
             tag_types,
             &TagDefaults::default(),
             user_id,
-            false,
-            false,
-            false,
-            sort,
+            QueryOptions {
+                consider_default_tags: false,
+                library_only: false,
+                hide_explicit: false,
+                sort,
+            },
         )
         .unwrap();
         QueryMatch::find_by_statement(Statement::from_sql_and_values(
@@ -2516,10 +2539,12 @@ mod tests {
                 &types,
                 &TagDefaults::default(),
                 user_id,
-                false,
-                true,
-                false,
-                None,
+                QueryOptions {
+                    consider_default_tags: false,
+                    library_only: true,
+                    hide_explicit: false,
+                    sort: None,
+                },
             )
             .unwrap();
             let txn = &txn;
@@ -2625,10 +2650,12 @@ mod tests {
                 &types,
                 &defaults,
                 user_id,
-                false,
-                false,
-                false,
-                None,
+                QueryOptions {
+                    consider_default_tags: false,
+                    library_only: false,
+                    hide_explicit: false,
+                    sort: None,
+                },
             )
             .unwrap();
             let txn = &txn;
@@ -2799,13 +2826,13 @@ mod tests {
             &tag_types(),
             &TagDefaults::default(),
             user_id,
-            false,
-            false,
-            false,
-            Some(QuerySort {
-                key: QuerySortKey::Title,
-                direction: SortDirection::Ascending,
-            }),
+            QueryOptions {
+                sort: Some(QuerySort {
+                    key: QuerySortKey::Title,
+                    direction: SortDirection::Ascending,
+                }),
+                ..Default::default()
+            },
         )
         .unwrap();
         let rows = QueryMatch::find_by_statement(Statement::from_sql_and_values(

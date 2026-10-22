@@ -265,7 +265,7 @@ each other. A whole slot list is one column, so two devices editing the same lis
 `get_settings` returns defaults for a user with no row. They must match the column defaults in
 the SQL and `DEFAULT_USER_SETTINGS` in `client-app/src/lib/routes/settings.tsx`.
 
-`hide_explicit` also reaches the query compiler: `compile_query` ANDs a `NOT EXISTS` on
+`hide_explicit` also reaches the query compiler, read from the saved setting by the `/queries/results` handler and passed in `QueryOptions`: `compile_query` ANDs a `NOT EXISTS` on
 `content_rating = 'explicit'` onto both halves before the discovered cap. A song with no stored
 metadata has no rating and is not hidden.
 
