@@ -8,7 +8,7 @@ import {
     type PressableProps,
 } from "react-native";
 
-import { GlassSurface } from "@/components/ui/glass-surface";
+import { GlassLayer, GlassSurface } from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
 import { useAppTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
@@ -43,7 +43,9 @@ export function GlassSettingsPanel({
                     style={StyleSheet.absoluteFill}
                 />
             </View>
-            {children}
+            {/* the glass is a sibling layer, so tell the children they sit on
+                it. pills and toggles then skip the tint the panel already has */}
+            <GlassLayer>{children}</GlassLayer>
         </View>
     );
 }
