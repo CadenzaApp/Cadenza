@@ -7,7 +7,7 @@ actions. Appearance and the other marked settings are local previews only.
 
 | file                            | role                                                                                                                                               |
 | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `account-settings.tsx`          | Account cards, profile username/bio editing, a row that opens your social page, authentication actions, suggested-tag display setting, content toggle, privacy, and sync stub. |
+| `account-settings.tsx`          | Account cards, a row that opens your social page, authentication actions, suggested-tag display setting, content toggle, privacy, and sync stub. |
 | `appearance-settings.tsx`       | Session-only color controls and preview.                                                                                                           |
 | `settings-ui.tsx`               | Shared glass panels, rows, icons, and the TODO badge.                                                                                              |
 | `apple-music-session-guard.tsx` | `AppleMusicSessionGuard`: renders nothing, opens this sheet once when Apple rejects the stored music-user token. Mounted in `src/app/_layout.tsx`. |
@@ -18,10 +18,8 @@ Both routes stay standard `DetailScreen` sheets. Signing out of Cadenza uses the
 Supabase provider. Signing out of Apple Music clears only the local MusicKit authorization.
 Both destructive actions go through the same glass confirmation dialog.
 
-The Profile panel loads the signed-in user's row from `GET /profile` and saves with
-`PATCH /profile`. Username is capped at 64 characters and cannot contain `@`. Bio is capped
-at 500. Empty bio is allowed. A row under that panel closes this sheet and opens your public
-profile on the Social tab, the same navigation Discuss uses for an author tap.
+A row on this sheet closes it and opens your public profile on the Social tab, the same
+navigation Discuss uses for an author tap.
 
 When `useAppleMusic().sessionExpired` is set, the Apple Music card says the connection needs
 attention and offers a reconnect. This does not prove the user token expired: the flag is set
@@ -42,7 +40,6 @@ local unavailable feedback and does not call MusicKit or the backend.
 ## Connects to
 
 - `@/lib/account` for the Cadenza session.
-- `@/lib/routes/profile` for reading and updating username and bio.
 - `@/lib/use-open-social-profile` to leave this sheet and open your Social tab profile.
 - `@/lib/apple-music-auth` for Apple Music authorization.
 - `@/lib/music-list-preferences` for the persisted suggested-tag display setting.
