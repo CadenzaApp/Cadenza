@@ -51,20 +51,21 @@ logic out.
 ```
 GestureHandlerRootView
   AccountProvider          supabase session -> who is signed in
-    AppleMusicProvider     apple music auth, restored from secure store
-      TasksProvider        background task state
-        SongInitProvider   syncs the apple music library into user_songs after auth
-          PlaybackProvider     reads the native playback snapshot
-            AppThemeProvider   user's mode, accent, and glass into css vars, nav theme, useAppTheme
-              MusicListPreferencesProvider moves the old device-local tag preference onto /settings once
-                BottomBarVisibilityProvider   temporary native-tab visibility exceptions
-                  ZoomOriginProvider          per-navigation zoom launch measurements
-                    Stack                     the routes
-                    AppleMusicSessionGuard    opens /account when the apple music token dies
-                    InterestPlayTracker       scores the artist and genres of each song played for 5 seconds
-                    InterestDecay             decays the user's interest scores once per launch
-                    TasksHost                 background task status
-                    PortalHost                where dialogs and modals render
+    UserSettingsProvider   the user's /settings, read once; the splash waits for it
+      AppleMusicProvider     apple music auth, restored from secure store
+        TasksProvider        background task state
+          SongInitProvider   syncs the apple music library into user_songs after auth
+            PlaybackProvider     reads the native playback snapshot
+              AppThemeProvider   user's mode, accent, and glass into css vars, nav theme, useAppTheme
+                MusicListPreferencesProvider moves the old device-local tag preference onto /settings once
+                  BottomBarVisibilityProvider   temporary native-tab visibility exceptions
+                    ZoomOriginProvider          per-navigation zoom launch measurements
+                      Stack                     the routes
+                      AppleMusicSessionGuard    opens /account when the apple music token dies
+                      InterestPlayTracker       scores the artist and genres of each song played for 5 seconds
+                      InterestDecay             decays the user's interest scores once per launch
+                      TasksHost                 background task status
+                      PortalHost                where dialogs and modals render
 ```
 
 `LibraryCategoriesProvider` (`@/features/library`) sits inside `AppThemeProvider` and wraps both

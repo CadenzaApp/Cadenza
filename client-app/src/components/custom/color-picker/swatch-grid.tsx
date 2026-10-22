@@ -39,6 +39,11 @@ type SwatchGridProps = {
     onEdit: (slots: SwatchSlots, selected: string | null) => void;
     /** What the picker opens on for a new color. */
     newColorStart: string;
+    /**
+     * False while `slots` may be stand-ins, before the saved slots load, so an
+     * edit cannot save the stand-ins over them. Picking still works.
+     */
+    editable?: boolean;
 };
 
 /**
@@ -60,6 +65,7 @@ export function SwatchGrid({
     onSelect,
     onEdit,
     newColorStart,
+    editable = true,
 }: SwatchGridProps) {
     const [editing, setEditing] = useState<Editing | null>(null);
     const emptySlot = firstEmptySlot(slots);
@@ -88,6 +94,7 @@ export function SwatchGrid({
                 <EmptySlot
                     key={`slot-${index}`}
                     size={swatchSize}
+                    disabled={!editable}
                     onPress={() => setEditing({ index, mode: "add" })}
                 />
             );
@@ -100,10 +107,16 @@ export function SwatchGrid({
                 color={color}
                 selected={index === selectedIndex}
                 onPress={() => onSelect(color)}
-                onLongPress={() => {
-                    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    setEditing({ index, mode: "edit" });
-                }}
+                onLongPress={
+                    editable
+                        ? () => {
+                              void Haptics.impactAsync(
+                                  Haptics.ImpactFeedbackStyle.Light,
+                              );
+                              setEditing({ index, mode: "edit" });
+                          }
+                        : undefined
+                }
             />
         );
     }
@@ -123,7 +136,7 @@ export function SwatchGrid({
         <AddButton
             key="add"
             size={swatchSize}
-            disabled={emptySlot === -1}
+            disabled={!editable || emptySlot === -1}
             onPress={() => setEditing({ index: emptySlot, mode: "add" })}
         />,
     ].filter((cell) => cell !== null);
@@ -231,11 +244,21 @@ function Swatch({
 }
 
 /** A dashed circle that fills with a new color when tapped. */
-function EmptySlot({ size, onPress }: { size: number; onPress: () => void }) {
+function EmptySlot({
+    size,
+    disabled,
+    onPress,
+}: {
+    size: number;
+    disabled: boolean;
+    onPress: () => void;
+}) {
     return (
         <Pressable
             accessibilityRole="button"
             accessibilityLabel="Add a color here"
+            accessibilityState={{ disabled }}
+            disabled={disabled}
             onPress={onPress}
             hitSlop={4}
             className="active:opacity-60"

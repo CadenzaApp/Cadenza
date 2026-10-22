@@ -27,7 +27,7 @@ export function TagColorPicker({
     selectedColor: string;
     onSelectColor: (color: string) => void;
 }) {
-    const { settings, updateSettings } = useUserSettings();
+    const { settings, settingsLoaded, updateSettings } = useUserSettings();
     const swatchSize = Math.min(
         MAX_SWATCH_SIZE,
         Math.floor((width - GRID_GAP * (COLOR_COLUMNS - 1)) / COLOR_COLUMNS),
@@ -56,6 +56,7 @@ export function TagColorPicker({
                 if (selected) onSelectColor(selected);
             }}
             newColorStart={selectedColor}
+            editable={settingsLoaded}
         />
     );
 }

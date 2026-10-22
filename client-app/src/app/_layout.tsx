@@ -19,6 +19,7 @@ import { PortalHost } from "@rn-primitives/portal";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { MediaPlayerPushedScreenOverlay } from "@/components/custom/media-player";
 import { MusicListPreferencesProvider } from "@/lib/music-list-preferences";
+import { UserSettingsProvider } from "@/lib/routes/settings";
 import { InterestPlayTracker } from "@/lib/interest-play-tracker";
 import { InterestDecay } from "@/lib/interest-decay";
 
@@ -28,33 +29,35 @@ export default function RootLayout() {
     return (
         <GestureHandlerRootView style={{ flex: 1 }}>
             <AccountProvider>
-                <AppleMusicProvider>
-                    <TasksProvider>
-                        <SongInitProvider>
-                            <ListeningEventProvider>
-                                <PlaybackProvider>
-                                    <AppThemeProvider>
-                                        <MusicListPreferencesProvider>
-                                            <BottomBarVisibilityProvider>
-                                                <LibraryCategoriesProvider>
-                                                    <ZoomOriginProvider>
-                                                        <RootStack />
-                                                        <AppleMusicSessionGuard />
-                                                        <MediaPlayerPushedScreenOverlay />
-                                                        <InterestPlayTracker />
-                                                        <InterestDecay />
-                                                        <TasksHost />
-                                                        <PortalHost />
-                                                    </ZoomOriginProvider>
-                                                </LibraryCategoriesProvider>
-                                            </BottomBarVisibilityProvider>
-                                        </MusicListPreferencesProvider>
-                                    </AppThemeProvider>
-                                </PlaybackProvider>
-                            </ListeningEventProvider>
-                        </SongInitProvider>
-                    </TasksProvider>
-                </AppleMusicProvider>
+                <UserSettingsProvider>
+                    <AppleMusicProvider>
+                        <TasksProvider>
+                            <SongInitProvider>
+                                <ListeningEventProvider>
+                                    <PlaybackProvider>
+                                        <AppThemeProvider>
+                                            <MusicListPreferencesProvider>
+                                                <BottomBarVisibilityProvider>
+                                                    <LibraryCategoriesProvider>
+                                                        <ZoomOriginProvider>
+                                                            <RootStack />
+                                                            <AppleMusicSessionGuard />
+                                                            <MediaPlayerPushedScreenOverlay />
+                                                            <InterestPlayTracker />
+                                                            <InterestDecay />
+                                                            <TasksHost />
+                                                            <PortalHost />
+                                                        </ZoomOriginProvider>
+                                                    </LibraryCategoriesProvider>
+                                                </BottomBarVisibilityProvider>
+                                            </MusicListPreferencesProvider>
+                                        </AppThemeProvider>
+                                    </PlaybackProvider>
+                                </ListeningEventProvider>
+                            </SongInitProvider>
+                        </TasksProvider>
+                    </AppleMusicProvider>
+                </UserSettingsProvider>
             </AccountProvider>
         </GestureHandlerRootView>
     );

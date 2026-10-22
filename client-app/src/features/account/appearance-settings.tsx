@@ -61,7 +61,8 @@ const SWATCH_SLOTS = 10;
 export function AppearanceSettingsScreen() {
     const insets = useSafeAreaInsets();
     const { account } = useAccount();
-    const { settings, updateSettings, updateSettingsErr } = useUserSettings();
+    const { settings, settingsLoaded, updateSettings, updateSettingsErr } =
+        useUserSettings();
     const { scheme } = useAppTheme();
 
     if (!account) {
@@ -152,6 +153,7 @@ export function AppearanceSettingsScreen() {
                                     })
                                 }
                                 newColorStart={customBackground}
+                                editable={settingsLoaded}
                             />
                         </SwatchPanel>
                     </Section>
@@ -183,6 +185,7 @@ export function AppearanceSettingsScreen() {
                                 })
                             }
                             newColorStart={PALETTE[scheme].brand}
+                            editable={settingsLoaded}
                         />
                     </SwatchPanel>
                 </Section>
@@ -207,6 +210,7 @@ export function AppearanceSettingsScreen() {
                                 })
                             }
                             newColorStart={GLASS_TINT_PRESETS[0]}
+                            editable={settingsLoaded}
                         />
                     </SwatchPanel>
                 </Section>

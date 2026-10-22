@@ -60,7 +60,7 @@ export function useQueryResults(
     considerDefaultTags: boolean,
     libraryOnly: boolean,
 ) {
-    const body = useQueryResultsBody(
+    const { body, waiting } = useQueryResultsBody(
         query,
         considerDefaultTags,
         libraryOnly,
@@ -71,7 +71,12 @@ export function useQueryResults(
         body,
     );
     return {
-        ...useParsedResults(body, x.data, x.isLoading, x.error),
+        ...useParsedResults(
+            body,
+            x.data,
+            waiting || (body !== null && x.isLoading),
+            x.error,
+        ),
         refreshQueryResults: x.mutate,
     };
 }
@@ -89,7 +94,7 @@ export function useQueryResultsSnapshot(
     libraryOnly: boolean,
     sort: QueryResultsSort | null,
 ) {
-    const body = useQueryResultsBody(
+    const { body, waiting } = useQueryResultsBody(
         query,
         considerDefaultTags,
         libraryOnly,
@@ -99,7 +104,12 @@ export function useQueryResultsSnapshot(
         "/queries/results",
         body,
     );
-    return useParsedResults(body, x.data, x.isLoading, x.error);
+    return useParsedResults(
+        body,
+        x.data,
+        waiting || (body !== null && x.isLoading),
+        x.error,
+    );
 }
 
 function useQueryResultsBody(
@@ -108,9 +118,13 @@ function useQueryResultsBody(
     libraryOnly: boolean,
     sort: QueryResultsSort | null,
 ) {
-    const hideExplicit = useUserSettings().settings.hide_explicit;
-    return useMemo<QueryResultsBody | null>(() => {
-        if (!query) return null;
+    const { settings, settingsReady } = useUserSettings();
+    const hideExplicit = settings.hide_explicit;
+    // no request until the setting is known, or a cold start would run the
+    // query twice and show explicit songs in between
+    const waiting = query !== null && !settingsReady;
+    const body = useMemo<QueryResultsBody | null>(() => {
+        if (!query || waiting) return null;
         return {
             query,
             consider_default_tags: considerDefaultTags,
@@ -120,7 +134,8 @@ function useQueryResultsBody(
             ...(hideExplicit ? { hide_explicit: true as const } : {}),
             ...(sort ? { sort } : {}),
         };
-    }, [considerDefaultTags, hideExplicit, libraryOnly, query, sort]);
+    }, [considerDefaultTags, hideExplicit, libraryOnly, query, sort, waiting]);
+    return { body, waiting };
 }
 
 function useParsedResults(
@@ -149,7 +164,7 @@ function useParsedResults(
         matchedSongs,
         matchedSongIds,
         resultsCapped: response?.capped ?? false,
-        queryResultsLoading: body !== null && isLoading,
+        queryResultsLoading: isLoading,
         // an empty query has nothing to fail, whatever the last key left behind
         queryResultsErr: body ? error : undefined,
     };

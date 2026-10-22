@@ -36,10 +36,11 @@ export function MusicListPreferencesProvider({
     children: ReactNode;
 }) {
     const { account } = useAccount();
-    const { updateSettings } = useUserSettings();
+    const { settingsLoaded, updateSettings } = useUserSettings();
 
     useEffect(() => {
-        if (!account) return;
+        // waits for the account's own settings, so the change lands on them
+        if (!account || !settingsLoaded) return;
         void (async () => {
             try {
                 const stored = await AsyncStorage.getItem(
@@ -56,9 +57,10 @@ export function MusicListPreferencesProvider({
                 );
             }
         })();
-        // once per signed-in account
+        // once per signed-in account. the stored value is gone after the
+        // first run, so a later run returns early
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [account?.id]);
+    }, [account?.id, settingsLoaded]);
 
     return children;
 }

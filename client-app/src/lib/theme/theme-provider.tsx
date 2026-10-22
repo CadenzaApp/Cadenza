@@ -57,8 +57,7 @@ export function useOptionalAppTheme(): AppTheme | null {
  * dark, or system on the native appearance, so sheets and liquid glass follow.
  * The custom mode sets whichever of light or dark suits its background.
  *
- * Mounted under `AccountProvider`, since settings are per account. Signed out
- * it draws the defaults.
+ * Mounted under `UserSettingsProvider`. Signed out it draws the defaults.
  */
 export function AppThemeProvider({ children }: { children: ReactNode }) {
     const { settings } = useUserSettings();
@@ -68,11 +67,15 @@ export function AppThemeProvider({ children }: { children: ReactNode }) {
         settings.theme_mode === "custom"
             ? (settings.background_color ?? BACKGROUND_PRESETS[0])
             : null;
+    // light and dark are read from the setting, not back from nativewind,
+    // which only catches up after the effect below
     const scheme: ColorScheme = background
         ? schemeForBackground(background)
-        : colorScheme === "dark"
-          ? "dark"
-          : "light";
+        : settings.theme_mode === "light" || settings.theme_mode === "dark"
+          ? settings.theme_mode
+          : colorScheme === "dark"
+            ? "dark"
+            : "light";
     const nativeMode =
         settings.theme_mode === "custom" ? scheme : settings.theme_mode;
 

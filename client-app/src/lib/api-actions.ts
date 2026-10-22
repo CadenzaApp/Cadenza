@@ -238,21 +238,24 @@ export function useAPIData<Output>(
             keepPreviousData: options?.keepPreviousData,
             // SWR merges config with a spread, so an explicit undefined would
             // replace its default no-op and every fetch would throw calling it
-            ...(options?.onSuccess || save
-                ? {
-                      onSuccess: (data: Output, serializedKey: string) => {
-                          if (save) void saveRead(serializedKey, data);
-                          options?.onSuccess?.(data);
-                      },
-                  }
+            ...(options?.onSuccess
+                ? { onSuccess: (data: Output) => options.onSuccess?.(data) }
                 : {}),
         },
     );
+
+    // this key's own value, from a fetch or a mutate. saved whenever it
+    // changes, so a mutate without a refetch still reaches the device
+    const current = savedKey
+        ? (cache.get(savedKey)?.data as Output | undefined)
+        : undefined;
+    useEffect(() => {
+        if (savedKey && current !== undefined) void saveRead(savedKey, current);
+    }, [savedKey, current]);
     if (!savedKey) return swr;
 
-    // this key's own response first, then its saved one, and only then the
-    // last key's response that keepPreviousData holds on to
-    const current = cache.get(savedKey)?.data as Output | undefined;
+    // this key's own value first, then its saved one, and only then the last
+    // key's response that keepPreviousData holds on to
     return { ...swr, data: current ?? saved ?? swr.data };
 }
 

@@ -114,10 +114,15 @@ export function GlassSurface({
     ...rest
 }: GlassSurfaceProps) {
     const { colorScheme } = useColorScheme();
-    const scheme = surfaceScheme ?? (colorScheme === "dark" ? "dark" : "light");
+    const appTheme = useOptionalAppTheme();
+    // the app theme's scheme, so glass and its palette never disagree for a
+    // frame while nativewind catches up
+    const scheme =
+        surfaceScheme ??
+        appTheme?.scheme ??
+        (colorScheme === "dark" ? "dark" : "light");
     const blurTarget = useContext(BlurTargetContext);
     const nested = useContext(GlassLayerContext);
-    const appTheme = useOptionalAppTheme();
     const userGlass = appTheme?.glass;
     // the app's own resolved colors, so a custom background reaches the
     // fallback fills. Artwork-colored glass keeps the stock palette
