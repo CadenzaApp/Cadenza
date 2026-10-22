@@ -1,18 +1,23 @@
-import { Pressable, View } from "react-native";
-
+import { SwatchGrid } from "@/components/custom/color-picker";
+import { useUserSettings } from "@/lib/routes/settings";
+import { resolveSwatchSlots } from "@/lib/swatch-slots";
 import { TAG_COLOR_OPTIONS } from "@/lib/tag-color-palette";
 
 export { TAG_COLOR_OPTIONS } from "@/lib/tag-color-palette";
 
+/** Four rows of five: the curated colors, four custom slots, and the +. */
 const COLOR_COLUMNS = 5;
+const TAG_COLOR_SLOTS = 19;
 const GRID_GAP = 8;
+const MAX_SWATCH_SIZE = 52;
 
-const COLOR_ROWS = Array.from(
-    { length: Math.ceil(TAG_COLOR_OPTIONS.length / COLOR_COLUMNS) },
-    (_, index) => index,
-);
-
-/** The shared fixed palette used when creating or recoloring a tag. */
+/**
+ * The color grid used when creating or recoloring a tag. Starts as the
+ * curated palette with room for custom colors; every color can be changed or
+ * removed by holding it, and the slots save to the account as
+ * `tag_color_swatches`. A tag keeps its color even if that color is later
+ * removed from the grid.
+ */
 export function TagColorPicker({
     width,
     selectedColor,
@@ -22,40 +27,35 @@ export function TagColorPicker({
     selectedColor: string;
     onSelectColor: (color: string) => void;
 }) {
-    const colorBoxSize =
-        (width - GRID_GAP * (COLOR_COLUMNS - 1)) / COLOR_COLUMNS;
+    const { settings, updateSettings } = useUserSettings();
+    const swatchSize = Math.min(
+        MAX_SWATCH_SIZE,
+        Math.floor((width - GRID_GAP * (COLOR_COLUMNS - 1)) / COLOR_COLUMNS),
+    );
 
     return (
-        <View style={{ gap: GRID_GAP }}>
-            {COLOR_ROWS.map((rowIndex) => (
-                <View
-                    key={rowIndex}
-                    className="flex-row"
-                    style={{ gap: GRID_GAP }}
-                >
-                    {TAG_COLOR_OPTIONS.slice(
-                        rowIndex * COLOR_COLUMNS,
-                        rowIndex * COLOR_COLUMNS + COLOR_COLUMNS,
-                    ).map((color) => {
-                        const isSelected = color === selectedColor;
-                        return (
-                            <Pressable
-                                key={color}
-                                onPress={() => onSelectColor(color)}
-                                accessibilityRole="radio"
-                                accessibilityLabel={`Tag color ${color}`}
-                                accessibilityState={{ checked: isSelected }}
-                                className={`items-center justify-center rounded-md ${isSelected ? "border-2 border-foreground" : ""}`}
-                                style={{
-                                    width: colorBoxSize,
-                                    height: colorBoxSize,
-                                    backgroundColor: color,
-                                }}
-                            />
-                        );
-                    })}
-                </View>
-            ))}
-        </View>
+        <SwatchGrid
+            pickerTitle="Tag color"
+            columns={COLOR_COLUMNS}
+            swatchSize={swatchSize}
+            slots={resolveSwatchSlots(
+                settings.tag_color_swatches,
+                TAG_COLOR_OPTIONS,
+                TAG_COLOR_SLOTS,
+            )}
+            selected={selectedColor}
+            onSelect={(color) => {
+                if (color) onSelectColor(color);
+            }}
+            onEdit={(slots, selected) => {
+                void updateSettings({ tag_color_swatches: slots }).catch(
+                    (error) =>
+                        console.error("Failed to save tag colors:", error),
+                );
+                // removing the tag's color from the grid leaves the tag as is
+                if (selected) onSelectColor(selected);
+            }}
+            newColorStart={selectedColor}
+        />
     );
 }
