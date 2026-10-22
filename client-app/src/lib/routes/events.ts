@@ -1,3 +1,4 @@
+import { ACTIVITY_TAG_READS } from "./activity-tag-reads";
 import { ANALYTICS_READS } from "./analytics-reads";
 
 import { useAPIMutation } from "../api-actions";
@@ -21,9 +22,11 @@ export type RecordEventsResponse = {
  * Idempotent on `client_event_id`, so a retry after a timeout is free and the
  * caller never has to decide whether a failed request got through.
  *
- * Only a batch holding a `play_counted` invalidates the activity tag reads, the
- * metadata tag reads, and the query results, because that is the only event
- * that moves My Plays, First Played, Last Played, or Total Plays. Every event
+ * Only a batch holding a `play_counted` invalidates the metadata tag reads,
+ * because that is the only event that moves Total Plays. It and a favorite are
+ * the events that move an activity tag (My Plays, First Played, Last Played,
+ * Favorited), so either invalidates the activity tag reads and the query
+ * results. Every event
  * changes the analytics, so those reads are always invalidated. Without that split a scrub through one song would refetch
  * the activity tags for the whole visible library once per seek.
  */
@@ -34,16 +37,20 @@ export function useRecordEvents() {
         ({ events }) => {
             // every analytics read, or a play leaves the detail pages stale
             const analytics = [...ANALYTICS_READS];
-            const movedActivityTags = events.some(
+            const played = events.some(
                 (event) => event.type === "play_counted",
             );
-            if (!movedActivityTags) return analytics;
+            const favorited = events.some(
+                (event) =>
+                    event.type === "song_favorited" ||
+                    event.type === "song_unfavorited",
+            );
+            if (!played && !favorited) return analytics;
             return [
                 ...analytics,
-                { path: "/songs/activity-tags" },
-                { path: "/songs/activity-tags/batch" },
+                ...ACTIVITY_TAG_READS,
                 // Total Plays moves in the same transaction as My Plays
-                { path: "/songs/metadata-tags" },
+                ...(played ? [{ path: "/songs/metadata-tags" }] : []),
                 { path: "/queries/results" },
             ];
         },

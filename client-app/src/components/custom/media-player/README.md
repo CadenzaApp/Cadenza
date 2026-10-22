@@ -70,6 +70,15 @@ start their network reads merely because their page shells are mounted. The page
 reads the first time that page is selected, then leaves them enabled so revisiting it is instant.
 Preserve that separation when adding data to an offscreen player page.
 
+On Android the sheet is a Material `BottomSheetBehavior`, which lets a vertical drag through to
+the content only inside the first nested-scrolling view it finds, and moves the sheet for every
+other vertical drag. Pages sit side by side, so it would find Discuss's pull-to-refresh list and
+block scrolling on Tags. `SheetScrollRegion` in `player-pager.tsx` is an empty scroll view placed
+ahead of the pages so the sheet finds it instead. It covers the pages on Discuss and Tags and
+shrinks to nothing on Player, so pulling the artwork down still closes the sheet. A new vertical
+scroll view in the sheet needs nothing more, but anything nested-scrolling placed ahead of
+`SheetScrollRegion` would take its place.
+
 `PlayerScopeProvider` resolves a `focusedSong` (id, title, artwork) from `usePlayback()`'s
 `activeTrack` or the route's `tagsSongId` / `tagsSongTitle` / `tagsArtworkUrl` /
 `tagsArtworkColor` params and shares it across the three pages.

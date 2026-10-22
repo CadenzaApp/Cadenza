@@ -6,6 +6,7 @@ import { useTasks } from "@/components/custom/tasks";
 
 import { useAccount } from "./account";
 import { invalidateAPIData } from "./api-actions";
+import { ACTIVITY_TAG_READS } from "./routes/activity-tag-reads";
 import { useAppleMusic } from "./apple-music-auth";
 import {
     createInitializedSongsStore,
@@ -77,10 +78,14 @@ export function SongInitProvider({ children }: { children: ReactNode }) {
         run()
             .then((result) => {
                 if (cancelled) return;
-                // what a query matches follows the library, so anything open
-                // is stale. once per run, not once per batch
+                // what a query matches follows the library, and so does In My
+                // Library, so anything open is stale. once per run, not once
+                // per batch
                 if (result.added > 0 || result.removed > 0) {
-                    invalidateAPIData([{ path: "/queries/results" }]);
+                    invalidateAPIData([
+                        { path: "/queries/results" },
+                        ...ACTIVITY_TAG_READS,
+                    ]);
                 }
                 endTask();
             })

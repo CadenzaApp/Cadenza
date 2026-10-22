@@ -1,3 +1,4 @@
+import { ACTIVITY_TAG_READS } from "./activity-tag-reads";
 import { ANALYTICS_READS } from "./analytics-reads";
 import { useMemo } from "react";
 import {
@@ -5,6 +6,7 @@ import {
     useAPIData,
     useAPIMutation,
     useAPIPostDataBatched,
+    type APIDataEndpoint,
 } from "../api-actions";
 import { AppliedTag, MetadataTag, Tag } from "@/lib/types";
 
@@ -72,6 +74,8 @@ export function useApplyTag() {
             { path: "/tags", exactParams: true },
             { path: "/tags", params: { tag_id }, exactParams: true },
             { path: "/queries/results" },
+            // the song may be Tagged now
+            ...songActivityTagReads(song_id),
             ...ANALYTICS_READS,
         ],
         { invalidation: "background" },
@@ -125,6 +129,8 @@ export function useUnapplyTag() {
             { path: "/tags", exactParams: true },
             { path: "/tags", params: { tag_id }, exactParams: true },
             { path: "/queries/results" },
+            // the song may no longer be Tagged
+            ...songActivityTagReads(song_id),
             ...ANALYTICS_READS,
         ],
         { invalidation: "background" },
@@ -149,8 +155,18 @@ const BATCH_TAG_INVALIDATIONS = [
     { path: "/songs/default-tags/batch" },
     { path: "/tags" },
     { path: "/queries/results" },
+    // Tagged follows the user's own tags
+    ...ACTIVITY_TAG_READS,
     ...ANALYTICS_READS,
 ];
+
+/** The activity tag reads for one song, whose Tagged a tag edit may change. */
+function songActivityTagReads(songId: string): APIDataEndpoint[] {
+    return [
+        { path: "/songs/activity-tags", params: { song_id: songId } },
+        { path: "/songs/activity-tags/batch", item: songId },
+    ];
+}
 
 /** Applies each tag to each song, splitting requests at the backend's caps. */
 export function useApplyTagsToSongs() {

@@ -71,9 +71,30 @@ Collapsing resets palette scroll and hides offscreen tag actions from accessibil
 - Avoid dynamically switching NativeWind shadow/alpha utilities on these controls; use inline
   dynamic styles to avoid the existing native navigation-context failure.
 
+## Full results
+
+A query runs over every song Cadenza knows, not just the library (see the query compiler in
+`backend-api/src/db/README.md`), so "not pop" can match thousands of songs. `/query-results`:
+
+- Reads `useQueryResultsSnapshot`, fetched once and held while the screen is open. Tagging or
+  playing a song invalidates `/queries/results`, and a list that refetched under the user would
+  skip or repeat rows. Changing the sort fetches a new result.
+- Resolves ids with `usePagedTracksForSongIds`, 50 at a time as the list scrolls. Rows only append:
+  an id still being looked up ends the list until it resolves, an id Apple Music cannot see is
+  left out, and two ids for one track show it once. Never resolve a whole result at once.
+- Sorts on the backend (`strategy: "remote"`, Title/Artist/Album, opening on Title ascending), so
+  the sort orders the whole result rather than the loaded rows.
+- Counts with `matchCountLabel`, which reads `999+ songs` from 1000 matches up, and whenever the
+  backend capped the songs from outside the user's own at 1000. A footer says when the list is
+  complete or capped.
+- Plays every song that is certainly the user's own (`certain`), loaded or not, plus the others
+  already loaded, in list order (`queryQueueIds`, then `resolveTracks`). A second tap while that
+  resolves is ignored. Play turns shuffle off and Shuffle turns it on, like an album.
+
 ## Validation
 
-`QueryUtils.test.ts` checks edits and wire shapes. `QueryConversion.test.ts` checks one-way
+`QueryUtils.test.ts` checks edits, wire shapes, and count labels. `@/lib/paged-tracks.test.ts`
+checks result paging and the play queue. `QueryConversion.test.ts` checks one-way
 seeding, metadata/value predicates, truth tables, and reorder invariance. `drag-utils.test.ts`
 covers clipping, fast/stale drops, measurement failure, and targeted hover notifications.
 `reorder-utils.test.ts` covers variable heights, repeated swaps, native layout acknowledgement,

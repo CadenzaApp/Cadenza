@@ -19,7 +19,9 @@ import {
     reportAppleMusicAuthFailure,
     useAppleMusic,
 } from "./apple-music-auth";
+import { useListeningEvents } from "./listening-events";
 import { collectionRoute } from "./music-routes";
+import { catalogIdsToFetch, resolvedTracks, uniqueBy } from "./paged-tracks";
 
 const MUSIC_LIST_PAGE_SIZE = 25;
 /**
@@ -29,6 +31,11 @@ const MUSIC_LIST_PAGE_SIZE = 25;
  */
 const FIRST_PAGE_SIZE = MUSIC_LIST_PAGE_SIZE;
 const NEXT_PAGE_SIZE = 100;
+/**
+ * Song ids `usePagedTracksForSongIds` resolves per page. A whole number of
+ * `MUSIC_LIST_PAGE_SIZE` chunks, so a page never splits a chunk.
+ */
+const SONG_ID_PAGE_SIZE = MUSIC_LIST_PAGE_SIZE * 2;
 const ALL_LIBRARY_PAGE_SIZE = 100;
 /** The artist sections are rails, not paged lists, so one page is the whole thing. */
 const ARTIST_SEARCH_LIMIT = 12;
@@ -92,6 +99,8 @@ const EMPTY_ARTISTS: ArtistItem[] = [];
 
 /** The same, for the song reads that other hooks index and re-derive from. */
 const EMPTY_SONGS: MusicItem[] = [];
+/** Stable reference, so a list with nothing to fetch does not rerender its readers. */
+const EMPTY_SONG_IDS: string[] = [];
 
 type LibraryArtistPageKey = readonly [
     "MusicKit.getLibraryArtists",
@@ -540,6 +549,127 @@ export function useTracksForSongIds(songIds: readonly string[]) {
     };
 }
 
+/**
+ * Like `useTracksForSongIds`, but for a list long enough that it should not all
+ * be resolved at once: only the first `SONG_ID_PAGE_SIZE` ids are turned into
+ * tracks, and `loadNextPage` adds the next page as the list scrolls. A new
+ * `songIds` array starts over at one page, so keep it referentially stable.
+ *
+ * Rows only ever append. An id still being looked up ends `tracks` until its
+ * answer arrives, an id Apple Music cannot see is left out, and two ids for the
+ * same track show it once. See `@/lib/paged-tracks`.
+ *
+ * `resolveTracks` turns any ids into tracks on demand, for a caller that needs
+ * ids the list has not reached yet, like a play queue. It reuses what is
+ * already resolved and asks Apple Music once for the rest. If that ask fails it
+ * returns what it already had rather than nothing.
+ */
+export function usePagedTracksForSongIds(songIds: readonly string[]) {
+    const { isConnected } = useAppleMusic();
+    const {
+        allLibraryTracks,
+        allLibraryTracksLoading,
+        allLibraryTracksErr,
+        isLibraryConnected,
+    } = useAllTracksFromLibrary();
+    const libraryTracksById = useMemo(
+        () => indexTracksById(allLibraryTracks),
+        [allLibraryTracks],
+    );
+    // the page count belongs to one id list, so a new list starts at one page
+    const [paging, setPaging] = useState({ songIds, pageCount: 1 });
+    const pageCount = paging.songIds === songIds ? paging.pageCount : 1;
+    const requestedCount = Math.min(
+        songIds.length,
+        pageCount * SONG_ID_PAGE_SIZE,
+    );
+    // asking before the library has loaded would send Apple ids the library
+    // is about to resolve, and then the chunks would change under the list
+    const catalogIds = useMemo(
+        () =>
+            allLibraryTracksLoading
+                ? EMPTY_SONG_IDS
+                : catalogIdsToFetch(
+                      songIds,
+                      requestedCount,
+                      (songId) => libraryTracksById.has(songId),
+                      MUSIC_LIST_PAGE_SIZE,
+                  ),
+        [allLibraryTracksLoading, libraryTracksById, requestedCount, songIds],
+    );
+    const { songInfo, songInfoLoading, songInfoErr } = useSongInfo(catalogIds);
+    const fetchedTracksById = useMemo(
+        () => indexTracksById(songInfo),
+        [songInfo],
+    );
+    const pending = allLibraryTracksLoading || songInfoLoading;
+    const { tracks, consumedCount } = useMemo(
+        () =>
+            resolvedTracks(
+                songIds,
+                requestedCount,
+                (songId) =>
+                    libraryTracksById.get(songId) ??
+                    fetchedTracksById.get(songId),
+                (track) => track.id,
+                pending,
+            ),
+        [
+            fetchedTracksById,
+            libraryTracksById,
+            pending,
+            requestedCount,
+            songIds,
+        ],
+    );
+    const loadNextPage = useCallback(() => {
+        setPaging((current) => ({
+            songIds,
+            pageCount:
+                (current.songIds === songIds ? current.pageCount : 1) + 1,
+        }));
+    }, [songIds]);
+    const resolveTracks = useCallback(
+        async (ids: readonly string[]) => {
+            const known = (songId: string) =>
+                libraryTracksById.get(songId) ?? fetchedTracksById.get(songId);
+            const missing = ids.filter((songId) => !known(songId));
+            let fetched = new Map<string, MusicItem>();
+            if (missing.length > 0 && isConnected) {
+                try {
+                    fetched = indexTracksById(
+                        await read(() => MusicKit.getSongInfo(missing)),
+                    );
+                } catch (error) {
+                    // the tracks already resolved are still worth playing
+                    console.error("Could not resolve songs to play:", error);
+                }
+            }
+            return uniqueBy(
+                ids.flatMap((songId) => {
+                    const track = known(songId) ?? fetched.get(songId);
+                    return track ? [track] : [];
+                }),
+                (track) => track.id,
+            );
+        },
+        [fetchedTracksById, isConnected, libraryTracksById],
+    );
+
+    return {
+        tracks,
+        /** How many ids from the top have been resolved or given up on. */
+        loadedCount: consumedCount,
+        tracksLoading: pending && tracks.length === 0 && requestedCount > 0,
+        isLoadingNextPage: pending && tracks.length > 0,
+        hasNextPage: requestedCount < songIds.length,
+        loadNextPage,
+        resolveTracks,
+        tracksErr: allLibraryTracksErr ?? songInfoErr,
+        isLibraryConnected,
+    };
+}
+
 /** Indexes tracks under every id they carry, so either keyspace finds them. */
 export function indexTracksById(tracks: readonly MusicItem[]) {
     const tracksById = new Map<string, MusicItem>();
@@ -862,9 +992,18 @@ export function useCollectionSongsOrFallback(
         : { ...primary, collectionId };
 }
 
-/** Returns and updates the cached favorite status for one Apple Music song. */
+/**
+ * Returns and updates the cached favorite status for one Apple Music song.
+ *
+ * A change that Apple Music accepts is also logged as a `song_favorited` or
+ * `song_unfavorited` event, which is how the backend's Favorited activity tag
+ * learns about it. Apple Music owns favorites, so a change made outside Cadenza
+ * never reaches that tag. `songId` should be the id tags use,
+ * `catalogId ?? id`, so the tag lands on the same song.
+ */
 export function useSongFavoriteStatus(songId?: string) {
     const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
+    const { recordEvent } = useListeningEvents();
     const key =
         isConnected && songId
             ? ([
@@ -891,6 +1030,15 @@ export function useSongFavoriteStatus(songId?: string) {
         });
         if (!nextStatus) {
             throw new Error("Apple Music did not return a favorite status.");
+        }
+        try {
+            await recordEvent(
+                nextStatus.isFavorite ? "song_favorited" : "song_unfavorited",
+                songId,
+            );
+        } catch (error) {
+            // the favorite itself went through; only the activity tag misses it
+            console.error("Recording a favorite change failed:", error);
         }
         return nextStatus;
     }

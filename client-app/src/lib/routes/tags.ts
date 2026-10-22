@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { ANALYTICS_READS } from "./analytics-reads";
+import { ACTIVITY_TAG_READS } from "./activity-tag-reads";
 
 import { useAPIData, useAPIFetch, useAPIMutation } from "../api-actions";
 import { queryTagIds, type QueryJSON } from "../query-json";
@@ -141,6 +142,8 @@ export function useDeleteTag() {
             { path: "/songs/local-tags" },
             { path: "/songs/local-tags/batch" },
             { path: "/tags" },
+            // a song whose only tag this was is no longer Tagged
+            ...ACTIVITY_TAG_READS,
             // a deleted tag can drop out of the top tags or fall back to global
             ...ANALYTICS_READS,
         ],

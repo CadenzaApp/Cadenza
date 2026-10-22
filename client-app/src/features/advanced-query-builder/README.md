@@ -106,8 +106,11 @@ Header settings apply to both editors and cannot disable suggestions while eithe
 - Activity tags (`BuilderTags.activity`) are filtered like any other tag of their type. They come
   from `useActivityTags` by way of the screen, and the screen adds their types to the map
   `buildAdvancedQuery` checks, or a filter on one would read as a deleted tag.
-- The query is evaluated over the whole cached library, not just tagged songs, so a song with no
-  Cadenza tags at all can match `is not applied` and the other negative operators.
+- The checkbox activity tags (In My Library, Favorited, Tagged) are never empty: a song without
+  one is false, so `is false` and `is not applied` match it and `is null` matches nothing.
+- The query is evaluated over every song Cadenza knows, not just tagged songs or the library, so
+  a song with no Cadenza tags at all can match `is not applied` and the other negative operators.
+  Of the songs that are not the user's own, only the first 1000 come back.
 - An incomplete filter compiles to no request and shows its build error beneath the editor. Once
   the tree is valid, its result count refreshes automatically.
 - Node ids come from a module-level counter, not `nanoid`, so the pure utils stay import-free.

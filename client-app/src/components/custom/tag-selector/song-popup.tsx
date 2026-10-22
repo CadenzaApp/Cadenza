@@ -67,6 +67,7 @@ export function SongTagSelectorPopup({
                             }
                             onCreateTag={onTagCreated}
                             errorMessage={editorError}
+                            scrollableGrid={false}
                         />
                     ) : (
                         <ActivityIndicator accessibilityLabel="Loading tags" />
