@@ -44,10 +44,10 @@ impl From<user_settings::Model> for UserSettings {
 }
 
 /// `PATCH /settings` body. Every field is optional. A missing key is left
-/// alone. `null` resets a color or slot list, and is ignored on the other
-/// fields.
+/// alone. `null` resets a color or slot list, and is a 422 on the other fields.
 #[derive(Deserialize, Default)]
 pub struct PatchUserSettings {
+    #[serde(default, deserialize_with = "not_null")]
     pub theme_mode: Option<ThemeMode>,
     #[serde(default, deserialize_with = "present")]
     pub accent_color: Option<Option<String>>,
@@ -55,6 +55,7 @@ pub struct PatchUserSettings {
     pub background_color: Option<Option<String>>,
     #[serde(default, deserialize_with = "present")]
     pub glass_tint: Option<Option<String>>,
+    #[serde(default, deserialize_with = "not_null")]
     pub glass_style: Option<GlassStyle>,
     #[serde(default, deserialize_with = "present")]
     pub accent_swatches: Option<Option<Swatches>>,
@@ -64,8 +65,20 @@ pub struct PatchUserSettings {
     pub tag_color_swatches: Option<Option<Swatches>>,
     #[serde(default, deserialize_with = "present")]
     pub background_swatches: Option<Option<Swatches>>,
+    #[serde(default, deserialize_with = "not_null")]
     pub hide_explicit: Option<bool>,
+    #[serde(default, deserialize_with = "not_null")]
     pub show_suggested_tags: Option<bool>,
+}
+
+/// A present key must hold a value: null fails rather than being read as
+/// missing. A missing key falls to `#[serde(default)]` and stays `None`.
+fn not_null<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    T::deserialize(deserializer).map(Some)
 }
 
 /// Wraps a key that is present, null included, in `Some`. A missing key falls
@@ -112,6 +125,15 @@ mod tests {
         let body: PatchUserSettings =
             serde_json::from_value(json!({ "glass_tint": "#112233" })).unwrap();
         assert_eq!(body.glass_tint, Some(Some("#112233".to_owned())));
+    }
+
+    #[test]
+    fn patch_rejects_null_where_null_means_nothing() {
+        assert!(
+            serde_json::from_value::<PatchUserSettings>(json!({ "hide_explicit": null })).is_err()
+        );
+        let body: PatchUserSettings = serde_json::from_value(json!({})).unwrap();
+        assert_eq!(body.hide_explicit, None);
     }
 
     #[test]

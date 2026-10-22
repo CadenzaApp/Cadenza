@@ -3,9 +3,7 @@
 
 use chrono::Utc;
 use sea_orm::{
-    ActiveValue::{NotSet, Set},
-    DatabaseConnection, EntityTrait,
-    prelude::Uuid,
+    ActiveModelTrait, ActiveValue::Set, DatabaseConnection, EntityTrait, Iterable, prelude::Uuid,
     sea_query::OnConflict,
 };
 use serde::{Deserialize, Serialize};
@@ -95,22 +93,6 @@ pub struct SettingsPatch {
     pub show_suggested_tags: Option<bool>,
 }
 
-impl SettingsPatch {
-    fn is_empty(&self) -> bool {
-        self.theme_mode.is_none()
-            && self.accent_color.is_none()
-            && self.background_color.is_none()
-            && self.glass_tint.is_none()
-            && self.glass_style.is_none()
-            && self.accent_swatches.is_none()
-            && self.glass_tint_swatches.is_none()
-            && self.tag_color_swatches.is_none()
-            && self.background_swatches.is_none()
-            && self.hide_explicit.is_none()
-            && self.show_suggested_tags.is_none()
-    }
-}
-
 /// The settings a user with no row gets. Matches the column defaults in
 /// `sql/user_settings.sql`.
 fn default_settings(user_id: Uuid) -> user_settings::Model {
@@ -150,73 +132,53 @@ pub async fn update_settings(
     user_id: Uuid,
     patch: SettingsPatch,
 ) -> Result<user_settings::Model, CadenzaError> {
-    if patch.is_empty() {
-        return Err(CadenzaError::InvalidRequestBody(
-            "set at least one setting".to_string(),
-        ));
-    }
-
+    // every column starts unset, so the upsert writes only what the patch names
     let mut row = user_settings::ActiveModel {
         user_id: Set(user_id),
-        theme_mode: NotSet,
-        accent_color: NotSet,
-        background_color: NotSet,
-        glass_tint: NotSet,
-        glass_style: NotSet,
-        accent_swatches: NotSet,
-        glass_tint_swatches: NotSet,
-        tag_color_swatches: NotSet,
-        background_swatches: NotSet,
-        hide_explicit: NotSet,
-        show_suggested_tags: NotSet,
         updated_at: Set(Utc::now().fixed_offset()),
+        ..Default::default()
     };
-    // the columns this patch writes, so a conflict updates only those
-    let mut changed = vec![Column::UpdatedAt];
 
     if let Some(mode) = patch.theme_mode {
         row.theme_mode = Set(mode.as_str().to_owned());
-        changed.push(Column::ThemeMode);
     }
     if let Some(color) = patch.accent_color {
         row.accent_color = Set(color.as_deref().map(check_hex_color).transpose()?);
-        changed.push(Column::AccentColor);
     }
     if let Some(color) = patch.background_color {
         row.background_color = Set(color.as_deref().map(check_hex_color).transpose()?);
-        changed.push(Column::BackgroundColor);
     }
     if let Some(color) = patch.glass_tint {
         row.glass_tint = Set(color.as_deref().map(check_hex_color).transpose()?);
-        changed.push(Column::GlassTint);
     }
     if let Some(style) = patch.glass_style {
         row.glass_style = Set(style.as_str().to_owned());
-        changed.push(Column::GlassStyle);
     }
     if let Some(swatches) = patch.accent_swatches {
         row.accent_swatches = Set(swatches.map(check_swatches).transpose()?);
-        changed.push(Column::AccentSwatches);
     }
     if let Some(swatches) = patch.glass_tint_swatches {
         row.glass_tint_swatches = Set(swatches.map(check_swatches).transpose()?);
-        changed.push(Column::GlassTintSwatches);
     }
     if let Some(swatches) = patch.tag_color_swatches {
         row.tag_color_swatches = Set(swatches.map(check_swatches).transpose()?);
-        changed.push(Column::TagColorSwatches);
     }
     if let Some(swatches) = patch.background_swatches {
         row.background_swatches = Set(swatches.map(check_swatches).transpose()?);
-        changed.push(Column::BackgroundSwatches);
     }
     if let Some(hide) = patch.hide_explicit {
         row.hide_explicit = Set(hide);
-        changed.push(Column::HideExplicit);
     }
     if let Some(show) = patch.show_suggested_tags {
         row.show_suggested_tags = Set(show);
-        changed.push(Column::ShowSuggestedTags);
+    }
+
+    // updated_at is always set, so it alone means the patch named nothing
+    let changed = changed_columns(&row);
+    if changed.len() == 1 {
+        return Err(CadenzaError::InvalidRequestBody(
+            "set at least one setting".to_string(),
+        ));
     }
 
     Ok(user_settings::Entity::insert(row)
@@ -227,6 +189,13 @@ pub async fn update_settings(
         )
         .exec_with_returning(db)
         .await?)
+}
+
+/// The columns `row` sets besides the key, so a conflict updates only those.
+fn changed_columns(row: &user_settings::ActiveModel) -> Vec<Column> {
+    Column::iter()
+        .filter(|column| !matches!(column, Column::UserId) && row.get(*column).is_set())
+        .collect()
 }
 
 /// Returns `#rrggbb` lowercased, or `InvalidRequestBody` for anything else.
@@ -312,12 +281,17 @@ mod tests {
     }
 
     #[test]
-    fn empty_patch_is_empty() {
-        assert!(SettingsPatch::default().is_empty());
-        let patch = SettingsPatch {
-            accent_color: Some(None),
+    fn changed_columns_lists_only_what_is_set() {
+        let mut row = user_settings::ActiveModel {
+            updated_at: Set(Utc::now().fixed_offset()),
             ..Default::default()
         };
-        assert!(!patch.is_empty());
+        assert!(matches!(changed_columns(&row)[..], [Column::UpdatedAt]));
+        row.user_id = Set(Uuid::nil());
+        row.accent_color = Set(None);
+        let changed = changed_columns(&row);
+        assert_eq!(changed.len(), 2);
+        assert!(changed.iter().any(|c| matches!(c, Column::AccentColor)));
+        assert!(!changed.iter().any(|c| matches!(c, Column::UserId)));
     }
 }

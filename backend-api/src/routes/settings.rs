@@ -43,7 +43,8 @@ async fn get_settings_handler(
 /// Changes any subset of the signed-in user's settings and returns all of them.
 /// A missing key is left alone. `null` resets `accent_color`,
 /// `background_color`, or `glass_tint` to the default, and a swatch list to the
-/// presets. `InvalidRequestBody` for an empty body or a bad value.
+/// presets. Null on any other field is a 422. `InvalidRequestBody` for an empty
+/// body or a bad value.
 ///
 /// JSON return value format:
 /// ```json

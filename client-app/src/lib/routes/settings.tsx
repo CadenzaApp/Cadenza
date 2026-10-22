@@ -37,7 +37,7 @@ export type UserSettings = {
 
 /**
  * A missing key is left alone. `null` resets a color or a swatch list to its
- * default, and is ignored on the other fields.
+ * default, and is rejected on the other fields.
  */
 export type UserSettingsPatch = Partial<UserSettings>;
 
