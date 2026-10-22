@@ -1,4 +1,8 @@
-import { useAPIData, useAPIMutation } from "../api-actions";
+import {
+    useAPIData,
+    useAPIMutation,
+    type APIDataEndpoint,
+} from "../api-actions";
 
 export type Profile = {
     uid: string;
@@ -42,12 +46,16 @@ type UpdateProfilePayload = {
     bio?: string;
 };
 
-/** Changes the signed-in user's username and/or bio. */
-export function useUpdateProfile() {
+/**
+ * Changes the signed-in user's username and/or bio.
+ * Always refreshes `GET /profile`. Pass any other reads that show the name,
+ * such as the public page at `/social/posts/user/:id`.
+ */
+export function useUpdateProfile(alsoInvalidate: APIDataEndpoint[] = []) {
     const x = useAPIMutation<UpdateProfilePayload, Profile>(
         "PATCH",
         "/profile",
-        [{ path: "/profile" }],
+        [{ path: "/profile" }, ...alsoInvalidate],
     );
     return {
         updateProfileErr: x.error,
