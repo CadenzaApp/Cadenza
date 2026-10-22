@@ -25,9 +25,10 @@ import { useZoomDismiss } from "@/lib/zoom-dismiss";
 
 import {
     MusicList,
+    type MusicListArrangement,
     type MusicListMultiSelectConfig,
     type MusicListPagination,
-    type MusicListSorting,
+    type MusicListSections,
     type MusicListTrackAction,
 } from "@/components/custom/music-list";
 import { ModalPopup } from "@/components/custom/modal-popup";
@@ -133,7 +134,15 @@ type Props = {
      * mid animation.
      */
     loadAllPages?: boolean;
-    sorting?: MusicListSorting | null;
+    /** Sort by and Group by; see `MusicListProps`. Hidden when omitted. */
+    arrangement?: MusicListArrangement | null;
+    /** A grouped list; see `MusicListProps`. */
+    sections?: MusicListSections | null;
+    /**
+     * Drawn in place of the songs, under the hero, like the wait while a whole
+     * playlist loads before it can sort.
+     */
+    listOverlay?: ReactNode;
     onContentSizeChange?: (width: number, height: number) => void;
     removeClippedSubviews?: boolean;
     onPlay?: () => void | Promise<void>;
@@ -170,10 +179,9 @@ export function TrackCollectionView({
     containerStyle,
     pagination = null,
     loadAllPages = false,
-    sorting = {
-        strategy: "local",
-        defaultValue: { option: "title", direction: "ascending" },
-    },
+    arrangement = null,
+    sections = null,
+    listOverlay = null,
     onContentSizeChange,
     removeClippedSubviews,
     onPlay,
@@ -438,11 +446,13 @@ export function TrackCollectionView({
             <MusicList
                 // held back until the open animation ends; the rows
                 // are ready by then, so they appear as it lands
-                tracks={settled ? tracks : NO_TRACKS}
-                isLoading={isLoading || !settled}
+                tracks={settled && !listOverlay ? tracks : NO_TRACKS}
+                isLoading={(isLoading || !settled) && !listOverlay}
+                emptyContent={listOverlay ?? undefined}
                 highlightTrackId={highlightTrackId}
                 pagination={pagination}
-                sorting={sorting}
+                arrangement={arrangement}
+                sections={sections}
                 anticipatedTrackCount={anticipatedTrackCount}
                 header={listHeader}
                 footer={footer}

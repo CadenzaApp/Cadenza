@@ -109,7 +109,6 @@ export default function ArtistScreen() {
                     isLoading={artistLoading}
                     error={artistErr}
                     pagination={NO_PAGINATION}
-                    sorting={null}
                     multiSelect={DEFAULT_MULTI_SELECT_CONFIG}
                     backgroundColor={tint}
                     onContentSizeChange={(_, height) =>

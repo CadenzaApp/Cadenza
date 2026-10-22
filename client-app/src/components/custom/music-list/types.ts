@@ -3,40 +3,38 @@ import type { MusicItem } from "@apple-musickit";
 import type { ComponentProps, ReactNode } from "react";
 import type { useAnimatedScrollHandler } from "react-native-reanimated";
 
+import type { SongArrangement } from "@/lib/song-arrangement";
 import type { ThemeColorToken } from "@/lib/theme";
 
-export const MUSIC_LIST_SORT_OPTIONS = [
-    "title",
-    "artist",
-    "album",
-    "dateAdded",
-] as const;
-
-export const DEFAULT_MUSIC_LIST_SORT_OPTIONS = [
-    "title",
-    "artist",
-    "album",
-] as const;
-
-export type MusicListSortOption = (typeof MUSIC_LIST_SORT_OPTIONS)[number];
-
-export type MusicListSortDirection = "ascending" | "descending";
-
-export type MusicListSort = {
-    option: MusicListSortOption;
-    direction: MusicListSortDirection;
+/**
+ * The list's Sort by and Group by choices, shown as a floating button. The
+ * caller does the arranging (the backend sorts and groups) and hands the list
+ * its songs, or its `sections`, already in order.
+ */
+export type MusicListArrangement = {
+    value: SongArrangement;
+    onChange: (arrangement: SongArrangement) => void;
 };
 
-export type MusicListSorting = {
-    /** The fields available from this list's sort control. */
-    options?: readonly MusicListSortOption[];
-    /** Controlled sort value. */
-    value?: MusicListSort;
-    /** Initial value when the list owns its sort state. */
-    defaultValue?: MusicListSort;
-    /** Remote sorting preserves the order returned across paginated pages. */
-    strategy?: "local" | "remote";
-    onChange?: (sort: MusicListSort) => void;
+/** One group of a grouped list, drawn as a header that opens and closes. */
+export type MusicListSection = {
+    key: string;
+    label: string;
+    /** Every song in the group, loaded or not. */
+    count: number;
+    expanded: boolean;
+    /** The songs loaded so far, shown while the group is open. */
+    tracks: MusicItem[];
+    /** Open and still loading its first songs. */
+    isLoading: boolean;
+    /** Open with more songs to show than it has loaded. */
+    hasMore: boolean;
+};
+
+export type MusicListSections = {
+    sections: readonly MusicListSection[];
+    onToggle: (key: string) => void;
+    onShowMore: (key: string) => void;
 };
 
 export type MusicListPagination = {
@@ -142,6 +140,8 @@ export type MusicListProps = {
     listHeader?: ReactNode;
     /** Content rendered below pagination rows inside the scroll surface. */
     footer?: ReactNode;
+    /** Shown in place of the songs when there are none and nothing is loading. */
+    emptyContent?: ReactNode;
     /** Reports the complete scroll content size. */
     onContentSizeChange?: (width: number, height: number) => void;
     /**
@@ -156,6 +156,11 @@ export type MusicListProps = {
     onScroll?: ReturnType<typeof useAnimatedScrollHandler>;
     /** Required pagination intent. Pass null for a non-paginated list. */
     pagination: MusicListPagination | null;
-    /** Sorting is disabled when omitted or null. Pass an object to enable it. */
-    sorting?: MusicListSorting | null;
+    /** Sort by and Group by are hidden when omitted or null. */
+    arrangement?: MusicListArrangement | null;
+    /**
+     * A grouped list. Its headers and its open groups' songs replace `tracks`,
+     * and `pagination` is ignored: each group loads its own.
+     */
+    sections?: MusicListSections | null;
 };

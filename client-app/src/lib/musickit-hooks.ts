@@ -160,7 +160,6 @@ type SongInfoPageKey = readonly [
 
 /** Returns cached Apple Music metadata for the supplied song IDs. */
 export function useSongInfo(songIds?: readonly string[] | null) {
-    const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
     const normalizedIds = useMemo(
         () => [...new Set(songIds?.filter(Boolean) ?? [])],
         [songIds],
@@ -169,6 +168,16 @@ export function useSongInfo(songIds?: readonly string[] | null) {
         () => chunkValues(normalizedIds, MUSIC_LIST_PAGE_SIZE),
         [normalizedIds],
     );
+    return useSongInfoChunks(idChunks);
+}
+
+/**
+ * The same read as `useSongInfo`, for a caller that splits its ids into
+ * requests itself. Each chunk is cached by its ids, so a chunk asked for again,
+ * in any position, is answered from the cache rather than reloaded.
+ */
+function useSongInfoChunks(idChunks: readonly (readonly string[])[]) {
+    const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
     const x = useSWRInfinite<MusicItem[]>(
         (pageIndex) => {
             const ids = idChunks[pageIndex];
@@ -564,14 +573,18 @@ export function useTracksForSongIds(songIds: readonly string[]) {
  * already resolved and asks Apple Music once for the rest. If that ask fails it
  * returns what it already had rather than nothing.
  */
-export function usePagedTracksForSongIds(songIds: readonly string[]) {
+export function usePagedTracksForSongIds(
+    songIds: readonly string[],
+    /** False reads nothing, not even the library, for a caller with no list. */
+    enabled = true,
+) {
     const { isConnected } = useAppleMusic();
     const {
         allLibraryTracks,
         allLibraryTracksLoading,
         allLibraryTracksErr,
         isLibraryConnected,
-    } = useAllTracksFromLibrary();
+    } = useAllTracksFromLibrary(enabled);
     const libraryTracksById = useMemo(
         () => indexTracksById(allLibraryTracks),
         [allLibraryTracks],
@@ -667,6 +680,128 @@ export function usePagedTracksForSongIds(songIds: readonly string[]) {
         resolveTracks,
         tracksErr: allLibraryTracksErr ?? songInfoErr,
         isLibraryConnected,
+    };
+}
+
+/**
+ * Turns song ids into tracks: the library's first, which costs nothing once it
+ * has loaded, then Apple Music for the rest. For one-off work like filling in
+ * what the backend is missing, not for a list that renders as it scrolls.
+ */
+export function useTrackLookup(enabled = true) {
+    const { isConnected } = useAppleMusic();
+    const { allLibraryTracks } = useAllTracksFromLibrary(enabled);
+    const libraryTracksById = useMemo(
+        () => indexTracksById(allLibraryTracks),
+        [allLibraryTracks],
+    );
+    return useCallback(
+        async (songIds: readonly string[]) => {
+            const found = new Map<string, MusicItem>();
+            const missing: string[] = [];
+            for (const songId of songIds) {
+                const track = libraryTracksById.get(songId);
+                if (track) found.set(songId, track);
+                else missing.push(songId);
+            }
+            if (missing.length === 0 || !isConnected) return found;
+            for (const chunk of chunkValues(missing, MUSIC_LIST_PAGE_SIZE)) {
+                const fetched = indexTracksById(
+                    await read(() => MusicKit.getSongInfo(chunk)),
+                );
+                for (const songId of chunk) {
+                    const track = fetched.get(songId);
+                    if (track) found.set(songId, track);
+                }
+            }
+            return found;
+        },
+        [isConnected, libraryTracksById],
+    );
+}
+
+/** How many songs a group shows at first, and how many more each "Show more" adds. */
+export const SECTION_PAGE_SIZE = SONG_ID_PAGE_SIZE;
+
+/** One group's ids, and how many of them the list wants shown. */
+export type SongIdSection = {
+    key: string;
+    songIds: readonly string[];
+    /** 0 for a closed group, which resolves nothing. */
+    requestedCount: number;
+};
+
+/**
+ * Tracks for the open groups of a grouped list. Each group resolves only the
+ * ids it is showing, the library's first and Apple Music for the rest, so a
+ * list of a thousand groups costs nothing until one opens.
+ *
+ * Each group asks Apple in chunks of its own, so opening or growing one group
+ * never changes the chunks another group already has.
+ */
+export function useSectionedTracks(
+    sections: readonly SongIdSection[],
+    enabled = true,
+) {
+    const { allLibraryTracks, allLibraryTracksLoading, allLibraryTracksErr } =
+        useAllTracksFromLibrary(enabled);
+    const libraryTracksById = useMemo(
+        () => indexTracksById(allLibraryTracks),
+        [allLibraryTracks],
+    );
+    // waits for the library, which would resolve most of these for free
+    const chunks = useMemo(
+        () =>
+            allLibraryTracksLoading
+                ? []
+                : sections.flatMap((section) =>
+                      section.requestedCount <= 0
+                          ? []
+                          : chunkValues(
+                                catalogIdsToFetch(
+                                    section.songIds,
+                                    section.requestedCount,
+                                    (songId) => libraryTracksById.has(songId),
+                                    MUSIC_LIST_PAGE_SIZE,
+                                ),
+                                MUSIC_LIST_PAGE_SIZE,
+                            ),
+                  ),
+        [allLibraryTracksLoading, libraryTracksById, sections],
+    );
+    const { songInfo, songInfoLoading, songInfoErr } =
+        useSongInfoChunks(chunks);
+    const fetchedTracksById = useMemo(
+        () => indexTracksById(songInfo),
+        [songInfo],
+    );
+    const pending = allLibraryTracksLoading || songInfoLoading;
+    const tracksBySection = useMemo(() => {
+        const bySection = new Map<
+            string,
+            { tracks: MusicItem[]; consumedCount: number }
+        >();
+        for (const section of sections) {
+            bySection.set(
+                section.key,
+                resolvedTracks(
+                    section.songIds,
+                    section.requestedCount,
+                    (songId) =>
+                        libraryTracksById.get(songId) ??
+                        fetchedTracksById.get(songId),
+                    (track) => track.id,
+                    pending,
+                ),
+            );
+        }
+        return bySection;
+    }, [fetchedTracksById, libraryTracksById, pending, sections]);
+
+    return {
+        tracksBySection,
+        pending,
+        tracksErr: allLibraryTracksErr ?? songInfoErr,
     };
 }
 

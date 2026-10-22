@@ -14,7 +14,7 @@ import {
 } from "./AdvancedQueryUtils";
 import type { BuilderActions, BuilderTags } from "./FilterGroup";
 import { FilterValueInput } from "./FilterValueInput";
-import { OptionPicker, PickerSection } from "./OptionPicker";
+import { OptionPicker, PickerSection } from "@/components/custom/option-picker";
 import { METADATA_FIELDS, PROPERTY_FIELDS, TYPE_ICONS } from "./field-icons";
 import {
     AdvancedFilterNode,

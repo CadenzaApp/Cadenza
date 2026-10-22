@@ -39,6 +39,11 @@ type Props = {
     selectedKey?: string | null;
     /** Shows a filter box above the options. */
     searchable?: boolean;
+    /**
+     * Hears every change to the search text, for a section the caller looks up
+     * itself, like suggested tags. Its options are still filtered here too.
+     */
+    onSearchChange?: (search: string) => void;
     emptyText?: string;
     onSelect: (key: string) => void;
     onClose: () => void;
@@ -58,8 +63,9 @@ const HEADER_TOP_SPACE = 8;
  * scrolls vertically when it is taller than the popup, and long labels wrap
  * rather than running off the side.
  *
- * Uses its own `Modal` instead of `ModalPopup` so the sizing here only
- * affects the advanced query builder.
+ * Uses its own `Modal` instead of `ModalPopup` so the sizing suits a long,
+ * searchable list. The advanced query builder picks tags, operators and values
+ * with it, and a song list picks what to sort and group by.
  */
 export function OptionPicker({
     visible,
@@ -67,6 +73,7 @@ export function OptionPicker({
     sections,
     selectedKey,
     searchable,
+    onSearchChange,
     emptyText = "Nothing to choose from",
     onSelect,
     onClose,
@@ -88,13 +95,18 @@ export function OptionPicker({
         }))
         .filter((section) => section.options.length > 0);
 
+    function changeSearch(next: string) {
+        setSearch(next);
+        onSearchChange?.(next);
+    }
+
     function close() {
-        setSearch("");
+        changeSearch("");
         onClose();
     }
 
     function select(key: string) {
-        setSearch("");
+        changeSearch("");
         onSelect(key);
     }
 
@@ -158,7 +170,7 @@ export function OptionPicker({
                         {searchable && (
                             <Input
                                 value={search}
-                                onChangeText={setSearch}
+                                onChangeText={changeSearch}
                                 placeholder="Search"
                                 autoCorrect={false}
                                 autoCapitalize="none"

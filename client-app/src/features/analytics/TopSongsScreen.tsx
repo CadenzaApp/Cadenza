@@ -89,7 +89,6 @@ export function TopSongsScreen() {
                 isLoading={topLoading || tracksLoading}
                 // ranked order is the point, so no sorting and no paging
                 pagination={null}
-                sorting={null}
                 onTrackPressOverride={playFromRow}
                 renderAccessory={renderAccessory}
                 anticipatedTrackCount={Math.min(entries.length || 8, 20)}

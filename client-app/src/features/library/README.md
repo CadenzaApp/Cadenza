@@ -45,7 +45,9 @@ enabled instead of silently missing for everyone who saved a selection before it
 legacy shape was a bare array, and `LEGACY_KNOWN_CATEGORIES` is what it was choosing among.
 
 `/library/category/:kind` is one screen for all five categories. Songs render through `MusicList` (with
-its sorting control and paging), albums and playlists through `CollectionList`, artists through
+Sort by / Group by and paging). Unarranged they page from Apple Music in its own order; sorted
+or grouped they are the backend's "every song in the library" query run library-only, so the
+whole library sorts at once on Android too, albums and playlists through `CollectionList`, artists through
 `ArtistList`, and tags through `TagsView`. Only the requested category's hook is enabled, so
 opening Albums does not fetch songs. Each list fills a `ScreenScrollMarker`, including Songs, so
 native scrolling can minimize the tab bar and move its player accessory inline.

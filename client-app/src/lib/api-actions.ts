@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import useSWR, { mutate, unstable_serialize, useSWRConfig } from "swr";
 import useSWRMutation from "swr/mutation";
 import { useAccount } from "./account";
@@ -314,13 +314,23 @@ const SNAPSHOT_RETRY_DELAYS_MS = [1000, 3000] as const;
 export function useAPIPostSnapshot<Body, Output>(
     path: string,
     body: Body | null,
+    /**
+     * Bumping this fetches the same body again, for a caller that knows the
+     * answer changed, like after filling in what the last one was missing.
+     */
+    revision = 0,
 ) {
     const { account } = useAccount();
-    // the body as a string, so an equal body in a new object does not refetch
-    const requestKey =
-        account && body !== null
-            ? JSON.stringify([account.id, path, body])
-            : null;
+    const accountId = account?.id;
+    // the body as a string, so an equal body in a new object does not refetch.
+    // memoized, since a body can hold thousands of song ids
+    const requestKey = useMemo(
+        () =>
+            accountId && body !== null
+                ? JSON.stringify([accountId, path, body, revision])
+                : null,
+        [accountId, body, path, revision],
+    );
     const [result, setResult] = useState<{
         requestKey: string;
         data?: Output;
@@ -334,6 +344,7 @@ export function useAPIPostSnapshot<Body, Output>(
             string,
             string,
             Body,
+            number,
         ];
 
         // SWR would retry a failed read, so this does too, a few times with

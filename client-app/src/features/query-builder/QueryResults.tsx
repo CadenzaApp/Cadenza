@@ -3,8 +3,9 @@ import { useCallback, useRef, useState } from "react";
 import { useWindowDimensions, View } from "react-native";
 
 import type {
+    MusicListArrangement,
     MusicListPagination,
-    MusicListSort,
+    MusicListSections,
 } from "@/components/custom/music-list";
 import { TrackCollectionView } from "@/components/custom/track-collection-view";
 import { useCollectionArtworkTint } from "@/components/custom/use-collection-artwork-tint";
@@ -21,11 +22,12 @@ import { usePlaybackCommands, usePlaybackTrackState } from "@/lib/playback";
 import { matchCountLabel } from "./QueryUtils";
 
 const HERO_BUTTON_SIZE = 52;
-/** The sorts the backend can apply to a whole result. */
-const SORT_OPTIONS = ["title", "artist", "album"] as const;
 
 type Props = {
-    /** The tracks loaded so far, in order. More arrive through `pagination`. */
+    /**
+     * The tracks loaded so far, in order. More arrive through `pagination`, or
+     * as `sections` open.
+     */
     songs: MusicItem[];
     isLoading: boolean;
     error?: unknown;
@@ -35,14 +37,16 @@ type Props = {
     capped: boolean;
     /** The query matched only songs in the user's library. */
     libraryOnly: boolean;
-    pagination: MusicListPagination;
-    sort: MusicListSort;
-    /** The backend sorts, so a new sort is a new result. */
-    onSortChange: (sort: MusicListSort) => void;
+    /** Null when grouped: each group loads its own songs. */
+    pagination: MusicListPagination | null;
+    /** The groups, when the results are grouped. */
+    sections: MusicListSections | null;
+    /** The backend sorts and groups, so a new choice is a new result. */
+    arrangement: MusicListArrangement;
     /**
-     * The tracks Play and Shuffle queue: every song that is certainly the
-     * user's own, including ones the list has not reached, and the others
-     * already loaded.
+     * The tracks Play and Shuffle queue. Unsorted, every song that is
+     * certainly the user's own, including ones the list has not reached, and
+     * the others already loaded. Sorted or grouped, only what is loaded.
      */
     resolvePlayQueue: () => Promise<MusicItem[]>;
     mostRelevantTags?: readonly string[];
@@ -60,8 +64,8 @@ export default function QueryResults({
     capped,
     libraryOnly,
     pagination,
-    sort,
-    onSortChange,
+    sections,
+    arrangement,
     resolvePlayQueue,
     mostRelevantTags,
     activityTagIds,
@@ -79,9 +83,11 @@ export default function QueryResults({
     const saveDialogWidth = Math.round(screenWidth * 0.75);
     const allLoaded =
         !isLoading &&
-        !pagination.hasNextPage &&
-        !pagination.isLoadingNextPage &&
-        songs.length > 0;
+        !pagination?.hasNextPage &&
+        !pagination?.isLoadingNextPage &&
+        matchCount > 0;
+    const arranged =
+        arrangement.value.sort !== null || arrangement.value.group !== null;
 
     /**
      * Notes that a song was played out of this query, which is what the query
@@ -170,20 +176,18 @@ export default function QueryResults({
                 anticipatedTrackCount={matchCount}
                 summary={matchCountLabel(matchCount, capped)}
                 pagination={pagination}
-                sorting={{
-                    options: SORT_OPTIONS,
-                    value: sort,
-                    strategy: "remote",
-                    onChange: onSortChange,
-                }}
+                sections={sections}
+                arrangement={arrangement}
                 footer={
                     allLoaded ? (
                         <Text className="px-6 py-4 text-center text-sm text-muted-foreground">
-                            {capped
-                                ? "These are your matching songs and the first 1,000 others Cadenza knows. Narrow the query to see more."
-                                : libraryOnly
-                                  ? "These are all the songs in your library that match."
-                                  : "These are all the songs Cadenza knows that match."}
+                            {capped && arranged
+                                ? "These are the first 1,000 matching songs in this order. Narrow the query to see more."
+                                : capped
+                                  ? "These are your matching songs and the first 1,000 others Cadenza knows. Narrow the query to see more."
+                                  : libraryOnly
+                                    ? "These are all the songs in your library that match."
+                                    : "These are all the songs Cadenza knows that match."}
                         </Text>
                     ) : null
                 }

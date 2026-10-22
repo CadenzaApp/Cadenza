@@ -1,13 +1,7 @@
 import { useMemo } from "react";
 
 import type { QueryJSON } from "@/lib/query-json";
-import { useAPIPostData, useAPIPostSnapshot } from "../api-actions";
-
-/** What the results can be sorted by. Leaving it out sorts most relevant first. */
-export type QueryResultsSort = {
-    key: "title" | "artist" | "album";
-    direction: "ascending" | "descending";
-};
+import { useAPIPostData } from "../api-actions";
 
 /**
  * One matching song. `certain` is true for a song in the user's library or
@@ -20,7 +14,6 @@ type QueryResultsBody = {
     query: QueryJSON;
     consider_default_tags: boolean;
     library_only?: true;
-    sort?: QueryResultsSort;
 };
 
 type QueryResultsResponse = {
@@ -50,19 +43,15 @@ const NO_MATCHES: string[] = [];
  * reusing the other answer.
  *
  * Revalidates like any other read, so it suits a live preview. A list the user
- * scrolls through wants `useQueryResultsSnapshot`.
+ * scrolls through wants `useArrangedSongs` from `./arrange`, which holds its
+ * answer and can sort and group it.
  */
 export function useQueryResults(
     query: QueryJSON | null,
     considerDefaultTags: boolean,
     libraryOnly: boolean,
 ) {
-    const body = useQueryResultsBody(
-        query,
-        considerDefaultTags,
-        libraryOnly,
-        null,
-    );
+    const body = useQueryResultsBody(query, considerDefaultTags, libraryOnly);
     const x = useAPIPostData<QueryResultsBody, QueryResultsResponse>(
         "/queries/results",
         body,
@@ -73,37 +62,10 @@ export function useQueryResults(
     };
 }
 
-/**
- * The same results as `useQueryResults`, sorted by `sort`, but fetched once and
- * then held for as long as the caller stays mounted. Tagging or playing a song
- * changes what a query matches and how its songs rank, and a list that
- * refreshed under the user while they scrolled would skip or repeat rows. A new
- * query or sort fetches again.
- */
-export function useQueryResultsSnapshot(
-    query: QueryJSON | null,
-    considerDefaultTags: boolean,
-    libraryOnly: boolean,
-    sort: QueryResultsSort | null,
-) {
-    const body = useQueryResultsBody(
-        query,
-        considerDefaultTags,
-        libraryOnly,
-        sort,
-    );
-    const x = useAPIPostSnapshot<QueryResultsBody, QueryResultsResponse>(
-        "/queries/results",
-        body,
-    );
-    return useParsedResults(body, x.data, x.isLoading, x.error);
-}
-
 function useQueryResultsBody(
     query: QueryJSON | null,
     considerDefaultTags: boolean,
     libraryOnly: boolean,
-    sort: QueryResultsSort | null,
 ) {
     return useMemo<QueryResultsBody | null>(() => {
         if (!query) return null;
@@ -113,9 +75,8 @@ function useQueryResultsBody(
             // left out when off, so the usual request and its cache key stay
             // the same as before the setting existed
             ...(libraryOnly ? { library_only: true as const } : {}),
-            ...(sort ? { sort } : {}),
         };
-    }, [considerDefaultTags, libraryOnly, query, sort]);
+    }, [considerDefaultTags, libraryOnly, query]);
 }
 
 function useParsedResults(

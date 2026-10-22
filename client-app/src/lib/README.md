@@ -14,7 +14,11 @@ native module directly.
 | `swr-utils.ts`               | `clearCache` and `useSimpleMutation`, for things that are not plain backend calls.                                                                                                                                                                                                                              |
 | `routes/tags.ts`             | Hooks for `/tags`: `useUserTags`, `useTag`, `useCreateTag`, `useUpdateTag`, `useDeleteTag`, `useDefaultTags`, `useActivityTags`, `useActivityTagIdsInQuery`, `useSuggestTags`.                                                                                                                                  |
 | `routes/songs.ts`            | Hooks for local, default, and activity tag reads (one song and batched), local tag writes, removing a suggested tag, recording a play, reporting an opened song, missing-default checks, generation, and editing the user's library.                                                                            |
-| `routes/queries.ts`          | `useQueryResults`, the live cached hook for `/queries/results`, and `useQueryResultsSnapshot`, the same read with a sort, held while a screen is open. Both carry the suggested-tag and library-only flags. Neither sends song ids: the backend queries every song it knows, or only the library.               |
+| `routes/queries.ts`          | `useQueryResults`, the live cached hook for `/queries/results` behind the Cadenza tab's count. Carries the suggested-tag and library-only flags. Sends no song ids: the backend queries every song it knows, or only the library.                                                                               |
+| `routes/arrange.ts`          | `useArrangedSongs`, a song list the backend sorts and groups, held while a screen is open: a query through `/queries/results`, or a list of ids through `/queries/arrange`. Answers `missing_metadata` by sending what MusicKit knows to `/songs/metadata/library`, then fetches once more.                     |
+| `song-arrangement.ts`        | Pure: the Sort by and Group by model, where every field is a tag, each field's starting direction, what the backend takes, group labels, and `sectionsOf`. Tested in `song-arrangement.test.ts`.                                                                                                                |
+| `arranged-track-list.ts`     | `useArrangedTrackList`, the arranged ids made into what `MusicList` draws: a flat list paged 50 at a time, or collapsible groups that load as they open. Shared by the four sortable screens.                                                                                                                   |
+| `saved-arrangement.ts`       | `useSavedArrangement`, what each kind of sortable screen was last sorted and grouped by, kept in AsyncStorage.                                                                                                                                                                                                  |
 | `routes/profile.ts`          | Hooks for `/profile`: `useProfile`, `useCreateProfile`, `useUpdateProfile`.                                                                                                                                                                                                                                     |
 | `routes/social.ts`           | `useFeed`, `useMarkPostsViewed`, `useCreatePost`, likes, interests, `useTopicPosts`, and `useUserPosts`, for `/social`.                                                                                                                                                                                         |
 | `musickit-hooks.ts`          | SWR over the native module: song info, catalog search, paged and complete-library songs, albums, artists, playlists, collection metadata, favorites, artist search, playlist writes, and turning backend song ids into tracks, all at once or a page at a time.                                                 |
@@ -166,43 +170,45 @@ stuck and is not an acceptable tradeoff.
 
 One file per backend router, and every backend endpoint has at least one hook.
 
-| backend               | endpoint                          | hook                                                             |
-| --------------------- | --------------------------------- | ---------------------------------------------------------------- |
-| `routes/tags.rs`      | `GET /tags`                       | `tags.ts` -> `useUserTags()`, `useTag(tagId)`                    |
-|                       | `POST /tags`                      | `tags.ts` -> `useCreateTag()`                                    |
-|                       | `DELETE /tags`                    | `tags.ts` -> `useDeleteTag()`                                    |
-|                       | `GET /tags/default-tags`          | `tags.ts` -> `useDefaultTags(search)`                            |
-|                       | `GET /tags/activity`              | `tags.ts` -> `useActivityTags()`                                 |
-|                       | `GET /tags/suggest`               | `tags.ts` -> `useSuggestTags()`                                  |
-| `routes/songs.rs`     | `GET /songs/local-tags`           | `songs.ts` -> `useTagsOnSong(songId)`                            |
-|                       | `POST /songs/local-tags/batch`    | `songs.ts` -> `useTagsOnSongs(songIds)`                          |
-|                       | `GET /songs/default-tags`         | `songs.ts` -> `useDefaultTagsOnSong(songId)`                     |
-|                       | `POST /songs/default-tags/batch`  | `songs.ts` -> `useDefaultTagsOnSongs(songIds)`                   |
-|                       | `DELETE /songs/default-tags`      | `songs.ts` -> `useRemoveDefaultTag()`                            |
-|                       | `POST /songs/local-tags`          | `songs.ts` -> `useApplyTag()`                                    |
-|                       | `PATCH /songs/local-tags`         | `songs.ts` -> `useSetTagValue()`                                 |
-|                       | `DELETE /songs/local-tags`        | `songs.ts` -> `useUnapplyTag()`                                  |
-|                       | `PATCH /songs`                    | `songs.ts` -> `useEditUserSongs()`                               |
-|                       | `GET /songs/activity-tags`        | `songs.ts` -> `useActivityTagsOnSong(songId)`                    |
-|                       | `POST /songs/activity-tags/batch` | `songs.ts` -> `useActivityTagsOnSongs(songIds)`                  |
-|                       | `POST /songs/metadata/opened`     | `songs.ts` -> `useReportSongOpened()`                            |
-|                       | `GET /songs/metadata-tags`        | `songs.ts` -> `useMetadataTagsOnSong(songId)`                    |
-| `routes/events.rs`    | `POST /events`                    | `events.ts` -> `useRecordEvents()`                               |
-| `routes/analytics.rs` | `GET /analytics/summary`          | `analytics.ts` -> `useAnalyticsSummary()`                        |
-|                       | `GET /analytics/top`              | `analytics.ts` -> `useAnalyticsTop()`                            |
-|                       | `GET /analytics/top-tags`         | `analytics.ts` -> `useAnalyticsTopTags()`                        |
-|                       | `GET /analytics/heatmap`          | `analytics.ts` -> `useAnalyticsHeatmap()`                        |
-|                       | `GET /analytics/tag-shares`       | `analytics.ts` -> `useAnalyticsTagShares()`                      |
-| `routes/queries.rs`   | `POST /queries/results`           | `queries.ts` -> `useQueryResults()`, `useQueryResultsSnapshot()` |
-| `routes/social.rs`    | `GET /social/feed`                | `social.ts` -> `useFeed()`                                       |
-|                       | `PATCH /social/interests/decay`   | `social.ts` -> `useDecayInterests()`                             |
-|                       | `PATCH /social/interests/update`  | `social.ts` -> `useEditInterestScores()`                         |
-|                       | `POST /social/posts`              | `social.ts` -> `useCreatePost()`                                 |
-|                       | `POST /social/posts/{id}/likes`   | `social.ts` -> `useLikePost()`                                   |
-|                       | `DELETE /social/posts/{id}/likes` | `social.ts` -> `useUnlikePost()`                                 |
-|                       | `POST /social/posts/views`        | `social.ts` -> `useMarkPostsViewed()`                            |
-|                       | `GET /social/posts/topic`         | `social.ts` -> `useTopicPosts(topicMkId)`                        |
-|                       | `GET /social/posts/user/:id`      | `social.ts` -> `useUserPosts(authorId)`                          |
+| backend               | endpoint                          | hook                                                                      |
+| --------------------- | --------------------------------- | ------------------------------------------------------------------------- |
+| `routes/tags.rs`      | `GET /tags`                       | `tags.ts` -> `useUserTags()`, `useTag(tagId)`                             |
+|                       | `POST /tags`                      | `tags.ts` -> `useCreateTag()`                                             |
+|                       | `DELETE /tags`                    | `tags.ts` -> `useDeleteTag()`                                             |
+|                       | `GET /tags/default-tags`          | `tags.ts` -> `useDefaultTags(search)`                                     |
+|                       | `GET /tags/activity`              | `tags.ts` -> `useActivityTags()`                                          |
+|                       | `GET /tags/suggest`               | `tags.ts` -> `useSuggestTags()`                                           |
+| `routes/songs.rs`     | `GET /songs/local-tags`           | `songs.ts` -> `useTagsOnSong(songId)`                                     |
+|                       | `POST /songs/local-tags/batch`    | `songs.ts` -> `useTagsOnSongs(songIds)`                                   |
+|                       | `GET /songs/default-tags`         | `songs.ts` -> `useDefaultTagsOnSong(songId)`                              |
+|                       | `POST /songs/default-tags/batch`  | `songs.ts` -> `useDefaultTagsOnSongs(songIds)`                            |
+|                       | `DELETE /songs/default-tags`      | `songs.ts` -> `useRemoveDefaultTag()`                                     |
+|                       | `POST /songs/local-tags`          | `songs.ts` -> `useApplyTag()`                                             |
+|                       | `PATCH /songs/local-tags`         | `songs.ts` -> `useSetTagValue()`                                          |
+|                       | `DELETE /songs/local-tags`        | `songs.ts` -> `useUnapplyTag()`                                           |
+|                       | `PATCH /songs`                    | `songs.ts` -> `useEditUserSongs()`                                        |
+|                       | `GET /songs/activity-tags`        | `songs.ts` -> `useActivityTagsOnSong(songId)`                             |
+|                       | `POST /songs/activity-tags/batch` | `songs.ts` -> `useActivityTagsOnSongs(songIds)`                           |
+|                       | `POST /songs/metadata/opened`     | `songs.ts` -> `useReportSongOpened()`                                     |
+|                       | `GET /songs/metadata-tags`        | `songs.ts` -> `useMetadataTagsOnSong(songId)`                             |
+|                       | `POST /songs/metadata/library`    | `arrange.ts`, inside `useArrangedSongs()`                                 |
+| `routes/events.rs`    | `POST /events`                    | `events.ts` -> `useRecordEvents()`                                        |
+| `routes/analytics.rs` | `GET /analytics/summary`          | `analytics.ts` -> `useAnalyticsSummary()`                                 |
+|                       | `GET /analytics/top`              | `analytics.ts` -> `useAnalyticsTop()`                                     |
+|                       | `GET /analytics/top-tags`         | `analytics.ts` -> `useAnalyticsTopTags()`                                 |
+|                       | `GET /analytics/heatmap`          | `analytics.ts` -> `useAnalyticsHeatmap()`                                 |
+|                       | `GET /analytics/tag-shares`       | `analytics.ts` -> `useAnalyticsTagShares()`                               |
+| `routes/queries.rs`   | `POST /queries/results`           | `queries.ts` -> `useQueryResults()`, `arrange.ts` -> `useArrangedSongs()` |
+|                       | `POST /queries/arrange`           | `arrange.ts` -> `useArrangedSongs()`                                      |
+| `routes/social.rs`    | `GET /social/feed`                | `social.ts` -> `useFeed()`                                                |
+|                       | `PATCH /social/interests/decay`   | `social.ts` -> `useDecayInterests()`                                      |
+|                       | `PATCH /social/interests/update`  | `social.ts` -> `useEditInterestScores()`                                  |
+|                       | `POST /social/posts`              | `social.ts` -> `useCreatePost()`                                          |
+|                       | `POST /social/posts/{id}/likes`   | `social.ts` -> `useLikePost()`                                            |
+|                       | `DELETE /social/posts/{id}/likes` | `social.ts` -> `useUnlikePost()`                                          |
+|                       | `POST /social/posts/views`        | `social.ts` -> `useMarkPostsViewed()`                                     |
+|                       | `GET /social/posts/topic`         | `social.ts` -> `useTopicPosts(topicMkId)`                                 |
+|                       | `GET /social/posts/user/:id`      | `social.ts` -> `useUserPosts(authorId)`                                   |
 
 `routes/social.rs` implements the paths above. The user id comes from the JWT.
 

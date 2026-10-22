@@ -50,20 +50,18 @@ import {
     useRowTagStore,
     type RowTagStore,
 } from "./row-tags";
-import { MusicListSortButton } from "./music-list-sort-button";
-import { sortTracks } from "./sort-tracks";
-import { useMusicListSelection } from "./use-music-list-selection";
+import { MusicListArrangeButton } from "./music-list-arrange-sheet";
 import {
-    DEFAULT_MUSIC_LIST_SORT_OPTIONS,
-    type MusicListProps,
-    type MusicListSort,
-    type MusicListTrackAction,
+    MusicListSectionHeader,
+    MusicListShowMoreRow,
+} from "./music-list-section-header";
+import { useMusicListSelection } from "./use-music-list-selection";
+import type {
+    MusicListProps,
+    MusicListSection,
+    MusicListTrackAction,
 } from "./types";
 
-const DEFAULT_SORT: MusicListSort = {
-    option: "title",
-    direction: "ascending",
-};
 const EMPTY_TAG_NAMES: readonly string[] = [];
 const EMPTY_TRACK_ACTIONS: readonly MusicListTrackAction[] = [];
 const MAX_INITIAL_SKELETON_ROWS = 10;
@@ -85,8 +83,47 @@ const MUSIC_LIST_BOTTOM_SPACER_ROWS = 2;
  * the screen's worklet scroll handler attaches to it like any scroller.
  */
 const AnimatedFlashList = Animated.createAnimatedComponent(
-    FlashList<MusicItem>,
+    FlashList<MusicListRowItem>,
 );
+
+/**
+ * One row of the list: a song, or in a grouped list a group's header, its
+ * "Show more" button, or the placeholder while it loads.
+ */
+type MusicListRowItem =
+    | { type: "track"; track: MusicItem; sectionKey?: string }
+    | { type: "header"; section: MusicListSection }
+    | { type: "more"; section: MusicListSection }
+    | { type: "loading"; section: MusicListSection };
+
+/** A grouped list's rows: each header, then an open group's songs. */
+function sectionRows(
+    sections: readonly MusicListSection[],
+): MusicListRowItem[] {
+    return sections.flatMap((section): MusicListRowItem[] => {
+        const header: MusicListRowItem = { type: "header", section };
+        if (!section.expanded) return [header];
+        // keyed by group too: one song can be in two groups under two ids
+        const tracks = section.tracks.map(
+            (track): MusicListRowItem => ({
+                type: "track",
+                track,
+                sectionKey: section.key,
+            }),
+        );
+        if (section.isLoading && tracks.length === 0) {
+            return [header, { type: "loading", section }];
+        }
+        return section.hasMore
+            ? [header, ...tracks, { type: "more", section }]
+            : [header, ...tracks];
+    });
+}
+
+function rowKey(row: MusicListRowItem) {
+    if (row.type !== "track") return `${row.type}:${row.section.key}`;
+    return row.sectionKey ? `${row.sectionKey}:${row.track.id}` : row.track.id;
+}
 
 const NO_CONTENT_POSITION = { disabled: true } as const;
 
@@ -159,12 +196,14 @@ export function MusicList({
     header: headerProp,
     listHeader,
     footer,
+    emptyContent,
     onContentSizeChange,
     contentBackground,
     removeClippedSubviews,
     onScroll,
-    pagination,
-    sorting,
+    pagination: paginationProp,
+    arrangement = null,
+    sections = null,
 }: MusicListProps) {
     const header = headerProp ?? listHeader;
     const { togglePlayback } = usePlaybackCommands();
@@ -175,19 +214,13 @@ export function MusicList({
         useState(0);
     const [densityTransitioning, setDensityTransitioning] = useState(false);
     const [densityRevealActive, setDensityRevealActive] = useState(false);
-    const [internalSort, setInternalSort] = useState(
-        sorting?.defaultValue ?? DEFAULT_SORT,
-    );
     const [menuTrack, setMenuTrack] = useState<(typeof tracks)[number] | null>(
         null,
     );
     const [selectionToolbarHeight, setSelectionToolbarHeight] = useState(120);
-    const controlledSort = sorting?.value;
-    const onSortChange = sorting?.onChange;
-    const sort = controlledSort ?? internalSort;
-    const sortOptions = sorting?.options ?? DEFAULT_MUSIC_LIST_SORT_OPTIONS;
-    const sortStrategy = sorting?.strategy ?? "local";
-    const sortingEnabled = sorting != null && sortOptions.length > 0;
+    // a grouped list loads each group on its own
+    const pagination = sections ? null : paginationProp;
+    const arrangementEnabled = arrangement != null;
     const hasNextPage = pagination?.hasNextPage ?? false;
     const isLoadingNextPage = pagination?.isLoadingNextPage ?? false;
     const onLoadNextPage = pagination?.onLoadNextPage;
@@ -206,12 +239,24 @@ export function MusicList({
     }));
     const { floatingActionBottom, listBottomInset, playerBottomInset } =
         useScreenOverlayInsets();
+    const rows = useMemo(
+        () =>
+            sections
+                ? sectionRows(sections.sections)
+                : tracks.map(
+                      (track): MusicListRowItem => ({ type: "track", track }),
+                  ),
+        [sections, tracks],
+    );
+    // the songs on show, in order, which is what selection and tags read
     const displayedTracks = useMemo(
         () =>
-            sortingEnabled && sortStrategy === "local"
-                ? sortTracks(tracks, sort)
+            sections
+                ? rows.flatMap((row) =>
+                      row.type === "track" ? [row.track] : [],
+                  )
                 : tracks,
-        [sortStrategy, sortingEnabled, sort, tracks],
+        [rows, sections, tracks],
     );
     const selection = useMusicListSelection(displayedTracks, multiSelect);
     const { isSelecting, toggleSelection } = selection;
@@ -231,9 +276,9 @@ export function MusicList({
     const taggableIds = useMemo(
         () =>
             tagsEnabled
-                ? tracks.map((track) => track.catalogId ?? track.id)
+                ? displayedTracks.map((track) => track.catalogId ?? track.id)
                 : [],
-        [tagsEnabled, tracks],
+        [displayedTracks, tagsEnabled],
     );
     // the tag reads live in RowTagSource and rows read their own song from
     // this store, so a tag response never re-renders the list
@@ -262,7 +307,7 @@ export function MusicList({
         ? 0
         : selection.isSelecting
           ? selectionToolbarBottom + selectionToolbarHeight + 12
-          : sortingEnabled
+          : arrangementEnabled
             ? listBottomInset
             : Math.max(40, playerBottomInset + 12);
     const contentBottomInset = bottomOverlayInset + bottomRowSpacer;
@@ -283,11 +328,14 @@ export function MusicList({
     // highlight, which is fixed for a screen
     const onViewableItemsChanged = useCallback(
         ({ viewableItems }: { viewableItems: ViewToken[] }) => {
-            const seen = viewableItems.some(
-                (token) =>
+            const seen = viewableItems.some((token) => {
+                const row = token.item as MusicListRowItem;
+                return (
                     token.isViewable &&
-                    isHighlighted(token.item as (typeof tracks)[number]),
-            );
+                    row.type === "track" &&
+                    isHighlighted(row.track)
+                );
+            });
             if (!seen) return;
             setHighlightPhase((phase) =>
                 phase === "waiting" ? "playing" : phase,
@@ -397,14 +445,6 @@ export function MusicList({
         );
     }
 
-    const handleSortChange = useCallback(
-        (nextSort: MusicListSort) => {
-            if (!controlledSort) setInternalSort(nextSort);
-            onSortChange?.(nextSort);
-        },
-        [controlledSort, onSortChange],
-    );
-
     const handleEndReached = useCallback(async () => {
         if (
             !hasNextPage ||
@@ -467,58 +507,105 @@ export function MusicList({
                             // closes, and an indicator flicking in over the
                             // shrinking card is noise.
                             showsVerticalScrollIndicator={false}
-                            data={displayedTracks}
+                            data={rows}
                             extraData={listExtraData}
-                            keyExtractor={(item) => item.id}
-                            renderItem={({ item, index }) => (
-                                <Animated.View
-                                    // only the density change remounts rows, for
-                                    // their fade in. keyed by song too, a row slot
-                                    // FlashList moved to another song was thrown
-                                    // away and rebuilt rather than reused
-                                    key={densityTransitionRevision}
-                                    entering={
-                                        densityRevealActive &&
-                                        revealTrackIds.has(item.id)
-                                            ? FadeIn.delay(
-                                                  densityFadeDelay(index),
-                                              ).duration(DENSITY_ROW_FADE_IN_MS)
-                                            : undefined
-                                    }
-                                >
-                                    <MusicListRow
-                                        store={rowTagStore}
-                                        songId={item.catalogId ?? item.id}
-                                        item={item}
-                                        selected={selection.selectedIds.has(
-                                            item.id,
-                                        )}
-                                        selectionMode={selection.isSelecting}
-                                        multiSelectEnabled={selection.enabled}
-                                        animateSelectionTransition={
-                                            animateSelectionTransition
-                                        }
-                                        fullBleed={fullBleedRows}
-                                        fullBleedHorizontalPadding={
-                                            fullBleedRowHorizontalPadding
-                                        }
-                                        rowSurfaceColor={rowSurfaceColor}
-                                        compact={isCompact}
-                                        mostRelevantTags={mostRelevantTags}
-                                        activityTagIds={activityTagIds}
-                                        accessory={renderAccessory?.(item)}
-                                        onPress={handleTrackPress}
-                                        onLongPress={selection.beginSelection}
-                                        onOpenMenu={setMenuTrack}
-                                    />
-                                    {highlightPhase === "playing" &&
-                                    isHighlighted(item) ? (
-                                        <MusicListRowShimmer
-                                            onDone={finishHighlight}
+                            keyExtractor={rowKey}
+                            getItemType={(row) => row.type}
+                            renderItem={({ item: row, index }) => {
+                                if (row.type === "header") {
+                                    return (
+                                        <MusicListSectionHeader
+                                            section={row.section}
+                                            fullBleed={fullBleedRows}
+                                            fullBleedHorizontalPadding={
+                                                fullBleedRowHorizontalPadding
+                                            }
+                                            onToggle={sections!.onToggle}
                                         />
-                                    ) : null}
-                                </Animated.View>
-                            )}
+                                    );
+                                }
+                                if (row.type === "more") {
+                                    return (
+                                        <MusicListShowMoreRow
+                                            section={row.section}
+                                            fullBleed={fullBleedRows}
+                                            fullBleedHorizontalPadding={
+                                                fullBleedRowHorizontalPadding
+                                            }
+                                            onShowMore={sections!.onShowMore}
+                                        />
+                                    );
+                                }
+                                if (row.type === "loading") {
+                                    return (
+                                        <MusicListItemSkeleton
+                                            fullBleed={fullBleedRows}
+                                            fullBleedHorizontalPadding={
+                                                fullBleedRowHorizontalPadding
+                                            }
+                                            compact={isCompact}
+                                        />
+                                    );
+                                }
+                                const item = row.track;
+                                return (
+                                    <Animated.View
+                                        // only the density change remounts rows, for
+                                        // their fade in. keyed by song too, a row slot
+                                        // FlashList moved to another song was thrown
+                                        // away and rebuilt rather than reused
+                                        key={densityTransitionRevision}
+                                        entering={
+                                            densityRevealActive &&
+                                            revealTrackIds.has(item.id)
+                                                ? FadeIn.delay(
+                                                      densityFadeDelay(index),
+                                                  ).duration(
+                                                      DENSITY_ROW_FADE_IN_MS,
+                                                  )
+                                                : undefined
+                                        }
+                                    >
+                                        <MusicListRow
+                                            store={rowTagStore}
+                                            songId={item.catalogId ?? item.id}
+                                            item={item}
+                                            selected={selection.selectedIds.has(
+                                                item.id,
+                                            )}
+                                            selectionMode={
+                                                selection.isSelecting
+                                            }
+                                            multiSelectEnabled={
+                                                selection.enabled
+                                            }
+                                            animateSelectionTransition={
+                                                animateSelectionTransition
+                                            }
+                                            fullBleed={fullBleedRows}
+                                            fullBleedHorizontalPadding={
+                                                fullBleedRowHorizontalPadding
+                                            }
+                                            rowSurfaceColor={rowSurfaceColor}
+                                            compact={isCompact}
+                                            mostRelevantTags={mostRelevantTags}
+                                            activityTagIds={activityTagIds}
+                                            accessory={renderAccessory?.(item)}
+                                            onPress={handleTrackPress}
+                                            onLongPress={
+                                                selection.beginSelection
+                                            }
+                                            onOpenMenu={setMenuTrack}
+                                        />
+                                        {highlightPhase === "playing" &&
+                                        isHighlighted(item) ? (
+                                            <MusicListRowShimmer
+                                                onDone={finishHighlight}
+                                            />
+                                        ) : null}
+                                    </Animated.View>
+                                );
+                            }}
                             contentContainerStyle={[
                                 {
                                     paddingBottom: contentBottomInset,
@@ -546,6 +633,8 @@ export function MusicList({
                                             />
                                         ))}
                                     </View>
+                                ) : emptyContent !== undefined ? (
+                                    <>{emptyContent}</>
                                 ) : (
                                     <Text className="text-muted-foreground text-center mt-10">
                                         Search for Artists, Songs, Lyrics, and
@@ -579,13 +668,12 @@ export function MusicList({
                 </Animated.View>
             </GestureDetector>
 
-            {sortingEnabled && !selection.isSelecting && (
-                <MusicListSortButton
-                    sort={sort}
-                    options={sortOptions}
-                    onSortChange={handleSortChange}
+            {arrangement && !selection.isSelecting ? (
+                <MusicListArrangeButton
+                    value={arrangement.value}
+                    onChange={arrangement.onChange}
                 />
-            )}
+            ) : null}
 
             <RowTagSource
                 store={rowTagStore}
@@ -644,19 +732,14 @@ function MusicListLoadingSkeletons({
 export type {
     MusicListAction,
     MusicListActionIcon,
+    MusicListArrangement,
     MusicListMultiSelectConfig,
     MusicListPagination,
     MusicListProps,
+    MusicListSection,
+    MusicListSections,
     MusicListSelectionAction,
-    MusicListSort,
-    MusicListSortDirection,
-    MusicListSortOption,
-    MusicListSorting,
     MusicListTrackAction,
-} from "./types";
-export {
-    DEFAULT_MUSIC_LIST_SORT_OPTIONS,
-    MUSIC_LIST_SORT_OPTIONS,
 } from "./types";
 
 /** A row reading its own tags from the list's store, so only it re-renders. */

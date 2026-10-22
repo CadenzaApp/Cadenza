@@ -15,7 +15,7 @@ import {
     toDateTimeValue,
     toDateValue,
 } from "./AdvancedQueryUtils";
-import { OptionPicker } from "./OptionPicker";
+import { OptionPicker } from "@/components/custom/option-picker";
 import { TYPE_ICONS } from "./field-icons";
 import { ValueKind } from "./types";
 

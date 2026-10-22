@@ -116,7 +116,6 @@ export function ListenedSongsScreen() {
                 tracks={tracks}
                 isLoading={isLoading || tracksLoading}
                 // play order is the point, so no sorting
-                sorting={null}
                 pagination={{
                     hasNextPage: canLoadMore,
                     isLoadingNextPage: canLoadMore && isValidating,

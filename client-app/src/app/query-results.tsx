@@ -1,20 +1,16 @@
 import { useLocalSearchParams } from "expo-router";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
 
-import type { MusicListSort } from "@/components/custom/music-list";
 import QueryResults from "@/features/query-builder/QueryResults";
-import { usePagedTracksForSongIds } from "@/lib/musickit-hooks";
-import { queryQueueIds } from "@/lib/paged-tracks";
+import { useArrangedTrackList } from "@/lib/arranged-track-list";
+import { useTrackLookup } from "@/lib/musickit-hooks";
 import { encodeQuerySource, type PlaySource } from "@/lib/play-source";
 import type { QueryJSON } from "@/lib/query-json";
-import {
-    useQueryResultsSnapshot,
-    type QueryResultsSort,
-} from "@/lib/routes/queries";
+import type { ArrangeSource } from "@/lib/routes/arrange";
 import { useActivityTagIdsInQuery } from "@/lib/routes/tags";
-
-/** What the list opens sorted by, the same as every other song list. */
-const DEFAULT_SORT: MusicListSort = { option: "title", direction: "ascending" };
+import { useSavedArrangement } from "@/lib/saved-arrangement";
+import { queryQueueIds } from "@/lib/paged-tracks";
+import { NO_ARRANGEMENT } from "@/lib/song-arrangement";
 
 /** Full-screen query matches, presented like the album and playlist heroes. */
 export default function QueryResultsScreen() {
@@ -36,8 +32,9 @@ export default function QueryResultsScreen() {
     }>();
     const query = useMemo(() => parseQuery(encodedQuery), [encodedQuery]);
     const libraryOnly = library === "1";
-    const [sort, setSort] = useState<MusicListSort>(DEFAULT_SORT);
-    const resultsSort = useMemo(() => toResultsSort(sort), [sort]);
+    const considerDefaultTags = suggested === "1";
+    const { arrangement, setArrangement, ready } =
+        useSavedArrangement("query-results");
     // what a play from here is credited to
     const playSource = useMemo<PlaySource | undefined>(
         () =>
@@ -46,12 +43,12 @@ export default function QueryResultsScreen() {
                       kind: "query",
                       id: encodeQuerySource({
                           query,
-                          suggested: suggested === "1",
+                          suggested: considerDefaultTags,
                       }),
                       name: name || "Query",
                   }
                 : undefined,
-        [name, query, suggested],
+        [considerDefaultTags, name, query],
     );
     const mostRelevantTags = useMemo(
         () => parseRelevantTags(relevantTags),
@@ -59,65 +56,55 @@ export default function QueryResultsScreen() {
     );
     const activityTagIds = useActivityTagIdsInQuery(query);
     // held for as long as the screen is open, so the list cannot move while it
-    // is scrolled. sorting asks for a new one
-    const {
-        matchedSongs,
-        matchedSongIds,
-        resultsCapped,
-        queryResultsLoading,
-        queryResultsErr,
-    } = useQueryResultsSnapshot(
-        query,
-        suggested === "1",
-        libraryOnly,
-        resultsSort,
+    // is scrolled. a new sort or group asks for a new one. waits for the saved
+    // arrangement, so a sorted screen is not fetched unsorted first
+    const source = useMemo<ArrangeSource | null>(
+        () =>
+            query && ready
+                ? { kind: "query", query, considerDefaultTags, libraryOnly }
+                : null,
+        [considerDefaultTags, libraryOnly, query, ready],
     );
-    const {
-        tracks,
-        loadedCount,
-        tracksLoading,
-        isLoadingNextPage,
-        hasNextPage,
-        loadNextPage,
-        resolveTracks,
-        tracksErr,
-    } = usePagedTracksForSongIds(matchedSongIds);
-    // every song that is certainly the user's own plays, scrolled to or not.
-    // the rest only once the list has shown them
+    const lookupTracks = useTrackLookup();
+    const resetArrangement = useCallback(
+        () => setArrangement(NO_ARRANGEMENT),
+        [setArrangement],
+    );
+    const list = useArrangedTrackList({
+        source,
+        arrangement,
+        lookupTracks,
+        onRejected: resetArrangement,
+    });
+    const { arranged, loadedCount, resolveTracks, shownTracks, songs } = list;
+    // unsorted, every song that is certainly the user's own plays, scrolled to
+    // or not, and the rest once the list has shown them. sorted or grouped,
+    // what the list has shown
     const resolvePlayQueue = useCallback(
-        () => resolveTracks(queryQueueIds(matchedSongs, loadedCount)),
-        [loadedCount, matchedSongs, resolveTracks],
+        async () =>
+            arranged
+                ? shownTracks
+                : resolveTracks(queryQueueIds(songs, loadedCount)),
+        [arranged, loadedCount, resolveTracks, shownTracks, songs],
     );
 
     return (
         <QueryResults
-            songs={tracks}
-            isLoading={queryResultsLoading || tracksLoading}
-            error={queryResultsErr ?? tracksErr}
-            matchCount={matchedSongIds.length}
-            capped={resultsCapped}
+            songs={list.sections ? list.shownTracks : list.tracks}
+            isLoading={!ready || list.loading}
+            error={list.error}
+            matchCount={list.songIds.length}
+            capped={list.capped}
             libraryOnly={libraryOnly}
-            pagination={{
-                hasNextPage,
-                isLoadingNextPage,
-                onLoadNextPage: loadNextPage,
-            }}
-            sort={sort}
-            onSortChange={setSort}
+            pagination={list.pagination}
+            sections={list.sections}
+            arrangement={{ value: arrangement, onChange: setArrangement }}
             resolvePlayQueue={resolvePlayQueue}
             mostRelevantTags={mostRelevantTags}
             activityTagIds={activityTagIds}
             playSource={playSource}
         />
     );
-}
-
-/** The list's sort as the backend takes it. The list only offers these three. */
-function toResultsSort(sort: MusicListSort): QueryResultsSort {
-    return {
-        key: sort.option === "dateAdded" ? "title" : sort.option,
-        direction: sort.direction,
-    };
 }
 
 function parseRelevantTags(encoded?: string): string[] {
