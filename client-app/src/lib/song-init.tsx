@@ -162,14 +162,6 @@ export function SongInitProvider({ children }: { children: ReactNode }) {
                 const result = await syncLibrary({
                     getLibrarySongs: (options) =>
                         readAppleMusic(() => MusicKit.getLibrarySongs(options)),
-                    getUserPlaylists: (options) =>
-                        readAppleMusic(() =>
-                            MusicKit.getUserPlaylists(options),
-                        ),
-                    getPlaylistSongs: (playlistId, options) =>
-                        readAppleMusic(() =>
-                            MusicKit.getPlaylistSongs(playlistId, options),
-                        ),
                     store,
                     editUserSongs: (payload) => editUserSongs(payload),
                     now: () => Date.now(),
