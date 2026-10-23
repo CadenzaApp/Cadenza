@@ -1,5 +1,6 @@
+import type { MusicItem } from "@apple-musickit";
 import { useLocalSearchParams } from "expo-router";
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import QueryResults from "@/features/query-builder/QueryResults";
 import { useArrangedTrackList } from "@/lib/arranged-track-list";
@@ -88,9 +89,30 @@ export default function QueryResultsScreen() {
         [arranged, loadedCount, resolveTracks, shownTracks, songs],
     );
 
+    // the cover and page color come from the first songs shown once the result
+    // has loaded, held for as long as the result is, so opening or closing a
+    // group never repaints the page. a new sort or group is a new result
+    const shown = list.sections ? list.shownTracks : list.tracks;
+    const firstSongsSettled =
+        shown.length >= COVER_SONG_COUNT ||
+        (shown.length > 0 &&
+            !list.loading &&
+            !list.pagination?.isLoadingNextPage &&
+            !list.sections?.sections.some((section) => section.isLoading));
+    const [cover, setCover] = useState<{
+        result: readonly string[];
+        tracks: MusicItem[];
+    } | null>(null);
+    // set while rendering, React's way of keeping a value from an earlier render
+    if (firstSongsSettled && cover?.result !== list.songIds) {
+        setCover({ result: list.songIds, tracks: shown });
+    }
+    const coverSongs = cover?.result === list.songIds ? cover.tracks : shown;
+
     return (
         <QueryResults
-            songs={list.sections ? list.shownTracks : list.tracks}
+            songs={shown}
+            coverSongs={coverSongs}
             isLoading={!ready || list.loading}
             error={list.error}
             matchCount={list.songIds.length}
@@ -106,6 +128,9 @@ export default function QueryResultsScreen() {
         />
     );
 }
+
+/** How many songs the cover mosaic shows. */
+const COVER_SONG_COUNT = 4;
 
 function parseRelevantTags(encoded?: string): string[] {
     if (!encoded) return [];

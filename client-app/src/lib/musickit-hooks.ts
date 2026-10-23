@@ -12,7 +12,7 @@ import {
 } from "@apple-musickit";
 import { Image } from "expo-image";
 import { useArtworkTint } from "./artwork-color";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import useSWR, { unstable_serialize, useSWRConfig } from "swr";
 import useSWRImmutable from "swr/immutable";
 import useSWRInfinite from "swr/infinite";
@@ -177,45 +177,80 @@ export function useSongInfo(songIds?: readonly string[] | null) {
 /**
  * The same read as `useSongInfo`, for a caller that splits its ids into
  * requests itself. Each chunk is cached by its ids, so a chunk asked for again,
- * in any position, is answered from the cache rather than reloaded.
+ * in any position or by another reader, is answered from the cache rather than
+ * reloaded.
+ *
+ * `useSWRInfinite` keeps its page count under its first page's key. If that
+ * were a chunk, two readers starting with the same chunk but holding a
+ * different number of them (a group of a sorted list and the player looking up
+ * the song playing, say) would share one count, set it back and forth, and
+ * refetch forever. So the first page is this reader's own, answered with no
+ * request, and the chunks come after it. It carries the chunks' ids too, since
+ * a new first page key is what tells `useSWRInfinite` the chunks changed.
  */
 function useSongInfoChunks(idChunks: readonly (readonly string[])[]) {
     const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
+    const reader = useId();
+    const active = isConnected && idChunks.length > 0;
+    const chunkIds = useMemo(
+        () => idChunks.map((ids) => ids.join(",")).join("|"),
+        [idChunks],
+    );
     const x = useSWRInfinite<MusicItem[]>(
         (pageIndex) => {
-            const ids = idChunks[pageIndex];
-            return isConnected && ids
+            if (!active) return null;
+            if (pageIndex === 0) {
+                return [SONG_INFO_READER, reader, chunkIds] as const;
+            }
+            const ids = idChunks[pageIndex - 1];
+            return ids
                 ? (["MusicKit.getSongInfo", sessionRevision, ids] as const)
                 : null;
         },
-        ([, , ids]: SongInfoPageKey) =>
-            read(() => MusicKit.getSongInfo([...ids])),
+        (key: SongInfoPageKey | SongInfoReaderKey) =>
+            key[0] === SONG_INFO_READER
+                ? Promise.resolve(EMPTY_SONGS)
+                : read(() => MusicKit.getSongInfo([...key[2]])),
         {
             // the chunks are independent, so ask for them all at once. one
             // after another, a 100 song list waited on four round trips
             parallel: true,
-            initialSize: Math.max(1, idChunks.length),
+            initialSize: idChunks.length + 1,
             revalidateFirstPage: false,
         },
     );
     const { data, error, setSize, size } = x;
     useEffect(() => {
-        if (idChunks.length > 0 && size !== idChunks.length) {
-            void setSize(idChunks.length);
+        if (active && size !== idChunks.length + 1) {
+            void setSize(idChunks.length + 1);
         }
-    }, [idChunks.length, setSize, size]);
-    const resolvedPageCount = data?.length ?? 0;
+    }, [active, idChunks.length, setSize, size]);
+    // the reader's own page first, then one entry per chunk
+    const chunkPages = useMemo(() => data?.slice(1) ?? [], [data]);
+    const chunksLoaded = useMemo(
+        () => idChunks.map((_, index) => chunkPages[index] !== undefined),
+        [chunkPages, idChunks],
+    );
+    const songInfo = useMemo(
+        () => (chunkPages.length > 0 ? chunkPages.flat() : EMPTY_SONGS),
+        [chunkPages],
+    );
     return {
-        songInfo:
-            idChunks.length > 0 ? (data?.flat() ?? EMPTY_SONGS) : EMPTY_SONGS,
+        songInfo: idChunks.length > 0 ? songInfo : EMPTY_SONGS,
         songInfoLoading:
             isInitializing ||
             (isConnected &&
-                idChunks.length > resolvedPageCount &&
+                idChunks.length > chunkPages.length &&
                 error == null),
         songInfoErr: error,
+        /** Whether each chunk has its answer, in the order given. */
+        chunksLoaded,
     };
 }
+
+/** Marks a `useSongInfoChunks` reader's own first page. */
+const SONG_INFO_READER = "MusicKit.getSongInfo.reader";
+type SongInfoReaderKey = readonly [typeof SONG_INFO_READER, string, string];
 
 function chunkValues<T>(values: readonly T[], size: number): T[][] {
     const chunks: T[][] = [];
@@ -752,27 +787,33 @@ export function useSectionedTracks(
         () => indexTracksById(allLibraryTracks),
         [allLibraryTracks],
     );
-    // waits for the library, which would resolve most of these for free
-    const chunks = useMemo(
-        () =>
-            allLibraryTracksLoading
-                ? []
-                : sections.flatMap((section) =>
-                      section.requestedCount <= 0
-                          ? []
-                          : chunkValues(
-                                catalogIdsToFetch(
-                                    section.songIds,
-                                    section.requestedCount,
-                                    (songId) => libraryTracksById.has(songId),
-                                    MUSIC_LIST_PAGE_SIZE,
-                                ),
-                                MUSIC_LIST_PAGE_SIZE,
-                            ),
-                  ),
-        [allLibraryTracksLoading, libraryTracksById, sections],
-    );
-    const { songInfo, songInfoLoading, songInfoErr } =
+    // waits for the library, which would resolve most of these for free.
+    // each section's chunks are its own, and `ranges` says which they are
+    const { chunks, ranges } = useMemo(() => {
+        const allChunks: string[][] = [];
+        const chunkRanges = new Map<string, { start: number; end: number }>();
+        if (allLibraryTracksLoading)
+            return { chunks: allChunks, ranges: chunkRanges };
+        for (const section of sections) {
+            const start = allChunks.length;
+            if (section.requestedCount > 0) {
+                allChunks.push(
+                    ...chunkValues(
+                        catalogIdsToFetch(
+                            section.songIds,
+                            section.requestedCount,
+                            (songId) => libraryTracksById.has(songId),
+                            MUSIC_LIST_PAGE_SIZE,
+                        ),
+                        MUSIC_LIST_PAGE_SIZE,
+                    ),
+                );
+            }
+            chunkRanges.set(section.key, { start, end: allChunks.length });
+        }
+        return { chunks: allChunks, ranges: chunkRanges };
+    }, [allLibraryTracksLoading, libraryTracksById, sections]);
+    const { songInfo, songInfoLoading, songInfoErr, chunksLoaded } =
         useSongInfoChunks(chunks);
     const fetchedTracksById = useMemo(
         () => indexTracksById(songInfo),
@@ -782,24 +823,42 @@ export function useSectionedTracks(
     const tracksBySection = useMemo(() => {
         const bySection = new Map<
             string,
-            { tracks: MusicItem[]; consumedCount: number }
+            { tracks: MusicItem[]; consumedCount: number; pending: boolean }
         >();
         for (const section of sections) {
-            bySection.set(
-                section.key,
-                resolvedTracks(
+            // only this section's own lookups hold it back, so opening one
+            // group never puts another back to loading
+            const range = ranges.get(section.key);
+            const sectionPending =
+                allLibraryTracksLoading ||
+                (songInfoErr == null &&
+                    range != null &&
+                    chunksLoaded
+                        .slice(range.start, range.end)
+                        .some((loaded) => !loaded));
+            bySection.set(section.key, {
+                ...resolvedTracks(
                     section.songIds,
                     section.requestedCount,
                     (songId) =>
                         libraryTracksById.get(songId) ??
                         fetchedTracksById.get(songId),
                     (track) => track.id,
-                    pending,
+                    sectionPending,
                 ),
-            );
+                pending: sectionPending,
+            });
         }
         return bySection;
-    }, [fetchedTracksById, libraryTracksById, pending, sections]);
+    }, [
+        allLibraryTracksLoading,
+        chunksLoaded,
+        fetchedTracksById,
+        libraryTracksById,
+        ranges,
+        sections,
+        songInfoErr,
+    ]);
 
     return {
         tracksBySection,

@@ -150,7 +150,7 @@ export function useArrangedTrackList({
                 tracks,
                 isLoading:
                     expanded &&
-                    sectioned.pending &&
+                    (resolved?.pending ?? sectioned.pending) &&
                     consumed < Math.min(requested, section.songIds.length),
                 hasMore: expanded && requested < section.songIds.length,
             };

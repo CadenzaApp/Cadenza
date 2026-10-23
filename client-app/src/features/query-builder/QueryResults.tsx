@@ -29,6 +29,11 @@ type Props = {
      * as `sections` open.
      */
     songs: MusicItem[];
+    /**
+     * The songs the cover mosaic and page color come from. Defaults to
+     * `songs`, which in a grouped list change as groups open and close.
+     */
+    coverSongs?: MusicItem[];
     isLoading: boolean;
     error?: unknown;
     /** Every song the query matched, loaded or not. */
@@ -58,6 +63,7 @@ type Props = {
 
 export default function QueryResults({
     songs,
+    coverSongs,
     isLoading,
     error,
     matchCount,
@@ -76,7 +82,7 @@ export default function QueryResults({
     const [saveName, setSaveName] = useState("");
     // a ref rather than state, so two taps in one frame cannot both start
     const playbackCommandPending = useRef(false);
-    const { tint, artworkUrls } = useCollectionArtworkTint(songs);
+    const { tint, artworkUrls } = useCollectionArtworkTint(coverSongs ?? songs);
     const { recordEvent } = useListeningEvents();
     const { playQueue, setShuffleMode, togglePlayback } = usePlaybackCommands();
     const { activeTrackId, isPlaying } = usePlaybackTrackState();

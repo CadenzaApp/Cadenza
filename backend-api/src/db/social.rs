@@ -289,6 +289,8 @@ fn comments_on_post(viewer_id: Uuid, post_id: i64) -> sea_orm::Select<comments::
         )
         .order_by_desc(comments::Column::Likes)
         .order_by_desc(comments::Column::CreatedAt)
+        // ties, like two comments posted together, still come back in one order
+        .order_by_desc(comments::Column::CommentId)
 }
 
 /// Records a comment like and bumps `likes` only when the row is new.
