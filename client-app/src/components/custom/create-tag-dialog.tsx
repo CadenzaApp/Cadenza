@@ -10,10 +10,8 @@ import {
 } from "react-native";
 import { ScreenFloatingBubble } from "@/components/custom/floating-bubble";
 import { ModalPopup } from "@/components/custom/modal-popup";
-import {
-    TAG_COLOR_OPTIONS,
-    TagColorPicker,
-} from "@/components/custom/tag-color-picker";
+import { TagColorPicker } from "@/components/custom/tag-color-picker";
+import { TAG_COLOR_OPTIONS } from "@/lib/tag-color-palette";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";

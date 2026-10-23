@@ -13,11 +13,13 @@ import {
 import { useLibraryCategories } from "@/features/library/library-categories";
 import { useScreenScroll } from "@/lib/screen-scroll";
 import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
+import { useAppTheme } from "@/lib/theme";
 
 /** Picks which sections appear on the library screen. Any number of them. */
 export default function LibraryCategoriesScreen() {
     const insets = useSafeAreaInsets();
     const { colors } = useTheme();
+    const { brand } = useAppTheme().colors;
     const { isEnabled, toggle } = useLibraryCategories();
     const scroll = useScreenScroll();
 
@@ -61,17 +63,9 @@ export default function LibraryCategoriesScreen() {
                                             : "ellipse-outline"
                                     }
                                     size={26}
-                                    color={
-                                        enabled
-                                            ? colors.notification
-                                            : colors.border
-                                    }
+                                    color={enabled ? brand : colors.border}
                                 />
-                                <Ionicons
-                                    name={icon}
-                                    size={22}
-                                    color={colors.notification}
-                                />
+                                <Ionicons name={icon} size={22} color={brand} />
                                 <View className="flex-1">
                                     <Text className="text-lg">{label}</Text>
                                 </View>

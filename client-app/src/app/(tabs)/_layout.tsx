@@ -12,22 +12,22 @@ import {
 import { useAccount } from "@/lib/account";
 import { usePlaybackTrackState } from "@/lib/playback";
 import { useBottomBarsHidden } from "@/lib/screen-overlay";
-import { THEME } from "@/lib/theme";
+import { PALETTE } from "@/lib/theme";
 
 const IOS_TAB_COLOR =
     Platform.OS === "ios"
         ? DynamicColorIOS({
-              light: THEME.light.foreground,
-              dark: THEME.dark.foreground,
+              light: PALETTE.light.foreground,
+              dark: PALETTE.dark.foreground,
           })
-        : THEME.light.foreground;
+        : PALETTE.light.foreground;
 const IOS_UNSELECTED_TAB_COLOR =
     Platform.OS === "ios"
         ? DynamicColorIOS({
-              light: THEME.light.mutedForeground,
-              dark: THEME.dark.mutedForeground,
+              light: PALETTE.light.mutedForeground,
+              dark: PALETTE.dark.mutedForeground,
           })
-        : THEME.light.mutedForeground;
+        : PALETTE.light.mutedForeground;
 
 /**
  * Every tab owns its scroll insets. Left on, UIKit adds its own to whichever

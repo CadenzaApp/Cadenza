@@ -1,286 +1,199 @@
-import Ionicons from "@expo/vector-icons/Ionicons";
 import { Redirect } from "expo-router";
-import { useTheme } from "expo-router/react-navigation";
-import { useState } from "react";
-import { Pressable, ScrollView, StyleSheet, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import type { ReactNode } from "react";
+import { View } from "react-native";
 
-import { DetailScreen } from "@/components/ui/detail-screen";
-import { GlassSurface } from "@/components/ui/glass-surface";
-import { Text } from "@/components/ui/text";
+import { GlassPanel } from "@/components/ui/glass-panel";
+import { GlassPill } from "@/components/ui/glass-pill";
+import { GlassToggle } from "@/components/ui/glass-toggle";
 import { useAccount } from "@/lib/account";
+import {
+    DEFAULT_USER_SETTINGS,
+    useSaveSettings,
+    type GlassStyle,
+    type UserSettings,
+    type ThemeMode,
+} from "@/lib/routes/settings";
+import { customBackground } from "@/lib/swatch-sets";
+import { GLASS_TINT_PRESETS, PALETTE, useAppTheme } from "@/lib/theme";
 
-import { GlassSettingsPanel, TodoBadge } from "./settings-ui";
+import {
+    SettingsIcon,
+    SettingsRow,
+    SettingsSheet,
+    SaveError,
+    SettingsSection,
+} from "./settings-ui";
+import {
+    SegmentedControl,
+    type SegmentOption,
+} from "@/components/ui/segmented-control";
+import { SettingsSwatchGrid } from "./settings-swatch-grid";
 
-type AppearanceColorRole =
-    | "accent"
-    | "background"
-    | "surface"
-    | "text"
-    | "glassTint";
-
-type ColorOption = {
-    name: string;
-    value: string | null;
-};
-
-const COLOR_OPTIONS: ColorOption[] = [
-    { name: "System", value: null },
-    { name: "Black", value: "#0a0a0a" },
-    { name: "White", value: "#fafafa" },
-    { name: "Red", value: "#e84c4f" },
-    { name: "Orange", value: "#e88734" },
-    { name: "Yellow", value: "#e0b52e" },
-    { name: "Green", value: "#37a866" },
-    { name: "Teal", value: "#2cb8ae" },
-    { name: "Blue", value: "#3a81f6" },
-    { name: "Indigo", value: "#5865d8" },
-    { name: "Purple", value: "#9b51e0" },
-    { name: "Pink", value: "#d64f9d" },
+const MODES: readonly SegmentOption<ThemeMode>[] = [
+    { value: "system", label: "System", icon: "contrast-outline" },
+    { value: "light", label: "Light", icon: "sunny-outline" },
+    { value: "dark", label: "Dark", icon: "moon-outline" },
+    { value: "custom", label: "Custom", icon: "color-palette-outline" },
 ];
 
-const ROLE_LABELS: Record<AppearanceColorRole, string> = {
-    accent: "Accent",
-    background: "Background",
-    surface: "Surface",
-    text: "Text",
-    glassTint: "Liquid Glass Tint",
-};
-
-const ROLE_ORDER: AppearanceColorRole[] = [
-    "accent",
-    "background",
-    "surface",
-    "text",
-    "glassTint",
+/** The same two choices iOS 26.1 offers for Liquid Glass in Settings. */
+const GLASS_STYLES: readonly SegmentOption<GlassStyle>[] = [
+    { value: "clear", label: "Clear", icon: "water-outline" },
+    { value: "tinted", label: "Tinted", icon: "color-fill-outline" },
 ];
 
-type AppearanceSelection = Record<AppearanceColorRole, string | null>;
+/** What Reset to defaults puts back. The color slots are left alone. */
+const APPEARANCE_KEYS = [
+    "theme_mode",
+    "accent_color",
+    "background_color",
+    "glass_tint",
+    "glass_style",
+] as const satisfies readonly (keyof UserSettings)[];
 
-const EMPTY_SELECTION: AppearanceSelection = {
-    accent: null,
-    background: null,
-    surface: null,
-    text: null,
-    glassTint: null,
-};
-
+/**
+ * Mode, custom background, accent, glass tint and style. Every change saves
+ * to the account and repaints the app at once.
+ */
 export function AppearanceSettingsScreen() {
-    const insets = useSafeAreaInsets();
-    const { colors } = useTheme();
     const { account } = useAccount();
-    const [selection, setSelection] =
-        useState<AppearanceSelection>(EMPTY_SELECTION);
+    const { settings, save, saveErr } = useSaveSettings("appearance");
+    const { scheme } = useAppTheme();
 
     if (!account) {
         return <Redirect href="/auth?initialMode=signin" />;
     }
 
-    const resolved = {
-        accent: selection.accent ?? String(colors.notification),
-        background: selection.background ?? String(colors.background),
-        surface: selection.surface ?? String(colors.card),
-        text: selection.text ?? String(colors.text),
-        glassTint: selection.glassTint,
-    };
-
-    function selectColor(role: AppearanceColorRole, value: string | null) {
-        setSelection((current) => ({ ...current, [role]: value }));
-    }
+    const background = customBackground(settings);
 
     return (
-        <DetailScreen presentation="sheet" title="Appearance">
-            <ScrollView
-                className="flex-1"
-                contentContainerClassName="gap-4 px-5 pt-3"
-                contentContainerStyle={{
-                    paddingBottom: Math.max(insets.bottom, 16) + 16,
-                }}
-                showsVerticalScrollIndicator={false}
-            >
-                <View className="flex-row items-center gap-2 px-1">
-                    <TodoBadge />
-                    <Text className="flex-1 text-sm text-muted-foreground">
-                        Preview only. Changes are not saved or applied yet.
-                    </Text>
-                </View>
+        <SettingsSheet title="Appearance" className="gap-5">
+            <AppearancePreview />
 
-                <AppearancePreview colors={resolved} />
+            <SettingsSection title="Mode">
+                <SegmentedControl
+                    options={MODES}
+                    value={settings.theme_mode}
+                    onChange={(mode) =>
+                        save(
+                            mode === "custom" && !settings.background_color
+                                ? {
+                                      theme_mode: mode,
+                                      background_color: background,
+                                  }
+                                : { theme_mode: mode },
+                        )
+                    }
+                />
+            </SettingsSection>
 
-                <GlassSettingsPanel className="gap-0 py-1">
-                    {ROLE_ORDER.map((role, index) => (
-                        <View
-                            key={role}
-                            className={
-                                index === 0
-                                    ? undefined
-                                    : "border-t border-border"
-                            }
-                        >
-                            <View className="gap-3 px-5 py-4">
-                                <View className="flex-row items-center justify-between">
-                                    <Text className="font-semibold">
-                                        {ROLE_LABELS[role]}
-                                    </Text>
-                                    <SelectedColor
-                                        value={selection[role]}
-                                        fallback={resolved[role]}
-                                    />
-                                </View>
-                                <ScrollView
-                                    horizontal
-                                    showsHorizontalScrollIndicator={false}
-                                    contentContainerClassName="gap-3 pr-5"
-                                >
-                                    {COLOR_OPTIONS.map((option) => (
-                                        <ColorChoice
-                                            key={option.name}
-                                            option={option}
-                                            selected={
-                                                selection[role] === option.value
-                                            }
-                                            onPress={() =>
-                                                selectColor(role, option.value)
-                                            }
-                                            roleLabel={ROLE_LABELS[role]}
-                                        />
-                                    ))}
-                                </ScrollView>
-                            </View>
-                        </View>
-                    ))}
-                </GlassSettingsPanel>
-            </ScrollView>
-        </DetailScreen>
-    );
-}
-
-function AppearancePreview({
-    colors,
-}: {
-    colors: {
-        accent: string;
-        background: string;
-        surface: string;
-        text: string;
-        glassTint: string | null;
-    };
-}) {
-    return (
-        <View
-            className="overflow-hidden rounded-3xl border border-border p-5"
-            style={{ backgroundColor: colors.background }}
-        >
-            <View
-                className="gap-4 rounded-2xl p-4"
-                style={{ backgroundColor: colors.surface }}
-            >
-                <View className="flex-row items-center justify-between">
-                    <View className="gap-1">
-                        <Text
-                            className="text-lg font-semibold"
-                            style={{ color: colors.text }}
-                        >
-                            Cadenza
-                        </Text>
-                        <Text style={{ color: colors.text, opacity: 0.65 }}>
-                            Appearance preview
-                        </Text>
-                    </View>
-                    <View
-                        className="h-10 w-10 items-center justify-center rounded-full"
-                        style={{ backgroundColor: colors.accent }}
-                    >
-                        <Ionicons
-                            name="musical-note"
-                            size={20}
-                            color="#ffffff"
+            {settings.theme_mode === "custom" ? (
+                <SettingsSection
+                    title="Background"
+                    footnote="Text turns light or dark to suit the background."
+                >
+                    <SwatchPanel>
+                        <SettingsSwatchGrid
+                            kind="background"
+                            pickerTitle="Background"
+                            selected={background}
+                            newColorStart={background}
                         />
-                    </View>
-                </View>
+                    </SwatchPanel>
+                </SettingsSection>
+            ) : null}
 
-                <View className="h-12 overflow-hidden rounded-2xl border border-border">
-                    <GlassSurface
-                        variant="regular"
-                        tintColor={colors.glassTint ?? undefined}
-                        style={StyleSheet.absoluteFill}
+            <SettingsSection
+                title="Accent"
+                footnote="Hold a color to change or remove it."
+            >
+                <SwatchPanel>
+                    <SettingsSwatchGrid
+                        kind="accent"
+                        pickerTitle="Accent color"
+                        fixed={{
+                            label: "Default",
+                            color: PALETTE[scheme].brand,
+                        }}
+                        newColorStart={PALETTE[scheme].brand}
                     />
-                    <View className="flex-1 flex-row items-center justify-center gap-2">
-                        <Ionicons
-                            name="sparkles"
-                            size={18}
-                            color={colors.text}
-                        />
-                        <Text
-                            className="font-semibold"
-                            style={{ color: colors.text }}
-                        >
-                            Liquid Glass
-                        </Text>
-                    </View>
-                </View>
-            </View>
-        </View>
-    );
-}
+                </SwatchPanel>
+            </SettingsSection>
 
-function SelectedColor({
-    value,
-    fallback,
-}: {
-    value: string | null;
-    fallback: string | null;
-}) {
-    return (
-        <View className="flex-row items-center gap-2">
-            <Text className="text-sm text-muted-foreground">
-                {value == null ? "System" : value.toUpperCase()}
-            </Text>
-            <View
-                className="h-5 w-5 rounded-full border border-border"
-                style={{ backgroundColor: fallback ?? "transparent" }}
-            />
-        </View>
-    );
-}
+            <SettingsSection title="Glass tint">
+                <SwatchPanel>
+                    <SettingsSwatchGrid
+                        kind="glassTint"
+                        pickerTitle="Glass tint"
+                        fixed={{ label: "None", color: null }}
+                        newColorStart={GLASS_TINT_PRESETS[0]}
+                    />
+                </SwatchPanel>
+            </SettingsSection>
 
-function ColorChoice({
-    option,
-    selected,
-    onPress,
-    roleLabel,
-}: {
-    option: ColorOption;
-    selected: boolean;
-    onPress: () => void;
-    roleLabel: string;
-}) {
-    return (
-        <Pressable
-            accessibilityRole="radio"
-            accessibilityLabel={`${roleLabel}: ${option.name}`}
-            accessibilityState={{ selected }}
-            onPress={onPress}
-            hitSlop={4}
-            className="items-center gap-1 active:opacity-60"
-        >
-            <View
-                className={`h-9 w-9 items-center justify-center overflow-hidden rounded-full border ${selected ? "border-foreground" : "border-border"}`}
-                style={{
-                    borderWidth: selected ? 3 : 1,
-                    backgroundColor: option.value ?? undefined,
-                }}
+            <SettingsSection
+                title="Glass Options"
+                footnote="Clear is more transparent and tinted increases opacity, adding contrast to content and controls."
             >
-                {option.value == null ? (
-                    <View className="h-full w-full overflow-hidden rounded-full">
-                        <View className="h-1/2 bg-white" />
-                        <View className="h-1/2 bg-black" />
-                    </View>
-                ) : null}
+                <SegmentedControl
+                    options={GLASS_STYLES}
+                    value={settings.glass_style}
+                    onChange={(style) => save({ glass_style: style })}
+                />
+            </SettingsSection>
+
+            <SaveError error={saveErr} />
+
+            <View className="items-center">
+                <GlassPill
+                    icon="refresh-outline"
+                    label="Reset to defaults"
+                    onPress={() =>
+                        save(
+                            Object.fromEntries(
+                                APPEARANCE_KEYS.map((key) => [
+                                    key,
+                                    DEFAULT_USER_SETTINGS[key],
+                                ]),
+                            ),
+                        )
+                    }
+                />
             </View>
-            <Text className="text-[10px] text-muted-foreground">
-                {option.name}
-            </Text>
-        </Pressable>
+        </SettingsSheet>
+    );
+}
+
+function SwatchPanel({ children }: { children: ReactNode }) {
+    return (
+        <GlassPanel>
+            <View className="p-4">{children}</View>
+        </GlassPanel>
+    );
+}
+
+/** A small sample of the controls the choices above repaint. */
+function AppearancePreview() {
+    return (
+        <GlassPanel>
+            <SettingsRow
+                icon="color-palette-outline"
+                title="Preview"
+                description="Toggles, icons, and glass follow your choices."
+                trailing={
+                    <GlassToggle
+                        value
+                        onValueChange={() => {}}
+                        accessibilityLabel="Preview toggle"
+                    />
+                }
+            />
+            <View className="flex-row items-center gap-3 px-4 pb-4">
+                <SettingsIcon name="musical-notes" />
+                <SettingsIcon name="pricetag-outline" />
+                <View className="flex-1" />
+                <GlassPill icon="sparkles-outline" label="Glass" />
+            </View>
+        </GlassPanel>
     );
 }

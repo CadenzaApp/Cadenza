@@ -1,9 +1,8 @@
 import { GlassIconButton } from "@/components/ui/glass-icon-button";
 import { Text } from "@/components/ui/text";
-import { THEME } from "@/lib/theme";
+import { useAppTheme } from "@/lib/theme";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTheme } from "expo-router/react-navigation";
-import { useColorScheme } from "nativewind";
 import { useState, type ReactNode } from "react";
 import { ModalPopup } from "@/components/custom/modal-popup";
 import { GlassButton } from "@/components/ui/glass-button";
@@ -148,7 +147,7 @@ function QuerySettingRow({
     onHelpPress: () => void;
     children: ReactNode;
 }) {
-    const { colorScheme = "light" } = useColorScheme();
+    const { colors } = useAppTheme();
     return (
         <View className="py-2" style={{ zIndex: helpOpen ? 10 : 0 }}>
             <View className="min-h-11 flex-row items-center gap-1">
@@ -164,7 +163,7 @@ function QuerySettingRow({
                     <Ionicons
                         name="information-circle-outline"
                         size={18}
-                        color={THEME[colorScheme].mutedForeground}
+                        color={colors.mutedForeground}
                     />
                 </Pressable>
                 <View className="ml-auto">{children}</View>

@@ -1,5 +1,4 @@
 import * as AlertDialogPrimitive from "@rn-primitives/alert-dialog";
-import { useTheme } from "expo-router/react-navigation";
 import { Fragment } from "react";
 import { ActivityIndicator, Platform, StyleSheet, View } from "react-native";
 import { FullWindowOverlay as RNFullWindowOverlay } from "react-native-screens";
@@ -7,6 +6,7 @@ import { FullWindowOverlay as RNFullWindowOverlay } from "react-native-screens";
 import { GlassButton } from "@/components/ui/glass-button";
 import { GlassSurface } from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
+import { useAppTheme } from "@/lib/theme";
 
 const FullWindowOverlay =
     Platform.OS === "ios" ? RNFullWindowOverlay : Fragment;
@@ -35,7 +35,7 @@ export function GlassConfirmDialog({
     onOpenChange,
     onConfirm,
 }: GlassConfirmDialogProps) {
-    const { colors } = useTheme();
+    const { destructive } = useAppTheme().colors;
 
     return (
         <AlertDialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
@@ -84,7 +84,7 @@ export function GlassConfirmDialog({
                                         {pending ? (
                                             <ActivityIndicator
                                                 size="small"
-                                                color={colors.notification}
+                                                color={destructive}
                                             />
                                         ) : null}
                                         <Text>

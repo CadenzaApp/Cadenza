@@ -1,12 +1,11 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useColorScheme } from "nativewind";
 import { useState } from "react";
 import { Pressable, ScrollView, View } from "react-native";
 
 import { ModalPopup } from "@/components/custom/modal-popup";
 import { Text } from "@/components/ui/text";
 import type { FilterOp } from "@/lib/query-json";
-import { THEME } from "@/lib/theme";
+import { useAppTheme } from "@/lib/theme";
 import type { Tag } from "@/lib/types";
 import {
     filterValue,
@@ -45,7 +44,7 @@ export function TagConstraintDialog({
     );
     const [value, setValue] = useState(initial?.value ?? "");
     const [error, setError] = useState<string | null>(null);
-    const { colorScheme = "light" } = useColorScheme();
+    const { colors } = useAppTheme();
     const fieldKind = isMetadataPaletteTag(tag)
         ? METADATA_FIELD_KINDS[tag.metadataKey]
         : tag.type;
@@ -160,7 +159,7 @@ export function TagConstraintDialog({
                         <Ionicons
                             name="trash-outline"
                             size={20}
-                            color={THEME[colorScheme].destructive}
+                            color={colors.destructive}
                         />
                     </Pressable>
                 ) : null}

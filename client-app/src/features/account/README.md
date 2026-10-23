@@ -1,55 +1,73 @@
 # account
 
-The Account and Appearance sheets. Account owns the working Cadenza and Apple Music session
-actions. Appearance and the other marked settings are local previews only.
+The Account sheet and the settings sheets it opens. Synced settings (mode, background, accent,
+glass, color slots, explicit filter, tag suggestions) go through `useUserSettings` to
+`GET/PATCH /settings`.
 
 ## Files
 
-| file                            | role                                                                                                                                               |
-| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `account-settings.tsx`          | Account cards, a row that opens your social page, authentication actions, suggested-tag display setting, content toggle, privacy, and sync stub. |
-| `appearance-settings.tsx`       | Session-only color controls and preview.                                                                                                           |
-| `settings-ui.tsx`               | Shared glass panels, rows, icons, and the TODO badge.                                                                                              |
-| `apple-music-session-guard.tsx` | `AppleMusicSessionGuard`: renders nothing, opens this sheet once when Apple rejects the stored music-user token. Mounted in `src/app/_layout.tsx`. |
+| file                            | role                                                                                                                                                                |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `account-settings.tsx`          | `/account`. Avatar, username, and email (the header opens `/account-details`), Apple Music card, the Listening and Appearance tiles, Privacy and Apple Music limits rows. |
+| `apple-music-settings.tsx`      | `/apple-music`. Connection status, connect or reconnect, library sync, and disconnect.                                                                              |
+| `listening-preferences.tsx`     | `/listening-preferences`. Tag suggestions and Hide explicit content toggles.                                                                                        |
+| `appearance-settings.tsx`       | `/appearance`. Mode (System, Light, Dark, Custom), background, accent, glass tint, Clear or Tinted glass, a live preview, and reset.                                |
+| `privacy-settings.tsx`          | `/privacy`. What Cadenza keeps and what it does not, and the way into Your data.                                                                                    |
+| `account-details.tsx`           | `/account-details`. Name and member since, the username and bio form, view public profile, Your data, Cadenza sign out.                                          |
+| `your-data.tsx`                 | `/your-data`. Profile, the counts from `GET /profile/data`, and every saved setting, as tables. Delete account opens a confirm that does nothing yet, and says so.               |
+| `apple-music-limits.tsx`        | `/apple-music-limits`. What MusicKit and the Apple Music API do not allow.                                                                                         |
+| `profile-form.tsx`              | `ProfileForm`, the only username and bio editor. `PATCH /profile`.                                                                                                  |
+| `account-avatar.tsx`            | `AccountAvatar`, `useAccountIdentity` (display name and initial), and `memberSince`.                                                                              |
+| `apple-music-connection.ts`     | Shared by the card and the sheet: `appleMusicStatus`, `useConnectAppleMusic`, `useLastSyncedLabel`.                                                                 |
+| `settings-ui.tsx`               | `SettingsSheet`, sections, rows, groups, tiles, explainer cards (`SettingsPoints`), plain accent icons, status dots, `SaveError`.                                                                       |
+| `apple-music-session-guard.tsx` | `AppleMusicSessionGuard`: renders nothing, opens `/account` once when Apple rejects the stored music-user token. Mounted in `src/app/_layout.tsx`.                  |
 
 ## How it works
 
-Both routes stay standard `DetailScreen` sheets. Signing out of Cadenza uses the existing
-Supabase provider. Signing out of Apple Music clears only the local MusicKit authorization.
-Both destructive actions go through the same glass confirmation dialog.
+Every screen here is a `SettingsSheet` (a `DetailScreen` sheet with a padded scroll body) from
+`settings-ui.tsx`, and saves through `useSaveSettings` with `SaveError` for the failure line. Each tile and row on `/account` pushes its own sheet.
 
-A row on this sheet closes it and opens your public profile on the Social tab, the same
-navigation Discuss uses for an author tap. Username and bio are edited on that page.
+The display name is `profile.username` from `useProfile`, with the email local part while it
+loads. Username and bio are edited only in account details. Your public page is read only; its
+Edit button (reached from the Social tab's Me button or View public profile) opens account details.
 
-When `useAppleMusic().sessionExpired` is set, the Apple Music card says the connection needs
-attention and offers a reconnect. This does not prove the user token expired: the flag is set
-after an Apple Music read returns an authentication error twice. `AppleMusicSessionGuard`
-brings the person here to act on it.
+Sync now calls `useAppleMusicSync().syncNow` from `@/lib/song-init`. It joins the startup sync if
+one is running, then refreshes every library read. "Last synced" is per device and account.
 
-The account avatar and action surfaces use neutral glass. Destructive button labels and icons
-carry the red treatment without tinting the entire surface.
+Hide explicit content applies in `MusicList`, `CollectionList`, `/queries/results`, and every
+queue. A song the user taps to start still plays.
 
-The top tags panel used to sit here. It moved to the Analytics tab, which shows tags by plays over
-the selected time range instead of the all-time decaying score this read.
+`sessionExpired` means an Apple Music read failed authentication twice. It does not prove the
+token expired. The card shows "Needs attention" and a Reconnect pill.
 
-The suggested-tag display setting is device-local and persists across launches. It controls only
-suggested pills in music-list rows, not the suggested section of a tag selector. The
-explicit-content toggle and all Appearance selections live only in component state. Sync shows
-local unavailable feedback and does not call MusicKit or the backend.
+Every setting saves optimistically and rolls back if the PATCH fails. Listening and Appearance
+show an error line. Color grids stay read only until the saved slots load, so an edit cannot save
+the presets over them.
 
 ## Connects to
 
-- `@/lib/account` for the Cadenza session.
-- `@/lib/use-open-social-profile` to leave this sheet and open your Social tab profile.
-- `@/lib/apple-music-auth` for Apple Music authorization.
-- `@/lib/music-list-preferences` for the persisted suggested-tag display setting.
-- `@/components/ui/glass-*` for every visible surface and action, including `GlassToggle`.
+- `@/lib/routes/settings` for every saved setting, `@/lib/theme` for colors.
+- `@/lib/song-init` for sync, `@/lib/apple-music-auth` for the connection.
+- `@/lib/use-open-social-profile` to leave the sheet and open your Social tab profile.
 
 ## Gotchas
 
 - Apple Music exposes connection status, not an account email or display name.
-- Do not persist or apply the TODO settings until their product behavior is defined.
-- `/appearance` is a sheet stacked from `/account`, not a pushed detail screen.
+- Custom mode draws `customBackground(settings)` from `@/lib/swatch-sets` and picks light or dark text from its brightness
+  (`schemeForBackground` in `@/lib/theme/tokens.ts`). Cards, borders, and inputs are mixed from
+  the background in `resolvePalette`. The Background grid only shows in Custom mode.
+- Every saved color grid (accent, glass tint, background, tag colors) is an entry in
+  `SWATCH_SETS` (`@/lib/swatch-sets.ts`): presets, rows and columns, the slots key, and what is
+  picked when the pick is removed. A new grid is a new entry plus `<SettingsSwatchGrid kind>`.
+  Reset to defaults leaves the slots alone.
+- Clear or Tinted recreates iOS 26.1's Liquid Glass setting, which apps cannot read. Tinted lays
+  the card color over top level glass in `GlassSurface`.
+- Pressable styling follows the rule in `src/components/README.md`: `className` with
+  `active:opacity-60`, no style function.
+- Your data lists the server counts in the order `user_data_counts` returns them, so a new
+  table is a backend entry only. Settings rows come from `SETTING_ROWS`, keyed by
+  `UserSettings`, so a new setting fails to compile until it is listed.
+- New sheets need a `Stack.Screen` with `sheetScreenOptions` in `src/app/_layout.tsx`.
 
 ---
 

@@ -1,4 +1,6 @@
 use crate::db;
+use crate::db::queries::QueryOptions;
+use crate::db::settings::get_settings;
 use crate::err::CadenzaError;
 use crate::routes::json::query::{Query, QueryResults, QuerySort};
 use crate::{AppState, auth::SupabaseClaims};
@@ -18,6 +20,10 @@ struct QueryResultsBody {
     /// Defaults to false: the query runs over every song Cadenza knows.
     #[serde(default)]
     library_only: bool,
+    /// Defaults to false. True hides explicit songs even when the caller's
+    /// saved setting does not.
+    #[serde(default)]
+    hide_explicit: bool,
     /// Omitted for most relevant first.
     #[serde(default)]
     sort: Option<QuerySort>,
@@ -43,12 +49,16 @@ struct QueryResultsBody {
 /// `library_only` narrows the songs to the caller's `user_songs` rows alone. Every match
 /// is then `certain`, and `capped` is always false.
 ///
+/// Explicit songs (by stored metadata) are dropped before the cap when the caller's saved
+/// Hide explicit content setting is on, or when `hide_explicit` is true.
+///
 /// Request JSON:
 /// ```json
 /// {
 ///   "query": { "where": { "filter": { "field": "tag", "tag_id": 3, "op": "is_not_applied" } } },
 ///   "consider_default_tags": false,
 ///   "library_only": false,
+///   "hide_explicit": false,
 ///   "sort": { "key": "title", "direction": "ascending" }
 /// }
 /// ```
@@ -68,17 +78,20 @@ async fn query_results_handler(
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Json(body): Json<QueryResultsBody>,
 ) -> Result<Json<QueryResults>, CadenzaError> {
+    // the saved setting applies whatever the caller sends, so a caller that
+    // forgets the flag cannot show explicit songs to a user who hid them
+    let hide_explicit =
+        body.hide_explicit || get_settings(&db, claims.user_id).await?.hide_explicit;
+    let options = QueryOptions {
+        consider_default_tags: body.consider_default_tags,
+        library_only: body.library_only,
+        hide_explicit,
+        sort: body.sort,
+    };
     Ok(Json(
-        db::queries::run_query(
-            &db,
-            &body.query,
-            claims.user_id,
-            body.consider_default_tags,
-            body.library_only,
-            body.sort,
-        )
-        .await?
-        .into(),
+        db::queries::run_query(&db, &body.query, claims.user_id, options)
+            .await?
+            .into(),
     ))
 }
 

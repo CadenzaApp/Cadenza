@@ -17,6 +17,7 @@ import { PostCommentsDialog } from "./PostCommentsDialog";
 import { PostTopicCard } from "./PostTopicCard";
 import { useResolvedTopic } from "./topic";
 import type { PostTopic, SocialPost } from "./types";
+import { useAppTheme } from "@/lib/theme";
 
 type Props = {
     post: SocialPost;
@@ -45,6 +46,7 @@ export function PostCard({
     onLikedChange,
     onAuthorPress,
 }: Props) {
+    const { like, mutedForeground } = useAppTheme().colors;
     const router = useRouter();
     const { likePost } = useLikePost();
     const { unlikePost } = useUnlikePost();
@@ -211,7 +213,7 @@ export function PostCard({
                         <Ionicons
                             name={liked ? "heart" : "heart-outline"}
                             size={18}
-                            color="#e11d48"
+                            color={like}
                         />
                         <Text
                             className={cn(
@@ -238,7 +240,7 @@ export function PostCard({
                         <Ionicons
                             name="chatbubble-outline"
                             size={18}
-                            color="#a1a1a1"
+                            color={mutedForeground}
                         />
                         <Text className="text-sm text-muted-foreground">
                             {commentCount}

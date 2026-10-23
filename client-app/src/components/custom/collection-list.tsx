@@ -10,6 +10,7 @@ import { Text } from "@/components/ui/text";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { useScreenScroll } from "@/lib/screen-scroll";
 import { useTopRailInset } from "@/lib/top-rail";
+import { useVisibleItems } from "@/lib/use-visible-items";
 import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
 import { useZoomSource } from "@/lib/zoom-dismiss";
 import { cn } from "@/lib/utils";
@@ -39,7 +40,7 @@ type CollectionListProps = {
  * the collection rather than playing it.
  */
 export function CollectionList({
-    collections,
+    collections: givenCollections,
     isLoading,
     isLoadingNextPage,
     hasNextPage,
@@ -48,6 +49,7 @@ export function CollectionList({
     prefetchSongs = false,
     emptyLabel,
 }: CollectionListProps) {
+    const collections = useVisibleItems(givenCollections);
     const { listBottomInset } = useScreenOverlayInsets();
     const scroll = useScreenScroll<FlatList<MusicItem>>();
     // the skeleton is not in the scroller, so the scroller's inset misses it

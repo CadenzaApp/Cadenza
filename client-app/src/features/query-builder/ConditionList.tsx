@@ -27,10 +27,9 @@ import { MeasuredReorderList, useReorderHandle } from "./MeasuredReorderList";
 import { TagPill } from "@/components/custom/tag-pill";
 import { GlassSurface } from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
-import { THEME } from "@/lib/theme";
+import { useAppTheme } from "@/lib/theme";
 import type { Tag } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { useColorScheme } from "nativewind";
 import { useDrag, useDragCommands, useDropHover } from "./DragContext";
 import { DraggablePill } from "./DraggablePill";
 import { DropSlot } from "./DropSlot";
@@ -206,8 +205,7 @@ function DraggableCondition({
 }
 
 function ConditionDragHandle({ condition }: { condition: QueryCondition }) {
-    const { colorScheme = "light" } = useColorScheme();
-    const theme = THEME[colorScheme];
+    const { colors: theme } = useAppTheme();
     const label = condition.kind === "group" ? "tag group" : "tag";
     const { dragState } = useDrag();
     const isGroupReordering =
@@ -274,8 +272,7 @@ function ConditionCard({
     const group = condition.kind === "group" ? condition : null;
     const members =
         condition.kind === "group" ? condition.members : [condition];
-    const { colorScheme = "light" } = useColorScheme();
-    const theme = THEME[colorScheme];
+    const { colors: theme } = useAppTheme();
     const editor = useEditorActions();
     const { dragState } = useDrag();
     const hovered = useDropHover(`condition-${condition.id}`);

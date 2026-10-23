@@ -1,6 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTheme } from "expo-router/react-navigation";
-import { useColorScheme } from "nativewind";
 import { useEffect, useRef, useState } from "react";
 import {
     ActivityIndicator,
@@ -15,7 +14,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ModalPopup } from "@/components/custom/modal-popup";
 import { Text } from "@/components/ui/text";
 import { pinComments } from "@/lib/post-comment";
-import { THEME } from "@/lib/theme";
+import { useAppTheme } from "@/lib/theme";
 import { useProfile } from "@/lib/routes/profile";
 import {
     useCreateComment,
@@ -64,10 +63,9 @@ export function PostCommentsDialog({
     onAuthorPress,
     onCommentCreated,
 }: Props) {
+    const { mutedForeground } = useAppTheme().colors;
     const { colors } = useTheme();
-    const { colorScheme = "light" } = useColorScheme();
-    const sendColor =
-        THEME[colorScheme === "dark" ? "dark" : "light"].primaryForeground;
+    const sendColor = useAppTheme().colors.primaryForeground;
     const insets = useSafeAreaInsets();
     const { width: screenWidth, height: screenHeight } = useWindowDimensions();
     const dialogWidth = Math.min(
@@ -194,7 +192,7 @@ export function PostCommentsDialog({
                                     setDraft(text.slice(0, MAX_COMMENT_LENGTH))
                                 }
                                 placeholder="Add a comment"
-                                placeholderTextColor="#888888"
+                                placeholderTextColor={mutedForeground}
                                 multiline
                                 maxLength={MAX_COMMENT_LENGTH}
                                 editable={
@@ -270,6 +268,7 @@ function PostSummary({
     onLikedChange?: (postId: number, liked: boolean) => void;
     onAuthorPress?: (userId: string) => void;
 }) {
+    const { like } = useAppTheme().colors;
     const { likePost } = useLikePost();
     const { unlikePost } = useUnlikePost();
     const updateCachedPostLike = useUpdateCachedPostLike();
@@ -360,7 +359,7 @@ function PostSummary({
                 <Ionicons
                     name={liked ? "heart" : "heart-outline"}
                     size={18}
-                    color="#e11d48"
+                    color={like}
                 />
                 <Text
                     className={cn(
@@ -382,6 +381,7 @@ function CommentRow({
     comment: SocialComment;
     onAuthorPress?: (userId: string) => void;
 }) {
+    const { like } = useAppTheme().colors;
     const { likeComment } = useLikeComment();
     const { unlikeComment } = useUnlikeComment();
     const updateCachedCommentLike = useUpdateCachedCommentLike();
@@ -462,7 +462,7 @@ function CommentRow({
                 <Ionicons
                     name={liked ? "heart" : "heart-outline"}
                     size={16}
-                    color="#e11d48"
+                    color={like}
                 />
                 <Text
                     className={cn(

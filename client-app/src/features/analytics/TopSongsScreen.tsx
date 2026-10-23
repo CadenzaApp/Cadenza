@@ -59,6 +59,7 @@ export function TopSongsScreen() {
             await playQueue({
                 tracks,
                 startIndex: startIndex >= 0 ? startIndex : 0,
+                chosenStart: true,
             });
         },
         [playQueue, tracks],

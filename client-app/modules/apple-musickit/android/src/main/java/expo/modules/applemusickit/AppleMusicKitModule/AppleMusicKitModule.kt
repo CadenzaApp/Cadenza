@@ -1115,6 +1115,9 @@ class AppleMusicKitModule : Module() {
         artworkColorHex(artworkObj)?.let { result["artworkColor"] = it }
 
         attributes?.get("albumName")?.let { result["albumName"] = it }
+        if (attributes?.get("contentRating")?.toString() == "explicit") {
+            result["isExplicit"] = true
+        }
         attributes?.get("genreNames")?.let { result["genres"] = it }
         attributes?.get("url")?.toString()?.takeIf { it.isNotBlank() }?.let {
             result["shareUrl"] = it

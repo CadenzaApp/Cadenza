@@ -12,7 +12,7 @@ import {
 } from "@apple-musickit";
 import { Image } from "expo-image";
 import { useArtworkTint } from "./artwork-color";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import useSWR, { unstable_serialize, useSWRConfig } from "swr";
 import useSWRImmutable from "swr/immutable";
 import useSWRInfinite from "swr/infinite";
@@ -60,7 +60,8 @@ const AUTH_RETRY_DELAY_MS = 400;
  * that cannot work.
  *
  * Every SWR fetcher in this file goes through here. A new read that skips it
- * will hang on a dead token instead of prompting a reconnect.
+ * will hang on a dead token instead of prompting a reconnect. Exported as
+ * `readAppleMusic` for reads outside this file, like the library sync.
  */
 async function read<T>(fetchOnce: () => Promise<T>): Promise<T> {
     const readGeneration = getAppleMusicAuthGeneration();
@@ -337,6 +338,23 @@ export function useLibrarySongSearch(enabled = true) {
 }
 
 /**
+ * Revalidates a mounted library read in place when `refreshLibrary()` runs,
+ * like after a manual sync. In place rather than under a new key, so a long
+ * list keeps its loaded pages and scroll position and the old copy is not
+ * left in the cache.
+ */
+function useLibraryRefresh(revalidate: () => unknown) {
+    const { libraryRevision } = useAppleMusic();
+    // the revision this reader last answered, so mounting does not refetch
+    const seen = useRef(libraryRevision);
+    useEffect(() => {
+        if (seen.current === libraryRevision) return;
+        seen.current = libraryRevision;
+        void revalidate();
+    }, [libraryRevision, revalidate]);
+}
+
+/**
  * Pages through any Apple Music library collection. `getKey` is handed the
  * offset of the page being requested and returns the SWR key for it, or null
  * when the read is not authorized or its inputs are missing.
@@ -368,6 +386,7 @@ function usePagedLibraryResult<
         // again first and waits for it, which doubled every load more
         { revalidateFirstPage: false },
     );
+    useLibraryRefresh(x.mutate);
 
     const items = useMemo(
         () =>
@@ -487,6 +506,7 @@ export function useAllTracksFromLibrary(enabled = true) {
             revalidateOnReconnect: false,
         },
     );
+    useLibraryRefresh(x.mutate);
 
     return {
         allLibraryTracks: x.data ?? EMPTY_SONGS,
@@ -1273,3 +1293,5 @@ function appendWithoutDuplicates<Item extends { id: string }>(items: Item[]) {
         return true;
     });
 }
+
+export { read as readAppleMusic };

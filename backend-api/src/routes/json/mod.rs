@@ -3,8 +3,10 @@ pub mod analytics;
 pub mod metadata_tag;
 pub mod profile;
 pub mod query;
+pub mod settings;
 pub mod social;
 pub mod tag;
+pub mod user_data;
 
 /// convert a `Vec<A>` into a `Vec<B>``
 pub fn vec_into<A, B>(v: Vec<A>) -> Vec<B>

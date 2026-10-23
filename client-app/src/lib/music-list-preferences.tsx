@@ -1,86 +1,61 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import {
-    createContext,
-    useCallback,
-    useContext,
-    useEffect,
-    useMemo,
-    useRef,
-    useState,
-    type ReactNode,
-} from "react";
+import { useEffect, type ReactNode } from "react";
 
-const SHOW_SUGGESTED_TAGS_STORAGE_KEY =
-    "cadenza.music-list.show-suggested-tags";
+import { useAccount } from "./account";
+import { useSaveSettings, useUserSettings } from "./routes/settings";
 
-type MusicListPreferencesValue = {
-    /** Whether suggested tags appear in song rows. Defaults to true. */
-    showSuggestedTags: boolean;
-    setShowSuggestedTags: (showSuggestedTags: boolean) => void;
-};
+/** Where this preference lived before it moved to `/settings`. */
+const LEGACY_SHOW_SUGGESTED_TAGS_KEY = "cadenza.music-list.show-suggested-tags";
 
-const MusicListPreferencesContext =
-    createContext<MusicListPreferencesValue | null>(null);
-
+/**
+ * Presentation choices shared by every music list, read from the user's
+ * settings. `showSuggestedTags` only hides suggested pills in list rows.
+ */
 export function useMusicListPreferences() {
-    const value = useContext(MusicListPreferencesContext);
-    if (!value) {
-        throw new Error(
-            "useMusicListPreferences requires MusicListPreferencesProvider.",
-        );
-    }
-    return value;
+    const { settings, save } = useSaveSettings("music-list tag preference");
+
+    return {
+        showSuggestedTags: settings.show_suggested_tags,
+        setShowSuggestedTags: (show: boolean) =>
+            save({ show_suggested_tags: show }),
+    };
 }
 
 /**
- * Local presentation choices shared by every music list. Suggested tags stay
- * visible until storage is read, preserving the default-on behavior at launch.
+ * Moves a device-local "off" from before `/settings` existed onto the
+ * account once, then forgets it. Renders only its children.
  */
 export function MusicListPreferencesProvider({
     children,
 }: {
     children: ReactNode;
 }) {
-    const [showSuggestedTags, setShowSuggestedTagsState] = useState(true);
-    const changedBeforeRestore = useRef(false);
+    const { account } = useAccount();
+    const { settingsLoaded, updateSettings } = useUserSettings();
 
     useEffect(() => {
-        let cancelled = false;
-        void AsyncStorage.getItem(SHOW_SUGGESTED_TAGS_STORAGE_KEY)
-            .then((stored) => {
-                if (cancelled || changedBeforeRestore.current) return;
-                setShowSuggestedTagsState(stored !== "false");
-            })
-            .catch((error) =>
+        // waits for the account's own settings, so the change lands on them
+        if (!account || !settingsLoaded) return;
+        void (async () => {
+            try {
+                const stored = await AsyncStorage.getItem(
+                    LEGACY_SHOW_SUGGESTED_TAGS_KEY,
+                );
+                if (stored === null) return;
+                if (stored === "false")
+                    await updateSettings({ show_suggested_tags: false });
+                await AsyncStorage.removeItem(LEGACY_SHOW_SUGGESTED_TAGS_KEY);
+            } catch (error) {
                 console.error(
-                    "Failed to restore music-list tag preference:",
+                    "Failed to move music-list tag preference:",
                     error,
-                ),
-            );
-        return () => {
-            cancelled = true;
-        };
-    }, []);
+                );
+            }
+        })();
+        // once per signed-in account. the stored value is gone after the
+        // first run, so a later run returns early
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [account?.id, settingsLoaded]);
 
-    const setShowSuggestedTags = useCallback((next: boolean) => {
-        changedBeforeRestore.current = true;
-        setShowSuggestedTagsState(next);
-        void AsyncStorage.setItem(
-            SHOW_SUGGESTED_TAGS_STORAGE_KEY,
-            String(next),
-        ).catch((error) =>
-            console.error("Failed to save music-list tag preference:", error),
-        );
-    }, []);
-
-    const value = useMemo<MusicListPreferencesValue>(
-        () => ({ showSuggestedTags, setShowSuggestedTags }),
-        [showSuggestedTags, setShowSuggestedTags],
-    );
-
-    return (
-        <MusicListPreferencesContext.Provider value={value}>
-            {children}
-        </MusicListPreferencesContext.Provider>
-    );
+    return children;
 }

@@ -26,6 +26,7 @@ import { cn, isUsableArtworkUrl } from "@/lib/utils";
 
 import { PostTopicCard } from "./PostTopicCard";
 import { topicFromArtist, topicFromSong } from "./topic";
+import { useAppTheme } from "@/lib/theme";
 
 const MAX_DIALOG_WIDTH = 400;
 const SCREEN_MARGIN = 20;
@@ -64,6 +65,7 @@ export function CreatePostDialog({
     submitLabel = "Post",
     lockedTopic,
 }: Props) {
+    const { mutedForeground } = useAppTheme().colors;
     const { colors } = useTheme();
     const insets = useSafeAreaInsets();
     const { width: screenWidth, height: screenHeight } = useWindowDimensions();
@@ -200,7 +202,7 @@ export function CreatePostDialog({
                                 setContent(text.slice(0, MAX_POST_LENGTH))
                             }
                             placeholder="What's on your mind?"
-                            placeholderTextColor="#888888"
+                            placeholderTextColor={mutedForeground}
                             multiline
                             autoFocus
                             maxLength={MAX_POST_LENGTH}
@@ -232,13 +234,13 @@ export function CreatePostDialog({
                                     <Ionicons
                                         name="search"
                                         size={16}
-                                        color="#888888"
+                                        color={mutedForeground}
                                     />
                                     <TextInput
                                         value={topicQuery}
                                         onChangeText={setTopicQuery}
                                         placeholder="Search songs and artists"
-                                        placeholderTextColor="#888888"
+                                        placeholderTextColor={mutedForeground}
                                         returnKeyType="search"
                                         autoCorrect={false}
                                         autoCapitalize="none"
@@ -259,7 +261,7 @@ export function CreatePostDialog({
                                             <Ionicons
                                                 name="close-circle"
                                                 size={16}
-                                                color="#888888"
+                                                color={mutedForeground}
                                             />
                                         </Pressable>
                                     ) : null}
@@ -340,6 +342,7 @@ function TopicSearchRow({
     round?: boolean;
     onPress: () => void;
 }) {
+    const { mutedForeground } = useAppTheme().colors;
     return (
         <Pressable
             accessibilityRole="button"
@@ -367,7 +370,7 @@ function TopicSearchRow({
                     <Ionicons
                         name={round ? "person" : "musical-notes"}
                         size={16}
-                        color="#a1a1a1"
+                        color={mutedForeground}
                     />
                 </View>
             )}

@@ -1,7 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import { Text } from "@/components/ui/text";
-import { THEME } from "@/lib/theme";
-import { useColorScheme } from "nativewind";
+import { useAppTheme } from "@/lib/theme";
 import { memo, type ComponentProps, type ReactNode } from "react";
 import { Pressable, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -65,8 +64,8 @@ function screenColorFor(screenHex: string, tagHex: string) {
  * beside one, like the query builder's negated pill.
  */
 export function useTagScreenColor(tagColor: string) {
-    const { colorScheme = "light" } = useColorScheme();
-    return screenColorFor(THEME[colorScheme].background, tagColor);
+    const { colors } = useAppTheme();
+    return screenColorFor(colors.background, tagColor);
 }
 
 /**
@@ -110,8 +109,8 @@ export const TagPill = memo(function TagPill({
     suggested?: boolean;
     onRemove?: () => void;
 }) {
-    const { colorScheme = "light" } = useColorScheme();
-    const backgroundColor = THEME[colorScheme].background;
+    const { colors } = useAppTheme();
+    const backgroundColor = colors.background;
     const screenColor = screenColorFor(backgroundColor, tag.color);
     const outlined = appearance === "outline";
     const outlineColor =

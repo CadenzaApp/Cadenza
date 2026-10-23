@@ -1,10 +1,9 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useColorScheme } from "nativewind";
 import { forwardRef } from "react";
 import { Pressable, StyleSheet, TextInput, View } from "react-native";
 
 import { GlassSurface } from "@/components/ui/glass-surface";
-import { THEME } from "@/lib/theme";
+import { useAppTheme } from "@/lib/theme";
 
 const FIELD_HEIGHT = 44;
 const FIELD_RADIUS = FIELD_HEIGHT / 2;
@@ -50,8 +49,7 @@ export const SearchField = forwardRef<TextInput, Props>(function SearchField(
     },
     ref,
 ) {
-    const { colorScheme } = useColorScheme();
-    const palette = THEME[colorScheme === "dark" ? "dark" : "light"];
+    const { colors: palette } = useAppTheme();
 
     return (
         <View

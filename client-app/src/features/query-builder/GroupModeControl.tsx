@@ -10,9 +10,8 @@ import Animated, {
 } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 import Svg, { Circle, ClipPath, Defs, Mask, Rect } from "react-native-svg";
-import { useColorScheme } from "nativewind";
 import { Text } from "@/components/ui/text";
-import { THEME } from "@/lib/theme";
+import { useAppTheme } from "@/lib/theme";
 import type { QueryGroupMode } from "./types";
 
 const MODES = ["all", "any", "none"] as const;
@@ -38,8 +37,7 @@ export function QuerySegmentedControl<T extends string>({
     const { fontScale } = useWindowDimensions();
     const [width, setWidth] = useState(1);
     const [preview, setPreview] = useState<T | null>(null);
-    const { colorScheme = "light" } = useColorScheme();
-    const theme = THEME[colorScheme];
+    const { colors: theme } = useAppTheme();
     const shown = preview ?? value;
     const reducedMotion = useReducedMotion();
     const position = useSharedValue(
@@ -189,8 +187,7 @@ export function VennDiagram({
     single?: boolean;
 }) {
     const id = useId().replace(/[^a-zA-Z0-9]/g, "");
-    const { colorScheme = "light" } = useColorScheme();
-    const diagramColor = colorScheme === "dark" ? "#737373" : "#a3a3a3";
+    const diagramColor = useAppTheme().colors.ring;
     return (
         <View
             accessible={false}

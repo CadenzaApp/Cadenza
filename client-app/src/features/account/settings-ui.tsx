@@ -1,106 +1,227 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useTheme } from "expo-router/react-navigation";
-import type { ReactNode } from "react";
+import { Children, Fragment, type ReactNode } from "react";
 import {
     Pressable,
-    StyleSheet,
+    ScrollView,
     View,
     type ColorValue,
     type PressableProps,
 } from "react-native";
 
-import { GlassSurface } from "@/components/ui/glass-surface";
+import { DetailScreen } from "@/components/ui/detail-screen";
+import { GlassPanel } from "@/components/ui/glass-panel";
 import { Text } from "@/components/ui/text";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useAppTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
+import type { IoniconName } from "@/components/ui/ionicon-name";
 
-type IoniconName = keyof typeof Ionicons.glyphMap;
+export type { IoniconName };
 
-export function GlassSettingsPanel({
-    children,
+// Every Pressable here takes its layout and pressed state from `className`
+// (`active:opacity-60`). A `style` function on a Pressable loses its layout
+// under nativewind.
+
+/**
+ * Every settings screen: a `DetailScreen` sheet with a padded scroll body.
+ * `overlay` renders outside the scroll, for dialogs.
+ */
+export function SettingsSheet({
+    title,
+    overlay,
     className,
-    tintColor,
+    children,
 }: {
-    children: ReactNode;
+    title: string;
+    overlay?: ReactNode;
+    /** Classes for the scroll content, like a wider `gap-5`. */
     className?: string;
-    tintColor?: ColorValue;
+    children: ReactNode;
+}) {
+    const insets = useSafeAreaInsets();
+
+    return (
+        <DetailScreen presentation="sheet" title={title}>
+            <ScrollView
+                className="flex-1"
+                contentContainerClassName={cn("gap-4 px-5 pt-2", className)}
+                contentContainerStyle={{
+                    paddingBottom: Math.max(insets.bottom, 16) + 16,
+                }}
+                showsVerticalScrollIndicator={false}
+            >
+                {children}
+            </ScrollView>
+            {overlay}
+        </DetailScreen>
+    );
+}
+
+/** A titled block of a settings screen, with an optional note under it. */
+export function SettingsSection({
+    title,
+    footnote,
+    children,
+}: {
+    title: string;
+    footnote?: string;
+    children: ReactNode;
 }) {
     return (
-        <View
-            className={cn(
-                "overflow-hidden rounded-3xl border border-border",
-                className,
-            )}
-        >
-            <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-                <GlassSurface
-                    variant="regular"
-                    tintColor={tintColor}
-                    style={StyleSheet.absoluteFill}
-                />
-            </View>
+        <View className="gap-2">
+            <Text className="px-2 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+                {title}
+            </Text>
             {children}
+            {footnote ? (
+                <Text className="px-2 text-sm leading-5 text-muted-foreground">
+                    {footnote}
+                </Text>
+            ) : null}
         </View>
     );
 }
 
+export type SettingsPoint = {
+    icon: IoniconName;
+    title: string;
+    body: string;
+    /** Makes the card a button, like a pointer to another sheet. */
+    onPress?: () => void;
+};
+
+/** Read-only explainer cards: an icon, a title, and a paragraph each. */
+export function SettingsPoints({ points }: { points: SettingsPoint[] }) {
+    return points.map((point) => {
+        const card = (
+            <GlassPanel>
+                <View className="flex-row gap-3.5 px-4 py-4">
+                    <SettingsIcon name={point.icon} />
+                    <View className="flex-1 gap-1">
+                        <Text className="text-base font-semibold">
+                            {point.title}
+                        </Text>
+                        <Text className="text-sm leading-5 text-muted-foreground">
+                            {point.body}
+                        </Text>
+                    </View>
+                    {point.onPress ? <SettingsChevron /> : null}
+                </View>
+            </GlassPanel>
+        );
+        return point.onPress ? (
+            <Pressable
+                key={point.title}
+                accessibilityRole="button"
+                onPress={point.onPress}
+                className="active:opacity-60"
+            >
+                {card}
+            </Pressable>
+        ) : (
+            <View key={point.title}>{card}</View>
+        );
+    });
+}
+
+/** The line a settings screen shows when a save fails. */
+export function SaveError({ error }: { error: unknown }) {
+    if (!error) return null;
+    return (
+        <Text className="px-2 text-sm text-destructive">
+            Could not save that change. Please try again.
+        </Text>
+    );
+}
+
+/** A glyph in the accent color, with no backing. */
 export function SettingsIcon({
     name,
     color,
+    size = 26,
 }: {
     name: IoniconName;
+    /** Defaults to the accent. */
     color?: ColorValue;
+    size?: number;
 }) {
-    const { colors } = useTheme();
+    const { brand } = useAppTheme().colors;
+    return <Ionicons name={name} size={size} color={color ?? brand} />;
+}
 
+export type StatusTone = "good" | "warn" | "bad" | "idle";
+
+/** A small colored dot beside a status label. */
+export function StatusDot({ tone }: { tone: StatusTone }) {
     return (
-        <View className="h-11 w-11 items-center justify-center overflow-hidden rounded-full border border-border">
-            <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-                <GlassSurface variant="clear" style={StyleSheet.absoluteFill} />
-            </View>
-            <Ionicons name={name} size={22} color={color ?? colors.text} />
-        </View>
+        <View
+            className={cn(
+                "h-2.5 w-2.5 rounded-full",
+                tone === "good" && "bg-success",
+                tone === "warn" && "bg-orange-500",
+                tone === "bad" && "bg-destructive",
+                tone === "idle" && "bg-muted-foreground",
+            )}
+        />
     );
 }
 
-export function TodoBadge() {
+export function SettingsChevron() {
+    const { colors } = useAppTheme();
     return (
-        <View className="overflow-hidden rounded-full border border-border px-2 py-0.5">
-            <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-                <GlassSurface variant="clear" style={StyleSheet.absoluteFill} />
-            </View>
-            <Text className="text-[10px] font-semibold tracking-wider text-muted-foreground">
-                TODO
-            </Text>
-        </View>
+        <Ionicons
+            name="chevron-forward"
+            size={20}
+            color={colors.mutedForeground}
+        />
     );
 }
 
 type SettingsRowProps = Omit<PressableProps, "children" | "style"> & {
-    icon: IoniconName;
+    icon?: IoniconName;
+    /** Icon color. Defaults to the accent. */
+    iconColor?: ColorValue;
     title: string;
     description?: string;
-    todo?: boolean;
+    destructive?: boolean;
     trailing?: ReactNode;
+    /** A trailing chevron, for a row that opens something. */
+    chevron?: boolean;
 };
 
+/** One row of a settings list: icon, title and description, trailing control. */
 export function SettingsRow({
     icon,
+    iconColor,
     title,
     description,
-    todo = false,
+    destructive = false,
     trailing,
+    chevron = false,
     disabled,
     onPress,
     ...props
 }: SettingsRowProps) {
+    const { colors } = useAppTheme();
     const content = (
-        <View className="flex-row items-center gap-3 px-4 py-4">
-            <SettingsIcon name={icon} />
-            <View className="flex-1 gap-1">
-                <View className="flex-row items-center gap-2">
-                    <Text className="text-base font-semibold">{title}</Text>
-                    {todo ? <TodoBadge /> : null}
+        <View className="flex-row items-center gap-4 px-4 py-4">
+            {icon ? (
+                <View className="w-7 items-center">
+                    <SettingsIcon
+                        name={icon}
+                        color={destructive ? colors.destructive : iconColor}
+                    />
                 </View>
+            ) : null}
+            <View className="flex-1 gap-0.5">
+                <Text
+                    className={cn(
+                        "text-base font-semibold",
+                        destructive && "text-destructive",
+                    )}
+                >
+                    {title}
+                </Text>
                 {description ? (
                     <Text className="text-sm leading-5 text-muted-foreground">
                         {description}
@@ -108,6 +229,7 @@ export function SettingsRow({
                 ) : null}
             </View>
             {trailing}
+            {chevron ? <SettingsChevron /> : null}
         </View>
     );
 
@@ -118,10 +240,7 @@ export function SettingsRow({
             accessibilityRole="button"
             disabled={disabled}
             onPress={onPress}
-            style={({ pressed }) => [
-                pressed && styles.pressed,
-                disabled && styles.disabled,
-            ]}
+            className={cn("active:opacity-60", disabled && "opacity-50")}
             {...props}
         >
             {content}
@@ -129,7 +248,69 @@ export function SettingsRow({
     );
 }
 
-const styles = StyleSheet.create({
-    disabled: { opacity: 0.55 },
-    pressed: { opacity: 0.65 },
-});
+/** Rows on one panel with a hairline between each. */
+export function SettingsGroup({ children }: { children: ReactNode }) {
+    const rows = Children.toArray(children);
+    return (
+        <GlassPanel>
+            {rows.map((row, index) => (
+                <Fragment key={index}>
+                    {index > 0 ? (
+                        <View className="mx-4 h-px bg-muted-foreground/30" />
+                    ) : null}
+                    {row}
+                </Fragment>
+            ))}
+        </GlassPanel>
+    );
+}
+
+/**
+ * Half of a two-up row on the account sheet: an icon, a title that may wrap,
+ * a subtitle, and a chevron, the whole card pressable. Both halves take the
+ * same width whatever their text.
+ */
+export function SettingsTile({
+    icon,
+    title,
+    subtitle,
+    onPress,
+    accessibilityLabel,
+}: {
+    icon: IoniconName;
+    title: string;
+    subtitle?: string;
+    onPress: () => void;
+    accessibilityLabel?: string;
+}) {
+    return (
+        <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={accessibilityLabel ?? title}
+            onPress={onPress}
+            className="flex-1 active:opacity-60"
+        >
+            <GlassPanel className="flex-1">
+                <View className="min-h-36 flex-1 justify-between gap-3 p-4">
+                    <View className="flex-row items-start justify-between">
+                        <SettingsIcon name={icon} size={28} />
+                        <SettingsChevron />
+                    </View>
+                    <View className="gap-0.5">
+                        <Text className="text-base font-semibold leading-5">
+                            {title}
+                        </Text>
+                        {subtitle ? (
+                            <Text
+                                className="text-sm text-muted-foreground"
+                                numberOfLines={2}
+                            >
+                                {subtitle}
+                            </Text>
+                        ) : null}
+                    </View>
+                </View>
+            </GlassPanel>
+        </Pressable>
+    );
+}

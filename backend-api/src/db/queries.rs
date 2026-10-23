@@ -100,6 +100,23 @@ pub struct QueryMatch {
     pub certain: bool,
 }
 
+/// The stored metadata condition for a song Apple rates explicit.
+const EXPLICIT_RATING: &str = "meta.content_rating = 'explicit'";
+
+/// How a query runs, beyond the query itself. `Default` is every song Cadenza
+/// knows, only the user's own tags, nothing hidden, most relevant first.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct QueryOptions {
+    /// A song's shared default tags count as tags on it too.
+    pub consider_default_tags: bool,
+    /// Only the user's `user_songs` rows, so nothing is capped.
+    pub library_only: bool,
+    /// A song Apple rates explicit never matches.
+    pub hide_explicit: bool,
+    /// None for most relevant first.
+    pub sort: Option<QuerySort>,
+}
+
 /// Returns every song matching the given query, in order.
 ///
 /// The query runs over every song Cadenza knows (see [`OWN_QUERY_SONGS`] and
@@ -115,6 +132,9 @@ pub struct QueryMatch {
 /// With `library_only` the query runs over the user's library alone, their `user_songs`
 /// rows: no songs from elsewhere, so the result is never capped.
 ///
+/// With `hide_explicit` a song Apple rates explicit never matches. A song with no stored
+/// metadata has no rating, so it is not hidden here.
+///
 /// Without a `sort`, songs come back most relevant first: by how many of the tags the query
 /// names they carry, then the user's own before the rest, then by every user's plays. With
 /// one, by that title, artist or album, then by title, then by plays. Song id breaks every
@@ -123,9 +143,7 @@ pub async fn run_query(
     db: &DatabaseConnection,
     query: &Query,
     user_id: Uuid,
-    consider_default_tags: bool,
-    library_only: bool,
-    sort: Option<QuerySort>,
+    options: QueryOptions,
 ) -> Result<QueryMatches, CadenzaError> {
     check_size(&query.root)?;
 
@@ -134,17 +152,9 @@ pub async fn run_query(
     let QueryableTags {
         tag_types,
         defaults,
-    } = get_queryable_tags(db, user_id, &tag_ids, consider_default_tags).await?;
+    } = get_queryable_tags(db, user_id, &tag_ids, options.consider_default_tags).await?;
 
-    let (sql, values) = compile_query(
-        query,
-        &tag_types,
-        &defaults,
-        user_id,
-        consider_default_tags,
-        library_only,
-        sort,
-    )?;
+    let (sql, values) = compile_query(query, &tag_types, &defaults, user_id, options)?;
 
     let songs = QueryMatch::find_by_statement(Statement::from_sql_and_values(
         DbBackend::Postgres,
@@ -358,10 +368,14 @@ fn compile_query(
     tag_types: &HashMap<i64, TagType>,
     defaults: &TagDefaults,
     user_id: Uuid,
-    consider_default_tags: bool,
-    library_only: bool,
-    sort: Option<QuerySort>,
+    options: QueryOptions,
 ) -> Result<(String, Vec<sea_query::Value>), CadenzaError> {
+    let QueryOptions {
+        consider_default_tags,
+        library_only,
+        hide_explicit,
+        sort,
+    } = options;
     let applied_tags = applied_tags_source(consider_default_tags);
     let mut compiler = Compiler {
         tag_types,
@@ -369,7 +383,12 @@ fn compile_query(
         values: vec![sea_query::Value::Uuid(Some(user_id))],
         applied_tags,
     };
-    let where_clause = compiler.node(&query.root)?;
+    let mut where_clause = compiler.node(&query.root)?;
+    if hide_explicit {
+        // before the cap, so hidden songs never take a discovered slot
+        let explicit = metadata_exists(Match::None(EXPLICIT_RATING.to_string()));
+        where_clause = format!("({where_clause}) AND {explicit}");
+    }
     let (score, score_join) = compiler.score(&query.root);
     let order = order_by(sort);
     let discovered_limit = MAX_DISCOVERED_SONGS + 1;
@@ -685,7 +704,7 @@ impl Compiler<'_> {
 
             MetadataKey::Explicit => {
                 no_value(op, value)?;
-                let explicit = "meta.content_rating = 'explicit'".to_string();
+                let explicit = EXPLICIT_RATING.to_string();
                 match op {
                     FilterOp::IsTrue => Match::Any(explicit),
                     FilterOp::IsFalse => Match::None(explicit),
@@ -1149,9 +1168,12 @@ mod tests {
             &tag_types(),
             &TagDefaults::default(),
             Uuid::nil(),
-            false,
-            false,
-            None,
+            QueryOptions {
+                consider_default_tags: false,
+                library_only: false,
+                hide_explicit: false,
+                sort: None,
+            },
         )
     }
 
@@ -1161,9 +1183,12 @@ mod tests {
             &tag_types(),
             &TagDefaults::default(),
             Uuid::nil(),
-            true,
-            false,
-            None,
+            QueryOptions {
+                consider_default_tags: true,
+                library_only: false,
+                hide_explicit: false,
+                sort: None,
+            },
         )
     }
 
@@ -1178,9 +1203,12 @@ mod tests {
                 ..TagDefaults::default()
             },
             Uuid::nil(),
-            false,
-            false,
-            None,
+            QueryOptions {
+                consider_default_tags: false,
+                library_only: false,
+                hide_explicit: false,
+                sort: None,
+            },
         )
         .unwrap()
         .0
@@ -1674,9 +1702,12 @@ mod tests {
             &tag_types(),
             &TagDefaults::default(),
             Uuid::nil(),
-            false,
-            true,
-            None,
+            QueryOptions {
+                consider_default_tags: false,
+                library_only: true,
+                hide_explicit: false,
+                sort: None,
+            },
         )
         .unwrap();
         let sql = squash(&sql);
@@ -1716,9 +1747,12 @@ mod tests {
             ]),
             &defaults,
             Uuid::nil(),
-            false,
-            false,
-            None,
+            QueryOptions {
+                consider_default_tags: false,
+                library_only: false,
+                hide_explicit: false,
+                sort: None,
+            },
         )
         .map(|(sql, _)| squash(&sql))
     }
@@ -1775,9 +1809,12 @@ mod tests {
                     ..TagDefaults::default()
                 },
                 Uuid::nil(),
-                false,
-                false,
-                None,
+                QueryOptions {
+                    consider_default_tags: false,
+                    library_only: false,
+                    hide_explicit: false,
+                    sort: None
+                },
             ),
             Err(CadenzaError::QueryFormatError(_))
         ));
@@ -1816,9 +1853,12 @@ mod tests {
                 &tag_types(),
                 &TagDefaults::default(),
                 Uuid::nil(),
-                false,
-                false,
-                sort,
+                QueryOptions {
+                    consider_default_tags: false,
+                    library_only: false,
+                    hide_explicit: false,
+                    sort,
+                },
             )
             .unwrap();
             let order = order_by(sort);
@@ -2071,6 +2111,40 @@ mod tests {
     }
 
     #[test]
+    fn hide_explicit_keeps_explicit_songs_out_of_every_half() {
+        let json = filter(r#"{ "field": "tag", "tag_id": 1, "op": "is_not_applied" }"#);
+        let compile_hiding = |hide_explicit| {
+            squash(
+                &compile_query(
+                    &parse(&json),
+                    &tag_types(),
+                    &TagDefaults::default(),
+                    Uuid::nil(),
+                    QueryOptions {
+                        consider_default_tags: false,
+                        library_only: false,
+                        hide_explicit,
+                        sort: None,
+                    },
+                )
+                .unwrap()
+                .0,
+            )
+        };
+
+        let hidden = compile_hiding(true);
+        // once in the user's own half and once in the discovered half
+        assert_eq!(
+            hidden
+                .matches("AND meta.content_rating = 'explicit' )")
+                .count(),
+            2,
+            "{hidden}"
+        );
+        assert!(!compile_hiding(false).contains("content_rating"));
+    }
+
+    #[test]
     fn metadata_keys_only_take_their_own_operators() {
         assert!(is_format_err(compile(&metadata_filter(
             "artist",
@@ -2218,9 +2292,12 @@ mod tests {
             tag_types,
             &TagDefaults::default(),
             user_id,
-            false,
-            false,
-            sort,
+            QueryOptions {
+                consider_default_tags: false,
+                library_only: false,
+                hide_explicit: false,
+                sort,
+            },
         )
         .unwrap();
         QueryMatch::find_by_statement(Statement::from_sql_and_values(
@@ -2462,9 +2539,12 @@ mod tests {
                 &types,
                 &TagDefaults::default(),
                 user_id,
-                false,
-                true,
-                None,
+                QueryOptions {
+                    consider_default_tags: false,
+                    library_only: true,
+                    hide_explicit: false,
+                    sort: None,
+                },
             )
             .unwrap();
             let txn = &txn;
@@ -2570,9 +2650,12 @@ mod tests {
                 &types,
                 &defaults,
                 user_id,
-                false,
-                false,
-                None,
+                QueryOptions {
+                    consider_default_tags: false,
+                    library_only: false,
+                    hide_explicit: false,
+                    sort: None,
+                },
             )
             .unwrap();
             let txn = &txn;
@@ -2743,12 +2826,13 @@ mod tests {
             &tag_types(),
             &TagDefaults::default(),
             user_id,
-            false,
-            false,
-            Some(QuerySort {
-                key: QuerySortKey::Title,
-                direction: SortDirection::Ascending,
-            }),
+            QueryOptions {
+                sort: Some(QuerySort {
+                    key: QuerySortKey::Title,
+                    direction: SortDirection::Ascending,
+                }),
+                ..Default::default()
+            },
         )
         .unwrap();
         let rows = QueryMatch::find_by_statement(Statement::from_sql_and_values(
