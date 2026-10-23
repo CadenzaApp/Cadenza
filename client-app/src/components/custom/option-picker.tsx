@@ -15,6 +15,7 @@ import { useTheme } from "expo-router/react-navigation";
 import { GlassSurface } from "@/components/ui/glass-surface";
 import { Input } from "@/components/ui/input";
 import { Text } from "@/components/ui/text";
+import { useAppTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 
 export type IconName = React.ComponentProps<typeof Ionicons>["name"];
@@ -55,13 +56,15 @@ const MAX_WIDTH = 520;
 const MAX_HEIGHT_RATIO = 0.8;
 const ROW_MIN_HEIGHT = 56;
 const ROW_ICON_SIZE = 24;
+const SEARCH_ICON_SIZE = 18;
 /** Space between the top edge of the popup and its title row. */
 const HEADER_TOP_SPACE = 8;
 
 /**
  * A popup list of choices, optionally grouped and searchable. The list
  * scrolls vertically when it is taller than the popup, and long labels wrap
- * rather than running off the side.
+ * rather than running off the side. A titled section collapses from its
+ * header, and every section opens while a search is typed so no match hides.
  *
  * Uses its own `Modal` instead of `ModalPopup` so the sizing suits a long,
  * searchable list. The advanced query builder picks tags, operators and values
@@ -79,8 +82,12 @@ export function OptionPicker({
     onClose,
 }: Props) {
     const { colors } = useTheme();
+    const { colors: palette } = useAppTheme();
     const window = useWindowDimensions();
     const [search, setSearch] = useState("");
+    const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(
+        () => new Set(),
+    );
 
     const width = Math.min(window.width - SCREEN_MARGIN * 2, MAX_WIDTH);
     const maxHeight = window.height * MAX_HEIGHT_RATIO;
@@ -94,6 +101,15 @@ export function OptionPicker({
             ),
         }))
         .filter((section) => section.options.length > 0);
+    const searching = needle.length > 0;
+
+    function toggleSection(title: string) {
+        setCollapsed((current) => {
+            const next = new Set(current);
+            if (!next.delete(title)) next.add(title);
+            return next;
+        });
+    }
 
     function changeSearch(next: string) {
         setSearch(next);
@@ -168,14 +184,26 @@ export function OptionPicker({
                         </View>
 
                         {searchable && (
-                            <Input
-                                value={search}
-                                onChangeText={changeSearch}
-                                placeholder="Search"
-                                autoCorrect={false}
-                                autoCapitalize="none"
-                                className="h-12 text-sm"
-                            />
+                            <View className="relative justify-center">
+                                <Input
+                                    value={search}
+                                    onChangeText={changeSearch}
+                                    placeholder="Search"
+                                    autoCorrect={false}
+                                    autoCapitalize="none"
+                                    className="h-12 pl-10 text-sm"
+                                />
+                                <View
+                                    pointerEvents="none"
+                                    className="absolute left-3"
+                                >
+                                    <Ionicons
+                                        name="search"
+                                        size={SEARCH_ICON_SIZE}
+                                        color={palette.mutedForeground}
+                                    />
+                                </View>
+                            </View>
                         )}
 
                         <ScrollView
@@ -190,62 +218,103 @@ export function OptionPicker({
                                 </Text>
                             )}
 
-                            {visibleSections.map((section, sectionIndex) => (
-                                <View
-                                    key={section.title ?? sectionIndex}
-                                    className="pb-2"
-                                >
-                                    {section.title && (
-                                        <Text className="pt-3 pb-1.5 text-sm font-semibold uppercase text-muted-foreground">
-                                            {section.title}
-                                        </Text>
-                                    )}
-                                    {section.options.map((option) => {
-                                        const selected =
-                                            option.key === selectedKey;
-                                        return (
+                            {visibleSections.map((section, sectionIndex) => {
+                                const title = section.title;
+                                const open =
+                                    !title ||
+                                    searching ||
+                                    !collapsed.has(title);
+                                return (
+                                    <View
+                                        key={title ?? sectionIndex}
+                                        className="pb-2"
+                                    >
+                                        {title && (
                                             <Pressable
-                                                key={option.key}
                                                 onPress={() =>
-                                                    select(option.key)
+                                                    toggleSection(title)
                                                 }
+                                                disabled={searching}
                                                 accessibilityRole="button"
                                                 accessibilityState={{
-                                                    selected,
+                                                    expanded: open,
                                                 }}
-                                                className={cn(
-                                                    "flex-row items-center gap-4 rounded-lg px-3 py-3.5 active:bg-accent",
-                                                    selected && "bg-accent",
-                                                )}
-                                                style={{
-                                                    minHeight: ROW_MIN_HEIGHT,
-                                                }}
+                                                className="flex-row items-center justify-between pt-3 pb-1.5 active:opacity-60"
                                             >
-                                                {option.icon && (
-                                                    <Ionicons
-                                                        name={option.icon}
-                                                        size={ROW_ICON_SIZE}
-                                                        color={
-                                                            option.iconColor ??
-                                                            colors.text
-                                                        }
-                                                    />
-                                                )}
-                                                <Text className="flex-1 shrink text-sm">
-                                                    {option.label}
+                                                <Text className="flex-1 text-sm font-semibold uppercase text-muted-foreground">
+                                                    {title}
                                                 </Text>
-                                                {selected && (
-                                                    <Ionicons
-                                                        name="checkmark"
-                                                        size={ROW_ICON_SIZE}
-                                                        color={colors.text}
-                                                    />
-                                                )}
+                                                <Ionicons
+                                                    name={
+                                                        open
+                                                            ? "chevron-down"
+                                                            : "chevron-forward"
+                                                    }
+                                                    size={18}
+                                                    color={
+                                                        palette.mutedForeground
+                                                    }
+                                                />
                                             </Pressable>
-                                        );
-                                    })}
-                                </View>
-                            ))}
+                                        )}
+                                        {open &&
+                                            section.options.map((option) => {
+                                                const selected =
+                                                    option.key === selectedKey;
+                                                return (
+                                                    <Pressable
+                                                        key={option.key}
+                                                        onPress={() =>
+                                                            select(option.key)
+                                                        }
+                                                        accessibilityRole="button"
+                                                        accessibilityState={{
+                                                            selected,
+                                                        }}
+                                                        className={cn(
+                                                            "flex-row items-center gap-4 rounded-lg px-3 py-3.5 active:bg-accent",
+                                                            selected &&
+                                                                "bg-accent",
+                                                        )}
+                                                        style={{
+                                                            minHeight:
+                                                                ROW_MIN_HEIGHT,
+                                                        }}
+                                                    >
+                                                        {option.icon && (
+                                                            <Ionicons
+                                                                name={
+                                                                    option.icon
+                                                                }
+                                                                size={
+                                                                    ROW_ICON_SIZE
+                                                                }
+                                                                color={
+                                                                    option.iconColor ??
+                                                                    colors.text
+                                                                }
+                                                            />
+                                                        )}
+                                                        <Text className="flex-1 shrink text-sm">
+                                                            {option.label}
+                                                        </Text>
+                                                        {selected && (
+                                                            <Ionicons
+                                                                name="checkmark"
+                                                                size={
+                                                                    ROW_ICON_SIZE
+                                                                }
+                                                                color={
+                                                                    colors.text
+                                                                }
+                                                            />
+                                                        )}
+                                                    </Pressable>
+                                                );
+                                            })}
+                                    </View>
+                                );
+                            })}
                         </ScrollView>
                     </Pressable>
                 </Pressable>

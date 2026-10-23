@@ -70,7 +70,7 @@ export function TopRail({ title, onBack, actions, route }: Props) {
             className={cn(
                 floating
                     ? "absolute left-0 right-0 top-0"
-                    : "border-b border-border bg-background",
+                    : "bg-background",
             )}
             style={[{ paddingTop: insets.top }, fadeStyle]}
             // the page's inset follows the rail as drawn, not a sum of parts
