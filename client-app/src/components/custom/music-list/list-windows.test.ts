@@ -124,3 +124,13 @@ test("groups that did not change are kept as they were", () => {
     assert.notEqual(merged?.[0], previous[0]);
     assert.equal(merged?.[1], previous[1]);
 });
+
+test("a group leaves out explicit songs when they are hidden", () => {
+    const songs = [track("a"), { ...track("b"), isExplicit: true }, track("c")];
+    const ids = (hide: boolean) =>
+        sectionRows([section("g", songs)], defaultLimit, hide).flatMap((row) =>
+            row.type === "track" ? [row.track.id] : [],
+        );
+    assert.deepEqual(ids(true), ["a", "c"]);
+    assert.deepEqual(ids(false), ["a", "b", "c"]);
+});

@@ -17,7 +17,7 @@ import { Button } from "@/components/ui/button";
 import { GlassButton } from "@/components/ui/glass-button";
 import { GlassSurface } from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
-import { THEME } from "@/lib/theme";
+import { useAppTheme } from "@/lib/theme";
 import type { AppliedTag, Tag } from "@/lib/types";
 
 import { visibleTagSelectorItems } from "./sort-tags";
@@ -101,8 +101,8 @@ function TagSelectorSession({
     scrollableGrid = true,
 }: TagSelectorProps) {
     const { colorScheme } = useColorScheme();
-    const footerButtonTint =
-        THEME[colorScheme === "dark" ? "dark" : "light"].card;
+    const { colors } = useAppTheme();
+    const footerButtonTint = colors.card;
     const [createTagOpen, setCreateTagOpen] = useState(false);
     const [sortOpen, setSortOpen] = useState(false);
     const [sort, setSort] = useState<TagSelectorSort>("relevance");

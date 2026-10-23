@@ -165,6 +165,7 @@ const RAW_MOCK_CATALOG_SONGS: MockItemInput[] = [
     {
         id: "1436314155",
         title: "Redbone",
+        isExplicit: true,
         artistName: "Childish Gambino",
         artworkUrl: mockArtworkUrl("awaken-my-love"),
         playbackType: PlaybackQueueType.Song,
@@ -251,6 +252,7 @@ const RAW_MOCK_LIBRARY_SONGS: MockItemInput[] = [
     {
         id: "i.4YZ8Kq0TmEXbN",
         title: "Alright",
+        isExplicit: true,
         artistName: "Kendrick Lamar",
         artworkUrl: mockArtworkUrl("to-pimp-a-butterfly"),
         playbackType: PlaybackQueueType.LibrarySong,
@@ -384,6 +386,7 @@ const RAW_MOCK_ALBUMS: MockItemInput[] = [
     {
         id: "1499378108",
         title: "After Hours",
+        isExplicit: true,
         artistName: "The Weeknd",
         artworkUrl: mockArtworkUrl("after-hours"),
     },

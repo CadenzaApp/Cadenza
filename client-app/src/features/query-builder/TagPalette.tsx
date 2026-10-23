@@ -22,9 +22,8 @@ import { Text } from "@/components/ui/text";
 import { useOpenScreen } from "@/lib/open-screen";
 import { useDefaultTags } from "@/lib/routes/tags";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
-import { THEME } from "@/lib/theme";
+import { useAppTheme } from "@/lib/theme";
 import type { Tag, TagMetadata } from "@/lib/types";
-import { useColorScheme } from "nativewind";
 import { useDrag, useDropHover } from "./DragContext";
 import { DraggablePill } from "./DraggablePill";
 import { DropSlot } from "./DropSlot";
@@ -74,7 +73,7 @@ export function TagPalette({
     });
     const { dragState } = useDrag();
     const deleteHovered = useDropHover("delete");
-    const { colorScheme = "light" } = useColorScheme();
+    const { colors: theme } = useAppTheme();
     const { playerBottomInset } = useScreenOverlayInsets();
     // The native tab bar floats over this screen on both platforms. Its
     // platform-specific inset (and the player, when present) sets the floor;
@@ -83,7 +82,6 @@ export function TagPalette({
         TAG_PALETTE_MAX_HEIGHT,
         TAG_PALETTE_MIN_HEIGHT + playerBottomInset,
     );
-    const theme = THEME[colorScheme];
     const paletteHeight = visibleHeight;
     const translation = useDerivedValue(() =>
         paletteTranslation(paletteHeight.get()),
@@ -406,14 +404,14 @@ function PaletteSearchField({
     onChangeText: (value: string) => void;
     accessibilityLabel: string;
 }) {
-    const { colorScheme = "light" } = useColorScheme();
+    const { colors } = useAppTheme();
     return (
         <View className="relative h-9 flex-1 overflow-hidden rounded-full">
             <Input
                 value={value}
                 onChangeText={onChangeText}
                 placeholder="Search"
-                placeholderTextColor={THEME[colorScheme].mutedForeground}
+                placeholderTextColor={colors.mutedForeground}
                 accessibilityLabel={accessibilityLabel}
                 className="h-9 rounded-full border-input bg-transparent pl-4 text-sm font-semibold shadow-none"
                 style={{ backgroundColor: "transparent" }}

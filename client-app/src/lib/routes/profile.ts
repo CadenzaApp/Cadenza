@@ -21,6 +21,28 @@ export function useProfile(enabled = true) {
     };
 }
 
+/** One count from `GET /profile/data`. */
+export type UserDataCount = {
+    name: string;
+    section: "library" | "tags" | "listening" | "social";
+    description: string;
+    unit: "count" | "milliseconds";
+    value: number;
+};
+
+/** A count of everything Cadenza stores about the signed-in user. */
+export function useUserData(enabled = true) {
+    const x = useAPIData<UserDataCount[]>("/profile/data", undefined, {
+        enabled,
+    });
+
+    return {
+        userData: x.data,
+        userDataLoading: x.isLoading,
+        userDataErr: x.error,
+    };
+}
+
 type CreateProfilePayload = {
     username?: string;
     bio?: string;

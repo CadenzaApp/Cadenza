@@ -20,5 +20,6 @@ pub mod posts;
 pub mod profile;
 pub mod sea_orm_active_enums;
 pub mod tags;
+pub mod user_settings;
 pub mod user_songs;
 pub mod user_tags_applied;

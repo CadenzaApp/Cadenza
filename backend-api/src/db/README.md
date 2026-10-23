@@ -7,8 +7,9 @@ The data access layer. Everything that touches postgres lives here, so handlers 
 
 | file | role |
 | --- | --- |
-| `mod.rs` | Declares `activity_tags`, `analytics`, `entity`, `events`, `metadata_tags`, `profile`, `queries`, `social`, `tag_activity`, `tags`, `user_songs`. |
+| `mod.rs` | Declares `activity_tags`, `analytics`, `entity`, `events`, `metadata_tags`, `profile`, `queries`, `settings`, `social`, `tag_activity`, `tags`, `user_songs`. |
 | `profile.rs` | Profile reads and writes: own profile, create with a default username from the email local part, and update username/bio. Unit tested. |
+| `settings.rs` | Private per user settings in `user_settings`: read with defaults for a user with no row, and a partial upsert. Unit tested. |
 | `events.rs` | The write path for `listening_events`: `NewEvent` and `insert_events`, which is idempotent on `client_event_id` and reports which rows were new. |
 | `analytics.rs` | The read path for `listening_events`: the metric summary, dense time bucketed trends, the song, artist, album, playlist and query rankings, replays, top tags with a cover song, tags played, the tag-colored heatmap, plays by hour, active days, and the event bounds. Integration tested against a real database (`--ignored`). |
 | `activity_tags.rs` | `ActivityTag` (My Plays, First Played, Last Played, In My Library, Favorited, Tagged), finding their rows by `is_activity` and name, creating missing ones and recoloring stale ones, `record_play`, `set_favorites_within`, and reading their values per song with defaults filled in. Unit tested. |
@@ -17,6 +18,7 @@ The data access layer. Everything that touches postgres lives here, so handlers 
 | `queries.rs` | Compiles a tag query to SQL, runs it over every song Cadenza knows, and ranks, sorts, or groups the matches. Also sorts and groups a list of song ids the caller sends. Unit tested, plus integration tests against a real database (`--ignored`) that need `sql/metadata_tags.sql`, `sql/query_sort.sql` and `sql/sort_group.sql`. |
 | `social.rs` | Posts, likes, comments, view status, interest scores, and the feed's SQL and score math. `comments`, `post_likes`, and `comment_likes` use the generated entities. `hot_score` and embeddings stay raw SQL. Embeddings come from `services::social_feed`. `topic_mk_id` is an optional Apple Music catalog id; song vs artist is not stored. `get_topic_posts` returns the posts for one catalog id, most liked first. `get_post_comments` returns a post's comments, most liked first. A post's `comment_count` is `posts.comments`, bumped when a comment is inserted. Unit tested for the vector math and the comments select. |
 | `metadata_tags.rs` | The copy of Apple Music song metadata that queries and metadata tags read in `metadata_song_tags_applied`, and the album crawl queue in `metadata_albums`: storing songs, storing what a phone says about songs Apple's catalog has no entry for (`store_library_song_metadata`), finding ones with no row, reading the rows a sorted list draws (`get_song_rows`) and the ones still without artwork, and queueing, claiming, finishing, and releasing albums. Unit tested, plus integration tests against a real database (`--ignored`). |
+| `user_data.rs` | `user_data_counts`, the one list of per-user counts behind `GET /profile/data` (library, tags, listening, social), and `get_user_data`, which runs them in one statement. Listening reuses every analytics `Metric`. A new per-user table gets an entry here so Your data lists it. |
 | `user_songs.rs` | `edit_user_songs`: adds and removes the user's songs in one transaction. `get_recent_songs_without_generated_default_tags`: the newest songs nothing has generated default tags for, which the backfill job walks. |
 | `entity/` | sea-orm-codegen output. Includes tag, default-tag, and related tables, plus `prelude` and `mod`. Do not hand edit. |
 
@@ -256,6 +258,21 @@ through `get_owned_tag`.
 refuses a username that still contains `@`. `update_profile` needs at least one of `username` or
 `bio`. Duplicate `uid` maps to `ProfileAlreadyExists`, duplicate `username` to
 `UsernameAlreadyTaken`, both through `err.rs` on the unique constraints.
+
+## Settings
+
+`user_settings` (`sql/user_settings.sql`) is one private row per user, separate from the public
+`profile`: theme mode, accent, custom background, glass tint and style, four color slot lists
+(jsonb, null means the presets), hide explicit, show suggested tags. `update_settings` upserts
+only the columns the patch names, so two devices changing different settings do not clobber
+each other. A whole slot list is one column, so two devices editing the same list do.
+
+`get_settings` returns defaults for a user with no row. They must match the column defaults in
+the SQL and `DEFAULT_USER_SETTINGS` in `client-app/src/lib/routes/settings.tsx`.
+
+`hide_explicit` also reaches the query compiler, read from the saved setting by the `/queries/results` handler and passed in `QueryOptions`: `compile_query` ANDs a `NOT EXISTS` on
+`content_rating = 'explicit'` onto both halves before the discovered cap. A song with no stored
+metadata has no rating and is not hidden.
 
 ## The query compiler
 

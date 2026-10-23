@@ -1,5 +1,13 @@
 import { MusicKit } from "@apple-musickit";
-import { useEffect } from "react";
+import {
+    createContext,
+    useCallback,
+    useContext,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+} from "react";
 import type { ReactNode } from "react";
 
 import { useTasks } from "@/components/custom/tasks";
@@ -12,20 +20,64 @@ import {
     createInitializedSongsStore,
     openInitializedSongsDb,
 } from "./initialized-songs-db";
+import { loadLastSyncedAt, saveLastSyncedAt } from "./last-synced-store";
+import { readAppleMusic } from "./musickit-hooks";
 import { useEditUserSongs } from "./routes/songs";
 import { LOG_TAG, syncLibrary } from "./song-init-job";
 
 const SYNC_LABEL = "Syncing with Apple Music";
 const SYNC_FAILURE = "Could not sync with Apple Music";
+const SYNC_PARTIAL = "Part of the library could not be read";
+
+type AppleMusicSyncValue = {
+    /**
+     * Runs a sync now, or joins the one already running. Afterwards every
+     * cached library read is refetched. Resolves when it is done; failures
+     * land in `error` rather than throwing.
+     */
+    syncNow: () => Promise<void>;
+    isSyncing: boolean;
+    /** Epoch milliseconds of this device's last complete sync, or null. */
+    lastSyncedAt: number | null;
+    /**
+     * Why the last run failed or missed part of the library, cleared when the
+     * next one starts.
+     */
+    error: string | null;
+    /** False without an account, a connected session, or MusicKit. */
+    canSync: boolean;
+};
+
+const AppleMusicSyncContext = createContext<AppleMusicSyncValue | null>(null);
+
+export function useAppleMusicSync() {
+    const value = useContext(AppleMusicSyncContext);
+    if (!value) {
+        throw new Error("useAppleMusicSync requires SongInitProvider.");
+    }
+    return value;
+}
+
+/** One run in flight. `cancel` stops it before its next request. */
+type SyncRun = {
+    /** The account and Apple Music session it syncs for. */
+    owner: string;
+    cancelled: boolean;
+    done: Promise<void>;
+    cancel: () => void;
+};
 
 /**
  * Keeps the backend's copy of the user's library in step with Apple Music.
- * Starts once there is an account and a connected Apple Music session, and
- * starts over if either changes.
+ * Runs on its own once there is an account and a connected Apple Music
+ * session, and starts over if either changes. `useAppleMusicSync().syncNow`
+ * runs the same job by hand.
  *
- * It shows one task while it runs. The work behind it is a walk of Apple Music
- * plus a `PATCH /songs` per batch of changes; `song-init-job.ts` has the shape
- * of the run and `initialized-songs-db.ts` the local record it diffs against.
+ * Only one run is ever in flight: a manual sync during an automatic one joins
+ * it. Each run shows one task while it works. The work is a walk of Apple
+ * Music plus a `PATCH /songs` per batch of changes; `song-init-job.ts` has the
+ * shape of the run and `initialized-songs-db.ts` the local record it diffs
+ * against.
  *
  * Default tags are not its job any more. The backend generates them the first
  * time something reads them.
@@ -35,20 +87,52 @@ const SYNC_FAILURE = "Could not sync with Apple Music";
  */
 export function SongInitProvider({ children }: { children: ReactNode }) {
     const { account } = useAccount();
-    const { isConnected, sessionRevision } = useAppleMusic();
+    const { isConnected, sessionRevision, refreshLibrary } = useAppleMusic();
     const { editUserSongs } = useEditUserSongs();
     const { addTask, endTaskSuccess, endTaskFail } = useTasks();
     const accountId = account?.id;
 
+    const [isSyncing, setIsSyncing] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    // keyed by account so a switch never shows the last account's stamp
+    const [synced, setSynced] = useState<{
+        accountId: string;
+        at: number | null;
+    } | null>(null);
+    const lastSyncedAt =
+        synced && synced.accountId === accountId ? synced.at : null;
+    const currentRun = useRef<SyncRun | null>(null);
+
+    const canSync = Boolean(accountId && isConnected && MusicKit.isAvailable());
+    const owner = `${accountId}:${sessionRevision}`;
+
+    useEffect(() => {
+        if (!accountId) return;
+        let live = true;
+        void (async () => {
+            const at = await loadLastSyncedAt(accountId);
+            if (live) setSynced({ accountId, at });
+        })();
+        return () => {
+            live = false;
+        };
+    }, [accountId]);
+
     // Not SWR on purpose: this is a one-off background job that reads only to
     // decide what to write. Nothing it finds is rendered from here.
-    useEffect(() => {
-        // needs a signed-in account and an Apple Music library to read
-        if (!accountId || !isConnected || !MusicKit.isAvailable()) return;
+    const startRun = useCallback((): SyncRun | null => {
+        const running = currentRun.current;
+        if (running && running.owner === owner && canSync) return running;
+        // a run for another account or session, or one that lost Apple
+        // Music, must not keep writing. what it already sent stays sent
+        if (running) {
+            running.cancel();
+            currentRun.current = null;
+            setIsSyncing(false);
+        }
+        if (!accountId || !canSync) return null;
 
-        let cancelled = false;
         let taskId: number | null = addTask(SYNC_LABEL);
-
         const endTask = (failure?: string) => {
             if (taskId === null) return;
             if (failure === undefined) endTaskSuccess(taskId);
@@ -56,28 +140,43 @@ export function SongInitProvider({ children }: { children: ReactNode }) {
             taskId = null;
         };
 
-        const run = async () => {
-            const db = await openInitializedSongsDb();
-            // the file is per device and the library is per account, so the
-            // store is bound to the account this run is for
-            const store = createInitializedSongsStore(db, accountId);
-
-            return syncLibrary({
-                getLibrarySongs: (options) => MusicKit.getLibrarySongs(options),
-                getUserPlaylists: (options) =>
-                    MusicKit.getUserPlaylists(options),
-                getPlaylistSongs: (playlistId, options) =>
-                    MusicKit.getPlaylistSongs(playlistId, options),
-                store,
-                editUserSongs: (payload) => editUserSongs(payload),
-                now: () => Date.now(),
-                isCancelled: () => cancelled,
-            });
+        const run: SyncRun = {
+            owner,
+            cancelled: false,
+            done: Promise.resolve(),
+            // ends the task now rather than when the run next checks
+            cancel: () => {
+                run.cancelled = true;
+                endTask("Library sync stopped");
+            },
         };
+        currentRun.current = run;
+        run.done = (async () => {
+            setIsSyncing(true);
+            setError(null);
+            try {
+                const db = await openInitializedSongsDb();
+                // the file is per device and the library is per account, so
+                // the store is bound to the account this run is for
+                const store = createInitializedSongsStore(db, accountId);
+                const result = await syncLibrary({
+                    getLibrarySongs: (options) =>
+                        readAppleMusic(() => MusicKit.getLibrarySongs(options)),
+                    getUserPlaylists: (options) =>
+                        readAppleMusic(() =>
+                            MusicKit.getUserPlaylists(options),
+                        ),
+                    getPlaylistSongs: (playlistId, options) =>
+                        readAppleMusic(() =>
+                            MusicKit.getPlaylistSongs(playlistId, options),
+                        ),
+                    store,
+                    editUserSongs: (payload) => editUserSongs(payload),
+                    now: () => Date.now(),
+                    isCancelled: () => run.cancelled,
+                });
+                if (run.cancelled) return;
 
-        run()
-            .then((result) => {
-                if (cancelled) return;
                 // what a query matches follows the library, and so does In My
                 // Library, so anything open is stale. once per run, not once
                 // per batch
@@ -87,29 +186,73 @@ export function SongInitProvider({ children }: { children: ReactNode }) {
                         ...ACTIVITY_TAG_READS,
                     ]);
                 }
+                // a walk that missed a source did not see the whole library,
+                // so it keeps the old stamp and says so
+                if (!result.complete) {
+                    setError(SYNC_PARTIAL);
+                    endTask(SYNC_PARTIAL);
+                    return;
+                }
+                const finishedAt = Date.now();
+                setSynced({ accountId, at: finishedAt });
+                void saveLastSyncedAt(accountId, finishedAt);
                 endTask();
-            })
-            .catch((error) => {
-                console.error(`${LOG_TAG} the run failed:`, error);
-                if (cancelled) return;
+            } catch (runError) {
+                console.error(`${LOG_TAG} the run failed:`, runError);
+                if (run.cancelled) return;
+                setError(SYNC_FAILURE);
                 endTask(SYNC_FAILURE);
-            });
+            } finally {
+                if (currentRun.current === run) {
+                    currentRun.current = null;
+                    setIsSyncing(false);
+                }
+            }
+        })();
 
-        // a new account or session stops this run before its next request.
-        // what it already sent stays sent, and the store already records it
-        return () => {
-            cancelled = true;
-            endTask("Library sync stopped");
-        };
+        return run;
     }, [
         accountId,
-        isConnected,
-        sessionRevision,
+        canSync,
+        owner,
         editUserSongs,
         addTask,
         endTaskSuccess,
         endTaskFail,
     ]);
 
-    return children;
+    // runs on its own for each account and session. startRun stops a run
+    // that no longer matches, so this effect needs no cleanup of its own
+    useEffect(() => {
+        startRun();
+    }, [startRun]);
+
+    useEffect(
+        () => () => {
+            currentRun.current?.cancel();
+            currentRun.current = null;
+        },
+        [],
+    );
+
+    const syncNow = useCallback(async () => {
+        const run = startRun();
+        if (!run) return;
+        await run.done;
+        if (run.cancelled) return;
+        // the run only writes the backend's copy. what the app shows comes
+        // from Apple Music reads, which a manual sync should refetch too
+        refreshLibrary();
+    }, [startRun, refreshLibrary]);
+
+    const value = useMemo<AppleMusicSyncValue>(
+        () => ({ syncNow, isSyncing, lastSyncedAt, error, canSync }),
+        [syncNow, isSyncing, lastSyncedAt, error, canSync],
+    );
+
+    return (
+        <AppleMusicSyncContext.Provider value={value}>
+            {children}
+        </AppleMusicSyncContext.Provider>
+    );
 }

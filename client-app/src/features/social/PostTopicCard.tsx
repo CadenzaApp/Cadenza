@@ -10,6 +10,7 @@ import type { PostTopic } from "@/lib/types";
 import { isUsableArtworkUrl } from "@/lib/utils";
 
 import { topicFromSong, topicSubtitle, topicTitle } from "./topic";
+import { useAppTheme } from "@/lib/theme";
 
 const ARTWORK_SIZE = 64;
 const ICON_SIZE = 28;
@@ -28,6 +29,7 @@ type Props = {
  * until the clip ends.
  */
 export function PostTopicCard({ topic, cardId, onRemove }: Props) {
+    const { mutedForeground } = useAppTheme().colors;
     const openScreen = useOpenScreen();
     const songId =
         topic.kind === "song" ? (topic.catalogId ?? topic.id) : undefined;
@@ -153,7 +155,7 @@ export function PostTopicCard({ topic, cardId, onRemove }: Props) {
                     hitSlop={10}
                     className="mr-2 h-8 w-8 items-center justify-center rounded-full active:opacity-60"
                 >
-                    <Ionicons name="close" size={16} color="#a1a1a1" />
+                    <Ionicons name="close" size={16} color={mutedForeground} />
                 </Pressable>
             ) : null}
 
@@ -165,6 +167,7 @@ export function PostTopicCard({ topic, cardId, onRemove }: Props) {
 }
 
 function TopicArtwork({ topic }: { topic: PostTopic }) {
+    const { mutedForeground } = useAppTheme().colors;
     if (isUsableArtworkUrl(topic.artworkUrl)) {
         return (
             <Image
@@ -177,13 +180,13 @@ function TopicArtwork({ topic }: { topic: PostTopic }) {
     if (topic.kind === "artist") {
         return (
             <View className="h-full w-full items-center justify-center bg-secondary">
-                <Ionicons name="person" size={22} color="#a1a1a1" />
+                <Ionicons name="person" size={22} color={mutedForeground} />
             </View>
         );
     }
     return (
         <View className="h-full w-full items-center justify-center bg-secondary">
-            <Ionicons name="musical-notes" size={22} color="#a1a1a1" />
+            <Ionicons name="musical-notes" size={22} color={mutedForeground} />
         </View>
     );
 }

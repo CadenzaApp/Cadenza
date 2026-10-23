@@ -41,6 +41,7 @@ import { useScreenScroll } from "@/lib/screen-scroll";
 import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
 import { useMusicListPreferences } from "@/lib/music-list-preferences";
 import { sortLeadTag, type SortLeadTag } from "@/lib/sort-lead-tag";
+import { useHideExplicit, useVisibleItems } from "@/lib/use-visible-items";
 
 import {
     MusicListItem,
@@ -180,7 +181,7 @@ function songIdOf(track: MusicItem) {
 type HighlightPhase = "waiting" | "playing" | "done";
 
 export function MusicList({
-    tracks,
+    tracks: givenTracks,
     isLoading,
     highlightTrackId,
     onTrackPressOverride = null,
@@ -210,6 +211,7 @@ export function MusicList({
     sections = null,
 }: MusicListProps) {
     const header = headerProp ?? listHeader;
+    const tracks = useVisibleItems(givenTracks);
     const tinted = useSurfacePalette() != null;
     const [headerHeight, setHeaderHeight] = useState(0);
     const { togglePlayback } = usePlaybackCommands();
@@ -307,14 +309,17 @@ export function MusicList({
         },
         [onSectionToggle],
     );
+    // a flat list's tracks are already without explicit songs when hidden;
+    // a grouped list's are left out as its rows are made
+    const hideExplicit = useHideExplicit();
     const rows = useMemo(
         () =>
             sections
-                ? sectionRows(sections.sections, limitOf)
+                ? sectionRows(sections.sections, limitOf, hideExplicit)
                 : tracks.map(
                       (track): MusicListRowItem => ({ type: "track", track }),
                   ),
-        [limitOf, sections, tracks],
+        [hideExplicit, limitOf, sections, tracks],
     );
     // the songs on show, in order, which is what selection and tags read
     const displayedTracks = useMemo(

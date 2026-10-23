@@ -2,7 +2,6 @@ import { memo, useMemo, useRef, useState, type ReactNode } from "react";
 import { Image, Pressable, StyleSheet, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTheme } from "expo-router/react-navigation";
-import { useColorScheme } from "nativewind";
 import Animated, {
     Easing,
     FadeIn,
@@ -22,7 +21,7 @@ import {
     ContrastText,
     useSurfacePalette,
 } from "@/lib/surface-contrast-context";
-import { THEME, type ThemeColorToken } from "@/lib/theme";
+import { useAppTheme, type ThemeColorToken } from "@/lib/theme";
 import type { AppliedTag, Tag, TagMetadata } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -100,8 +99,7 @@ export const MusicListItem = memo(function MusicListItem({
     const { colors } = useTheme();
     const palette = useSurfacePalette();
     const foreground = palette?.foreground ?? colors.text;
-    const { colorScheme = "light" } = useColorScheme();
-    const theme = THEME[colorScheme];
+    const { colors: theme } = useAppTheme();
     const [rowPressed, setRowPressed] = useState(false);
     const longPressConsumedRef = useRef(false);
     const itemTags = tags ?? EMPTY_APPLIED_TAGS;

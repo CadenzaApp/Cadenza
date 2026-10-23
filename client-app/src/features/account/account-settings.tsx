@@ -1,437 +1,226 @@
-import { AuthStatus, type AuthResult } from "@apple-musickit";
-import Ionicons from "@expo/vector-icons/Ionicons";
 import { Redirect, useRouter, type Href } from "expo-router";
-import { useTheme } from "expo-router/react-navigation";
-import { useState } from "react";
-import { ActivityIndicator, ScrollView, StyleSheet, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Pressable, View } from "react-native";
 
-import { getAccountInitials } from "@/components/custom/account-initials";
-import { DetailScreen } from "@/components/ui/detail-screen";
-import { GlassButton } from "@/components/ui/glass-button";
-import { GlassConfirmDialog } from "@/components/ui/glass-confirm-dialog";
-import { GlassSurface } from "@/components/ui/glass-surface";
-import { GlassToggle } from "@/components/ui/glass-toggle";
+import { AppleMusicLogo } from "@/components/custom/apple-music-logo";
+import { GlassPanel } from "@/components/ui/glass-panel";
+import { GlassPill } from "@/components/ui/glass-pill";
 import { Text } from "@/components/ui/text";
 import { useAccount } from "@/lib/account";
 import { useAppleMusic } from "@/lib/apple-music-auth";
-import { useMusicListPreferences } from "@/lib/music-list-preferences";
-import { useOpenSocialProfile } from "@/lib/use-open-social-profile";
+import { useUserSettings, type ThemeMode } from "@/lib/routes/settings";
+import { useAppleMusicSync } from "@/lib/song-init";
 
-import { GlassSettingsPanel, SettingsIcon, SettingsRow } from "./settings-ui";
+import { AccountAvatar, useAccountIdentity } from "./account-avatar";
+import {
+    appleMusicStatus,
+    useConnectAppleMusic,
+    useLastSyncedLabel,
+} from "./apple-music-connection";
+import {
+    SettingsChevron,
+    SettingsGroup,
+    SettingsRow,
+    SettingsSheet,
+    SettingsTile,
+    StatusDot,
+    type IoniconName,
+} from "./settings-ui";
+import { Line } from "react-native-svg";
 
-type ConfirmationTarget = "cadenza" | "apple-music";
+const THEME_MODE_LABEL: Record<ThemeMode, string> = {
+    system: "System",
+    light: "Light",
+    dark: "Dark",
+    custom: "Custom",
+};
 
+const THEME_MODE_ICON: Record<ThemeMode, IoniconName> = {
+    system: "contrast-outline",
+    light: "sunny-outline",
+    dark: "moon-outline",
+    custom: "color-palette-outline",
+};
+
+/**
+ * The account sheet: who you are, the Apple Music connection, and the way into
+ * every other settings sheet. The header opens account details; each card and
+ * tile opens its own sheet.
+ */
 export function AccountSettingsScreen() {
     const router = useRouter();
-    const insets = useSafeAreaInsets();
-    const { colors } = useTheme();
-    const { account, signOut } = useAccount();
-    const openSocialProfile = useOpenSocialProfile();
-    const { showSuggestedTags, setShowSuggestedTags } =
-        useMusicListPreferences();
-    const {
-        authResult,
-        isInitializing,
-        isConnected,
-        sessionExpired,
-        connect,
-        disconnect,
-    } = useAppleMusic();
-    const [hideExplicitContent, setHideExplicitContent] = useState(false);
-    const [isConnecting, setIsConnecting] = useState(false);
-    const [confirmationTarget, setConfirmationTarget] =
-        useState<ConfirmationTarget | null>(null);
-    const [isConfirming, setIsConfirming] = useState(false);
-    const [confirmationError, setConfirmationError] = useState<string | null>(
-        null,
-    );
-    const [connectionMessage, setConnectionMessage] = useState<string | null>(
-        null,
-    );
-    const [syncMessageVisible, setSyncMessageVisible] = useState(false);
+    const { account } = useAccount();
+    const { settings } = useUserSettings();
+    const { displayName, initial } = useAccountIdentity();
 
     if (!account) {
         return <Redirect href="/auth?initialMode=signin" />;
     }
 
-    async function handleConnectAppleMusic() {
-        setIsConnecting(true);
-        setConnectionMessage(null);
-        try {
-            const result = await connect();
-            if (!result) return;
-
-            if (result.status === AuthStatus.Authorized && result.userToken) {
-                setConnectionMessage("Apple Music connected.");
-                return;
-            }
-
-            setConnectionMessage(connectionFailureMessage(result));
-        } catch (error) {
-            console.error("Apple Music connection error:", error);
-            setConnectionMessage(
-                "Could not connect Apple Music. Please try again.",
-            );
-        } finally {
-            setIsConnecting(false);
-        }
-    }
-
-    function openConfirmation(target: ConfirmationTarget) {
-        setConfirmationError(null);
-        setConfirmationTarget(target);
-    }
-
-    function setConfirmationOpen(open: boolean) {
-        if (isConfirming) return;
-        if (!open) {
-            setConfirmationTarget(null);
-            setConfirmationError(null);
-        }
-    }
-
-    async function handleConfirmSignOut() {
-        if (!confirmationTarget || isConfirming) return;
-
-        setIsConfirming(true);
-        setConfirmationError(null);
-        try {
-            if (confirmationTarget === "cadenza") {
-                await signOut();
-                setConfirmationTarget(null);
-                router.replace("/auth?initialMode=signin");
-                return;
-            }
-
-            await disconnect();
-            setConfirmationTarget(null);
-            setConnectionMessage("Apple Music signed out.");
-        } catch (error) {
-            console.error("Account sign-out error:", error);
-            setConfirmationError("Could not sign out. Please try again.");
-        } finally {
-            setIsConfirming(false);
-        }
-    }
-
-    const confirmation = confirmationCopy(confirmationTarget);
-
     return (
-        <DetailScreen presentation="sheet" title="Account">
-            <ScrollView
-                className="flex-1"
-                contentContainerClassName="gap-4 px-5 pt-3"
-                contentContainerStyle={{
-                    paddingBottom: Math.max(insets.bottom, 16) + 16,
-                }}
-                showsVerticalScrollIndicator={false}
+        <SettingsSheet title="Account">
+            <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`${displayName}, ${account.email}`}
+                accessibilityHint="Opens account details"
+                onPress={() => router.push("/account-details" as Href)}
+                className="items-center gap-1 pb-3 active:opacity-60"
             >
-                <GlassSettingsPanel>
-                    <View className="gap-5 px-5 py-5">
-                        <View className="flex-row items-center gap-4">
-                            <View className="h-16 w-16 items-center justify-center overflow-hidden rounded-full border border-border">
-                                <View
-                                    pointerEvents="none"
-                                    style={StyleSheet.absoluteFill}
-                                >
-                                    <GlassSurface
-                                        variant="regular"
-                                        style={StyleSheet.absoluteFill}
-                                    />
-                                </View>
-                                <Text className="text-xl font-semibold text-destructive">
-                                    {getAccountInitials(account.email)}
-                                </Text>
-                            </View>
-                            <View className="flex-1 gap-1">
-                                <Text className="text-lg font-semibold">
-                                    Cadenza Account
-                                </Text>
-                                <Text
-                                    className="text-sm text-muted-foreground"
-                                    numberOfLines={1}
-                                >
-                                    {account.email}
-                                </Text>
-                            </View>
-                        </View>
-                        <GlassButton
-                            variant="destructive"
-                            className="w-full"
-                            onPress={() => openConfirmation("cadenza")}
-                        >
-                            <Ionicons
-                                name="log-out-outline"
-                                size={19}
-                                color={colors.notification}
-                            />
-                            <Text>Sign Out</Text>
-                        </GlassButton>
-                    </View>
-                </GlassSettingsPanel>
-
-                <GlassSettingsPanel>
-                    <SettingsRow
-                        icon="person-circle-outline"
-                        title="Your Social Page"
-                        description="See your public profile and posts."
-                        onPress={() => openSocialProfile(account.id)}
-                        accessibilityLabel="Open your social page"
-                        trailing={
-                            <Ionicons
-                                name="chevron-forward"
-                                size={20}
-                                color={colors.text}
-                            />
-                        }
+                <AccountAvatar initial={initial} />
+                <Text
+                    className="mt-3 text-center text-2xl font-bold"
+                    numberOfLines={1}
+                >
+                    {displayName}
+                </Text>
+                <Text
+                    className="text-center text-base text-muted-foreground"
+                    numberOfLines={1}
+                >
+                    {account.email}
+                </Text>
+                {/* the whole header opens the details, so the pill is
+                    only a cue and stays out of the touch and VoiceOver tree */}
+                <View
+                    className="mt-3"
+                    pointerEvents="none"
+                    importantForAccessibility="no-hide-descendants"
+                    accessibilityElementsHidden
+                >
+                    <GlassPill
+                        size="md"
+                        icon="person-outline"
+                        label="Account details"
+                        chevron
                     />
-                </GlassSettingsPanel>
+                </View>
+            </Pressable>
 
-                <GlassSettingsPanel>
-                    <View className="gap-5 px-5 py-5">
-                        <View className="flex-row items-center gap-4">
-                            <SettingsIcon
-                                name="musical-notes"
-                                color={colors.notification}
-                            />
-                            <View className="flex-1 gap-1">
-                                <Text className="text-lg font-semibold">
-                                    Apple Music
-                                </Text>
-                                <Text
-                                    className={`text-sm ${appleMusicStatusClass(authResult, isInitializing)}`}
-                                >
-                                    {appleMusicStatusLabel(
-                                        authResult,
-                                        isInitializing,
-                                    )}
-                                </Text>
-                                {sessionExpired && !connectionMessage ? (
-                                    <Text className="text-sm leading-5 text-destructive">
-                                        Apple Music connection needs attention.
-                                        Reconnect to keep using your library.
-                                    </Text>
-                                ) : null}
-                                {connectionMessage ? (
-                                    <Text className="text-sm leading-5 text-muted-foreground">
-                                        {connectionMessage}
-                                    </Text>
-                                ) : null}
-                            </View>
-                        </View>
-
-                        {isConnected ? (
-                            <GlassButton
-                                variant="destructive"
-                                className="w-full"
-                                onPress={() => openConfirmation("apple-music")}
-                            >
-                                <Ionicons
-                                    name="log-out-outline"
-                                    size={19}
-                                    color={colors.notification}
-                                />
-                                <Text>Sign Out</Text>
-                            </GlassButton>
-                        ) : (
-                            <GlassButton
-                                className="w-full"
-                                disabled={isConnecting || isInitializing}
-                                onPress={() => void handleConnectAppleMusic()}
-                            >
-                                {isConnecting ? (
-                                    <ActivityIndicator
-                                        size="small"
-                                        color={colors.text}
-                                    />
-                                ) : (
-                                    <Ionicons
-                                        name="link-outline"
-                                        size={19}
-                                        color={colors.text}
-                                    />
-                                )}
-                                <Text>
-                                    {isConnecting
-                                        ? "Connecting..."
-                                        : "Connect Apple Music"}
-                                </Text>
-                            </GlassButton>
-                        )}
-                    </View>
-                </GlassSettingsPanel>
-
-                <GlassSettingsPanel>
-                    <SettingsRow
-                        icon="sparkles-outline"
-                        title="Tag Suggestions in Lists"
-                        description="Show suggested tags beneath songs in music lists."
-                        trailing={
-                            <GlassToggle
-                                value={showSuggestedTags}
-                                onValueChange={setShowSuggestedTags}
-                                accessibilityLabel="Show suggested tags in music lists"
-                            />
-                        }
-                    />
-                </GlassSettingsPanel>
-
-                <GlassSettingsPanel>
-                    <SettingsRow
-                        icon="eye-off-outline"
-                        title="Hide Explicit Content"
-                        description="Songs flagged as explicit will be hidden."
-                        todo
-                        trailing={
-                            <GlassToggle
-                                value={hideExplicitContent}
-                                onValueChange={setHideExplicitContent}
-                                accessibilityLabel="Hide explicit content"
-                            />
-                        }
-                    />
-                </GlassSettingsPanel>
-
-                <GlassSettingsPanel>
-                    <SettingsRow
-                        icon="color-palette-outline"
-                        title="Appearance"
-                        description="Customize Cadenza colors and liquid glass tint."
-                        todo
-                        onPress={() => router.push("/appearance" as Href)}
-                        accessibilityLabel="Open appearance settings"
-                        trailing={
-                            <Ionicons
-                                name="chevron-forward"
-                                size={20}
-                                color={colors.text}
-                            />
-                        }
-                    />
-                </GlassSettingsPanel>
-
-                <GlassSettingsPanel>
-                    <SettingsRow
-                        icon="shield-checkmark-outline"
-                        title="Privacy"
-                        description="Cadenza does not sell your data. Apple Music account details are never stored on Cadenza servers."
-                    />
-                </GlassSettingsPanel>
-
-                <GlassSettingsPanel>
-                    <View className="gap-3 px-5 py-5">
-                        <SettingsRow
-                            icon="sync-outline"
-                            title="Sync Apple Music"
-                            description="Force a fresh update from Apple Music."
-                            todo
-                        />
-                        <GlassButton
-                            className="w-full"
-                            onPress={() => setSyncMessageVisible(true)}
-                        >
-                            <Ionicons
-                                name="sync-outline"
-                                size={19}
-                                color={colors.text}
-                            />
-                            <Text>Sync Now</Text>
-                        </GlassButton>
-                        {syncMessageVisible ? (
-                            <Text className="text-center text-sm text-muted-foreground">
-                                Sync is not available yet.
-                            </Text>
-                        ) : null}
-                    </View>
-                </GlassSettingsPanel>
-            </ScrollView>
-
-            <GlassConfirmDialog
-                open={confirmationTarget !== null}
-                title={confirmation.title}
-                description={confirmation.description}
-                confirmLabel="Sign Out"
-                pendingLabel="Signing out..."
-                pending={isConfirming}
-                error={confirmationError}
-                onOpenChange={setConfirmationOpen}
-                onConfirm={() => void handleConfirmSignOut()}
+            <AppleMusicCard
+                onOpen={() => router.push("/apple-music" as Href)}
             />
-        </DetailScreen>
+
+            <View className="flex-row gap-4">
+                <SettingsTile
+                    icon="pricetag-outline"
+                    title="Listening preferences"
+                    subtitle="Tags & explicit content"
+                    onPress={() =>
+                        router.push("/listening-preferences" as Href)
+                    }
+                />
+                <SettingsTile
+                    icon={THEME_MODE_ICON[settings.theme_mode]}
+                    title="Appearance"
+                    subtitle={THEME_MODE_LABEL[settings.theme_mode]}
+                    onPress={() => router.push("/appearance" as Href)}
+                />
+            </View>
+            
+            <SettingsGroup>
+            
+                <SettingsRow
+                    icon="shield-checkmark-outline"
+                    title="Privacy & data"
+                    chevron
+                    onPress={() => router.push("/privacy" as Href)}
+                />
+                <SettingsRow
+                    icon="information-circle-outline"
+                    title="Apple Music limits"
+                    description="What Apple does not let Cadenza do"
+                    chevron
+                    onPress={() => router.push("/apple-music-limits" as Href)}
+                />
+            </SettingsGroup>          
+        </SettingsSheet>
     );
 }
 
-function appleMusicStatusLabel(
-    result: AuthResult | null,
-    initializing: boolean,
-): string {
-    if (initializing) return "Checking connection...";
-    if (!result) return "Not Connected";
+/**
+ * Apple Music at a glance. The top row says who and whether it is connected,
+ * the bottom row when it last synced and the one action that fits the state.
+ * The card opens the Apple Music sheet; the pill acts in place.
+ */
+function AppleMusicCard({ onOpen }: { onOpen: () => void }) {
+    const { authResult, isInitializing, sessionExpired } = useAppleMusic();
+    const { syncNow, isSyncing, canSync } = useAppleMusicSync();
+    const { connectAppleMusic, isConnecting, message } = useConnectAppleMusic();
+    const syncedLabel = useLastSyncedLabel();
+    const status = appleMusicStatus(authResult, isInitializing, sessionExpired);
 
-    switch (result.status) {
-        case AuthStatus.Authorized:
-            return result.userToken ? "Connected" : "Not Connected";
-        case AuthStatus.Denied:
-            return "Access Denied";
-        case AuthStatus.Restricted:
-            return "Restricted";
-        case AuthStatus.NotDetermined:
-            return "Not Connected";
-        case AuthStatus.Failed:
-            return "Connection Failed";
-        default:
-            return "Unknown";
-    }
-}
-
-function appleMusicStatusClass(
-    result: AuthResult | null,
-    initializing: boolean,
-): string {
-    if (initializing || !result) return "text-muted-foreground";
-
-    switch (result.status) {
-        case AuthStatus.Authorized:
-            return result.userToken
-                ? "text-green-500"
-                : "text-muted-foreground";
-        case AuthStatus.Denied:
-            return "text-destructive";
-        case AuthStatus.Restricted:
-            return "text-orange-500";
-        default:
-            return "text-muted-foreground";
-    }
-}
-
-function connectionFailureMessage(result: AuthResult): string {
-    switch (result.status) {
-        case AuthStatus.Denied:
-            return "Apple Music access was denied.";
-        case AuthStatus.Restricted:
-            return "Apple Music access is restricted.";
-        case AuthStatus.Authorized:
-            return (
-                result.error ??
-                "Apple Music did not return an account token. Please try again."
-            );
-        default:
-            return result.error ?? "Could not connect Apple Music.";
-    }
-}
-
-function confirmationCopy(target: ConfirmationTarget | null) {
-    if (target === "apple-music") {
-        return {
-            title: "Sign out of Apple Music?",
-            description:
-                "Cadenza will no longer access your Apple Music library until you reconnect.",
-        };
-    }
-
-    return {
-        title: "Sign out of Cadenza?",
-        description: "You will need to sign in again to use Cadenza.",
-    };
+    return (
+        <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Apple Music, ${status.label}`}
+            accessibilityHint="Opens Apple Music settings"
+            // VoiceOver merges the card into one element, so the pill's
+            // action is offered on the card as well
+            accessibilityActions={
+                status.action === "sync"
+                    ? [{ name: "sync", label: "Sync now" }]
+                    : status.action
+                      ? [{ name: "connect", label: "Connect" }]
+                      : undefined
+            }
+            onAccessibilityAction={(event) => {
+                if (event.nativeEvent.actionName === "sync" && canSync)
+                    void syncNow();
+                if (event.nativeEvent.actionName === "connect")
+                    void connectAppleMusic();
+            }}
+            onPress={onOpen}
+            className="active:opacity-60"
+        >
+            <GlassPanel>
+                <View className="gap-3 p-4">
+                    <View className="flex-row items-center gap-3.5">
+                        <AppleMusicLogo size={52} />
+                        <View className="flex-1 gap-1">
+                            <Text className="text-lg font-semibold">
+                                Apple Music
+                            </Text>
+                            <View className="flex-row items-center gap-2">
+                                <StatusDot tone={status.tone} />
+                                <Text className="text-sm">{status.label}</Text>
+                            </View>
+                        </View>
+                        <SettingsChevron />
+                    </View>
+                    {status.action ? (
+                        <View className="flex-row items-center justify-between gap-3">
+                            <Text
+                                className="flex-1 text-sm text-muted-foreground"
+                                numberOfLines={1}
+                            >
+                                {status.action === "sync"
+                                    ? syncedLabel
+                                    : (message ??
+                                      "Connect to use your library")}
+                            </Text>
+                            {status.action === "sync" ? (
+                                <GlassPill
+                                    icon="sync-outline"
+                                    label="Sync now"
+                                    loading={isSyncing}
+                                    disabled={!canSync}
+                                    onPress={() => void syncNow()}
+                                />
+                            ) : (
+                                <GlassPill
+                                    icon="link-outline"
+                                    label={
+                                        status.action === "reconnect"
+                                            ? "Reconnect"
+                                            : "Connect"
+                                    }
+                                    loading={isConnecting}
+                                    onPress={() => void connectAppleMusic()}
+                                />
+                            )}
+                        </View>
+                    ) : null}
+                </View>
+            </GlassPanel>
+        </Pressable>
+    );
 }

@@ -1,7 +1,7 @@
-import { useTheme } from "expo-router/react-navigation";
 import { Pressable, StyleSheet, View } from "react-native";
 
 import { GlassSurface } from "@/components/ui/glass-surface";
+import { useAppTheme } from "@/lib/theme";
 
 /** An on/off switch painted on glass. The track tints when it is on. */
 export function GlassToggle({
@@ -13,7 +13,7 @@ export function GlassToggle({
     onValueChange: (value: boolean) => void;
     accessibilityLabel: string;
 }) {
-    const { colors } = useTheme();
+    const { brand } = useAppTheme().colors;
 
     return (
         <Pressable
@@ -31,7 +31,7 @@ export function GlassToggle({
                 <View pointerEvents="none" style={StyleSheet.absoluteFill}>
                     <GlassSurface
                         variant="regular"
-                        tintColor={value ? colors.notification : undefined}
+                        tintColor={value ? brand : undefined}
                         style={StyleSheet.absoluteFill}
                     />
                 </View>

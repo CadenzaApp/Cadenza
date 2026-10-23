@@ -2,6 +2,7 @@ import { useMemo } from "react";
 
 import type { QueryJSON } from "@/lib/query-json";
 import { useAPIPostData } from "../api-actions";
+import { useUserSettings } from "./settings";
 
 /**
  * One matching song. `certain` is true for a song in the user's library or
@@ -14,6 +15,7 @@ type QueryResultsBody = {
     query: QueryJSON;
     consider_default_tags: boolean;
     library_only?: true;
+    hide_explicit?: true;
 };
 
 type QueryResultsResponse = {
@@ -40,7 +42,8 @@ const NO_MATCHES: string[] = [];
  * include the shared default tags. `libraryOnly` narrows the songs to the
  * user's library, so every match is their own and nothing is capped. Both are
  * part of the cache key, so turning one on and off refetches rather than
- * reusing the other answer.
+ * reusing the other answer. The user's Hide explicit content setting is sent
+ * the same way.
  *
  * Revalidates like any other read, so it suits a live preview. A list the user
  * scrolls through wants `useArrangedSongs` from `./arrange`, which holds its
@@ -51,13 +54,22 @@ export function useQueryResults(
     considerDefaultTags: boolean,
     libraryOnly: boolean,
 ) {
-    const body = useQueryResultsBody(query, considerDefaultTags, libraryOnly);
+    const { body, waiting } = useQueryResultsBody(
+        query,
+        considerDefaultTags,
+        libraryOnly,
+    );
     const x = useAPIPostData<QueryResultsBody, QueryResultsResponse>(
         "/queries/results",
         body,
     );
     return {
-        ...useParsedResults(body, x.data, x.isLoading, x.error),
+        ...useParsedResults(
+            body,
+            x.data,
+            waiting || (body !== null && x.isLoading),
+            x.error,
+        ),
         refreshQueryResults: x.mutate,
     };
 }
@@ -67,16 +79,23 @@ function useQueryResultsBody(
     considerDefaultTags: boolean,
     libraryOnly: boolean,
 ) {
-    return useMemo<QueryResultsBody | null>(() => {
-        if (!query) return null;
+    const { settings, settingsReady } = useUserSettings();
+    const hideExplicit = settings.hide_explicit;
+    // no request until the setting is known, or a cold start would run the
+    // query twice and show explicit songs in between
+    const waiting = query !== null && !settingsReady;
+    const body = useMemo<QueryResultsBody | null>(() => {
+        if (!query || waiting) return null;
         return {
             query,
             consider_default_tags: considerDefaultTags,
             // left out when off, so the usual request and its cache key stay
             // the same as before the setting existed
             ...(libraryOnly ? { library_only: true as const } : {}),
+            ...(hideExplicit ? { hide_explicit: true as const } : {}),
         };
-    }, [considerDefaultTags, libraryOnly, query]);
+    }, [considerDefaultTags, hideExplicit, libraryOnly, query, waiting]);
+    return { body, waiting };
 }
 
 function useParsedResults(
@@ -105,7 +124,7 @@ function useParsedResults(
         matchedSongs,
         matchedSongIds,
         resultsCapped: response?.capped ?? false,
-        queryResultsLoading: body !== null && isLoading,
+        queryResultsLoading: isLoading,
         // an empty query has nothing to fail, whatever the last key left behind
         queryResultsErr: body ? error : undefined,
     };

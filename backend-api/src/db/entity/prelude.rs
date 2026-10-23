@@ -17,5 +17,6 @@ pub use super::post_view_status::Entity as PostViewStatus;
 pub use super::posts::Entity as Posts;
 pub use super::profile::Entity as Profile;
 pub use super::tags::Entity as Tags;
+pub use super::user_settings::Entity as UserSettings;
 pub use super::user_songs::Entity as UserSongs;
 pub use super::user_tags_applied::Entity as UserTagsApplied;

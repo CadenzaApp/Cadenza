@@ -2,8 +2,9 @@ use crate::{
     AppState,
     auth::SupabaseClaims,
     db::profile::{create_profile, get_profile, update_profile},
+    db::user_data::get_user_data,
     err::CadenzaError,
-    routes::json::profile::Profile,
+    routes::json::{profile::Profile, user_data::UserDataCount},
 };
 use axum::{
     Json, Router,
@@ -26,6 +27,25 @@ async fn get_profile_handler(
 ) -> Result<Json<Profile>, CadenzaError> {
     let model = get_profile(&db, claims.user_id).await?;
     Ok(Json(Profile::from(model)))
+}
+
+/// Returns a count of everything Cadenza stores about the signed-in user, for
+/// the Your data screen. `section` groups the rows; `unit` is `count` or
+/// `milliseconds`, the same as an analytics metric.
+///
+/// JSON return value format:
+/// ```json
+/// [
+///   { "name": "songs", "section": "library", "description": "Songs in your library", "unit": "count", "value": 1204 },
+///   { "name": "listening_ms", "section": "listening", "description": "Listening time", "unit": "milliseconds", "value": 71280000 }
+/// ]
+/// ```
+async fn get_user_data_handler(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+) -> Result<Json<Vec<UserDataCount>>, CadenzaError> {
+    let counts = get_user_data(&db, claims.user_id).await?;
+    Ok(Json(counts.into_iter().map(UserDataCount::from).collect()))
 }
 
 #[derive(Deserialize, Default)]
@@ -94,4 +114,5 @@ pub fn get_profile_router() -> Router<AppState> {
         .route("/", get(get_profile_handler))
         .route("/", post(create_profile_handler))
         .route("/", patch(update_profile_handler))
+        .route("/data", get(get_user_data_handler))
 }

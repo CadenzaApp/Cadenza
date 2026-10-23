@@ -1,5 +1,6 @@
 use crate::db;
-use crate::db::queries::Arrangement;
+use crate::db::queries::{Arrangement, QueryOptions};
+use crate::db::settings::get_settings;
 use crate::err::CadenzaError;
 use crate::routes::json::metadata_tag::metadata_tags_of;
 use crate::routes::json::query::{
@@ -25,6 +26,10 @@ struct QueryResultsBody {
     /// Defaults to false: the query runs over every song Cadenza knows.
     #[serde(default)]
     library_only: bool,
+    /// Defaults to false. True hides explicit songs even when the caller's
+    /// saved setting does not.
+    #[serde(default)]
+    hide_explicit: bool,
     /// Omitted for the query's own order.
     #[serde(default)]
     sort: Option<QuerySort>,
@@ -67,12 +72,16 @@ struct QueryResultsBody {
 /// `library_only` narrows the songs to the caller's `user_songs` rows alone. Every match
 /// is then `certain`, and `capped` is always false.
 ///
+/// Explicit songs (by stored metadata) are dropped before the cap when the caller's saved
+/// Hide explicit content setting is on, or when `hide_explicit` is true.
+///
 /// Request JSON:
 /// ```json
 /// {
 ///   "query": { "where": { "filter": { "field": "tag", "tag_id": 3, "op": "is_not_applied" } } },
 ///   "consider_default_tags": false,
 ///   "library_only": false,
+///   "hide_explicit": false,
 ///   "sort": { "field": "metadata", "key": "title", "direction": "ascending" },
 ///   "group": { "field": "tag", "tag_id": 9, "direction": "ascending" },
 ///   "time_zone": "America/Denver"
@@ -113,6 +122,15 @@ async fn query_results_handler(
         group: body.group,
         time_zone: body.time_zone,
     };
+    // the saved setting applies whatever the caller sends, so a caller that
+    // forgets the flag cannot show explicit songs to a user who hid them
+    let hide_explicit =
+        body.hide_explicit || get_settings(&db, claims.user_id).await?.hide_explicit;
+    let options = QueryOptions {
+        consider_default_tags: body.consider_default_tags,
+        library_only: body.library_only,
+        hide_explicit,
+    };
     let sorted_by = sorted_metadata_key(&arrangement);
     let arranged = !arrangement.is_none();
     if arranged {
@@ -120,16 +138,10 @@ async fn query_results_handler(
         store_metadata_before_sorting(&db, &song_meta_service, &own).await;
     }
 
-    let mut results: QueryResults = db::queries::run_query(
-        &db,
-        &body.query,
-        claims.user_id,
-        body.consider_default_tags,
-        body.library_only,
-        &arrangement,
-    )
-    .await?
-    .into();
+    let mut results: QueryResults =
+        db::queries::run_query(&db, &body.query, claims.user_id, options, &arrangement)
+            .await?
+            .into();
     if arranged {
         let song_ids: Vec<String> = results
             .songs

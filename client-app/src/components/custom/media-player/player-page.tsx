@@ -36,7 +36,7 @@ import {
 import { detailRouteFor } from "@/lib/detail-stack";
 import { useZoomSource } from "@/lib/zoom-dismiss";
 import { useOpenScreen } from "@/lib/open-screen";
-import { SHEET_DETENT } from "@/lib/theme";
+import { SHEET_DETENT, useAppTheme } from "@/lib/theme";
 
 import {
     MediaPlayerProgress,
@@ -90,6 +90,7 @@ export function PlayerPage() {
         canSkipToPrevious,
     } = usePlayback();
     const { colors } = useTheme();
+    const { brand } = useAppTheme().colors;
     const openScreen = useOpenScreen();
     const focused = useIsFocused();
     const { ref: albumArtworkRef, capture: captureAlbumArtwork } =
@@ -472,7 +473,7 @@ export function PlayerPage() {
                 shuffleMode={shuffleMode}
                 queueOpen={view === "queue"}
                 textColor={colors.text}
-                accentColor={colors.notification}
+                accentColor={brand}
                 onTogglePlayback={() => void togglePlayback(track)}
                 onSkipToNext={() => void skipToNext()}
                 onSkipToPrevious={() => void skipToPrevious()}

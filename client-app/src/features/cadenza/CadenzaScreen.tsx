@@ -22,13 +22,12 @@ import { useOpenScreen } from "@/lib/open-screen";
 import { describeQuery, positiveQueryTagNames } from "@/lib/query-json";
 import { useQueryResults } from "@/lib/routes/queries";
 import { useActivityTags, useUserTags } from "@/lib/routes/tags";
-import { THEME } from "@/lib/theme";
+import { useAppTheme } from "@/lib/theme";
 import type { Tag } from "@/lib/types";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation } from "expo-router";
 import { useTheme } from "expo-router/react-navigation";
-import { useColorScheme } from "nativewind";
 import { useCallback, useLayoutEffect, useMemo, useState } from "react";
 import {
     ActivityIndicator,
@@ -60,8 +59,7 @@ export function CadenzaScreen() {
     const { isConnected } = useAppleMusic();
     const navigation = useNavigation();
     const { colors } = useTheme();
-    const { colorScheme = "light" } = useColorScheme();
-    const headingBackground = THEME[colorScheme].background;
+    const headingBackground = useAppTheme().colors.background;
     const openScreen = useOpenScreen();
     const {
         history,

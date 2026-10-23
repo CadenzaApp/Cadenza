@@ -14,6 +14,7 @@ import {
 } from "@/lib/song-arrangement";
 
 import { useAPIMutation, useAPIPostSnapshot } from "../api-actions";
+import { useUserSettings } from "./settings";
 import { storedTracks, type StoredSongRowJSON } from "../stored-tracks";
 
 /**
@@ -39,6 +40,7 @@ type ArrangedBody = {
           query: QueryJSON;
           consider_default_tags: boolean;
           library_only?: true;
+          hide_explicit?: true;
       }
     | { song_ids: readonly string[] }
 );
@@ -96,8 +98,13 @@ export function useArrangedSongs(
     lookupTracks: TrackLookup,
 ) {
     const arranged = isArranged(arrangement);
+    // a query waits for the Hide explicit content setting, the same as
+    // `useQueryResults`, so it is fetched once with the right songs
+    const { settings, settingsReady } = useUserSettings();
+    const hideExplicit = settings.hide_explicit;
+    const waiting = source?.kind === "query" && !settingsReady;
     const body = useMemo<ArrangedBody | null>(() => {
-        if (!source) return null;
+        if (!source || waiting) return null;
         if (source.kind === "songs" && !arranged) return null;
         const choices = {
             ...(arrangement.sort
@@ -118,10 +125,18 @@ export function useArrangedSongs(
                   ...(source.libraryOnly
                       ? { library_only: true as const }
                       : {}),
+                  ...(hideExplicit ? { hide_explicit: true as const } : {}),
                   ...choices,
               }
             : { song_ids: source.songIds, ...choices };
-    }, [arranged, arrangement.group, arrangement.sort, source]);
+    }, [
+        arranged,
+        arrangement.group,
+        arrangement.sort,
+        hideExplicit,
+        source,
+        waiting,
+    ]);
     const path =
         source?.kind === "songs" ? "/queries/arrange" : "/queries/results";
 
@@ -204,7 +219,7 @@ export function useArrangedSongs(
 
     return {
         /** False for a list of ids left unarranged, which nothing was fetched for. */
-        active: body !== null,
+        active: body !== null || waiting,
         songs,
         songIds,
         /** The groups, when the arrangement groups. */
@@ -217,7 +232,7 @@ export function useArrangedSongs(
         /** Each song's value of the metadata tag the list is sorted by, by id. */
         sortValues,
         capped: response?.capped ?? false,
-        loading: body !== null && snapshot.isLoading && !response,
+        loading: waiting || (body !== null && snapshot.isLoading && !response),
         // an empty request has nothing to fail, whatever the last one left
         error: body ? snapshot.error : undefined,
     };

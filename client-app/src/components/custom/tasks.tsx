@@ -1,5 +1,4 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useColorScheme } from "nativewind";
 import { createContext, useContext, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Platform, StyleSheet, View } from "react-native";
@@ -8,7 +7,7 @@ import { FullWindowOverlay } from "react-native-screens";
 
 import { GlassSurface } from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
-import { NAV_THEME, THEME } from "@/lib/theme";
+import { useAppTheme } from "@/lib/theme";
 import { TOP_RAIL_HEIGHT } from "@/lib/top-rail-geometry";
 import { cn } from "@/lib/utils";
 
@@ -168,8 +167,7 @@ export function TasksHost() {
 
 /** One task: its label, behind an hourglass while it runs and its result after. */
 function TaskRow({ task }: { task: Task }) {
-    const { colorScheme } = useColorScheme();
-    const scheme = colorScheme === "dark" ? "dark" : "light";
+    const { colors } = useAppTheme();
     const { status } = task;
 
     return (
@@ -202,7 +200,7 @@ function TaskRow({ task }: { task: Task }) {
                     <Ionicons
                         name="hourglass"
                         size={ICON_SIZE}
-                        color={NAV_THEME[scheme].colors.text}
+                        color={colors.foreground}
                     />
                 ) : (
                     <Ionicons
@@ -214,8 +212,8 @@ function TaskRow({ task }: { task: Task }) {
                         size={ICON_SIZE}
                         color={
                             status === "success"
-                                ? THEME[scheme].success
-                                : THEME[scheme].destructive
+                                ? colors.success
+                                : colors.destructive
                         }
                     />
                 )}

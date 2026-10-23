@@ -22,6 +22,13 @@ type AppleMusicContextType = {
     /** Non-secret cache namespace that changes whenever MusicKit auth changes. */
     sessionRevision: number;
     /**
+     * Bumped by `refreshLibrary()`. Library reads revalidate in place when it
+     * changes, keeping the pages they have. Not part of any cache key.
+     */
+    libraryRevision: number;
+    /** Refetches every mounted library read in place. */
+    refreshLibrary: () => void;
+    /**
      * Apple rejected the stored music-user token, so reads keep failing until
      * the user reconnects. Distinct from `!isConnected`, which also covers
      * never having connected at all.
@@ -76,7 +83,12 @@ export function AppleMusicProvider({ children }: { children: ReactNode }) {
     const [authResult, setAuthResult] = useState<AuthResult | null>(null);
     const [isInitializing, setIsInitializing] = useState(true);
     const [sessionRevision, setSessionRevision] = useState(0);
+    const [libraryRevision, setLibraryRevision] = useState(0);
     const [sessionExpired, setSessionExpired] = useState(false);
+
+    const refreshLibrary = useCallback(() => {
+        setLibraryRevision((revision) => revision + 1);
+    }, []);
 
     const hasUserToken = Boolean(authResult?.userToken);
     const isConnected =
@@ -226,6 +238,8 @@ export function AppleMusicProvider({ children }: { children: ReactNode }) {
                 isConnected,
                 hasUserToken,
                 sessionRevision,
+                libraryRevision,
+                refreshLibrary,
                 sessionExpired,
                 ensureConnected,
                 connect,

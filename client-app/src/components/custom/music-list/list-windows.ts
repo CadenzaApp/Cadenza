@@ -1,5 +1,7 @@
 import type { MusicItem } from "@apple-musickit";
 
+import { withoutExplicit } from "../../../lib/explicit-filter.ts";
+
 import type { MusicListSection } from "./types";
 
 /** How many of an open group's songs show at first, and how many more each time. */
@@ -36,10 +38,13 @@ export type MusicListRowItem =
  * A grouped list's rows: each header, then the first `limitOf(key)` songs of
  * an open group. A group of a thousand songs stays as cheap to open, close and
  * scroll past as one of fifty; it shows more as the user scrolls through it.
+ * With `hideExplicit`, a group leaves out the songs Apple rates explicit, the
+ * same as a flat list does.
  */
 export function sectionRows(
     sections: readonly MusicListSection[],
     limitOf: (key: string) => number,
+    hideExplicit = false,
 ): MusicListRowItem[] {
     const rows: MusicListRowItem[] = [];
     for (const section of sections) {
@@ -49,12 +54,13 @@ export function sectionRows(
             rows.push({ type: "loading", section });
             continue;
         }
-        const shown = Math.min(section.tracks.length, limitOf(section.key));
+        const tracks = withoutExplicit(section.tracks, hideExplicit);
+        const shown = Math.min(tracks.length, limitOf(section.key));
         for (let index = 0; index < shown; index++) {
             // keyed by group too: one song can be in two groups under two ids
             rows.push({
                 type: "track",
-                track: section.tracks[index],
+                track: tracks[index],
                 sectionKey: section.key,
                 indexInSection: index,
             });

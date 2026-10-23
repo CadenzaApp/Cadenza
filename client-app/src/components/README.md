@@ -23,7 +23,7 @@ and a backend rejection is a bare `{ error_type }`. The cause still reaches the 
 ### ui/
 
 `badge`, `button`, `card`, `dialog`, `glass-surface`, `glass-button`, `glass-confirm-dialog`,
-`glass-icon-button`, `glass-toggle`, `input`,
+`glass-icon-button`, `glass-panel`, `glass-pill`, `glass-toggle`, `segmented-control`, `input`,
 `label`, `separator`, `skeleton`, `tabs`, `text`, `native-only-animated-view`, `detail-screen`,
 `tint-backdrop`, `nebula-backdrop`, `crossfade`, `floating-close-button`, `dialog-close-button`,
 `pressed-fill`, plus `sign-in-form` and `sign-up-form`.
@@ -43,6 +43,9 @@ fill instead. A container whose glass is a sibling under its content (like `Anal
 that content in `GlassLayer`.
 
 `glass-button.tsx` and `glass-confirm-dialog.tsx` provide regular and destructive glass actions.
+`glass-pill.tsx` is a small rounded glass button with an optional icon, spinner, and chevron.
+`glass-panel.tsx` is a rounded glass card whose children count as on glass. `segmented-control.tsx`
+is a row of equal options on one. `ionicon-name.ts` is the shared `IoniconName` type.
 Destructive actions keep neutral glass and use red foreground content. The confirmation is used
 by both Account sign-out flows.
 
@@ -111,7 +114,7 @@ are not a tab. A pushed one wraps its body in `ZoomDismissScreen`, so it minimiz
 a sheet does not, since it already has a native dismiss. `/artist/:id` and `/collection/:kind/:id` opt out: both draw a hero of their own
 and float their own X. It draws the title, an optional
 `headerRight`, and the X, then renders its children in a clipped flex body below them. One
-`presentation` prop (`"screen"` by default, `"sheet"` for `/account`, `/appearance`, and
+`presentation` prop (`"screen"` by default, `"sheet"` for the settings sheets and
 `/player`) decides the top inset and whether the body counts the bottom bars. The caller keeps
 its own scrolling and bottom inset, and owes the body a definite
 height (`flex-1` on the scrolling child), because a content-sized list in a sheet grows past
@@ -139,7 +142,8 @@ variables), `tailwind.config.js`, and `global.css`. Class merging goes through
 | `tag-selector/`             | Reusable glass selector and its single-song and bulk popups. The primary heading defaults to Your Tags but can be retitled for an action. Its tags toggle solid/outline chosen state, paginate by 20, scroll inside a box of about six rows unless `scrollableGrid` is false (the song's Tags page and popup, which scroll as one page), and switch between relevance and alphabetical order from the small funnel control. When creation is enabled, its compact + control sits beside the funnel. A selector for one song adds a separate Suggested card, while selectors for several songs omit it. Callers may include right-aligned liquid-glass footer actions. Its pure sorter supports stable single-song and multi-song priority rules. |
 | `create-tag-dialog.tsx`     | Creates a tag with its name, color, and optional attribute type on the reliable glass `ModalPopup` path.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `edit-tag-dialog.tsx`       | Renames or recolors an existing tag from the tag detail collection.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `tag-color-picker.tsx`      | Shared curated palette used by tag creation and recoloring. Chromatic swatches are sorted by hue, with brown and gray at the end.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `tag-color-picker.tsx`      | Tag color grid for creating and recoloring a tag: a `SwatchGrid` of 5 columns, the curated palette then custom slots and a +. Slots save to the account as `tag_color_swatches`. A tag keeps its color if that color is later removed.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `color-picker/`             | `ColorWheel` (hue and saturation wheel plus a brightness slider, in HSV), `ColorPickerModal` (the wheel, a hex field, Remove, Cancel, Done), and `SwatchGrid` (rows of circles, an optional fixed first color, editable slots, + in the last cell; hold to change or remove). Used by Appearance and tag colors.                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `tag-value-dialog.tsx`      | Liquid-glass per-type editor opened when an attribute tag is applied or edited.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `option-picker.tsx`         | Liquid-glass popup list with optional sections and search, sized for a long list. Picks fields, operators and values in the advanced query builder, and what a song list sorts and groups by.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `modal-popup.tsx`           | Small popup used by options, sorting, and selection actions. Liquid glass is the default.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
@@ -351,9 +355,11 @@ caches to warm artist details, portrait color, and artwork while the menu is ope
   It will render nothing if you host a screen outside that tree.
 - Native tabs inset scroll content themselves. App-owned floating actions and compatibility
   surfaces use `@/lib/screen-overlay::useScreenOverlayInsets` for extra clearance.
-- Theme colors come from the nav theme (`@/lib/theme::NAV_THEME`) in some places and tailwind
-  tokens (`bg-background`, `text-foreground`) in others. They are configured separately and can
-  drift.
+- Every theme color comes from `@/lib/theme/tokens.ts`. Classes (`bg-card`, `text-brand`) read it
+  as CSS variables, JS through `useAppTheme().colors`. `brand` is the user's accent; `accent` is
+  shadcn's neutral pressed color. A new color goes in `tokens.ts`. If a class needs it, also add it
+  to `CSS_TOKENS`, `global.css` (checked by `tokens.test.ts`) and `tailwind.config.js` (not
+  checked).
 - Never put a `className` and a `style={({ pressed }) => ...}` function on the same `Pressable`.
   Nativewind folds the class into `style`, `Pressable` then sees an array rather than a
   function, and it stops tracking the pressed state, so the feedback silently dies. Use

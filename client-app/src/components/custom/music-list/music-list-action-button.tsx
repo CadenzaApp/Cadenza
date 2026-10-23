@@ -1,10 +1,9 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { ActivityIndicator } from "react-native";
-import { useColorScheme } from "nativewind";
 
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
-import { THEME } from "@/lib/theme";
+import { useAppTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 
 import type { MusicListAction } from "./types";
@@ -33,8 +32,7 @@ export function MusicListActionButton<T>({
     toolbar = false,
     className,
 }: MusicListActionButtonProps<T>) {
-    const { colorScheme } = useColorScheme();
-    const palette = THEME[colorScheme === "dark" ? "dark" : "light"];
+    const { colors: palette } = useAppTheme();
     const labelColor = palette[action.labelColor ?? "popoverForeground"];
     const iconColor =
         palette[action.iconColor ?? action.labelColor ?? "popoverForeground"];
