@@ -10,17 +10,10 @@ export const SONG_INIT_PAGE_SIZE = 100;
  */
 export const SONG_SYNC_BATCH_SIZE = 200;
 
-/**
- * Playlists read at once. Apple Music is the bottleneck rather than the
- * device, and an unbounded fan out over a large library invites rate limiting.
- */
-export const PLAYLIST_CONCURRENCY = 6;
-
 /** The parts of a MusicKit `MusicItem` the job reads. */
 export type SongInitItem = {
     id: string;
     catalogId?: string;
-    libraryId?: string;
 };
 
 /** One page of a paged MusicKit read. `LibraryResult` fits it. */
@@ -52,7 +45,7 @@ export type InitializedSongsStore = {
     markSeen: (songIds: string[], timestamp: number) => Promise<string[]>;
     /**
      * Ids still stamped older than `before`, meaning this run did not find them
-     * in Apple Music. Only meaningful after a walk that covered every source.
+     * in Apple Music. Only meaningful after a walk that read the whole library.
      */
     getStaleSongIds: (before: number) => Promise<string[]>;
     /**
@@ -69,11 +62,6 @@ export type InitializedSongsStore = {
 /** What the job reads from and writes to. `song-init.tsx` wires in MusicKit and the backend. */
 export type SongSyncDeps = {
     getLibrarySongs: (options: PageOptions) => Promise<SongInitPage>;
-    getUserPlaylists: (options: PageOptions) => Promise<SongInitPage>;
-    getPlaylistSongs: (
-        playlistId: string,
-        options: PageOptions,
-    ) => Promise<SongInitPage>;
     store: InitializedSongsStore;
     /** `PATCH /songs`. */
     editUserSongs: (payload: EditUserSongsPayload) => Promise<unknown>;
@@ -87,8 +75,8 @@ export type SongSyncResult = {
     added: number;
     removed: number;
     /**
-     * False when a source failed to read, so the walk did not see the whole
-     * library. The delete sweep is skipped in that case.
+     * False when the library failed to read, so the walk did not see all of
+     * it. The delete sweep is skipped in that case.
      */
     complete: boolean;
 };
@@ -114,7 +102,7 @@ export async function syncLibrary(deps: SongSyncDeps): Promise<SongSyncResult> {
         return { added: 0, removed: 0, complete: false };
     }
 
-    // a walk that missed a source cannot tell a deleted song from an unread
+    // a walk that stopped early cannot tell a deleted song from an unread
     // one, and acting on that would strip the library down to what it did read
     const songIdsToRemove = complete
         ? await deps.store.getStaleSongIds(startedAt)
@@ -131,36 +119,20 @@ export async function syncLibrary(deps: SongSyncDeps): Promise<SongSyncResult> {
 }
 
 /**
- * Walks the library and every library playlist at once, stamping songs the
- * store already holds and collecting the rest. A source that fails to read is
- * logged and skipped, and makes the walk incomplete.
+ * Walks the library songs, stamping songs the store already holds and
+ * collecting the rest. A failed read is logged and makes the walk incomplete.
+ *
+ * Playlists are not walked. A song only in a playlist is not in the library,
+ * and `user_songs` is the library: In My Library and the Library tab's sorted
+ * list both read it.
  */
 async function findSongsToAdd(deps: SongSyncDeps, startedAt: number) {
     const songIdsToAdd: string[] = [];
     const seen = new Set<string>();
-    let complete = true;
-
-    // markSeen reads and then writes inside one transaction on a single shared
-    // connection, so concurrent walks have to queue behind each other
-    let storeWrites: Promise<unknown> = Promise.resolve();
-    const serialized = <T>(work: () => Promise<T>): Promise<T> => {
-        const previous = storeWrites;
-        const queued = (async () => {
-            try {
-                await previous;
-            } catch {
-                // that write's own caller reports it; this one still runs
-            }
-            return work();
-        })();
-        storeWrites = queued;
-        return queued;
-    };
 
     const onPage = async (songs: SongInitItem[]) => {
         // tags key on the catalog id when there is one, same as everywhere
-        // else. a song an earlier page already had is skipped. the loop holds
-        // no await, so two concurrent pages cannot both claim the same song
+        // else. a song an earlier page already had is skipped
         const unseen: string[] = [];
         for (const song of songs) {
             const songId = song.catalogId ?? song.id;
@@ -170,65 +142,26 @@ async function findSongsToAdd(deps: SongSyncDeps, startedAt: number) {
         }
         if (unseen.length === 0 || deps.isCancelled()) return 0;
 
-        const newSongIds = await serialized(() =>
-            deps.store.markSeen(unseen, startedAt),
-        );
+        const newSongIds = await deps.store.markSeen(unseen, startedAt);
         songIdsToAdd.push(...newSongIds);
         return newSongIds.length;
     };
 
-    const trySource = async (source: string, walk: () => Promise<void>) => {
-        try {
-            await walk();
-        } catch (error) {
-            complete = false;
-            console.error(
-                `${LOG_TAG} reading ${source} from Apple Music failed:`,
-                error,
-            );
-        }
-    };
-
-    const walkLibrary = () =>
-        trySource("library songs", () =>
-            forEachPage(
-                "library songs",
-                deps.getLibrarySongs,
-                onPage,
-                deps.isCancelled,
-            ),
+    let complete = true;
+    try {
+        await forEachPage(
+            "library songs",
+            deps.getLibrarySongs,
+            onPage,
+            deps.isCancelled,
         );
-
-    // playlists can hold songs that are not in the library. the index is read
-    // in full before any of it is walked, so the fan out below knows its width
-    const walkPlaylists = () =>
-        trySource("playlists", async () => {
-            const playlistIds: string[] = [];
-            await forEachPage(
-                "playlists",
-                deps.getUserPlaylists,
-                async (playlists) => {
-                    for (const playlist of playlists) {
-                        // playlists are addressed by their library id
-                        playlistIds.push(playlist.libraryId ?? playlist.id);
-                    }
-                },
-                deps.isCancelled,
-            );
-
-            await inPool(playlistIds, PLAYLIST_CONCURRENCY, (playlistId) =>
-                trySource(`playlist ${playlistId}`, () =>
-                    forEachPage(
-                        `playlist ${playlistId}`,
-                        (options) => deps.getPlaylistSongs(playlistId, options),
-                        onPage,
-                        deps.isCancelled,
-                    ),
-                ),
-            );
-        });
-
-    await Promise.all([walkLibrary(), walkPlaylists()]);
+    } catch (error) {
+        complete = false;
+        console.error(
+            `${LOG_TAG} reading library songs from Apple Music failed:`,
+            error,
+        );
+    }
 
     // a cancelled walk stopped early, so it says nothing about what is gone
     if (deps.isCancelled()) complete = false;
@@ -306,37 +239,14 @@ function* batched(songIds: readonly string[]) {
 }
 
 /**
- * Runs `work` over `items`, at most `limit` of them at a time. Each runner
- * takes the next index synchronously, so no item is handed out twice.
- */
-async function inPool<T>(
-    items: readonly T[],
-    limit: number,
-    work: (item: T) => Promise<void>,
-) {
-    let next = 0;
-    const runners = Array.from(
-        { length: Math.min(limit, items.length) },
-        async () => {
-            while (next < items.length) {
-                await work(items[next++]);
-            }
-        },
-    );
-    await Promise.all(runners);
-}
-
-/**
  * Reads a paged MusicKit source until it runs out or the job is cancelled, and
- * logs a line per page under `source`.
- *
- * `onPage` may return how many of the page's songs were new, which the line
- * reports. The playlist index has no such count, so its lines leave it out.
+ * logs a line per page under `source`. `onPage` returns how many of the
+ * page's songs were new, which the line reports.
  */
 async function forEachPage(
     source: string,
     readPage: (options: PageOptions) => Promise<SongInitPage>,
-    onPage: (items: SongInitItem[]) => Promise<number | void>,
+    onPage: (items: SongInitItem[]) => Promise<number>,
     isCancelled: () => boolean,
 ) {
     let offset: number | undefined = 0;
@@ -351,8 +261,7 @@ async function forEachPage(
 
         console.log(
             `${LOG_TAG} ${source} page at offset ${pageOffset}: ` +
-                `${page.items.length} items` +
-                (typeof newCount === "number" ? `, ${newCount} new` : "") +
+                `${page.items.length} items, ${newCount} new` +
                 (page.hasNextPage ? "" : ", last page"),
         );
 

@@ -510,9 +510,8 @@ remaining distance. A short pull still springs back to full size.
   legacy unscoped entry discards the stored user token before it can be restored. This matters
   on iOS because Keychain entries may survive deleting and reinstalling the app. `isConnected`
   means authorized **and** holding a user token. `ensureConnected()` before any playback call.
-- `SongInitProvider` runs after account and Apple Music authorization. It walks the library and
-  library playlists and syncs what it finds into the backend's `user_songs`, which is what
-  queries run over. One run at a time, tied to its account and Apple Music session: `syncNow`
+- `SongInitProvider` runs after account and Apple Music authorization. It walks the library songs
+  and syncs them into the backend's `user_songs`, which is what queries run over. One run at a time, tied to its account and Apple Music session: `syncNow`
   joins a matching run, and a run for an old account or session is cancelled. After a manual sync,
   `refreshLibrary()` revalidates mounted library reads in place (same keys, pages kept). It no
   longer generates default tags: the backend does that lazily, the first time something reads a
@@ -549,9 +548,9 @@ to follow Apple Music. `song-init-job.ts::syncLibrary` is what moves it, and
 One run:
 
 1. Take the current timestamp. Everything below is stamped with it.
-2. Page through library songs and every library playlist, keyed by `catalogId ?? id`, the
-   same id tags and queries use. The library walk and the playlist walk run at the same time,
-   and the playlists themselves run `PLAYLIST_CONCURRENCY` at a time. A song already in
+2. Page through library songs, keyed by `catalogId ?? id`, the same id tags and queries use.
+   Playlists are not walked: a song only in a playlist is not in the library, and In My
+   Library and the Library tab's sorted list both read `user_songs` as the library. A song already in
    `initialized_songs` has its `initialized_at` moved up to the run's timestamp. A song that is
    not in there has never been sent, so it is an add.
 3. Anything still stamped older than the run is a song Apple Music no longer has, so it is a
@@ -559,12 +558,6 @@ One run:
 4. Send both through `PATCH /songs`, at most 200 songs a request, removes first. After each
    request the adds are written into `initialized_songs` and the removes are deleted from it.
 5. Invalidate `/queries/results` once, at the end, if anything actually changed.
-
-The parallel walks share one seen set and one store. Deduplication is safe because that set is
-read and written with no await in between, so two pages cannot both claim the same song. Store
-writes are not: `markSeen` reads and then writes inside one transaction on a single SQLite
-connection, so each call is queued behind the last. The parallelism is in the Apple Music reads
-only, which is where the run actually spends its time.
 
 `initialized_songs` is `(user_id, song_id, initialized_at)`, keyed on `(user_id, song_id)`, with
 an index on `song_id` and one on `(user_id, initialized_at)` for the stale scan.
