@@ -17,6 +17,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { DialogCloseButton } from "@/components/ui/dialog-close-button";
 import { Text } from "@/components/ui/text";
 import { tagMutationErrorMessage, useCreateTag } from "@/lib/routes/tags";
 import {
@@ -149,15 +150,10 @@ export function CreateTagDialog({
                 gap: 14,
             }}
         >
-            <Pressable
+            <DialogCloseButton
                 onPress={() => setOpen(false)}
-                hitSlop={12}
-                className="absolute right-4 top-4 z-10 rounded opacity-70 active:opacity-100"
-                accessibilityRole="button"
                 accessibilityLabel="Close create tag dialog"
-            >
-                <Ionicons name="close" size={18} color={colors.text} />
-            </Pressable>
+            />
             <View className="gap-2 pr-6">
                 <Text className="text-lg font-semibold leading-none">
                     Create New Tag

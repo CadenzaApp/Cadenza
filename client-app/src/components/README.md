@@ -25,7 +25,8 @@ and a backend rejection is a bare `{ error_type }`. The cause still reaches the 
 `badge`, `button`, `card`, `dialog`, `glass-surface`, `glass-button`, `glass-confirm-dialog`,
 `glass-icon-button`, `glass-toggle`, `input`,
 `label`, `separator`, `skeleton`, `tabs`, `text`, `native-only-animated-view`, `detail-screen`,
-`tint-backdrop`, `nebula-backdrop`, `crossfade`, `floating-close-button`, plus `sign-in-form` and `sign-up-form`.
+`tint-backdrop`, `nebula-backdrop`, `crossfade`, `floating-close-button`, `dialog-close-button`,
+`pressed-fill`, plus `sign-in-form` and `sign-up-form`.
 
 `floating-close-button.tsx` exports `FloatingCloseButton`, the X a screen that draws its own hero
 floats in the top right. It closes through `@/lib/zoom-dismiss::useCloseScreen`, so it plays the
@@ -54,6 +55,12 @@ behavior in this primitive rather than rebuilding a glass modal at each call sit
 detail-screen controls, and every floating circular action use it. Reach for it rather than
 hand-rolling another circle of glass. Close controls use `bordered={false}`; `surfaceScheme`
 selects the material appearance independently of the app theme.
+
+Pressed, `GlassButton` and `GlassIconButton` shrink a little and lay a shade over the glass
+(`usePressedFill`, dark on light glass and light on dark) until the finger lifts. Opacity alone
+barely shows, because native glass does not fade with a faded parent. `dialog-close-button.tsx`
+exports `DialogCloseButton`, the X in a popup's top right corner, which fills a circle behind
+itself while pressed; the popups built on `ModalPopup` use it.
 
 `glass-toggle.tsx` exports `GlassToggle`, the on/off switch. The track is glass and tints with the
 nav theme's notification color while on. Account settings and the query builder both use it.

@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ModalPopup } from "@/components/custom/modal-popup";
 import { Button } from "@/components/ui/button";
+import { DialogCloseButton } from "@/components/ui/dialog-close-button";
 import { Text } from "@/components/ui/text";
 import { useAppleMusic } from "@/lib/apple-music-auth";
 import {
@@ -167,19 +168,14 @@ export function CreatePostDialog({
                 marginTop: insets.top + 12,
             }}
         >
-            <Pressable
+            <DialogCloseButton
                 onPress={() => setOpen(false)}
-                hitSlop={12}
-                className="absolute right-4 top-4 z-10 rounded opacity-70 active:opacity-100"
-                accessibilityRole="button"
                 accessibilityLabel={
                     title === "New post"
                         ? "Close create post dialog"
                         : `Close ${title.toLowerCase()} dialog`
                 }
-            >
-                <Ionicons name="close" size={18} color={colors.text} />
-            </Pressable>
+            />
 
             <View className="mb-4 pr-6">
                 <Text className="text-lg font-semibold leading-none">

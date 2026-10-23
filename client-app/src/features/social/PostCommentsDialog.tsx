@@ -1,5 +1,4 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useTheme } from "expo-router/react-navigation";
 import { useColorScheme } from "nativewind";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -13,6 +12,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ModalPopup } from "@/components/custom/modal-popup";
+import { DialogCloseButton } from "@/components/ui/dialog-close-button";
 import { Text } from "@/components/ui/text";
 import { pinComments } from "@/lib/post-comment";
 import { THEME } from "@/lib/theme";
@@ -64,7 +64,6 @@ export function PostCommentsDialog({
     onAuthorPress,
     onCommentCreated,
 }: Props) {
-    const { colors } = useTheme();
     const { colorScheme = "light" } = useColorScheme();
     const sendColor =
         THEME[colorScheme === "dark" ? "dark" : "light"].primaryForeground;
@@ -158,15 +157,10 @@ export function PostCommentsDialog({
                 marginTop: insets.top + 12,
             }}
         >
-            <Pressable
+            <DialogCloseButton
                 onPress={close}
-                hitSlop={12}
-                className="absolute right-4 top-4 z-10 rounded opacity-70 active:opacity-100"
-                accessibilityRole="button"
                 accessibilityLabel="Close comments"
-            >
-                <Ionicons name="close" size={18} color={colors.text} />
-            </Pressable>
+            />
 
             <ScrollView
                 keyboardShouldPersistTaps="handled"
