@@ -9,4 +9,5 @@ pub mod settings;
 pub mod social;
 pub mod tag_activity;
 pub mod tags;
+pub mod user_data;
 pub mod user_songs;
