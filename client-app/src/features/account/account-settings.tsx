@@ -25,6 +25,7 @@ import {
     StatusDot,
     type IoniconName,
 } from "./settings-ui";
+import { Line } from "react-native-svg";
 
 const THEME_MODE_LABEL: Record<ThemeMode, string> = {
     system: "System",
@@ -114,8 +115,9 @@ export function AccountSettingsScreen() {
                     onPress={() => router.push("/appearance" as Href)}
                 />
             </View>
-
+            
             <SettingsGroup>
+            
                 <SettingsRow
                     icon="shield-checkmark-outline"
                     title="Privacy & data"
@@ -129,7 +131,7 @@ export function AccountSettingsScreen() {
                     chevron
                     onPress={() => router.push("/apple-music-limits" as Href)}
                 />
-            </SettingsGroup>
+            </SettingsGroup>          
         </SettingsSheet>
     );
 }

@@ -107,7 +107,7 @@ export function YourDataScreen() {
                 <GlassConfirmDialog
                     open={confirmOpen}
                     title="Delete your Cadenza account?"
-                    description="This permanently removes your profile, tags, listening history, settings, and posts from Cadenza. It cannot be undone. Your Apple Music library is not touched.\n\nThis button is not wired up yet. Nothing is deleted."
+                    description="This permanently removes your profile, tags, listening history, settings, and posts from Cadenza. It cannot be undone. Your Apple Music library is not touched."
                     confirmLabel="Delete"
                     pendingLabel="Deleting..."
                     onOpenChange={setConfirmOpen}

@@ -28,7 +28,7 @@ export function PrivacySettingsScreen() {
         {
             icon: "trash-outline",
             title: "See or delete it any time",
-            body: "Account details > Your data lists everything Cadenza keeps about you, and lets you delete all of it.",
+            body: "All personal data collected is listed at:\nAccount details > Your data\nView or delete all your data from there.",
             onPress: () => router.push("/your-data" as Href),
         },
     ];

@@ -132,8 +132,8 @@ export function AppearanceSettingsScreen() {
             </SettingsSection>
 
             <SettingsSection
-                title="Glass"
-                footnote="Tinted makes glass more opaque, for more contrast. The same choice as Liquid Glass in iOS Settings, which Cadenza cannot read."
+                title="Glass Options"
+                footnote="Clear is more transparent and tinted increases opacity, adding contrast to content and controls."
             >
                 <SegmentedControl
                     options={GLASS_STYLES}
