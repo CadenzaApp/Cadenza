@@ -1,8 +1,9 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Keyboard, Platform, Pressable, StyleSheet, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
+    Easing,
     FadeIn,
     FadeOut,
     runOnJS,
@@ -13,6 +14,8 @@ import Animated, {
     useAnimatedStyle,
     useSharedValue,
     useDerivedValue,
+    useReducedMotion,
+    withTiming,
     type SharedValue,
 } from "react-native-reanimated";
 
@@ -38,6 +41,9 @@ import {
     TAG_PALETTE_MIN_HEIGHT,
     TAG_PALETTE_MAX_HEIGHT,
 } from "./palette-geometry";
+
+/** How long the palette takes to settle on a new height it did not drag to. */
+const HEIGHT_ANIMATION_MS = 250;
 
 export function TagPalette({
     tags,
@@ -145,9 +151,17 @@ export function TagPalette({
         showAdvancedTags,
         showMetadataTags,
     ]);
+    const reducedMotion = useReducedMotion();
+    // A drag already moved the visible height there, so this only animates
+    // the jumps: search raising it, the heading tap, and the default height.
     useEffect(() => {
-        paletteHeight.set(height);
-    }, [height, paletteHeight]);
+        paletteHeight.set(
+            withTiming(height, {
+                duration: reducedMotion ? 0 : HEIGHT_ANIMATION_MS,
+                easing: Easing.out(Easing.cubic),
+            }),
+        );
+    }, [height, paletteHeight, reducedMotion]);
     useEffect(() => {
         if (height < minimumHeight) onHeightChange(minimumHeight);
     }, [height, minimumHeight, onHeightChange]);
@@ -158,6 +172,7 @@ export function TagPalette({
             scrollOffset.set(0);
         })();
     }, [collapsed, scrollRef, scrollOffset]);
+    const raiseForSearch = useRaiseWhileKeyboardUp(height, onHeightChange);
     const commitHeight = useCallback(
         (nextHeight: number) => onHeightChange(nextHeight),
         [onHeightChange],
@@ -284,10 +299,8 @@ export function TagPalette({
                                 {!pendingTag ? (
                                     <PaletteSearchField
                                         value={search}
-                                        onChangeText={(value) => {
-                                            setSearch(value);
-                                            if (collapsed) onHeightChange(300);
-                                        }}
+                                        onChangeText={setSearch}
+                                        onFocus={raiseForSearch}
                                         accessibilityLabel="Search tags"
                                     />
                                 ) : null}
@@ -394,30 +407,81 @@ export function TagPalette({
     );
 }
 
+/**
+ * Returns a callback that raises the palette to its full height, so the
+ * keyboard does not cover the tags. When the keyboard hides, the palette drops
+ * back to the height it had before, unless the user resized it in between.
+ */
+function useRaiseWhileKeyboardUp(
+    height: number,
+    onHeightChange: (height: number) => void,
+) {
+    // the height to return to, set only while raised
+    const restoreHeight = useRef<number | null>(null);
+    const latestHeight = useRef(height);
+    useEffect(() => {
+        latestHeight.current = height;
+    }, [height]);
+
+    useEffect(() => {
+        const hidden = Keyboard.addListener(
+            Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide",
+            () => {
+                const restore = restoreHeight.current;
+                restoreHeight.current = null;
+                if (
+                    restore !== null &&
+                    latestHeight.current === TAG_PALETTE_MAX_HEIGHT
+                ) {
+                    onHeightChange(restore);
+                }
+            },
+        );
+        return () => hidden.remove();
+    }, [onHeightChange]);
+
+    return useCallback(() => {
+        if (restoreHeight.current !== null) return;
+        if (latestHeight.current >= TAG_PALETTE_MAX_HEIGHT) return;
+        restoreHeight.current = latestHeight.current;
+        onHeightChange(TAG_PALETTE_MAX_HEIGHT);
+    }, [onHeightChange]);
+}
+
 /** An outlined search field above the palette's glass surface. */
 function PaletteSearchField({
     value,
     onChangeText,
+    onFocus,
     accessibilityLabel,
 }: {
     value: string;
     onChangeText: (value: string) => void;
+    onFocus: () => void;
     accessibilityLabel: string;
 }) {
     const { colors } = useAppTheme();
     return (
-        <View className="relative h-9 flex-1 overflow-hidden rounded-full">
+        <View className="relative h-9 flex-1 justify-center overflow-hidden rounded-full">
             <Input
                 value={value}
                 onChangeText={onChangeText}
+                onFocus={onFocus}
                 placeholder="Search"
                 placeholderTextColor={colors.mutedForeground}
                 accessibilityLabel={accessibilityLabel}
-                className="h-9 rounded-full border-input bg-transparent pl-4 text-sm font-semibold shadow-none"
+                className="h-9 rounded-full border-input bg-transparent pl-9 text-sm font-semibold shadow-none"
                 style={{ backgroundColor: "transparent" }}
                 autoCapitalize="none"
                 autoCorrect={false}
             />
+            <View pointerEvents="none" className="absolute left-3">
+                <Ionicons
+                    name="search"
+                    size={16}
+                    color={colors.mutedForeground}
+                />
+            </View>
         </View>
     );
 }

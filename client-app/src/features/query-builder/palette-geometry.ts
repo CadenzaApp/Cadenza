@@ -1,5 +1,7 @@
 export const TAG_PALETTE_MIN_HEIGHT = 64;
 export const TAG_PALETTE_MAX_HEIGHT = 450;
+/** Room kept between the last condition and the top of the palette. */
+export const PALETTE_CLEARANCE = 64;
 
 /** The sheet stays laid out at full height; only this translation changes. */
 export function paletteTranslation(
