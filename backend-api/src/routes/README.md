@@ -61,7 +61,7 @@ Every route below requires `Authorization: Bearer <supabase jwt>`.
 | GET    | `/analytics/top-tags`        | `?since=&until=&limit=`                                                                         | `{entries: [{id, name, color, type, plays, sample_song_id}]}`, the user's own tags by plays of the songs carrying them. `sample_song_id` is the tag's most played song in the window, for a cover. Activity tags are left out                                                                                                                                                                                                                                         |
 | GET    | `/analytics/heatmap`         | `?bucket=hour\|two_hour\|day\|week\|month\|year&since=&until=&tz=`                              | `{bucket, cells: [{start, plays, tag_id}], tags: [{id, name, color}]}`. Sparse: only buckets with a play. `two_hour` starts on even local hours and prints like an hour. `tag_id` is the tag played most in that bucket, ties to the name, null when nothing played carried one. `tags` lists each named tag once. `bucket` defaults to `day`, and the window is checked against the bucket cap like a trend                                                          |
 | GET    | `/analytics/tag-shares`      | `?since=&until=`                                                                                | `{total_ms, tagged_ms, tags: [{id, name, color, type, listening_ms}]}`. `total_ms` is the window's listening time, the summary's `listening_ms`. `tagged_ms` is the part on songs with any of the tags, each listen once. Each tag's `listening_ms` is the time on songs carrying it, every listen counted in full toward every tag on its song, so tags can sum past the total. Most first, every tag with any time, the user's own only |
-| POST   | `/queries/results`           | `{query, consider_default_tags?, library_only?, sort?, group?, time_zone?}`                    | `{songs: [{song_id, certain}], capped, groups, missing_metadata}`, in order. `sort` and `group` are `{field: "tag", tag_id, direction}` or `{field: "metadata", key, direction}`, any tag the caller can see. Unarranged: the caller's own matches (`certain`) first and all of them, then the first 1000 of the rest. Sorted or grouped: the first 1000 in order, the caller's or not. `capped` is true when more matched. `groups` is `[{state: value\|no_value\|not_applied, value, count}]`, runs of `songs`, or null. `time_zone` (IANA, default UTC) is the zone a datetime group's days are in |
+| POST   | `/queries/results`           | `{query, consider_default_tags?, library_only?, sort?, group?, time_zone?}`                    | `{songs: [{song_id, certain, row?}], capped, groups, missing_metadata}`, in order. Sorted or grouped, `row` is the song's stored `{title, artist_name, album_name, album_id, duration_ms, artwork_url}`, absent for a song with no stored title. `sort` and `group` are `{field: "tag", tag_id, direction}` or `{field: "metadata", key, direction}`, any tag the caller can see. Unarranged: the caller's own matches (`certain`) first and all of them, then the first 1000 of the rest. Sorted or grouped: the first 1000 in order, the caller's or not. `capped` is true when more matched. `groups` is `[{state: value\|no_value\|not_applied, value, count}]`, runs of `songs`, or null. `time_zone` (IANA, default UTC) is the zone a datetime group's days are in |
 | POST   | `/queries/arrange`           | `{song_ids, sort?, group?, time_zone?}`                                                         | the same shape as `/queries/results`, for a list only the phone knows (a playlist, an album, a tag's songs). Every id once, all `certain`, never capped, and in the order given when unsorted. At most 20,000 ids |
 | POST   | `/songs/metadata/library`    | `{songs: [{song_id, title, artist_name?, album_name?, genre_names?, duration_ms?, release_date?, explicit?}]}` | `[song_id]`, the songs stored. What the phone's library knows about songs Apple's catalog has no entry for, so a sorted list can sort them. Only for a song the caller has, or a library id (`i.`), and never over what Apple's catalog said. At most 500 |
 | GET    | `/profile`                   | none                                                                                            | `{uid, username, bio}`, the signed-in user's profile. 404 if there is no row                                                                                                                                                                                                                                                                                                                                                                                          |
@@ -209,7 +209,8 @@ same read for a list of songs, and fills in an empty list for the songs
 `PATCH /songs` is the only writer of `user_songs`. It removes before it adds, so a song id sent
 in both lists ends up in the library, and adding a song already there or removing one already
 gone does nothing. It does not touch default tags, and a removal leaves the user's own tags on
-the song alone.
+the song alone. An added song with no stored metadata is stored on its own task, so a sorted list
+of the library rarely waits on Apple.
 
 Default tags are generated lazily, by the endpoints that read them. Both `GET /songs/default-tags`
 and `POST /songs/default-tags/batch` call `services::default_tags::ensure_default_tags_generated`
@@ -272,10 +273,11 @@ match is `certain` and `capped` is false.
 one of them, then the first 1000 of the rest, each most relevant first. With either, the whole
 result is sorted and grouped on the backend, so it is ordered at once rather than one loaded page at
 a time, and only the first 1000 songs in that order come back. A sorted or grouped request first
-stores the metadata of every one of the caller's songs that has none (see the Metadata tags
-section of [../services/README.md](../services/README.md)), so it can be slow the first time. It
-needs the `natural_sort` collation from `sql/query_sort.sql` and the `source` column from
-`sql/sort_group.sql`. See Sorting and grouping in [../db/README.md](../db/README.md) for the order
+stores the metadata of the caller's songs that have none (see the Metadata tags section of
+[../services/README.md](../services/README.md)), waiting only when that is a few hundred, and
+sends each song's stored row, so the phone draws the list without Apple. It
+needs the `natural_sort` collation from `sql/query_sort.sql` and the `source` and `artwork_url`
+columns from `sql/sort_group.sql`. See Sorting and grouping in [../db/README.md](../db/README.md) for the order
 each tag type sorts in.
 
 `/queries/arrange` takes the same `sort`, `group` and `time_zone` over a list of song ids, for the

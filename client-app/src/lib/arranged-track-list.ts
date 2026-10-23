@@ -45,11 +45,15 @@ type Options = {
 
 /**
  * A song list the backend sorts and groups, made into what `MusicList` draws:
- * a flat list that loads 50 songs at a time as it scrolls, or one header per
- * group. A grouped list loads every song once, top down in the background,
- * and keeps them, so opening or closing a group never reloads anything; the
- * group opened last goes to the front of the line. See `useArrangedSongs` for
- * the fetch and `useGroupedTrackLoader` for the groups.
+ * a flat list, or one header per group.
+ *
+ * A sorted or grouped query draws its rows from what the backend stores about
+ * each song (`rowTracks`), so every row shows as soon as the list comes back,
+ * without asking Apple. Only a song with no stored row, or a row stored
+ * before artwork was kept, is looked up, in the background, top down and the
+ * group opened last first (`useGroupedTrackLoader`), and kept, so opening or
+ * closing a group never reloads anything. An unsorted query loads 50 songs at
+ * a time from Apple as it scrolls. See `useArrangedSongs` for the fetch.
  *
  * `active` is false for a list of ids left unarranged, which the caller shows
  * in its own order.
@@ -69,6 +73,9 @@ export function useArrangedTrackList({
     }, [onRejected, rejected]);
     const grouped = arranged.sections !== null;
     const local = localTracks !== undefined;
+    // a sorted or grouped query: every row comes from the backend's stored rows
+    const fromRows = !local && isArranged(arrangement);
+    const { rowTracks } = arranged;
 
     // a list the phone holds needs nothing looked up
     const localTracksById = useMemo(
@@ -76,7 +83,7 @@ export function useArrangedTrackList({
         [localTracks],
     );
     const paged = usePagedTracksForSongIds(
-        local || grouped ? NO_IDS : arranged.songIds,
+        local || fromRows ? NO_IDS : arranged.songIds,
         !local,
     );
 
@@ -125,13 +132,17 @@ export function useArrangedTrackList({
         [firstKey, groupingKey],
     );
 
-    // every group's songs, loaded once in group order from the one opened last
+    // every song, walked once in group order from the group opened last, to
+    // warm its tags and look up the few with no stored row or artwork. a flat
+    // list is one group
     const groupIds = useMemo(
         () =>
-            arranged.sections && !local
-                ? arranged.sections.map((section) => section.songIds)
-                : null,
-        [arranged.sections, local],
+            !fromRows
+                ? null
+                : arranged.sections
+                  ? arranged.sections.map((section) => section.songIds)
+                  : [arranged.songIds],
+        [arranged.sections, arranged.songIds, fromRows],
     );
     const startGroup = Math.max(
         0,
@@ -141,19 +152,37 @@ export function useArrangedTrackList({
     );
     const warmRowTags = useWarmRowTags();
     const afterChunk = useCallback(
-        (tracks: MusicItem[]) =>
-            warmRowTags(
-                tracks.map((track) => track.catalogId ?? track.id),
-                warmActivityTags,
-            ),
+        (songIds: string[]) => warmRowTags(songIds, warmActivityTags),
         [warmActivityTags, warmRowTags],
+    );
+    // a stored row with artwork is all a row needs
+    const known = useCallback(
+        (songId: string) => rowTracks.get(songId)?.artworkUrl !== undefined,
+        [rowTracks],
     );
     const loader = useGroupedTrackLoader({
         groups: groupIds,
         startGroup,
-        enabled: grouped && !local,
+        enabled: fromRows,
         afterChunk,
+        known,
     });
+    // the stored row, unless it has no artwork and the library or Apple has
+    // the song; then that, once it is in
+    const loaderTrackFor = loader.trackFor;
+    const loaderIsSettled = loader.isSettled;
+    const trackFor = useCallback(
+        (songId: string) => {
+            const row = rowTracks.get(songId);
+            if (row?.artworkUrl) return row;
+            return loaderTrackFor(songId) ?? row;
+        },
+        [loaderTrackFor, rowTracks],
+    );
+    const isSettled = useCallback(
+        (songId: string) => rowTracks.has(songId) || loaderIsSettled(songId),
+        [loaderIsSettled, rowTracks],
+    );
 
     const sections = useMemo<MusicListSection[] | null>(() => {
         if (!arranged.sections) return null;
@@ -181,8 +210,8 @@ export function useArrangedTrackList({
             }
             const { tracks, waiting } = groupTracks(
                 section.songIds,
-                loader.trackFor,
-                loader.isSettled,
+                trackFor,
+                isSettled,
                 (track) => track.id,
             );
             return {
@@ -195,13 +224,7 @@ export function useArrangedTrackList({
                 isLoading: waiting && tracks.length === 0,
             };
         });
-    }, [
-        arranged.sections,
-        loader.isSettled,
-        loader.trackFor,
-        localTracksById,
-        openKeys,
-    ]);
+    }, [arranged.sections, isSettled, localTracksById, openKeys, trackFor]);
     // the loader writes a few times a second while a list fills in, mostly
     // songs of groups that are closed. keep the groups as they were unless one
     // on show changed, so the list does not redraw for nothing
@@ -215,14 +238,31 @@ export function useArrangedTrackList({
         [onToggle, stableSections],
     );
 
-    // flat: the paged tracks, or a list the phone holds put in order
+    // flat: every stored row, a list the phone holds put in order, or the
+    // paged tracks of an unsorted query
     const flatTracks = useMemo(() => {
         if (grouped) return NO_TRACKS;
         if (localTracksById) {
             return tracksFor(arranged.songIds, localTracksById);
         }
+        if (fromRows) {
+            return groupTracks(
+                arranged.songIds,
+                trackFor,
+                isSettled,
+                (track) => track.id,
+            ).tracks;
+        }
         return paged.tracks;
-    }, [arranged.songIds, grouped, localTracksById, paged.tracks]);
+    }, [
+        arranged.songIds,
+        fromRows,
+        grouped,
+        isSettled,
+        localTracksById,
+        paged.tracks,
+        trackFor,
+    ]);
 
     /** A list the phone holds, every song in the arranged order. */
     const allLocalTracks = useMemo(
@@ -246,7 +286,7 @@ export function useArrangedTrackList({
 
     const pagination = useMemo<MusicListPagination | null>(
         () =>
-            grouped || local
+            grouped || local || fromRows
                 ? null
                 : {
                       hasNextPage: paged.hasNextPage,
@@ -254,6 +294,7 @@ export function useArrangedTrackList({
                       onLoadNextPage: paged.loadNextPage,
                   },
         [
+            fromRows,
             grouped,
             local,
             paged.hasNextPage,
@@ -268,7 +309,7 @@ export function useArrangedTrackList({
         songs: arranged.songs,
         songIds: arranged.songIds,
         capped: arranged.capped,
-        /** The flat list's tracks. Empty when grouped. */
+        /** The flat list's tracks, all of them when sorted. Empty when grouped. */
         tracks: flatTracks,
         shownTracks,
         /** For a list the phone holds: all its songs, arranged. */
@@ -276,14 +317,18 @@ export function useArrangedTrackList({
         sections: listSections,
         pagination,
         /** How many ids from the top the flat list has shown. */
-        loadedCount: local ? arranged.songIds.length : paged.loadedCount,
+        loadedCount: local
+            ? arranged.songIds.length
+            : fromRows
+              ? flatTracks.length
+              : paged.loadedCount,
         resolveTracks: paged.resolveTracks,
         loading:
             arranged.loading ||
-            (!grouped && !local && arranged.active && paged.tracksLoading),
+            (!fromRows && !local && arranged.active && paged.tracksLoading),
         error:
             arranged.error ??
-            (local ? undefined : (paged.tracksErr ?? loader.tracksErr)),
+            (local ? undefined : fromRows ? loader.tracksErr : paged.tracksErr),
     };
 }
 

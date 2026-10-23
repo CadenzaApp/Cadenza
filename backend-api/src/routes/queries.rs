@@ -2,7 +2,7 @@ use crate::db;
 use crate::db::queries::Arrangement;
 use crate::err::CadenzaError;
 use crate::routes::json::query::{Query, QueryGroup, QueryResults, QuerySort};
-use crate::services::metadata_tags::store_metadata_before_sorting;
+use crate::services::metadata_tags::{song_rows_for_list, store_metadata_before_sorting};
 use crate::services::song_metadata::SongMetadataService;
 use crate::{AppState, auth::SupabaseClaims};
 use axum::routing::post;
@@ -48,8 +48,13 @@ struct QueryResultsBody {
 /// `db::queries::MAX_ARRANGED_SONGS` songs in that order come back, the caller's or not.
 /// `capped` says when more matched.
 ///
-/// A sorted or grouped query first stores the metadata of every one of the caller's songs
-/// that has none, waiting for Apple, so the sort has a row for each.
+/// A sorted or grouped query first stores the metadata of the caller's songs that have none,
+/// so the sort has a row for each. It waits on Apple for a few; any more are stored on their
+/// own task and come back in `missing_metadata` this time.
+///
+/// A sorted or grouped query's songs also carry `row`, what the song's row shows, from its
+/// stored metadata, so the phone draws the list without asking Apple for every song. A song
+/// with no stored title has none. `artwork_url` is left out until it is stored.
 ///
 /// `consider_default_tags` widens what counts as a tag on a song to include the
 /// shared default tags, for matching and for ranking, and lets the query name a
@@ -74,7 +79,18 @@ struct QueryResultsBody {
 /// ```json
 /// {
 ///   "songs": [
-///     { "song_id": "songid1", "certain": true },
+///     {
+///       "song_id": "songid1",
+///       "certain": true,
+///       "row": {
+///         "title": "Purple Rain",
+///         "artist_name": "Prince",
+///         "album_name": "Purple Rain",
+///         "album_id": "1440857781",
+///         "duration_ms": 521000,
+///         "artwork_url": "https://is1-ssl.mzstatic.com/image/thumb/.../512x512bb.jpg"
+///       }
+///     },
 ///     { "song_id": "songid2", "certain": false }
 ///   ],
 ///   "capped": false,
@@ -93,23 +109,34 @@ async fn query_results_handler(
         group: body.group,
         time_zone: body.time_zone,
     };
-    if !arrangement.is_none() {
+    let arranged = !arrangement.is_none();
+    if arranged {
         let own = db::queries::get_own_song_ids(&db, claims.user_id, body.library_only).await?;
         store_metadata_before_sorting(&db, &song_meta_service, &own).await;
     }
 
-    Ok(Json(
-        db::queries::run_query(
-            &db,
-            &body.query,
-            claims.user_id,
-            body.consider_default_tags,
-            body.library_only,
-            &arrangement,
-        )
-        .await?
-        .into(),
-    ))
+    let mut results: QueryResults = db::queries::run_query(
+        &db,
+        &body.query,
+        claims.user_id,
+        body.consider_default_tags,
+        body.library_only,
+        &arrangement,
+    )
+    .await?
+    .into();
+    if arranged {
+        let song_ids: Vec<String> = results
+            .songs
+            .iter()
+            .map(|song| song.song_id.clone())
+            .collect();
+        let mut rows = song_rows_for_list(&db, &song_meta_service, &song_ids).await?;
+        for song in &mut results.songs {
+            song.row = rows.remove(&song.song_id).map(Into::into);
+        }
+    }
+    Ok(Json(results))
 }
 
 #[derive(Deserialize)]

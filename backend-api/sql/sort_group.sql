@@ -10,7 +10,7 @@
 -- A 'library' row is one user's own song, never a song another user's query discovers, so
 -- the query compiler only discovers 'catalog' rows.
 --
--- Additive and idempotent. Adds one column with a default, so every existing row reads as
+-- Additive and idempotent. Adds a column with a default, so every existing row reads as
 -- 'catalog', which it is.
 --
 -- Applied by hand against Supabase, the same way the rest of this schema was. Every query
@@ -28,3 +28,10 @@ exception
     when duplicate_object then null;
 end
 $$;
+
+-- The song's artwork, so a sorted list can draw its rows from these rows alone, without
+-- asking Apple for every song first. A real url, already sized. Null for a row stored before
+-- this column, which the next sorted list it shows up in fills in on its own task, and empty
+-- for a song Apple has no artwork for.
+alter table metadata_song_tags_applied
+    add column if not exists artwork_url text;

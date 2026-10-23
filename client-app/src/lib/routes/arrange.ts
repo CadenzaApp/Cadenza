@@ -14,6 +14,7 @@ import {
 } from "@/lib/song-arrangement";
 
 import { useAPIMutation, useAPIPostSnapshot } from "../api-actions";
+import { storedTracks, type StoredSongRowJSON } from "../stored-tracks";
 
 /**
  * Where an arranged list's songs come from. A query (Query results, and the
@@ -43,7 +44,7 @@ type ArrangedBody = {
 );
 
 type ArrangedResponse = {
-    songs: { song_id: string; certain: boolean }[];
+    songs: { song_id: string; certain: boolean; row?: StoredSongRowJSON }[];
     capped: boolean;
     groups: ArrangedGroupJSON[] | null;
     missing_metadata: string[];
@@ -58,6 +59,7 @@ export type TrackLookup = (
 ) => Promise<ReadonlyMap<string, MusicItem>>;
 
 const NO_SONGS: ArrangedSong[] = [];
+const NO_ROW_TRACKS: ReadonlyMap<string, MusicItem> = new Map();
 const NO_IDS: string[] = [];
 /** The most songs one `POST /songs/metadata/library` takes. */
 const LIBRARY_METADATA_BATCH = 500;
@@ -79,6 +81,9 @@ const LIBRARY_METADATA_BATCH = 500;
  * `POST /songs/metadata/library`, found by `lookupTracks`, and fetches the
  * list once more, so it sorts by its title like any other. That happens once
  * per arrangement, whatever came of it.
+ *
+ * A sorted or grouped query's songs come with what the backend stores about
+ * them (`rowTracks`), so the list can draw its rows without asking Apple.
  */
 export function useArrangedSongs(
     source: ArrangeSource | null,
@@ -169,6 +174,11 @@ export function useArrangedSongs(
         () => (response ? songs.map((song) => song.songId) : NO_IDS),
         [response, songs],
     );
+    // what the backend stores about each song, so the rows draw without Apple
+    const rowTracks = useMemo(
+        () => (response ? storedTracks(response.songs) : NO_ROW_TRACKS),
+        [response],
+    );
     const groupField = arrangement.group?.field ?? null;
     const sections = useMemo<SongSection[] | null>(
         () =>
@@ -185,6 +195,11 @@ export function useArrangedSongs(
         songIds,
         /** The groups, when the arrangement groups. */
         sections,
+        /**
+         * Tracks made from the backend's stored rows, by song id. Only a sorted
+         * or grouped query has them, and only for songs with a stored title.
+         */
+        rowTracks,
         capped: response?.capped ?? false,
         loading: body !== null && snapshot.isLoading && !response,
         // an empty request has nothing to fail, whatever the last one left

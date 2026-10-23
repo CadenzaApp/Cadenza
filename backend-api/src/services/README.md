@@ -159,8 +159,8 @@ title, artist, album, genre, release date, duration, and explicit rating (see th
 in [../db/README.md](../db/README.md)), and so a song's Metadata Tags on the now-playing Tags page
 show exactly what those queries match on (`get_song_metadata_for_display`, behind
 `GET /songs/metadata-tags`, which stores a song with no row before reading it). Apple Music still
-owns the metadata, so a stale or missing row only makes a query miss a song or a pill lag behind
-Apple.
+owns the metadata, so a stale or missing row only makes a query miss a song, a pill lag behind
+Apple, or a sorted list's row show an old title.
 
 How much is stored depends on what happened to the song:
 
@@ -170,13 +170,22 @@ How much is stored depends on what happened to the song:
 | opened in the player | the song, and its album is queued (`record_song_opened`, from `POST /songs/metadata/opened`) |
 | in someone's library | the song, and its album is queued (the crawl's library walk) |
 | on a queued album | every song on the album (the crawl) |
-| in a list being sorted or grouped | every song in it, waited for (`store_metadata_before_sorting`, from `POST /queries/results` with a sort or group, which stores all the user's own songs, and `POST /queries/arrange`) |
+| added to someone's library | the song, on its own task (`PATCH /songs`) |
+| in a list being sorted or grouped | every song in it with no row (`store_metadata_before_sorting`, from `POST /queries/results` with a sort or group, which stores all the user's own songs, and `POST /queries/arrange`), waited for when one Apple request covers them, on its own task otherwise |
+| returned by a sorted or grouped query, stored before artwork was kept | the song again, for its artwork, on its own task (`song_rows_for_list`) |
 | in a sorted list, with no catalog entry | what the phone's library says about it, as a `source` 'library' row (`POST /songs/metadata/library`, `db::metadata_tags::store_library_song_metadata`) |
 
-A sorted list reads every song's row, so it does not leave storing to the background: the request
-stores the songs with no row first and waits, so they sort by their values rather than last. A
-failure there (Apple down, or a rate limit) is logged and the list sorts anyway; those songs come
-back in `missing_metadata` and the next sorted read tries again. Apple's catalog cannot describe a
+A sorted list reads every song's row, so the request stores the songs with no row first, so they
+sort by their values rather than last. It only waits when that is one Apple request (300 songs),
+which is quick; a large library sorted for the first time stores the rest on its own task and
+sorts now, and those songs come back in `missing_metadata` this once. Most songs are stored well
+before that, when the library syncs and by the crawl. A failure (Apple down, or a rate limit) is
+logged and the list sorts anyway; the next sorted read tries again.
+
+A sorted or grouped query also sends each song's row, title, artist, album, length and artwork,
+so the phone draws the list from these rows instead of asking Apple for every song
+(`song_rows_for_list`). A catalog row stored before `artwork_url` existed is asked of Apple again
+on its own task, and marked as having none when Apple sends none back, so it is asked once. Apple's catalog cannot describe a
 song with only a library id, or one it never matched, so the phone sends what MusicKit knows about
 those, and only those ever get a library row.
 

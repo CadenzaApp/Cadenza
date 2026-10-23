@@ -819,7 +819,9 @@ type GroupedStore = {
  * a time, two requests at once, walking the groups top down from
  * `startGroup` (`nextGroupedChunk`). The caller moves `startGroup` to a group
  * the user opens, so it is next, and the walk carries on from there. Each
- * chunk's tracks go to `afterChunk` once they are in, to warm their tags.
+ * chunk's songs go to `afterChunk` once they are in, to warm their tags. Songs
+ * the caller already has, `known`, take their turn but are never asked of
+ * Apple.
  *
  * A failed request is tried again after a pause, three times in all, and
  * then those songs are left out like ones Apple has no entry for.
@@ -829,11 +831,19 @@ export function useGroupedTrackLoader({
     startGroup,
     enabled,
     afterChunk,
+    known,
 }: {
     groups: readonly (readonly string[])[] | null;
     startGroup: number;
     enabled: boolean;
-    afterChunk?: (tracks: MusicItem[]) => Promise<void>;
+    /** Called with each chunk's song ids, as their tags are kept, once it is in. */
+    afterChunk?: (songIds: string[]) => Promise<void>;
+    /**
+     * Songs the caller already has a full track for, like the backend's
+     * stored rows, which are never asked of Apple. They still pass through
+     * `afterChunk` in their turn.
+     */
+    known?: (songId: string) => boolean;
 }) {
     const { isConnected, sessionRevision } = useAppleMusic();
     const { allLibraryTracks, allLibraryTracksLoading, allLibraryTracksErr } =
@@ -951,7 +961,8 @@ export function useGroupedTrackLoader({
                 running.current += 1;
                 void (async () => {
                     const toFetch = chunk.filter(
-                        (songId) => !libraryTracksById.has(songId),
+                        (songId) =>
+                            !libraryTracksById.has(songId) && !known?.(songId),
                     );
                     let fetched = new Map<string, MusicItem>();
                     let failed = false;
@@ -984,16 +995,20 @@ export function useGroupedTrackLoader({
                         scheduleFlush();
                     }
                     if (settle) {
-                        const tracks = chunk.flatMap((songId) => {
+                        // the ids their tags are kept under: a track's catalog
+                        // id, or the id itself for a song the caller knows
+                        const tagIds = chunk.map((songId) => {
                             const track =
                                 libraryTracksById.get(songId) ??
                                 fetched.get(songId);
-                            return track ? [track] : [];
+                            return track
+                                ? (track.catalogId ?? track.id)
+                                : songId;
                         });
                         // one chunk's tags at a time per slot, so a large list
                         // never sends the backend a burst
                         try {
-                            await afterChunk?.(tracks);
+                            await afterChunk?.(tagIds);
                         } catch {
                             // the rows ask again for anything this missed
                         }
@@ -1020,6 +1035,7 @@ export function useGroupedTrackLoader({
         enabled,
         groups,
         isConnected,
+        known,
         libraryTracksById,
         scheduleFlush,
         sessionRevision,

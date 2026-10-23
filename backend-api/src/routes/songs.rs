@@ -468,12 +468,18 @@ pub struct EditUserSongsPayload {
 /// Both lists are optional. Adding a song the user already has, or removing one they do
 /// not, does nothing. Default tags are not touched here; they are generated lazily the
 /// first time something reads them. A removed song keeps the user's tags on it.
+///
+/// An added song with no stored metadata is stored on its own task, so a sorted list of the
+/// library rarely has any to wait for.
 async fn edit_user_songs_handler(
     State(db): State<DatabaseConnection>,
+    State(song_meta_service): State<SongMetadataService>,
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Json(payload): Json<EditUserSongsPayload>,
 ) -> Result<(), CadenzaError> {
-    db::user_songs::edit_user_songs(&db, claims.user_id, &payload.add, &payload.remove).await
+    db::user_songs::edit_user_songs(&db, claims.user_id, &payload.add, &payload.remove).await?;
+    spawn_store_song_metadata(db, song_meta_service, payload.add);
+    Ok(())
 }
 
 pub fn get_songs_router() -> Router<AppState> {

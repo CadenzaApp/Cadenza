@@ -102,6 +102,8 @@ mod tests {
             content_rating: Some("clean".into()),
             fetched_at: Utc::now().fixed_offset(),
             total_plays: 12,
+            source: "catalog".into(),
+            artwork_url: None,
         }
     }
 

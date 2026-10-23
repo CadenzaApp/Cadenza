@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use crate::db::metadata_tags::SongRow;
 use crate::db::queries::QueryMatches;
 use crate::routes::json::tag::TagType;
 
@@ -247,6 +248,35 @@ pub struct QueryResults {
 pub struct QueryResultSong {
     pub song_id: String,
     pub certain: bool,
+    /// What the song's row shows, from its stored metadata. Only on a sorted or grouped
+    /// query, and only for a song with a stored title.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub row: Option<SongRowJSON>,
+}
+
+/// A song list row as `metadata_song_tags_applied` has it, so the phone can draw the row
+/// without asking Apple. `artwork_url` is a real url, absent when none is stored yet.
+#[derive(Serialize, Debug, PartialEq, Eq)]
+pub struct SongRowJSON {
+    pub title: String,
+    pub artist_name: Option<String>,
+    pub album_name: Option<String>,
+    pub album_id: Option<String>,
+    pub duration_ms: Option<i32>,
+    pub artwork_url: Option<String>,
+}
+
+impl From<SongRow> for SongRowJSON {
+    fn from(row: SongRow) -> Self {
+        Self {
+            title: row.name,
+            artist_name: row.artist_name,
+            album_name: row.album_name,
+            album_id: row.album_id,
+            duration_ms: row.duration_in_millis,
+            artwork_url: row.artwork_url.filter(|url| !url.is_empty()),
+        }
+    }
 }
 
 #[derive(Serialize, Debug, PartialEq, Eq)]
@@ -276,6 +306,7 @@ impl From<QueryMatches> for QueryResults {
                 .map(|song| QueryResultSong {
                     song_id: song.song_id,
                     certain: song.certain,
+                    row: None,
                 })
                 .collect(),
             capped: value.capped,
@@ -333,4 +364,47 @@ pub enum FilterOp {
     // every tag type
     IsApplied,
     IsNotApplied,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn row(artwork_url: Option<&str>) -> SongRow {
+        SongRow {
+            song_id: "1".into(),
+            name: "Purple Rain".into(),
+            artist_name: Some("Prince".into()),
+            album_name: None,
+            album_id: None,
+            duration_in_millis: Some(521_000),
+            artwork_url: artwork_url.map(str::to_owned),
+        }
+    }
+
+    #[test]
+    fn a_row_without_stored_artwork_sends_none() {
+        assert_eq!(SongRowJSON::from(row(None)).artwork_url, None);
+        assert_eq!(SongRowJSON::from(row(Some(""))).artwork_url, None);
+        let json = SongRowJSON::from(row(Some("https://example.com/a.jpg")));
+        assert_eq!(
+            json.artwork_url.as_deref(),
+            Some("https://example.com/a.jpg")
+        );
+        assert_eq!(json.title, "Purple Rain");
+        assert_eq!(json.duration_ms, Some(521_000));
+    }
+
+    #[test]
+    fn a_song_without_a_row_leaves_it_out() {
+        let song = QueryResultSong {
+            song_id: "1".into(),
+            certain: true,
+            row: None,
+        };
+        assert_eq!(
+            serde_json::to_value(&song).unwrap(),
+            serde_json::json!({ "song_id": "1", "certain": true })
+        );
+    }
 }

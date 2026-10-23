@@ -79,9 +79,11 @@ A query runs over every song Cadenza knows, not just the library (see the query 
 - Reads `useArrangedTrackList` over the query, fetched once and held while the screen is open.
   Tagging or playing a song invalidates `/queries/results`, and a list that refetched under the
   user would skip or repeat rows. Changing the sort or group fetches a new result.
-- Resolves ids with `usePagedTracksForSongIds`, 50 at a time as the list scrolls. Rows only append:
-  an id still being looked up ends the list until it resolves, an id Apple Music cannot see is
-  left out, and two ids for one track show it once. Never resolve a whole result at once.
+- Sorted or grouped, draws every row from the backend's stored rows, which come with the result,
+  so nothing waits on Apple. Unsorted, resolves ids with `usePagedTracksForSongIds`, 50 at a time
+  as the list scrolls. Either way rows only append: an id still being looked up ends the list
+  until it resolves, an id Apple Music cannot see is left out, and two ids for one track show it
+  once. Never ask Apple for a whole result at once.
 - Sorts and groups on the backend, by any tag (metadata and activity tags included), so the
   whole result is ordered rather than the loaded rows. Sort by None, the default, is the
   user's own songs first, all of them, then the rest. Any sort or group is the first 1,000 songs

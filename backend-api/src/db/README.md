@@ -16,7 +16,7 @@ The data access layer. Everything that touches postgres lives here, so handlers 
 | `tag_activity.rs` | Not activity tags. Counts applies and removes of a tag name on a song in `default_tag_activity`, and promotes popular names to default tags. |
 | `queries.rs` | Compiles a tag query to SQL, runs it over every song Cadenza knows, and ranks, sorts, or groups the matches. Also sorts and groups a list of song ids the caller sends. Unit tested, plus integration tests against a real database (`--ignored`) that need `sql/metadata_tags.sql`, `sql/query_sort.sql` and `sql/sort_group.sql`. |
 | `social.rs` | Posts, likes, comments, view status, interest scores, and the feed's SQL and score math. `comments`, `post_likes`, and `comment_likes` use the generated entities. `hot_score` and embeddings stay raw SQL. Embeddings come from `services::social_feed`. `topic_mk_id` is an optional Apple Music catalog id; song vs artist is not stored. `get_topic_posts` returns the posts for one catalog id, most liked first. `get_post_comments` returns a post's comments, most liked first. A post's `comment_count` is `posts.comments`, bumped when a comment is inserted. Unit tested for the vector math and the comments select. |
-| `metadata_tags.rs` | The copy of Apple Music song metadata that queries and metadata tags read in `metadata_song_tags_applied`, and the album crawl queue in `metadata_albums`: storing songs, storing what a phone says about songs Apple's catalog has no entry for (`store_library_song_metadata`), finding ones with no row, and queueing, claiming, finishing, and releasing albums. Unit tested, plus integration tests against a real database (`--ignored`). |
+| `metadata_tags.rs` | The copy of Apple Music song metadata that queries and metadata tags read in `metadata_song_tags_applied`, and the album crawl queue in `metadata_albums`: storing songs, storing what a phone says about songs Apple's catalog has no entry for (`store_library_song_metadata`), finding ones with no row, reading the rows a sorted list draws (`get_song_rows`) and the ones still without artwork, and queueing, claiming, finishing, and releasing albums. Unit tested, plus integration tests against a real database (`--ignored`). |
 | `user_songs.rs` | `edit_user_songs`: adds and removes the user's songs in one transaction. `get_recent_songs_without_generated_default_tags`: the newest songs nothing has generated default tags for, which the backfill job walks. |
 | `entity/` | sea-orm-codegen output. Includes tag, default-tag, and related tables, plus `prelude` and `mod`. Do not hand edit. |
 
@@ -95,8 +95,9 @@ Most of the tables below are keyed on song ids that come from Apple Music.
   leaves every other column empty. `name`, `artist_name`, `album_name`, `album_id`,
   `duration_in_millis`, `genre_names` (`text[]`, never null, without Apple's catch-all "Music"),
   `release_date` (a year-only date is stored as January 1), `content_rating` (`explicit`, `clean`,
-  or null for unrated), `fetched_at`, and `total_plays` (bigint, every user's counted plays of
-  the song). Not user scoped and not authoritative. Read by the query compiler, where it is the
+  or null for unrated), `fetched_at`, `total_plays` (bigint, every user's counted plays of
+  the song), and `artwork_url` (a real 512 px url, empty when Apple has none, null on a row
+  stored before the column; DDL in `sql/sort_group.sql`). Not user scoped and not authoritative. Read by the query compiler, where it is the
   set of songs from outside the user's own a query can return, what metadata filters look at, and
   what a sorted query sorts by, and by `GET /songs/metadata-tags`. Written only through
   `metadata_tags.rs`. DDL in `sql/metadata_tags.sql`.
@@ -430,7 +431,10 @@ phone knows (a playlist, an album, a tag's songs). The ids come in as one JSON a
 unsorted they keep their order.
 
 Every arranged statement also returns whether each song had a stored row Apple knew, and the ids
-without one come back as `missing_metadata`. See `store_library_song_metadata` below.
+without one come back as `missing_metadata`. See `store_library_song_metadata` below. A sorted or
+grouped query's rows themselves, title, artist, album, length and artwork, are read afterwards by
+`metadata_tags::get_song_rows`, one primary key lookup of the songs returned, so the phone can
+draw them without Apple.
 
 ## Connects to
 
@@ -514,9 +518,9 @@ without one come back as `missing_metadata`. See `store_library_song_metadata` b
 - A query needs `sql/query_sort.sql` and `sql/sort_group.sql` applied. Without the
   `natural_sort` collation every sorted query fails, and without `sql/metadata_tags.sql` or the
   `source` column from `sql/sort_group.sql` every query does.
-- `db/entity/metadata_song_tags_applied.rs` predates `source`. Nothing reads the column through
-  the entity: catalog rows are inserted through it and take the column default, and library rows
-  and the query compiler use raw SQL. Regenerating the entities adds the field.
+- `db/entity/metadata_song_tags_applied.rs` has `source` and `artwork_url`. Catalog rows leave
+  `source` to the column default and never update it, so library rows and the query compiler
+  are the only things that set or read it, through raw SQL.
 - `store_library_song_metadata` writes only for a song the user has (library or tagged) or a
   library id (`i.`), and only over no row, a `found` false row, or an earlier library row, so a
   phone can never rename a catalog song or a song in someone else's list.
