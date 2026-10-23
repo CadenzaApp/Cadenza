@@ -12,8 +12,6 @@ import type { MusicListSection } from "./types";
 
 /** A group header's height, fixed so a tinted page knows where each row sits. */
 export const MUSIC_LIST_SECTION_HEADER_HEIGHT = 52;
-/** The Show more row's height, for the same reason. */
-export const MUSIC_LIST_SHOW_MORE_HEIGHT = 44;
 
 type RowProps = {
     section: MusicListSection;
@@ -64,41 +62,6 @@ export const MusicListSectionHeader = memo(function MusicListSectionHeader({
                     {section.label}
                 </Text>
                 <Text className="text-sm text-muted-foreground">{songs}</Text>
-            </Pressable>
-        </ContrastRegion>
-    );
-});
-
-/** Under an open group with more songs than it has shown. */
-export const MusicListShowMoreRow = memo(function MusicListShowMoreRow({
-    section,
-    fullBleed,
-    fullBleedHorizontalPadding,
-    surfaceOffset,
-    onShowMore,
-}: RowProps & { onShowMore: (key: string) => void }) {
-    const remaining = section.count - section.tracks.length;
-
-    return (
-        <ContrastRegion offset={surfaceOffset}>
-            <Pressable
-                onPress={() => onShowMore(section.key)}
-                accessibilityRole="button"
-                accessibilityLabel={`Show more songs in ${section.label}`}
-                disabled={section.isLoading}
-                className="justify-center active:opacity-70"
-                style={{
-                    height: MUSIC_LIST_SHOW_MORE_HEIGHT,
-                    paddingHorizontal: fullBleed
-                        ? fullBleedHorizontalPadding + 30
-                        : 30,
-                }}
-            >
-                <Text className="text-sm font-medium">
-                    {section.isLoading
-                        ? "Loading..."
-                        : `Show more (${remaining} left)`}
-                </Text>
             </Pressable>
         </ContrastRegion>
     );

@@ -25,16 +25,13 @@ export type MusicListSection = {
     expanded: boolean;
     /** The songs loaded so far, shown while the group is open. */
     tracks: MusicItem[];
-    /** Open and still loading its first songs. */
+    /** Open with none of its songs loaded yet, shown as a placeholder row. */
     isLoading: boolean;
-    /** Open with more songs to show than it has loaded. */
-    hasMore: boolean;
 };
 
 export type MusicListSections = {
     sections: readonly MusicListSection[];
     onToggle: (key: string) => void;
-    onShowMore: (key: string) => void;
 };
 
 export type MusicListPagination = {

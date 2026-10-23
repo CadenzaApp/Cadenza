@@ -9,21 +9,19 @@ import type {
 
 import {
     indexTracksById,
-    SECTION_PAGE_SIZE,
+    useGroupedTrackLoader,
     usePagedTracksForSongIds,
-    useSectionedTracks,
-    type SongIdSection,
 } from "./musickit-hooks";
-import { uniqueBy } from "./paged-tracks";
+import { groupTracks, uniqueBy } from "./paged-tracks";
 import {
     useArrangedSongs,
     type ArrangeSource,
     type TrackLookup,
 } from "./routes/arrange";
-import { isArranged, type SongArrangement } from "./song-arrangement";
+import { useWarmRowTags } from "./routes/songs";
+import { fieldKey, isArranged, type SongArrangement } from "./song-arrangement";
 
 const NO_TRACKS: MusicItem[] = [];
-const NO_SECTION_REQUESTS: SongIdSection[] = [];
 
 type Options = {
     source: ArrangeSource | null;
@@ -40,13 +38,17 @@ type Options = {
      * by a tag that has since been deleted, so the caller can go back to None.
      */
     onRejected?: () => void;
+    /** The rows show activity tags, so warm those as well as the user's tags. */
+    warmActivityTags?: boolean;
 };
 
 /**
  * A song list the backend sorts and groups, made into what `MusicList` draws:
  * a flat list that loads 50 songs at a time as it scrolls, or one header per
- * group that loads its songs when it opens. See `useArrangedSongs` for the
- * fetch and `useSectionedTracks` for the groups.
+ * group. A grouped list loads every song once, top down in the background,
+ * and keeps them, so opening or closing a group never reloads anything; the
+ * group opened last goes to the front of the line. See `useArrangedSongs` for
+ * the fetch and `useGroupedTrackLoader` for the groups.
  *
  * `active` is false for a list of ids left unarranged, which the caller shows
  * in its own order.
@@ -57,6 +59,7 @@ export function useArrangedTrackList({
     lookupTracks,
     localTracks,
     onRejected,
+    warmActivityTags = false,
 }: Options) {
     const arranged = useArrangedSongs(source, arrangement, lookupTracks);
     const rejected = isRejection(arranged.error);
@@ -76,111 +79,131 @@ export function useArrangedTrackList({
         !local,
     );
 
-    // which groups are open, and how many songs each shows. belongs to one
-    // set of groups, so a new arrangement starts over with only the first open
-    const [open, setOpen] = useState<{
-        sections: typeof arranged.sections;
-        shown: ReadonlyMap<string, number>;
-    }>({ sections: null, shown: new Map() });
-    const firstOpen = useMemo(
-        () => firstSectionOpen(arranged.sections),
-        [arranged.sections],
-    );
-    const shown = open.sections === arranged.sections ? open.shown : firstOpen;
-    const updateShown = useCallback(
-        (update: (shown: Map<string, number>) => void) => {
-            setOpen((current) => {
-                const next = new Map(
-                    current.sections === arranged.sections
-                        ? current.shown
-                        : firstSectionOpen(arranged.sections),
-                );
-                update(next);
-                return { sections: arranged.sections, shown: next };
-            });
-        },
-        [arranged.sections],
+    // which groups are open, and which was opened last. kept per grouping, so
+    // a new sort, or the list fetched again, leaves them as they were. a new
+    // grouping starts over with only its first group open
+    const groupingKey = arrangement.group
+        ? fieldKey(arrangement.group.field)
+        : null;
+    const [openState, setOpenState] = useState<{
+        groupingKey: string | null;
+        open: ReadonlySet<string>;
+        lastOpened: string | null;
+    }>({ groupingKey: null, open: NO_KEYS, lastOpened: null });
+    const firstKey = arranged.sections?.[0]?.key ?? null;
+    const current =
+        openState.groupingKey === groupingKey
+            ? openState
+            : {
+                  groupingKey,
+                  open: firstKey ? new Set([firstKey]) : NO_KEYS,
+                  lastOpened: null,
+              };
+    const openKeys = current.open;
+    const onToggle = useCallback(
+        (key: string) =>
+            setOpenState((previous) => {
+                const base =
+                    previous.groupingKey === groupingKey
+                        ? previous
+                        : {
+                              groupingKey,
+                              open: firstKey ? new Set([firstKey]) : NO_KEYS,
+                              lastOpened: null,
+                          };
+                const open = new Set(base.open);
+                const opening = !open.has(key);
+                if (opening) open.add(key);
+                else open.delete(key);
+                return {
+                    groupingKey,
+                    open,
+                    lastOpened: opening ? key : base.lastOpened,
+                };
+            }),
+        [firstKey, groupingKey],
     );
 
-    const sectionRequests = useMemo<SongIdSection[]>(
+    // every group's songs, loaded once in group order from the one opened last
+    const groupIds = useMemo(
         () =>
             arranged.sections && !local
-                ? arranged.sections.map((section) => ({
-                      key: section.key,
-                      songIds: section.songIds,
-                      requestedCount: shown.get(section.key) ?? 0,
-                  }))
-                : NO_SECTION_REQUESTS,
-        [arranged.sections, local, shown],
+                ? arranged.sections.map((section) => section.songIds)
+                : null,
+        [arranged.sections, local],
     );
-    const sectioned = useSectionedTracks(sectionRequests, !local && grouped);
+    const startGroup = Math.max(
+        0,
+        arranged.sections?.findIndex(
+            (section) => section.key === current.lastOpened,
+        ) ?? 0,
+    );
+    const warmRowTags = useWarmRowTags();
+    const afterChunk = useCallback(
+        (tracks: MusicItem[]) =>
+            warmRowTags(
+                tracks.map((track) => track.catalogId ?? track.id),
+                warmActivityTags,
+            ),
+        [warmActivityTags, warmRowTags],
+    );
+    const loader = useGroupedTrackLoader({
+        groups: groupIds,
+        startGroup,
+        enabled: grouped && !local,
+        afterChunk,
+    });
 
     const sections = useMemo<MusicListSection[] | null>(() => {
         if (!arranged.sections) return null;
         return arranged.sections.map((section) => {
-            const requested = shown.get(section.key) ?? 0;
-            const expanded = requested > 0;
-            if (localTracksById) {
-                const tracks = expanded
-                    ? tracksFor(
-                          section.songIds.slice(0, requested),
-                          localTracksById,
-                      )
-                    : NO_TRACKS;
+            const expanded = openKeys.has(section.key);
+            if (!expanded) {
                 return {
                     key: section.key,
                     label: section.label,
                     count: section.count,
                     expanded,
-                    tracks,
+                    tracks: NO_TRACKS,
                     isLoading: false,
-                    hasMore: expanded && requested < section.songIds.length,
                 };
             }
-            const resolved = sectioned.tracksBySection.get(section.key);
-            const tracks = expanded
-                ? (resolved?.tracks ?? NO_TRACKS)
-                : NO_TRACKS;
-            const consumed = resolved?.consumedCount ?? 0;
+            if (localTracksById) {
+                return {
+                    key: section.key,
+                    label: section.label,
+                    count: section.count,
+                    expanded,
+                    tracks: tracksFor(section.songIds, localTracksById),
+                    isLoading: false,
+                };
+            }
+            const { tracks, waiting } = groupTracks(
+                section.songIds,
+                loader.trackFor,
+                loader.isSettled,
+                (track) => track.id,
+            );
             return {
                 key: section.key,
                 label: section.label,
                 count: section.count,
                 expanded,
                 tracks,
-                isLoading:
-                    expanded &&
-                    (resolved?.pending ?? sectioned.pending) &&
-                    consumed < Math.min(requested, section.songIds.length),
-                hasMore: expanded && requested < section.songIds.length,
+                // a placeholder only for a group with nothing to show yet
+                isLoading: waiting && tracks.length === 0,
             };
         });
     }, [
         arranged.sections,
+        loader.isSettled,
+        loader.trackFor,
         localTracksById,
-        sectioned.pending,
-        sectioned.tracksBySection,
-        shown,
+        openKeys,
     ]);
-
-    const onToggle = useCallback(
-        (key: string) =>
-            updateShown((next) => {
-                if ((next.get(key) ?? 0) > 0) next.delete(key);
-                else next.set(key, SECTION_PAGE_SIZE);
-            }),
-        [updateShown],
-    );
-    const onShowMore = useCallback(
-        (key: string) =>
-            updateShown((next) =>
-                next.set(key, (next.get(key) ?? 0) + SECTION_PAGE_SIZE),
-            ),
-        [updateShown],
-    );
     const listSections = useMemo<MusicListSections | null>(
-        () => (sections ? { sections, onToggle, onShowMore } : null),
-        [onShowMore, onToggle, sections],
+        () => (sections ? { sections, onToggle } : null),
+        [onToggle, sections],
     );
 
     // flat: the paged tracks, or a list the phone holds put in order
@@ -251,20 +274,12 @@ export function useArrangedTrackList({
             (!grouped && !local && arranged.active && paged.tracksLoading),
         error:
             arranged.error ??
-            (local ? undefined : (paged.tracksErr ?? sectioned.tracksErr)),
+            (local ? undefined : (paged.tracksErr ?? loader.tracksErr)),
     };
 }
 
 const NO_IDS: string[] = [];
-const NO_SHOWN: ReadonlyMap<string, number> = new Map();
-
-/** A grouped list opens with its first group open, so there is something to see. */
-function firstSectionOpen(
-    sections: readonly { key: string }[] | null,
-): ReadonlyMap<string, number> {
-    const first = sections?.[0];
-    return first ? new Map([[first.key, SECTION_PAGE_SIZE]]) : NO_SHOWN;
-}
+const NO_KEYS: ReadonlySet<string> = new Set();
 
 /** The backend refused the request as asked, which retrying will not change. */
 function isRejection(error: unknown): boolean {

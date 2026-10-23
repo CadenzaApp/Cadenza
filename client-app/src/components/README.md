@@ -156,7 +156,7 @@ variables), `tailwind.config.js`, and `global.css`. Class merging goes through
 | `tag-fade-rail.tsx`                | Overflow-aware horizontal tag rail whose alpha mask preserves the surface behind it. User tags with values, then unfilled defaults. |
 | `row-tags.tsx`                     | The list's tag reads and a per-list store rows read their own song from, so a tag response re-renders only the rows it changes.     |
 | `music-list-arrange-sheet.tsx`     | The floating Sort by / Group by control and its sheet, picking any tag from a searchable `OptionPicker`.                            |
-| `music-list-section-header.tsx`    | A group's header, which opens and closes it, and its Show more row.                                                                 |
+| `music-list-section-header.tsx`    | A group's header, which opens and closes it. An open group shows all its songs.                                                     |
 | `music-list-action-button.tsx`     | One button in the selection toolbar.                                                                                                |
 | `music-list-selection-toolbar.tsx` | The bar that slides up while rows are selected.                                                                                     |
 | `use-music-list-selection.ts`      | Selection state, haptics, and pruning. Tested in `use-music-list-selection.test.ts`.                                                |

@@ -12,7 +12,14 @@ import {
 } from "@apple-musickit";
 import { Image } from "expo-image";
 import { useArtworkTint } from "./artwork-color";
-import { useCallback, useEffect, useId, useMemo, useState } from "react";
+import {
+    useCallback,
+    useEffect,
+    useId,
+    useMemo,
+    useRef,
+    useState,
+} from "react";
 import useSWR, { unstable_serialize, useSWRConfig } from "swr";
 import useSWRImmutable from "swr/immutable";
 import useSWRInfinite from "swr/infinite";
@@ -24,7 +31,12 @@ import {
 } from "./apple-music-auth";
 import { useListeningEvents } from "./listening-events";
 import { collectionRoute } from "./music-routes";
-import { catalogIdsToFetch, resolvedTracks, uniqueBy } from "./paged-tracks";
+import {
+    catalogIdsToFetch,
+    nextGroupedChunk,
+    resolvedTracks,
+    uniqueBy,
+} from "./paged-tracks";
 
 const MUSIC_LIST_PAGE_SIZE = 25;
 /**
@@ -220,19 +232,40 @@ function useSongInfoChunks(idChunks: readonly (readonly string[])[]) {
         },
     );
     const { data, error, setSize, size } = x;
+    const { cache } = useSWRConfig();
     useEffect(() => {
         if (active && size !== idChunks.length + 1) {
             void setSize(idChunks.length + 1);
         }
     }, [active, idChunks.length, setSize, size]);
-    // the reader's own page first, then one entry per chunk
-    const chunkPages = useMemo(() => data?.slice(1) ?? [], [data]);
+    // one entry per chunk, after the reader's own page. new chunks give the
+    // reader a new key, which has no data until it loads, so a chunk already
+    // answered is read straight from its own cache entry meanwhile. a list
+    // that opens one more group then never blanks the groups already open
+    const chunkPages = useMemo(
+        () =>
+            idChunks.map(
+                (ids, index): MusicItem[] | undefined =>
+                    data?.[index + 1] ??
+                    (cache.get(
+                        unstable_serialize([
+                            "MusicKit.getSongInfo",
+                            sessionRevision,
+                            ids,
+                        ]),
+                    )?.data as MusicItem[] | undefined),
+            ),
+        [cache, data, idChunks, sessionRevision],
+    );
     const chunksLoaded = useMemo(
-        () => idChunks.map((_, index) => chunkPages[index] !== undefined),
-        [chunkPages, idChunks],
+        () => chunkPages.map((page) => page !== undefined),
+        [chunkPages],
     );
     const songInfo = useMemo(
-        () => (chunkPages.length > 0 ? chunkPages.flat() : EMPTY_SONGS),
+        () =>
+            chunkPages.length > 0
+                ? chunkPages.flatMap((page) => page ?? [])
+                : EMPTY_SONGS,
         [chunkPages],
     );
     return {
@@ -240,7 +273,7 @@ function useSongInfoChunks(idChunks: readonly (readonly string[])[]) {
         songInfoLoading:
             isInitializing ||
             (isConnected &&
-                idChunks.length > chunkPages.length &&
+                chunksLoaded.some((loaded) => !loaded) &&
                 error == null),
         songInfoErr: error,
         /** Whether each chunk has its answer, in the order given. */
@@ -758,114 +791,213 @@ export function useTrackLookup(enabled = true) {
     );
 }
 
-/** How many songs a group shows at first, and how many more each "Show more" adds. */
-export const SECTION_PAGE_SIZE = SONG_ID_PAGE_SIZE;
+/** How many songs one background request of a grouped list asks Apple for. */
+const GROUPED_CHUNK_SIZE = MUSIC_LIST_PAGE_SIZE;
+/** How many of those requests run at once. */
+const GROUPED_PARALLEL_CHUNKS = 2;
+/** Tries a chunk gets before its songs are left out as ones Apple cannot find. */
+const GROUPED_CHUNK_ATTEMPTS = 3;
+const GROUPED_RETRY_DELAY_MS = 2000;
 
-/** One group's ids, and how many of them the list wants shown. */
-export type SongIdSection = {
-    key: string;
-    songIds: readonly string[];
-    /** 0 for a closed group, which resolves nothing. */
-    requestedCount: number;
+type GroupedStore = {
+    /** The Apple Music session these answers belong to. */
+    sessionRevision: number;
+    /** Tracks fetched from Apple, by every id they carry. */
+    found: ReadonlyMap<string, MusicItem>;
+    /** Ids looked up, found or not. A settled id is never asked about again. */
+    settled: ReadonlySet<string>;
 };
 
 /**
- * Tracks for the open groups of a grouped list. Each group resolves only the
- * ids it is showing, the library's first and Apple Music for the rest, so a
- * list of a thousand groups costs nothing until one opens.
+ * Tracks for a grouped list, all of it, loaded once in the background and
+ * kept for as long as the screen is open. Opening or closing a group only
+ * reads what is here, so it never reloads the groups already showing.
  *
- * Each group asks Apple in chunks of its own, so opening or growing one group
- * never changes the chunks another group already has.
+ * The library resolves most songs for free; the rest are asked of Apple 25 at
+ * a time, two requests at once, walking the groups top down from
+ * `startGroup` (`nextGroupedChunk`). The caller moves `startGroup` to a group
+ * the user opens, so it is next, and the walk carries on from there. Each
+ * chunk's tracks go to `afterChunk` once they are in, to warm their tags.
+ *
+ * A failed request is tried again after a pause, three times in all, and
+ * then those songs are left out like ones Apple has no entry for.
  */
-export function useSectionedTracks(
-    sections: readonly SongIdSection[],
-    enabled = true,
-) {
+export function useGroupedTrackLoader({
+    groups,
+    startGroup,
+    enabled,
+    afterChunk,
+}: {
+    groups: readonly (readonly string[])[] | null;
+    startGroup: number;
+    enabled: boolean;
+    afterChunk?: (tracks: MusicItem[]) => Promise<void>;
+}) {
+    const { isConnected, sessionRevision } = useAppleMusic();
     const { allLibraryTracks, allLibraryTracksLoading, allLibraryTracksErr } =
         useAllTracksFromLibrary(enabled);
     const libraryTracksById = useMemo(
         () => indexTracksById(allLibraryTracks),
         [allLibraryTracks],
     );
-    // waits for the library, which would resolve most of these for free.
-    // each section's chunks are its own, and `ranges` says which they are
-    const { chunks, ranges } = useMemo(() => {
-        const allChunks: string[][] = [];
-        const chunkRanges = new Map<string, { start: number; end: number }>();
-        if (allLibraryTracksLoading)
-            return { chunks: allChunks, ranges: chunkRanges };
-        for (const section of sections) {
-            const start = allChunks.length;
-            if (section.requestedCount > 0) {
-                allChunks.push(
-                    ...chunkValues(
-                        catalogIdsToFetch(
-                            section.songIds,
-                            section.requestedCount,
-                            (songId) => libraryTracksById.has(songId),
-                            MUSIC_LIST_PAGE_SIZE,
-                        ),
-                        MUSIC_LIST_PAGE_SIZE,
-                    ),
+    const [store, setStore] = useState<GroupedStore>(() => ({
+        sessionRevision,
+        found: new Map(),
+        settled: new Set(),
+    }));
+    // a new Apple Music session starts over
+    const current =
+        store.sessionRevision === sessionRevision
+            ? store
+            : { sessionRevision, found: EMPTY_FOUND, settled: EMPTY_SETTLED };
+    const latestRevision = useRef(sessionRevision);
+    useEffect(() => {
+        latestRevision.current = sessionRevision;
+    }, [sessionRevision]);
+    const inFlight = useRef(new Set<string>());
+    // what the store will hold once React applies it, read by the scheduler.
+    // the store itself is state, and a scheduling pass from an earlier render
+    // can run after a chunk has left `inFlight` but before the store shows it
+    // settled, which would ask for the chunk again
+    const settledNow = useRef<{ revision: number; ids: Set<string> }>({
+        revision: sessionRevision,
+        ids: new Set(),
+    });
+    const attempts = useRef(new Map<string, number>());
+    const running = useRef(0);
+    const mounted = useRef(true);
+    const [wake, setWake] = useState(0);
+    useEffect(() => {
+        mounted.current = true;
+        return () => {
+            mounted.current = false;
+        };
+    }, []);
+
+    useEffect(() => {
+        if (!enabled || !groups || !isConnected || allLibraryTracksLoading) {
+            return;
+        }
+        if (settledNow.current.revision !== sessionRevision) {
+            settledNow.current = { revision: sessionRevision, ids: new Set() };
+        }
+        const settled = settledNow.current.ids;
+        while (running.current < GROUPED_PARALLEL_CHUNKS) {
+            const chunk = nextGroupedChunk(
+                groups,
+                startGroup,
+                (songId) => settled.has(songId) || inFlight.current.has(songId),
+                GROUPED_CHUNK_SIZE,
+            );
+            if (chunk.length === 0) break;
+            for (const songId of chunk) inFlight.current.add(songId);
+            running.current += 1;
+            void (async () => {
+                const toFetch = chunk.filter(
+                    (songId) => !libraryTracksById.has(songId),
                 );
-            }
-            chunkRanges.set(section.key, { start, end: allChunks.length });
+                let fetched = new Map<string, MusicItem>();
+                let failed = false;
+                if (toFetch.length > 0) {
+                    try {
+                        fetched = indexTracksById(
+                            await read(() => MusicKit.getSongInfo(toFetch)),
+                        );
+                    } catch (error) {
+                        console.error(
+                            "Could not load songs for a grouped list:",
+                            error,
+                        );
+                        failed = true;
+                    }
+                }
+                const tries = (attempts.current.get(chunk[0]) ?? 0) + 1;
+                const settle = !failed || tries >= GROUPED_CHUNK_ATTEMPTS;
+                // an answer from a session that has since been replaced is
+                // dropped. the new session asks again
+                const current = latestRevision.current === sessionRevision;
+                if (settle && current) {
+                    for (const songId of chunk) settled.add(songId);
+                }
+                if (settle && mounted.current && current) {
+                    setStore((previous) => {
+                        const same =
+                            previous.sessionRevision === sessionRevision;
+                        const found = new Map(same ? previous.found : []);
+                        for (const [songId, track] of fetched) {
+                            found.set(songId, track);
+                        }
+                        const nextSettled = new Set(
+                            same ? previous.settled : [],
+                        );
+                        for (const songId of chunk) nextSettled.add(songId);
+                        return {
+                            sessionRevision,
+                            found,
+                            settled: nextSettled,
+                        };
+                    });
+                }
+                if (settle) {
+                    const tracks = chunk.flatMap((songId) => {
+                        const track =
+                            libraryTracksById.get(songId) ??
+                            fetched.get(songId);
+                        return track ? [track] : [];
+                    });
+                    // one chunk's tags at a time per slot, so a large list
+                    // never sends the backend a burst
+                    try {
+                        await afterChunk?.(tracks);
+                    } catch {
+                        // the rows ask again for anything this missed
+                    }
+                } else {
+                    attempts.current.set(chunk[0], tries);
+                    await new Promise((resolve) =>
+                        setTimeout(resolve, GROUPED_RETRY_DELAY_MS),
+                    );
+                }
+                for (const songId of chunk) inFlight.current.delete(songId);
+                running.current -= 1;
+                if (mounted.current) setWake((count) => count + 1);
+            })();
         }
-        return { chunks: allChunks, ranges: chunkRanges };
-    }, [allLibraryTracksLoading, libraryTracksById, sections]);
-    const { songInfo, songInfoLoading, songInfoErr, chunksLoaded } =
-        useSongInfoChunks(chunks);
-    const fetchedTracksById = useMemo(
-        () => indexTracksById(songInfo),
-        [songInfo],
-    );
-    const pending = allLibraryTracksLoading || songInfoLoading;
-    const tracksBySection = useMemo(() => {
-        const bySection = new Map<
-            string,
-            { tracks: MusicItem[]; consumedCount: number; pending: boolean }
-        >();
-        for (const section of sections) {
-            // only this section's own lookups hold it back, so opening one
-            // group never puts another back to loading
-            const range = ranges.get(section.key);
-            const sectionPending =
-                allLibraryTracksLoading ||
-                (songInfoErr == null &&
-                    range != null &&
-                    chunksLoaded
-                        .slice(range.start, range.end)
-                        .some((loaded) => !loaded));
-            bySection.set(section.key, {
-                ...resolvedTracks(
-                    section.songIds,
-                    section.requestedCount,
-                    (songId) =>
-                        libraryTracksById.get(songId) ??
-                        fetchedTracksById.get(songId),
-                    (track) => track.id,
-                    sectionPending,
-                ),
-                pending: sectionPending,
-            });
-        }
-        return bySection;
     }, [
+        afterChunk,
         allLibraryTracksLoading,
-        chunksLoaded,
-        fetchedTracksById,
+        enabled,
+        groups,
+        isConnected,
         libraryTracksById,
-        ranges,
-        sections,
-        songInfoErr,
+        sessionRevision,
+        startGroup,
+        wake,
     ]);
 
+    const found = current.found;
+    const settled = current.settled;
+    const trackFor = useCallback(
+        (songId: string) => libraryTracksById.get(songId) ?? found.get(songId),
+        [found, libraryTracksById],
+    );
+    const isSettled = useCallback(
+        (songId: string) =>
+            libraryTracksById.has(songId) || settled.has(songId),
+        [libraryTracksById, settled],
+    );
+
     return {
-        tracksBySection,
-        pending,
-        tracksErr: allLibraryTracksErr ?? songInfoErr,
+        trackFor,
+        isSettled,
+        /** Nothing can be shown until the library, which most songs come from, is in. */
+        libraryLoading: enabled && allLibraryTracksLoading,
+        tracksErr: allLibraryTracksErr,
     };
 }
+
+const EMPTY_FOUND: ReadonlyMap<string, MusicItem> = new Map();
+const EMPTY_SETTLED: ReadonlySet<string> = new Set();
 
 /** Indexes tracks under every id they carry, so either keyspace finds them. */
 export function indexTracksById(tracks: readonly MusicItem[]) {

@@ -76,6 +76,8 @@ export default function QueryResultsScreen() {
         arrangement,
         lookupTracks,
         onRejected: resetArrangement,
+        // the rows show these, so a grouped list loads them with the songs
+        warmActivityTags: activityTagIds.length > 0,
     });
     const { arranged, loadedCount, resolveTracks, shownTracks, songs } = list;
     // unsorted, every song that is certainly the user's own plays, scrolled to

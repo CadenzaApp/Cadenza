@@ -57,9 +57,7 @@ import {
 import { MusicListArrangeButton } from "./music-list-arrange-sheet";
 import {
     MUSIC_LIST_SECTION_HEADER_HEIGHT,
-    MUSIC_LIST_SHOW_MORE_HEIGHT,
     MusicListSectionHeader,
-    MusicListShowMoreRow,
 } from "./music-list-section-header";
 import { useMusicListSelection } from "./use-music-list-selection";
 import type {
@@ -93,13 +91,12 @@ const AnimatedFlashList = Animated.createAnimatedComponent(
 );
 
 /**
- * One row of the list: a song, or in a grouped list a group's header, its
- * "Show more" button, or the placeholder while it loads.
+ * One row of the list: a song, or in a grouped list a group's header or the
+ * placeholder while its first songs load.
  */
 type MusicListRowItem =
     | { type: "track"; track: MusicItem; sectionKey?: string }
     | { type: "header"; section: MusicListSection }
-    | { type: "more"; section: MusicListSection }
     | { type: "loading"; section: MusicListSection };
 
 /** A grouped list's rows: each header, then an open group's songs. */
@@ -117,11 +114,8 @@ function sectionRows(
                 sectionKey: section.key,
             }),
         );
-        if (section.isLoading && tracks.length === 0) {
-            return [header, { type: "loading", section }];
-        }
-        return section.hasMore
-            ? [header, ...tracks, { type: "more", section }]
+        return section.isLoading && tracks.length === 0
+            ? [header, { type: "loading", section }]
             : [header, ...tracks];
     });
 }
@@ -131,8 +125,6 @@ function rowHeightOf(row: MusicListRowItem, trackRowHeight: number) {
     switch (row.type) {
         case "header":
             return MUSIC_LIST_SECTION_HEADER_HEIGHT;
-        case "more":
-            return MUSIC_LIST_SHOW_MORE_HEIGHT;
         default:
             return trackRowHeight;
     }
@@ -558,19 +550,6 @@ export function MusicList({
                                                 fullBleedRowHorizontalPadding
                                             }
                                             onToggle={sections!.onToggle}
-                                        />
-                                    );
-                                }
-                                if (row.type === "more") {
-                                    return (
-                                        <MusicListShowMoreRow
-                                            surfaceOffset={surfaceOffset}
-                                            section={row.section}
-                                            fullBleed={fullBleedRows}
-                                            fullBleedHorizontalPadding={
-                                                fullBleedRowHorizontalPadding
-                                            }
-                                            onShowMore={sections!.onShowMore}
                                         />
                                     );
                                 }
