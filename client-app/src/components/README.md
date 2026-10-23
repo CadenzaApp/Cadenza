@@ -156,7 +156,8 @@ variables), `tailwind.config.js`, and `global.css`. Class merging goes through
 | `tag-fade-rail.tsx`                | Overflow-aware horizontal tag rail whose alpha mask preserves the surface behind it. User tags with values, then unfilled defaults. |
 | `row-tags.tsx`                     | The list's tag reads and a per-list store rows read their own song from, so a tag response re-renders only the rows it changes.     |
 | `music-list-arrange-sheet.tsx`     | The floating Sort by / Group by control and its sheet, picking any tag from a searchable `OptionPicker`.                            |
-| `music-list-section-header.tsx`    | A group's header, which opens and closes it. An open group shows all its songs.                                                     |
+| `music-list-section-header.tsx`    | A group's header, which opens and closes it.                                                                                        |
+| `list-windows.ts`                  | The pure row math: an open group's rows 50 at a time, when a group shows more, and which rows' tags to read. Tested.                |
 | `music-list-action-button.tsx`     | One button in the selection toolbar.                                                                                                |
 | `music-list-selection-toolbar.tsx` | The bar that slides up while rows are selected.                                                                                     |
 | `use-music-list-selection.ts`      | Selection state, haptics, and pruning. Tested in `use-music-list-selection.test.ts`.                                                |
@@ -167,7 +168,10 @@ The list never sorts anything itself. `arrangement` only draws the Sort by / Gro
 the caller has the backend order the whole list (`@/lib/arranged-track-list`) and hands back the
 songs in order, or `sections`, one collapsible header per group. A grouped list ignores
 `pagination`, since each open group loads its own songs, and keys its rows by group too, because
-one song can turn up under two ids in two groups. Four screens offer it: Library Songs, Query
+one song can turn up under two ids in two groups. An open group shows its first 50 songs and
+50 more each time the screen nears the last one shown (`list-windows.ts`), so a group of a
+thousand songs costs about what one of fifty does to open, close, or keep open; closing it starts
+it over at 50. Four screens offer it: Library Songs, Query
 results, a tag, and an album or playlist. Analytics, search and the artist page do not.
 
 Paging is opt-in. Pass `pagination` to get `onEndReached` plus footer skeletons, or `null` for a
@@ -245,7 +249,10 @@ supplies its own scroller through `renderScrollComponent` with `ScreenScrollMark
 marker needs the `ScrollView` as its only child and asserts otherwise.
 
 Tags never live on `MusicList` itself. `RowTagSource` runs the tag reads and pushes them into a
-per-list store, and each row subscribes to its own song (`useRowTags`). A tag response re-renders
+per-list store, and each row subscribes to its own song (`useRowTags`). The reads cover the rows
+near the screen, a few dozen ahead, plus the selected songs, not every song on show: suggested
+tags are written by an LLM the first time a song is asked about, so a long list must not ask for
+hundreds at once. A song once read stays read for as long as the list is up. A tag response re-renders
 the rows whose tags changed, not the list. The selection toolbar renders inside `RowTagSource`,
 since it needs the same reads.
 

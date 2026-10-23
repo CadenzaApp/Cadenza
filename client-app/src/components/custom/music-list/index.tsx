@@ -56,15 +56,18 @@ import {
 } from "./row-tags";
 import { MusicListArrangeButton } from "./music-list-arrange-sheet";
 import {
+    GROUP_WINDOW,
+    groupsToGrow,
+    sectionRows,
+    tagIdsToRead,
+    type MusicListRowItem,
+} from "./list-windows";
+import {
     MUSIC_LIST_SECTION_HEADER_HEIGHT,
     MusicListSectionHeader,
 } from "./music-list-section-header";
 import { useMusicListSelection } from "./use-music-list-selection";
-import type {
-    MusicListProps,
-    MusicListSection,
-    MusicListTrackAction,
-} from "./types";
+import type { MusicListProps, MusicListTrackAction } from "./types";
 
 const EMPTY_TAG_NAMES: readonly string[] = [];
 const EMPTY_TRACK_ACTIONS: readonly MusicListTrackAction[] = [];
@@ -89,36 +92,6 @@ const MUSIC_LIST_BOTTOM_SPACER_ROWS = 2;
 const AnimatedFlashList = Animated.createAnimatedComponent(
     FlashList<MusicListRowItem>,
 );
-
-/**
- * One row of the list: a song, or in a grouped list a group's header or the
- * placeholder while its first songs load.
- */
-type MusicListRowItem =
-    | { type: "track"; track: MusicItem; sectionKey?: string }
-    | { type: "header"; section: MusicListSection }
-    | { type: "loading"; section: MusicListSection };
-
-/** A grouped list's rows: each header, then an open group's songs. */
-function sectionRows(
-    sections: readonly MusicListSection[],
-): MusicListRowItem[] {
-    return sections.flatMap((section): MusicListRowItem[] => {
-        const header: MusicListRowItem = { type: "header", section };
-        if (!section.expanded) return [header];
-        // keyed by group too: one song can be in two groups under two ids
-        const tracks = section.tracks.map(
-            (track): MusicListRowItem => ({
-                type: "track",
-                track,
-                sectionKey: section.key,
-            }),
-        );
-        return section.isLoading && tracks.length === 0
-            ? [header, { type: "loading", section }]
-            : [header, ...tracks];
-    });
-}
 
 /** How tall a row is, for where it sits on a tinted page's gradient. */
 function rowHeightOf(row: MusicListRowItem, trackRowHeight: number) {
@@ -182,6 +155,25 @@ const HIGHLIGHT_VIEWABILITY = {
     itemVisiblePercentThreshold: 80,
     minimumViewTime: 250,
 };
+
+// any part on screen, reported as soon as it is, for the group windows and
+// the tag reads
+const WINDOW_VIEWABILITY = {
+    itemVisiblePercentThreshold: 1,
+    minimumViewTime: 0,
+};
+/** Rows whose tags are read before the list says what is on screen. */
+const INITIAL_TAG_ROWS = 30;
+const NO_GROUP_LIMITS: ReadonlyMap<string, number> = new Map();
+const NO_SONG_IDS: readonly string[] = [];
+const NO_READ_TAG_IDS: {
+    ids: readonly string[];
+    set: ReadonlySet<string>;
+} = { ids: [], set: new Set() };
+
+function songIdOf(track: MusicItem) {
+    return track.catalogId ?? track.id;
+}
 
 type HighlightPhase = "waiting" | "playing" | "done";
 
@@ -252,14 +244,45 @@ export function MusicList({
     }));
     const { floatingActionBottom, listBottomInset, playerBottomInset } =
         useScreenOverlayInsets();
+    // how many songs each open group shows, past the first `GROUP_WINDOW`.
+    // grows as the user scrolls near the end, and starts over when it closes
+    const [groupLimits, setGroupLimits] =
+        useState<ReadonlyMap<string, number>>(NO_GROUP_LIMITS);
+    const limitOf = useCallback(
+        (key: string) => groupLimits.get(key) ?? GROUP_WINDOW,
+        [groupLimits],
+    );
+    const sectionCounts = useMemo(
+        () =>
+            new Map(
+                (sections?.sections ?? []).map((section) => [
+                    section.key,
+                    section.count,
+                ]),
+            ),
+        [sections],
+    );
+    const onSectionToggle = sections?.onToggle;
+    const toggleSection = useCallback(
+        (key: string) => {
+            setGroupLimits((previous) => {
+                if (!previous.has(key)) return previous;
+                const next = new Map(previous);
+                next.delete(key);
+                return next;
+            });
+            onSectionToggle?.(key);
+        },
+        [onSectionToggle],
+    );
     const rows = useMemo(
         () =>
             sections
-                ? sectionRows(sections.sections)
+                ? sectionRows(sections.sections, limitOf)
                 : tracks.map(
                       (track): MusicListRowItem => ({ type: "track", track }),
                   ),
-        [sections, tracks],
+        [limitOf, sections, tracks],
     );
     // the songs on show, in order, which is what selection and tags read
     const displayedTracks = useMemo(
@@ -299,12 +322,111 @@ export function MusicList({
             selectionCanApplyTags);
     const tagsEnabled =
         localTagsEnabled || defaultTagsEnabled || activityTagIds.length > 0;
-    const taggableIds = useMemo(
-        () =>
-            tagsEnabled
-                ? displayedTracks.map((track) => track.catalogId ?? track.id)
-                : [],
-        [displayedTracks, tagsEnabled],
+    // tags are read for the rows near the screen, not every song on show, so
+    // a long list or a big group never asks for hundreds at once (suggested
+    // tags are written by an LLM the first time a song is asked about). what
+    // has been read stays read, so scrolling back never drops a row's tags
+    const [readTagIds, setReadTagIds] = useState(NO_READ_TAG_IDS);
+    const selectedTracks = selection.selectedTracks;
+    const taggableIds = useMemo(() => {
+        if (!tagsEnabled) return NO_SONG_IDS;
+        // before the list reports what is on screen, the first rows
+        const base =
+            readTagIds.ids.length > 0
+                ? readTagIds.ids
+                : displayedTracks.slice(0, INITIAL_TAG_ROWS).map(songIdOf);
+        // the selection toolbar reads the selected songs' tags
+        const known = new Set(base);
+        const selected = selectedTracks
+            .map(songIdOf)
+            .filter((songId) => !known.has(songId));
+        return selected.length > 0 ? [...base, ...selected] : base;
+    }, [displayedTracks, readTagIds, selectedTracks, tagsEnabled]);
+
+    // the rows on screen, from the list. a ref, since it is only read when
+    // the windows below are moved
+    const viewRange = useRef<{ first: number; last: number } | null>(null);
+    const moveWindows = useCallback(
+        (first: number, last: number) => {
+            if (sections) {
+                const grow = groupsToGrow(
+                    rows,
+                    first,
+                    last,
+                    limitOf,
+                    (key) => sectionCounts.get(key) ?? 0,
+                );
+                if (grow.length > 0) {
+                    setGroupLimits((previous) => {
+                        const next = new Map(previous);
+                        for (const key of grow) {
+                            // never past what this render meant, if the list
+                            // reports twice before it renders again
+                            next.set(
+                                key,
+                                Math.max(
+                                    previous.get(key) ?? GROUP_WINDOW,
+                                    limitOf(key) + GROUP_WINDOW,
+                                ),
+                            );
+                        }
+                        return next;
+                    });
+                }
+            }
+            if (tagsEnabled) {
+                const ids = tagIdsToRead(
+                    rows,
+                    first,
+                    last,
+                    readTagIds.set,
+                    songIdOf,
+                );
+                if (ids && ids.length > 0) {
+                    setReadTagIds((previous) => {
+                        const added = ids.filter(
+                            (songId) => !previous.set.has(songId),
+                        );
+                        if (added.length === 0) return previous;
+                        return {
+                            ids: [...previous.ids, ...added],
+                            set: new Set([...previous.set, ...added]),
+                        };
+                    });
+                }
+            }
+        },
+        [limitOf, readTagIds.set, rows, sectionCounts, sections, tagsEnabled],
+    );
+    const onWindowItemsChanged = useCallback(
+        ({ viewableItems }: { viewableItems: ViewToken[] }) => {
+            let first = Infinity;
+            let last = -1;
+            for (const token of viewableItems) {
+                if (token.index == null) continue;
+                first = Math.min(first, token.index);
+                last = Math.max(last, token.index);
+            }
+            if (last < 0) return;
+            viewRange.current = { first, last };
+            moveWindows(first, last);
+        },
+        [moveWindows],
+    );
+    // the list only reports when other rows come on screen, not when the rows
+    // under a still screen change, like a group opening or more songs landing
+    useEffect(() => {
+        const range = viewRange.current;
+        if (range) moveWindows(range.first, range.last);
+    }, [moveWindows]);
+    const viewabilityPairs = useMemo(
+        () => [
+            {
+                viewabilityConfig: WINDOW_VIEWABILITY,
+                onViewableItemsChanged: onWindowItemsChanged,
+            },
+        ],
+        [onWindowItemsChanged],
     );
     // the tag reads live in RowTagSource and rows read their own song from
     // this store, so a tag response never re-renders the list
@@ -549,7 +671,7 @@ export function MusicList({
                                             fullBleedHorizontalPadding={
                                                 fullBleedRowHorizontalPadding
                                             }
-                                            onToggle={sections!.onToggle}
+                                            onToggle={toggleSection}
                                         />
                                     );
                                 }
@@ -703,6 +825,7 @@ export function MusicList({
                             onEndReachedThreshold={0.1}
                             viewabilityConfig={HIGHLIGHT_VIEWABILITY}
                             onViewableItemsChanged={onViewableItemsChanged}
+                            viewabilityConfigCallbackPairs={viewabilityPairs}
                         />
                     </ContentBackgroundContext.Provider>
                 </Animated.View>

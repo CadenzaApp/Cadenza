@@ -798,6 +798,8 @@ const GROUPED_PARALLEL_CHUNKS = 2;
 /** Tries a chunk gets before its songs are left out as ones Apple cannot find. */
 const GROUPED_CHUNK_ATTEMPTS = 3;
 const GROUPED_RETRY_DELAY_MS = 2000;
+/** The most often a grouped list's answers are written to its store. */
+const GROUPED_FLUSH_MS = 300;
 
 type GroupedStore = {
     /** The Apple Music session these answers belong to. */
@@ -866,13 +868,59 @@ export function useGroupedTrackLoader({
     const attempts = useRef(new Map<string, number>());
     const running = useRef(0);
     const mounted = useRef(true);
-    const [wake, setWake] = useState(0);
+    // starts the next chunks. the scheduling effect points it at its own
+    // pass, and a chunk calls it when it finishes, so the walk carries on
+    // without re-rendering the screen once per chunk
+    const pump = useRef<() => void>(NO_PUMP);
     useEffect(() => {
         mounted.current = true;
         return () => {
             mounted.current = false;
         };
     }, []);
+
+    // answers wait here and go to the store together, at most every
+    // `GROUPED_FLUSH_MS`, so a big list filling in re-renders a few times a
+    // second rather than once per chunk. the first answer after a quiet spell
+    // goes straight in, so a group just opened shows its songs at once
+    const pending = useRef<{
+        revision: number;
+        found: Map<string, MusicItem>;
+        settled: string[];
+    }>({ revision: sessionRevision, found: new Map(), settled: [] });
+    const lastFlush = useRef(0);
+    const flushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const flush = useCallback(() => {
+        flushTimer.current = null;
+        lastFlush.current = Date.now();
+        const batch = pending.current;
+        if (batch.settled.length === 0 || !mounted.current) return;
+        pending.current = {
+            revision: batch.revision,
+            found: new Map(),
+            settled: [],
+        };
+        setStore((previous) => {
+            const same = previous.sessionRevision === batch.revision;
+            const found = new Map(same ? previous.found : []);
+            for (const [songId, track] of batch.found) found.set(songId, track);
+            const settled = new Set(same ? previous.settled : []);
+            for (const songId of batch.settled) settled.add(songId);
+            return { sessionRevision: batch.revision, found, settled };
+        });
+    }, []);
+    const scheduleFlush = useCallback(() => {
+        if (flushTimer.current) return;
+        const wait = lastFlush.current + GROUPED_FLUSH_MS - Date.now();
+        if (wait <= 0) flush();
+        else flushTimer.current = setTimeout(flush, wait);
+    }, [flush]);
+    useEffect(
+        () => () => {
+            if (flushTimer.current) clearTimeout(flushTimer.current);
+        },
+        [],
+    );
 
     useEffect(() => {
         if (!enabled || !groups || !isConnected || allLibraryTracksLoading) {
@@ -881,88 +929,91 @@ export function useGroupedTrackLoader({
         if (settledNow.current.revision !== sessionRevision) {
             settledNow.current = { revision: sessionRevision, ids: new Set() };
         }
-        const settled = settledNow.current.ids;
-        while (running.current < GROUPED_PARALLEL_CHUNKS) {
-            const chunk = nextGroupedChunk(
-                groups,
-                startGroup,
-                (songId) => settled.has(songId) || inFlight.current.has(songId),
-                GROUPED_CHUNK_SIZE,
-            );
-            if (chunk.length === 0) break;
-            for (const songId of chunk) inFlight.current.add(songId);
-            running.current += 1;
-            void (async () => {
-                const toFetch = chunk.filter(
-                    (songId) => !libraryTracksById.has(songId),
-                );
-                let fetched = new Map<string, MusicItem>();
-                let failed = false;
-                if (toFetch.length > 0) {
-                    try {
-                        fetched = indexTracksById(
-                            await read(() => MusicKit.getSongInfo(toFetch)),
-                        );
-                    } catch (error) {
-                        console.error(
-                            "Could not load songs for a grouped list:",
-                            error,
-                        );
-                        failed = true;
-                    }
-                }
-                const tries = (attempts.current.get(chunk[0]) ?? 0) + 1;
-                const settle = !failed || tries >= GROUPED_CHUNK_ATTEMPTS;
-                // an answer from a session that has since been replaced is
-                // dropped. the new session asks again
-                const current = latestRevision.current === sessionRevision;
-                if (settle && current) {
-                    for (const songId of chunk) settled.add(songId);
-                }
-                if (settle && mounted.current && current) {
-                    setStore((previous) => {
-                        const same =
-                            previous.sessionRevision === sessionRevision;
-                        const found = new Map(same ? previous.found : []);
-                        for (const [songId, track] of fetched) {
-                            found.set(songId, track);
-                        }
-                        const nextSettled = new Set(
-                            same ? previous.settled : [],
-                        );
-                        for (const songId of chunk) nextSettled.add(songId);
-                        return {
-                            sessionRevision,
-                            found,
-                            settled: nextSettled,
-                        };
-                    });
-                }
-                if (settle) {
-                    const tracks = chunk.flatMap((songId) => {
-                        const track =
-                            libraryTracksById.get(songId) ??
-                            fetched.get(songId);
-                        return track ? [track] : [];
-                    });
-                    // one chunk's tags at a time per slot, so a large list
-                    // never sends the backend a burst
-                    try {
-                        await afterChunk?.(tracks);
-                    } catch {
-                        // the rows ask again for anything this missed
-                    }
-                } else {
-                    attempts.current.set(chunk[0], tries);
-                    await new Promise((resolve) =>
-                        setTimeout(resolve, GROUPED_RETRY_DELAY_MS),
-                    );
-                }
-                for (const songId of chunk) inFlight.current.delete(songId);
-                running.current -= 1;
-                if (mounted.current) setWake((count) => count + 1);
-            })();
+        if (pending.current.revision !== sessionRevision) {
+            pending.current = {
+                revision: sessionRevision,
+                found: new Map(),
+                settled: [],
+            };
         }
+        const settled = settledNow.current.ids;
+        const run = () => {
+            while (running.current < GROUPED_PARALLEL_CHUNKS) {
+                const chunk = nextGroupedChunk(
+                    groups,
+                    startGroup,
+                    (songId) =>
+                        settled.has(songId) || inFlight.current.has(songId),
+                    GROUPED_CHUNK_SIZE,
+                );
+                if (chunk.length === 0) break;
+                for (const songId of chunk) inFlight.current.add(songId);
+                running.current += 1;
+                void (async () => {
+                    const toFetch = chunk.filter(
+                        (songId) => !libraryTracksById.has(songId),
+                    );
+                    let fetched = new Map<string, MusicItem>();
+                    let failed = false;
+                    if (toFetch.length > 0) {
+                        try {
+                            fetched = indexTracksById(
+                                await read(() => MusicKit.getSongInfo(toFetch)),
+                            );
+                        } catch (error) {
+                            console.error(
+                                "Could not load songs for a grouped list:",
+                                error,
+                            );
+                            failed = true;
+                        }
+                    }
+                    const tries = (attempts.current.get(chunk[0]) ?? 0) + 1;
+                    const settle = !failed || tries >= GROUPED_CHUNK_ATTEMPTS;
+                    // an answer from a session that has since been replaced is
+                    // dropped. the new session asks again
+                    const current = latestRevision.current === sessionRevision;
+                    if (settle && current) {
+                        for (const songId of chunk) settled.add(songId);
+                    }
+                    if (settle && mounted.current && current) {
+                        for (const [songId, track] of fetched) {
+                            pending.current.found.set(songId, track);
+                        }
+                        pending.current.settled.push(...chunk);
+                        scheduleFlush();
+                    }
+                    if (settle) {
+                        const tracks = chunk.flatMap((songId) => {
+                            const track =
+                                libraryTracksById.get(songId) ??
+                                fetched.get(songId);
+                            return track ? [track] : [];
+                        });
+                        // one chunk's tags at a time per slot, so a large list
+                        // never sends the backend a burst
+                        try {
+                            await afterChunk?.(tracks);
+                        } catch {
+                            // the rows ask again for anything this missed
+                        }
+                    } else {
+                        attempts.current.set(chunk[0], tries);
+                        await new Promise((resolve) =>
+                            setTimeout(resolve, GROUPED_RETRY_DELAY_MS),
+                        );
+                    }
+                    for (const songId of chunk) inFlight.current.delete(songId);
+                    running.current -= 1;
+                    if (mounted.current) pump.current();
+                })();
+            }
+        };
+        pump.current = run;
+        run();
+        return () => {
+            if (pump.current === run) pump.current = NO_PUMP;
+        };
     }, [
         afterChunk,
         allLibraryTracksLoading,
@@ -970,9 +1021,9 @@ export function useGroupedTrackLoader({
         groups,
         isConnected,
         libraryTracksById,
+        scheduleFlush,
         sessionRevision,
         startGroup,
-        wake,
     ]);
 
     const found = current.found;
@@ -997,6 +1048,7 @@ export function useGroupedTrackLoader({
 }
 
 const EMPTY_FOUND: ReadonlyMap<string, MusicItem> = new Map();
+const NO_PUMP = () => {};
 const EMPTY_SETTLED: ReadonlySet<string> = new Set();
 
 /** Indexes tracks under every id they carry, so either keyspace finds them. */

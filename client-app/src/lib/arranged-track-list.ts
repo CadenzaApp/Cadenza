@@ -6,6 +6,7 @@ import type {
     MusicListSection,
     MusicListSections,
 } from "@/components/custom/music-list";
+import { reuseSections } from "@/components/custom/music-list/list-windows";
 
 import {
     indexTracksById,
@@ -201,9 +202,17 @@ export function useArrangedTrackList({
         localTracksById,
         openKeys,
     ]);
+    // the loader writes a few times a second while a list fills in, mostly
+    // songs of groups that are closed. keep the groups as they were unless one
+    // on show changed, so the list does not redraw for nothing
+    const [heldSections, setHeldSections] = useState<
+        readonly MusicListSection[] | null
+    >(sections);
+    const stableSections = reuseSections(heldSections, sections);
+    if (stableSections !== heldSections) setHeldSections(stableSections);
     const listSections = useMemo<MusicListSections | null>(
-        () => (sections ? { sections, onToggle } : null),
-        [onToggle, sections],
+        () => (stableSections ? { sections: stableSections, onToggle } : null),
+        [onToggle, stableSections],
     );
 
     // flat: the paged tracks, or a list the phone holds put in order
@@ -227,12 +236,12 @@ export function useArrangedTrackList({
     /** Every song on show, in order: what Play and Shuffle queue when sorted. */
     const shownTracks = useMemo(
         () =>
-            sections
-                ? sections.flatMap((section) =>
+            stableSections
+                ? stableSections.flatMap((section) =>
                       section.expanded ? section.tracks : [],
                   )
                 : flatTracks,
-        [flatTracks, sections],
+        [flatTracks, stableSections],
     );
 
     const pagination = useMemo<MusicListPagination | null>(

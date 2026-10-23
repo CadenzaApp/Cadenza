@@ -6,6 +6,9 @@ import type { MusicListMultiSelectConfig } from "./types";
 import { reduceMusicListSelection } from "./selection-utils";
 
 const EMPTY_SELECTION: ReadonlySet<string> = new Set();
+const NO_TRACKS: MusicItem[] = [];
+const NO_TRACK_INDEX: ReadonlyMap<string, { track: MusicItem; index: number }> =
+    new Map();
 
 export function useMusicListSelection(
     displayedTracks: readonly MusicItem[],
@@ -22,22 +25,23 @@ export function useMusicListSelection(
         [],
     );
     const enabled = config != null;
-    const displayedIds = useMemo(
-        () => new Set(displayedTracks.map((track) => track.id)),
-        [displayedTracks],
-    );
+    // only built while something is selected: a grouped list's rows change
+    // every time a group opens, and nothing reads these otherwise
+    const hasSelection = enabled && selectedIds.size > 0;
     const displayedTrackIndex = useMemo(
         () =>
-            new Map(
-                displayedTracks.map((track, index) => [
-                    track.id,
-                    { track, index },
-                ]),
-            ),
-        [displayedTracks],
+            hasSelection
+                ? new Map(
+                      displayedTracks.map((track, index) => [
+                          track.id,
+                          { track, index },
+                      ]),
+                  )
+                : NO_TRACK_INDEX,
+        [displayedTracks, hasSelection],
     );
     const selectedTracks = useMemo(() => {
-        if (!enabled) return [];
+        if (!hasSelection) return NO_TRACKS;
         return [...selectedIds]
             .flatMap((id) => {
                 const item = displayedTrackIndex.get(id);
@@ -45,7 +49,7 @@ export function useMusicListSelection(
             })
             .sort((left, right) => left.index - right.index)
             .map(({ track }) => track);
-    }, [displayedTrackIndex, enabled, selectedIds]);
+    }, [displayedTrackIndex, hasSelection, selectedIds]);
     const isSelecting = enabled && selectedIds.size > 0;
 
     const onSelectionChange = config?.onSelectionChange;
@@ -55,16 +59,20 @@ export function useMusicListSelection(
 
     useEffect(() => {
         // Selection is scoped to the currently displayed result set.
+        if (!hasSelection && enabled) return;
         // eslint-disable-next-line react-hooks/set-state-in-effect
         setSelectedIds((currentIds) =>
             reduceMusicListSelection(
                 currentIds,
                 enabled
-                    ? { type: "reconcile", availableIds: displayedIds }
+                    ? {
+                          type: "reconcile",
+                          availableIds: new Set(displayedTrackIndex.keys()),
+                      }
                     : { type: "clear" },
             ),
         );
-    }, [displayedIds, enabled]);
+    }, [displayedTrackIndex, enabled, hasSelection]);
 
     const beginSelection = useCallback(
         (track: MusicItem) => {
