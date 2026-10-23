@@ -1,23 +1,16 @@
-import Ionicons from "@expo/vector-icons/Ionicons";
-import { LinearGradient } from "expo-linear-gradient";
 import { Redirect, useRouter, type Href } from "expo-router";
-import { useState } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Pressable, View } from "react-native";
 
-import { getAccountInitials } from "@/components/custom/account-initials";
 import { AppleMusicLogo } from "@/components/custom/apple-music-logo";
 import { GlassPanel } from "@/components/ui/glass-panel";
 import { GlassPill } from "@/components/ui/glass-pill";
-import { GlassConfirmDialog } from "@/components/ui/glass-confirm-dialog";
 import { Text } from "@/components/ui/text";
 import { useAccount } from "@/lib/account";
 import { useAppleMusic } from "@/lib/apple-music-auth";
-import { useProfile } from "@/lib/routes/profile";
 import { useUserSettings, type ThemeMode } from "@/lib/routes/settings";
 import { useAppleMusicSync } from "@/lib/song-init";
-import { useAppTheme } from "@/lib/theme";
-import { useOpenSocialProfile } from "@/lib/use-open-social-profile";
 
+import { AccountAvatar, useAccountIdentity } from "./account-avatar";
 import {
     appleMusicStatus,
     useConnectAppleMusic,
@@ -27,15 +20,11 @@ import {
     SettingsChevron,
     SettingsGroup,
     SettingsRow,
+    SettingsSheet,
     SettingsTile,
     StatusDot,
     type IoniconName,
-    SettingsSheet,
 } from "./settings-ui";
-
-const AVATAR_SIZE = 96;
-/** How far below center the initial sits, as a share of the avatar. */
-const INITIAL_NUDGE = 0.035;
 
 const THEME_MODE_LABEL: Record<ThemeMode, string> = {
     system: "System",
@@ -53,68 +42,28 @@ const THEME_MODE_ICON: Record<ThemeMode, IoniconName> = {
 
 /**
  * The account sheet: who you are, the Apple Music connection, and the way into
- * every other settings sheet. Each tile and row opens its own sheet.
+ * every other settings sheet. The header opens account details; each card and
+ * tile opens its own sheet.
  */
 export function AccountSettingsScreen() {
     const router = useRouter();
-    const { account, signOut } = useAccount();
-    const { profile } = useProfile(Boolean(account));
+    const { account } = useAccount();
     const { settings } = useUserSettings();
-    const openSocialProfile = useOpenSocialProfile();
-    const [confirmOpen, setConfirmOpen] = useState(false);
-    const [signingOut, setSigningOut] = useState(false);
-    const [signOutError, setSignOutError] = useState<string | null>(null);
+    const { displayName, initial } = useAccountIdentity();
 
     if (!account) {
         return <Redirect href="/auth?initialMode=signin" />;
     }
 
-    const emailName = account.email.split("@", 1)[0] ?? account.email;
-    const displayName = profile?.username ?? emailName;
-    const initial = profile?.username
-        ? profile.username.charAt(0).toUpperCase()
-        : getAccountInitials(account.email);
-
-    function setConfirmation(open: boolean) {
-        if (signingOut) return;
-        setConfirmOpen(open);
-        if (!open) setSignOutError(null);
-    }
-
-    async function handleSignOut() {
-        if (signingOut) return;
-        setSigningOut(true);
-        setSignOutError(null);
-        try {
-            await signOut();
-            setConfirmOpen(false);
-            router.replace("/auth?initialMode=signin");
-        } catch (error) {
-            console.error("Account sign-out error:", error);
-            setSignOutError("Could not sign out. Please try again.");
-        } finally {
-            setSigningOut(false);
-        }
-    }
-
     return (
-        <SettingsSheet
-            title="Account"
-            overlay={
-                <GlassConfirmDialog
-                    open={confirmOpen}
-                    title="Sign out of Cadenza?"
-                    description="You will need to sign in again to use Cadenza."
-                    confirmLabel="Sign Out"
-                    pendingLabel="Signing out..."
-                    pending={signingOut}
-                    error={signOutError}
-                    onOpenChange={setConfirmation}
-                    onConfirm={() => void handleSignOut()}
-                />
-            }
-        >
-            <View className="items-center gap-1 pb-3">
+        <SettingsSheet title="Account">
+            <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`${displayName}, ${account.email}`}
+                accessibilityHint="Opens account details"
+                onPress={() => router.push("/account-details" as Href)}
+                className="items-center gap-1 pb-3 active:opacity-60"
+            >
                 <AccountAvatar initial={initial} />
                 <Text
                     className="mt-3 text-center text-2xl font-bold"
@@ -128,16 +77,22 @@ export function AccountSettingsScreen() {
                 >
                     {account.email}
                 </Text>
-                <View className="mt-3">
+                {/* the whole header opens the details, so the pill is
+                    only a cue and stays out of the touch and VoiceOver tree */}
+                <View
+                    className="mt-3"
+                    pointerEvents="none"
+                    importantForAccessibility="no-hide-descendants"
+                    accessibilityElementsHidden
+                >
                     <GlassPill
                         size="md"
                         icon="person-outline"
-                        label="View public profile"
+                        label="Account details"
                         chevron
-                        onPress={() => openSocialProfile(account.id)}
                     />
                 </View>
-            </View>
+            </Pressable>
 
             <AppleMusicCard
                 onOpen={() => router.push("/apple-music" as Href)}
@@ -168,50 +123,14 @@ export function AccountSettingsScreen() {
                     onPress={() => router.push("/privacy" as Href)}
                 />
                 <SettingsRow
-                    icon="person-outline"
-                    title="Account details"
+                    icon="information-circle-outline"
+                    title="Apple Music limits"
+                    description="What Apple does not let Cadenza do"
                     chevron
-                    onPress={() => router.push("/account-details" as Href)}
+                    onPress={() => router.push("/apple-music-limits" as Href)}
                 />
             </SettingsGroup>
-
-            <SignOutButton onPress={() => setConfirmation(true)} />
         </SettingsSheet>
-    );
-}
-
-/** A large accent circle with the user's initial. */
-function AccountAvatar({ initial }: { initial: string }) {
-    const { colors } = useAppTheme();
-
-    return (
-        <View
-            className="items-center justify-center overflow-hidden rounded-full"
-            style={{
-                width: AVATAR_SIZE,
-                height: AVATAR_SIZE,
-                backgroundColor: colors.brand,
-            }}
-        >
-            {/* a soft highlight from the top, so the flat fill reads round */}
-            <LinearGradient
-                pointerEvents="none"
-                colors={["rgba(255,255,255,0.28)", "rgba(255,255,255,0)"]}
-                style={StyleSheet.absoluteFill}
-            />
-            {/* a capital sits high in its line box, so nudge it down to
-                look centered in the circle */}
-            <Text
-                className="text-5xl font-bold"
-                style={{
-                    color: colors.brandForeground,
-                    transform: [{ translateY: AVATAR_SIZE * INITIAL_NUDGE }],
-                    includeFontPadding: false,
-                }}
-            >
-                {initial}
-            </Text>
-        </View>
     );
 }
 
@@ -300,28 +219,6 @@ function AppleMusicCard({ onOpen }: { onOpen: () => void }) {
                     ) : null}
                 </View>
             </GlassPanel>
-        </Pressable>
-    );
-}
-
-function SignOutButton({ onPress }: { onPress: () => void }) {
-    const { colors } = useAppTheme();
-
-    return (
-        <Pressable
-            accessibilityRole="button"
-            onPress={onPress}
-            hitSlop={8}
-            className="flex-row items-center justify-center gap-2.5 py-4 active:opacity-60"
-        >
-            <Ionicons
-                name="log-out-outline"
-                size={22}
-                color={colors.destructive}
-            />
-            <Text className="text-base font-semibold text-destructive">
-                Sign out of Cadenza
-            </Text>
         </Pressable>
     );
 }

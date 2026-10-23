@@ -27,7 +27,9 @@ logic out.
 | `apple-music.tsx`                    | `/apple-music`            | Apple Music sheet: status, sync, connect, disconnect.                                                         |
 | `listening-preferences.tsx`          | `/listening-preferences`  | Tag suggestions and Hide explicit content toggles.                                                            |
 | `privacy.tsx`                        | `/privacy`                | What Cadenza stores. Read only.                                                                               |
-| `account-details.tsx`                | `/account-details`        | Email and username.                                                                                           |
+| `account-details.tsx`                | `/account-details`        | Username and bio editor, Your data, sign out.                                                                 |
+| `your-data.tsx`                      | `/your-data`              | Everything Cadenza keeps about you, and Delete account (not wired up yet).                                    |
+| `apple-music-limits.tsx`             | `/apple-music-limits`     | What Apple does not let Cadenza do. Read only.                                                                |
 | `player/_layout.tsx`                 | `/player/*`               | Now playing sheet shell and provider stack for its always-mounted horizontal pager.                           |
 | `player/index.tsx`                   | `/player`                 | Opens the always-mounted player pager with Player selected.                                                   |
 | `player/discuss.tsx`                 | `/player/discuss`         | Opens the same pager with Discuss selected and optional focused-song params.                                  |
@@ -187,7 +189,7 @@ shared suggested-tag matching scope.
 ## Sheets
 
 The settings routes (`/account`, `/apple-music`, `/listening-preferences`, `/appearance`,
-`/privacy`, `/account-details`) and `/player` are sheets. A sheet is a native surface
+`/privacy`, `/account-details`, `/your-data`, `/apple-music-limits`) and `/player` are sheets. A sheet is a native surface
 over the whole app, so it covers the primary native tab bar and compact player while leaving them
 mounted underneath. Every settings sheet stacks from Account and keeps the same modal context. They are presented
 with `sheetScreenOptions` from `@/lib/theme`, the single definition of what a sheet looks like:
@@ -226,10 +228,10 @@ no "Now Playing" title and no Discuss / Player / Tags selector, and it does not 
 replace whatever is playing. The sheet's own Discuss page is still the pager tab for the
 song the sheet is focused on. Tapping an author on either Discuss surface closes that
 screen and opens `/social/user/:userId` on the Social tab, with the feed still underneath.
-Account's "Your Social Page" row uses that same navigation for your own page. The Social
-feed's "Me" button pushes `/social/user/:userId` on the social stack, like a feed
-author tap. On your own profile, Edit on the username row replaces the header with
-the username and bio form, and Save changes writes them with `PATCH /profile`.
+Account details' "View public profile" row uses that same navigation for your own page. The
+Social feed's "Me" button pushes `/social/user/:userId` on the social stack, like a feed author
+tap. Your own public page is read only; its Edit button opens `/account-details`, the only place a
+username and bio are edited.
 Song menus edit tags in their own `TagSelector` popup
 instead of routing through this sheet.
 

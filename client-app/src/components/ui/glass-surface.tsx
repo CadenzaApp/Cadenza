@@ -72,6 +72,13 @@ const NESTED_FILL_OPACITY: Record<GlassSurfaceVariant, number> = {
     clear: 0.05,
 };
 
+/**
+ * How strongly nested glass paints a tint its caller passes, like a toggle
+ * that is on. Close to solid, as liquid glass draws a tint, so the color
+ * reads true on a panel.
+ */
+const NESTED_TINT_OPACITY = 0.85;
+
 const FALLBACK_INTENSITY: Record<GlassSurfaceVariant, number> = {
     regular: 60,
     clear: 35,
@@ -158,7 +165,10 @@ export function GlassSurface({
                         },
                     ]}
                 />
-                <FallbackTint color={resolvedTint} />
+                <FallbackTint
+                    color={resolvedTint}
+                    opacity={NESTED_TINT_OPACITY}
+                />
                 {tintedFill}
                 {content}
             </View>
@@ -326,7 +336,13 @@ function TintedFill({ color }: { color: string }) {
 }
 
 /** Approximates a custom glass tint where native liquid glass is unavailable. */
-function FallbackTint({ color }: { color?: ColorValue }) {
+function FallbackTint({
+    color,
+    opacity = 0.18,
+}: {
+    color?: ColorValue;
+    opacity?: number;
+}) {
     if (color == null) return null;
 
     return (
@@ -334,7 +350,7 @@ function FallbackTint({ color }: { color?: ColorValue }) {
             pointerEvents="none"
             style={[
                 StyleSheet.absoluteFill,
-                { backgroundColor: color, opacity: 0.18 },
+                { backgroundColor: color, opacity },
             ]}
         />
     );

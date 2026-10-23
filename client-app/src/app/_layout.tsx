@@ -99,6 +99,14 @@ function RootStack() {
                 name="account-details"
                 options={sheetScreenOptions(theme)}
             />
+            <Stack.Screen
+                name="your-data"
+                options={sheetScreenOptions(theme)}
+            />
+            <Stack.Screen
+                name="apple-music-limits"
+                options={sheetScreenOptions(theme)}
+            />
             <Stack.Screen name="player" options={sheetScreenOptions(theme)} />
             <Stack.Screen
                 name="auth/index"

@@ -82,6 +82,48 @@ export function SettingsSection({
     );
 }
 
+export type SettingsPoint = {
+    icon: IoniconName;
+    title: string;
+    body: string;
+    /** Makes the card a button, like a pointer to another sheet. */
+    onPress?: () => void;
+};
+
+/** Read-only explainer cards: an icon, a title, and a paragraph each. */
+export function SettingsPoints({ points }: { points: SettingsPoint[] }) {
+    return points.map((point) => {
+        const card = (
+            <GlassPanel>
+                <View className="flex-row gap-3.5 px-4 py-4">
+                    <SettingsIcon name={point.icon} />
+                    <View className="flex-1 gap-1">
+                        <Text className="text-base font-semibold">
+                            {point.title}
+                        </Text>
+                        <Text className="text-sm leading-5 text-muted-foreground">
+                            {point.body}
+                        </Text>
+                    </View>
+                    {point.onPress ? <SettingsChevron /> : null}
+                </View>
+            </GlassPanel>
+        );
+        return point.onPress ? (
+            <Pressable
+                key={point.title}
+                accessibilityRole="button"
+                onPress={point.onPress}
+                className="active:opacity-60"
+            >
+                {card}
+            </Pressable>
+        ) : (
+            <View key={point.title}>{card}</View>
+        );
+    });
+}
+
 /** The line a settings screen shows when a save fails. */
 export function SaveError({ error }: { error: unknown }) {
     if (!error) return null;
@@ -214,7 +256,7 @@ export function SettingsGroup({ children }: { children: ReactNode }) {
             {rows.map((row, index) => (
                 <Fragment key={index}>
                     {index > 0 ? (
-                        <View className="mx-4 h-px bg-border" />
+                        <View className="mx-4 h-px bg-muted-foreground/30" />
                     ) : null}
                     {row}
                 </Fragment>

@@ -11,6 +11,8 @@ import { clearCache } from "./swr-utils";
 type Account = {
     id: string;
     email: string;
+    /** When the Cadenza account was made, as an ISO string. */
+    createdAt: string;
 };
 
 /** if `account == null`, then user isn't logged in */
@@ -57,6 +59,7 @@ export default function AccountProvider({ children }: Props) {
             setAccount({
                 id: data.session.user.id,
                 email: data.session.user.email!,
+                createdAt: data.session.user.created_at,
             });
             return true;
         }
@@ -73,6 +76,7 @@ export default function AccountProvider({ children }: Props) {
         setAccount({
             id: data.user!.id,
             email: data.user!.email!,
+            createdAt: data.user!.created_at,
         });
     }
 
@@ -86,6 +90,7 @@ export default function AccountProvider({ children }: Props) {
         setAccount({
             id: data.user!.id,
             email: data.user!.email!,
+            createdAt: data.user!.created_at,
         });
 
         // auth.users trigger usually already wrote the row; this covers a
@@ -137,7 +142,11 @@ export default function AccountProvider({ children }: Props) {
 
             setAccount(
                 session
-                    ? { id: session.user.id, email: session.user.email! }
+                    ? {
+                          id: session.user.id,
+                          email: session.user.email!,
+                          createdAt: session.user.created_at,
+                      }
                     : null,
             );
         });
