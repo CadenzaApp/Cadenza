@@ -87,7 +87,8 @@ A query runs over every song Cadenza knows, not just the library (see the query 
 - Sorts and groups on the backend, by any tag (metadata and activity tags included), so the
   whole result is ordered rather than the loaded rows. Sort by None, the default, is the
   user's own songs first, all of them, then the rest. Any sort or group is the first 1,000 songs
-  in that order, the user's own or not. The choice is remembered (`useSavedArrangement`).
+  in that order, the user's own or not. The choice is never saved: the screen opens with both at
+  None every time.
 - Counts with `matchCountLabel`, which reads `999+ songs` from 1000 matches up, and whenever the
   backend capped the songs from outside the user's own at 1000. A footer says when the list is
   complete or capped.

@@ -181,6 +181,13 @@ thousand songs costs about what one of fifty does to open, close, or keep open; 
 it over at 50. Four screens offer it: Library Songs, Query
 results, a tag, and an album or playlist. Analytics, search and the artist page do not.
 
+A sorted list leads every row's tag rail with the tag it is sorted by (`@/lib/sort-lead-tag`), so
+the value the list is sorted by is always in view: the row's own pill moved to the front for a
+user, activity, or suggested tag (read and shown even with that kind turned off), or a pill made
+on screen for a metadata tag, worded like its group headers, from `arrangement.sortValues`. Title
+and artist lead with nothing, since the row shows them, and grouping alone leads with nothing,
+since the header says the value.
+
 Paging is opt-in. Pass `pagination` to get `onEndReached` plus footer skeletons, or `null` for a
 list that is fully loaded up front, like a tag's songs or a query's results.
 

@@ -1,7 +1,10 @@
 use crate::db;
 use crate::db::queries::Arrangement;
 use crate::err::CadenzaError;
-use crate::routes::json::query::{Query, QueryGroup, QueryResults, QuerySort};
+use crate::routes::json::metadata_tag::metadata_tags_of;
+use crate::routes::json::query::{
+    ArrangeField, MetadataKey, Query, QueryGroup, QueryResults, QuerySort,
+};
 use crate::services::metadata_tags::{song_rows_for_list, store_metadata_before_sorting};
 use crate::services::song_metadata::SongMetadataService;
 use crate::{AppState, auth::SupabaseClaims};
@@ -10,6 +13,7 @@ use axum::{Json, Router, extract::State};
 use axum_jwt_auth::Claims;
 use sea_orm::DatabaseConnection;
 use serde::Deserialize;
+use std::collections::HashMap;
 
 #[derive(Deserialize)]
 struct QueryResultsBody {
@@ -109,6 +113,7 @@ async fn query_results_handler(
         group: body.group,
         time_zone: body.time_zone,
     };
+    let sorted_by = sorted_metadata_key(&arrangement);
     let arranged = !arrangement.is_none();
     if arranged {
         let own = db::queries::get_own_song_ids(&db, claims.user_id, body.library_only).await?;
@@ -135,6 +140,9 @@ async fn query_results_handler(
         for song in &mut results.songs {
             song.row = rows.remove(&song.song_id).map(Into::into);
         }
+    }
+    if let Some(key) = sorted_by {
+        attach_sort_values(&db, &mut results, key).await?;
     }
     Ok(Json(results))
 }
@@ -200,11 +208,50 @@ async fn arrange_handler(
         store_metadata_before_sorting(&db, &song_meta_service, &body.song_ids).await;
     }
 
-    Ok(Json(
+    let mut results: QueryResults =
         db::queries::arrange_song_ids(&db, claims.user_id, &body.song_ids, &arrangement)
             .await?
-            .into(),
-    ))
+            .into();
+    if let Some(key) = sorted_metadata_key(&arrangement) {
+        attach_sort_values(&db, &mut results, key).await?;
+    }
+    Ok(Json(results))
+}
+
+/// The metadata tag a list is sorted by, if it is sorted by one.
+fn sorted_metadata_key(arrangement: &Arrangement) -> Option<MetadataKey> {
+    match arrangement.sort.as_ref()?.field {
+        ArrangeField::Metadata { key } => Some(key),
+        ArrangeField::Tag { .. } => None,
+    }
+}
+
+/// Fills in each song's `sort_value`: its value of metadata tag `key`, as
+/// `GET /songs/metadata-tags` shows it.
+async fn attach_sort_values(
+    db: &DatabaseConnection,
+    results: &mut QueryResults,
+    key: MetadataKey,
+) -> Result<(), CadenzaError> {
+    let song_ids: Vec<String> = results
+        .songs
+        .iter()
+        .map(|song| song.song_id.clone())
+        .collect();
+    let mut values: HashMap<String, String> = db::metadata_tags::get_songs_metadata(db, &song_ids)
+        .await?
+        .iter()
+        .filter_map(|row| {
+            metadata_tags_of(row)
+                .into_iter()
+                .find(|tag| tag.key == key)
+                .map(|tag| (row.song_id.clone(), tag.value))
+        })
+        .collect();
+    for song in &mut results.songs {
+        song.sort_value = values.remove(&song.song_id);
+    }
+    Ok(())
 }
 
 pub fn get_queries_router() -> Router<AppState> {

@@ -40,6 +40,7 @@ import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { useScreenScroll } from "@/lib/screen-scroll";
 import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
 import { useMusicListPreferences } from "@/lib/music-list-preferences";
+import { sortLeadTag, type SortLeadTag } from "@/lib/sort-lead-tag";
 
 import {
     MusicListItem,
@@ -66,6 +67,7 @@ import {
     MUSIC_LIST_SECTION_HEADER_HEIGHT,
     MusicListSectionHeader,
 } from "./music-list-section-header";
+import type { RailLead } from "./sort-tags";
 import { useMusicListSelection } from "./use-music-list-selection";
 import type { MusicListProps, MusicListTrackAction } from "./types";
 
@@ -226,6 +228,36 @@ export function MusicList({
     // a grouped list loads each group on its own
     const pagination = sections ? null : paginationProp;
     const arrangementEnabled = arrangement != null;
+    // a sorted list leads every row's tags with the tag it is sorted by
+    const sortChoice = arrangement?.value.sort ?? null;
+    const sortValues = arrangement?.sortValues;
+    const lead = useMemo(
+        () => sortLeadTag(sortChoice, sortValues),
+        [sortChoice, sortValues],
+    );
+    const leadTagSource = lead?.kind === "tag" ? lead.source : null;
+    const leadTagId = lead?.kind === "tag" ? lead.tagId : null;
+    // an activity tag lead is read like any activity tag the list shows, first
+    const shownActivityTagIds = useMemo(
+        () =>
+            leadTagSource === "activity" && leadTagId !== null
+                ? [
+                      leadTagId,
+                      ...activityTagIds.filter((id) => id !== leadTagId),
+                  ]
+                : activityTagIds,
+        [activityTagIds, leadTagId, leadTagSource],
+    );
+    // the user's own or a suggested tag lead is read and shown even with its
+    // kind turned off
+    const rowTagLead = useMemo(
+        () =>
+            leadTagId !== null &&
+            (leadTagSource === "own" || leadTagSource === "suggested")
+                ? { source: leadTagSource, tagId: leadTagId }
+                : undefined,
+        [leadTagId, leadTagSource],
+    );
     const hasNextPage = pagination?.hasNextPage ?? false;
     const isLoadingNextPage = pagination?.isLoadingNextPage ?? false;
     const onLoadNextPage = pagination?.onLoadNextPage;
@@ -313,15 +345,19 @@ export function MusicList({
         multiSelect != null &&
         (multiSelect.actions == null ||
             multiSelect.actions.some((action) => action.kind === "apply-tags"));
-    const localTagsEnabled = showTags || selection.isSelecting;
+    const localTagsEnabled =
+        showTags || selection.isSelecting || leadTagSource === "own";
     const showSuggestedTagsInRows = showTags && showSuggestedTags;
     const defaultTagsEnabled =
         showSuggestedTagsInRows ||
+        leadTagSource === "suggested" ||
         (selection.isSelecting &&
             selection.selectedTracks.length === 1 &&
             selectionCanApplyTags);
     const tagsEnabled =
-        localTagsEnabled || defaultTagsEnabled || activityTagIds.length > 0;
+        localTagsEnabled ||
+        defaultTagsEnabled ||
+        shownActivityTagIds.length > 0;
     // tags are read for the rows near the screen, not every song on show, so
     // a long list or a big group never asks for hundreds at once (suggested
     // tags are written by an LLM the first time a song is asked about). what
@@ -731,7 +767,16 @@ export function MusicList({
                                             rowSurfaceColor={rowSurfaceColor}
                                             compact={isCompact}
                                             mostRelevantTags={mostRelevantTags}
-                                            activityTagIds={activityTagIds}
+                                            activityTagIds={shownActivityTagIds}
+                                            lead={lead}
+                                            leadValue={
+                                                lead?.kind === "value"
+                                                    ? leadValueOf(
+                                                          lead.values,
+                                                          item,
+                                                      )
+                                                    : undefined
+                                            }
                                             accessory={renderAccessory?.(item)}
                                             onPress={handleTrackPress}
                                             onLongPress={
@@ -845,7 +890,8 @@ export function MusicList({
                 loadSuggested={defaultTagsEnabled}
                 showTags={showTags}
                 showSuggested={showSuggestedTagsInRows}
-                activityTagIds={activityTagIds}
+                activityTagIds={shownActivityTagIds}
+                lead={rowTagLead}
                 toolbar={
                     selection.isSelecting && multiSelect
                         ? {
@@ -910,19 +956,44 @@ const MusicListRow = memo(function MusicListRow({
     store,
     songId,
     surfaceOffset,
+    lead,
+    leadValue,
     ...props
 }: Omit<
     MusicListItemProps,
-    "tags" | "defaultTags" | "activityTags" | "tagMetadata"
+    "tags" | "defaultTags" | "activityTags" | "tagMetadata" | "lead"
 > & {
     store: RowTagStore;
     songId: string;
     surfaceOffset: number;
+    /** The tag the list is sorted by. */
+    lead: SortLeadTag | null;
+    /** This song's value of it, for a metadata tag. */
+    leadValue?: string;
 }) {
     const rowTags = useRowTags(store, songId);
+    const railLead = useMemo<RailLead | undefined>(() => {
+        if (!lead) return undefined;
+        if (lead.kind === "tag") return lead;
+        return leadValue != null
+            ? { kind: "pill", tag: lead.tag, value: leadValue }
+            : undefined;
+    }, [lead, leadValue]);
     return (
         <ContrastRegion offset={surfaceOffset}>
-            <MusicListItem {...props} {...rowTags} />
+            <MusicListItem {...props} {...rowTags} lead={railLead} />
         </ContrastRegion>
     );
 });
+
+/** A song's value in `values`, under whichever of its ids the list used. */
+function leadValueOf(
+    values: ReadonlyMap<string, string>,
+    track: MusicItem,
+): string | undefined {
+    return (
+        values.get(track.id) ??
+        (track.catalogId ? values.get(track.catalogId) : undefined) ??
+        (track.libraryId ? values.get(track.libraryId) : undefined)
+    );
+}

@@ -31,16 +31,17 @@ export function DialogCloseButton({
         >
             {({ pressed }) => (
                 <>
-                    {pressed ? (
-                        <View
-                            pointerEvents="none"
-                            style={[
-                                StyleSheet.absoluteFill,
-                                styles.fill,
-                                { backgroundColor: colors.text },
-                            ]}
-                        />
-                    ) : null}
+                    {/* always there, only its opacity changes: a view that
+                        appears on press makes Android's mounting fail with
+                        "the specified child already has a parent" */}
+                    <View
+                        pointerEvents="none"
+                        style={[
+                            StyleSheet.absoluteFill,
+                            { backgroundColor: colors.text },
+                            pressed ? styles.fill : styles.restingFill,
+                        ]}
+                    />
                     <Ionicons
                         name="close"
                         size={18}
@@ -69,4 +70,5 @@ const styles = StyleSheet.create({
     },
     pressed: { transform: [{ scale: 0.92 }] },
     fill: { opacity: 0.14 },
+    restingFill: { opacity: 0 },
 });

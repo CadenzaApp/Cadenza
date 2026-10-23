@@ -21,8 +21,11 @@ import { isTrackInCollection } from "@/lib/playable-item";
 import type { PlaySource } from "@/lib/play-source";
 import { usePlaybackCommands, usePlaybackTrackState } from "@/lib/playback";
 import type { ArrangeSource } from "@/lib/routes/arrange";
-import { useSavedArrangement } from "@/lib/saved-arrangement";
-import { isArranged, NO_ARRANGEMENT } from "@/lib/song-arrangement";
+import {
+    isArranged,
+    NO_ARRANGEMENT,
+    type SongArrangement,
+} from "@/lib/song-arrangement";
 import { ZoomDismissScreen } from "@/lib/zoom-dismiss";
 import { MediaPlayerZoomOverlay } from "@/components/custom/media-player";
 
@@ -79,7 +82,9 @@ export default function CollectionDetailScreen() {
 
     // sorted or grouped, the backend orders the whole collection, so every page
     // has to be in before it can be asked. the pages load either way
-    const { arrangement, setArrangement } = useSavedArrangement("collection");
+    // starts unsorted every time the screen opens, and is never saved
+    const [arrangement, setArrangement] =
+        useState<SongArrangement>(NO_ARRANGEMENT);
     const arranged = isArranged(arrangement);
     const everyPageIn =
         !tracksLoading && !hasNextCollectionPage && !tracksLoadingNextPage;
@@ -202,6 +207,7 @@ export default function CollectionDetailScreen() {
                     arrangement={{
                         value: arrangement,
                         onChange: setArrangement,
+                        sortValues: list.sortValues,
                     }}
                     listOverlay={
                         waitingToSort ? (

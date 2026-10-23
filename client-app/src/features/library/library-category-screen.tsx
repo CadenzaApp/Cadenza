@@ -1,6 +1,6 @@
 import type { ArtistItem, LibrarySongSort, MusicItem } from "@apple-musickit";
 import { useLocalSearchParams, useNavigation } from "expo-router";
-import { useCallback, useLayoutEffect, useMemo } from "react";
+import { useCallback, useLayoutEffect, useMemo, useState } from "react";
 import { Platform, View } from "react-native";
 
 import { ErrorNotice } from "@/components/custom/error-notice";
@@ -22,8 +22,11 @@ import {
 import { useOpenScreen } from "@/lib/open-screen";
 import type { QueryJSON } from "@/lib/query-json";
 import type { ArrangeSource } from "@/lib/routes/arrange";
-import { useSavedArrangement } from "@/lib/saved-arrangement";
-import { isArranged, NO_ARRANGEMENT } from "@/lib/song-arrangement";
+import {
+    isArranged,
+    NO_ARRANGEMENT,
+    type SongArrangement,
+} from "@/lib/song-arrangement";
 
 import { LIBRARY_CATEGORY_META, parseLibraryCategory } from "./categories";
 import { TagsView } from "./tags-view";
@@ -56,8 +59,9 @@ export function LibraryCategoryScreen({
     const navigation = useNavigation();
 
     const { isConnected } = useAppleMusic();
-    const { arrangement, setArrangement, ready } =
-        useSavedArrangement("library");
+    // starts unsorted every time the screen opens, and is never saved
+    const [arrangement, setArrangement] =
+        useState<SongArrangement>(NO_ARRANGEMENT);
     const arranged = isArranged(arrangement);
     const title = category ? LIBRARY_CATEGORY_META[category].label : "Library";
 
@@ -66,7 +70,7 @@ export function LibraryCategoryScreen({
     }, [navigation, presentation, title]);
 
     const songs = useTracksFromLibrary({
-        enabled: isConnected && category === "song" && ready && !arranged,
+        enabled: isConnected && category === "song" && !arranged,
         sort: APPLE_LIBRARY_ORDER,
     });
     const librarySource = useMemo<ArrangeSource | null>(
@@ -133,10 +137,9 @@ export function LibraryCategoryScreen({
                     <MusicList
                         tracks={arranged ? arrangedSongs.tracks : songs.tracks}
                         isLoading={
-                            !ready ||
-                            (arranged
+                            arranged
                                 ? arrangedSongs.loading
-                                : songs.tracksLoading)
+                                : songs.tracksLoading
                         }
                         pagination={
                             arranged
@@ -152,6 +155,9 @@ export function LibraryCategoryScreen({
                         arrangement={{
                             value: arrangement,
                             onChange: setArrangement,
+                            sortValues: arranged
+                                ? arrangedSongs.sortValues
+                                : undefined,
                         }}
                         multiSelect={DEFAULT_MULTI_SELECT_CONFIG}
                         fullBleedRows

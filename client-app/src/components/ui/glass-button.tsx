@@ -48,6 +48,8 @@ export function GlassButton({
             >
                 {({ pressed }) => (
                     <View
+                        // never flattened away, pressed or not
+                        collapsable={false}
                         className={cn(
                             "h-12 flex-row items-center justify-center gap-2 overflow-hidden rounded-2xl border border-border px-4",
                             className,
@@ -64,27 +66,34 @@ export function GlassButton({
                                 style={StyleSheet.absoluteFill}
                             />
                         </View>
-                        {/* the press shows as a shade over the glass and a small
-                        shrink: native glass does not fade with a faded parent,
-                        so opacity alone barely shows */}
-                        {pressed ? (
-                            <View
-                                pointerEvents="none"
-                                style={[
-                                    StyleSheet.absoluteFill,
-                                    styles.pressedFill,
-                                    { backgroundColor: pressedFill },
-                                ]}
-                            />
-                        ) : null}
-                        {/* disabled dims the content, not the button, for the
-                        same reason */}
+                        {/* the press shows as a shade over the glass and a
+                        small shrink: native glass does not fade with a faded
+                        parent, so opacity alone barely shows. the shade and
+                        the content's wrapper are always there, only their
+                        opacity changes: a view that appears, or stops being
+                        flattened, on press makes Android's mounting fail with
+                        "the specified child already has a parent". disabled
+                        dims the content, not the button, for the same reason */}
                         <View
-                            className="flex-row items-center justify-center gap-2"
+                            pointerEvents="none"
                             style={[
-                                disabled && styles.disabled,
-                                pressed && styles.pressedContent,
+                                StyleSheet.absoluteFill,
+                                { backgroundColor: pressedFill },
+                                pressed
+                                    ? styles.pressedFill
+                                    : styles.restingFill,
                             ]}
+                        />
+                        <View
+                            collapsable={false}
+                            className="flex-row items-center justify-center gap-2"
+                            style={
+                                disabled
+                                    ? styles.disabled
+                                    : pressed
+                                      ? styles.pressedContent
+                                      : styles.restingContent
+                            }
                         >
                             {children}
                         </View>
@@ -99,5 +108,7 @@ const styles = StyleSheet.create({
     disabled: { opacity: 0.4 },
     pressed: { transform: [{ scale: 0.96 }] },
     pressedFill: { opacity: 0.16 },
+    restingFill: { opacity: 0 },
     pressedContent: { opacity: 0.75 },
+    restingContent: { opacity: 1 },
 });

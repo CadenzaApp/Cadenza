@@ -10,7 +10,6 @@ import {
     hasDirection,
     isArranged,
     NO_ARRANGEMENT,
-    parseArrangement,
     releaseDay,
     sameField,
     sectionsOf,
@@ -148,40 +147,4 @@ test("durations read as minutes and seconds", () => {
 test("release dates go over as days", () => {
     assert.equal(releaseDay(Date.UTC(1984, 5, 25)), "1984-06-25");
     assert.equal(releaseDay(undefined), undefined);
-});
-
-test("a stored arrangement reads back", () => {
-    const arrangement = {
-        sort: {
-            field: { kind: "metadata", key: "artist" },
-            direction: "descending",
-        },
-        group: {
-            field: {
-                kind: "tag",
-                tagId: 4,
-                name: "Mood",
-                color: "#000000",
-                type: "text",
-                source: "own",
-            },
-            direction: "ascending",
-        },
-    };
-    assert.deepEqual(
-        parseArrangement(JSON.stringify(arrangement)),
-        arrangement,
-    );
-});
-
-test("anything else reads as none", () => {
-    assert.deepEqual(parseArrangement("not json"), { sort: null, group: null });
-    assert.deepEqual(
-        parseArrangement(
-            JSON.stringify({
-                sort: { field: { kind: "tag" }, direction: "up" },
-            }),
-        ),
-        { sort: null, group: null },
-    );
 });

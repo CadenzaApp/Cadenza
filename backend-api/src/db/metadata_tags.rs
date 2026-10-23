@@ -71,6 +71,27 @@ pub async fn get_song_metadata(
         .await?)
 }
 
+/// The stored rows of `song_ids`, found or not, in no particular order. A song with no row
+/// is left out.
+pub async fn get_songs_metadata(
+    db: &impl ConnectionTrait,
+    song_ids: &[String],
+) -> Result<Vec<metadata_song_tags_applied::Model>, CadenzaError> {
+    let mut rows = Vec::new();
+    for chunk in distinct(song_ids).chunks(MAX_ROWS_PER_INSERT * 5) {
+        rows.extend(
+            metadata_song_tags_applied::Entity::find()
+                .filter(
+                    metadata_song_tags_applied::Column::SongId
+                        .is_in(chunk.iter().map(String::as_str)),
+                )
+                .all(db)
+                .await?,
+        );
+    }
+    Ok(rows)
+}
+
 /// The album a stored song is on. `None` when the song has no row, was not found, or Apple
 /// gave it no album.
 pub async fn get_stored_album_id(
@@ -1142,6 +1163,18 @@ mod tests {
         assert_eq!(rows[&art].album_id.as_deref(), Some("10"));
         // stored now, so Apple said it has none: empty, and never asked again
         assert_eq!(rows[&bare].artwork_url.as_deref(), Some(""));
+
+        // every stored row, found or not, for a sort's values
+        let mut stored: Vec<String> = get_songs_metadata(&txn, &ids)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|row| row.song_id)
+            .collect();
+        stored.sort();
+        let mut expected = vec![art.clone(), bare.clone(), gone.clone()];
+        expected.sort();
+        assert_eq!(stored, expected);
         assert!(
             get_songs_without_artwork(&txn, &ids)
                 .await

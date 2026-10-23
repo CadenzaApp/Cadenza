@@ -60,6 +60,8 @@ export function GlassIconButton({
         >
             {({ pressed }) => (
                 <View
+                    // never flattened away, pressed or not
+                    collapsable={false}
                     className={cn(
                         bordered && "border border-border",
                         className,
@@ -95,18 +97,27 @@ export function GlassIconButton({
                     </View>
                     {/* the press shows as a shade over the glass and a small
                     shrink: native glass does not fade with a faded parent, so
-                    opacity alone barely shows */}
-                    {pressed ? (
-                        <View
-                            pointerEvents="none"
-                            style={[
-                                StyleSheet.absoluteFill,
-                                styles.pressedFill,
-                                { backgroundColor: pressedFill },
-                            ]}
-                        />
-                    ) : null}
-                    <View style={pressed && styles.pressedContent}>
+                    opacity alone barely shows. the shade and the content's
+                    wrapper are always there, only their opacity changes: a
+                    view that appears, or stops being flattened, on press
+                    makes Android's mounting fail with "the specified child
+                    already has a parent" */}
+                    <View
+                        pointerEvents="none"
+                        style={[
+                            StyleSheet.absoluteFill,
+                            { backgroundColor: pressedFill },
+                            pressed ? styles.pressedFill : styles.restingFill,
+                        ]}
+                    />
+                    <View
+                        collapsable={false}
+                        style={
+                            pressed
+                                ? styles.pressedContent
+                                : styles.restingContent
+                        }
+                    >
                         {children}
                     </View>
                 </View>
@@ -118,5 +129,7 @@ export function GlassIconButton({
 const styles = StyleSheet.create({
     pressed: { transform: [{ scale: 0.9 }] },
     pressedFill: { opacity: 0.18 },
+    restingFill: { opacity: 0 },
     pressedContent: { opacity: 0.7 },
+    restingContent: { opacity: 1 },
 });

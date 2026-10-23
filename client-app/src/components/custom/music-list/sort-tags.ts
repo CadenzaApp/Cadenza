@@ -55,3 +55,34 @@ export function sortMusicListTags(
         return left.source.localeCompare(right.source);
     });
 }
+
+/**
+ * What a row's tag rail leads with when its list is sorted by a tag: one of
+ * the row's own pills, moved to the front, or a pill made on screen with the
+ * song's value of a metadata tag.
+ */
+export type RailLead =
+    | {
+          kind: "tag";
+          tagId: number;
+          source: "own" | "activity" | "suggested";
+      }
+    | { kind: "pill"; tag: Tag; value: string };
+
+/** Where a rail pill came from, the same word a `RailLead` uses for it. */
+export type RailPillSource = "own" | "activity" | "suggested" | "lead";
+
+/**
+ * `pills` with the one `lead` names first, the rest in their order. A lead
+ * the row does not carry, like a tag the song does not have, changes nothing.
+ */
+export function leadPillFirst<
+    Pill extends { source: RailPillSource; tag: { id: number } },
+>(pills: readonly Pill[], lead: RailLead | undefined): readonly Pill[] {
+    if (lead?.kind !== "tag") return pills;
+    const index = pills.findIndex(
+        (pill) => pill.source === lead.source && pill.tag.id === lead.tagId,
+    );
+    if (index <= 0) return pills;
+    return [pills[index], ...pills.slice(0, index), ...pills.slice(index + 1)];
+}

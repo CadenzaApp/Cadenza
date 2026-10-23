@@ -16,8 +16,11 @@ import { GlassConfirmDialog } from "@/components/ui/glass-confirm-dialog";
 import { useArrangedTrackList } from "@/lib/arranged-track-list";
 import { indexTracksById, useSongInfo } from "@/lib/musickit-hooks";
 import type { ArrangeSource } from "@/lib/routes/arrange";
-import { useSavedArrangement } from "@/lib/saved-arrangement";
-import { isArranged, NO_ARRANGEMENT } from "@/lib/song-arrangement";
+import {
+    isArranged,
+    NO_ARRANGEMENT,
+    type SongArrangement,
+} from "@/lib/song-arrangement";
 import { TAG_TYPE_ICONS } from "@/lib/tag-values";
 import { useRemoveTagsFromSongs } from "@/lib/routes/songs";
 import { useDeleteTag, useTag } from "@/lib/routes/tags";
@@ -47,7 +50,9 @@ function TagDetailCollection() {
 
     // sorted or grouped by the backend, which needs the tag's songs, and then
     // only puts the tracks already here in order
-    const { arrangement, setArrangement } = useSavedArrangement("tag");
+    // starts unsorted every time the screen opens, and is never saved
+    const [arrangement, setArrangement] =
+        useState<SongArrangement>(NO_ARRANGEMENT);
     const arranged = isArranged(arrangement);
     const source = useMemo<ArrangeSource | null>(
         () =>
@@ -195,6 +200,7 @@ function TagDetailCollection() {
                 arrangement={{
                     value: arrangement,
                     onChange: setArrangement,
+                    sortValues: list.sortValues,
                 }}
                 anticipatedTrackCount={songIds?.length ?? 0}
                 multiSelect={multiSelect}

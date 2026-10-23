@@ -44,7 +44,12 @@ type ArrangedBody = {
 );
 
 type ArrangedResponse = {
-    songs: { song_id: string; certain: boolean; row?: StoredSongRowJSON }[];
+    songs: {
+        song_id: string;
+        certain: boolean;
+        row?: StoredSongRowJSON;
+        sort_value?: string;
+    }[];
     capped: boolean;
     groups: ArrangedGroupJSON[] | null;
     missing_metadata: string[];
@@ -179,6 +184,15 @@ export function useArrangedSongs(
         () => (response ? storedTracks(response.songs) : NO_ROW_TRACKS),
         [response],
     );
+    // each song's value of the metadata tag the list is sorted by
+    const sortValues = useMemo(() => {
+        const values = new Map<string, string>();
+        for (const song of response?.songs ?? []) {
+            if (song.sort_value != null)
+                values.set(song.song_id, song.sort_value);
+        }
+        return values;
+    }, [response]);
     const groupField = arrangement.group?.field ?? null;
     const sections = useMemo<SongSection[] | null>(
         () =>
@@ -200,6 +214,8 @@ export function useArrangedSongs(
          * or grouped query has them, and only for songs with a stored title.
          */
         rowTracks,
+        /** Each song's value of the metadata tag the list is sorted by, by id. */
+        sortValues,
         capped: response?.capped ?? false,
         loading: body !== null && snapshot.isLoading && !response,
         // an empty request has nothing to fail, whatever the last one left

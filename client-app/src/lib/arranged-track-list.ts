@@ -333,6 +333,8 @@ export function useArrangedTrackList({
         arranged: isArranged(arrangement),
         songs: arranged.songs,
         songIds: arranged.songIds,
+        /** Each song's value of the metadata tag the list is sorted by, by id. */
+        sortValues: arranged.sortValues,
         capped: arranged.capped,
         /**
          * A sorted or grouped query's cover songs, from the top of the list

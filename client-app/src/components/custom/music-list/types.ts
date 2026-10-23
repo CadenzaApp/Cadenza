@@ -14,6 +14,12 @@ import type { ThemeColorToken } from "@/lib/theme";
 export type MusicListArrangement = {
     value: SongArrangement;
     onChange: (arrangement: SongArrangement) => void;
+    /**
+     * Each song's value of the metadata tag the list is sorted by, by song id,
+     * as the backend sent it. A sorted list leads every row's tags with the
+     * tag it is sorted by, and a metadata tag's value comes from here.
+     */
+    sortValues?: ReadonlyMap<string, string>;
 };
 
 /** One group of a grouped list, drawn as a header that opens and closes. */

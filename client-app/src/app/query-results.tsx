@@ -12,9 +12,8 @@ import { encodeQuerySource, type PlaySource } from "@/lib/play-source";
 import type { QueryJSON } from "@/lib/query-json";
 import type { ArrangeSource } from "@/lib/routes/arrange";
 import { useActivityTagIdsInQuery } from "@/lib/routes/tags";
-import { useSavedArrangement } from "@/lib/saved-arrangement";
 import { queryQueueIds } from "@/lib/paged-tracks";
-import { NO_ARRANGEMENT } from "@/lib/song-arrangement";
+import { NO_ARRANGEMENT, type SongArrangement } from "@/lib/song-arrangement";
 
 /** Full-screen query matches, presented like the album and playlist heroes. */
 export default function QueryResultsScreen() {
@@ -37,8 +36,9 @@ export default function QueryResultsScreen() {
     const query = useMemo(() => parseQuery(encodedQuery), [encodedQuery]);
     const libraryOnly = library === "1";
     const considerDefaultTags = suggested === "1";
-    const { arrangement, setArrangement, ready } =
-        useSavedArrangement("query-results");
+    // starts unsorted every time the screen opens, and is never saved
+    const [arrangement, setArrangement] =
+        useState<SongArrangement>(NO_ARRANGEMENT);
     // what a play from here is credited to
     const playSource = useMemo<PlaySource | undefined>(
         () =>
@@ -64,10 +64,10 @@ export default function QueryResultsScreen() {
     // arrangement, so a sorted screen is not fetched unsorted first
     const source = useMemo<ArrangeSource | null>(
         () =>
-            query && ready
+            query
                 ? { kind: "query", query, considerDefaultTags, libraryOnly }
                 : null,
-        [considerDefaultTags, libraryOnly, query, ready],
+        [considerDefaultTags, libraryOnly, query],
     );
     const lookupTracks = useTrackLookup();
     const resetArrangement = useCallback(
@@ -119,14 +119,18 @@ export default function QueryResultsScreen() {
         <QueryResults
             songs={shown}
             coverSongs={coverSongs}
-            isLoading={!ready || list.loading}
+            isLoading={list.loading}
             error={list.error}
             matchCount={list.songIds.length}
             capped={list.capped}
             libraryOnly={libraryOnly}
             pagination={list.pagination}
             sections={list.sections}
-            arrangement={{ value: arrangement, onChange: setArrangement }}
+            arrangement={{
+                value: arrangement,
+                onChange: setArrangement,
+                sortValues: list.sortValues,
+            }}
             resolvePlayQueue={resolvePlayQueue}
             mostRelevantTags={mostRelevantTags}
             activityTagIds={activityTagIds}

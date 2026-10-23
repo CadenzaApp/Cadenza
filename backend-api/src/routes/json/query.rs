@@ -252,6 +252,11 @@ pub struct QueryResultSong {
     /// query, and only for a song with a stored title.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub row: Option<SongRowJSON>,
+    /// The song's value of the metadata tag the list is sorted by, the way
+    /// `GET /songs/metadata-tags` gives it, so the row can show it. Only on a list sorted by a
+    /// metadata tag, and only for a song with that value.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sort_value: Option<String>,
 }
 
 /// A song list row as `metadata_song_tags_applied` has it, so the phone can draw the row
@@ -307,6 +312,7 @@ impl From<QueryMatches> for QueryResults {
                     song_id: song.song_id,
                     certain: song.certain,
                     row: None,
+                    sort_value: None,
                 })
                 .collect(),
             capped: value.capped,
@@ -401,6 +407,7 @@ mod tests {
             song_id: "1".into(),
             certain: true,
             row: None,
+            sort_value: None,
         };
         assert_eq!(
             serde_json::to_value(&song).unwrap(),
