@@ -150,23 +150,28 @@ function QuerySettingRow({
     const { colors } = useAppTheme();
     return (
         <View className="py-2" style={{ zIndex: helpOpen ? 10 : 0 }}>
-            <View className="min-h-11 flex-row items-center gap-1">
-                <Text className="text-sm font-semibold">{label}</Text>
-                <Pressable
-                    onPress={onHelpPress}
-                    accessibilityRole="button"
-                    accessibilityLabel={`About ${label}`}
-                    accessibilityState={{ expanded: helpOpen }}
-                    className="h-8 w-8 items-center justify-center"
-                    hitSlop={4}
-                >
-                    <Ionicons
-                        name="information-circle-outline"
-                        size={18}
-                        color={colors.mutedForeground}
-                    />
-                </Pressable>
-                <View className="ml-auto">{children}</View>
+            <View className="min-h-11 flex-row items-center gap-3">
+                {/* the label wraps instead of pushing its toggle out of line */}
+                <View className="flex-1 flex-row items-center gap-1">
+                    <Text className="shrink text-sm font-semibold">
+                        {label}
+                    </Text>
+                    <Pressable
+                        onPress={onHelpPress}
+                        accessibilityRole="button"
+                        accessibilityLabel={`About ${label}`}
+                        accessibilityState={{ expanded: helpOpen }}
+                        className="h-8 w-8 shrink-0 items-center justify-center"
+                        hitSlop={4}
+                    >
+                        <Ionicons
+                            name="information-circle-outline"
+                            size={18}
+                            color={colors.mutedForeground}
+                        />
+                    </Pressable>
+                </View>
+                <View className="shrink-0 items-end">{children}</View>
             </View>
             {helpOpen ? (
                 <View
