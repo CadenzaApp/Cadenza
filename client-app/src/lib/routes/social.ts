@@ -4,9 +4,18 @@ import useSWRInfinite from "swr/infinite";
 
 import { useAccount } from "../account";
 import { fetchAPIData, useAPIData, useAPIMutation } from "../api-actions";
+import {
+    applyCommentLike,
+    applyPostCommentDelta,
+    commentsPath,
+    insertCachedComment,
+    isPostCommentsKey,
+    isSocialPostPages,
+} from "../post-comment";
 import { applyPostLike, isSocialPostListKey } from "../post-like";
 import type {
     InterestScoreDelta,
+    SocialComment,
     SocialPost,
     SocialUserProfile,
 } from "@/lib/types";
@@ -412,4 +421,168 @@ export function useUserPosts(authorId?: string) {
         userPostsLoading: x.isLoading,
         userPostsErr: x.error,
     };
+}
+
+const EMPTY_COMMENTS: SocialComment[] = [];
+
+type PostCommentsResponse = {
+    comments: SocialComment[];
+};
+
+/**
+ * Comments on one post, most liked first. Pass no id, or `enabled: false`,
+ * to leave it unread.
+ *
+ * ```ts
+ * const { comments, postCommentsLoading } = usePostComments(postId, open);
+ * ```
+ */
+export function usePostComments(postId?: number, enabled = true) {
+    const x = useAPIData<PostCommentsResponse>(
+        `/social/posts/${postId}/comments`,
+        undefined,
+        { enabled: enabled && typeof postId === "number" && postId > 0 },
+    );
+    return {
+        comments: x.data?.comments ?? EMPTY_COMMENTS,
+        postCommentsLoading: x.isLoading,
+        postCommentsErr: x.error,
+        refreshPostComments: x.mutate,
+    };
+}
+
+type NewCommentPayload = {
+    post_id: number;
+    content: string;
+};
+
+type NewCommentResponse = {
+    comment_id: number;
+};
+
+function createCommentPath({ post_id }: NewCommentPayload) {
+    return commentsPath(post_id);
+}
+
+/**
+ * Creates a comment on a post for the signed-in user. Resolves to the new
+ * `comment_id`.
+ */
+export function useCreateComment() {
+    const x = useAPIMutation<NewCommentPayload, NewCommentResponse>(
+        "POST",
+        createCommentPath,
+        ({ post_id }) => [{ path: commentsPath(post_id) }],
+    );
+    return {
+        createCommentErr: x.error,
+        createCommentLoading: x.isMutating,
+        resetCreateComment: x.reset,
+        createComment: async (body: NewCommentPayload) =>
+            (await x.trigger(body))?.comment_id,
+    };
+}
+
+type CommentLikePayload = {
+    comment_id: number;
+    timestamp: number;
+};
+
+function commentLikePath({ comment_id }: CommentLikePayload) {
+    return `/social/comments/${comment_id}/likes`;
+}
+
+/** Likes a comment. Same `timestamp` rule as post likes. */
+export function useLikeComment() {
+    const x = useAPIMutation<CommentLikePayload, void>("POST", commentLikePath);
+    const likeComment = useCallback(
+        (comment_id: number) =>
+            x.trigger({ comment_id, timestamp: Date.now() }),
+        [x.trigger],
+    );
+    return {
+        likeCommentErr: x.error,
+        likeCommentLoading: x.isMutating,
+        resetLikeComment: x.reset,
+        likeComment,
+    };
+}
+
+/** Removes the signed-in user's comment like. */
+export function useUnlikeComment() {
+    const x = useAPIMutation<CommentLikePayload, void>(
+        "DELETE",
+        commentLikePath,
+    );
+    const unlikeComment = useCallback(
+        (comment_id: number) =>
+            x.trigger({ comment_id, timestamp: Date.now() }),
+        [x.trigger],
+    );
+    return {
+        unlikeCommentErr: x.error,
+        unlikeCommentLoading: x.isMutating,
+        resetUnlikeComment: x.reset,
+        unlikeComment,
+    };
+}
+
+/**
+ * Writes `liked` through the cached comments list for this post.
+ */
+export function useUpdateCachedCommentLike() {
+    const { mutate } = useSWRConfig();
+    return useCallback(
+        (postId: number, commentId: number, liked: boolean) =>
+            mutate(
+                (key) => isPostCommentsKey(key, postId),
+                (current: unknown) =>
+                    current == null
+                        ? current
+                        : applyCommentLike(current, commentId, liked),
+                { revalidate: false },
+            ),
+        [mutate],
+    );
+}
+
+/** Inserts a comment into the cached list for its post. */
+export function useInsertCachedComment() {
+    const { mutate } = useSWRConfig();
+    return useCallback(
+        (comment: SocialComment) =>
+            mutate(
+                (key) => isPostCommentsKey(key, comment.post_id),
+                (current: unknown) => insertCachedComment(current, comment),
+                { revalidate: false },
+            ),
+        [mutate],
+    );
+}
+
+/**
+ * Moves `comment_count` on one post inside every cached post list.
+ * A filtered `mutate` skips `$inf$` keys, and the feed is `useSWRInfinite`,
+ * so those entries are written by key when their pages are post lists.
+ */
+export function useUpdateCachedPostCommentCount() {
+    const { cache, mutate } = useSWRConfig();
+    return useCallback(
+        (postId: number, delta: number) => {
+            const apply = (current: unknown) =>
+                current == null
+                    ? current
+                    : applyPostCommentDelta(current, postId, delta);
+            const writes = [
+                mutate(isSocialPostListKey, apply, { revalidate: false }),
+            ];
+            for (const key of cache.keys()) {
+                if (!key.startsWith("$inf$")) continue;
+                if (!isSocialPostPages(cache.get(key)?.data)) continue;
+                writes.push(mutate(key, apply, { revalidate: false }));
+            }
+            return Promise.all(writes);
+        },
+        [cache, mutate],
+    );
 }

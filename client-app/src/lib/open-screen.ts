@@ -6,7 +6,11 @@ import {
 } from "expo-router/react-navigation";
 import { useCallback } from "react";
 
-import { detailRouteFor, routesAfterOpening } from "./detail-stack";
+import {
+    detailRouteFor,
+    routesAfterOpening,
+    routesAfterOpeningFromPlayer,
+} from "./detail-stack";
 
 export type OpenScreenOptions = {
     /**
@@ -15,6 +19,8 @@ export type OpenScreenOptions = {
      * has not landed yet when the stack is read.
      */
     closing?: string;
+    /** Keep the player underneath a full-screen destination for native back. */
+    fromPlayer?: boolean;
 };
 
 /**
@@ -33,7 +39,7 @@ export function useOpenScreen() {
     const navigation = useNavigationContainerRef();
 
     return useCallback(
-        (href: Href, { closing }: OpenScreenOptions = {}) => {
+        (href: Href, { closing, fromPlayer }: OpenScreenOptions = {}) => {
             const target = detailRouteFor(href);
             const state = navigation.isReady()
                 ? navigatorFor(navigation.getRootState(), target?.name)
@@ -44,10 +50,12 @@ export function useOpenScreen() {
                 return;
             }
 
-            const routes = routesAfterOpening(
-                state.routes.filter((route) => route.name !== closing),
-                target,
+            const available = state.routes.filter(
+                (route) => route.name !== closing,
             );
+            const routes = fromPlayer
+                ? routesAfterOpeningFromPlayer(available, target)
+                : routesAfterOpening(available, target);
             const unchanged =
                 routes.length === state.routes.length &&
                 routes.every((route, i) => route === state.routes[i]);

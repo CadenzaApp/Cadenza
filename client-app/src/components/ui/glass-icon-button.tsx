@@ -14,6 +14,8 @@ import { cn } from "@/lib/utils";
 type GlassIconButtonProps = Omit<PressableProps, "children" | "style"> & {
     /** Diameter in points. The button is always a circle. */
     size?: number;
+    surfaceScheme?: "light" | "dark";
+    bordered?: boolean;
     className?: string;
     style?: StyleProp<ViewStyle>;
     children: ReactNode;
@@ -34,6 +36,8 @@ type GlassIconButtonProps = Omit<PressableProps, "children" | "style"> & {
  */
 export function GlassIconButton({
     size = 40,
+    surfaceScheme,
+    bordered = true,
     className,
     style,
     children,
@@ -49,7 +53,7 @@ export function GlassIconButton({
             {...rest}
         >
             <View
-                className={cn("border border-border", className)}
+                className={cn(bordered && "border border-border", className)}
                 style={{
                     width: size,
                     height: size,
@@ -65,11 +69,14 @@ export function GlassIconButton({
                     button that does honor it swallows the press. */}
                 <View pointerEvents="none" style={StyleSheet.absoluteFill}>
                     <GlassSurface
+                        colorScheme={surfaceScheme}
                         style={[
                             StyleSheet.absoluteFill,
-                            // Absolute children sit inside the border, so the
-                            // glass is a point smaller on every side.
-                            { borderRadius: radius - 1, overflow: "hidden" },
+                            // Inset the glass only when the wrapper has a border.
+                            {
+                                borderRadius: radius - (bordered ? 1 : 0),
+                                overflow: "hidden",
+                            },
                         ]}
                     />
                 </View>

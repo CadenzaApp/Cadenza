@@ -11,7 +11,11 @@ import type {
 } from "@/components/custom/music-list/types";
 import { SongTagSelectorPopup } from "@/components/custom/tag-selector/song-popup";
 import { useAlbumRouteForTrack } from "@/lib/album-route";
-import { useSongArtists, useSongFavoriteStatus } from "@/lib/musickit-hooks";
+import {
+    useArtistPreview,
+    useSongArtists,
+    useSongFavoriteStatus,
+} from "@/lib/musickit-hooks";
 import { useOpenScreen } from "@/lib/open-screen";
 import { usePlaybackCommands } from "@/lib/playback";
 import { shareTrack } from "@/lib/share-track";
@@ -59,10 +63,12 @@ export const SongOptionsMenu = memo(function SongOptionsMenu({
     const [editingTags, setEditingTags] = useState(false);
     const { addToQueue, playNext } = usePlaybackCommands();
 
+    const artistId = artistIds?.[0] ?? track?.artistId;
+    useArtistPreview(artistId);
+
     if (!track) return null;
     const selectedTrack = track;
     const isFavorite = favoriteStatus?.isFavorite ?? false;
-    const artistId = artistIds?.[0] ?? track.artistId;
 
     async function handleFavoriteToggle() {
         if (!favoriteStatus || isUpdatingFavorite) return;
@@ -207,7 +213,7 @@ export const SongOptionsMenu = memo(function SongOptionsMenu({
                             action={action}
                             target={selectedTrack}
                             busy={
-                                (isArtist && artistIdsLoading) ||
+                                (isArtist && artistIdsLoading && !artistId) ||
                                 (isAlbum && albumRouteLoading)
                             }
                             disabled={

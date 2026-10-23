@@ -7,8 +7,11 @@ import { useTheme } from "expo-router/react-navigation";
 import { CollectionOptionsMenu } from "@/components/custom/options-menu/collection-options-menu";
 import { TrackCollectionView } from "@/components/custom/track-collection-view";
 import { FloatingCloseButton } from "@/components/ui/floating-close-button";
-import { Text } from "@/components/ui/text";
 import { useArrangedTrackList } from "@/lib/arranged-track-list";
+import {
+    ContrastText as Text,
+    useSurfacePalette,
+} from "@/lib/surface-contrast-context";
 import { useArtworkTint } from "@/lib/artwork-color";
 import {
     indexTracksById,
@@ -263,13 +266,17 @@ export default function CollectionDetailScreen() {
  */
 function WaitingToSort({ loadedCount }: { loadedCount: number }) {
     const { colors } = useTheme();
+    const palette = useSurfacePalette();
     return (
         <View
             className="items-center gap-3 px-6 py-12"
             accessibilityRole="progressbar"
             accessibilityLabel="Loading every song so the list can be sorted"
         >
-            <ActivityIndicator size="large" color={colors.text} />
+            <ActivityIndicator
+                size="large"
+                color={palette?.foreground ?? colors.text}
+            />
             <Text className="text-center text-base font-semibold">
                 Sorting every song
             </Text>

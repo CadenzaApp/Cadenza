@@ -5,6 +5,7 @@ import {
     detailIdentity,
     detailRouteFor,
     routesAfterOpening,
+    routesAfterOpeningFromPlayer,
     type StackRoute,
 } from "./detail-stack.ts";
 
@@ -139,4 +140,25 @@ test("past the cap the oldest detail screens go", () => {
         names(routesAfterOpening(routes, playlist("q", "new"), 3)),
         ["tabs", "playlist-p", "artist-b", "new"],
     );
+});
+
+test("opening an artist from player preserves the player even when artist is already below it", () => {
+    const player = { key: "player", name: "player", state: { index: 0 } };
+    const routes = routesAfterOpeningFromPlayer(
+        [tabs, artist("1"), player],
+        artist("1", "new-artist"),
+    );
+    assert.equal(routes.at(-2), player);
+    assert.equal(routes.length, 4);
+    assert.deepEqual((routes.at(-1) as StackRoute)?.params, {
+        id: "1",
+    });
+    assert.equal(routes.slice(0, -1).at(-1), player);
+});
+
+test("opening a collection above player preserves history and destination parameters", () => {
+    const player = { key: "player", name: "player" };
+    const routes = routesAfterOpeningFromPlayer([tabs, player], playlist("2"));
+    assert.equal(routes[1], player);
+    assert.deepEqual((routes[2] as StackRoute).params, playlist("2").params);
 });

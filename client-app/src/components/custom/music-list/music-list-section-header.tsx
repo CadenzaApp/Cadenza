@@ -1,16 +1,26 @@
-import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTheme } from "expo-router/react-navigation";
 import { memo } from "react";
 import { Pressable } from "react-native";
 
-import { Text } from "@/components/ui/text";
+import {
+    ContrastIcon,
+    ContrastRegion,
+    ContrastText as Text,
+} from "@/lib/surface-contrast-context";
 
 import type { MusicListSection } from "./types";
+
+/** A group header's height, fixed so a tinted page knows where each row sits. */
+export const MUSIC_LIST_SECTION_HEADER_HEIGHT = 52;
+/** The Show more row's height, for the same reason. */
+export const MUSIC_LIST_SHOW_MORE_HEIGHT = 44;
 
 type RowProps = {
     section: MusicListSection;
     fullBleed: boolean;
     fullBleedHorizontalPadding: number;
+    /** Where the row's middle sits in the scroll content; see `ContrastRegion`. */
+    surfaceOffset: number;
 };
 
 /**
@@ -21,32 +31,41 @@ export const MusicListSectionHeader = memo(function MusicListSectionHeader({
     section,
     fullBleed,
     fullBleedHorizontalPadding,
+    surfaceOffset,
     onToggle,
 }: RowProps & { onToggle: (key: string) => void }) {
     const { colors } = useTheme();
     const songs = `${section.count} ${section.count === 1 ? "song" : "songs"}`;
 
     return (
-        <Pressable
-            onPress={() => onToggle(section.key)}
-            accessibilityRole="button"
-            accessibilityLabel={`${section.label}, ${songs}`}
-            accessibilityState={{ expanded: section.expanded }}
-            className="flex-row items-center gap-3 py-3.5 active:opacity-70"
-            style={{
-                paddingHorizontal: fullBleed ? fullBleedHorizontalPadding : 0,
-            }}
-        >
-            <Ionicons
-                name={section.expanded ? "chevron-down" : "chevron-forward"}
-                size={18}
-                color={colors.text}
-            />
-            <Text className="flex-1 text-base font-semibold" numberOfLines={1}>
-                {section.label}
-            </Text>
-            <Text className="text-sm text-muted-foreground">{songs}</Text>
-        </Pressable>
+        <ContrastRegion offset={surfaceOffset}>
+            <Pressable
+                onPress={() => onToggle(section.key)}
+                accessibilityRole="button"
+                accessibilityLabel={`${section.label}, ${songs}`}
+                accessibilityState={{ expanded: section.expanded }}
+                className="flex-row items-center gap-3 active:opacity-70"
+                style={{
+                    height: MUSIC_LIST_SECTION_HEADER_HEIGHT,
+                    paddingHorizontal: fullBleed
+                        ? fullBleedHorizontalPadding
+                        : 0,
+                }}
+            >
+                <ContrastIcon
+                    name={section.expanded ? "chevron-down" : "chevron-forward"}
+                    size={18}
+                    color={colors.text}
+                />
+                <Text
+                    className="flex-1 text-base font-semibold"
+                    numberOfLines={1}
+                >
+                    {section.label}
+                </Text>
+                <Text className="text-sm text-muted-foreground">{songs}</Text>
+            </Pressable>
+        </ContrastRegion>
     );
 });
 
@@ -55,28 +74,32 @@ export const MusicListShowMoreRow = memo(function MusicListShowMoreRow({
     section,
     fullBleed,
     fullBleedHorizontalPadding,
+    surfaceOffset,
     onShowMore,
 }: RowProps & { onShowMore: (key: string) => void }) {
     const remaining = section.count - section.tracks.length;
 
     return (
-        <Pressable
-            onPress={() => onShowMore(section.key)}
-            accessibilityRole="button"
-            accessibilityLabel={`Show more songs in ${section.label}`}
-            disabled={section.isLoading}
-            className="py-3 active:opacity-70"
-            style={{
-                paddingHorizontal: fullBleed
-                    ? fullBleedHorizontalPadding + 30
-                    : 30,
-            }}
-        >
-            <Text className="text-sm font-medium text-primary">
-                {section.isLoading
-                    ? "Loading..."
-                    : `Show more (${remaining} left)`}
-            </Text>
-        </Pressable>
+        <ContrastRegion offset={surfaceOffset}>
+            <Pressable
+                onPress={() => onShowMore(section.key)}
+                accessibilityRole="button"
+                accessibilityLabel={`Show more songs in ${section.label}`}
+                disabled={section.isLoading}
+                className="justify-center active:opacity-70"
+                style={{
+                    height: MUSIC_LIST_SHOW_MORE_HEIGHT,
+                    paddingHorizontal: fullBleed
+                        ? fullBleedHorizontalPadding + 30
+                        : 30,
+                }}
+            >
+                <Text className="text-sm font-medium">
+                    {section.isLoading
+                        ? "Loading..."
+                        : `Show more (${remaining} left)`}
+                </Text>
+            </Pressable>
+        </ContrastRegion>
     );
 });

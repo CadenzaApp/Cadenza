@@ -3,7 +3,7 @@
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 
-use crate::db::social::{PublicProfile, SocialPost as PostRow};
+use crate::db::social::{PublicProfile, SocialComment as CommentRow, SocialPost as PostRow};
 
 /// One post as `/social/feed`, `/social/posts/user/:id`, and
 /// `/social/posts/topic` return it.
@@ -16,7 +16,8 @@ use crate::db::social::{PublicProfile, SocialPost as PostRow};
 ///   "liked": false,
 ///   "created_at": "2026-10-16T18:00:00Z",
 ///   "author": { "user_id": "11111111-1111-1111-1111-111111111111", "username": "ada" },
-///   "topic_mk_id": "1615585008"
+///   "topic_mk_id": "1615585008",
+///   "comment_count": 3
 /// }
 /// ```
 #[derive(Serialize)]
@@ -29,6 +30,7 @@ pub struct SocialPost {
     pub author: SocialAuthor,
     /// Apple Music catalog id of the attached song or artist, or `null`.
     pub topic_mk_id: Option<String>,
+    pub comment_count: i64,
 }
 
 #[derive(Serialize)]
@@ -50,6 +52,48 @@ impl From<PostRow> for SocialPost {
                 username: post.author_username,
             },
             topic_mk_id: post.topic_mk_id,
+            comment_count: post.comment_count,
+        }
+    }
+}
+
+/// One comment as `GET /social/posts/:id/comments` returns it.
+///
+/// ```json
+/// {
+///   "comment_id": 1,
+///   "post_id": 4,
+///   "content": "this",
+///   "likes": 2,
+///   "liked": false,
+///   "created_at": "2026-10-16T18:00:00Z",
+///   "author": { "user_id": "11111111-1111-1111-1111-111111111111", "username": "ada" }
+/// }
+/// ```
+#[derive(Serialize)]
+pub struct SocialComment {
+    pub comment_id: i64,
+    pub post_id: i64,
+    pub content: String,
+    pub likes: i64,
+    pub liked: bool,
+    pub created_at: DateTime<Utc>,
+    pub author: SocialAuthor,
+}
+
+impl From<CommentRow> for SocialComment {
+    fn from(comment: CommentRow) -> Self {
+        Self {
+            comment_id: comment.comment_id,
+            post_id: comment.post_id,
+            content: comment.content,
+            likes: comment.likes,
+            liked: comment.liked,
+            created_at: comment.created_at,
+            author: SocialAuthor {
+                user_id: comment.author_id.to_string(),
+                username: comment.author_username,
+            },
         }
     }
 }
@@ -92,4 +136,15 @@ pub struct UserPostsResponse {
 #[derive(Serialize)]
 pub struct TopicPostsResponse {
     pub posts: Vec<SocialPost>,
+}
+
+/// `{comments}` from `GET /social/posts/:id/comments`, most liked first.
+#[derive(Serialize)]
+pub struct PostCommentsResponse {
+    pub comments: Vec<SocialComment>,
+}
+
+#[derive(Serialize)]
+pub struct CreateCommentResponse {
+    pub comment_id: i64,
 }

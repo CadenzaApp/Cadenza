@@ -20,7 +20,8 @@ native module directly.
 | `arranged-track-list.ts`     | `useArrangedTrackList`, the arranged ids made into what `MusicList` draws: a flat list paged 50 at a time, or collapsible groups that load as they open. Shared by the four sortable screens.                                                                                                                   |
 | `saved-arrangement.ts`       | `useSavedArrangement`, what each kind of sortable screen was last sorted and grouped by, kept in AsyncStorage.                                                                                                                                                                                                  |
 | `routes/profile.ts`          | Hooks for `/profile`: `useProfile`, `useCreateProfile`, `useUpdateProfile`.                                                                                                                                                                                                                                     |
-| `routes/social.ts`           | `useFeed`, `useMarkPostsViewed`, `useCreatePost`, likes, interests, `useTopicPosts`, and `useUserPosts`, for `/social`.                                                                                                                                                                                         |
+| `routes/social.ts`           | `useFeed`, `useMarkPostsViewed`, `useCreatePost`, likes, comments, interests, `useTopicPosts`, and `useUserPosts`, for `/social`.                                                                                                                                                                               |
+| `post-comment.ts`            | Pure cache helpers for comments: sort by likes, pin comments just added, like, insert, and comment-count deltas. Tested in `post-comment.test.ts`.                                                                                                                                                              |
 | `musickit-hooks.ts`          | SWR over the native module: song info, catalog search, paged and complete-library songs, albums, artists, playlists, collection metadata, favorites, artist search, playlist writes, and turning backend song ids into tracks, all at once or a page at a time.                                                 |
 | `paged-tracks.ts`            | The rules `usePagedTracksForSongIds` pages by, and `queryQueueIds`, which songs of a query result Play and Shuffle queue. Import-free, tested in `paged-tracks.test.ts`.                                                                                                                                        |
 | `song-init.tsx`              | `SongInitProvider`, which runs the library sync job after account and Apple Music authorization.                                                                                                                                                                                                                |
@@ -60,7 +61,7 @@ native module directly.
 | `album-route.ts`             | `useAlbumRouteForTrack`: the full catalog album for a song, not the library copy, with the song highlighted.                                                                                                                                                                                                    |
 | `open-screen.ts`             | `useOpenScreen`, what opens a detail screen in place of `router.push`. Goes back to one already open instead of stacking a copy.                                                                                                                                                                                |
 | `open-profile.ts`            | Pure: the action that closes screens covering the tabs and opens `/social/user/:userId`. Tested in `open-profile.test.ts`.                                                                                                                                                                                      |
-| `use-open-social-profile.ts` | `useOpenSocialProfile`, what Discuss calls when an author is tapped.                                                                                                                                                                                                                                            |
+| `use-open-social-profile.ts` | `useOpenSocialProfile`, what Discuss and Account settings call to close covering screens and open a user's Social tab page.                                                                                                                                                                                     |
 | `detail-stack.ts`            | Pure: the root routes after opening a detail screen, with the identity and depth cap rules. Tested in `detail-stack.test.ts`.                                                                                                                                                                                   |
 | `music-list-preferences.tsx` | `MusicListPreferencesProvider` / `useMusicListPreferences`. The persisted device-local preference for suggested tag pills in music-list rows.                                                                                                                                                                   |
 | `share-track.ts`             | `shareTrack` / `shareCollection`. Builds and fires the native share sheet for a song, album, or playlist's canonical Apple Music link.                                                                                                                                                                          |
@@ -71,7 +72,7 @@ native module directly.
 | `screen-scroll-marker.*`     | iOS registration wrapper for native-tab inset and scroll-to-top integration with nested and virtualized scrollers; a fragment elsewhere.                                                                                                                                                                        |
 | `zoom-dismiss.tsx`           | `ZoomOriginProvider`, `useZoomSource`, `ZoomDismissScreen`, `useCloseScreen`. Closing a pushed screen by shrinking it back into the artwork that opened it.                                                                                                                                                     |
 | `zoom-dismiss-geometry.ts`   | Pure pull, transform, timing, and corner math for `zoom-dismiss`, tested without React Native.                                                                                                                                                                                                                  |
-| `types.ts`                   | Shared wire types: `TagType`, `Tag`, `AppliedTag`, `TagMetadata`, `SocialPost`, and `PostTopic`.                                                                                                                                                                                                                |
+| `types.ts`                   | Shared wire types: `TagType`, `Tag`, `AppliedTag`, `TagMetadata`, `SocialPost`, `SocialComment`, and `PostTopic`.                                                                                                                                                                                               |
 | `query-json.ts`              | The tag query wire format: `QueryJSON`, `QueryJSONNode`, `FilterJSON`, `FilterOp`, plus the pure `positiveQueryTagNames`, `queryTagIds` and `describeQuery`. Import-free apart from types, so it stays testable under `node --test`.                                                                            |
 | `tag-values.ts`              | Per-type tag helpers: `TAG_TYPES`, labels, descriptions, `TAG_TYPE_ICONS`, value validation, canonicalization, formatting, the date-only helpers, `unownedDefaultTags`, and the activity tag helper `activityTagDisplayValue`.                                                                                  |
 | `app-error.ts`               | `classifyError`, turning any thrown value into an `AppError` with a title, a sentence, and an optional way out. Tested in `app-error.test.ts`.                                                                                                                                                                  |
@@ -170,45 +171,49 @@ stuck and is not an acceptable tradeoff.
 
 One file per backend router, and every backend endpoint has at least one hook.
 
-| backend               | endpoint                          | hook                                                                      |
-| --------------------- | --------------------------------- | ------------------------------------------------------------------------- |
-| `routes/tags.rs`      | `GET /tags`                       | `tags.ts` -> `useUserTags()`, `useTag(tagId)`                             |
-|                       | `POST /tags`                      | `tags.ts` -> `useCreateTag()`                                             |
-|                       | `DELETE /tags`                    | `tags.ts` -> `useDeleteTag()`                                             |
-|                       | `GET /tags/default-tags`          | `tags.ts` -> `useDefaultTags(search)`                                     |
-|                       | `GET /tags/activity`              | `tags.ts` -> `useActivityTags()`                                          |
-|                       | `GET /tags/suggest`               | `tags.ts` -> `useSuggestTags()`                                           |
-| `routes/songs.rs`     | `GET /songs/local-tags`           | `songs.ts` -> `useTagsOnSong(songId)`                                     |
-|                       | `POST /songs/local-tags/batch`    | `songs.ts` -> `useTagsOnSongs(songIds)`                                   |
-|                       | `GET /songs/default-tags`         | `songs.ts` -> `useDefaultTagsOnSong(songId)`                              |
-|                       | `POST /songs/default-tags/batch`  | `songs.ts` -> `useDefaultTagsOnSongs(songIds)`                            |
-|                       | `DELETE /songs/default-tags`      | `songs.ts` -> `useRemoveDefaultTag()`                                     |
-|                       | `POST /songs/local-tags`          | `songs.ts` -> `useApplyTag()`                                             |
-|                       | `PATCH /songs/local-tags`         | `songs.ts` -> `useSetTagValue()`                                          |
-|                       | `DELETE /songs/local-tags`        | `songs.ts` -> `useUnapplyTag()`                                           |
-|                       | `PATCH /songs`                    | `songs.ts` -> `useEditUserSongs()`                                        |
-|                       | `GET /songs/activity-tags`        | `songs.ts` -> `useActivityTagsOnSong(songId)`                             |
-|                       | `POST /songs/activity-tags/batch` | `songs.ts` -> `useActivityTagsOnSongs(songIds)`                           |
-|                       | `POST /songs/metadata/opened`     | `songs.ts` -> `useReportSongOpened()`                                     |
-|                       | `GET /songs/metadata-tags`        | `songs.ts` -> `useMetadataTagsOnSong(songId)`                             |
-|                       | `POST /songs/metadata/library`    | `arrange.ts`, inside `useArrangedSongs()`                                 |
-| `routes/events.rs`    | `POST /events`                    | `events.ts` -> `useRecordEvents()`                                        |
-| `routes/analytics.rs` | `GET /analytics/summary`          | `analytics.ts` -> `useAnalyticsSummary()`                                 |
-|                       | `GET /analytics/top`              | `analytics.ts` -> `useAnalyticsTop()`                                     |
-|                       | `GET /analytics/top-tags`         | `analytics.ts` -> `useAnalyticsTopTags()`                                 |
-|                       | `GET /analytics/heatmap`          | `analytics.ts` -> `useAnalyticsHeatmap()`                                 |
-|                       | `GET /analytics/tag-shares`       | `analytics.ts` -> `useAnalyticsTagShares()`                               |
-| `routes/queries.rs`   | `POST /queries/results`           | `queries.ts` -> `useQueryResults()`, `arrange.ts` -> `useArrangedSongs()` |
-|                       | `POST /queries/arrange`           | `arrange.ts` -> `useArrangedSongs()`                                      |
-| `routes/social.rs`    | `GET /social/feed`                | `social.ts` -> `useFeed()`                                                |
-|                       | `PATCH /social/interests/decay`   | `social.ts` -> `useDecayInterests()`                                      |
-|                       | `PATCH /social/interests/update`  | `social.ts` -> `useEditInterestScores()`                                  |
-|                       | `POST /social/posts`              | `social.ts` -> `useCreatePost()`                                          |
-|                       | `POST /social/posts/{id}/likes`   | `social.ts` -> `useLikePost()`                                            |
-|                       | `DELETE /social/posts/{id}/likes` | `social.ts` -> `useUnlikePost()`                                          |
-|                       | `POST /social/posts/views`        | `social.ts` -> `useMarkPostsViewed()`                                     |
-|                       | `GET /social/posts/topic`         | `social.ts` -> `useTopicPosts(topicMkId)`                                 |
-|                       | `GET /social/posts/user/:id`      | `social.ts` -> `useUserPosts(authorId)`                                   |
+| backend               | endpoint                             | hook                                                                      |
+| --------------------- | ------------------------------------ | ------------------------------------------------------------------------- |
+| `routes/tags.rs`      | `GET /tags`                          | `tags.ts` -> `useUserTags()`, `useTag(tagId)`                             |
+|                       | `POST /tags`                         | `tags.ts` -> `useCreateTag()`                                             |
+|                       | `DELETE /tags`                       | `tags.ts` -> `useDeleteTag()`                                             |
+|                       | `GET /tags/default-tags`             | `tags.ts` -> `useDefaultTags(search)`                                     |
+|                       | `GET /tags/activity`                 | `tags.ts` -> `useActivityTags()`                                          |
+|                       | `GET /tags/suggest`                  | `tags.ts` -> `useSuggestTags()`                                           |
+| `routes/songs.rs`     | `GET /songs/local-tags`              | `songs.ts` -> `useTagsOnSong(songId)`                                     |
+|                       | `POST /songs/local-tags/batch`       | `songs.ts` -> `useTagsOnSongs(songIds)`                                   |
+|                       | `GET /songs/default-tags`            | `songs.ts` -> `useDefaultTagsOnSong(songId)`                              |
+|                       | `POST /songs/default-tags/batch`     | `songs.ts` -> `useDefaultTagsOnSongs(songIds)`                            |
+|                       | `DELETE /songs/default-tags`         | `songs.ts` -> `useRemoveDefaultTag()`                                     |
+|                       | `POST /songs/local-tags`             | `songs.ts` -> `useApplyTag()`                                             |
+|                       | `PATCH /songs/local-tags`            | `songs.ts` -> `useSetTagValue()`                                          |
+|                       | `DELETE /songs/local-tags`           | `songs.ts` -> `useUnapplyTag()`                                           |
+|                       | `PATCH /songs`                       | `songs.ts` -> `useEditUserSongs()`                                        |
+|                       | `GET /songs/activity-tags`           | `songs.ts` -> `useActivityTagsOnSong(songId)`                             |
+|                       | `POST /songs/activity-tags/batch`    | `songs.ts` -> `useActivityTagsOnSongs(songIds)`                           |
+|                       | `POST /songs/metadata/opened`        | `songs.ts` -> `useReportSongOpened()`                                     |
+|                       | `GET /songs/metadata-tags`           | `songs.ts` -> `useMetadataTagsOnSong(songId)`                             |
+|                       | `POST /songs/metadata/library`       | `arrange.ts`, inside `useArrangedSongs()`                                 |
+| `routes/events.rs`    | `POST /events`                       | `events.ts` -> `useRecordEvents()`                                        |
+| `routes/analytics.rs` | `GET /analytics/summary`             | `analytics.ts` -> `useAnalyticsSummary()`                                 |
+|                       | `GET /analytics/top`                 | `analytics.ts` -> `useAnalyticsTop()`                                     |
+|                       | `GET /analytics/top-tags`            | `analytics.ts` -> `useAnalyticsTopTags()`                                 |
+|                       | `GET /analytics/heatmap`             | `analytics.ts` -> `useAnalyticsHeatmap()`                                 |
+|                       | `GET /analytics/tag-shares`          | `analytics.ts` -> `useAnalyticsTagShares()`                               |
+| `routes/queries.rs`   | `POST /queries/results`              | `queries.ts` -> `useQueryResults()`, `arrange.ts` -> `useArrangedSongs()` |
+|                       | `POST /queries/arrange`              | `arrange.ts` -> `useArrangedSongs()`                                      |
+| `routes/social.rs`    | `GET /social/feed`                   | `social.ts` -> `useFeed()`                                                |
+|                       | `PATCH /social/interests/decay`      | `social.ts` -> `useDecayInterests()`                                      |
+|                       | `PATCH /social/interests/update`     | `social.ts` -> `useEditInterestScores()`                                  |
+|                       | `POST /social/posts`                 | `social.ts` -> `useCreatePost()`                                          |
+|                       | `POST /social/posts/{id}/likes`      | `social.ts` -> `useLikePost()`                                            |
+|                       | `DELETE /social/posts/{id}/likes`    | `social.ts` -> `useUnlikePost()`                                          |
+|                       | `POST /social/posts/views`           | `social.ts` -> `useMarkPostsViewed()`                                     |
+|                       | `GET /social/posts/topic`            | `social.ts` -> `useTopicPosts(topicMkId)`                                 |
+|                       | `GET /social/posts/user/:id`         | `social.ts` -> `useUserPosts(authorId)`                                   |
+|                       | `GET /social/posts/{id}/comments`    | `social.ts` -> `usePostComments(postId)`                                  |
+|                       | `POST /social/posts/{id}/comments`   | `social.ts` -> `useCreateComment()`                                       |
+|                       | `POST /social/comments/{id}/likes`   | `social.ts` -> `useLikeComment()`                                         |
+|                       | `DELETE /social/comments/{id}/likes` | `social.ts` -> `useUnlikeComment()`                                       |
 
 `routes/social.rs` implements the paths above. The user id comes from the JWT.
 
@@ -338,7 +343,7 @@ artwork. Two sources, in order:
 1. `artworkColor` off the item, which is Apple's own and is what Music tints with. Free, and
    synchronous.
 2. Failing that, the average of the image, through `@image-color`. A download and a decode, so
-   it goes through SWR keyed on the artwork URL.
+   it goes through immutable SWR keyed on the artwork URL.
 
 Library artwork usually has no color of its own, which is the only reason the second path
 exists. Expo Go has no native module for it and returns null, and a null tint renders untinted.
@@ -350,8 +355,13 @@ page background. `DetailScreen` uses it for the full-screen player, and track co
 hand their source color to `TrackCollectionView`, which uses the same object over its full content
 height. Query results use the shared collection-artwork hook to
 rank one four-cell sample, convert those colors to Oklab, average their channels, and convert the
-result back to RGB for that source color. Fixed endpoint colors beneath the list keep elastic
-overscroll seamless.
+result back to RGB for that source color. One clamped backdrop keeps elastic overscroll seamless.
+Color sampling and artist gradients live in `artwork-color-utils.ts`; `surface-contrast-context.tsx`
+shares content-position palettes with headings, rows, and floating controls.
+
+`musickit-hooks.ts::useArtistPreview` warms artist details, portrait tint, and native image caches.
+It shares immutable SWR keys with the destination, avoiding repeat reads on mount/focus/reconnect.
+Artist keys include the Apple Music session revision; image/color keys use artwork URLs.
 
 Hand `useArtworkTint` the **small** artwork. Averaging only needs a thumbnail, and a hero-sized
 one costs a megabyte to reach the same answer. `ArtworkSource.artworkUrlSmall` wins over
@@ -436,6 +446,13 @@ whole way, and starts at once. Glass on a page that starts see-through renders f
 flat, so the page is never faded on the way in, only on the way out. A screen reports where its
 artwork is through `focus`, as it scrolls; `TrackCollectionView` measures its hero against the page
 with `measureLayout`, which ignores transforms, and the close snapshots it as it sets off.
+Source rectangles are full-window targets. iOS form sheets use `ZoomSheetSourceScope` to cancel
+the sheet's Fabric layout-tree origin and add its physical position from its measured height.
+This includes the Now Playing header without hardcoding its height. Destination cards already
+fill the window and consume these targets directly.
+The scroll worklet starts closing on the UI thread; JavaScript pops after the animation.
+`useZoomSource("point")` anchors artist cards at the label center. The `fromPlayer` option of
+`useOpenScreen` keeps the player and its history underneath the destination.
 `opened` says when the card has finished growing, and `useOpenTransitionSettled` waits for it, since
 these screens have no native transition to wait for. An earlier version resized a clip every frame
 to collapse the page first, and the layout work made both directions stutter.

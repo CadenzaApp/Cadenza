@@ -1,3 +1,4 @@
+import MaskedView from "@react-native-masked-view/masked-view";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type { ArtistDetail, MusicItem } from "@apple-musickit";
 import { Image } from "expo-image";
@@ -5,34 +6,46 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams } from "expo-router";
 import { useTheme } from "expo-router/react-navigation";
 import { useColorScheme } from "nativewind";
-import { useState } from "react";
+import { memo, useCallback, useMemo, useState } from "react";
 import {
-    Image as RNImage,
+    FlatList,
     Pressable,
-    ScrollView,
     StyleSheet,
     useWindowDimensions,
     View,
 } from "react-native";
 
 import { ErrorNotice } from "@/components/custom/error-notice";
-import { Crossfade } from "@/components/ui/crossfade";
 import { TrackCollectionView } from "@/components/custom/track-collection-view";
 import { FloatingCloseButton } from "@/components/ui/floating-close-button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Text } from "@/components/ui/text";
-import { useArtworkTint, withAlpha } from "@/lib/artwork-color";
-import { sampleTintGradientColor } from "@/lib/artwork-color-utils";
+import {
+    ContrastRegion,
+    ContrastText as Text,
+} from "@/lib/surface-contrast-context";
+import { useArtworkTint } from "@/lib/artwork-color";
+import {
+    createArtistGradient,
+    ARTIST_ARTWORK_FADE_START,
+    ARTIST_GRADIENT_SCREEN_HEIGHTS,
+} from "@/lib/artwork-color-utils";
 import { useZoomSource, ZoomDismissScreen } from "@/lib/zoom-dismiss";
 import { MediaPlayerZoomOverlay } from "@/components/custom/media-player";
 import { collectionRoute } from "@/lib/music-routes";
 import { useArtist } from "@/lib/musickit-hooks";
 import { samePlayableItem } from "@/lib/playable-item";
 import { usePlaybackCommands, usePlaybackTrackState } from "@/lib/playback";
+import { useOpenTransitionSettled } from "@/lib/use-open-transition-settled";
 import { useOpenScreen } from "@/lib/open-screen";
 
+const EMPTY_TRACKS: MusicItem[] = [];
 const ALBUM_TILE_WIDTH = 132;
 const ALBUM_PLACEHOLDER_COUNT = 4;
+const EMPTY_ALBUMS: MusicItem[] = [];
+const ALBUM_TILE_GAP = 12;
+const ALBUM_RAIL_INSET = 24;
+const ALBUM_RAIL_STYLE = { paddingHorizontal: ALBUM_RAIL_INSET };
+const ALBUM_IMAGE_STYLE = { width: ALBUM_TILE_WIDTH, height: ALBUM_TILE_WIDTH };
 const DEFAULT_MULTI_SELECT_CONFIG = {} as const;
 const NO_PAGINATION = {
     hasNextPage: false,
@@ -41,12 +54,10 @@ const NO_PAGINATION = {
 } as const;
 /** Height of the hero, as a fraction of the window height. Apple's is about this. */
 const HERO_HEIGHT_RATIO = 0.45;
-/** How much of the hero the name sits over, fading the image into the page. */
-const HERO_FADE_RATIO = 0.45;
 
 /**
  * One catalog artist: the artist image full bleed, their top songs, then their
- * albums. Apple's order, and Apple's tint, which comes from the artwork.
+ * albums. Apple's order, with a background sampled from the artist portrait.
  *
  * The whole page is one `MusicList`. It owns a `FlatList`, so the hero goes in
  * as its header and the albums rail as its footer; stacking a `ScrollView`
@@ -62,26 +73,44 @@ export default function ArtistScreen() {
     const { colorScheme = "light" } = useColorScheme();
     const { height: windowHeight } = useWindowDimensions();
     const { artist, artistLoading, artistErr } = useArtist(id);
-    const { tint } = useArtworkTint(artist);
+    const { tint: portraitTint } = useArtworkTint(artist);
     const { activeTrack, isLoading, isPlaying } = usePlaybackTrackState();
     const { playQueue, togglePlayback } = usePlaybackCommands();
     const [playbackCommandPending, setPlaybackCommandPending] = useState(false);
-    const albums = artist?.albums ?? [];
-    const topSongs = artist?.topSongs ?? [];
+    const albums = artist?.albums ?? EMPTY_ALBUMS;
+    const topSongs = artist?.topSongs ?? EMPTY_TRACKS;
+    const gradient = useMemo(
+        () =>
+            portraitTint
+                ? createArtistGradient(portraitTint, colorScheme)
+                : null,
+        [portraitTint, colorScheme],
+    );
     const isCurrentArtist =
         activeTrack != null &&
         (activeTrack.artistId === id ||
             topSongs.some((song) => samePlayableItem(song, activeTrack)));
     const isArtistPlaying = isCurrentArtist && isPlaying;
-    // The wash runs the height of the whole page rather than the screen, so
-    // scrolling moves through one gradient instead of repeating it. Until the
-    // list has measured itself, a screen and a half is the better guess.
-    const [contentHeight, setContentHeight] = useState(windowHeight * 1.5);
     const heroHeight = windowHeight * HERO_HEIGHT_RATIO;
+    const loadingColor = colorScheme === "dark" ? "#000000" : "#ffffff";
+    const artworkSurface = useMemo(
+        () =>
+            portraitTint
+                ? {
+                      color: portraitTint,
+                      height: heroHeight,
+                      fadeStart: ARTIST_ARTWORK_FADE_START,
+                  }
+                : undefined,
+        [portraitTint, heroHeight],
+    );
 
-    function openAlbum(album: MusicItem) {
-        openScreen(collectionRoute(album));
-    }
+    const openAlbum = useCallback(
+        (album: MusicItem) => {
+            openScreen(collectionRoute(album));
+        },
+        [openScreen],
+    );
 
     /** Replaces the queue with the top songs, in Apple's order. */
     async function playTopSongs() {
@@ -100,7 +129,7 @@ export default function ArtistScreen() {
 
     return (
         <ZoomDismissScreen overlay={<MediaPlayerZoomOverlay />}>
-            <View className="flex-1 bg-card">
+            <View className="flex-1" style={{ backgroundColor: loadingColor }}>
                 {artistErr ? <ErrorNotice error={artistErr} /> : null}
 
                 <TrackCollectionView
@@ -110,37 +139,29 @@ export default function ArtistScreen() {
                     error={artistErr}
                     pagination={NO_PAGINATION}
                     multiSelect={DEFAULT_MULTI_SELECT_CONFIG}
-                    backgroundColor={tint}
-                    onContentSizeChange={(_, height) =>
-                        setContentHeight(Math.max(windowHeight, height))
+                    backgroundColor={portraitTint}
+                    backgroundGradient={gradient}
+                    gradientMinHeight={
+                        windowHeight * ARTIST_GRADIENT_SCREEN_HEIGHTS
                     }
+                    artworkSurface={artworkSurface}
                     header={
                         <>
                             <ArtistHero
                                 artist={artist}
+                                artistLoading={artistLoading}
                                 name={artist?.name ?? name ?? "Artist"}
                                 height={heroHeight}
-                                tint={tint}
-                                // Where the page's own gradient has reached by the
-                                // bottom of the hero, so the image fades into the
-                                // page rather than into a brighter band.
-                                fadeTo={
-                                    tint
-                                        ? sampleTintGradientColor(
-                                              tint,
-                                              colorScheme,
-                                              heroHeight / contentHeight,
-                                          )
-                                        : null
-                                }
                                 canPlay={topSongs.length > 0}
                                 isPlaying={isArtistPlaying}
                                 isLoading={isLoading || playbackCommandPending}
                                 onPlay={() => void playTopSongs()}
                             />
-                            <Text className="px-6 pb-1 pt-5 text-xl font-bold text-foreground">
-                                Top Songs
-                            </Text>
+                            <ContrastRegion offset={heroHeight + 30}>
+                                <Text className="px-6 pb-1 pt-5 text-xl font-bold text-foreground">
+                                    Top Songs
+                                </Text>
+                            </ContrastRegion>
                         </>
                     }
                     footer={
@@ -176,20 +197,18 @@ export default function ArtistScreen() {
  */
 function ArtistHero({
     artist,
+    artistLoading,
     name,
     height,
-    tint,
-    fadeTo,
     canPlay,
     isPlaying,
     isLoading,
     onPlay,
 }: {
     artist?: ArtistDetail;
+    artistLoading: boolean;
     name: string;
     height: number;
-    tint: string | null;
-    fadeTo: string | null;
     canPlay: boolean;
     isPlaying: boolean;
     isLoading: boolean;
@@ -197,78 +216,62 @@ function ArtistHero({
 }) {
     const { colors } = useTheme();
     const artworkUrl = artist?.artworkUrl;
-    // `colors.card` is a ColorValue, which is a hex string on every theme the
-    // app defines. The gradient wants that string.
-    const untintedFade = [
-        withAlpha("#000000", 0),
-        String(colors.card),
-    ] as const;
-    const fade = [
-        withAlpha(tint ?? "#000000", 0),
-        fadeTo ?? untintedFade[1],
-    ] as const;
 
     return (
         <View style={{ height }} className="justify-end">
-            {artworkUrl ? (
-                <Image
-                    source={{ uri: artworkUrl }}
-                    placeholder={
-                        artist?.artworkUrlSmall
-                            ? { uri: artist.artworkUrlSmall }
-                            : undefined
-                    }
-                    placeholderContentFit="cover"
-                    contentFit="cover"
-                    cachePolicy="memory-disk"
-                    priority="high"
-                    transition={200}
-                    style={{ position: "absolute", inset: 0 }}
-                />
-            ) : (
-                <View className="absolute inset-0 items-center justify-center bg-muted">
-                    <Ionicons name="person" size={72} color={colors.text} />
-                </View>
-            )}
-
-            <View
+            <MaskedView
                 pointerEvents="none"
-                style={{
-                    position: "absolute",
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    height: height * HERO_FADE_RATIO,
-                }}
+                style={StyleSheet.absoluteFill}
+                // Cache this static image+mask composite while the parent scrolls.
+                shouldRasterizeIOS
+                renderToHardwareTextureAndroid
+                maskElement={
+                    <LinearGradient
+                        style={StyleSheet.absoluteFill}
+                        colors={["#000000", "#000000", "transparent"]}
+                        locations={[0, ARTIST_ARTWORK_FADE_START, 1]}
+                    />
+                }
             >
-                {/* fades with the page's tint, from the untinted fade the
-                    page starts at, so the two never disagree */}
-                <Crossfade
-                    value={fade}
-                    initial={untintedFade}
-                    keyOf={(stops) => stops.join(",")}
-                    render={(stops) => (
-                        <LinearGradient
-                            style={StyleSheet.absoluteFill}
-                            colors={stops}
-                        />
-                    )}
-                />
-            </View>
+                {artworkUrl ? (
+                    <Image
+                        source={{ uri: artworkUrl }}
+                        placeholder={
+                            artist?.artworkUrlSmall
+                                ? { uri: artist.artworkUrlSmall }
+                                : undefined
+                        }
+                        placeholderContentFit="cover"
+                        contentFit="cover"
+                        cachePolicy="memory-disk"
+                        priority="high"
+                        transition={0}
+                        style={{ position: "absolute", inset: 0 }}
+                    />
+                ) : artistLoading ? (
+                    <Skeleton className="absolute inset-0" />
+                ) : (
+                    <View className="absolute inset-0 items-center justify-center bg-muted">
+                        <Ionicons name="person" size={72} color={colors.text} />
+                    </View>
+                )}
+            </MaskedView>
 
-            <View className="items-center px-6 pb-5">
-                <Text
-                    className="pb-4 text-center text-4xl font-bold tracking-tight text-white"
-                    numberOfLines={2}
-                >
-                    {name}
-                </Text>
-                <PlayButton
-                    disabled={!canPlay || isLoading}
-                    isPlaying={isPlaying}
-                    onPress={onPlay}
-                />
-            </View>
+            <ContrastRegion offset={height - 100}>
+                <View className="items-center px-6 pb-5">
+                    <Text
+                        className="pb-4 text-center text-4xl font-bold tracking-tight text-white"
+                        numberOfLines={2}
+                    >
+                        {name}
+                    </Text>
+                    <PlayButton
+                        disabled={!canPlay || isLoading}
+                        isPlaying={isPlaying}
+                        onPress={onPlay}
+                    />
+                </View>
+            </ContrastRegion>
         </View>
     );
 }
@@ -310,8 +313,8 @@ function PlayButton({
     );
 }
 
-/** The artist's albums, sideways. */
-function AlbumRail({
+/** Only mount nearby covers; large artist catalogs can contain hundreds of albums. */
+const AlbumRail = memo(function AlbumRail({
     albums,
     isLoading,
     onSelect,
@@ -320,39 +323,70 @@ function AlbumRail({
     isLoading: boolean;
     onSelect: (album: MusicItem) => void;
 }) {
+    const settled = useOpenTransitionSettled(true);
+    const { fontScale } = useWindowDimensions();
+    const renderAlbum = useCallback(
+        ({ item }: { item: MusicItem }) => (
+            <AlbumTile album={item} onSelect={onSelect} />
+        ),
+        [onSelect],
+    );
     return (
-        <ScrollView
+        <FlatList
             horizontal
+            style={{ height: ALBUM_TILE_WIDTH + 8 + 44 * fontScale }}
+            data={settled ? albums : EMPTY_ALBUMS}
+            keyExtractor={albumKey}
+            renderItem={renderAlbum}
+            getItemLayout={albumLayout}
+            initialNumToRender={ALBUM_PLACEHOLDER_COUNT}
+            maxToRenderPerBatch={ALBUM_PLACEHOLDER_COUNT}
+            windowSize={3}
             showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ paddingHorizontal: 24, gap: 12 }}
-        >
-            {isLoading && albums.length === 0
-                ? Array.from(
-                      { length: ALBUM_PLACEHOLDER_COUNT },
-                      (_, index) => (
-                          <View key={index} style={{ width: ALBUM_TILE_WIDTH }}>
-                              <Skeleton className="aspect-square w-full rounded-lg" />
-                              <Skeleton className="mt-2 h-4 w-3/4 rounded" />
-                          </View>
-                      ),
-                  )
-                : albums.map((album) => (
-                      <AlbumTile
-                          key={album.id}
-                          album={album}
-                          onPress={() => onSelect(album)}
-                      />
-                  ))}
-        </ScrollView>
+            contentContainerStyle={ALBUM_RAIL_STYLE}
+            ItemSeparatorComponent={AlbumSeparator}
+            ListEmptyComponent={
+                isLoading || !settled ? <AlbumPlaceholders /> : null
+            }
+        />
+    );
+});
+
+function albumKey(album: MusicItem) {
+    return album.id;
+}
+function albumLayout(
+    _data: ArrayLike<MusicItem> | null | undefined,
+    index: number,
+) {
+    return {
+        length: ALBUM_TILE_WIDTH,
+        offset: ALBUM_RAIL_INSET + index * (ALBUM_TILE_WIDTH + ALBUM_TILE_GAP),
+        index,
+    };
+}
+function AlbumSeparator() {
+    return <View style={{ width: ALBUM_TILE_GAP }} />;
+}
+function AlbumPlaceholders() {
+    return (
+        <View className="flex-row" style={{ gap: ALBUM_TILE_GAP }}>
+            {Array.from({ length: ALBUM_PLACEHOLDER_COUNT }, (_, index) => (
+                <View key={index} style={{ width: ALBUM_TILE_WIDTH }}>
+                    <Skeleton className="aspect-square w-full rounded-lg" />
+                    <Skeleton className="mt-2 h-4 w-3/4 rounded" />
+                </View>
+            ))}
+        </View>
     );
 }
 
-function AlbumTile({
+const AlbumTile = memo(function AlbumTile({
     album,
-    onPress,
+    onSelect,
 }: {
     album: MusicItem;
-    onPress: () => void;
+    onSelect: (album: MusicItem) => void;
 }) {
     const { colors } = useTheme();
     const { ref: zoomRef, capture: captureZoom } = useZoomSource();
@@ -366,7 +400,7 @@ function AlbumTile({
             accessibilityLabel={`Open ${album.title}`}
             onPress={() => {
                 captureZoom();
-                onPress();
+                onSelect(album);
             }}
             style={{ width: ALBUM_TILE_WIDTH }}
             className="active:opacity-80"
@@ -377,9 +411,14 @@ function AlbumTile({
                 className="aspect-square w-full"
             >
                 {canRenderArtwork ? (
-                    <RNImage
+                    <Image
                         source={{ uri: artworkUrl }}
-                        className="h-full w-full rounded-lg bg-muted"
+                        style={ALBUM_IMAGE_STYLE}
+                        className="rounded-lg bg-muted"
+                        contentFit="cover"
+                        cachePolicy="memory-disk"
+                        recyclingKey={album.id}
+                        transition={0}
                     />
                 ) : (
                     <View className="h-full w-full items-center justify-center rounded-lg bg-muted">
@@ -395,4 +434,4 @@ function AlbumTile({
             </Text>
         </Pressable>
     );
-}
+});

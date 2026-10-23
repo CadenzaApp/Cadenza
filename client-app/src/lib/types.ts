@@ -106,6 +106,26 @@ export type SocialPost = {
     };
     /** Apple Music catalog id of the attached song or artist, or null. */
     topic_mk_id: string | null;
+    comment_count: number;
+};
+
+/**
+ * One comment on a post as `GET /social/posts/:id/comments` returns it.
+ * Sorted most liked first.
+ */
+export type SocialComment = {
+    comment_id: number;
+    post_id: number;
+    content: string;
+    likes: number;
+    /** Whether the signed-in user has liked it. */
+    liked: boolean;
+    /** RFC 3339 in UTC */
+    created_at: string;
+    author: {
+        user_id: string;
+        username: string;
+    };
 };
 
 /** Public profile header from `GET /social/posts/user/:author_id`. */
