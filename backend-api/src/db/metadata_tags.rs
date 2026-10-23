@@ -563,6 +563,131 @@ pub async fn get_library_songs_without_metadata(
         .collect())
 }
 
+/// What a phone knows about a song from its library, for a song Apple's catalog has no entry
+/// for: an uploaded song, or one Apple never matched.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LibrarySong {
+    pub song_id: String,
+    pub title: String,
+    pub artist_name: Option<String>,
+    pub album_name: Option<String>,
+    pub genre_names: Vec<String>,
+    pub duration_ms: Option<u64>,
+    /// `YYYY-MM-DD`, or `YYYY` for a year alone.
+    pub release_date: Option<String>,
+    /// `None` when the library gave no rating.
+    pub explicit: Option<bool>,
+}
+
+/// Stores what a phone knows about songs only its library knows, as `source` 'library'
+/// rows, so a song list can sort and group them like any other. Returns the song ids
+/// stored.
+///
+/// A row is only written for a song the user has (in `user_songs`, or carrying one of their
+/// tags) or one with a library id, which starts with `i.` and belongs to one user alone,
+/// and only over no row, a row Apple had no entry for, or an earlier library row. What
+/// Apple's catalog says always wins, and nobody can rename a song in someone else's list.
+///
+/// A 'library' row is never a song another user's query discovers. A new row's
+/// `total_plays` is counted from the log, the same as [`store_song_metadata`].
+pub async fn store_library_song_metadata(
+    db: &(impl ConnectionTrait + TransactionTrait),
+    user_id: sea_orm::prelude::Uuid,
+    songs: &[LibrarySong],
+) -> Result<Vec<String>, CadenzaError> {
+    let mut seen = HashSet::new();
+    let rows: Vec<serde_json::Value> = songs
+        .iter()
+        .rev()
+        .filter(|song| !song.song_id.is_empty() && !song.title.trim().is_empty())
+        .filter(|song| seen.insert(song.song_id.as_str()))
+        .map(|song| {
+            serde_json::json!({
+                "song_id": song.song_id,
+                "name": song.title.trim(),
+                "artist_name": song.artist_name.as_deref().map(str::trim),
+                "album_name": song.album_name.as_deref().map(str::trim),
+                "genres": query_genres(&song.genre_names),
+                "duration_in_millis": song.duration_ms.and_then(|millis| i32::try_from(millis).ok()),
+                "release_date": song
+                    .release_date
+                    .as_deref()
+                    .and_then(parse_release_date)
+                    .map(|day| day.format("%Y-%m-%d").to_string()),
+                "content_rating": song.explicit.map(|explicit| if explicit { "explicit" } else { "clean" }),
+            })
+        })
+        .collect();
+    if rows.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let txn = db.begin().await?;
+    let stored = SongStoredRow::find_by_statement(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        r#"
+        INSERT INTO metadata_song_tags_applied
+            (song_id, found, name, artist_name, album_name, duration_in_millis, genre_names,
+             release_date, content_rating, source, fetched_at)
+        SELECT
+            song.song_id, TRUE, song.name, song.artist_name, song.album_name,
+            song.duration_in_millis,
+            ARRAY(SELECT json_array_elements_text(song.genres)),
+            song.release_date, song.content_rating, 'library', now()
+        FROM json_to_recordset($2::json) AS song(
+            song_id text, name text, artist_name text, album_name text,
+            duration_in_millis integer, genres json, release_date date, content_rating text
+        )
+        WHERE starts_with(song.song_id, 'i.')
+            OR EXISTS (
+                SELECT 1 FROM user_songs AS library
+                WHERE library.user_id = $1 AND library.song_id = song.song_id
+            )
+            OR EXISTS (
+                SELECT 1 FROM user_tags_applied AS applied
+                WHERE applied.user_id = $1 AND applied.song_id = song.song_id
+            )
+        ON CONFLICT (song_id) DO UPDATE SET
+            found = TRUE,
+            name = EXCLUDED.name,
+            artist_name = EXCLUDED.artist_name,
+            album_name = EXCLUDED.album_name,
+            duration_in_millis = EXCLUDED.duration_in_millis,
+            genre_names = EXCLUDED.genre_names,
+            release_date = EXCLUDED.release_date,
+            content_rating = EXCLUDED.content_rating,
+            source = 'library',
+            fetched_at = EXCLUDED.fetched_at
+        WHERE NOT metadata_song_tags_applied.found
+            OR metadata_song_tags_applied.source = 'library'
+        RETURNING song_id, (xmax = 0) AS inserted
+        "#,
+        [
+            user_id.into(),
+            serde_json::Value::Array(rows).to_string().into(),
+        ],
+    ))
+    .all(&txn)
+    .await?;
+
+    let new_song_ids: Vec<String> = stored
+        .iter()
+        .filter(|row| row.inserted)
+        .map(|row| row.song_id.clone())
+        .collect();
+    count_total_plays_from_log(&txn, &new_song_ids).await?;
+    txn.commit().await?;
+
+    Ok(stored.into_iter().map(|row| row.song_id).collect())
+}
+
+/// A row an upsert wrote, and whether it was new rather than replaced.
+#[derive(FromQueryResult)]
+struct SongStoredRow {
+    song_id: String,
+    inserted: bool,
+}
+
 /// Each id once, in input order.
 fn distinct(ids: &[String]) -> Vec<String> {
     let mut seen = HashSet::new();

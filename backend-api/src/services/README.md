@@ -170,6 +170,15 @@ How much is stored depends on what happened to the song:
 | opened in the player | the song, and its album is queued (`record_song_opened`, from `POST /songs/metadata/opened`) |
 | in someone's library | the song, and its album is queued (the crawl's library walk) |
 | on a queued album | every song on the album (the crawl) |
+| in a list being sorted or grouped | every song in it, waited for (`store_metadata_before_sorting`, from `POST /queries/results` with a sort or group, which stores all the user's own songs, and `POST /queries/arrange`) |
+| in a sorted list, with no catalog entry | what the phone's library says about it, as a `source` 'library' row (`POST /songs/metadata/library`, `db::metadata_tags::store_library_song_metadata`) |
+
+A sorted list reads every song's row, so it does not leave storing to the background: the request
+stores the songs with no row first and waits, so they sort by their values rather than last. A
+failure there (Apple down, or a rate limit) is logged and the list sorts anyway; those songs come
+back in `missing_metadata` and the next sorted read tries again. Apple's catalog cannot describe a
+song with only a library id, or one it never matched, so the phone sends what MusicKit knows about
+those, and only those ever get a library row.
 
 `ensure_default_tags_generated` also stores what it read from Apple while it has it, so a new
 song is not read twice. That store is logged on failure, never returned, because default tags do

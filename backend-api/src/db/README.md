@@ -14,9 +14,9 @@ The data access layer. Everything that touches postgres lives here, so handlers 
 | `activity_tags.rs` | `ActivityTag` (My Plays, First Played, Last Played, In My Library, Favorited, Tagged), finding their rows by `is_activity` and name, creating missing ones and recoloring stale ones, `record_play`, `set_favorites_within`, and reading their values per song with defaults filled in. Unit tested. |
 | `tags.rs` | User tag CRUD and applied values, plus searching, reading, and applying default tags, and claiming, finishing, and dropping a song's default tag generation. User tag reads never copy or return defaults. |
 | `tag_activity.rs` | Not activity tags. Counts applies and removes of a tag name on a song in `default_tag_activity`, and promotes popular names to default tags. |
-| `queries.rs` | Compiles a tag query to SQL, runs it over every song Cadenza knows, and ranks or sorts the matches. Unit tested, plus integration tests against a real database (`--ignored`) that need `sql/metadata_tags.sql` and `sql/query_sort.sql`. |
+| `queries.rs` | Compiles a tag query to SQL, runs it over every song Cadenza knows, and ranks, sorts, or groups the matches. Also sorts and groups a list of song ids the caller sends. Unit tested, plus integration tests against a real database (`--ignored`) that need `sql/metadata_tags.sql` and `sql/query_sort.sql`. |
 | `social.rs` | Posts, likes, view status, interest scores, and the feed's SQL and score math. `post_likes` writes use the generated entity; `hot_score` and embeddings stay raw SQL. Embeddings come from `services::social_feed`. `topic_mk_id` is an optional Apple Music catalog id; song vs artist is not stored. `get_topic_posts` returns the posts for one catalog id, most liked first. Unit tested for the vector math. |
-| `metadata_tags.rs` | The copy of Apple Music song metadata that queries and metadata tags read in `metadata_song_tags_applied`, and the album crawl queue in `metadata_albums`: storing songs, finding ones with no row, and queueing, claiming, finishing, and releasing albums. Unit tested, plus integration tests against a real database (`--ignored`). |
+| `metadata_tags.rs` | The copy of Apple Music song metadata that queries and metadata tags read in `metadata_song_tags_applied`, and the album crawl queue in `metadata_albums`: storing songs, storing what a phone says about songs Apple's catalog has no entry for (`store_library_song_metadata`), finding ones with no row, and queueing, claiming, finishing, and releasing albums. Unit tested, plus integration tests against a real database (`--ignored`). |
 | `user_songs.rs` | `edit_user_songs`: adds and removes the user's songs in one transaction. `get_recent_songs_without_generated_default_tags`: the newest songs nothing has generated default tags for, which the backfill job walks. |
 | `entity/` | sea-orm-codegen output. Includes tag, default-tag, and related tables, plus `prelude` and `mod`. Do not hand edit. |
 
@@ -82,7 +82,10 @@ Most of the tables below are keyed on song ids that come from Apple Music.
   a number when that name is taken. `POST /profile` does the same for a missing row. See Profiles
   below.
 - `metadata_song_tags_applied` - a copy of each song's Apple Music metadata, one row
-  per song, keyed by `song_id`. `found` is false for an id Apple has no catalog entry for, which
+  per song, keyed by `song_id`. `source` is 'catalog' for what Apple's catalog said and
+  'library' for what a phone said about a song only its library knows (an upload, or one Apple
+  never matched); DDL in `sql/sort_group.sql`. A 'library' row is only ever one user's own song,
+  so queries never discover it. `found` is false for an id Apple has no catalog entry for, which
   leaves every other column empty. `name`, `artist_name`, `album_name`, `album_id`,
   `duration_in_millis`, `genre_names` (`text[]`, never null, without Apple's catch-all "Music"),
   `release_date` (a year-only date is stored as January 1), `content_rating` (`explicit`, `clean`,
@@ -251,8 +254,9 @@ refuses a username that still contains `@`. `update_profile` needs at least one 
 
 `queries.rs::run_query` is the interesting part. It takes the typed `Query` from
 `routes/json/query.rs` (see [../routes/README.md](../routes/README.md) for the JSON), a
-`consider_default_tags` flag, and an optional `QuerySort`, and returns the matching songs in
-order, each marked `certain` or not, plus whether the list was `capped`. There is one compiler;
+`consider_default_tags` flag, and an `Arrangement` (an optional sort and group, see Sorting and
+grouping below), and returns the matching songs in order, each marked `certain` or not, plus
+whether the list was `capped`, the groups, and the songs with no stored metadata. There is one compiler;
 the drag and drop builder just sends a query built only from `is_applied` and `is_not_applied` tag
 filters.
 
@@ -260,9 +264,14 @@ A query runs over every song Cadenza knows, in two groups. The caller does not s
 
 - The user's own songs, `certain`: their `user_songs` rows and every song carrying one of their
   `user_tags_applied` rows, activity tags included. Every match among these comes back.
-- Every other `metadata_song_tags_applied` row with `found` set: songs Cadenza stored from
-  another library or an album crawl. Only the first `MAX_DISCOVERED_SONGS` (1000) matches come
-  back, in the order the query asked for, and `capped` says when more matched.
+- Every other `metadata_song_tags_applied` row with `found` set and `source` 'catalog': songs
+  Cadenza stored from another library or an album crawl. A 'library' row is some user's own
+  song that only their phone could describe, never one to discover.
+
+Unsorted and ungrouped, every match among the user's own comes back, first, and only the first
+`MAX_DISCOVERED_SONGS` (1000) of the rest. Sorted or grouped, the user asked for an order, so only
+the first `MAX_ARRANGED_SONGS` (1000) songs in that order come back, theirs or not. Either way
+`capped` says when more matched.
 
 Default tags do not make a song the user's own. They sit on songs from every user's library, so
 counting them would let "not pop" with suggested tags on return thousands of other people's songs
@@ -286,10 +295,10 @@ through as `NULL::text` because that table has no value column. So a default tag
 postgres can push the correlated song id down into both branches and keep using the song id
 indexes.
 
-`compile_query` is pure and emits `(song id, certain)` rows already in their final order. The
-same where clause runs over each group in its own half of a `UNION ALL`, and only the second half
-has a `LIMIT`, so postgres keeps the first 1001 songs from outside the user's own while it sorts
-rather than sorting every stored song. That is also why ranking happens in SQL. Each half starts
+`compile_query` is pure and emits rows already in their final order. The same where clause runs
+over each group in its own half of a `UNION ALL`, and the second half has a `LIMIT`, so postgres
+keeps the first 1001 songs from outside the user's own while it sorts rather than sorting every
+stored song. Sorted or grouped, the first half and the whole list are limited the same way. That is also why ranking happens in SQL. Each half starts
 from songs rather than tags, which is what lets a song with no tag rows satisfy a negative filter:
 
 ```sql
@@ -356,25 +365,66 @@ ORDER BY <order>
 Operator / type mismatches, missing or extra values, bad numbers, and bad dates are all
 `CadenzaError::QueryFormatError` (422) with a message saying which.
 
-## Ranking and sorting
+## Ranking
 
-Without a sort, songs come back most relevant first. A song's score is how many of the tag ids
-the query names it carries, counted in one grouped join over the applied tags source. Then the
-user's own songs come before the rest, then songs with more `total_plays` (every user's plays),
-then song id.
-
-With a sort, songs come back by their stored `name`, `artist_name` or `album_name`, ascending or
-descending, then by title for an artist or album sort, then by `total_plays`, then song id. Text
-compares in the `natural_sort` collation from `sql/query_sort.sql`, ICU with numeric ordering, so
-"Track 9" comes before "Track 10" the way the app sorts. A song with no stored row, one Apple has
-no entry for, or an empty value sorts last either way. Both groups sort into one list.
-
-Song id breaks every tie, compared byte by byte (`COLLATE "C"`), so the order is total and the
-same query over the same data comes back in the same order every time. The cap's sort and the
-final sort use one `order_by` string, so they always agree.
+Left unarranged, the user's own songs come first, then the rest. Inside each, songs come back
+most relevant first: a song's score is how many of the tag ids the query names it carries, counted
+in one grouped join over the applied tags source. Then songs with more `total_plays` (every user's
+plays), then song id.
 
 A query built only from `tag_name`, `tag_value`, `tag_type` or metadata filters names no tag ids
 at all, so every song scores zero.
+
+## Sorting and grouping
+
+A sort or a group names one field: any tag the user can see on a song (their own, an activity tag,
+or a shared default tag, whether or not the query considers default tags), or a metadata key. To
+the user every one of these is a tag. `arrange_context` looks the tags up, user scoped, and checks
+the time zone a datetime group counts days in against `pg_timezone_names`.
+
+`field_sql` compiles a field to a state and a typed value, read for each song. The state is where
+the song goes whichever way the sort runs: 0 for a value, 1 for the tag applied with no value, 2
+for no tag at all. The value orders within state 0.
+
+| field | value | ascending |
+| --- | --- | --- |
+| basic or default tag | none, only applied or not | applied first, either direction |
+| checkbox | `value = 'true'` | true, then false |
+| text, and title, artist, album, genre | the text, in `natural_sort` | A to Z |
+| number, and duration, total plays | `value::double precision` | low to high |
+| date, datetime, and release date | `value::date`, `value::timestamptz` | oldest first |
+
+- The user's own tags and the stored activity tags are one `LEFT JOIN` on the `user_tags_applied`
+  primary key. A song from outside the user's own carries none of their rows, so that half reads
+  state 2 with nothing joined.
+- My Plays reads 0 and Favorited false with no row, the same `TagDefaults` the filters use, so
+  they are never empty. In My Library and Tagged are `EXISTS` on `user_songs` and on the user's
+  own tags, and false for a song from outside.
+- A default tag is a `LEFT JOIN` on `default_tags_applied`, less the user's
+  `default_tags_removed`, in both halves, since default tags are on other people's songs too.
+- Metadata reads the song's own row, carried on `query_songs`: genre as one text value joined with
+  ", ", explicit as `explicit` true, `clean` false, unrated empty. A song with no row, or one
+  Apple has no entry for, has every metadata value empty, state 1.
+
+A group orders first, by the same state and its own value, then the sort orders inside it. Text
+groups ignore case (`lower`), a datetime groups by its day in the request's time zone, and
+everything else by its value. `groups_of` reads the groups back off the ordered rows as runs, each
+named by its first song's value, so the counts always add up to the list.
+
+Sorted, ties go by title, then `total_plays`, then song id. Grouped but unsorted, a query keeps its
+ranking inside each group, and a list of ids keeps its given order.
+
+Song id breaks every tie, compared byte by byte (`COLLATE "C"`), so the order is total and the
+same request over the same data comes back in the same order every time. Each half's cap and the
+final sort use one `order_by` string, so they always agree.
+
+`arrange_song_ids` runs the same fields over a list of ids the caller sent, for a list only the
+phone knows (a playlist, an album, a tag's songs). The ids come in as one JSON array read with
+`json_array_elements_text ... WITH ORDINALITY`, every one is `certain`, none is capped, and
+unsorted they keep their order.
+
+Every arranged statement also returns whether each song had a stored row Apple knew, and the ids
+without one come back as `missing_metadata`. See `store_library_song_metadata` below.
 
 ## Connects to
 
@@ -455,8 +505,15 @@ at all, so every song scores zero.
 - Nothing deletes a user's `user_songs` rows when their tags go, or vice versa. The two tables
   are independent. A tagged song missing from `user_songs` is still one of the user's own to a
   query, because it carries their tag.
-- A query needs `sql/query_sort.sql` applied. Without the `natural_sort` collation every sorted
-  query fails, and without `sql/metadata_tags.sql` every query does.
+- A query needs `sql/query_sort.sql` and `sql/sort_group.sql` applied. Without the
+  `natural_sort` collation every sorted query fails, and without `sql/metadata_tags.sql` or the
+  `source` column from `sql/sort_group.sql` every query does.
+- `db/entity/metadata_song_tags_applied.rs` predates `source`. Nothing reads the column through
+  the entity: catalog rows are inserted through it and take the column default, and library rows
+  and the query compiler use raw SQL. Regenerating the entities adds the field.
+- `store_library_song_metadata` writes only for a song the user has (library or tagged) or a
+  library id (`i.`), and only over no row, a `found` false row, or an earlier library row, so a
+  phone can never rename a catalog song or a song in someone else's list.
 - A song stored under its library id in `user_songs` and under its catalog id in
   `metadata_song_tags_applied` can come back twice, once as the user's own and once not. The
   client shows one track for both. It is rare: `user_songs` and tags use the catalog id whenever

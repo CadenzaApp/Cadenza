@@ -6,6 +6,7 @@ use crate::{
     db::{
         self,
         activity_tags::{get_activity_tags_on_songs, record_play},
+        metadata_tags::{LibrarySong, store_library_song_metadata},
         tags::{
             apply_user_tags_to_songs, get_default_tags_on_songs, get_user_tags_on_song,
             get_user_tags_on_songs, unapply_user_tags_from_songs,
@@ -13,7 +14,7 @@ use crate::{
     },
     err::CadenzaError,
     routes::json::{
-        metadata_tag::{MetadataTag, metadata_tags_of},
+        metadata_tag::{LibrarySongMetadata, MetadataTag, metadata_tags_of},
         tag::{AppliedTag, Tag},
         vec_into,
     },
@@ -411,6 +412,45 @@ async fn song_opened_handler(
     record_song_opened(&db, &song_meta_service, &metadata_crawler, &payload.song_id).await
 }
 
+/// The most songs one `POST /songs/metadata/library` stores.
+const MAX_LIBRARY_METADATA_SONGS: usize = 500;
+
+#[derive(Deserialize)]
+pub struct LibraryMetadataPayload {
+    songs: Vec<LibrarySongMetadata>,
+}
+
+/// Stores what the phone's library knows about songs Apple's catalog has no entry for, so a
+/// sorted or grouped list has their title, artist and the rest to sort on. A sorted list's
+/// `missing_metadata` is what the phone sends here. Returns the song ids stored.
+///
+/// ```json
+/// {"songs": [{"song_id": "i.abc123", "title": "Demo", "artist_name": "Me"}]}
+/// ```
+///
+/// ```json
+/// ["i.abc123"]
+/// ```
+///
+/// A song is only stored when the caller has it (in their library, or carrying one of their
+/// tags) or it has a library id (`i.`), and only over no row, a row Apple had no entry for,
+/// or an earlier library row. What Apple's catalog says always wins. At most 500 songs.
+async fn store_library_metadata_handler(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Json(payload): Json<LibraryMetadataPayload>,
+) -> Result<Json<Vec<String>>, CadenzaError> {
+    if payload.songs.len() > MAX_LIBRARY_METADATA_SONGS {
+        return Err(CadenzaError::QueryFormatError(format!(
+            "requests are limited to {MAX_LIBRARY_METADATA_SONGS} songs"
+        )));
+    }
+    let songs: Vec<LibrarySong> = payload.songs.into_iter().map(Into::into).collect();
+    Ok(Json(
+        store_library_song_metadata(&db, claims.user_id, &songs).await?,
+    ))
+}
+
 #[derive(Deserialize)]
 pub struct EditUserSongsPayload {
     #[serde(default)]
@@ -467,5 +507,6 @@ pub fn get_songs_router() -> Router<AppState> {
         )
         .route("/plays", post(record_play_handler))
         .route("/metadata/opened", post(song_opened_handler))
+        .route("/metadata/library", post(store_library_metadata_handler))
         .route("/metadata-tags", get(get_metadata_tags_on_song_handler))
 }

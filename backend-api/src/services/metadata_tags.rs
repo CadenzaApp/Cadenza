@@ -128,6 +128,23 @@ pub async fn store_fetched_song_metadata(
     Ok(found)
 }
 
+/// What a sorted or grouped song list does before it sorts: stores every one of `song_ids`
+/// that has no row yet, and waits for it, so the sort reads a row for every song rather than
+/// putting the new ones last.
+///
+/// A failure (Apple down, or rate limiting us) is logged and dropped. The list still sorts,
+/// with those songs read as having no metadata, and they come back in the response's
+/// `missing_metadata`. The next sorted read tries them again.
+pub async fn store_metadata_before_sorting(
+    db: &DatabaseConnection,
+    song_meta_service: &SongMetadataService,
+    song_ids: &[String],
+) {
+    if let Err(err) = ensure_song_metadata_stored(db, song_meta_service, song_ids).await {
+        eprintln!("{LOG_TAG} could not store metadata for a sorted list: {err}");
+    }
+}
+
 /// Runs [`ensure_song_metadata_stored`] on its own task, so a list read does not wait on
 /// Apple for a side effect. A failure is logged and dropped: the songs stay without a row
 /// and the next read of them tries again.
