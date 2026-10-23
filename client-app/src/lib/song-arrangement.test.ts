@@ -12,6 +12,7 @@ import {
     NO_ARRANGEMENT,
     releaseDay,
     sameField,
+    sectionLabel,
     sectionsOf,
     type ArrangeField,
 } from "./song-arrangement.ts";
@@ -106,12 +107,32 @@ test("groups slice the ordered ids in turn", () => {
     assert.deepEqual(
         sections.map((section) => [section.label, section.songIds]),
         [
-            ["Prince", ["a", "b"]],
-            ["No value", ["c"]],
-            ["Not tagged", ["d"]],
+            ["Artist: Prince", ["a", "b"]],
+            ["Artist: No value", ["c"]],
+            ["Artist: Not tagged", ["d"]],
         ],
     );
     assert.equal(new Set(sections.map((section) => section.key)).size, 3);
+});
+
+test("group headers name the field they are grouped by", () => {
+    const value = (raw: string) => ({ state: "value" as const, value: raw });
+    assert.equal(sectionLabel(value("Prince"), artist), "Artist: Prince");
+    assert.equal(
+        sectionLabel({ state: "value", value: null }, tag("Gym", "basic")),
+        "Gym: Tagged",
+    );
+    assert.equal(
+        sectionLabel(
+            { state: "not_applied", value: null },
+            tag("Gym", "basic"),
+        ),
+        "Gym: Not tagged",
+    );
+    assert.equal(
+        sectionLabel(value("225000"), { kind: "metadata", key: "duration" }),
+        "Duration: 3:45",
+    );
 });
 
 test("group values read the way their type does", () => {

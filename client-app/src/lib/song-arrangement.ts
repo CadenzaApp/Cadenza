@@ -175,11 +175,42 @@ export function sectionsOf(
         start += group.count;
         return {
             key: `${index}:${group.state}:${group.value ?? ""}`,
-            label: groupLabel(group, field),
+            label: sectionLabel(group, field),
             count: songIdsInGroup.length,
             songIds: songIdsInGroup,
         };
     });
+}
+
+/**
+ * What each metadata tag is called in a group header. The same as the query
+ * builder's names, except duration: its groups read as `m:ss`, not ms.
+ */
+const METADATA_GROUP_NAMES: Record<MetadataKey, string> = {
+    title: "Title",
+    artist: "Artist",
+    album: "Album",
+    genre: "Genre",
+    release_date: "Release date",
+    duration: "Duration",
+    explicit: "Explicit",
+    total_plays: "Total Plays",
+};
+
+/** The name of the field a list is grouped by, as a header shows it. */
+export function groupFieldName(field: ArrangeField): string {
+    return field.kind === "tag" ? field.name : METADATA_GROUP_NAMES[field.key];
+}
+
+/**
+ * A group header's text: the field it is grouped by, then the group's value,
+ * like "Artist: Prince", so a grouped list reads on its own.
+ */
+export function sectionLabel(
+    group: Pick<ArrangedGroupJSON, "state" | "value">,
+    field: ArrangeField,
+): string {
+    return `${groupFieldName(field)}: ${groupLabel(group, field)}`;
 }
 
 /** What a group is called on screen. */
