@@ -8,6 +8,7 @@ import {
     type ReactNode,
     type SetStateAction,
 } from "react";
+import { useFocusEffect } from "expo-router";
 import { View } from "react-native";
 import Animated, {
     useAnimatedStyle,
@@ -32,7 +33,12 @@ import { useScreenScroll } from "@/lib/screen-scroll";
 import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
 import type { Tag, TagMetadata } from "@/lib/types";
 import { ConditionList, EditorActionsContext } from "./ConditionList";
-import { DragProvider, useDrag, useRefreshDragHover } from "./DragContext";
+import {
+    DragProvider,
+    useDrag,
+    useDragCommands,
+    useRefreshDragHover,
+} from "./DragContext";
 import { DragGhost } from "./DragGhost";
 import {
     addTagToCondition,
@@ -368,6 +374,7 @@ export function QueryBuilder({
             }}
         >
             <DragProvider onDrop={handleDrop} bottomInset={playerBottomInset}>
+                <ResyncOnFocus visibleHeight={visiblePaletteHeight} />
                 <View
                     className="flex-1"
                     style={
@@ -492,6 +499,28 @@ export function QueryBuilder({
             </DragProvider>
         </EditorActionsContext.Provider>
     );
+}
+
+/**
+ * Puts the screen back in order when it is returned to, from query results
+ * for one. Re-setting the palette height re-applies every style that follows
+ * it, since one can be dropped while the screen is out of view and leave the
+ * floating buttons at the wrong height. A drag cannot outlive the screen, and
+ * one left waiting on a measurement would keep the buttons hidden.
+ */
+function ResyncOnFocus({
+    visibleHeight,
+}: {
+    visibleHeight: SharedValue<number>;
+}) {
+    const { cancelDrag } = useDragCommands();
+    useFocusEffect(
+        useCallback(() => {
+            visibleHeight.set(visibleHeight.get());
+            return cancelDrag;
+        }, [cancelDrag, visibleHeight]),
+    );
+    return null;
 }
 
 function QueryDropViewport({
