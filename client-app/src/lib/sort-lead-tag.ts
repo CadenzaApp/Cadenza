@@ -3,11 +3,9 @@
 // sorted by is always in view. Pure, so it runs under `node --test`.
 /////////////////////////
 
-import { METADATA_KEY_LABELS } from "./query-json.ts";
-import { METADATA_TAG_COLOR } from "./song-metadata-tags.ts";
+import { metadataTagPills } from "./song-metadata-tags.ts";
 import {
-    groupLabel,
-    type ArrangeField,
+    METADATA_TAG_TYPES,
     type ArrangeTagSource,
     type SongSort,
 } from "./song-arrangement.ts";
@@ -16,15 +14,15 @@ import type { Tag } from "./types";
 /**
  * A sort's tag as a list's rows lead with it. A tag row (the user's own, an
  * activity tag, or a suggested tag) is the row's own pill moved to the front.
- * A metadata tag is a pill made on screen, with each song's value as the
- * backend sent it (`sort_value`), keyed by song id.
+ * A metadata tag is the same pill the song's Metadata Tags show, named, typed
+ * and valued the same, with each song's value as the backend stores it
+ * (`sort_value`), keyed by song id.
  */
 export type SortLeadTag =
     | { kind: "tag"; tagId: number; source: ArrangeTagSource }
     | { kind: "value"; tag: Tag; values: ReadonlyMap<string, string> };
 
-/** The id the made-up metadata pill carries, clear of every real tag's. */
-const METADATA_LEAD_TAG_ID = -100;
+const NO_VALUES: ReadonlyMap<string, string> = new Map();
 
 /**
  * What a list sorted by `sort` leads its rows with, or null. Grouping alone
@@ -41,31 +39,9 @@ export function sortLeadTag(
         return { kind: "tag", tagId: field.tagId, source: field.source };
     }
     if (field.key === "title" || field.key === "artist") return null;
-    return {
-        kind: "value",
-        tag: {
-            id: METADATA_LEAD_TAG_ID,
-            // a length reads as m:ss on the pill, not in milliseconds
-            name:
-                field.key === "duration"
-                    ? "Duration"
-                    : METADATA_KEY_LABELS[field.key],
-            color: METADATA_TAG_COLOR,
-            // already worded for the pill, so it is shown as it is
-            type: "text",
-        },
-        values: displayValues(sortValues, field),
-    };
-}
-
-/** Each raw value worded the way the field's group headers word it. */
-function displayValues(
-    sortValues: ReadonlyMap<string, string> | undefined,
-    field: ArrangeField,
-): ReadonlyMap<string, string> {
-    const values = new Map<string, string>();
-    for (const [songId, value] of sortValues ?? []) {
-        values.set(songId, groupLabel({ state: "value", value }, field));
-    }
-    return values;
+    // the Metadata Tags pill itself, so it reads exactly as it does there
+    const [{ tag }] = metadataTagPills([
+        { key: field.key, type: METADATA_TAG_TYPES[field.key], value: "" },
+    ]);
+    return { kind: "value", tag, values: sortValues ?? NO_VALUES };
 }
