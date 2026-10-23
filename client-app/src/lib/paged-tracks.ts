@@ -156,3 +156,34 @@ export function groupTracks<Track>(
     }
     return { tracks, waiting: false };
 }
+
+/**
+ * The songs a list's cover shows: the first `count` near the top of the list
+ * that have artwork, in list order, whether or not their group is open.
+ * `ready` once there are `count` of them, or once every song looked at has
+ * all the artwork it will get (`settled`), so a cover can be fixed then and
+ * never change. Looks at the first `scan` songs at most.
+ */
+export function coverTracks<Track extends { id: string; artworkUrl?: string }>(
+    songIds: readonly string[],
+    trackFor: (songId: string) => Track | undefined,
+    settled: (songId: string) => boolean,
+    count: number,
+    scan: number,
+): { tracks: Track[]; ready: boolean } {
+    const tracks: Track[] = [];
+    const shown = new Set<string>();
+    let pending = false;
+    for (const songId of songIds.slice(0, scan)) {
+        const track = trackFor(songId);
+        if (track?.artworkUrl) {
+            if (shown.has(track.id)) continue;
+            shown.add(track.id);
+            tracks.push(track);
+            if (tracks.length >= count) return { tracks, ready: true };
+        } else if (!settled(songId)) {
+            pending = true;
+        }
+    }
+    return { tracks, ready: !pending };
+}

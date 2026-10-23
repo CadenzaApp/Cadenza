@@ -13,7 +13,7 @@ import {
     useGroupedTrackLoader,
     usePagedTracksForSongIds,
 } from "./musickit-hooks";
-import { groupTracks, uniqueBy } from "./paged-tracks";
+import { coverTracks, groupTracks, uniqueBy } from "./paged-tracks";
 import {
     useArrangedSongs,
     type ArrangeSource,
@@ -89,7 +89,7 @@ export function useArrangedTrackList({
 
     // which groups are open, and which was opened last. kept per grouping, so
     // a new sort, or the list fetched again, leaves them as they were. a new
-    // grouping starts over with only its first group open
+    // grouping starts over with every group closed, until the user opens one
     const groupingKey = arrangement.group
         ? fieldKey(arrangement.group.field)
         : null;
@@ -98,13 +98,12 @@ export function useArrangedTrackList({
         open: ReadonlySet<string>;
         lastOpened: string | null;
     }>({ groupingKey: null, open: NO_KEYS, lastOpened: null });
-    const firstKey = arranged.sections?.[0]?.key ?? null;
     const current =
         openState.groupingKey === groupingKey
             ? openState
             : {
                   groupingKey,
-                  open: firstKey ? new Set([firstKey]) : NO_KEYS,
+                  open: NO_KEYS,
                   lastOpened: null,
               };
     const openKeys = current.open;
@@ -116,7 +115,7 @@ export function useArrangedTrackList({
                         ? previous
                         : {
                               groupingKey,
-                              open: firstKey ? new Set([firstKey]) : NO_KEYS,
+                              open: NO_KEYS,
                               lastOpened: null,
                           };
                 const open = new Set(base.open);
@@ -129,7 +128,7 @@ export function useArrangedTrackList({
                     lastOpened: opening ? key : base.lastOpened,
                 };
             }),
-        [firstKey, groupingKey],
+        [groupingKey],
     );
 
     // every song, walked once in group order from the group opened last, to
@@ -264,6 +263,32 @@ export function useArrangedTrackList({
         trackFor,
     ]);
 
+    // the cover: the first songs with artwork from the top of the list, open
+    // or not. a song still being looked up may yet get artwork, so the cover
+    // is only ready once those near the top are in
+    const cover = useMemo(
+        () =>
+            fromRows
+                ? coverTracks(
+                      arranged.songIds,
+                      trackFor,
+                      (songId) =>
+                          !arranged.loading &&
+                          (loaderIsSettled(songId) ||
+                              trackFor(songId)?.artworkUrl !== undefined),
+                      COVER_SONG_COUNT,
+                      COVER_SCAN,
+                  )
+                : null,
+        [
+            arranged.loading,
+            arranged.songIds,
+            fromRows,
+            loaderIsSettled,
+            trackFor,
+        ],
+    );
+
     /** A list the phone holds, every song in the arranged order. */
     const allLocalTracks = useMemo(
         () =>
@@ -309,6 +334,12 @@ export function useArrangedTrackList({
         songs: arranged.songs,
         songIds: arranged.songIds,
         capped: arranged.capped,
+        /**
+         * A sorted or grouped query's cover songs, from the top of the list
+         * whatever is open, and whether they are final. Null otherwise, when
+         * the cover comes from the rows on show.
+         */
+        cover,
         /** The flat list's tracks, all of them when sorted. Empty when grouped. */
         tracks: flatTracks,
         shownTracks,
@@ -333,6 +364,9 @@ export function useArrangedTrackList({
 }
 
 const NO_IDS: string[] = [];
+/** How many songs a cover shows, and how far down the list it looks for them. */
+export const COVER_SONG_COUNT = 4;
+const COVER_SCAN = 40;
 const NO_KEYS: ReadonlySet<string> = new Set();
 
 /** The backend refused the request as asked, which retrying will not change. */
