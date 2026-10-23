@@ -11,10 +11,35 @@ import { useUserSettings } from "./settings";
  */
 export type QueryResultSong = { songId: string; certain: boolean };
 
+/**
+ * Which songs a query runs over. `everything` is every song Cadenza knows.
+ * `libraryOrTagged` is the user's library and every song carrying one of
+ * their own tags, the songs the In My Library or Tagged activity tags hold
+ * true for. `library` is the library alone. Either of the last two is the
+ * user's own songs only, so nothing is capped.
+ */
+export type QuerySongScope = "everything" | "libraryOrTagged" | "library";
+
+/**
+ * The request fields for `scope`. Nothing for `everything`, so the usual
+ * request and its cache key stay the same as before the settings existed.
+ */
+export function songScopeBody(scope: QuerySongScope) {
+    switch (scope) {
+        case "library":
+            return { library_only: true as const };
+        case "libraryOrTagged":
+            return { library_or_tagged: true as const };
+        case "everything":
+            return {};
+    }
+}
+
 type QueryResultsBody = {
     query: QueryJSON;
     consider_default_tags: boolean;
     library_only?: true;
+    library_or_tagged?: true;
     hide_explicit?: true;
 };
 
@@ -39,8 +64,9 @@ const NO_MATCHES: string[] = [];
  * matched.
  *
  * `considerDefaultTags` widens what the backend counts as a tag on a song to
- * include the shared default tags. `libraryOnly` narrows the songs to the
- * user's library, so every match is their own and nothing is capped. Both are
+ * include the shared default tags. `scope` narrows the songs (see
+ * `QuerySongScope`); narrowed, every match is the user's own and nothing is
+ * capped. Both are
  * part of the cache key, so turning one on and off refetches rather than
  * reusing the other answer. The user's Hide explicit content setting is sent
  * the same way.
@@ -52,12 +78,12 @@ const NO_MATCHES: string[] = [];
 export function useQueryResults(
     query: QueryJSON | null,
     considerDefaultTags: boolean,
-    libraryOnly: boolean,
+    scope: QuerySongScope,
 ) {
     const { body, waiting } = useQueryResultsBody(
         query,
         considerDefaultTags,
-        libraryOnly,
+        scope,
     );
     const x = useAPIPostData<QueryResultsBody, QueryResultsResponse>(
         "/queries/results",
@@ -77,7 +103,7 @@ export function useQueryResults(
 function useQueryResultsBody(
     query: QueryJSON | null,
     considerDefaultTags: boolean,
-    libraryOnly: boolean,
+    scope: QuerySongScope,
 ) {
     const { settings, settingsReady } = useUserSettings();
     const hideExplicit = settings.hide_explicit;
@@ -89,12 +115,10 @@ function useQueryResultsBody(
         return {
             query,
             consider_default_tags: considerDefaultTags,
-            // left out when off, so the usual request and its cache key stay
-            // the same as before the setting existed
-            ...(libraryOnly ? { library_only: true as const } : {}),
+            ...songScopeBody(scope),
             ...(hideExplicit ? { hide_explicit: true as const } : {}),
         };
-    }, [considerDefaultTags, hideExplicit, libraryOnly, query, waiting]);
+    }, [considerDefaultTags, hideExplicit, query, scope, waiting]);
     return { body, waiting };
 }
 

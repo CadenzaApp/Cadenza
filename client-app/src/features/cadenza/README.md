@@ -27,10 +27,11 @@ both trees. Undoing in one editor cannot replace the other's draft.
 
 ## Preferences and results
 
-All six settings persist across launches: library-only songs, Venn diagrams, Undo/Redo,
-suggested tags, advanced tags, and metadata tags. Library-only and metadata are off by default.
-Library-only sends `library_only` with both the count and `/query-results` (as its `library`
-param), so a query matches only the user's library and is never capped. Suggested visibility also controls
+All six settings persist across launches: library or tagged songs, Venn diagrams, Undo/Redo,
+suggested tags, advanced tags, and metadata tags. Library or tagged and metadata are off by default.
+Library or tagged (saved as `libraryOrTagged`, carried over from the old `libraryOnly`) sends
+`library_or_tagged` with both the count and `/query-results` (as its `library` param), so a query
+matches only songs in the user's library or carrying one of their own tags, and is never capped. Suggested visibility also controls
 `consider_default_tags` for both editors and cannot turn off while either draft references a
 suggested tag. Remembered suggestions remain identifiable after seeding or undo.
 Each setting has a tap-triggered tooltip. Hiding palette sections never removes query filters.

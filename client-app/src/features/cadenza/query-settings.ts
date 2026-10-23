@@ -12,8 +12,11 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 const STORAGE_KEY = "cadenza.query-builder.settings.v1";
 
 export type QuerySettings = {
-    /** Match only songs in the user's library, not every song Cadenza knows. */
-    libraryOnly: boolean;
+    /**
+     * Match only songs in the user's library or carrying one of their own tags,
+     * not every song Cadenza knows.
+     */
+    libraryOrTagged: boolean;
     includeSuggested: boolean;
     showVennDiagrams: boolean;
     showUndoRedo: boolean;
@@ -22,7 +25,7 @@ export type QuerySettings = {
 };
 
 export const DEFAULT_QUERY_SETTINGS: QuerySettings = {
-    libraryOnly: false,
+    libraryOrTagged: false,
     includeSuggested: false,
     showVennDiagrams: true,
     showUndoRedo: true,
@@ -37,6 +40,10 @@ async function loadQuerySettings(): Promise<QuerySettings> {
         return DEFAULT_QUERY_SETTINGS;
     }
     const values = saved as Record<string, unknown>;
+    // carried over from the old Show songs only in your library setting
+    if (values.libraryOrTagged === undefined) {
+        values.libraryOrTagged = values.libraryOnly;
+    }
     return Object.fromEntries(
         Object.entries(DEFAULT_QUERY_SETTINGS).map(([key, fallback]) => [
             key,

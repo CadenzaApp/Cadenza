@@ -1,5 +1,5 @@
 use crate::db;
-use crate::db::queries::{Arrangement, QueryOptions};
+use crate::db::queries::{Arrangement, QueryOptions, QuerySongs};
 use crate::db::settings::get_settings;
 use crate::err::CadenzaError;
 use crate::routes::json::metadata_tag::metadata_tags_of;
@@ -26,6 +26,10 @@ struct QueryResultsBody {
     /// Defaults to false: the query runs over every song Cadenza knows.
     #[serde(default)]
     library_only: bool,
+    /// Defaults to false. True runs the query over the caller's library and every
+    /// song carrying one of their own tags. `library_only` wins when both are sent.
+    #[serde(default)]
+    library_or_tagged: bool,
     /// Defaults to false. True hides explicit songs even when the caller's
     /// saved setting does not.
     #[serde(default)]
@@ -69,8 +73,11 @@ struct QueryResultsBody {
 /// shared default tags, for matching and for ranking, and lets the query name a
 /// default tag id. A sort or group may name a default tag either way.
 ///
-/// `library_only` narrows the songs to the caller's `user_songs` rows alone. Every match
-/// is then `certain`, and `capped` is always false.
+/// `library_only` narrows the songs to the caller's `user_songs` rows alone.
+/// `library_or_tagged` narrows them to those and every song carrying one of the caller's
+/// own tags (what the In My Library and Tagged activity tags hold true for). With either,
+/// every match is `certain` and `capped` is always false. `library_only` wins when both
+/// are true.
 ///
 /// Explicit songs (by stored metadata) are dropped before the cap when the caller's saved
 /// Hide explicit content setting is on, or when `hide_explicit` is true.
@@ -81,6 +88,7 @@ struct QueryResultsBody {
 ///   "query": { "where": { "filter": { "field": "tag", "tag_id": 3, "op": "is_not_applied" } } },
 ///   "consider_default_tags": false,
 ///   "library_only": false,
+///   "library_or_tagged": false,
 ///   "hide_explicit": false,
 ///   "sort": { "field": "metadata", "key": "title", "direction": "ascending" },
 ///   "group": { "field": "tag", "tag_id": 9, "direction": "ascending" },
@@ -126,15 +134,22 @@ async fn query_results_handler(
     // forgets the flag cannot show explicit songs to a user who hid them
     let hide_explicit =
         body.hide_explicit || get_settings(&db, claims.user_id).await?.hide_explicit;
+    let songs = if body.library_only {
+        QuerySongs::Library
+    } else if body.library_or_tagged {
+        QuerySongs::LibraryOrTagged
+    } else {
+        QuerySongs::Everything
+    };
     let options = QueryOptions {
         consider_default_tags: body.consider_default_tags,
-        library_only: body.library_only,
+        songs,
         hide_explicit,
     };
     let sorted_by = sorted_metadata_key(&arrangement);
     let arranged = !arrangement.is_none();
     if arranged {
-        let own = db::queries::get_own_song_ids(&db, claims.user_id, body.library_only).await?;
+        let own = db::queries::get_own_song_ids(&db, claims.user_id, songs).await?;
         store_metadata_before_sorting(&db, &song_meta_service, &own).await;
     }
 

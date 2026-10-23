@@ -14,6 +14,7 @@ import {
 } from "@/lib/song-arrangement";
 
 import { useAPIMutation, useAPIPostSnapshot } from "../api-actions";
+import { songScopeBody, type QuerySongScope } from "./queries";
 import { useUserSettings } from "./settings";
 import { storedTracks, type StoredSongRowJSON } from "../stored-tracks";
 
@@ -27,7 +28,7 @@ export type ArrangeSource =
           kind: "query";
           query: QueryJSON;
           considerDefaultTags: boolean;
-          libraryOnly: boolean;
+          scope: QuerySongScope;
       }
     | { kind: "songs"; songIds: readonly string[] };
 
@@ -40,6 +41,7 @@ type ArrangedBody = {
           query: QueryJSON;
           consider_default_tags: boolean;
           library_only?: true;
+          library_or_tagged?: true;
           hide_explicit?: true;
       }
     | { song_ids: readonly string[] }
@@ -121,10 +123,7 @@ export function useArrangedSongs(
             ? {
                   query: source.query,
                   consider_default_tags: source.considerDefaultTags,
-                  // left out when off, the same request as before the setting
-                  ...(source.libraryOnly
-                      ? { library_only: true as const }
-                      : {}),
+                  ...songScopeBody(source.scope),
                   ...(hideExplicit ? { hide_explicit: true as const } : {}),
                   ...choices,
               }

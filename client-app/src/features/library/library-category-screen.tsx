@@ -80,7 +80,7 @@ export function LibraryCategoryScreen({
                       kind: "query",
                       query: WHOLE_LIBRARY,
                       considerDefaultTags: false,
-                      libraryOnly: true,
+                      scope: "library",
                   }
                 : null,
         [arranged, category],

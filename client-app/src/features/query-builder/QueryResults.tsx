@@ -40,8 +40,8 @@ type Props = {
     matchCount: number;
     /** More songs from outside the user's own matched than came back. */
     capped: boolean;
-    /** The query matched only songs in the user's library. */
-    libraryOnly: boolean;
+    /** The query matched only songs in the user's library or tagged by them. */
+    libraryOrTagged: boolean;
     /** Null when grouped: each group loads its own songs. */
     pagination: MusicListPagination | null;
     /** The groups, when the results are grouped. */
@@ -68,7 +68,7 @@ export default function QueryResults({
     error,
     matchCount,
     capped,
-    libraryOnly,
+    libraryOrTagged,
     pagination,
     sections,
     arrangement,
@@ -191,8 +191,8 @@ export default function QueryResults({
                                 ? "These are the first 1,000 matching songs in this order. Narrow the query to see more."
                                 : capped
                                   ? "These are your matching songs and the first 1,000 others Cadenza knows. Narrow the query to see more."
-                                  : libraryOnly
-                                    ? "These are all the songs in your library that match."
+                                  : libraryOrTagged
+                                    ? "These are all the songs in your library or tagged by you that match."
                                     : "These are all the songs Cadenza knows that match."}
                         </Text>
                     ) : null

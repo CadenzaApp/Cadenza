@@ -301,9 +301,12 @@ Default tags do not make a song the user's own. They sit on songs from every use
 counting them would let "not pop" with suggested tags on return thousands of other people's songs
 uncapped.
 
-With `library_only` (the app's Show songs only in your library setting) the user's own songs are
-just their `user_songs` rows, `LIBRARY_SONGS`, and the statement drops the second half, so nothing
-is capped.
+`QueryOptions::songs` can narrow that. `LibraryOrTagged` (the app's Show songs only in library or
+tagged setting) makes the user's own songs `LIBRARY_OR_TAGGED_SONGS`: their `user_songs` rows and
+every song carrying a tag the user owns, the songs the derived In My Library or Tagged activity
+tags hold true for. A song with only a stored activity tag row (a play, a favorite) or a default
+tag is left out. `Library` (the Library tab's sorted song list) makes them just the `user_songs`
+rows, `LIBRARY_SONGS`. Either way the statement drops the second half, so nothing is capped.
 
 Before compiling it checks the tree size (`MAX_NODES` 200, `MAX_DEPTH` 20), then looks up the type
 of every tag id the query mentions. `get_queryable_tags` is user scoped, so another user's tag

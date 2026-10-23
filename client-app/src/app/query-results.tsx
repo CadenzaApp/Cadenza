@@ -27,14 +27,14 @@ export default function QueryResultsScreen() {
         query?: string;
         /** "1" when the builder had Include suggested tags on. */
         suggested?: string;
-        /** "1" when Show songs only in your library was on. */
+        /** "1" when Show songs only in library or tagged was on. */
         library?: string;
         relevantTags?: string;
         /** The query as one readable line, for the analytics ranking. */
         name?: string;
     }>();
     const query = useMemo(() => parseQuery(encodedQuery), [encodedQuery]);
-    const libraryOnly = library === "1";
+    const libraryOrTagged = library === "1";
     const considerDefaultTags = suggested === "1";
     // starts unsorted every time the screen opens, and is never saved
     const [arrangement, setArrangement] =
@@ -65,9 +65,14 @@ export default function QueryResultsScreen() {
     const source = useMemo<ArrangeSource | null>(
         () =>
             query
-                ? { kind: "query", query, considerDefaultTags, libraryOnly }
+                ? {
+                      kind: "query",
+                      query,
+                      considerDefaultTags,
+                      scope: libraryOrTagged ? "libraryOrTagged" : "everything",
+                  }
                 : null,
-        [considerDefaultTags, libraryOnly, query],
+        [considerDefaultTags, libraryOrTagged, query],
     );
     const lookupTracks = useTrackLookup();
     const resetArrangement = useCallback(
@@ -123,7 +128,7 @@ export default function QueryResultsScreen() {
             error={list.error}
             matchCount={list.songIds.length}
             capped={list.capped}
-            libraryOnly={libraryOnly}
+            libraryOrTagged={libraryOrTagged}
             pagination={list.pagination}
             sections={list.sections}
             arrangement={{

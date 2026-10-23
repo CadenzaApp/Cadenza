@@ -51,6 +51,47 @@ const LIBRARY_SONGS: &str = "
     SELECT song_id FROM user_songs WHERE user_id=$1
 ";
 
+/// The user's own songs when a query is limited to their library or tagged songs: their
+/// `user_songs` rows, and every song carrying a tag the user owns. The same songs the
+/// derived In My Library and Tagged activity tags hold true for, so a song only played or
+/// favorited, or carrying only a default tag, is left out.
+const LIBRARY_OR_TAGGED_SONGS: &str = "
+    SELECT song_id FROM user_songs WHERE user_id=$1
+    UNION
+    SELECT applied.song_id FROM user_tags_applied AS applied
+    JOIN tags ON tags.tag_id=applied.tag_id
+    WHERE applied.user_id=$1 AND tags.user_id=$1
+";
+
+/// Which songs a query runs over.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum QuerySongs {
+    /// Every song Cadenza knows: the user's own ([`OWN_SONGS`]), then the first of the rest.
+    #[default]
+    Everything,
+    /// Only songs in the user's library or carrying one of their own tags
+    /// ([`LIBRARY_OR_TAGGED_SONGS`]), the app's Show songs only in library or tagged setting.
+    LibraryOrTagged,
+    /// Only the user's `user_songs` rows ([`LIBRARY_SONGS`]), the Library tab's song list.
+    Library,
+}
+
+impl QuerySongs {
+    /// The CTE body of the songs that are the user's own under this choice.
+    fn own_songs(self) -> &'static str {
+        match self {
+            Self::Everything => OWN_SONGS,
+            Self::LibraryOrTagged => LIBRARY_OR_TAGGED_SONGS,
+            Self::Library => LIBRARY_SONGS,
+        }
+    }
+
+    /// Only the user's own songs: no songs from elsewhere, so nothing is capped.
+    fn is_own_only(self) -> bool {
+        self != Self::Everything
+    }
+}
+
 /// The stored metadata every song row carries, read off `stored`, a
 /// `metadata_song_tags_applied` row joined on `found`. An empty string reads as missing.
 /// Genre is the song's genres as one text value, joined with ", ". `has_metadata` is false
@@ -146,8 +187,8 @@ const EXPLICIT_RATING: &str = "meta.content_rating = 'explicit'";
 pub struct QueryOptions {
     /// A song's shared default tags count as tags on it too.
     pub consider_default_tags: bool,
-    /// Only the user's `user_songs` rows, so nothing is capped.
-    pub library_only: bool,
+    /// Which songs the query runs over. Anything but `Everything` is never capped.
+    pub songs: QuerySongs,
     /// A song Apple rates explicit never matches.
     pub hide_explicit: bool,
 }
@@ -258,8 +299,10 @@ enum CapRule {
 /// id. Otherwise only the user's own tags exist as far as the query is
 /// concerned.
 ///
-/// With `library_only` the query runs over the user's library alone, their `user_songs`
-/// rows: no songs from elsewhere, so the result is never capped.
+/// With `songs` set to `Library` the query runs over the user's library alone, their
+/// `user_songs` rows. With `LibraryOrTagged` it runs over those and every song carrying one
+/// of the user's own tags. Either way there are no songs from elsewhere, so the result is
+/// never capped.
 ///
 /// With `hide_explicit` a song Apple rates explicit never matches. A song with no stored
 /// metadata has no rating, so it is not hidden here.
@@ -296,7 +339,7 @@ pub async fn run_query(
     .all(db)
     .await?;
 
-    let rule = if options.library_only {
+    let rule = if options.songs.is_own_only() {
         CapRule::None
     } else if arrangement.is_none() {
         CapRule::Discovered
@@ -328,18 +371,13 @@ pub async fn arrange_song_ids(
     Ok(finish(rows, CapRule::None, arrangement.group.is_some()))
 }
 
-/// Every song a query treats as the user's own: their library, and with `library_only`
-/// false every song carrying one of their tags too.
+/// Every song a query over `songs` treats as the user's own. See [`QuerySongs`].
 pub async fn get_own_song_ids(
     db: &DatabaseConnection,
     user_id: Uuid,
-    library_only: bool,
+    songs: QuerySongs,
 ) -> Result<Vec<String>, CadenzaError> {
-    let sql = if library_only {
-        LIBRARY_SONGS
-    } else {
-        OWN_SONGS
-    };
+    let sql = songs.own_songs();
     let rows = db
         .query_all_raw(Statement::from_sql_and_values(
             DbBackend::Postgres,
@@ -725,8 +763,9 @@ enum Half {
 /// [`run_query`] describes, with one song past the cap so [`finish`] can tell a full list
 /// from a cut off one.
 ///
-/// With `library_only` the user's own songs are only their `user_songs` rows
-/// ([`LIBRARY_SONGS`]) and there is no second half, so nothing is capped. With
+/// With `songs` other than `Everything` the user's own songs are only their library
+/// ([`LIBRARY_SONGS`]), or their library and tagged songs ([`LIBRARY_OR_TAGGED_SONGS`]), and
+/// there is no second half, so nothing is capped. With
 /// `hide_explicit` both halves leave out songs Apple rates explicit.
 ///
 /// The two run as separate halves of a `UNION ALL` with the same where clause. The user's
@@ -744,9 +783,10 @@ fn compile_query(
 ) -> Result<(String, Vec<sea_query::Value>), CadenzaError> {
     let QueryOptions {
         consider_default_tags,
-        library_only,
+        songs,
         hide_explicit,
     } = options;
+    let own_only = songs.is_own_only();
     let applied_tags = applied_tags_source(consider_default_tags);
     let mut compiler = Compiler {
         tag_types,
@@ -793,30 +833,28 @@ fn compile_query(
         )
     };
     let own = matched(&own_query_songs(), Half::Own);
-    let own = if arranged && !library_only {
+    let own = if arranged && !own_only {
         format!("SELECT * FROM ({own}) AS own ORDER BY {order} LIMIT {limit}")
     } else {
         own
     };
-    let (own_songs, discovered) = if library_only {
-        (LIBRARY_SONGS, String::new())
+    let own_songs = songs.own_songs();
+    let discovered = if own_only {
+        String::new()
     } else {
         let discovered = matched(&discovered_query_songs(), Half::Discovered);
-        (
-            OWN_SONGS,
-            format!(
-                r#"
-                    UNION ALL
-                    (
-                        SELECT * FROM ({discovered}) AS discovered
-                        ORDER BY {order}
-                        LIMIT {limit}
-                    )
-                "#
-            ),
+        format!(
+            r#"
+                UNION ALL
+                (
+                    SELECT * FROM ({discovered}) AS discovered
+                    ORDER BY {order}
+                    LIMIT {limit}
+                )
+            "#
         )
     };
-    let outer_limit = if arranged && !library_only {
+    let outer_limit = if arranged && !own_only {
         format!("LIMIT {limit}")
     } else {
         String::new()
@@ -2030,7 +2068,7 @@ mod tests {
             Uuid::nil(),
             QueryOptions {
                 consider_default_tags: false,
-                library_only: false,
+                songs: QuerySongs::Everything,
                 hide_explicit: false,
             },
             &ArrangeContext::default(),
@@ -2045,7 +2083,7 @@ mod tests {
             Uuid::nil(),
             QueryOptions {
                 consider_default_tags: true,
-                library_only: false,
+                songs: QuerySongs::Everything,
                 hide_explicit: false,
             },
             &ArrangeContext::default(),
@@ -2065,7 +2103,7 @@ mod tests {
             Uuid::nil(),
             QueryOptions {
                 consider_default_tags: false,
-                library_only: false,
+                songs: QuerySongs::Everything,
                 hide_explicit: false,
             },
             &ArrangeContext::default(),
@@ -2569,7 +2607,7 @@ mod tests {
             Uuid::nil(),
             QueryOptions {
                 consider_default_tags: false,
-                library_only: true,
+                songs: QuerySongs::Library,
                 hide_explicit: false,
             },
             &ArrangeContext::default(),
@@ -2593,6 +2631,40 @@ mod tests {
         assert!(sql.contains("ORDER BY certain DESC, score DESC"), "{sql}");
     }
 
+    /// Limited to the library or tagged songs, the query runs over the user's `user_songs`
+    /// rows and the songs carrying a tag they own, and no stored songs from elsewhere.
+    #[test]
+    fn a_library_or_tagged_query_runs_over_library_and_tagged_songs() {
+        let (sql, _) = compile_query(
+            &parse(&filter(
+                r#"{ "field": "tag", "tag_id": 1, "op": "is_not_applied" }"#,
+            )),
+            &tag_types(),
+            &TagDefaults::default(),
+            Uuid::nil(),
+            QueryOptions {
+                consider_default_tags: false,
+                songs: QuerySongs::LibraryOrTagged,
+                hide_explicit: false,
+            },
+            &ArrangeContext::default(),
+        )
+        .unwrap();
+        let sql = squash(&sql);
+
+        assert!(
+            sql.contains(&format!(
+                "WITH own_songs AS ( {} )",
+                squash(LIBRARY_OR_TAGGED_SONGS)
+            )),
+            "{sql}"
+        );
+        assert!(!sql.contains("FALSE AS certain"), "{sql}");
+        assert!(!sql.contains("UNION ALL ("), "{sql}");
+        assert!(!sql.contains("LIMIT"), "{sql}");
+        assert!(sql.contains("NOT EXISTS"), "{sql}");
+    }
+
     /// Tag 7 is In My Library, 8 is Tagged, and 9 is Favorited, as
     /// `get_queryable_tags` would describe them.
     fn compile_activity_checkbox(tag_id: i64, op: &str) -> Result<String, CadenzaError> {
@@ -2614,7 +2686,7 @@ mod tests {
             Uuid::nil(),
             QueryOptions {
                 consider_default_tags: false,
-                library_only: false,
+                songs: QuerySongs::Everything,
                 hide_explicit: false,
             },
             &ArrangeContext::default(),
@@ -2676,7 +2748,7 @@ mod tests {
                 Uuid::nil(),
                 QueryOptions {
                     consider_default_tags: false,
-                    library_only: false,
+                    songs: QuerySongs::Everything,
                     hide_explicit: false,
                 },
                 &ArrangeContext::default(),
@@ -2728,7 +2800,7 @@ mod tests {
                 Uuid::nil(),
                 QueryOptions {
                     consider_default_tags: false,
-                    library_only: false,
+                    songs: QuerySongs::Everything,
                     hide_explicit: false,
                 },
                 &arrange,
@@ -2838,7 +2910,7 @@ mod tests {
             Uuid::nil(),
             QueryOptions {
                 consider_default_tags: false,
-                library_only: false,
+                songs: QuerySongs::Everything,
                 hide_explicit: false,
             },
             arrange,
@@ -3629,7 +3701,7 @@ mod tests {
             user_id,
             QueryOptions {
                 consider_default_tags: false,
-                library_only: false,
+                songs: QuerySongs::Everything,
                 hide_explicit: false,
             },
             &arrange,
@@ -3881,7 +3953,7 @@ mod tests {
                 user_id,
                 QueryOptions {
                     consider_default_tags: false,
-                    library_only: true,
+                    songs: QuerySongs::Library,
                     hide_explicit: false,
                 },
                 &ArrangeContext::default(),
@@ -3911,6 +3983,99 @@ mod tests {
         };
 
         assert_eq!(run("is_applied").await, vec!["test-q-p1"]);
+        assert_eq!(
+            run("is_not_applied").await,
+            vec!["test-q-n1", "test-q-p2", "test-q-x1"]
+        );
+    }
+
+    /// Limited to the library or tagged songs, a song carrying the user's own tag outside the
+    /// library matches too. A song outside it with only an activity tag row (a play) and a
+    /// stored song from elsewhere both drop out.
+    #[tokio::test]
+    #[ignore]
+    async fn a_library_or_tagged_query_matches_library_and_tagged_songs() {
+        let (txn, user_id) = metadata_library().await;
+        store_discovered(&txn, &[("d1", "Elsewhere", "Someone", 1_000_000_000_000)]).await;
+        let tag_id: i64 = txn
+            .query_one_raw(Statement::from_sql_and_values(
+                DbBackend::Postgres,
+                "INSERT INTO tags (name, color, user_id) VALUES ('test-q-pop', '#000000', $1) RETURNING tag_id",
+                [user_id.into()],
+            ))
+            .await
+            .unwrap()
+            .unwrap()
+            .try_get_by_index(0)
+            .unwrap();
+        let plays_id: i64 = txn
+            .query_one_raw(Statement::from_string(
+                DbBackend::Postgres,
+                "SELECT tag_id FROM tags WHERE is_activity AND name = 'My Plays'",
+            ))
+            .await
+            .unwrap()
+            .expect("the My Plays activity tag")
+            .try_get_by_index(0)
+            .unwrap();
+        store_discovered(
+            &txn,
+            &[
+                ("t1", "Tagged", "Someone", 0),
+                ("a1", "Played", "Someone", 0),
+            ],
+        )
+        .await;
+        txn.execute_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            "INSERT INTO user_tags_applied (song_id, user_id, tag_id, value) VALUES
+                ('test-q-p1', $1, $2, NULL), ('test-q-t1', $1, $2, NULL), ('test-q-a1', $1, $3, '3')",
+            [user_id.into(), tag_id.into(), plays_id.into()],
+        ))
+        .await
+        .unwrap();
+        let types = HashMap::from([(tag_id, TagType::Basic)]);
+        let run = |op: &'static str| {
+            let json = format!(
+                r#"{{ "where": {{ "filter": {{ "field": "tag", "tag_id": {tag_id}, "op": "{op}" }} }} }}"#
+            );
+            let (sql, values) = compile_query(
+                &parse(&json),
+                &types,
+                &TagDefaults::default(),
+                user_id,
+                QueryOptions {
+                    consider_default_tags: false,
+                    songs: QuerySongs::LibraryOrTagged,
+                    hide_explicit: false,
+                },
+                &ArrangeContext::default(),
+            )
+            .unwrap();
+            let txn = &txn;
+            async move {
+                let rows = ArrangedRow::find_by_statement(Statement::from_sql_and_values(
+                    DbBackend::Postgres,
+                    sql,
+                    values,
+                ))
+                .all(txn)
+                .await
+                .unwrap();
+                let mut ids: Vec<String> = rows
+                    .into_iter()
+                    .filter(|song| song.song_id.starts_with("test-q-"))
+                    .map(|song| {
+                        assert!(song.certain, "{}", song.song_id);
+                        song.song_id
+                    })
+                    .collect();
+                ids.sort();
+                ids
+            }
+        };
+
+        assert_eq!(run("is_applied").await, vec!["test-q-p1", "test-q-t1"]);
         assert_eq!(
             run("is_not_applied").await,
             vec!["test-q-n1", "test-q-p2", "test-q-x1"]
@@ -3992,7 +4157,7 @@ mod tests {
                 user_id,
                 QueryOptions {
                     consider_default_tags: false,
-                    library_only: false,
+                    songs: QuerySongs::Everything,
                     hide_explicit: false,
                 },
                 &ArrangeContext::default(),

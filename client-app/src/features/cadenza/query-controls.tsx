@@ -17,10 +17,10 @@ const SETTING_ROWS: {
     accessibilityLabel: string;
 }[] = [
     {
-        key: "libraryOnly",
-        label: "Show songs only in your library",
-        help: "Match only songs in your Apple Music library. When this is off, queries also find songs Cadenza knows from elsewhere.",
-        accessibilityLabel: "Show songs only in your library",
+        key: "libraryOrTagged",
+        label: "Show songs only in library or tagged",
+        help: "Match only songs in your Apple Music library or songs you have tagged. When this is off, queries also find songs Cadenza knows from elsewhere.",
+        accessibilityLabel: "Show songs only in library or tagged",
     },
     {
         key: "showVennDiagrams",

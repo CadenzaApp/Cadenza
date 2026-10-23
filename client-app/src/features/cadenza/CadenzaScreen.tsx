@@ -86,7 +86,7 @@ export function CadenzaScreen() {
         dispatch,
     );
     const {
-        libraryOnly,
+        libraryOrTagged,
         showVennDiagrams,
         showUndoRedo,
         showAdvancedTags,
@@ -138,7 +138,11 @@ export function CadenzaScreen() {
         queryResultsLoading,
         queryResultsErr,
         refreshQueryResults,
-    } = useQueryResults(query, includeSuggested, libraryOnly);
+    } = useQueryResults(
+        query,
+        includeSuggested,
+        libraryOrTagged ? "libraryOrTagged" : "everything",
+    );
     const relevantTagNames = useMemo(
         () => (query ? positiveQueryTagNames(query, allTags) : []),
         [query, allTags],
@@ -235,7 +239,7 @@ export function CadenzaScreen() {
                     params: {
                         query: JSON.stringify(query),
                         suggested: includeSuggested ? "1" : "",
-                        library: libraryOnly ? "1" : "",
+                        library: libraryOrTagged ? "1" : "",
                         relevantTags: JSON.stringify(relevantTagNames),
                         name: describeQuery(query, allTags),
                     },
