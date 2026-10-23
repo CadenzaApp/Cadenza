@@ -8,7 +8,8 @@ import {
     type ReactNode,
     type SetStateAction,
 } from "react";
-import { KeyboardAvoidingView, Platform, View } from "react-native";
+import { useFocusEffect } from "expo-router";
+import { View } from "react-native";
 import Animated, {
     useAnimatedStyle,
     useScrollOffset,
@@ -17,17 +18,27 @@ import Animated, {
 } from "react-native-reanimated";
 import { DropSlot } from "./DropSlot";
 import { DropViewport } from "./DropViewport";
-import { TAG_PALETTE_MAX_HEIGHT, clampPaletteHeight } from "./palette-geometry";
+import {
+    PALETTE_CLEARANCE,
+    TAG_PALETTE_MAX_HEIGHT,
+    clampPaletteHeight,
+} from "./palette-geometry";
 
 import {
     supportsNativeTabBottomAccessory,
     useScreenOverlayInsets,
 } from "@/lib/screen-overlay";
+import { Text } from "@/components/ui/text";
 import { useScreenScroll } from "@/lib/screen-scroll";
 import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
 import type { Tag, TagMetadata } from "@/lib/types";
 import { ConditionList, EditorActionsContext } from "./ConditionList";
-import { DragProvider, useDrag, useRefreshDragHover } from "./DragContext";
+import {
+    DragProvider,
+    useDrag,
+    useDragCommands,
+    useRefreshDragHover,
+} from "./DragContext";
 import { DragGhost } from "./DragGhost";
 import {
     addTagToCondition,
@@ -104,15 +115,11 @@ export function QueryBuilder({
     const paletteWasResized = useRef(false);
     const [paletteHeight, setPaletteHeight] = useState(defaultPaletteHeight);
     const visiblePaletteHeight = useSharedValue(defaultPaletteHeight);
-    const handlePaletteHeightChange = useCallback(
-        (height: number) => {
-            paletteWasResized.current = true;
-            const next = clampPaletteHeight(height, 0);
-            visiblePaletteHeight.set(next);
-            setPaletteHeight(next);
-        },
-        [visiblePaletteHeight],
-    );
+    const handlePaletteHeightChange = useCallback((height: number) => {
+        paletteWasResized.current = true;
+        // the palette animates its visible height to match
+        setPaletteHeight(clampPaletteHeight(height, 0));
+    }, []);
     const usedTagIds = useMemo(
         () => collectUsedTagIds(conditions),
         [conditions],
@@ -367,15 +374,14 @@ export function QueryBuilder({
             }}
         >
             <DragProvider onDrop={handleDrop} bottomInset={playerBottomInset}>
-                <KeyboardAvoidingView
+                <ResyncOnFocus visibleHeight={visiblePaletteHeight} />
+                <View
                     className="flex-1"
                     style={
                         headingOverlapHeight
                             ? { marginTop: -headingOverlapHeight }
                             : undefined
                     }
-                    behavior={Platform.OS === "ios" ? "padding" : undefined}
-                    keyboardVerticalOffset={80}
                 >
                     <QueryDropViewport
                         scrollY={scrollOffset}
@@ -390,7 +396,8 @@ export function QueryBuilder({
                                 contentContainerClassName="flex-grow px-[18px]"
                                 contentContainerStyle={{
                                     paddingTop: headingOverlapHeight,
-                                    paddingBottom: paletteHeight + 64,
+                                    paddingBottom:
+                                        paletteHeight + PALETTE_CLEARANCE,
                                 }}
                                 keyboardShouldPersistTaps="handled"
                             >
@@ -399,7 +406,9 @@ export function QueryBuilder({
                                     scrollOffset={scrollOffset}
                                     viewportTopInset={headingOverlapHeight}
                                     viewportBottomInset={visiblePaletteHeight}
-                                    bottomClearance={paletteHeight + 64}
+                                    bottomClearance={
+                                        paletteHeight + PALETTE_CLEARANCE
+                                    }
                                     conditions={conditions}
                                     onToggleConditionNegation={toggleNegation}
                                     onModeChange={changeMode}
@@ -415,6 +424,12 @@ export function QueryBuilder({
                                 ) : null}
                             </Animated.ScrollView>
                         </ScreenScrollMarker>
+                        {conditions.length === 0 ? (
+                            <EmptyQueryHint
+                                topInset={headingOverlapHeight}
+                                visibleHeight={visiblePaletteHeight}
+                            />
+                        ) : null}
                         <FloatingActions
                             historyAction={historyAction}
                             resultsAction={resultsAction}
@@ -422,6 +437,9 @@ export function QueryBuilder({
                         />
                     </QueryDropViewport>
 
+                    {/* The palette raises itself for its search field, so
+                        nothing here avoids the keyboard. Shrinking this view
+                        would squeeze the workspace against the top. */}
                     <View
                         pointerEvents="box-none"
                         className="absolute inset-0 overflow-hidden"
@@ -440,7 +458,7 @@ export function QueryBuilder({
                             usedTagIds={usedTagIds}
                         />
                     </View>
-                </KeyboardAvoidingView>
+                </View>
                 <DragGhost />
                 {constraintDraft ? (
                     <TagConstraintDialog
@@ -483,6 +501,28 @@ export function QueryBuilder({
     );
 }
 
+/**
+ * Puts the screen back in order when it is returned to, from query results
+ * for one. Re-setting the palette height re-applies every style that follows
+ * it, since one can be dropped while the screen is out of view and leave the
+ * floating buttons at the wrong height. A drag cannot outlive the screen, and
+ * one left waiting on a measurement would keep the buttons hidden.
+ */
+function ResyncOnFocus({
+    visibleHeight,
+}: {
+    visibleHeight: SharedValue<number>;
+}) {
+    const { cancelDrag } = useDragCommands();
+    useFocusEffect(
+        useCallback(() => {
+            visibleHeight.set(visibleHeight.get());
+            return cancelDrag;
+        }, [cancelDrag, visibleHeight]),
+    );
+    return null;
+}
+
 function QueryDropViewport({
     children,
     scrollY,
@@ -504,6 +544,40 @@ function QueryDropViewport({
         >
             {children}
         </DropViewport>
+    );
+}
+
+/**
+ * The empty query's prompt, centered in the space between the heading and the
+ * palette. It sits over the workspace rather than in its scroll content, and
+ * moves only by transform from the palette's live height. Tied to the scroll
+ * padding, it showed a frame in the wrong spot each time the padding changed.
+ */
+function EmptyQueryHint({
+    topInset,
+    visibleHeight,
+}: {
+    topInset: number;
+    visibleHeight: SharedValue<number>;
+}) {
+    const style = useAnimatedStyle(() => ({
+        transform: [
+            {
+                translateY:
+                    (topInset - visibleHeight.get() - PALETTE_CLEARANCE) / 2,
+            },
+        ],
+    }));
+    return (
+        <Animated.View
+            pointerEvents="none"
+            className="absolute inset-0 items-center justify-center px-[18px]"
+            style={style}
+        >
+            <Text className="px-4 py-8 text-center text-sm text-muted-foreground">
+                Drag a tag here to start.
+            </Text>
+        </Animated.View>
     );
 }
 

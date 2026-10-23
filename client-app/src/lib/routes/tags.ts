@@ -158,16 +158,17 @@ export function useDeleteTag() {
 }
 
 /**
- * Up to five shared default tags whose names match `search`, most used first. A
- * blank search still returns five, so the shelf always has something in it.
+ * Up to `limit` shared default tags whose names match `search`, most used
+ * first: five unless asked, and the backend gives at most 50. A blank search
+ * still returns that many, so the shelf always has something in it.
  *
  * Every keystroke is a new cache key, so the previous results stay up while the
  * next ones load rather than emptying the shelf.
  */
-export function useDefaultTags(search: string, enabled = true) {
+export function useDefaultTags(search: string, enabled = true, limit?: number) {
     const x = useAPIData<Tag[]>(
         "/tags/default-tags",
-        { search },
+        limit === undefined ? { search } : { search, limit },
         { keepPreviousData: true, enabled },
     );
 

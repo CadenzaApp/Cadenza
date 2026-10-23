@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use crate::db::metadata_tags::SongRow;
 use crate::db::queries::QueryMatches;
 use crate::routes::json::tag::TagType;
 
@@ -128,29 +129,70 @@ pub enum MetadataKey {
     TotalPlays,
 }
 
-/// How `POST /queries/results` orders its songs, sent as its `sort` field. Leaving it out
-/// orders them most relevant first.
+/// A field a song list can be sorted or grouped by. To the user every one of these is a tag:
+/// one of their own, an activity tag, a suggested tag, or one of the song's metadata tags.
 ///
 /// ```json
-/// { "key": "artist", "direction": "descending" }
+/// { "field": "tag", "tag_id": 12 }
+/// { "field": "metadata", "key": "artist" }
 /// ```
 ///
-/// Sorting reads the song's stored Apple Music metadata, so a song with none, or with an
-/// empty title, artist or album, comes last whichever way the sort runs.
+/// A `tag` field may name any tag the caller can see on a song: their own, an activity tag,
+/// or a shared default (suggested) tag. Default tags do not need `consider_default_tags`.
 #[derive(Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
+#[serde(tag = "field", rename_all = "snake_case")]
+pub enum ArrangeField {
+    Tag { tag_id: i64 },
+    Metadata { key: MetadataKey },
+}
+
+/// How a song list is ordered, sent as `sort`. Leaving it out keeps the list's own order:
+/// for a query, the user's own songs first, then the rest, most relevant first.
+///
+/// ```json
+/// { "field": "metadata", "key": "artist", "direction": "descending" }
+/// { "field": "tag", "tag_id": 4, "direction": "ascending" }
+/// ```
+///
+/// Ascending is the field's natural order:
+///
+/// - basic and suggested tags: songs with the tag first. The direction is ignored
+/// - checkbox: true, then false. Descending swaps the two
+/// - text: A to Z, numbers inside text in numeric order
+/// - number: low to high
+/// - date and datetime: oldest first
+///
+/// Whichever way it runs, songs with the tag applied but no value come next, then songs
+/// without the tag at all. A metadata tag has no "applied", so a song missing that value
+/// comes last. Activity tags with a default (My Plays reads 0, Favorited reads false) never
+/// lack a value. Ties go by title, then every user's plays, then song id.
+#[derive(Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct QuerySort {
-    pub key: QuerySortKey,
+    #[serde(flatten)]
+    pub field: ArrangeField,
     pub direction: SortDirection,
 }
 
-/// What a query's songs can be sorted by. The same three the app's song lists offer.
+/// How a song list is grouped, sent as `group`. Songs come back one group after another, one
+/// group per distinct value of the field, in the field's own order (see [`QuerySort`]), and
+/// `sort` orders the songs inside each group.
+///
+/// ```json
+/// { "field": "metadata", "key": "artist", "direction": "ascending" }
+/// ```
+///
+/// - text: one group per value, ignoring case. Genre is one text value, the song's genres
+///   joined with ", "
+/// - number, date, checkbox: one group per value
+/// - datetime: one group per day, in `time_zone`
+/// - basic and suggested tags: one group of songs with the tag
+///
+/// Then a group of songs with the tag applied but no value, then one of songs without it.
 #[derive(Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum QuerySortKey {
-    Title,
-    Artist,
-    Album,
+pub struct QueryGroup {
+    #[serde(flatten)]
+    pub field: ArrangeField,
+    pub direction: SortDirection,
 }
 
 #[derive(Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
@@ -160,8 +202,9 @@ pub enum SortDirection {
     Descending,
 }
 
-/// What `POST /queries/results` returns: every matching song in order, and whether the
-/// songs from outside the user's own were cut off.
+/// What `POST /queries/results` and `POST /queries/arrange` return: the songs in order,
+/// whether the list was cut off, the groups when one was asked for, and the songs Cadenza
+/// has no metadata for.
 ///
 /// ```json
 /// {
@@ -169,25 +212,94 @@ pub enum SortDirection {
 ///     { "song_id": "1440857781", "certain": true },
 ///     { "song_id": "1559523359", "certain": false }
 ///   ],
-///   "capped": false
+///   "capped": false,
+///   "groups": [
+///     { "state": "value", "value": "Prince", "count": 1 },
+///     { "state": "not_applied", "value": null, "count": 1 }
+///   ],
+///   "missing_metadata": []
 /// }
 /// ```
 ///
 /// `certain` is true for a song in the user's library or carrying any of their own tags,
-/// activity tags included. Those always all come back. Every other match is a song Cadenza
-/// knows from elsewhere, and only the first
-/// [`MAX_DISCOVERED_SONGS`](crate::db::queries::MAX_DISCOVERED_SONGS) of those do;
-/// `capped` is true when more matched than that.
+/// activity tags included. Every other match is a song Cadenza knows from elsewhere.
+///
+/// Without a sort or group, every certain match comes back and only the first
+/// [`MAX_DISCOVERED_SONGS`](crate::db::queries::MAX_DISCOVERED_SONGS) of the rest. With
+/// either, only the first that many songs in order come back, certain or not. `capped` is
+/// true when more matched. A library-only query or a list of song ids is never capped.
+///
+/// `groups` is null without a `group`. Each one is a run of `count` songs in `songs`, in
+/// order, so they add up to the whole list. `value` is the group's value as text (a day
+/// as `YYYY-MM-DD`, a checkbox as `true` or `false`, a number like `3` or `2.5`), and null
+/// for a basic tag's group and for the `no_value` and `not_applied` groups.
+///
+/// `missing_metadata` lists returned songs with no stored metadata Apple knew, so the phone
+/// can send what MusicKit knows about them through `POST /songs/metadata/library`.
 #[derive(Serialize, Debug)]
 pub struct QueryResults {
     pub songs: Vec<QueryResultSong>,
     pub capped: bool,
+    pub groups: Option<Vec<QueryResultGroup>>,
+    pub missing_metadata: Vec<String>,
 }
 
 #[derive(Serialize, Debug)]
 pub struct QueryResultSong {
     pub song_id: String,
     pub certain: bool,
+    /// What the song's row shows, from its stored metadata. Only on a sorted or grouped
+    /// query, and only for a song with a stored title.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub row: Option<SongRowJSON>,
+    /// The song's value of the metadata tag the list is sorted by, the way
+    /// `GET /songs/metadata-tags` gives it, so the row can show it. Only on a list sorted by a
+    /// metadata tag, and only for a song with that value.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sort_value: Option<String>,
+}
+
+/// A song list row as `metadata_song_tags_applied` has it, so the phone can draw the row
+/// without asking Apple. `artwork_url` is a real url, absent when none is stored yet.
+#[derive(Serialize, Debug, PartialEq, Eq)]
+pub struct SongRowJSON {
+    pub title: String,
+    pub artist_name: Option<String>,
+    pub album_name: Option<String>,
+    pub album_id: Option<String>,
+    pub duration_ms: Option<i32>,
+    pub artwork_url: Option<String>,
+}
+
+impl From<SongRow> for SongRowJSON {
+    fn from(row: SongRow) -> Self {
+        Self {
+            title: row.name,
+            artist_name: row.artist_name,
+            album_name: row.album_name,
+            album_id: row.album_id,
+            duration_ms: row.duration_in_millis,
+            artwork_url: row.artwork_url.filter(|url| !url.is_empty()),
+        }
+    }
+}
+
+#[derive(Serialize, Debug, PartialEq, Eq)]
+pub struct QueryResultGroup {
+    pub state: GroupState,
+    pub value: Option<String>,
+    pub count: usize,
+}
+
+/// What a group holds: songs with a value (or with a basic tag), songs with the tag applied
+/// but no value, or songs without the tag at all. A metadata tag's missing value is
+/// `no_value`.
+#[derive(Serialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum GroupState {
+    Value,
+    NoValue,
+    NotApplied,
 }
 
 impl From<QueryMatches> for QueryResults {
@@ -199,9 +311,22 @@ impl From<QueryMatches> for QueryResults {
                 .map(|song| QueryResultSong {
                     song_id: song.song_id,
                     certain: song.certain,
+                    row: None,
+                    sort_value: None,
                 })
                 .collect(),
             capped: value.capped,
+            groups: value.groups.map(|groups| {
+                groups
+                    .into_iter()
+                    .map(|group| QueryResultGroup {
+                        state: group.state,
+                        value: group.value,
+                        count: group.count,
+                    })
+                    .collect()
+            }),
+            missing_metadata: value.missing_metadata,
         }
     }
 }
@@ -245,4 +370,48 @@ pub enum FilterOp {
     // every tag type
     IsApplied,
     IsNotApplied,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn row(artwork_url: Option<&str>) -> SongRow {
+        SongRow {
+            song_id: "1".into(),
+            name: "Purple Rain".into(),
+            artist_name: Some("Prince".into()),
+            album_name: None,
+            album_id: None,
+            duration_in_millis: Some(521_000),
+            artwork_url: artwork_url.map(str::to_owned),
+        }
+    }
+
+    #[test]
+    fn a_row_without_stored_artwork_sends_none() {
+        assert_eq!(SongRowJSON::from(row(None)).artwork_url, None);
+        assert_eq!(SongRowJSON::from(row(Some(""))).artwork_url, None);
+        let json = SongRowJSON::from(row(Some("https://example.com/a.jpg")));
+        assert_eq!(
+            json.artwork_url.as_deref(),
+            Some("https://example.com/a.jpg")
+        );
+        assert_eq!(json.title, "Purple Rain");
+        assert_eq!(json.duration_ms, Some(521_000));
+    }
+
+    #[test]
+    fn a_song_without_a_row_leaves_it_out() {
+        let song = QueryResultSong {
+            song_id: "1".into(),
+            certain: true,
+            row: None,
+            sort_value: None,
+        };
+        assert_eq!(
+            serde_json::to_value(&song).unwrap(),
+            serde_json::json!({ "song_id": "1", "certain": true })
+        );
+    }
 }

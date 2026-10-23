@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { AppliedTag, Tag } from "../../../lib/types.ts";
-import { sortMusicListTags } from "./sort-tags.ts";
+import { leadPillFirst, sortMusicListTags } from "./sort-tags.ts";
 
 const local = (id: number, name: string): AppliedTag => ({
     id,
@@ -81,4 +81,27 @@ test("deduplicates relevant priorities by normalized name", () => {
         ),
         ["rock", "indie"],
     );
+});
+
+test("a sorted list's tag leads the rail", () => {
+    const pills = [
+        { source: "activity" as const, tag: { id: 1 } },
+        { source: "own" as const, tag: { id: 2 } },
+        { source: "suggested" as const, tag: { id: 3 } },
+    ];
+    const ids = (lead: Parameters<typeof leadPillFirst>[1]) =>
+        leadPillFirst(pills, lead).map((pill) => pill.tag.id);
+    assert.deepEqual(
+        ids({ kind: "tag", tagId: 3, source: "suggested" }),
+        [3, 1, 2],
+    );
+    assert.deepEqual(ids({ kind: "tag", tagId: 2, source: "own" }), [2, 1, 3]);
+    // the same id from somewhere else is a different tag
+    assert.deepEqual(
+        ids({ kind: "tag", tagId: 2, source: "suggested" }),
+        [1, 2, 3],
+    );
+    // a song without the tag keeps its order
+    assert.deepEqual(ids({ kind: "tag", tagId: 9, source: "own" }), [1, 2, 3]);
+    assert.deepEqual(ids(undefined), [1, 2, 3]);
 });

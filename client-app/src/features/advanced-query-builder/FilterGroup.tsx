@@ -19,7 +19,7 @@ import {
     connectorLabel,
 } from "./AdvancedQueryUtils";
 import { FilterRow, RemoveButton } from "./FilterRow";
-import { IconName, OptionPicker } from "./OptionPicker";
+import { IconName, OptionPicker } from "@/components/custom/option-picker";
 import {
     AdvancedFilterNode,
     AdvancedGroupNode,

@@ -1,8 +1,8 @@
 import type { ComponentProps, ReactNode } from "react";
-import { View } from "react-native";
+import { StyleSheet, View } from "react-native";
 
 import { GlassIconButton } from "@/components/ui/glass-icon-button";
-import { useScreenOverlayInsets } from "@/lib/screen-overlay";
+import { useMeasuredFloatingActionBottom } from "@/lib/screen-overlay";
 
 const DEFAULT_BOTTOM_OFFSET = 24;
 
@@ -54,10 +54,27 @@ export function FloatingBubble({
     );
 }
 
-/** Screen-aware bubble that clears the compact player when it is visible. */
+/**
+ * Screen-aware bubble that clears the tab bar and the compact player when they
+ * show, wherever its screen ends (`useMeasuredFloatingActionBottom`).
+ */
 export function ScreenFloatingBubble(
     props: Omit<FloatingBubbleProps, "bottomOffset">,
 ) {
-    const { floatingActionBottom } = useScreenOverlayInsets();
-    return <FloatingBubble {...props} bottomOffset={floatingActionBottom} />;
+    const { bottom, measuring, measureRef, onMeasureLayout } =
+        useMeasuredFloatingActionBottom();
+    return (
+        <>
+            {measuring ? (
+                <View
+                    ref={measureRef}
+                    onLayout={onMeasureLayout}
+                    collapsable={false}
+                    pointerEvents="none"
+                    style={StyleSheet.absoluteFill}
+                />
+            ) : null}
+            <FloatingBubble {...props} bottomOffset={bottom} />
+        </>
+    );
 }

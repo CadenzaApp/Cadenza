@@ -8,14 +8,21 @@ import {
     useId,
     useLayoutEffect,
     useMemo,
+    useRef,
     useState,
     type ReactNode,
 } from "react";
-import { Keyboard, Platform } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Keyboard, Platform, type View } from "react-native";
+import {
+    useSafeAreaFrame,
+    useSafeAreaInsets,
+} from "react-native-safe-area-context";
 
 import { usePlaybackTrackState } from "./playback";
-import { calculateScreenOverlayInsets } from "./screen-overlay-geometry";
+import {
+    calculateScreenOverlayInsets,
+    OVERLAY_GAP,
+} from "./screen-overlay-geometry";
 export {
     COMPACT_PLAYER_HEIGHT,
     FLOATING_ACTION_SIZE,
@@ -278,4 +285,41 @@ export function useScreenOverlayInsets() {
         nativePlayerAccessory,
         tabContentAboveTabBar: inNativeTabs && Platform.OS === "android",
     });
+}
+
+/**
+ * `floatingActionBottom` for an absolute control, checked against where its
+ * container really ends. Android usually ends a tab's screen at the tab bar,
+ * which the inset assumes, but a screen pushed inside a tab's stack, like
+ * Library Songs, can run on under the bar, and a control placed for the first
+ * kind sits hidden behind the bar, or behind the player once one plays.
+ *
+ * While `measuring`, put `measureRef` and `onMeasureLayout` on a view that
+ * fills the control's container. When that
+ * container reaches the bottom of the window, the control clears the tab bar
+ * and the player itself. Anywhere else this is `floatingActionBottom` as is.
+ */
+export function useMeasuredFloatingActionBottom() {
+    const insets = useScreenOverlayInsets();
+    const frame = useSafeAreaFrame();
+    const ref = useRef<View>(null);
+    const [reachesBottom, setReachesBottom] = useState(false);
+    const measuring = Platform.OS === "android" && insets.bottomBarsVisible;
+    const onLayout = useCallback(() => {
+        ref.current?.measureInWindow((_x, y, _width, height) => {
+            const gap = frame.y + frame.height - (y + height);
+            setReachesBottom(gap < NATIVE_TAB_BAR_HEIGHT / 2);
+        });
+    }, [frame.height, frame.y]);
+
+    return {
+        bottom:
+            measuring && reachesBottom
+                ? insets.playerBottomInset + OVERLAY_GAP
+                : insets.floatingActionBottom,
+        /** Whether to render the measuring view at all. */
+        measuring,
+        measureRef: ref,
+        onMeasureLayout: onLayout,
+    };
 }

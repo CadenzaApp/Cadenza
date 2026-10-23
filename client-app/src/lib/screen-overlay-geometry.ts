@@ -1,6 +1,6 @@
 export const COMPACT_PLAYER_HEIGHT = 64;
 export const FLOATING_ACTION_SIZE = 56;
-const OVERLAY_GAP = 12;
+export const OVERLAY_GAP = 12;
 const ACCESSORY_GAP = 8;
 
 export function calculateScreenOverlayInsets({

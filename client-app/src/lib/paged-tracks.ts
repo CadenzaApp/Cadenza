@@ -98,3 +98,92 @@ export function uniqueBy<Value>(
         return true;
     });
 }
+
+/**
+ * The next ids a grouped list's loader works on: the first `size` ids that are
+ * not done, walking the groups from `startGroup` to the last, then from the
+ * first group back up to it. So it fills the list top down, and a group the
+ * user opens jumps the line, with everything after it next. Each id once,
+ * even when two groups share it. Empty once every id is done.
+ */
+export function nextGroupedChunk(
+    groups: readonly (readonly string[])[],
+    startGroup: number,
+    isDone: (songId: string) => boolean,
+    size: number,
+): string[] {
+    const chunk: string[] = [];
+    const taken = new Set<string>();
+    const start =
+        groups.length === 0
+            ? 0
+            : Math.min(Math.max(0, startGroup), groups.length - 1);
+    for (let step = 0; step < groups.length; step += 1) {
+        const group = groups[(start + step) % groups.length];
+        for (const songId of group) {
+            if (taken.has(songId) || isDone(songId)) continue;
+            taken.add(songId);
+            chunk.push(songId);
+            if (chunk.length >= size) return chunk;
+        }
+    }
+    return chunk;
+}
+
+/**
+ * The tracks a loaded group shows, in order: each id's track, an id Apple
+ * Music had nothing for left out, and the list ending at the first id still
+ * loading, so rows only ever append. `waiting` says whether one is.
+ */
+export function groupTracks<Track>(
+    songIds: readonly string[],
+    trackFor: (songId: string) => Track | undefined,
+    isSettled: (songId: string) => boolean,
+    keyOf: (track: Track) => string,
+): { tracks: Track[]; waiting: boolean } {
+    const tracks: Track[] = [];
+    const shown = new Set<string>();
+    for (const songId of songIds) {
+        const track = trackFor(songId);
+        if (!track) {
+            if (isSettled(songId)) continue;
+            return { tracks, waiting: true };
+        }
+        const key = keyOf(track);
+        if (shown.has(key)) continue;
+        shown.add(key);
+        tracks.push(track);
+    }
+    return { tracks, waiting: false };
+}
+
+/**
+ * The songs a list's cover shows: the first `count` near the top of the list
+ * that have artwork, in list order, whether or not their group is open.
+ * `ready` once there are `count` of them, or once every song looked at has
+ * all the artwork it will get (`settled`), so a cover can be fixed then and
+ * never change. Looks at the first `scan` songs at most.
+ */
+export function coverTracks<Track extends { id: string; artworkUrl?: string }>(
+    songIds: readonly string[],
+    trackFor: (songId: string) => Track | undefined,
+    settled: (songId: string) => boolean,
+    count: number,
+    scan: number,
+): { tracks: Track[]; ready: boolean } {
+    const tracks: Track[] = [];
+    const shown = new Set<string>();
+    let pending = false;
+    for (const songId of songIds.slice(0, scan)) {
+        const track = trackFor(songId);
+        if (track?.artworkUrl) {
+            if (shown.has(track.id)) continue;
+            shown.add(track.id);
+            tracks.push(track);
+            if (tracks.length >= count) return { tracks, ready: true };
+        } else if (!settled(songId)) {
+            pending = true;
+        }
+    }
+    return { tracks, ready: !pending };
+}

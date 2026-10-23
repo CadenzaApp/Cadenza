@@ -12,7 +12,8 @@ use crate::db::entity::sea_orm_active_enums::TagType;
 use crate::db::entity::tags;
 use crate::err::CadenzaError;
 use crate::routes::json::query::{
-    Filter, FilterOp, MetadataKey, Query, QueryNode, QuerySort, QuerySortKey, SortDirection,
+    ArrangeField, Filter, FilterOp, GroupState, MetadataKey, Query, QueryGroup, QueryNode,
+    QuerySort, SortDirection,
 };
 use crate::routes::json::tag::TagType as JsonTagType;
 
@@ -21,9 +22,16 @@ use crate::routes::json::tag::TagType as JsonTagType;
 const MAX_NODES: usize = 200;
 const MAX_DEPTH: usize = 20;
 
-/// The most matches a query returns from outside the user's own songs. The user's own
-/// matches are never cut off.
+/// The most matches an unsorted query returns from outside the user's own songs. The
+/// user's own matches are never cut off.
 pub const MAX_DISCOVERED_SONGS: usize = 1000;
+
+/// The most songs a sorted or grouped query returns, the user's own included. The user
+/// asked for an order, so the list is the first songs in that order, whoever's they are.
+pub const MAX_ARRANGED_SONGS: usize = 1000;
+
+/// The most song ids `arrange_song_ids` takes, so one request cannot sort a huge list.
+pub const MAX_ARRANGED_SONG_IDS: usize = 20_000;
 
 /// The user's own songs, as a CTE body: their library, and every song carrying one of their
 /// tags (activity tags included).
@@ -43,57 +51,127 @@ const LIBRARY_SONGS: &str = "
     SELECT song_id FROM user_songs WHERE user_id=$1
 ";
 
+/// The user's own songs when a query is limited to their library or tagged songs: their
+/// `user_songs` rows, and every song carrying a tag the user owns. The same songs the
+/// derived In My Library and Tagged activity tags hold true for, so a song only played or
+/// favorited, or carrying only a default tag, is left out.
+const LIBRARY_OR_TAGGED_SONGS: &str = "
+    SELECT song_id FROM user_songs WHERE user_id=$1
+    UNION
+    SELECT applied.song_id FROM user_tags_applied AS applied
+    JOIN tags ON tags.tag_id=applied.tag_id
+    WHERE applied.user_id=$1 AND tags.user_id=$1
+";
+
+/// Which songs a query runs over.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum QuerySongs {
+    /// Every song Cadenza knows: the user's own ([`OWN_SONGS`]), then the first of the rest.
+    #[default]
+    Everything,
+    /// Only songs in the user's library or carrying one of their own tags
+    /// ([`LIBRARY_OR_TAGGED_SONGS`]), the app's Show songs only in library or tagged setting.
+    LibraryOrTagged,
+    /// Only the user's `user_songs` rows ([`LIBRARY_SONGS`]), the Library tab's song list.
+    Library,
+}
+
+impl QuerySongs {
+    /// The CTE body of the songs that are the user's own under this choice.
+    fn own_songs(self) -> &'static str {
+        match self {
+            Self::Everything => OWN_SONGS,
+            Self::LibraryOrTagged => LIBRARY_OR_TAGGED_SONGS,
+            Self::Library => LIBRARY_SONGS,
+        }
+    }
+
+    /// Only the user's own songs: no songs from elsewhere, so nothing is capped.
+    fn is_own_only(self) -> bool {
+        self != Self::Everything
+    }
+}
+
+/// The stored metadata every song row carries, read off `stored`, a
+/// `metadata_song_tags_applied` row joined on `found`. An empty string reads as missing.
+/// Genre is the song's genres as one text value, joined with ", ". `has_metadata` is false
+/// for a song with no row, or one Apple has no entry for.
+const STORED_COLUMNS: &str = "
+        NULLIF(stored.name, '') AS title,
+        NULLIF(stored.artist_name, '') AS artist,
+        NULLIF(stored.album_name, '') AS album,
+        NULLIF(array_to_string(stored.genre_names, ', '), '') AS genre,
+        stored.release_date,
+        stored.duration_in_millis AS duration,
+        stored.content_rating,
+        COALESCE(stored.total_plays, 0) AS total_plays,
+        stored.song_id IS NOT NULL AS has_metadata
+";
+
 /// The user's own songs as rows a query runs over, as a `FROM` item: every one is
 /// `certain`, with whatever metadata is stored for it. Untagged songs are in here too, which
 /// is what lets a negative filter match a song with no tag rows at all.
-///
-/// It carries the metadata a sort reads, with an empty string read as missing, the same as
-/// [`DISCOVERED_QUERY_SONGS`].
-const OWN_QUERY_SONGS: &str = "(
-    SELECT
-        own_songs.song_id,
-        TRUE AS certain,
-        NULLIF(stored.name, '') AS title,
-        NULLIF(stored.artist_name, '') AS artist,
-        NULLIF(stored.album_name, '') AS album,
-        COALESCE(stored.total_plays, 0) AS total_plays
-    FROM own_songs
-    LEFT JOIN metadata_song_tags_applied AS stored
-        ON stored.song_id=own_songs.song_id AND stored.found
-)";
+fn own_query_songs() -> String {
+    format!(
+        "(
+            SELECT own_songs.song_id, TRUE AS certain, {STORED_COLUMNS}
+            FROM own_songs
+            LEFT JOIN metadata_song_tags_applied AS stored
+                ON stored.song_id=own_songs.song_id AND stored.found
+        )"
+    )
+}
 
 /// Every other song a query runs over, as a `FROM` item: the stored songs Apple has a
 /// catalog entry for that are not the user's own. Songs Cadenza found elsewhere, so none is
-/// `certain`, and only the first [`MAX_DISCOVERED_SONGS`] of them come back.
+/// `certain`, and only the first of them come back.
+///
+/// Rows a phone sent for a song only it knows (`source` 'library', see
+/// `sql/sort_group.sql`) are some user's own song, never a song to discover.
 ///
 /// The stored rows are scanned once and the user's own songs hash joined off them, which
 /// stays fast with hundreds of thousands of stored songs.
-const DISCOVERED_QUERY_SONGS: &str = "(
-    SELECT
-        stored.song_id,
-        FALSE AS certain,
-        NULLIF(stored.name, '') AS title,
-        NULLIF(stored.artist_name, '') AS artist,
-        NULLIF(stored.album_name, '') AS album,
-        stored.total_plays
-    FROM metadata_song_tags_applied AS stored
-    LEFT JOIN own_songs ON own_songs.song_id=stored.song_id
-    WHERE stored.found AND own_songs.song_id IS NULL
-)";
+fn discovered_query_songs() -> String {
+    format!(
+        "(
+            SELECT stored.song_id, FALSE AS certain, {STORED_COLUMNS}
+            FROM metadata_song_tags_applied AS stored
+            LEFT JOIN own_songs ON own_songs.song_id=stored.song_id
+            WHERE stored.found AND stored.source = 'catalog' AND own_songs.song_id IS NULL
+        )"
+    )
+}
+
+/// A list of song ids the caller sent, as a `FROM` item, each `certain` and carrying its
+/// place in the list as `position`. `ids` is the placeholder of a JSON array of the ids.
+fn given_query_songs(ids: &str) -> String {
+    format!(
+        "(
+            SELECT given.song_id, TRUE AS certain, given.position, {STORED_COLUMNS}
+            FROM json_array_elements_text({ids}::json) WITH ORDINALITY AS given(song_id, position)
+            LEFT JOIN metadata_song_tags_applied AS stored
+                ON stored.song_id=given.song_id AND stored.found
+        )"
+    )
+}
 
 /// The collation sorted text is compared in. `sql/query_sort.sql` creates it: ICU with
 /// numeric ordering, so "Track 9" comes before "Track 10" the way the app sorts.
 const SORT_COLLATION: &str = "natural_sort";
 
-/// What a query matched, in order.
+/// What a list matched, in order.
 #[derive(Debug, PartialEq, Eq)]
 pub struct QueryMatches {
     pub songs: Vec<QueryMatch>,
-    /// More songs from outside the user's own matched than [`MAX_DISCOVERED_SONGS`].
+    /// More songs matched than came back. See [`run_query`].
     pub capped: bool,
+    /// The groups, in order, when the list was grouped. Their counts add up to `songs`.
+    pub groups: Option<Vec<MatchGroup>>,
+    /// The returned songs with no stored metadata Apple knew.
+    pub missing_metadata: Vec<String>,
 }
 
-#[derive(Debug, PartialEq, Eq, FromQueryResult)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct QueryMatch {
     pub song_id: String,
     /// The song is the user's own: in their library, or carrying one of their tags.
@@ -103,47 +181,144 @@ pub struct QueryMatch {
 /// The stored metadata condition for a song Apple rates explicit.
 const EXPLICIT_RATING: &str = "meta.content_rating = 'explicit'";
 
-/// How a query runs, beyond the query itself. `Default` is every song Cadenza
-/// knows, only the user's own tags, nothing hidden, most relevant first.
+/// How a query runs, beyond the query itself and how its songs are arranged. `Default` is
+/// every song Cadenza knows, only the user's own tags, nothing hidden.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct QueryOptions {
     /// A song's shared default tags count as tags on it too.
     pub consider_default_tags: bool,
-    /// Only the user's `user_songs` rows, so nothing is capped.
-    pub library_only: bool,
+    /// Which songs the query runs over. Anything but `Everything` is never capped.
+    pub songs: QuerySongs,
     /// A song Apple rates explicit never matches.
     pub hide_explicit: bool,
-    /// None for most relevant first.
+}
+
+/// One run of songs sharing a group value.
+#[derive(Debug, PartialEq, Eq)]
+pub struct MatchGroup {
+    pub state: GroupState,
+    /// The value as text. `None` for a basic tag's group and for the empty groups.
+    pub value: Option<String>,
+    pub count: usize,
+}
+
+/// One row the statement returns.
+#[derive(Debug, PartialEq, Eq, FromQueryResult)]
+struct ArrangedRow {
+    song_id: String,
+    certain: bool,
+    has_metadata: bool,
+    /// 0 a value, 1 applied with no value, 2 not applied. Always 0 without a group.
+    group_state: i32,
+    /// What tells groups apart, like a lowercased name.
+    group_key: Option<String>,
+    /// What the group is called, the value as the first song in it has it.
+    group_label: Option<String>,
+}
+
+/// How a song list is ordered and grouped. Both empty keeps the list's own order.
+#[derive(Debug, Clone, Default)]
+pub struct Arrangement {
     pub sort: Option<QuerySort>,
+    pub group: Option<QueryGroup>,
+    /// The IANA zone a datetime tag's days are counted in. UTC when left out.
+    pub time_zone: Option<String>,
+}
+
+impl Arrangement {
+    pub fn is_none(&self) -> bool {
+        self.sort.is_none() && self.group.is_none()
+    }
+
+    fn tag_ids(&self) -> HashSet<i64> {
+        [
+            self.sort.map(|sort| sort.field),
+            self.group.map(|group| group.field),
+        ]
+        .into_iter()
+        .flatten()
+        .filter_map(|field| match field {
+            ArrangeField::Tag { tag_id } => Some(tag_id),
+            ArrangeField::Metadata { .. } => None,
+        })
+        .collect()
+    }
+}
+
+/// What a sort or group needs to know about a tag it names.
+#[derive(Debug, Clone, PartialEq)]
+struct ArrangeTag {
+    tag_type: TagType,
+    rows: TagRows,
+}
+
+/// Where a tag's applications come from.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum TagRows {
+    /// The user's rows in `user_tags_applied`: their own tags, and the stored activity
+    /// tags. `default` is what a song with no row reads as, for My Plays and Favorited.
+    User { default: Option<MissingDefault> },
+    /// No rows at all, worked out from other tables. See [`ActivityTag::is_derived`].
+    Derived(ActivityTag),
+    /// `default_tags_applied`, less the ones the user removed. A suggested tag.
+    Default,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum MissingDefault {
+    Number(f64),
+    False,
+}
+
+/// Everything a statement needs about how its list is arranged.
+#[derive(Default)]
+struct ArrangeContext {
+    arrangement: Arrangement,
+    tags: HashMap<i64, ArrangeTag>,
+}
+
+/// How many songs come back.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CapRule {
+    /// Every one: a library-only query, or a list of ids.
+    None,
+    /// Every one of the user's own, and the first [`MAX_DISCOVERED_SONGS`] of the rest.
+    Discovered,
+    /// The first [`MAX_ARRANGED_SONGS`], whoever's they are.
+    Total,
 }
 
 /// Returns every song matching the given query, in order.
 ///
-/// The query runs over every song Cadenza knows (see [`OWN_QUERY_SONGS`] and
-/// [`DISCOVERED_QUERY_SONGS`]), so a song carrying no tags at all can still satisfy a
-/// negative filter. Every match that is the user's own comes back, and the first
-/// [`MAX_DISCOVERED_SONGS`] of the rest.
+/// The query runs over every song Cadenza knows (see [`own_query_songs`] and
+/// [`discovered_query_songs`]), so a song carrying no tags at all can still satisfy a
+/// negative filter.
 ///
 /// With `consider_default_tags` a song's shared default tags count as tags on it
 /// too, both for matching and for ranking, and the query may name a default tag
 /// id. Otherwise only the user's own tags exist as far as the query is
 /// concerned.
 ///
-/// With `library_only` the query runs over the user's library alone, their `user_songs`
-/// rows: no songs from elsewhere, so the result is never capped.
+/// With `songs` set to `Library` the query runs over the user's library alone, their
+/// `user_songs` rows. With `LibraryOrTagged` it runs over those and every song carrying one
+/// of the user's own tags. Either way there are no songs from elsewhere, so the result is
+/// never capped.
 ///
 /// With `hide_explicit` a song Apple rates explicit never matches. A song with no stored
 /// metadata has no rating, so it is not hidden here.
 ///
-/// Without a `sort`, songs come back most relevant first: by how many of the tags the query
-/// names they carry, then the user's own before the rest, then by every user's plays. With
-/// one, by that title, artist or album, then by title, then by plays. Song id breaks every
-/// tie, so the same query over the same data comes back in the same order every time.
+/// Left unarranged, songs come back the user's own first, every one of them, then the
+/// first [`MAX_DISCOVERED_SONGS`] of the rest. Each half goes most relevant first: by how
+/// many of the tags the query names a song carries, then by every user's plays. Sorted or
+/// grouped, only the first [`MAX_ARRANGED_SONGS`] in that order come back, the user's own
+/// or not. Song id breaks every tie, so the same query over the same data comes back in
+/// the same order every time.
 pub async fn run_query(
     db: &DatabaseConnection,
     query: &Query,
     user_id: Uuid,
     options: QueryOptions,
+    arrangement: &Arrangement,
 ) -> Result<QueryMatches, CadenzaError> {
     check_size(&query.root)?;
 
@@ -153,10 +328,10 @@ pub async fn run_query(
         tag_types,
         defaults,
     } = get_queryable_tags(db, user_id, &tag_ids, options.consider_default_tags).await?;
+    let arrange = arrange_context(db, user_id, arrangement).await?;
 
-    let (sql, values) = compile_query(query, &tag_types, &defaults, user_id, options)?;
-
-    let songs = QueryMatch::find_by_statement(Statement::from_sql_and_values(
+    let (sql, values) = compile_query(query, &tag_types, &defaults, user_id, options, &arrange)?;
+    let rows = ArrangedRow::find_by_statement(Statement::from_sql_and_values(
         DbBackend::Postgres,
         sql,
         values,
@@ -164,19 +339,149 @@ pub async fn run_query(
     .all(db)
     .await?;
 
-    Ok(cap_discovered(songs))
+    let rule = if options.songs.is_own_only() {
+        CapRule::None
+    } else if arrangement.is_none() {
+        CapRule::Discovered
+    } else {
+        CapRule::Total
+    };
+    Ok(finish(rows, rule, arrangement.group.is_some()))
+}
+
+/// Returns `song_ids` arranged: sorted, grouped, or both. Every id comes back once, the
+/// first time it was given, and none is capped. Unsorted, they keep the order given.
+pub async fn arrange_song_ids(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+    song_ids: &[String],
+    arrangement: &Arrangement,
+) -> Result<QueryMatches, CadenzaError> {
+    let song_ids = unique_song_ids(song_ids)?;
+    let arrange = arrange_context(db, user_id, arrangement).await?;
+    let (sql, values) = compile_song_ids(&song_ids, user_id, &arrange)?;
+    let rows = ArrangedRow::find_by_statement(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        sql,
+        values,
+    ))
+    .all(db)
+    .await?;
+
+    Ok(finish(rows, CapRule::None, arrangement.group.is_some()))
+}
+
+/// Every song a query over `songs` treats as the user's own. See [`QuerySongs`].
+pub async fn get_own_song_ids(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+    songs: QuerySongs,
+) -> Result<Vec<String>, CadenzaError> {
+    let sql = songs.own_songs();
+    let rows = db
+        .query_all_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            sql,
+            [user_id.into()],
+        ))
+        .await?;
+    rows.iter()
+        .map(|row| {
+            row.try_get_by_index::<String>(0)
+                .map_err(CadenzaError::from)
+        })
+        .collect()
+}
+
+/// `song_ids` without blanks or repeats, keeping the first of each, refused when there
+/// are more than [`MAX_ARRANGED_SONG_IDS`].
+fn unique_song_ids(song_ids: &[String]) -> Result<Vec<String>, CadenzaError> {
+    if song_ids.len() > MAX_ARRANGED_SONG_IDS {
+        return Err(CadenzaError::QueryFormatError(format!(
+            "lists are limited to {MAX_ARRANGED_SONG_IDS} songs"
+        )));
+    }
+    let mut seen = HashSet::new();
+    Ok(song_ids
+        .iter()
+        .filter(|song_id| !song_id.is_empty() && seen.insert(song_id.as_str()))
+        .cloned()
+        .collect())
+}
+
+/// Cuts the rows off by `rule`, then reads the groups and the songs missing metadata off
+/// what is left.
+fn finish(mut rows: Vec<ArrangedRow>, rule: CapRule, grouped: bool) -> QueryMatches {
+    let capped = match rule {
+        CapRule::None => false,
+        CapRule::Discovered => cap_discovered(&mut rows),
+        CapRule::Total => {
+            let capped = rows.len() > MAX_ARRANGED_SONGS;
+            rows.truncate(MAX_ARRANGED_SONGS);
+            capped
+        }
+    };
+
+    let groups = grouped.then(|| groups_of(&rows));
+    let missing_metadata = rows
+        .iter()
+        .filter(|row| !row.has_metadata)
+        .map(|row| row.song_id.clone())
+        .collect();
+    let songs = rows
+        .into_iter()
+        .map(|row| QueryMatch {
+            song_id: row.song_id,
+            certain: row.certain,
+        })
+        .collect();
+
+    QueryMatches {
+        songs,
+        capped,
+        groups,
+        missing_metadata,
+    }
 }
 
 /// The statement returns one song past [`MAX_DISCOVERED_SONGS`] from outside the user's
 /// own, so a full list can be told from a cut off one. That extra song is the last of
-/// them in order, and goes.
-fn cap_discovered(mut songs: Vec<QueryMatch>) -> QueryMatches {
-    let discovered = songs.iter().filter(|song| !song.certain).count();
+/// them in order, and goes. Returns whether one did.
+fn cap_discovered(rows: &mut Vec<ArrangedRow>) -> bool {
+    let discovered = rows.iter().filter(|row| !row.certain).count();
     let capped = discovered > MAX_DISCOVERED_SONGS;
-    if capped && let Some(last) = songs.iter().rposition(|song| !song.certain) {
-        songs.remove(last);
+    if capped && let Some(last) = rows.iter().rposition(|row| !row.certain) {
+        rows.remove(last);
     }
-    QueryMatches { songs, capped }
+    capped
+}
+
+/// The runs of rows sharing a group, in order. The statement orders by the group first,
+/// so each group is one run. A group is named by its first song's value.
+fn groups_of(rows: &[ArrangedRow]) -> Vec<MatchGroup> {
+    let mut groups: Vec<(i32, Option<&str>, MatchGroup)> = Vec::new();
+    for row in rows {
+        let key = row.group_key.as_deref();
+        match groups.last_mut() {
+            Some((state, last_key, group)) if *state == row.group_state && *last_key == key => {
+                group.count += 1;
+            }
+            _ => groups.push((
+                row.group_state,
+                key,
+                MatchGroup {
+                    state: match row.group_state {
+                        0 => GroupState::Value,
+                        1 => GroupState::NoValue,
+                        _ => GroupState::NotApplied,
+                    },
+                    value: row.group_label.clone(),
+                    count: 1,
+                },
+            )),
+        }
+    }
+    groups.into_iter().map(|(_, _, group)| group).collect()
 }
 
 /// What the compiler needs to know about the tags a query names.
@@ -237,15 +542,17 @@ async fn get_queryable_tags(
             && let Some(activity) = ActivityTag::from_name(&tag.name)
         {
             let defaults = &mut queryable.defaults;
-            let default = activity.default_value();
-            if activity.is_derived() {
-                defaults.derived.insert(tag.tag_id, activity);
-            } else if tag.r#type == TagType::Number
-                && let Some(number) = default.and_then(|value| value.parse::<f64>().ok())
-            {
-                defaults.numbers.insert(tag.tag_id, number);
-            } else if tag.r#type == TagType::Checkbox && default == Some("false") {
-                defaults.false_checkboxes.insert(tag.tag_id);
+            match missing_default(activity, &tag.r#type) {
+                _ if activity.is_derived() => {
+                    defaults.derived.insert(tag.tag_id, activity);
+                }
+                Some(MissingDefault::Number(number)) => {
+                    defaults.numbers.insert(tag.tag_id, number);
+                }
+                Some(MissingDefault::False) => {
+                    defaults.false_checkboxes.insert(tag.tag_id);
+                }
+                None => {}
             }
         }
         queryable.tag_types.insert(tag.tag_id, tag.r#type);
@@ -262,6 +569,96 @@ async fn get_queryable_tags(
     }
 
     Ok(queryable)
+}
+
+/// What a stored activity tag reads as on a song with no row: a number for My Plays,
+/// false for Favorited, and nothing for the rest.
+fn missing_default(activity: ActivityTag, tag_type: &TagType) -> Option<MissingDefault> {
+    let default = activity.default_value();
+    match tag_type {
+        TagType::Number => default
+            .and_then(|value| value.parse::<f64>().ok())
+            .map(MissingDefault::Number),
+        TagType::Checkbox if default == Some("false") => Some(MissingDefault::False),
+        _ => None,
+    }
+}
+
+/// Looks up the tags a sort or group names, and checks the time zone a datetime group
+/// counts its days in. A tag the user cannot see is a `QueryFormatError`: their own, an
+/// activity tag, and a shared default tag are all fine, whether or not the query considers
+/// default tags.
+async fn arrange_context(
+    db: &impl ConnectionTrait,
+    user_id: Uuid,
+    arrangement: &Arrangement,
+) -> Result<ArrangeContext, CadenzaError> {
+    let tag_ids = arrangement.tag_ids();
+    let mut found = HashMap::new();
+    if !tag_ids.is_empty() {
+        for tag in tags::Entity::find()
+            .filter(tags::Column::TagId.is_in(tag_ids.iter().copied()))
+            .filter(
+                Condition::any()
+                    .add(tags::Column::UserId.eq(user_id))
+                    .add(tags::Column::UserId.is_null()),
+            )
+            .all(db)
+            .await?
+        {
+            let activity = tag
+                .is_activity
+                .then(|| ActivityTag::from_name(&tag.name))
+                .flatten();
+            let rows = match activity {
+                Some(activity) if activity.is_derived() => TagRows::Derived(activity),
+                Some(activity) => TagRows::User {
+                    default: missing_default(activity, &tag.r#type),
+                },
+                None if tag.user_id.is_some() || tag.is_activity => TagRows::User { default: None },
+                None => TagRows::Default,
+            };
+            found.insert(
+                tag.tag_id,
+                ArrangeTag {
+                    tag_type: tag.r#type,
+                    rows,
+                },
+            );
+        }
+    }
+    if let Some(missing) = tag_ids.iter().find(|id| !found.contains_key(id)) {
+        return Err(CadenzaError::QueryFormatError(format!(
+            "tag {missing} does not exist"
+        )));
+    }
+
+    let groups_by_day = matches!(
+        arrangement.group.map(|group| group.field),
+        Some(ArrangeField::Tag { tag_id }) if found[&tag_id].tag_type == TagType::Datetime
+    );
+    if groups_by_day && let Some(time_zone) = &arrangement.time_zone {
+        let known = db
+            .query_one_raw(Statement::from_sql_and_values(
+                DbBackend::Postgres,
+                "SELECT EXISTS (SELECT 1 FROM pg_timezone_names WHERE name = $1)",
+                [time_zone.clone().into()],
+            ))
+            .await?
+            .map(|row| row.try_get_by_index::<bool>(0))
+            .transpose()?
+            .unwrap_or(false);
+        if !known {
+            return Err(CadenzaError::QueryFormatError(format!(
+                "'{time_zone}' is not a time zone"
+            )));
+        }
+    }
+
+    Ok(ArrangeContext {
+        arrangement: arrangement.clone(),
+        tags: found,
+    })
 }
 
 fn check_size(root: &QueryNode) -> Result<(), CadenzaError> {
@@ -342,6 +739,16 @@ fn applied_tags_source(consider_default_tags: bool) -> &'static str {
     }
 }
 
+/// Which half of the statement a row source is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Half {
+    /// The user's own songs, or the ids a caller sent.
+    Own,
+    /// Songs from outside the user's own. None carries a row of the user's, so a tag of
+    /// theirs is known to be missing without looking.
+    Discovered,
+}
+
 /// Converts the query to a full SQL statement and its values. `tag_types` must
 /// hold the type of every tag id the query mentions. `defaults` holds how the
 /// activity tags read on a song with no row for them (see [`TagDefaults`]).
@@ -351,31 +758,35 @@ fn applied_tags_source(consider_default_tags: bool) -> &'static str {
 /// negative operators (`is_not`, `not_on`, `ne`, `is_empty`, `is_null`) match
 /// it.
 ///
-/// Filters correlate against `query_songs`, one song from [`OWN_QUERY_SONGS`] or
-/// [`DISCOVERED_QUERY_SONGS`]. The statement selects `(song id, certain)` rows already in
-/// the order [`run_query`] describes: every certain song, and the first
-/// [`MAX_DISCOVERED_SONGS`] + 1 of the rest.
+/// Filters correlate against `query_songs`, one song from [`own_query_songs`] or
+/// [`discovered_query_songs`]. The statement selects rows already in the order
+/// [`run_query`] describes, with one song past the cap so [`finish`] can tell a full list
+/// from a cut off one.
 ///
-/// With `library_only` the user's own songs are only their `user_songs` rows
-/// ([`LIBRARY_SONGS`]) and there is no second half, so nothing is capped.
+/// With `songs` other than `Everything` the user's own songs are only their library
+/// ([`LIBRARY_SONGS`]), or their library and tagged songs ([`LIBRARY_OR_TAGGED_SONGS`]), and
+/// there is no second half, so nothing is capped. With
+/// `hide_explicit` both halves leave out songs Apple rates explicit.
 ///
 /// The two run as separate halves of a `UNION ALL` with the same where clause. The user's
 /// own songs are few. The rest can be hundreds of thousands, and a `LIMIT` on that half
 /// lets postgres keep only the first while it sorts, instead of sorting them all. Ranking
-/// happens in the statement rather than after it for the same reason.
+/// happens in the statement rather than after it for the same reason. Sorted or grouped,
+/// the user's own half is limited the same way, since only the first songs overall count.
 fn compile_query(
     query: &Query,
     tag_types: &HashMap<i64, TagType>,
     defaults: &TagDefaults,
     user_id: Uuid,
     options: QueryOptions,
+    arrange: &ArrangeContext,
 ) -> Result<(String, Vec<sea_query::Value>), CadenzaError> {
     let QueryOptions {
         consider_default_tags,
-        library_only,
+        songs,
         hide_explicit,
-        sort,
     } = options;
+    let own_only = songs.is_own_only();
     let applied_tags = applied_tags_source(consider_default_tags);
     let mut compiler = Compiler {
         tag_types,
@@ -390,87 +801,574 @@ fn compile_query(
         where_clause = format!("({where_clause}) AND {explicit}");
     }
     let (score, score_join) = compiler.score(&query.root);
-    let order = order_by(sort);
-    let discovered_limit = MAX_DISCOVERED_SONGS + 1;
+    let params = ArrangeParams::bind(&mut compiler, arrange);
+    let order = order_by(arrange, Unsorted::Relevance);
+    let arranged = !arrange.arrangement.is_none();
+    let limit = if arranged {
+        MAX_ARRANGED_SONGS + 1
+    } else {
+        MAX_DISCOVERED_SONGS + 1
+    };
 
     // the same placeholders in both halves, which postgres allows
-    let matched = |query_songs: &str| {
+    let matched = |query_songs: &str, half: Half| {
+        let columns = arranged_columns(arrange, &params, half);
         format!(
             r#"
                 SELECT
                     query_songs.song_id,
                     query_songs.certain,
-                    {score} AS score,
+                    query_songs.has_metadata,
                     query_songs.title,
-                    query_songs.artist,
-                    query_songs.album,
-                    query_songs.total_plays
+                    query_songs.total_plays,
+                    {score} AS score,
+                    {select}
                 FROM {query_songs} AS query_songs
                 {score_join}
+                {joins}
                 WHERE {where_clause}
+            "#,
+            select = columns.select,
+            joins = columns.joins,
+        )
+    };
+    let own = matched(&own_query_songs(), Half::Own);
+    let own = if arranged && !own_only {
+        format!("SELECT * FROM ({own}) AS own ORDER BY {order} LIMIT {limit}")
+    } else {
+        own
+    };
+    let own_songs = songs.own_songs();
+    let discovered = if own_only {
+        String::new()
+    } else {
+        let discovered = matched(&discovered_query_songs(), Half::Discovered);
+        format!(
+            r#"
+                UNION ALL
+                (
+                    SELECT * FROM ({discovered}) AS discovered
+                    ORDER BY {order}
+                    LIMIT {limit}
+                )
             "#
         )
     };
-    let own = matched(OWN_QUERY_SONGS);
-    let (own_songs, discovered) = if library_only {
-        (LIBRARY_SONGS, String::new())
+    let outer_limit = if arranged && !own_only {
+        format!("LIMIT {limit}")
     } else {
-        let discovered = matched(DISCOVERED_QUERY_SONGS);
-        (
-            OWN_SONGS,
-            format!(
-                r#"
-                    UNION ALL
-                    (
-                        SELECT * FROM ({discovered}) AS discovered
-                        ORDER BY {order}
-                        LIMIT {discovered_limit}
-                    )
-                "#
-            ),
-        )
+        String::new()
     };
 
     let sql = format!(
         r#"
             WITH own_songs AS ({own_songs})
-            SELECT song_id, certain
+            SELECT song_id, certain, has_metadata, group_state, group_key, group_label
             FROM (
                 ({own})
                 {discovered}
             ) AS ranked
             ORDER BY {order}
+            {outer_limit}
         "#
     );
 
     Ok((sql, compiler.values))
 }
 
-/// The `ORDER BY` list for `sort`, over the columns `compile_query` selects. Ends in the
-/// song id, which is unique, so the order is total and the cap's sort and the final sort
-/// agree row for row. The id compares byte by byte, so it does not depend on the
-/// database's locale.
-fn order_by(sort: Option<QuerySort>) -> String {
-    let Some(QuerySort { key, direction }) = sort else {
-        return "score DESC, certain DESC, total_plays DESC, song_id COLLATE \"C\"".to_string();
+/// The statement behind [`arrange_song_ids`]: the given ids, with their stored metadata
+/// and the tags the arrangement names, in order. `song_ids` are already unique.
+fn compile_song_ids(
+    song_ids: &[String],
+    user_id: Uuid,
+    arrange: &ArrangeContext,
+) -> Result<(String, Vec<sea_query::Value>), CadenzaError> {
+    let no_tags = HashMap::new();
+    let no_defaults = TagDefaults::default();
+    let mut compiler = Compiler {
+        tag_types: &no_tags,
+        defaults: &no_defaults,
+        values: vec![sea_query::Value::Uuid(Some(user_id))],
+        applied_tags: applied_tags_source(false),
+    };
+    let ids = compiler.bind(serde_json::to_string(song_ids).unwrap_or_else(|_| "[]".into()));
+    let params = ArrangeParams::bind(&mut compiler, arrange);
+    let order = order_by(arrange, Unsorted::Position);
+    let columns = arranged_columns(arrange, &params, Half::Own);
+
+    // the order reads the selected columns, which only an outer select can do
+    let sql = format!(
+        r#"
+            SELECT song_id, certain, has_metadata, group_state, group_key, group_label
+            FROM (
+                SELECT
+                    query_songs.song_id,
+                    query_songs.certain,
+                    query_songs.has_metadata,
+                    query_songs.title,
+                    query_songs.total_plays,
+                    query_songs.position,
+                    {select}
+                FROM {query_songs} AS query_songs
+                {joins}
+            ) AS ranked
+            ORDER BY {order}
+        "#,
+        select = columns.select,
+        joins = columns.joins,
+        query_songs = given_query_songs(&ids),
+    );
+
+    Ok((sql, compiler.values))
+}
+
+/// The placeholders an arrangement reads: the sort's and the group's tag ids, and the time
+/// zone a datetime group counts days in.
+struct ArrangeParams {
+    sort_tag: Option<String>,
+    group_tag: Option<String>,
+    /// Bound only for a datetime group, the one thing that reads it.
+    time_zone: Option<String>,
+}
+
+impl ArrangeParams {
+    fn bind(compiler: &mut Compiler, arrange: &ArrangeContext) -> Self {
+        let mut tag_param = |field: Option<ArrangeField>| match field {
+            Some(ArrangeField::Tag { tag_id }) => {
+                Some(compiler.bind(sea_query::Value::BigInt(Some(tag_id))))
+            }
+            _ => None,
+        };
+        let sort_tag = tag_param(arrange.arrangement.sort.map(|sort| sort.field));
+        let group_tag = tag_param(arrange.arrangement.group.map(|group| group.field));
+        let groups_by_day = matches!(
+            arrange.arrangement.group.map(|group| group.field),
+            Some(ArrangeField::Tag { tag_id })
+                if arrange.tags.get(&tag_id).map(|tag| &tag.tag_type) == Some(&TagType::Datetime)
+        );
+        let time_zone = groups_by_day.then(|| {
+            compiler.bind(
+                arrange
+                    .arrangement
+                    .time_zone
+                    .clone()
+                    .unwrap_or_else(|| "UTC".to_string()),
+            )
+        });
+        Self {
+            sort_tag,
+            group_tag,
+            time_zone,
+        }
+    }
+}
+
+/// How a field's value orders.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ValueOrder {
+    /// Text, compared in [`SORT_COLLATION`].
+    Text,
+    /// Numbers, dates and times, compared as they are.
+    Plain,
+    /// A yes or no, true first.
+    TrueFirst,
+    /// Nothing to compare: a basic tag is only applied or not.
+    Nothing,
+}
+
+/// One sort or group field, compiled for one half of the statement.
+struct FieldSql {
+    /// What brings the tag's row in, or nothing.
+    join: String,
+    /// 0 a value, 1 applied with no value, 2 not applied.
+    state: String,
+    /// The typed value songs order by within a state. How it orders is
+    /// [`field_order`]'s to say.
+    value: String,
+    /// What tells groups apart, as text.
+    key: String,
+    /// What the group is called, as text.
+    label: String,
+}
+
+/// Whether a field is being compiled to sort by or to group by. A group compares what
+/// tells groups apart: text ignoring case, a datetime by its day.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Role {
+    Sort,
+    Group,
+}
+
+/// The sort's and the group's columns for one half, and the joins they read from.
+struct ArrangedColumns {
+    select: String,
+    joins: String,
+}
+
+fn arranged_columns(
+    arrange: &ArrangeContext,
+    params: &ArrangeParams,
+    half: Half,
+) -> ArrangedColumns {
+    let mut joins = Vec::new();
+    let mut select = Vec::new();
+
+    match arrange.arrangement.sort {
+        Some(sort) => {
+            let field = field_sql(
+                sort.field,
+                Role::Sort,
+                half,
+                arrange,
+                params.sort_tag.as_deref(),
+                params.time_zone.as_deref(),
+                "sort_tag",
+            );
+            joins.push(field.join);
+            select.push(format!("{} AS sort_state", field.state));
+            select.push(format!("{} AS sort_value", field.value));
+        }
+        None => {
+            select.push("0 AS sort_state".to_string());
+            select.push("NULL AS sort_value".to_string());
+        }
+    }
+
+    match arrange.arrangement.group {
+        Some(group) => {
+            let field = field_sql(
+                group.field,
+                Role::Group,
+                half,
+                arrange,
+                params.group_tag.as_deref(),
+                params.time_zone.as_deref(),
+                "group_tag",
+            );
+            joins.push(field.join);
+            select.push(format!("{} AS group_state", field.state));
+            select.push(format!("{} AS group_value", field.value));
+            select.push(format!("{} AS group_key", field.key));
+            select.push(format!("{} AS group_label", field.label));
+        }
+        None => {
+            select.push("0 AS group_state".to_string());
+            select.push("NULL AS group_value".to_string());
+            select.push("NULL::text AS group_key".to_string());
+            select.push("NULL::text AS group_label".to_string());
+        }
+    }
+
+    ArrangedColumns {
+        select: select.join(",\n"),
+        joins: joins.join("\n"),
+    }
+}
+
+/// How the value of a tag of `tag_type` reads from its text form `raw`, and how it orders.
+fn typed_value(tag_type: &TagType, raw: &str) -> (String, ValueOrder) {
+    match tag_type {
+        TagType::Basic => ("NULL".to_string(), ValueOrder::Nothing),
+        TagType::Text => (raw.to_string(), ValueOrder::Text),
+        TagType::Number => (format!("({raw})::double precision"), ValueOrder::Plain),
+        TagType::Date => (format!("({raw})::date"), ValueOrder::Plain),
+        TagType::Datetime => (format!("({raw})::timestamptz"), ValueOrder::Plain),
+        TagType::Checkbox => (format!("(({raw}) = 'true')"), ValueOrder::TrueFirst),
+    }
+}
+
+/// Compiles one sort or group field for one half. `tag_param` is the tag id's placeholder
+/// for a tag field, `time_zone` the zone's, and `alias` names the joined row.
+///
+/// A value's state says where the song goes whatever the direction: 0 for a value, 1 for
+/// the tag applied with none, 2 for no tag at all. A basic tag is 0 applied and 2 not, and
+/// a metadata tag 0 or 1, since there is nothing to apply. An activity tag with a default
+/// always has a value.
+fn field_sql(
+    field: ArrangeField,
+    role: Role,
+    half: Half,
+    arrange: &ArrangeContext,
+    tag_param: Option<&str>,
+    time_zone: Option<&str>,
+    alias: &str,
+) -> FieldSql {
+    let mut join = String::new();
+    let (state, value, order, tag_type) = match field {
+        ArrangeField::Metadata { key } => {
+            let (value, order, tag_type) = match key {
+                MetadataKey::Title => ("query_songs.title".to_string(), ValueOrder::Text, TagType::Text),
+                MetadataKey::Artist => ("query_songs.artist".to_string(), ValueOrder::Text, TagType::Text),
+                MetadataKey::Album => ("query_songs.album".to_string(), ValueOrder::Text, TagType::Text),
+                MetadataKey::Genre => ("query_songs.genre".to_string(), ValueOrder::Text, TagType::Text),
+                MetadataKey::ReleaseDate => {
+                    ("query_songs.release_date".to_string(), ValueOrder::Plain, TagType::Date)
+                }
+                MetadataKey::Duration => {
+                    ("query_songs.duration".to_string(), ValueOrder::Plain, TagType::Number)
+                }
+                MetadataKey::Explicit => (
+                    "(CASE query_songs.content_rating WHEN 'explicit' THEN TRUE WHEN 'clean' THEN FALSE END)"
+                        .to_string(),
+                    ValueOrder::TrueFirst,
+                    TagType::Checkbox,
+                ),
+                MetadataKey::TotalPlays => (
+                    "(CASE WHEN query_songs.has_metadata THEN query_songs.total_plays END)".to_string(),
+                    ValueOrder::Plain,
+                    TagType::Number,
+                ),
+            };
+            let state = format!("(CASE WHEN {value} IS NULL THEN 1 ELSE 0 END)");
+            (state, value, order, tag_type)
+        }
+        ArrangeField::Tag { tag_id } => {
+            let tag = &arrange.tags[&tag_id];
+            let param = tag_param.unwrap_or("NULL");
+            match tag.rows {
+                TagRows::Derived(activity) => {
+                    let holds = match (half, activity) {
+                        (Half::Discovered, _) => "FALSE".to_string(),
+                        (_, ActivityTag::InMyLibrary) => "EXISTS (
+                            SELECT 1 FROM user_songs AS arrange_library
+                            WHERE arrange_library.user_id=$1
+                                AND arrange_library.song_id=query_songs.song_id
+                        )"
+                        .to_string(),
+                        _ => "EXISTS (
+                            SELECT 1 FROM user_tags_applied AS arrange_applied
+                            JOIN tags AS arrange_tag ON arrange_tag.tag_id=arrange_applied.tag_id
+                            WHERE arrange_applied.user_id=$1 AND arrange_tag.user_id=$1
+                                AND arrange_applied.song_id=query_songs.song_id
+                        )"
+                        .to_string(),
+                    };
+                    (
+                        "0".to_string(),
+                        holds,
+                        ValueOrder::TrueFirst,
+                        TagType::Checkbox,
+                    )
+                }
+                TagRows::User { default } => {
+                    // a song from outside the user's own has none of their rows
+                    let (applied, raw) = if half == Half::Discovered {
+                        ("FALSE".to_string(), "NULL".to_string())
+                    } else {
+                        join = format!(
+                            "LEFT JOIN user_tags_applied AS {alias}
+                                ON {alias}.song_id=query_songs.song_id
+                                AND {alias}.user_id=$1 AND {alias}.tag_id={param}"
+                        );
+                        (
+                            format!("{alias}.song_id IS NOT NULL"),
+                            format!("{alias}.value"),
+                        )
+                    };
+                    let (value, order) = typed_value(&tag.tag_type, &raw);
+                    match default {
+                        Some(MissingDefault::Number(number)) => (
+                            "0".to_string(),
+                            format!("COALESCE({value}, {number:?}::double precision)"),
+                            order,
+                            tag.tag_type.clone(),
+                        ),
+                        Some(MissingDefault::False) => (
+                            "0".to_string(),
+                            format!("COALESCE({value}, FALSE)"),
+                            order,
+                            tag.tag_type.clone(),
+                        ),
+                        None if half == Half::Discovered => {
+                            ("2".to_string(), value, order, tag.tag_type.clone())
+                        }
+                        None => (
+                            applied_state(&tag.tag_type, &applied, &raw),
+                            value,
+                            order,
+                            tag.tag_type.clone(),
+                        ),
+                    }
+                }
+                TagRows::Default => {
+                    join = format!(
+                        "LEFT JOIN default_tags_applied AS {alias}
+                            ON {alias}.song_id=query_songs.song_id AND {alias}.tag_id={param}
+                            AND NOT EXISTS (
+                                SELECT 1 FROM default_tags_removed AS {alias}_removed
+                                WHERE {alias}_removed.user_id=$1
+                                    AND {alias}_removed.tag_id={alias}.tag_id
+                                    AND {alias}_removed.song_id={alias}.song_id
+                            )"
+                    );
+                    let applied = format!("{alias}.song_id IS NOT NULL");
+                    // a default tag carries no value
+                    let (value, order) = typed_value(&tag.tag_type, "NULL");
+                    (
+                        applied_state(&tag.tag_type, &applied, "NULL"),
+                        value,
+                        order,
+                        tag.tag_type.clone(),
+                    )
+                }
+            }
+        }
     };
 
-    let direction = match direction {
-        SortDirection::Ascending => "ASC",
-        SortDirection::Descending => "DESC",
-    };
-    let text = |column: &str| format!("{column} COLLATE {SORT_COLLATION} {direction} NULLS LAST");
-    // songs with the same artist or album go by title, the same as the app's own sort
-    let columns = match key {
-        QuerySortKey::Title => vec![text("title")],
-        QuerySortKey::Artist => vec![text("artist"), text("title")],
-        QuerySortKey::Album => vec![text("album"), text("title")],
-    };
+    if role == Role::Sort {
+        return FieldSql {
+            join,
+            state,
+            value,
+            key: "NULL::text".to_string(),
+            label: "NULL::text".to_string(),
+        };
+    }
 
-    format!(
-        "{}, total_plays DESC, song_id COLLATE \"C\"",
-        columns.join(", ")
-    )
+    // groups compare what tells them apart: text without case, a datetime by its day
+    let (value, key, label) = match order {
+        ValueOrder::Nothing => (
+            "NULL".to_string(),
+            "NULL::text".to_string(),
+            "NULL::text".to_string(),
+        ),
+        ValueOrder::Text => (
+            format!("lower({value})"),
+            format!("lower({value})"),
+            format!("({value})::text"),
+        ),
+        ValueOrder::TrueFirst => (
+            value.clone(),
+            format!("({value})::text"),
+            format!("({value})::text"),
+        ),
+        ValueOrder::Plain => {
+            let value = match tag_type {
+                TagType::Datetime => format!(
+                    "(({value}) AT TIME ZONE {})::date",
+                    time_zone.unwrap_or("'UTC'")
+                ),
+                _ => value,
+            };
+            let text = match tag_type {
+                TagType::Datetime | TagType::Date => format!("to_char({value}, 'YYYY-MM-DD')"),
+                _ => format!("({value})::text"),
+            };
+            (value, text.clone(), text)
+        }
+    };
+    FieldSql {
+        join,
+        state,
+        value,
+        key,
+        label,
+    }
+}
+
+/// The state of a tag read from rows: 2 when it is not applied, 0 for a basic tag that is,
+/// and for any other 1 or 0 by whether it holds a value.
+fn applied_state(tag_type: &TagType, applied: &str, raw: &str) -> String {
+    match tag_type {
+        TagType::Basic => format!("(CASE WHEN {applied} THEN 0 ELSE 2 END)"),
+        _ => format!("(CASE WHEN NOT ({applied}) THEN 2 WHEN {raw} IS NULL THEN 1 ELSE 0 END)"),
+    }
+}
+
+/// What an unsorted list keeps to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Unsorted {
+    /// A query's own order: the user's own songs first, then most relevant first.
+    Relevance,
+    /// The order the ids were given in.
+    Position,
+}
+
+/// The `ORDER BY` list for an arrangement, over the columns the statement selects: the
+/// group first, then the sort, then ties. Ends in the song id, which is unique, so the
+/// order is total and each half's cap and the final sort agree row for row. The id
+/// compares byte by byte, so it does not depend on the database's locale.
+fn order_by(arrange: &ArrangeContext, unsorted: Unsorted) -> String {
+    let mut terms = Vec::new();
+    if let Some(group) = arrange.arrangement.group {
+        let order = field_order(group.field, arrange);
+        terms.extend(value_terms(
+            "group_state",
+            "group_value",
+            order,
+            group.direction,
+        ));
+    }
+
+    match arrange.arrangement.sort {
+        Some(sort) => {
+            let order = field_order(sort.field, arrange);
+            terms.extend(value_terms(
+                "sort_state",
+                "sort_value",
+                order,
+                sort.direction,
+            ));
+            terms.push(format!("title COLLATE {SORT_COLLATION} ASC NULLS LAST"));
+            terms.push("total_plays DESC".to_string());
+        }
+        None => match unsorted {
+            Unsorted::Relevance => {
+                terms.push("certain DESC".to_string());
+                terms.push("score DESC".to_string());
+                terms.push("total_plays DESC".to_string());
+            }
+            Unsorted::Position => terms.push("position".to_string()),
+        },
+    }
+    terms.push("song_id COLLATE \"C\"".to_string());
+    terms.join(", ")
+}
+
+/// How a field orders, without compiling it.
+fn field_order(field: ArrangeField, arrange: &ArrangeContext) -> ValueOrder {
+    match field {
+        ArrangeField::Metadata { key } => match key {
+            MetadataKey::Title | MetadataKey::Artist | MetadataKey::Album | MetadataKey::Genre => {
+                ValueOrder::Text
+            }
+            MetadataKey::Explicit => ValueOrder::TrueFirst,
+            MetadataKey::ReleaseDate | MetadataKey::Duration | MetadataKey::TotalPlays => {
+                ValueOrder::Plain
+            }
+        },
+        ArrangeField::Tag { tag_id } => {
+            let tag = &arrange.tags[&tag_id];
+            match tag.rows {
+                TagRows::Derived(_) => ValueOrder::TrueFirst,
+                _ => typed_value(&tag.tag_type, "NULL").1,
+            }
+        }
+    }
+}
+
+/// The state, then the value in `direction`. Ascending is the value's natural order, so a
+/// checkbox's true comes first. A basic tag has only its state, which ignores direction.
+fn value_terms(
+    state: &str,
+    value: &str,
+    order: ValueOrder,
+    direction: SortDirection,
+) -> Vec<String> {
+    let (natural, reversed) = match direction {
+        SortDirection::Ascending => ("ASC", "DESC"),
+        SortDirection::Descending => ("DESC", "ASC"),
+    };
+    let mut terms = vec![format!("{state} ASC")];
+    match order {
+        ValueOrder::Nothing => {}
+        ValueOrder::Text => terms.push(format!(
+            "{value} COLLATE {SORT_COLLATION} {natural} NULLS LAST"
+        )),
+        ValueOrder::Plain => terms.push(format!("{value} {natural} NULLS LAST")),
+        ValueOrder::TrueFirst => terms.push(format!("{value} {reversed} NULLS LAST")),
+    }
+    terms
 }
 
 struct Compiler<'a> {
@@ -1170,10 +2068,10 @@ mod tests {
             Uuid::nil(),
             QueryOptions {
                 consider_default_tags: false,
-                library_only: false,
+                songs: QuerySongs::Everything,
                 hide_explicit: false,
-                sort: None,
             },
+            &ArrangeContext::default(),
         )
     }
 
@@ -1185,10 +2083,10 @@ mod tests {
             Uuid::nil(),
             QueryOptions {
                 consider_default_tags: true,
-                library_only: false,
+                songs: QuerySongs::Everything,
                 hide_explicit: false,
-                sort: None,
             },
+            &ArrangeContext::default(),
         )
     }
 
@@ -1205,10 +2103,10 @@ mod tests {
             Uuid::nil(),
             QueryOptions {
                 consider_default_tags: false,
-                library_only: false,
+                songs: QuerySongs::Everything,
                 hide_explicit: false,
-                sort: None,
             },
+            &ArrangeContext::default(),
         )
         .unwrap()
         .0
@@ -1536,21 +2434,26 @@ mod tests {
         );
         // the user's own songs, all certain
         assert!(
-            sql.contains(&format!("FROM {} AS query_songs", squash(OWN_QUERY_SONGS))),
+            sql.contains(&format!(
+                "FROM {} AS query_songs",
+                squash(&own_query_songs())
+            )),
             "{sql}"
         );
         assert!(sql.contains("own_songs.song_id, TRUE AS certain"), "{sql}");
-        // and every stored song Apple knows that is not one of them
+        // and every stored song Apple knows that is not one of them, and no phone sent
         assert!(
             sql.contains(&format!(
                 "FROM {} AS query_songs",
-                squash(DISCOVERED_QUERY_SONGS)
+                squash(&discovered_query_songs())
             )),
             "{sql}"
         );
         assert!(sql.contains("stored.song_id, FALSE AS certain"), "{sql}");
         assert!(
-            sql.contains("WHERE stored.found AND own_songs.song_id IS NULL"),
+            sql.contains(
+                "WHERE stored.found AND stored.source = 'catalog' AND own_songs.song_id IS NULL"
+            ),
             "{sql}"
         );
         // the filter runs over both halves
@@ -1660,7 +2563,7 @@ mod tests {
         let (sql, _) = compile(r#"{ "where": { "and": [] } }"#).unwrap();
         assert!(
             squash(&sql).contains(
-                "SELECT song_id, certain FROM ( ( SELECT query_songs.song_id, query_songs.certain,"
+                "SELECT song_id, certain, has_metadata, group_state, group_key, group_label FROM ( ( SELECT query_songs.song_id, query_songs.certain, query_songs.has_metadata,"
             ),
             "{sql}"
         );
@@ -1680,7 +2583,7 @@ mod tests {
     fn only_discovered_songs_are_capped() {
         let (sql, _) = compile(r#"{ "where": { "and": [] } }"#).unwrap();
         let sql = squash(&sql);
-        let order = order_by(None);
+        let order = order_by(&ArrangeContext::default(), Unsorted::Relevance);
         assert!(
             sql.contains(&format!(
                 ") AS discovered ORDER BY {order} LIMIT {} )",
@@ -1704,10 +2607,10 @@ mod tests {
             Uuid::nil(),
             QueryOptions {
                 consider_default_tags: false,
-                library_only: true,
+                songs: QuerySongs::Library,
                 hide_explicit: false,
-                sort: None,
             },
+            &ArrangeContext::default(),
         )
         .unwrap();
         let sql = squash(&sql);
@@ -1725,7 +2628,41 @@ mod tests {
         assert!(!sql.contains("LIMIT"), "{sql}");
         // the filter and the ranking still run
         assert!(sql.contains("NOT EXISTS"), "{sql}");
-        assert!(sql.contains("ORDER BY score DESC"), "{sql}");
+        assert!(sql.contains("ORDER BY certain DESC, score DESC"), "{sql}");
+    }
+
+    /// Limited to the library or tagged songs, the query runs over the user's `user_songs`
+    /// rows and the songs carrying a tag they own, and no stored songs from elsewhere.
+    #[test]
+    fn a_library_or_tagged_query_runs_over_library_and_tagged_songs() {
+        let (sql, _) = compile_query(
+            &parse(&filter(
+                r#"{ "field": "tag", "tag_id": 1, "op": "is_not_applied" }"#,
+            )),
+            &tag_types(),
+            &TagDefaults::default(),
+            Uuid::nil(),
+            QueryOptions {
+                consider_default_tags: false,
+                songs: QuerySongs::LibraryOrTagged,
+                hide_explicit: false,
+            },
+            &ArrangeContext::default(),
+        )
+        .unwrap();
+        let sql = squash(&sql);
+
+        assert!(
+            sql.contains(&format!(
+                "WITH own_songs AS ( {} )",
+                squash(LIBRARY_OR_TAGGED_SONGS)
+            )),
+            "{sql}"
+        );
+        assert!(!sql.contains("FALSE AS certain"), "{sql}");
+        assert!(!sql.contains("UNION ALL ("), "{sql}");
+        assert!(!sql.contains("LIMIT"), "{sql}");
+        assert!(sql.contains("NOT EXISTS"), "{sql}");
     }
 
     /// Tag 7 is In My Library, 8 is Tagged, and 9 is Favorited, as
@@ -1749,10 +2686,10 @@ mod tests {
             Uuid::nil(),
             QueryOptions {
                 consider_default_tags: false,
-                library_only: false,
+                songs: QuerySongs::Everything,
                 hide_explicit: false,
-                sort: None,
             },
+            &ArrangeContext::default(),
         )
         .map(|(sql, _)| squash(&sql))
     }
@@ -1811,10 +2748,10 @@ mod tests {
                 Uuid::nil(),
                 QueryOptions {
                     consider_default_tags: false,
-                    library_only: false,
+                    songs: QuerySongs::Everything,
                     hide_explicit: false,
-                    sort: None
                 },
+                &ArrangeContext::default(),
             ),
             Err(CadenzaError::QueryFormatError(_))
         ));
@@ -1837,16 +2774,24 @@ mod tests {
         assert!(sql.contains("AND EXISTS"), "{sql}");
     }
 
-    /// The cap's sort and the final sort have to agree, or the cap would keep songs the
+    /// The caps' sorts and the final sort have to agree, or a cap would keep songs the
     /// list does not show first.
     #[test]
-    fn the_cap_and_the_final_sort_use_one_order() {
-        for sort in [
-            None,
-            Some(QuerySort {
-                key: QuerySortKey::Artist,
-                direction: SortDirection::Descending,
-            }),
+    fn the_caps_and_the_final_sort_use_one_order() {
+        for (arrange, caps) in [
+            (ArrangeContext::default(), 1),
+            (
+                arranged(
+                    Some(sort(
+                        ArrangeField::Metadata {
+                            key: MetadataKey::Artist,
+                        },
+                        false,
+                    )),
+                    None,
+                ),
+                2,
+            ),
         ] {
             let (sql, _) = compile_query(
                 &parse(r#"{ "where": { "and": [] } }"#),
@@ -1855,18 +2800,15 @@ mod tests {
                 Uuid::nil(),
                 QueryOptions {
                     consider_default_tags: false,
-                    library_only: false,
+                    songs: QuerySongs::Everything,
                     hide_explicit: false,
-                    sort,
                 },
+                &arrange,
             )
             .unwrap();
-            let order = order_by(sort);
-            assert_eq!(sql.matches(&order).count(), 2, "{sql}");
-            assert!(
-                squash(&sql).ends_with(&format!("ORDER BY {order}")),
-                "{sql}"
-            );
+            let order = order_by(&arrange, Unsorted::Relevance);
+            assert_eq!(sql.matches(&order).count(), caps + 1, "{sql}");
+            assert!(squash(&sql).contains(&format!("ORDER BY {order}")), "{sql}");
         }
     }
 
@@ -1886,50 +2828,422 @@ mod tests {
         );
     }
 
+    fn sort(field: ArrangeField, ascending: bool) -> QuerySort {
+        QuerySort {
+            field,
+            direction: if ascending {
+                SortDirection::Ascending
+            } else {
+                SortDirection::Descending
+            },
+        }
+    }
+
+    fn group(field: ArrangeField) -> QueryGroup {
+        QueryGroup {
+            field,
+            direction: SortDirection::Ascending,
+        }
+    }
+
+    /// Tag 1 basic, 2 text, 3 datetime, 4 number and 5 checkbox are the user's, 7 is In My
+    /// Library, 8 is My Plays (missing reads 0), 9 is Favorited (missing reads false), and
+    /// 10 is a suggested tag.
+    fn arranged(sort: Option<QuerySort>, group: Option<QueryGroup>) -> ArrangeContext {
+        let own = |tag_type| ArrangeTag {
+            tag_type,
+            rows: TagRows::User { default: None },
+        };
+        ArrangeContext {
+            arrangement: Arrangement {
+                sort,
+                group,
+                time_zone: Some("America/Denver".to_string()),
+            },
+            tags: HashMap::from([
+                (1, own(TagType::Basic)),
+                (2, own(TagType::Text)),
+                (3, own(TagType::Datetime)),
+                (4, own(TagType::Number)),
+                (5, own(TagType::Checkbox)),
+                (
+                    7,
+                    ArrangeTag {
+                        tag_type: TagType::Checkbox,
+                        rows: TagRows::Derived(ActivityTag::InMyLibrary),
+                    },
+                ),
+                (
+                    8,
+                    ArrangeTag {
+                        tag_type: TagType::Number,
+                        rows: TagRows::User {
+                            default: Some(MissingDefault::Number(0.0)),
+                        },
+                    },
+                ),
+                (
+                    9,
+                    ArrangeTag {
+                        tag_type: TagType::Checkbox,
+                        rows: TagRows::User {
+                            default: Some(MissingDefault::False),
+                        },
+                    },
+                ),
+                (
+                    10,
+                    ArrangeTag {
+                        tag_type: TagType::Basic,
+                        rows: TagRows::Default,
+                    },
+                ),
+            ]),
+        }
+    }
+
+    fn compile_arranged(arrange: &ArrangeContext) -> (String, Vec<sea_query::Value>) {
+        let (sql, values) = compile_query(
+            &parse(r#"{ "where": { "and": [] } }"#),
+            &tag_types(),
+            &TagDefaults::default(),
+            Uuid::nil(),
+            QueryOptions {
+                consider_default_tags: false,
+                songs: QuerySongs::Everything,
+                hide_explicit: false,
+            },
+            arrange,
+        )
+        .unwrap();
+        (squash(&sql), values)
+    }
+
+    const TIES: &str =
+        r#"title COLLATE natural_sort ASC NULLS LAST, total_plays DESC, song_id COLLATE "C""#;
+
+    /// Left unarranged, the user's own songs come first, then the most relevant.
     #[test]
-    fn relevance_ranks_by_score_then_the_users_own_then_plays() {
+    fn unsorted_puts_the_users_own_first_then_relevance_then_plays() {
         assert_eq!(
-            order_by(None),
-            r#"score DESC, certain DESC, total_plays DESC, song_id COLLATE "C""#
+            order_by(&ArrangeContext::default(), Unsorted::Relevance),
+            r#"certain DESC, score DESC, total_plays DESC, song_id COLLATE "C""#
+        );
+        assert_eq!(
+            order_by(&ArrangeContext::default(), Unsorted::Position),
+            r#"position, song_id COLLATE "C""#
         );
     }
 
     #[test]
-    fn a_sort_reads_its_metadata_column_and_falls_back_to_title() {
-        let sort = |key, direction| order_by(Some(QuerySort { key, direction }));
+    fn each_kind_of_value_sorts_its_own_way() {
+        let order = |field, ascending| {
+            order_by(
+                &arranged(Some(sort(field, ascending)), None),
+                Unsorted::Relevance,
+            )
+        };
+        let tag = |tag_id| ArrangeField::Tag { tag_id };
 
+        // text in the natural collation, then ties
         assert_eq!(
-            sort(QuerySortKey::Title, SortDirection::Ascending),
-            r#"title COLLATE natural_sort ASC NULLS LAST, total_plays DESC, song_id COLLATE "C""#
+            order(
+                ArrangeField::Metadata {
+                    key: MetadataKey::Artist
+                },
+                true
+            ),
+            format!("sort_state ASC, sort_value COLLATE natural_sort ASC NULLS LAST, {TIES}")
+        );
+        // numbers and dates as they are
+        assert_eq!(
+            order(tag(4), false),
+            format!("sort_state ASC, sort_value DESC NULLS LAST, {TIES}")
+        );
+        // a checkbox ascending is true first
+        assert_eq!(
+            order(tag(5), true),
+            format!("sort_state ASC, sort_value DESC NULLS LAST, {TIES}")
         );
         assert_eq!(
-            sort(QuerySortKey::Artist, SortDirection::Descending),
-            r#"artist COLLATE natural_sort DESC NULLS LAST, title COLLATE natural_sort DESC NULLS LAST, total_plays DESC, song_id COLLATE "C""#
+            order(tag(5), false),
+            format!("sort_state ASC, sort_value ASC NULLS LAST, {TIES}")
         );
-        assert_eq!(
-            sort(QuerySortKey::Album, SortDirection::Ascending),
-            r#"album COLLATE natural_sort ASC NULLS LAST, title COLLATE natural_sort ASC NULLS LAST, total_plays DESC, song_id COLLATE "C""#
-        );
+        // a basic tag is only applied or not, whichever way it runs
+        assert_eq!(order(tag(1), true), format!("sort_state ASC, {TIES}"));
+        assert_eq!(order(tag(1), false), format!("sort_state ASC, {TIES}"));
+        assert_eq!(order(tag(10), false), format!("sort_state ASC, {TIES}"));
     }
 
     #[test]
-    fn sorts_parse_from_json() {
-        let sort: QuerySort =
-            serde_json::from_str(r#"{ "key": "album", "direction": "descending" }"#).unwrap();
+    fn a_group_orders_before_the_sort() {
+        let arrange = arranged(
+            Some(sort(
+                ArrangeField::Metadata {
+                    key: MetadataKey::Title,
+                },
+                true,
+            )),
+            Some(group(ArrangeField::Metadata {
+                key: MetadataKey::Artist,
+            })),
+        );
         assert_eq!(
-            sort,
-            QuerySort {
-                key: QuerySortKey::Album,
-                direction: SortDirection::Descending
-            }
+            order_by(&arrange, Unsorted::Relevance),
+            format!(
+                "group_state ASC, group_value COLLATE natural_sort ASC NULLS LAST, sort_state ASC, sort_value COLLATE natural_sort ASC NULLS LAST, {TIES}"
+            )
+        );
+        // grouped but unsorted keeps the list's own order inside each group
+        let arrange = arranged(None, Some(group(ArrangeField::Tag { tag_id: 1 })));
+        assert_eq!(
+            order_by(&arrange, Unsorted::Position),
+            r#"group_state ASC, position, song_id COLLATE "C""#
+        );
+    }
+
+    /// The user's own tag is a row of theirs, and the state tells a value from an empty one
+    /// from none at all.
+    #[test]
+    fn a_tag_sort_reads_the_users_row() {
+        let (sql, values) = compile_arranged(&arranged(
+            Some(sort(ArrangeField::Tag { tag_id: 4 }, true)),
+            None,
+        ));
+        assert!(
+            sql.contains("LEFT JOIN user_tags_applied AS sort_tag ON sort_tag.song_id=query_songs.song_id AND sort_tag.user_id=$1 AND sort_tag.tag_id=$2"),
+            "{sql}"
         );
         assert!(
+            sql.contains("(CASE WHEN NOT (sort_tag.song_id IS NOT NULL) THEN 2 WHEN sort_tag.value IS NULL THEN 1 ELSE 0 END) AS sort_state"),
+            "{sql}"
+        );
+        assert!(
+            sql.contains("(sort_tag.value)::double precision AS sort_value"),
+            "{sql}"
+        );
+        // a song from outside the user's own has none of their rows, so nothing is joined
+        assert_eq!(
+            sql.matches("LEFT JOIN user_tags_applied").count(),
+            1,
+            "{sql}"
+        );
+        assert!(sql.contains("2 AS sort_state"), "{sql}");
+        assert_eq!(values.len(), 2);
+    }
+
+    /// My Plays reads 0 and Favorited false with no row, so neither is ever empty.
+    #[test]
+    fn activity_tags_with_a_default_always_have_a_value() {
+        let (sql, _) = compile_arranged(&arranged(
+            Some(sort(ArrangeField::Tag { tag_id: 8 }, false)),
+            None,
+        ));
+        assert!(
+            sql.contains("0 AS sort_state, COALESCE((sort_tag.value)::double precision, 0.0::double precision) AS sort_value"),
+            "{sql}"
+        );
+        let (sql, _) = compile_arranged(&arranged(
+            Some(sort(ArrangeField::Tag { tag_id: 9 }, true)),
+            None,
+        ));
+        assert!(
+            sql.contains(
+                "0 AS sort_state, COALESCE(((sort_tag.value) = 'true'), FALSE) AS sort_value"
+            ),
+            "{sql}"
+        );
+    }
+
+    #[test]
+    fn derived_and_suggested_tags_read_their_own_tables() {
+        let (sql, _) = compile_arranged(&arranged(
+            Some(sort(ArrangeField::Tag { tag_id: 7 }, true)),
+            None,
+        ));
+        assert!(sql.contains("FROM user_songs AS arrange_library"), "{sql}");
+        // nobody else's song is in the user's library
+        assert!(
+            sql.contains("0 AS sort_state, FALSE AS sort_value"),
+            "{sql}"
+        );
+
+        let (sql, _) = compile_arranged(&arranged(
+            Some(sort(ArrangeField::Tag { tag_id: 10 }, true)),
+            None,
+        ));
+        assert!(
+            sql.contains("LEFT JOIN default_tags_applied AS sort_tag ON sort_tag.song_id=query_songs.song_id AND sort_tag.tag_id=$2 AND NOT EXISTS ( SELECT 1 FROM default_tags_removed AS sort_tag_removed WHERE sort_tag_removed.user_id=$1"),
+            "{sql}"
+        );
+        // suggested tags are on other people's songs too, so both halves look
+        assert_eq!(
+            sql.matches("LEFT JOIN default_tags_applied").count(),
+            2,
+            "{sql}"
+        );
+        assert!(
+            sql.contains(
+                "(CASE WHEN sort_tag.song_id IS NOT NULL THEN 0 ELSE 2 END) AS sort_state"
+            ),
+            "{sql}"
+        );
+    }
+
+    #[test]
+    fn metadata_tags_read_the_stored_row() {
+        let (sql, _) = compile_arranged(&arranged(
+            Some(sort(
+                ArrangeField::Metadata {
+                    key: MetadataKey::Explicit,
+                },
+                true,
+            )),
+            Some(group(ArrangeField::Metadata {
+                key: MetadataKey::Genre,
+            })),
+        ));
+        assert!(
+            sql.contains("NULLIF(array_to_string(stored.genre_names, ', '), '') AS genre"),
+            "{sql}"
+        );
+        assert!(
+            sql.contains("(CASE query_songs.content_rating WHEN 'explicit' THEN TRUE WHEN 'clean' THEN FALSE END) AS sort_value"),
+            "{sql}"
+        );
+        // genre groups by its whole text, ignoring case, and is named as stored
+        assert!(
+            sql.contains("lower(query_songs.genre) AS group_value"),
+            "{sql}"
+        );
+        assert!(
+            sql.contains("lower(query_songs.genre) AS group_key"),
+            "{sql}"
+        );
+        assert!(
+            sql.contains("(query_songs.genre)::text AS group_label"),
+            "{sql}"
+        );
+    }
+
+    /// A datetime groups by its day in the user's time zone, which is bound only then.
+    #[test]
+    fn a_datetime_groups_by_its_day_in_the_users_zone() {
+        let (sql, values) = compile_arranged(&arranged(
+            None,
+            Some(group(ArrangeField::Tag { tag_id: 3 })),
+        ));
+        assert!(
+            sql.contains("(((group_tag.value)::timestamptz) AT TIME ZONE $3)::date AS group_value"),
+            "{sql}"
+        );
+        assert!(
+            sql.contains("to_char((((group_tag.value)::timestamptz) AT TIME ZONE $3)::date, 'YYYY-MM-DD') AS group_key"),
+            "{sql}"
+        );
+        assert_eq!(values.len(), 3);
+        assert_eq!(
+            values[2],
+            sea_query::Value::String(Some("America/Denver".to_string()))
+        );
+
+        let (_, values) = compile_arranged(&arranged(
+            None,
+            Some(group(ArrangeField::Tag { tag_id: 4 })),
+        ));
+        assert_eq!(values.len(), 2, "no time zone for a number");
+    }
+
+    /// Sorted or grouped, both halves stop at the cap, and so does the whole list.
+    #[test]
+    fn an_arranged_query_caps_the_whole_list() {
+        let (sql, _) = compile_arranged(&arranged(
+            Some(sort(
+                ArrangeField::Metadata {
+                    key: MetadataKey::Title,
+                },
+                true,
+            )),
+            None,
+        ));
+        assert_eq!(
+            sql.matches(&format!("LIMIT {}", MAX_ARRANGED_SONGS + 1))
+                .count(),
+            3,
+            "{sql}"
+        );
+        assert!(
+            sql.ends_with(&format!("LIMIT {}", MAX_ARRANGED_SONGS + 1)),
+            "{sql}"
+        );
+    }
+
+    #[test]
+    fn a_list_of_ids_keeps_its_order_and_is_never_capped() {
+        let ids = vec!["b".to_string(), "a".to_string()];
+        let (sql, values) =
+            compile_song_ids(&ids, Uuid::nil(), &ArrangeContext::default()).unwrap();
+        let sql = squash(&sql);
+        assert!(
+            sql.contains("FROM json_array_elements_text($2::json) WITH ORDINALITY AS given(song_id, position)"),
+            "{sql}"
+        );
+        assert!(
+            sql.ends_with(r#"ORDER BY position, song_id COLLATE "C""#),
+            "{sql}"
+        );
+        assert!(!sql.contains("LIMIT"), "{sql}");
+        assert_eq!(
+            values[1],
+            sea_query::Value::String(Some(r#"["b","a"]"#.to_string()))
+        );
+    }
+
+    #[test]
+    fn repeated_and_blank_ids_are_dropped() {
+        let ids: Vec<String> = ["a", "", "b", "a"].map(String::from).to_vec();
+        assert_eq!(unique_song_ids(&ids).unwrap(), ["a", "b"]);
+        let too_many = vec!["a".to_string(); MAX_ARRANGED_SONG_IDS + 1];
+        assert!(unique_song_ids(&too_many).is_err());
+    }
+
+    #[test]
+    fn sorts_and_groups_parse_from_json() {
+        let parsed: QuerySort = serde_json::from_str(
+            r#"{ "field": "metadata", "key": "album", "direction": "descending" }"#,
+        )
+        .unwrap();
+        assert_eq!(
+            parsed,
+            sort(
+                ArrangeField::Metadata {
+                    key: MetadataKey::Album
+                },
+                false
+            )
+        );
+        let parsed: QueryGroup =
+            serde_json::from_str(r#"{ "field": "tag", "tag_id": 4, "direction": "ascending" }"#)
+                .unwrap();
+        assert_eq!(parsed, group(ArrangeField::Tag { tag_id: 4 }));
+        assert!(
             serde_json::from_str::<QuerySort>(
-                r#"{ "key": "date_added", "direction": "ascending" }"#
+                r#"{ "field": "metadata", "key": "date_added", "direction": "ascending" }"#
             )
             .is_err()
         );
         assert!(serde_json::from_str::<QuerySort>(r#"{ "key": "title" }"#).is_err());
+    }
+
+    fn row(song_id: &str, certain: bool) -> ArrangedRow {
+        ArrangedRow {
+            song_id: song_id.to_string(),
+            certain,
+            has_metadata: true,
+            group_state: 0,
+            group_key: None,
+            group_label: None,
+        }
     }
 
     fn song(song_id: &str, certain: bool) -> QueryMatch {
@@ -1941,31 +3255,95 @@ mod tests {
 
     #[test]
     fn a_full_list_is_not_capped() {
-        let songs: Vec<QueryMatch> = (0..MAX_DISCOVERED_SONGS)
-            .map(|index| song(&index.to_string(), false))
-            .chain([song("mine", true)])
+        let rows: Vec<ArrangedRow> = (0..MAX_DISCOVERED_SONGS)
+            .map(|index| row(&index.to_string(), false))
+            .chain([row("mine", true)])
             .collect();
-        let matches = cap_discovered(songs);
+        let matches = finish(rows, CapRule::Discovered, false);
         assert!(!matches.capped);
         assert_eq!(matches.songs.len(), MAX_DISCOVERED_SONGS + 1);
+        assert_eq!(matches.groups, None);
     }
 
     #[test]
     fn the_song_past_the_cap_is_dropped_and_the_users_own_are_kept() {
         // the extra discovered song sorts in between two of the user's own
-        let mut songs: Vec<QueryMatch> = (0..MAX_DISCOVERED_SONGS)
-            .map(|index| song(&format!("d{index}"), false))
+        let mut rows: Vec<ArrangedRow> = (0..MAX_DISCOVERED_SONGS)
+            .map(|index| row(&format!("d{index}"), false))
             .collect();
-        songs.push(song("mine-1", true));
-        songs.push(song("extra", false));
-        songs.push(song("mine-2", true));
+        rows.push(row("mine-1", true));
+        rows.push(row("extra", false));
+        rows.push(row("mine-2", true));
 
-        let matches = cap_discovered(songs);
+        let matches = finish(rows, CapRule::Discovered, false);
         assert!(matches.capped);
         assert_eq!(matches.songs.len(), MAX_DISCOVERED_SONGS + 2);
         assert!(!matches.songs.iter().any(|song| song.song_id == "extra"));
         assert_eq!(matches.songs[MAX_DISCOVERED_SONGS].song_id, "mine-1");
         assert_eq!(matches.songs[MAX_DISCOVERED_SONGS + 1].song_id, "mine-2");
+    }
+
+    #[test]
+    fn an_arranged_list_keeps_only_the_first_songs_whoevers_they_are() {
+        let rows: Vec<ArrangedRow> = (0..=MAX_ARRANGED_SONGS)
+            .map(|index| row(&format!("s{index}"), index % 2 == 0))
+            .collect();
+        let matches = finish(rows, CapRule::Total, false);
+        assert!(matches.capped);
+        assert_eq!(matches.songs.len(), MAX_ARRANGED_SONGS);
+        assert_eq!(
+            matches.songs.last().unwrap().song_id,
+            format!("s{}", MAX_ARRANGED_SONGS - 1)
+        );
+    }
+
+    #[test]
+    fn groups_are_runs_named_by_their_first_song() {
+        let grouped = |song_id: &str, state, key: Option<&str>, label: Option<&str>| ArrangedRow {
+            group_state: state,
+            group_key: key.map(String::from),
+            group_label: label.map(String::from),
+            has_metadata: song_id != "c",
+            ..row(song_id, true)
+        };
+        let matches = finish(
+            vec![
+                grouped("a", 0, Some("prince"), Some("Prince")),
+                grouped("b", 0, Some("prince"), Some("PRINCE")),
+                grouped("c", 0, Some("queen"), Some("Queen")),
+                grouped("d", 1, None, None),
+                grouped("e", 2, None, None),
+                grouped("f", 2, None, None),
+            ],
+            CapRule::None,
+            true,
+        );
+        assert_eq!(
+            matches.groups.unwrap(),
+            vec![
+                MatchGroup {
+                    state: GroupState::Value,
+                    value: Some("Prince".into()),
+                    count: 2
+                },
+                MatchGroup {
+                    state: GroupState::Value,
+                    value: Some("Queen".into()),
+                    count: 1
+                },
+                MatchGroup {
+                    state: GroupState::NoValue,
+                    value: None,
+                    count: 1
+                },
+                MatchGroup {
+                    state: GroupState::NotApplied,
+                    value: None,
+                    count: 2
+                },
+            ]
+        );
+        assert_eq!(matches.missing_metadata, ["c"]);
     }
 
     // ----- metadata filters -----
@@ -2089,6 +3467,45 @@ mod tests {
     }
 
     #[test]
+    fn hide_explicit_keeps_explicit_songs_out_of_every_half() {
+        let json = filter(r#"{ "field": "tag", "tag_id": 1, "op": "is_not_applied" }"#);
+        let compile_hiding = |hide_explicit| {
+            squash(
+                &compile_query(
+                    &parse(&json),
+                    &tag_types(),
+                    &TagDefaults::default(),
+                    Uuid::nil(),
+                    QueryOptions {
+                        hide_explicit,
+                        ..QueryOptions::default()
+                    },
+                    &ArrangeContext::default(),
+                )
+                .unwrap()
+                .0,
+            )
+        };
+
+        let hidden = compile_hiding(true);
+        // once in the user's own half and once in the discovered half
+        assert_eq!(
+            hidden
+                .matches("AND meta.content_rating = 'explicit' )")
+                .count(),
+            2,
+            "{hidden}"
+        );
+        // the rating is still selected, for a sort by Explicit, but nothing filters on it
+        assert_eq!(
+            compile_hiding(false)
+                .matches("AND meta.content_rating = 'explicit' )")
+                .count(),
+            0
+        );
+    }
+
+    #[test]
     fn explicit_is_a_yes_or_no() {
         let sql = squash(
             &compile(&metadata_filter("explicit", "is_true", None))
@@ -2108,40 +3525,6 @@ mod tests {
                 .0,
         );
         assert!(sql.contains("NOT EXISTS"), "{sql}");
-    }
-
-    #[test]
-    fn hide_explicit_keeps_explicit_songs_out_of_every_half() {
-        let json = filter(r#"{ "field": "tag", "tag_id": 1, "op": "is_not_applied" }"#);
-        let compile_hiding = |hide_explicit| {
-            squash(
-                &compile_query(
-                    &parse(&json),
-                    &tag_types(),
-                    &TagDefaults::default(),
-                    Uuid::nil(),
-                    QueryOptions {
-                        consider_default_tags: false,
-                        library_only: false,
-                        hide_explicit,
-                        sort: None,
-                    },
-                )
-                .unwrap()
-                .0,
-            )
-        };
-
-        let hidden = compile_hiding(true);
-        // once in the user's own half and once in the discovered half
-        assert_eq!(
-            hidden
-                .matches("AND meta.content_rating = 'explicit' )")
-                .count(),
-            2,
-            "{hidden}"
-        );
-        assert!(!compile_hiding(false).contains("content_rating"));
     }
 
     #[test]
@@ -2287,6 +3670,30 @@ mod tests {
         tag_types: &HashMap<i64, TagType>,
         sort: Option<QuerySort>,
     ) -> Vec<QueryMatch> {
+        run_arranged_query(
+            txn,
+            user_id,
+            json,
+            tag_types,
+            Arrangement {
+                sort,
+                ..Arrangement::default()
+            },
+        )
+        .await
+        .songs
+    }
+
+    /// Runs a compiled query the way `run_query` does, cap included, and keeps only the
+    /// `test-q-` songs. Groups are only read when there are no other songs in the way.
+    async fn run_arranged_query(
+        txn: &DatabaseTransaction,
+        user_id: Uuid,
+        json: &str,
+        tag_types: &HashMap<i64, TagType>,
+        arrangement: Arrangement,
+    ) -> QueryMatches {
+        let arrange = arrange_context(txn, user_id, &arrangement).await.unwrap();
         let (sql, values) = compile_query(
             &parse(json),
             tag_types,
@@ -2294,23 +3701,28 @@ mod tests {
             user_id,
             QueryOptions {
                 consider_default_tags: false,
-                library_only: false,
+                songs: QuerySongs::Everything,
                 hide_explicit: false,
-                sort,
             },
+            &arrange,
         )
         .unwrap();
-        QueryMatch::find_by_statement(Statement::from_sql_and_values(
-            DbBackend::Postgres,
-            sql,
-            values,
-        ))
+        let rows: Vec<ArrangedRow> = ArrangedRow::find_by_statement(
+            Statement::from_sql_and_values(DbBackend::Postgres, sql, values),
+        )
         .all(txn)
         .await
-        .unwrap()
-        .into_iter()
-        .filter(|song| song.song_id.starts_with("test-q-"))
-        .collect()
+        .unwrap();
+        let rule = if arrangement.is_none() {
+            CapRule::Discovered
+        } else {
+            CapRule::Total
+        };
+        let mut matches = finish(rows, rule, arrangement.group.is_some());
+        matches
+            .songs
+            .retain(|song| song.song_id.starts_with("test-q-"));
+        matches
     }
 
     async fn run_metadata_query(
@@ -2541,15 +3953,15 @@ mod tests {
                 user_id,
                 QueryOptions {
                     consider_default_tags: false,
-                    library_only: true,
+                    songs: QuerySongs::Library,
                     hide_explicit: false,
-                    sort: None,
                 },
+                &ArrangeContext::default(),
             )
             .unwrap();
             let txn = &txn;
             async move {
-                let rows = QueryMatch::find_by_statement(Statement::from_sql_and_values(
+                let rows = ArrangedRow::find_by_statement(Statement::from_sql_and_values(
                     DbBackend::Postgres,
                     sql,
                     values,
@@ -2571,6 +3983,99 @@ mod tests {
         };
 
         assert_eq!(run("is_applied").await, vec!["test-q-p1"]);
+        assert_eq!(
+            run("is_not_applied").await,
+            vec!["test-q-n1", "test-q-p2", "test-q-x1"]
+        );
+    }
+
+    /// Limited to the library or tagged songs, a song carrying the user's own tag outside the
+    /// library matches too. A song outside it with only an activity tag row (a play) and a
+    /// stored song from elsewhere both drop out.
+    #[tokio::test]
+    #[ignore]
+    async fn a_library_or_tagged_query_matches_library_and_tagged_songs() {
+        let (txn, user_id) = metadata_library().await;
+        store_discovered(&txn, &[("d1", "Elsewhere", "Someone", 1_000_000_000_000)]).await;
+        let tag_id: i64 = txn
+            .query_one_raw(Statement::from_sql_and_values(
+                DbBackend::Postgres,
+                "INSERT INTO tags (name, color, user_id) VALUES ('test-q-pop', '#000000', $1) RETURNING tag_id",
+                [user_id.into()],
+            ))
+            .await
+            .unwrap()
+            .unwrap()
+            .try_get_by_index(0)
+            .unwrap();
+        let plays_id: i64 = txn
+            .query_one_raw(Statement::from_string(
+                DbBackend::Postgres,
+                "SELECT tag_id FROM tags WHERE is_activity AND name = 'My Plays'",
+            ))
+            .await
+            .unwrap()
+            .expect("the My Plays activity tag")
+            .try_get_by_index(0)
+            .unwrap();
+        store_discovered(
+            &txn,
+            &[
+                ("t1", "Tagged", "Someone", 0),
+                ("a1", "Played", "Someone", 0),
+            ],
+        )
+        .await;
+        txn.execute_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            "INSERT INTO user_tags_applied (song_id, user_id, tag_id, value) VALUES
+                ('test-q-p1', $1, $2, NULL), ('test-q-t1', $1, $2, NULL), ('test-q-a1', $1, $3, '3')",
+            [user_id.into(), tag_id.into(), plays_id.into()],
+        ))
+        .await
+        .unwrap();
+        let types = HashMap::from([(tag_id, TagType::Basic)]);
+        let run = |op: &'static str| {
+            let json = format!(
+                r#"{{ "where": {{ "filter": {{ "field": "tag", "tag_id": {tag_id}, "op": "{op}" }} }} }}"#
+            );
+            let (sql, values) = compile_query(
+                &parse(&json),
+                &types,
+                &TagDefaults::default(),
+                user_id,
+                QueryOptions {
+                    consider_default_tags: false,
+                    songs: QuerySongs::LibraryOrTagged,
+                    hide_explicit: false,
+                },
+                &ArrangeContext::default(),
+            )
+            .unwrap();
+            let txn = &txn;
+            async move {
+                let rows = ArrangedRow::find_by_statement(Statement::from_sql_and_values(
+                    DbBackend::Postgres,
+                    sql,
+                    values,
+                ))
+                .all(txn)
+                .await
+                .unwrap();
+                let mut ids: Vec<String> = rows
+                    .into_iter()
+                    .filter(|song| song.song_id.starts_with("test-q-"))
+                    .map(|song| {
+                        assert!(song.certain, "{}", song.song_id);
+                        song.song_id
+                    })
+                    .collect();
+                ids.sort();
+                ids
+            }
+        };
+
+        assert_eq!(run("is_applied").await, vec!["test-q-p1", "test-q-t1"]);
         assert_eq!(
             run("is_not_applied").await,
             vec!["test-q-n1", "test-q-p2", "test-q-x1"]
@@ -2652,15 +4157,15 @@ mod tests {
                 user_id,
                 QueryOptions {
                     consider_default_tags: false,
-                    library_only: false,
+                    songs: QuerySongs::Everything,
                     hide_explicit: false,
-                    sort: None,
                 },
+                &ArrangeContext::default(),
             )
             .unwrap();
             let txn = &txn;
             async move {
-                let mut ids: Vec<String> = QueryMatch::find_by_statement(
+                let mut ids: Vec<String> = ArrangedRow::find_by_statement(
                     Statement::from_sql_and_values(DbBackend::Postgres, sql, values),
                 )
                 .all(txn)
@@ -2746,14 +4251,19 @@ mod tests {
         ))
         .await
         .unwrap();
-        let sort = |key, direction| Some(QuerySort { key, direction });
+        let sort = |key, direction| {
+            Some(QuerySort {
+                field: ArrangeField::Metadata { key },
+                direction,
+            })
+        };
 
         let songs = run_test_query(
             &txn,
             user_id,
             ZZ_TITLES,
             &tag_types(),
-            sort(QuerySortKey::Title, SortDirection::Ascending),
+            sort(MetadataKey::Title, SortDirection::Ascending),
         )
         .await;
         assert_eq!(ids(&songs), vec!["p1", "p2", "d-empty-artist", "d9", "d10"]);
@@ -2768,7 +4278,7 @@ mod tests {
             user_id,
             ZZ_TITLES,
             &tag_types(),
-            sort(QuerySortKey::Artist, SortDirection::Ascending),
+            sort(MetadataKey::Artist, SortDirection::Ascending),
         )
         .await;
         assert_eq!(ids(&songs), vec!["d9", "d10", "p2", "p1", "d-empty-artist"]);
@@ -2777,7 +4287,7 @@ mod tests {
             user_id,
             ZZ_TITLES,
             &tag_types(),
-            sort(QuerySortKey::Artist, SortDirection::Descending),
+            sort(MetadataKey::Artist, SortDirection::Descending),
         )
         .await;
         assert_eq!(ids(&songs), vec!["p1", "p2", "d10", "d9", "d-empty-artist"]);
@@ -2789,18 +4299,18 @@ mod tests {
             user_id,
             every,
             &tag_types(),
-            sort(QuerySortKey::Title, SortDirection::Descending),
+            sort(MetadataKey::Title, SortDirection::Descending),
         )
         .await;
         let titled_last = ids(&songs);
         assert_eq!(&titled_last[titled_last.len() - 2..], ["n1", "x1"]);
     }
 
-    /// The cap keeps the first discovered songs in the chosen order and every one of the
-    /// user's own, however far down the order they are.
+    /// Sorted, the cap keeps the first songs in the chosen order, whoever's they are: the
+    /// user's own sorting after the cap are left out too.
     #[tokio::test]
     #[ignore]
-    async fn the_cap_keeps_the_first_discovered_songs_and_all_of_the_users_own() {
+    async fn a_sorted_cap_keeps_the_first_songs_whoever_s_they_are() {
         let (txn, user_id) = metadata_library().await;
         // more discovered songs than the cap, each sorting before the library songs
         txn.execute_raw(Statement::from_sql_and_values(
@@ -2810,7 +4320,7 @@ mod tests {
             SELECT 'test-q-d' || lpad(n::text, 5, '0'), true, 'zz test-q a ' || lpad(n::text, 5, '0'), 0
             FROM generate_series(1, $1) AS n
             "#,
-            [((MAX_DISCOVERED_SONGS + 5) as i64).into()],
+            [((MAX_ARRANGED_SONGS + 5) as i64).into()],
         ))
         .await
         .unwrap();
@@ -2821,41 +4331,528 @@ mod tests {
         .await
         .unwrap();
 
-        let (sql, values) = compile_query(
-            &parse(ZZ_TITLES),
-            &tag_types(),
-            &TagDefaults::default(),
-            user_id,
-            QueryOptions {
-                sort: Some(QuerySort {
-                    key: QuerySortKey::Title,
-                    direction: SortDirection::Ascending,
-                }),
-                ..Default::default()
+        let title = |direction| QuerySort {
+            field: ArrangeField::Metadata {
+                key: MetadataKey::Title,
             },
+            direction,
+        };
+        let sorted = |direction| Arrangement {
+            sort: Some(title(direction)),
+            ..Arrangement::default()
+        };
+        let matches = run_arranged_query(
+            &txn,
+            user_id,
+            ZZ_TITLES,
+            &tag_types(),
+            sorted(SortDirection::Ascending),
         )
-        .unwrap();
-        let rows = QueryMatch::find_by_statement(Statement::from_sql_and_values(
-            DbBackend::Postgres,
-            sql,
-            values,
-        ))
-        .all(&txn)
-        .await
-        .unwrap();
-        let matches = cap_discovered(rows);
-
+        .await;
         assert!(matches.capped);
-        assert_eq!(matches.songs.len(), MAX_DISCOVERED_SONGS + 2);
+        assert_eq!(matches.songs.len(), MAX_ARRANGED_SONGS);
         assert_eq!(matches.songs[0].song_id, "test-q-d00001");
         assert_eq!(
-            matches.songs[MAX_DISCOVERED_SONGS - 1].song_id,
-            format!("test-q-d{:05}", MAX_DISCOVERED_SONGS)
+            matches.songs[MAX_ARRANGED_SONGS - 1].song_id,
+            format!("test-q-d{:05}", MAX_ARRANGED_SONGS)
         );
-        let last_two: Vec<&str> = matches.songs[MAX_DISCOVERED_SONGS..]
-            .iter()
-            .map(|song| song.song_id.as_str())
+        assert!(!matches.songs.iter().any(|song| song.certain));
+
+        // the other way the user's own come first, and are the first in order
+        let matches = run_arranged_query(
+            &txn,
+            user_id,
+            ZZ_TITLES,
+            &tag_types(),
+            sorted(SortDirection::Descending),
+        )
+        .await;
+        assert!(matches.capped);
+        assert_eq!(ids(&matches.songs[..2]), ["p2", "p1"]);
+
+        // unsorted, every one of the user's own comes first, and the rest are capped
+        let matches = run_arranged_query(
+            &txn,
+            user_id,
+            ZZ_TITLES,
+            &tag_types(),
+            Arrangement::default(),
+        )
+        .await;
+        assert!(matches.capped);
+        assert_eq!(matches.songs.len(), MAX_DISCOVERED_SONGS + 2);
+        assert_eq!(ids(&matches.songs[..2]), ["p1", "p2"]);
+    }
+
+    /// Inserts a tag of the user's with `type` and returns its id.
+    async fn insert_tag(
+        txn: &DatabaseTransaction,
+        user_id: Uuid,
+        name: &str,
+        tag_type: &str,
+    ) -> i64 {
+        txn.query_one_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            "INSERT INTO tags (name, color, user_id, type) VALUES ($1, '#000000', $2, $3::tag_type) RETURNING tag_id",
+            [name.into(), user_id.into(), tag_type.into()],
+        ))
+        .await
+        .unwrap()
+        .unwrap()
+        .try_get_by_index(0)
+        .unwrap()
+    }
+
+    async fn apply(
+        txn: &DatabaseTransaction,
+        user_id: Uuid,
+        tag_id: i64,
+        song: &str,
+        value: Option<&str>,
+    ) {
+        txn.execute_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            "INSERT INTO user_tags_applied (song_id, user_id, tag_id, value) VALUES ($1, $2, $3, $4)",
+            [
+                format!("test-q-{song}").into(),
+                user_id.into(),
+                tag_id.into(),
+                value.map(String::from).into(),
+            ],
+        ))
+        .await
+        .unwrap();
+    }
+
+    const EVERY: &str = r#"{ "where": { "and": [] } }"#;
+
+    fn by_tag(tag_id: i64, direction: SortDirection) -> Arrangement {
+        Arrangement {
+            sort: Some(QuerySort {
+                field: ArrangeField::Tag { tag_id },
+                direction,
+            }),
+            ..Arrangement::default()
+        }
+    }
+
+    /// A tag sort: values in order, then songs with the tag but no value, then songs
+    /// without it, the last two in the same place whichever way the sort runs.
+    #[tokio::test]
+    #[ignore]
+    async fn a_tag_sort_puts_empty_then_untagged_songs_last() {
+        let (txn, user_id) = metadata_library().await;
+        let rating = insert_tag(&txn, user_id, "test-q-rating", "number").await;
+        apply(&txn, user_id, rating, "p1", Some("10")).await;
+        apply(&txn, user_id, rating, "p2", Some("2.5")).await;
+        apply(&txn, user_id, rating, "n1", None).await;
+
+        let run = |direction| {
+            let txn = &txn;
+            async move {
+                ids(&run_arranged_query(
+                    txn,
+                    user_id,
+                    EVERY,
+                    &tag_types(),
+                    by_tag(rating, direction),
+                )
+                .await
+                .songs)
+                .into_iter()
+                .map(String::from)
+                .collect::<Vec<_>>()
+            }
+        };
+        assert_eq!(
+            run(SortDirection::Ascending).await,
+            ["p2", "p1", "n1", "x1"]
+        );
+        assert_eq!(
+            run(SortDirection::Descending).await,
+            ["p1", "p2", "n1", "x1"]
+        );
+    }
+
+    /// Checkboxes: true, then false, then applied with no value, then not applied.
+    #[tokio::test]
+    #[ignore]
+    async fn a_checkbox_sorts_true_false_then_empty() {
+        let (txn, user_id) = metadata_library().await;
+        let liked = insert_tag(&txn, user_id, "test-q-liked", "checkbox").await;
+        apply(&txn, user_id, liked, "p1", Some("false")).await;
+        apply(&txn, user_id, liked, "p2", Some("true")).await;
+        apply(&txn, user_id, liked, "x1", None).await;
+
+        let songs = run_arranged_query(
+            &txn,
+            user_id,
+            EVERY,
+            &tag_types(),
+            by_tag(liked, SortDirection::Ascending),
+        )
+        .await
+        .songs;
+        assert_eq!(ids(&songs), ["p2", "p1", "x1", "n1"]);
+        let songs = run_arranged_query(
+            &txn,
+            user_id,
+            EVERY,
+            &tag_types(),
+            by_tag(liked, SortDirection::Descending),
+        )
+        .await
+        .songs;
+        assert_eq!(ids(&songs), ["p1", "p2", "x1", "n1"]);
+    }
+
+    /// A basic tag sorts its songs first, either way.
+    #[tokio::test]
+    #[ignore]
+    async fn a_basic_tag_sorts_its_songs_first() {
+        let (txn, user_id) = metadata_library().await;
+        let gym = insert_tag(&txn, user_id, "test-q-gym", "basic").await;
+        apply(&txn, user_id, gym, "x1", None).await;
+        apply(&txn, user_id, gym, "p2", None).await;
+
+        for direction in [SortDirection::Ascending, SortDirection::Descending] {
+            let songs =
+                run_arranged_query(&txn, user_id, EVERY, &tag_types(), by_tag(gym, direction))
+                    .await
+                    .songs;
+            // tagged first, each half by title, songs without a title last
+            assert_eq!(ids(&songs), ["p2", "x1", "p1", "n1"]);
+        }
+    }
+
+    /// Grouping by artist: one group per artist ignoring case, named as the first song has
+    /// it, sorted inside by title, and the songs with no artist last.
+    #[tokio::test]
+    #[ignore]
+    async fn grouping_by_artist_makes_one_group_per_artist() {
+        let (txn, user_id) = metadata_library().await;
+        txn.execute_raw(Statement::from_string(
+            DbBackend::Postgres,
+            "INSERT INTO user_songs (song_id, user_id) SELECT 'test-q-p3', id FROM auth.users LIMIT 1",
+        ))
+        .await
+        .unwrap();
+        txn.execute_raw(Statement::from_string(
+            DbBackend::Postgres,
+            r#"
+            INSERT INTO metadata_song_tags_applied (song_id, found, name, artist_name)
+            VALUES ('test-q-p3', true, 'Kiss', 'PRINCE')
+            "#,
+        ))
+        .await
+        .unwrap();
+        // only one user's songs in the test database's way
+        let matches = run_arranged_query(
+            &txn,
+            user_id,
+            EVERY,
+            &tag_types(),
+            Arrangement {
+                sort: Some(QuerySort {
+                    field: ArrangeField::Metadata {
+                        key: MetadataKey::Title,
+                    },
+                    direction: SortDirection::Ascending,
+                }),
+                group: Some(QueryGroup {
+                    field: ArrangeField::Metadata {
+                        key: MetadataKey::Artist,
+                    },
+                    direction: SortDirection::Ascending,
+                }),
+                time_zone: None,
+            },
+        )
+        .await;
+        let mine: Vec<&str> = ids(&matches.songs);
+        assert_eq!(mine, ["p3", "p2", "p1", "n1", "x1"]);
+        let groups = matches.groups.unwrap();
+        let tail = &groups[groups.len() - 3..];
+        assert_eq!(
+            tail,
+            [
+                MatchGroup {
+                    state: GroupState::Value,
+                    value: Some("PRINCE".into()),
+                    count: 2
+                },
+                MatchGroup {
+                    state: GroupState::Value,
+                    value: Some("The Rolling Stones".into()),
+                    count: 1
+                },
+                MatchGroup {
+                    state: GroupState::NoValue,
+                    value: None,
+                    count: groups.last().unwrap().count
+                },
+            ]
+        );
+        assert!(matches.missing_metadata.contains(&"test-q-n1".to_string()));
+        assert!(matches.missing_metadata.contains(&"test-q-x1".to_string()));
+    }
+
+    /// Datetime groups are days in the user's zone: 01:30 UTC is the evening before in
+    /// Denver.
+    #[tokio::test]
+    #[ignore]
+    async fn datetime_groups_are_days_in_the_users_zone() {
+        let (txn, user_id) = metadata_library().await;
+        let seen = insert_tag(&txn, user_id, "test-q-seen", "datetime").await;
+        apply(&txn, user_id, seen, "p1", Some("2024-03-02T01:30:00+00:00")).await;
+        apply(&txn, user_id, seen, "p2", Some("2024-03-01T20:00:00+00:00")).await;
+        let arrangement = |time_zone: &str| Arrangement {
+            sort: None,
+            group: Some(QueryGroup {
+                field: ArrangeField::Tag { tag_id: seen },
+                direction: SortDirection::Ascending,
+            }),
+            time_zone: Some(time_zone.to_string()),
+        };
+
+        let groups = run_arranged_query(
+            &txn,
+            user_id,
+            EVERY,
+            &tag_types(),
+            arrangement("America/Denver"),
+        )
+        .await
+        .groups
+        .unwrap();
+        assert_eq!(groups[0].value.as_deref(), Some("2024-03-01"));
+        assert_eq!(groups[0].count, 2);
+
+        let groups = run_arranged_query(&txn, user_id, EVERY, &tag_types(), arrangement("UTC"))
+            .await
+            .groups
+            .unwrap();
+        assert_eq!(groups[0].value.as_deref(), Some("2024-03-01"));
+        assert_eq!(groups[0].count, 1);
+        assert_eq!(groups[1].value.as_deref(), Some("2024-03-02"));
+
+        assert!(matches!(
+            arrange_context(&txn, user_id, &arrangement("Mars/Olympus")).await,
+            Err(CadenzaError::QueryFormatError(_))
+        ));
+    }
+
+    /// A list of ids sorts like a query, keeps its order unsorted, and is never capped.
+    #[tokio::test]
+    #[ignore]
+    async fn a_list_of_ids_sorts_and_keeps_its_order() {
+        let (txn, user_id) = metadata_library().await;
+        let given: Vec<String> = ["x1", "p2", "p1", "p2"]
+            .map(|id| format!("test-q-{id}"))
+            .to_vec();
+        let run = |arrangement: Arrangement| {
+            let txn = &txn;
+            let given = given.clone();
+            async move {
+                let arrange = arrange_context(txn, user_id, &arrangement).await.unwrap();
+                let (sql, values) =
+                    compile_song_ids(&unique_song_ids(&given).unwrap(), user_id, &arrange).unwrap();
+                let rows = ArrangedRow::find_by_statement(Statement::from_sql_and_values(
+                    DbBackend::Postgres,
+                    sql,
+                    values,
+                ))
+                .all(txn)
+                .await
+                .unwrap();
+                finish(rows, CapRule::None, false)
+            }
+        };
+
+        assert_eq!(
+            ids(&run(Arrangement::default()).await.songs),
+            ["x1", "p2", "p1"]
+        );
+        let sorted = run(Arrangement {
+            sort: Some(QuerySort {
+                field: ArrangeField::Metadata {
+                    key: MetadataKey::Title,
+                },
+                direction: SortDirection::Ascending,
+            }),
+            ..Arrangement::default()
+        })
+        .await;
+        assert_eq!(ids(&sorted.songs), ["p1", "p2", "x1"]);
+        assert_eq!(sorted.missing_metadata, ["test-q-x1"]);
+    }
+
+    /// Suggested and activity tags sort like any other: a suggested tag the user removed is
+    /// not on the song for them, My Plays reads 0 with no row, and In My Library is true only
+    /// for library songs.
+    #[tokio::test]
+    #[ignore]
+    async fn suggested_and_activity_tags_sort_like_any_tag() {
+        let (txn, user_id) = metadata_library().await;
+        let suggested: i64 = txn
+            .query_one_raw(Statement::from_string(
+                DbBackend::Postgres,
+                "INSERT INTO tags (name, color, user_id) VALUES ('test-q-chill', '#000000', NULL) RETURNING tag_id",
+            ))
+            .await
+            .unwrap()
+            .unwrap()
+            .try_get_by_index(0)
+            .unwrap();
+        txn.execute_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            r#"
+            INSERT INTO default_tags_applied (song_id, tag_id)
+            VALUES ('test-q-x1', $1), ('test-q-p2', $1);
+            "#,
+            [suggested.into()],
+        ))
+        .await
+        .unwrap();
+        txn.execute_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            "INSERT INTO default_tags_removed (user_id, tag_id, song_id) VALUES ($1, $2, 'test-q-p2')",
+            [user_id.into(), suggested.into()],
+        ))
+        .await
+        .unwrap();
+        let songs = run_arranged_query(
+            &txn,
+            user_id,
+            EVERY,
+            &tag_types(),
+            by_tag(suggested, SortDirection::Ascending),
+        )
+        .await
+        .songs;
+        // x1 has it; p2's was removed by this user, so p2 sorts with the rest by title
+        assert_eq!(ids(&songs), ["x1", "p1", "p2", "n1"]);
+
+        let activity: HashMap<ActivityTag, i64> = crate::db::activity_tags::get_activity_tags(&txn)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|(tag, model)| (tag, model.tag_id))
             .collect();
-        assert_eq!(last_two, ["test-q-p1", "test-q-p2"]);
+        apply(
+            &txn,
+            user_id,
+            activity[&ActivityTag::MyPlays],
+            "p2",
+            Some("3"),
+        )
+        .await;
+        apply(
+            &txn,
+            user_id,
+            activity[&ActivityTag::MyPlays],
+            "n1",
+            Some("1"),
+        )
+        .await;
+        let songs = run_arranged_query(
+            &txn,
+            user_id,
+            EVERY,
+            &tag_types(),
+            by_tag(activity[&ActivityTag::MyPlays], SortDirection::Descending),
+        )
+        .await
+        .songs;
+        // never played reads 0, last, by title, untitled last
+        assert_eq!(ids(&songs), ["p2", "n1", "p1", "x1"]);
+
+        store_discovered(&txn, &[("d1", "Elsewhere", "Someone", 1_000_000_000_000)]).await;
+        let matches = run_arranged_query(
+            &txn,
+            user_id,
+            EVERY,
+            &tag_types(),
+            Arrangement {
+                group: Some(QueryGroup {
+                    field: ArrangeField::Tag {
+                        tag_id: activity[&ActivityTag::InMyLibrary],
+                    },
+                    direction: SortDirection::Ascending,
+                }),
+                ..Arrangement::default()
+            },
+        )
+        .await;
+        let groups = matches.groups.unwrap();
+        assert_eq!(groups[0].value.as_deref(), Some("true"));
+        assert_eq!(groups[0].count, 4);
+        assert_eq!(groups[1].value.as_deref(), Some("false"));
+        assert_eq!(ids(&matches.songs).last(), Some(&"d1"));
+    }
+
+    /// What a phone says about a song only its library knows is stored as a library row:
+    /// it fills in a song Apple had no entry for, never replaces what Apple said, and is
+    /// never a song another user's query discovers.
+    #[tokio::test]
+    #[ignore]
+    async fn library_metadata_fills_in_songs_apple_does_not_know() {
+        use crate::db::metadata_tags::{LibrarySong, store_library_song_metadata};
+
+        let (txn, user_id) = metadata_library().await;
+        let song = |song_id: &str, title: &str| LibrarySong {
+            song_id: song_id.to_string(),
+            title: title.to_string(),
+            artist_name: Some("Me".into()),
+            album_name: None,
+            genre_names: vec!["Music".into(), "Rock".into()],
+            duration_ms: Some(1000),
+            release_date: Some("2024".into()),
+            explicit: Some(false),
+        };
+        let stored = store_library_song_metadata(
+            &txn,
+            user_id,
+            &[
+                // Apple had no entry for it
+                song("test-q-n1", "Demo"),
+                // Apple knows this one, so it stays as Apple has it
+                song("test-q-p1", "Not Paint It Black"),
+                // no row yet, and the user has it
+                song("test-q-x1", "Voice Memo"),
+                // somebody else's song, which this user cannot name
+                song("test-q-stranger", "Mine Now"),
+            ],
+        )
+        .await
+        .unwrap();
+        let mut stored = stored;
+        stored.sort();
+        assert_eq!(stored, ["test-q-n1", "test-q-x1"]);
+
+        let row = txn
+            .query_one_raw(Statement::from_string(
+                DbBackend::Postgres,
+                "SELECT name, found, source, genre_names, release_date::text FROM metadata_song_tags_applied WHERE song_id = 'test-q-n1'",
+            ))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(row.try_get_by_index::<String>(0).unwrap(), "Demo");
+        assert!(row.try_get_by_index::<bool>(1).unwrap());
+        assert_eq!(row.try_get_by_index::<String>(2).unwrap(), "library");
+        assert_eq!(row.try_get_by_index::<Vec<String>>(3).unwrap(), ["Rock"]);
+        assert_eq!(row.try_get_by_index::<String>(4).unwrap(), "2024-01-01");
+
+        // now sortable, and still not discoverable: out of the library it is gone
+        txn.execute_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            "DELETE FROM user_songs WHERE user_id = $1 AND song_id = 'test-q-n1'",
+            [user_id.into()],
+        ))
+        .await
+        .unwrap();
+        let songs = run_test_query(&txn, user_id, EVERY, &tag_types(), None).await;
+        assert!(!songs.iter().any(|song| song.song_id == "test-q-n1"));
     }
 }

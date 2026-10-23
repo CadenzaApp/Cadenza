@@ -23,6 +23,10 @@ pub struct Model {
     #[sea_orm(column_type = "Text", nullable)]
     pub album_name: Option<String>,
     pub total_plays: i64,
+    #[sea_orm(column_type = "Text")]
+    pub source: String,
+    #[sea_orm(column_type = "Text", nullable)]
+    pub artwork_url: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

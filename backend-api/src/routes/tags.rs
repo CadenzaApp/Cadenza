@@ -166,18 +166,23 @@ async fn get_activity_tags_handler(
     Ok(Json(tags.into_iter().map(|(_, tag)| tag.into()).collect()))
 }
 
-/// How many default tags one search returns at most.
+/// How many default tags one search returns when it does not say.
 const DEFAULT_TAG_SEARCH_LIMIT: u64 = 5;
+/// The most default tags one search can ask for.
+const MAX_DEFAULT_TAG_SEARCH_LIMIT: u64 = 50;
 
 #[derive(Deserialize)]
 struct DefaultTagSearchParams {
     /// A blank search, or none at all, matches every default tag.
     #[serde(default)]
     search: String,
+    /// How many to return, 5 when left out and never more than 50.
+    #[serde(default)]
+    limit: Option<u64>,
 }
 
-/// Returns up to 5 default tags whose names contain `search`, ignoring case. A
-/// blank search still returns 5 tags.
+/// Returns up to `limit` (default 5, at most 50) default tags whose names contain
+/// `search`, ignoring case. A blank search still returns that many.
 ///
 /// These are the shared default tags (`user_id IS NULL`), not the caller's own,
 /// so two users searching the same text get the same tags back.
@@ -192,7 +197,15 @@ async fn search_default_tags_handler(
     Query(params): Query<DefaultTagSearchParams>,
 ) -> Result<Json<Vec<Tag>>, CadenzaError> {
     Ok(Json(vec_into(
-        db::tags::search_default_tags(&db, &params.search, DEFAULT_TAG_SEARCH_LIMIT).await?,
+        db::tags::search_default_tags(
+            &db,
+            &params.search,
+            params
+                .limit
+                .unwrap_or(DEFAULT_TAG_SEARCH_LIMIT)
+                .clamp(1, MAX_DEFAULT_TAG_SEARCH_LIMIT),
+        )
+        .await?,
     )))
 }
 

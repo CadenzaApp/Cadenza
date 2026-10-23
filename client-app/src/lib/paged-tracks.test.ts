@@ -3,6 +3,9 @@ import test from "node:test";
 
 import {
     catalogIdsToFetch,
+    coverTracks,
+    groupTracks,
+    nextGroupedChunk,
     queryQueueIds,
     resolvedTracks,
     uniqueBy,
@@ -127,4 +130,112 @@ test("uniqueBy keeps the first of each", () => {
             { id: "b", n: 2 },
         ],
     );
+});
+
+test("a grouped list loads top down, a tapped group first, then wraps", () => {
+    const groups = [["a1", "a2"], ["b1"], ["c1", "c2"]];
+    const none = () => false;
+    assert.deepEqual(nextGroupedChunk(groups, 0, none, 3), ["a1", "a2", "b1"]);
+    // opening the last group puts it first, then back to the top
+    assert.deepEqual(nextGroupedChunk(groups, 2, none, 3), ["c1", "c2", "a1"]);
+    const done = new Set(["a1", "a2", "c1"]);
+    assert.deepEqual(
+        nextGroupedChunk(groups, 0, (id) => done.has(id), 10),
+        ["b1", "c2"],
+    );
+    assert.deepEqual(
+        nextGroupedChunk(groups, 0, () => true, 10),
+        [],
+    );
+});
+
+test("a song in two groups is loaded once", () => {
+    assert.deepEqual(
+        nextGroupedChunk(
+            [
+                ["x", "y"],
+                ["x", "z"],
+            ],
+            0,
+            () => false,
+            10,
+        ),
+        ["x", "y", "z"],
+    );
+    assert.deepEqual(
+        nextGroupedChunk([], 3, () => false, 10),
+        [],
+    );
+});
+
+test("a group shows its songs up to the first one still loading", () => {
+    const tracks = new Map([
+        ["a", { id: "A" }],
+        ["c", { id: "C" }],
+        ["dup", { id: "A" }],
+    ]);
+    const settled = new Set(["a", "b", "c", "dup"]);
+    const show = (ids: string[]) =>
+        groupTracks(
+            ids,
+            (id) => tracks.get(id),
+            (id) => settled.has(id),
+            (track) => track.id,
+        );
+    // b is settled with nothing found, so it is skipped
+    assert.deepEqual(show(["a", "b", "c"]), {
+        tracks: [{ id: "A" }, { id: "C" }],
+        waiting: false,
+    });
+    // d is still loading, so the group stops there
+    assert.deepEqual(show(["a", "d", "c"]), {
+        tracks: [{ id: "A" }],
+        waiting: true,
+    });
+    // two ids for one track show it once
+    assert.deepEqual(show(["a", "dup"]).tracks, [{ id: "A" }]);
+});
+
+test("a cover takes the first songs with artwork", () => {
+    const tracks = new Map([
+        ["a", { id: "a", artworkUrl: "a.jpg" }],
+        ["b", { id: "b" }],
+        ["c", { id: "c", artworkUrl: "c.jpg" }],
+        ["d", { id: "d", artworkUrl: "d.jpg" }],
+    ]);
+    const cover = coverTracks(
+        ["a", "b", "c", "d"],
+        (songId) => tracks.get(songId),
+        () => true,
+        2,
+        40,
+    );
+    assert.deepEqual(
+        cover.tracks.map((track) => track.id),
+        ["a", "c"],
+    );
+    assert.equal(cover.ready, true);
+});
+
+test("a cover waits while a song near the top may still get artwork", () => {
+    const tracks = new Map([["a", { id: "a", artworkUrl: "a.jpg" }]]);
+    const settled = new Set(["a"]);
+    const waiting = coverTracks(
+        ["a", "b"],
+        (songId) => tracks.get(songId),
+        (songId) => settled.has(songId),
+        4,
+        40,
+    );
+    assert.equal(waiting.ready, false);
+    settled.add("b");
+    const done = coverTracks(
+        ["a", "b"],
+        (songId) => tracks.get(songId),
+        (songId) => settled.has(songId),
+        4,
+        40,
+    );
+    assert.equal(done.ready, true);
+    assert.equal(done.tracks.length, 1);
 });

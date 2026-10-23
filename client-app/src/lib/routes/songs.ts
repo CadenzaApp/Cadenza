@@ -1,11 +1,13 @@
 import { ACTIVITY_TAG_READS } from "./activity-tag-reads";
 import { ANALYTICS_READS } from "./analytics-reads";
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
+import { useAccount } from "../account";
 import {
     invalidateAPIData,
     useAPIData,
     useAPIMutation,
     useAPIPostDataBatched,
+    warmAPIDataBatched,
     type APIDataEndpoint,
 } from "../api-actions";
 import { AppliedTag, MetadataTag, Tag } from "@/lib/types";
@@ -58,6 +60,44 @@ export function useTagsOnSongs(songIds: readonly string[]) {
 }
 
 const EMPTY_TAGS_BY_SONG: Record<string, AppliedTag[]> = {};
+
+/**
+ * Loads the user's tags, and with `activity` the activity tags, for songs a
+ * list is about to show, into the same batches `useTagsOnSongs` and
+ * `useActivityTagsOnSongs` read, so the rows have them the moment they appear.
+ * Suggested tags are left alone: reading them for a song that has none asks
+ * the backend to generate them, which is an LLM call per song.
+ */
+export function useWarmRowTags() {
+    const { account } = useAccount();
+    const accountId = account?.id;
+    return useCallback(
+        async (songIds: readonly string[], activity: boolean) => {
+            if (!accountId || songIds.length === 0) return;
+            const ids = [...new Set(songIds.filter(Boolean))];
+            const toBody = (song_ids: string[]) => ({ song_ids });
+            await Promise.all([
+                warmAPIDataBatched(
+                    accountId,
+                    "/songs/local-tags/batch",
+                    ids,
+                    TAGS_ON_SONGS_BATCH_SIZE,
+                    toBody,
+                ),
+                activity
+                    ? warmAPIDataBatched(
+                          accountId,
+                          "/songs/activity-tags/batch",
+                          ids,
+                          TAGS_ON_SONGS_BATCH_SIZE,
+                          toBody,
+                      )
+                    : undefined,
+            ]);
+        },
+        [accountId],
+    );
+}
 
 type ApplyTagPayload = {
     song_id: string;

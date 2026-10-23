@@ -25,6 +25,7 @@ import { useAppTheme, type ThemeColorToken } from "@/lib/theme";
 import type { AppliedTag, Tag, TagMetadata } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
+import type { RailLead } from "./sort-tags";
 import { TagFadeRail } from "./tag-fade-rail";
 
 export type MusicListItemProps = {
@@ -38,6 +39,8 @@ export type MusicListItemProps = {
     activityTags?: readonly AppliedTag[];
     /** Which of `activityTags` to show, and in what order. */
     activityTagIds?: readonly number[];
+    /** The tag the list is sorted by, which leads the tag rail. */
+    lead?: RailLead;
     selected: boolean;
     selectionMode: boolean;
     multiSelectEnabled: boolean;
@@ -80,6 +83,7 @@ export const MusicListItem = memo(function MusicListItem({
     mostRelevantTags,
     tagMetadata,
     activityTagIds,
+    lead,
     selected,
     selectionMode,
     multiSelectEnabled,
@@ -250,6 +254,7 @@ export const MusicListItem = memo(function MusicListItem({
                         activityTags={shownActivityTags}
                         mostRelevantTags={mostRelevantTags}
                         tagMetadata={tagMetadata}
+                        lead={lead}
                         compact={compact}
                     />
                 </View>
@@ -323,6 +328,7 @@ const MusicListItemVisuals = memo(function MusicListItemVisuals({
     activityTags,
     mostRelevantTags,
     tagMetadata,
+    lead,
     compact,
 }: {
     item: MusicItem;
@@ -331,10 +337,14 @@ const MusicListItemVisuals = memo(function MusicListItemVisuals({
     activityTags: readonly AppliedTag[];
     mostRelevantTags?: readonly string[];
     tagMetadata?: Readonly<Record<number, TagMetadata>>;
+    lead?: RailLead;
     compact: boolean;
 }) {
     const hasTags =
-        tags.length > 0 || defaultTags.length > 0 || activityTags.length > 0;
+        tags.length > 0 ||
+        defaultTags.length > 0 ||
+        activityTags.length > 0 ||
+        lead?.kind === "pill";
 
     return (
         <>
@@ -354,6 +364,7 @@ const MusicListItemVisuals = memo(function MusicListItemVisuals({
                         activityTags={activityTags}
                         mostRelevantTags={mostRelevantTags}
                         tagMetadata={tagMetadata}
+                        lead={lead}
                         compact={compact}
                     />
                 ) : null}

@@ -25,7 +25,8 @@ and a backend rejection is a bare `{ error_type }`. The cause still reaches the 
 `badge`, `button`, `card`, `dialog`, `glass-surface`, `glass-button`, `glass-confirm-dialog`,
 `glass-icon-button`, `glass-panel`, `glass-pill`, `glass-toggle`, `segmented-control`, `input`,
 `label`, `separator`, `skeleton`, `tabs`, `text`, `native-only-animated-view`, `detail-screen`,
-`tint-backdrop`, `nebula-backdrop`, `crossfade`, `floating-close-button`, plus `sign-in-form` and `sign-up-form`.
+`tint-backdrop`, `nebula-backdrop`, `crossfade`, `floating-close-button`, `dialog-close-button`,
+`pressed-fill`, plus `sign-in-form` and `sign-up-form`.
 
 `floating-close-button.tsx` exports `FloatingCloseButton`, the X a screen that draws its own hero
 floats in the top right. It closes through `@/lib/zoom-dismiss::useCloseScreen`, so it plays the
@@ -57,6 +58,12 @@ behavior in this primitive rather than rebuilding a glass modal at each call sit
 detail-screen controls, and every floating circular action use it. Reach for it rather than
 hand-rolling another circle of glass. Close controls use `bordered={false}`; `surfaceScheme`
 selects the material appearance independently of the app theme.
+
+Pressed, `GlassButton` and `GlassIconButton` shrink a little and lay a shade over the glass
+(`usePressedFill`, dark on light glass and light on dark) until the finger lifts. Opacity alone
+barely shows, because native glass does not fade with a faded parent. `dialog-close-button.tsx`
+exports `DialogCloseButton`, the X in a popup's top right corner, which fills a circle behind
+itself while pressed; the popups built on `ModalPopup` use it.
 
 `glass-toggle.tsx` exports `GlassToggle`, the on/off switch. The track is glass and tints with the
 nav theme's notification color while on. Account settings and the query builder both use it.
@@ -127,7 +134,7 @@ variables), `tailwind.config.js`, and `global.css`. Class merging goes through
 
 | file                        | role                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `music-list/`               | Scrollable list of `MusicItem`s, with skeletons, paging, sorting, selection, and tags. See below.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `music-list/`               | Scrollable list of `MusicItem`s, with skeletons, paging, Sort by and Group by, collapsible groups, selection, and tags. See below.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `floating-bubble.tsx`       | The liquid-glass round floating action button the list and tag screens sit under.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `options-menu/`             | The song, album, and playlist "..." menus, on liquid glass. See below.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `song-tag-editor.tsx`       | Tag editing for one song: applied state, values, adopting or removing a default tag, mutations, and dialog state.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
@@ -138,6 +145,7 @@ variables), `tailwind.config.js`, and `global.css`. Class merging goes through
 | `tag-color-picker.tsx`      | Tag color grid for creating and recoloring a tag: a `SwatchGrid` of 5 columns, the curated palette then custom slots and a +. Slots save to the account as `tag_color_swatches`. A tag keeps its color if that color is later removed.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `color-picker/`             | `ColorWheel` (hue and saturation wheel plus a brightness slider, in HSV), `ColorPickerModal` (the wheel, a hex field, Remove, Cancel, Done), and `SwatchGrid` (rows of circles, an optional fixed first color, editable slots, + in the last cell; hold to change or remove). Used by Appearance and tag colors.                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `tag-value-dialog.tsx`      | Liquid-glass per-type editor opened when an attribute tag is applied or edited.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `option-picker.tsx`         | Liquid-glass popup list with optional sections and search, sized for a long list. Picks fields, operators and values in the advanced query builder, and what a song list sorts and groups by.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `modal-popup.tsx`           | Small popup used by options, sorting, and selection actions. Liquid glass is the default.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `tab-stack.tsx`             | The native stack each bottom tab nests for the shared `TopRail` header.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `top-rail.tsx`              | Shared tab header with optional glass back button, page title, actions, and account initials.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
@@ -154,22 +162,36 @@ variables), `tailwind.config.js`, and `global.css`. Class merging goes through
 
 | file                               | role                                                                                                                                |
 | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `index.tsx`                        | The `MusicList` itself. Owns sort state, paging, selection, density, and the modals.                                                |
+| `index.tsx`                        | The `MusicList` itself. Owns paging, group headers, selection, density, and the modals.                                             |
 | `music-list-item.tsx`              | One row, plus `MusicListItemSkeleton`.                                                                                              |
 | `tag-fade-rail.tsx`                | Overflow-aware horizontal tag rail whose alpha mask preserves the surface behind it. User tags with values, then unfilled defaults. |
 | `row-tags.tsx`                     | The list's tag reads and a per-list store rows read their own song from, so a tag response re-renders only the rows it changes.     |
-| `music-list-sort-button.tsx`       | The floating sort control.                                                                                                          |
+| `music-list-arrange-sheet.tsx`     | The floating Sort by / Group by control and its sheet, picking any tag from a searchable `OptionPicker`.                            |
+| `music-list-section-header.tsx`    | A group's header, which opens and closes it.                                                                                        |
+| `list-windows.ts`                  | The pure row math: an open group's rows 50 at a time, when a group shows more, and which rows' tags to read. Tested.                |
 | `music-list-action-button.tsx`     | One button in the selection toolbar.                                                                                                |
 | `music-list-selection-toolbar.tsx` | The bar that slides up while rows are selected.                                                                                     |
 | `use-music-list-selection.ts`      | Selection state, haptics, and pruning. Tested in `use-music-list-selection.test.ts`.                                                |
 | `selection-utils.ts`               | `reduceMusicListSelection`, the pure reducer behind the hook.                                                                       |
-| `sort-tracks.ts`                   | `sortTracks` / `nextSort`. Pure, unit tested in `sort-tracks.test.ts`.                                                              |
-| `types.ts`                         | `MusicListProps` and the sort types, so callers do not import from `index.tsx`.                                                     |
+| `types.ts`                         | `MusicListProps`, `MusicListArrangement`, and the section types, so callers do not import from `index.tsx`.                         |
 
-Sorting is either `"local"` (this folder sorts the array it was handed) or `"remote"` (the
-caller refetches sorted and only wants the control rendered). The library screen uses
-`"remote"` on iOS, because `MusicLibraryRequest` sorts across the whole library rather than
-just the page that happens to be loaded.
+The list never sorts anything itself. `arrangement` only draws the Sort by / Group by control;
+the caller has the backend order the whole list (`@/lib/arranged-track-list`) and hands back the
+songs in order, or `sections`, one collapsible header per group. A grouped list ignores
+`pagination`, since each open group loads its own songs, and keys its rows by group too, because
+one song can turn up under two ids in two groups. An open group shows its first 50 songs and
+50 more each time the screen nears the last one shown (`list-windows.ts`), so a group of a
+thousand songs costs about what one of fifty does to open, close, or keep open; closing it starts
+it over at 50. Four screens offer it: Library Songs, Query
+results, a tag, and an album or playlist. Analytics, search and the artist page do not.
+
+A sorted list leads every row's tag rail with the tag it is sorted by (`@/lib/sort-lead-tag`), so
+the value the list is sorted by is always in view: the row's own pill moved to the front for a
+user, activity, or suggested tag (read and shown even with that kind turned off), or for a
+metadata tag the same pill the song's Metadata Tags show (`metadataTagPills`), with the value
+the backend stores, from `arrangement.sortValues`. Title
+and artist lead with nothing, since the row shows them, and grouping alone leads with nothing,
+since the header says the value.
 
 Paging is opt-in. Pass `pagination` to get `onEndReached` plus footer skeletons, or `null` for a
 list that is fully loaded up front, like a tag's songs or a query's results.
@@ -246,7 +268,10 @@ supplies its own scroller through `renderScrollComponent` with `ScreenScrollMark
 marker needs the `ScrollView` as its only child and asserts otherwise.
 
 Tags never live on `MusicList` itself. `RowTagSource` runs the tag reads and pushes them into a
-per-list store, and each row subscribes to its own song (`useRowTags`). A tag response re-renders
+per-list store, and each row subscribes to its own song (`useRowTags`). The reads cover the rows
+near the screen, a few dozen ahead, plus the selected songs, not every song on show: suggested
+tags are written by an LLM the first time a song is asked about, so a long list must not ask for
+hundreds at once. A song once read stays read for as long as the list is up. A tag response re-renders
 the rows whose tags changed, not the list. The selection toolbar renders inside `RowTagSource`,
 since it needs the same reads.
 

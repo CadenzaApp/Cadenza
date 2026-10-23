@@ -102,6 +102,8 @@ mod tests {
             content_rating: Some("clean".into()),
             fetched_at: Utc::now().fixed_offset(),
             total_plays: 12,
+            source: "catalog".into(),
+            artwork_url: None,
         }
     }
 
@@ -181,5 +183,55 @@ mod tests {
             serde_json::to_value(tag).unwrap(),
             serde_json::json!({"key": "duration", "type": "number", "value": "521000"})
         );
+    }
+}
+
+/// What the phone knows about one song from its library, for `POST /songs/metadata/library`.
+/// Only `song_id` and `title` are required.
+///
+/// ```json
+/// {
+///   "song_id": "i.abc123",
+///   "title": "Demo",
+///   "artist_name": "Me",
+///   "album_name": "Voice Memos",
+///   "genre_names": ["Rock"],
+///   "duration_ms": 183000,
+///   "release_date": "2024-05-01",
+///   "explicit": false
+/// }
+/// ```
+#[derive(serde::Deserialize, Debug)]
+pub struct LibrarySongMetadata {
+    pub song_id: String,
+    pub title: String,
+    #[serde(default)]
+    pub artist_name: Option<String>,
+    #[serde(default)]
+    pub album_name: Option<String>,
+    #[serde(default)]
+    pub genre_names: Vec<String>,
+    #[serde(default)]
+    pub duration_ms: Option<u64>,
+    /// `YYYY-MM-DD`, or `YYYY` for a year alone.
+    #[serde(default)]
+    pub release_date: Option<String>,
+    /// Left out when the library gave no rating.
+    #[serde(default)]
+    pub explicit: Option<bool>,
+}
+
+impl From<LibrarySongMetadata> for crate::db::metadata_tags::LibrarySong {
+    fn from(song: LibrarySongMetadata) -> Self {
+        Self {
+            song_id: song.song_id,
+            title: song.title,
+            artist_name: song.artist_name,
+            album_name: song.album_name,
+            genre_names: song.genre_names,
+            duration_ms: song.duration_ms,
+            release_date: song.release_date,
+            explicit: song.explicit,
+        }
     }
 }

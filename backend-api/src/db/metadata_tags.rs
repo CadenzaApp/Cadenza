@@ -1,12 +1,14 @@
 //! The query-only copy of Apple Music catalog metadata in `metadata_song_tags_applied`, and
 //! the album crawl queue in `metadata_albums`.
 //!
-//! Nothing here is authoritative. Apple Music still owns song metadata, and every screen
-//! that shows a title reads it from Apple. These rows exist so a query can filter on a
-//! song's artist, album, genre, release date, length, and rating. A stale or missing row
-//! only means a query misses that song until it is stored again.
+//! Nothing here is authoritative. Apple Music still owns song metadata. These rows exist so
+//! a query can filter on a song's artist, album, genre, release date, length, and rating,
+//! and so a sorted or grouped list can draw its rows, artwork included, without asking
+//! Apple for every song. Every other screen reads titles from Apple. A stale or missing row
+//! only means a query misses that song, or a sorted row is out of date, until it is stored
+//! again.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use chrono::{NaiveDate, Utc};
 use sea_orm::{
@@ -27,7 +29,7 @@ use crate::services::song_metadata::SongMetadata;
 const CATCH_ALL_GENRE: &str = "Music";
 
 /// Rows per insert, so a batch of long albums stays well under postgres's bind limit of
-/// 65535 values. Each row binds 11.
+/// 65535 values. Each row binds 12.
 const MAX_ROWS_PER_INSERT: usize = 1000;
 
 /// The song ids in `song_ids` that have no row yet, found or not, in input order.
@@ -67,6 +69,27 @@ pub async fn get_song_metadata(
     Ok(metadata_song_tags_applied::Entity::find_by_id(song_id)
         .one(db)
         .await?)
+}
+
+/// The stored rows of `song_ids`, found or not, in no particular order. A song with no row
+/// is left out.
+pub async fn get_songs_metadata(
+    db: &impl ConnectionTrait,
+    song_ids: &[String],
+) -> Result<Vec<metadata_song_tags_applied::Model>, CadenzaError> {
+    let mut rows = Vec::new();
+    for chunk in distinct(song_ids).chunks(MAX_ROWS_PER_INSERT * 5) {
+        rows.extend(
+            metadata_song_tags_applied::Entity::find()
+                .filter(
+                    metadata_song_tags_applied::Column::SongId
+                        .is_in(chunk.iter().map(String::as_str)),
+                )
+                .all(db)
+                .await?,
+        );
+    }
+    Ok(rows)
 }
 
 /// The album a stored song is on. `None` when the song has no row, was not found, or Apple
@@ -139,6 +162,7 @@ pub async fn store_song_metadata(
                         metadata_song_tags_applied::Column::GenreNames,
                         metadata_song_tags_applied::Column::ReleaseDate,
                         metadata_song_tags_applied::Column::ContentRating,
+                        metadata_song_tags_applied::Column::ArtworkUrl,
                         metadata_song_tags_applied::Column::FetchedAt,
                     ])
                     .to_owned(),
@@ -276,6 +300,9 @@ fn found_row(
         fetched_at: Set(fetched_at),
         // the column default on insert, and left out of the update on conflict
         total_plays: NotSet,
+        source: NotSet,
+        // empty, not null, for a song Apple has no artwork for, so it is never asked again
+        artwork_url: Set(Some(song.artwork_url.clone().unwrap_or_default())),
     }
 }
 
@@ -296,6 +323,8 @@ fn not_found_row(
         content_rating: Set(None),
         fetched_at: Set(fetched_at),
         total_plays: NotSet,
+        source: NotSet,
+        artwork_url: Set(None),
     }
 }
 
@@ -561,6 +590,224 @@ pub async fn get_library_songs_without_metadata(
         .map(|row| row.song_id)
         .filter(|song_id| seen.insert(song_id.clone()))
         .collect())
+}
+
+/// What a phone knows about a song from its library, for a song Apple's catalog has no entry
+/// for: an uploaded song, or one Apple never matched.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LibrarySong {
+    pub song_id: String,
+    pub title: String,
+    pub artist_name: Option<String>,
+    pub album_name: Option<String>,
+    pub genre_names: Vec<String>,
+    pub duration_ms: Option<u64>,
+    /// `YYYY-MM-DD`, or `YYYY` for a year alone.
+    pub release_date: Option<String>,
+    /// `None` when the library gave no rating.
+    pub explicit: Option<bool>,
+}
+
+/// Stores what a phone knows about songs only its library knows, as `source` 'library'
+/// rows, so a song list can sort and group them like any other. Returns the song ids
+/// stored.
+///
+/// A row is only written for a song the user has (in `user_songs`, or carrying one of their
+/// tags) or one with a library id, which starts with `i.` and belongs to one user alone,
+/// and only over no row, a row Apple had no entry for, or an earlier library row. What
+/// Apple's catalog says always wins, and nobody can rename a song in someone else's list.
+///
+/// A 'library' row is never a song another user's query discovers. A new row's
+/// `total_plays` is counted from the log, the same as [`store_song_metadata`].
+pub async fn store_library_song_metadata(
+    db: &(impl ConnectionTrait + TransactionTrait),
+    user_id: sea_orm::prelude::Uuid,
+    songs: &[LibrarySong],
+) -> Result<Vec<String>, CadenzaError> {
+    let mut seen = HashSet::new();
+    let rows: Vec<serde_json::Value> = songs
+        .iter()
+        .rev()
+        .filter(|song| !song.song_id.is_empty() && !song.title.trim().is_empty())
+        .filter(|song| seen.insert(song.song_id.as_str()))
+        .map(|song| {
+            serde_json::json!({
+                "song_id": song.song_id,
+                "name": song.title.trim(),
+                "artist_name": song.artist_name.as_deref().map(str::trim),
+                "album_name": song.album_name.as_deref().map(str::trim),
+                "genres": query_genres(&song.genre_names),
+                "duration_in_millis": song.duration_ms.and_then(|millis| i32::try_from(millis).ok()),
+                "release_date": song
+                    .release_date
+                    .as_deref()
+                    .and_then(parse_release_date)
+                    .map(|day| day.format("%Y-%m-%d").to_string()),
+                "content_rating": song.explicit.map(|explicit| if explicit { "explicit" } else { "clean" }),
+            })
+        })
+        .collect();
+    if rows.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let txn = db.begin().await?;
+    let stored = SongStoredRow::find_by_statement(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        r#"
+        INSERT INTO metadata_song_tags_applied
+            (song_id, found, name, artist_name, album_name, duration_in_millis, genre_names,
+             release_date, content_rating, source, fetched_at)
+        SELECT
+            song.song_id, TRUE, song.name, song.artist_name, song.album_name,
+            song.duration_in_millis,
+            ARRAY(SELECT json_array_elements_text(song.genres)),
+            song.release_date, song.content_rating, 'library', now()
+        FROM json_to_recordset($2::json) AS song(
+            song_id text, name text, artist_name text, album_name text,
+            duration_in_millis integer, genres json, release_date date, content_rating text
+        )
+        WHERE starts_with(song.song_id, 'i.')
+            OR EXISTS (
+                SELECT 1 FROM user_songs AS library
+                WHERE library.user_id = $1 AND library.song_id = song.song_id
+            )
+            OR EXISTS (
+                SELECT 1 FROM user_tags_applied AS applied
+                WHERE applied.user_id = $1 AND applied.song_id = song.song_id
+            )
+        ON CONFLICT (song_id) DO UPDATE SET
+            found = TRUE,
+            name = EXCLUDED.name,
+            artist_name = EXCLUDED.artist_name,
+            album_name = EXCLUDED.album_name,
+            duration_in_millis = EXCLUDED.duration_in_millis,
+            genre_names = EXCLUDED.genre_names,
+            release_date = EXCLUDED.release_date,
+            content_rating = EXCLUDED.content_rating,
+            source = 'library',
+            fetched_at = EXCLUDED.fetched_at
+        WHERE NOT metadata_song_tags_applied.found
+            OR metadata_song_tags_applied.source = 'library'
+        RETURNING song_id, (xmax = 0) AS inserted
+        "#,
+        [
+            user_id.into(),
+            serde_json::Value::Array(rows).to_string().into(),
+        ],
+    ))
+    .all(&txn)
+    .await?;
+
+    let new_song_ids: Vec<String> = stored
+        .iter()
+        .filter(|row| row.inserted)
+        .map(|row| row.song_id.clone())
+        .collect();
+    count_total_plays_from_log(&txn, &new_song_ids).await?;
+    txn.commit().await?;
+
+    Ok(stored.into_iter().map(|row| row.song_id).collect())
+}
+
+/// What a song list row shows for one song, read from its stored row.
+#[derive(Debug, Clone, PartialEq, Eq, FromQueryResult)]
+pub struct SongRow {
+    pub song_id: String,
+    pub name: String,
+    pub artist_name: Option<String>,
+    pub album_name: Option<String>,
+    pub album_id: Option<String>,
+    pub duration_in_millis: Option<i32>,
+    /// Null for a row stored before artwork was kept, empty when Apple has none.
+    pub artwork_url: Option<String>,
+}
+
+/// The stored rows of `song_ids` a song list can draw, keyed by song id: every row with a
+/// title, Apple's or a phone's. A song with no row, or one Apple had no entry for, is left
+/// out.
+pub async fn get_song_rows(
+    db: &impl ConnectionTrait,
+    song_ids: &[String],
+) -> Result<HashMap<String, SongRow>, CadenzaError> {
+    if song_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let rows = SongRow::find_by_statement(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        r#"
+        SELECT song_id, name, artist_name, album_name, album_id, duration_in_millis, artwork_url
+        FROM metadata_song_tags_applied
+        WHERE song_id = ANY($1) AND found AND name IS NOT NULL AND name <> ''
+        "#,
+        [distinct(song_ids).into()],
+    ))
+    .all(db)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| (row.song_id.clone(), row))
+        .collect())
+}
+
+/// The songs in `song_ids` whose catalog row was stored before artwork was kept, so has
+/// none yet, in input order.
+pub async fn get_songs_without_artwork(
+    db: &impl ConnectionTrait,
+    song_ids: &[String],
+) -> Result<Vec<String>, CadenzaError> {
+    if song_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let missing: HashSet<String> = SongIdRow::find_by_statement(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        r#"
+        SELECT song_id
+        FROM metadata_song_tags_applied
+        WHERE song_id = ANY($1) AND found AND source = 'catalog' AND artwork_url IS NULL
+        "#,
+        [distinct(song_ids).into()],
+    ))
+    .all(db)
+    .await?
+    .into_iter()
+    .map(|row| row.song_id)
+    .collect();
+
+    Ok(distinct(song_ids)
+        .into_iter()
+        .filter(|song_id| missing.contains(song_id))
+        .collect())
+}
+
+/// Marks `song_ids` as having no artwork, for songs Apple sent back without any, or no
+/// longer sends back at all, so they are not asked about again. Leaves a row that has
+/// artwork alone.
+pub async fn mark_without_artwork(
+    db: &impl ConnectionTrait,
+    song_ids: &[String],
+) -> Result<(), CadenzaError> {
+    if song_ids.is_empty() {
+        return Ok(());
+    }
+
+    db.execute_raw(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "UPDATE metadata_song_tags_applied SET artwork_url = '' WHERE song_id = ANY($1) AND artwork_url IS NULL",
+        [distinct(song_ids).into()],
+    ))
+    .await?;
+    Ok(())
+}
+
+/// A row an upsert wrote, and whether it was new rather than replaced.
+#[derive(FromQueryResult)]
+struct SongStoredRow {
+    song_id: String,
+    inserted: bool,
 }
 
 /// Each id once, in input order.
@@ -877,6 +1124,114 @@ mod tests {
         let row = get_song_metadata(&txn, &shared).await.unwrap().unwrap();
         assert!(row.found);
         assert_eq!(row.album_id.as_deref(), Some("deluxe"));
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn a_list_reads_the_rows_it_can_draw_with_their_artwork() {
+        let txn = scratch().await;
+        let (art, bare, gone, never) = (
+            test_id("rows-art"),
+            test_id("rows-bare"),
+            test_id("rows-gone"),
+            test_id("rows-never"),
+        );
+        let with_art = SongMetadata {
+            artwork_url: Some("https://example.com/512x512bb.jpg".into()),
+            ..song(&art, Some("10"))
+        };
+        store_song_metadata(
+            &txn,
+            &[with_art, song(&bare, None)],
+            std::slice::from_ref(&gone),
+        )
+        .await
+        .unwrap();
+        let ids = vec![art.clone(), bare.clone(), gone.clone(), never.clone()];
+
+        let rows = get_song_rows(&txn, &ids).await.unwrap();
+        assert_eq!(
+            rows.len(),
+            2,
+            "a song Apple has no entry for, or no row, is left out"
+        );
+        assert_eq!(rows[&art].name, format!("title {art}"));
+        assert_eq!(
+            rows[&art].artwork_url.as_deref(),
+            Some("https://example.com/512x512bb.jpg")
+        );
+        assert_eq!(rows[&art].album_id.as_deref(), Some("10"));
+        // stored now, so Apple said it has none: empty, and never asked again
+        assert_eq!(rows[&bare].artwork_url.as_deref(), Some(""));
+
+        // every stored row, found or not, for a sort's values
+        let mut stored: Vec<String> = get_songs_metadata(&txn, &ids)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|row| row.song_id)
+            .collect();
+        stored.sort();
+        let mut expected = vec![art.clone(), bare.clone(), gone.clone()];
+        expected.sort();
+        assert_eq!(stored, expected);
+        assert!(
+            get_songs_without_artwork(&txn, &ids)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn a_row_from_before_artwork_was_kept_is_asked_about_once() {
+        let txn = scratch().await;
+        let (old, kept) = (test_id("artwork-old"), test_id("artwork-kept"));
+        store_song_metadata(&txn, &[song(&old, None), song(&kept, None)], &[])
+            .await
+            .unwrap();
+        // a row stored before the column
+        txn.execute_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            "UPDATE metadata_song_tags_applied SET artwork_url = NULL WHERE song_id = ANY($1)",
+            [vec![old.clone(), kept.clone()].into()],
+        ))
+        .await
+        .unwrap();
+        let ids = vec![old.clone(), kept.clone()];
+        assert_eq!(get_songs_without_artwork(&txn, &ids).await.unwrap(), ids);
+
+        let fetched = SongMetadata {
+            artwork_url: Some("https://example.com/a.jpg".into()),
+            ..song(&kept, None)
+        };
+        store_song_metadata(&txn, &[fetched], &[]).await.unwrap();
+        mark_without_artwork(&txn, std::slice::from_ref(&old))
+            .await
+            .unwrap();
+
+        assert!(
+            get_songs_without_artwork(&txn, &ids)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        let rows = get_song_rows(&txn, &ids).await.unwrap();
+        assert_eq!(rows[&old].artwork_url.as_deref(), Some(""));
+        assert_eq!(
+            rows[&kept].artwork_url.as_deref(),
+            Some("https://example.com/a.jpg")
+        );
+        // marking a row that has artwork leaves it alone
+        mark_without_artwork(&txn, std::slice::from_ref(&kept))
+            .await
+            .unwrap();
+        let rows = get_song_rows(&txn, &ids).await.unwrap();
+        assert_eq!(
+            rows[&kept].artwork_url.as_deref(),
+            Some("https://example.com/a.jpg")
+        );
     }
 
     #[tokio::test]

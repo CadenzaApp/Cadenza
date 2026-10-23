@@ -9,6 +9,7 @@ import {
 } from "react-native";
 
 import { GlassSurface } from "@/components/ui/glass-surface";
+import { usePressedFill } from "@/components/ui/pressed-fill";
 import { cn } from "@/lib/utils";
 
 type GlassIconButtonProps = Omit<PressableProps, "children" | "style"> & {
@@ -30,6 +31,9 @@ type GlassIconButtonProps = Omit<PressableProps, "children" | "style"> & {
  * `className`: a nativewind class and a `style` function on the same element
  * fight, and the function loses, which kills the pressed state.
  *
+ * Pressing it shrinks the circle and shades the glass until the finger lifts,
+ * and `onPress` runs on the lift.
+ *
  * Sizing, clipping, and centering live on the wrapper below it. The glass
  * carries its own radius rather than leaning on the wrapper's clip, which is
  * what the other glass surfaces in the app do and what Android needs.
@@ -45,47 +49,87 @@ export function GlassIconButton({
 }: GlassIconButtonProps) {
     const radius = size / 2;
 
+    const pressedFill = usePressedFill(surfaceScheme);
+
     return (
         <Pressable
             accessibilityRole="button"
             hitSlop={8}
-            style={({ pressed }) => [style, pressed ? styles.pressed : null]}
+            style={style}
             {...rest}
         >
-            <View
-                className={cn(bordered && "border border-border", className)}
-                style={{
-                    width: size,
-                    height: size,
-                    borderRadius: radius,
-                    alignItems: "center",
-                    justifyContent: "center",
-                    overflow: "hidden",
-                }}
-            >
-                {/* The glass layer is a plain RN view away from the touch
+            {({ pressed }) => (
+                <View
+                    // never flattened away, pressed or not
+                    collapsable={false}
+                    className={cn(
+                        bordered && "border border-border",
+                        className,
+                    )}
+                    style={[
+                        {
+                            width: size,
+                            height: size,
+                            borderRadius: radius,
+                            alignItems: "center",
+                            justifyContent: "center",
+                            overflow: "hidden",
+                        },
+                        pressed && styles.pressed,
+                    ]}
+                >
+                    {/* The glass layer is a plain RN view away from the touch
                     path. `pointerEvents` on the glass itself goes to a native
                     view that may not honor it, and anything covering the
                     button that does honor it swallows the press. */}
-                <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-                    <GlassSurface
-                        colorScheme={surfaceScheme}
+                    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+                        <GlassSurface
+                            colorScheme={surfaceScheme}
+                            style={[
+                                StyleSheet.absoluteFill,
+                                // Inset the glass only when the wrapper has a border.
+                                {
+                                    borderRadius: radius - (bordered ? 1 : 0),
+                                    overflow: "hidden",
+                                },
+                            ]}
+                        />
+                    </View>
+                    {/* the press shows as a shade over the glass and a small
+                    shrink: native glass does not fade with a faded parent, so
+                    opacity alone barely shows. the shade and the content's
+                    wrapper are always there, only their opacity changes: a
+                    view that appears, or stops being flattened, on press
+                    makes Android's mounting fail with "the specified child
+                    already has a parent" */}
+                    <View
+                        pointerEvents="none"
                         style={[
                             StyleSheet.absoluteFill,
-                            // Inset the glass only when the wrapper has a border.
-                            {
-                                borderRadius: radius - (bordered ? 1 : 0),
-                                overflow: "hidden",
-                            },
+                            { backgroundColor: pressedFill },
+                            pressed ? styles.pressedFill : styles.restingFill,
                         ]}
                     />
+                    <View
+                        collapsable={false}
+                        style={
+                            pressed
+                                ? styles.pressedContent
+                                : styles.restingContent
+                        }
+                    >
+                        {children}
+                    </View>
                 </View>
-                {children}
-            </View>
+            )}
         </Pressable>
     );
 }
 
 const styles = StyleSheet.create({
-    pressed: { opacity: 0.65 },
+    pressed: { transform: [{ scale: 0.9 }] },
+    pressedFill: { opacity: 0.18 },
+    restingFill: { opacity: 0 },
+    pressedContent: { opacity: 0.7 },
+    restingContent: { opacity: 1 },
 });

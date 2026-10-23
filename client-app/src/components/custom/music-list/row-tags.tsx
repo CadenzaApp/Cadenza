@@ -31,6 +31,11 @@ type RowTagSnapshot = {
     showTags: boolean;
     showSuggested: boolean;
     showActivity: boolean;
+    /**
+     * The tag a sorted list leads with. Shown even when its kind is hidden,
+     * like a suggested tag with suggested tags turned off, on its own.
+     */
+    lead?: { source: "own" | "suggested"; tagId: number };
 };
 
 /** One row's tags, as the row hands them to `MusicListItem`. */
@@ -60,6 +65,23 @@ export type RowTagStore = ReturnType<typeof createRowTagStore>;
 export function createRowTagStore() {
     let snapshot = EMPTY_SNAPSHOT;
     const rows = new Map<string, RowTags>();
+    // a song's lead tag alone, kept per list of tags so a row sees the same
+    // array until its tags change
+    const leadOnly = new WeakMap<
+        readonly (Tag | AppliedTag)[],
+        { tagId: number; tags: (Tag | AppliedTag)[] }
+    >();
+    const onlyLead = <T extends Tag | AppliedTag>(
+        tags: readonly T[] | undefined,
+        tagId: number,
+    ): T[] | undefined => {
+        if (!tags) return undefined;
+        const cached = leadOnly.get(tags);
+        if (cached?.tagId === tagId) return cached.tags as T[];
+        const picked = tags.filter((tag) => tag.id === tagId);
+        leadOnly.set(tags, { tagId, tags: picked });
+        return picked;
+    };
     const listeners = new Set<() => void>();
 
     return {
@@ -75,13 +97,18 @@ export function createRowTagStore() {
             };
         },
         row(songId: string): RowTags {
+            const lead = snapshot.lead;
             const next: RowTags = {
                 tags: snapshot.showTags
                     ? snapshot.tagsBySong[songId]
-                    : undefined,
+                    : lead?.source === "own"
+                      ? onlyLead(snapshot.tagsBySong[songId], lead.tagId)
+                      : undefined,
                 defaultTags: snapshot.showSuggested
                     ? snapshot.defaultTagsBySong[songId]
-                    : undefined,
+                    : lead?.source === "suggested"
+                      ? onlyLead(snapshot.defaultTagsBySong[songId], lead.tagId)
+                      : undefined,
                 activityTags: snapshot.showActivity
                     ? snapshot.activityTagsBySong[songId]
                     : undefined,
@@ -131,6 +158,7 @@ export function RowTagSource({
     showTags,
     showSuggested,
     activityTagIds,
+    lead,
     toolbar,
 }: {
     store: RowTagStore;
@@ -143,6 +171,8 @@ export function RowTagSource({
     showTags: boolean;
     showSuggested: boolean;
     activityTagIds: readonly number[];
+    /** The tag a sorted list leads with, read and shown whatever the toggles say. */
+    lead?: { source: "own" | "suggested"; tagId: number };
     /** The selection toolbar's own props, or null when not selecting. */
     toolbar: Omit<
         MusicListSelectionToolbarProps,
@@ -182,9 +212,11 @@ export function RowTagSource({
             showTags,
             showSuggested,
             showActivity,
+            lead,
         });
     }, [
         activityTagsBySong,
+        lead,
         defaultTagsBySong,
         showActivity,
         showSuggested,

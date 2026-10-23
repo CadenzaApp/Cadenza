@@ -3,7 +3,7 @@ import { METADATA_TAG_COLOR } from "@/lib/song-metadata-tags";
 import { TAG_TYPE_ICONS } from "@/lib/tag-values";
 import type { TagType } from "@/lib/types";
 
-import type { IconName } from "./OptionPicker";
+import type { IconName } from "@/components/custom/option-picker";
 import type { MetadataKey } from "./types";
 
 /**

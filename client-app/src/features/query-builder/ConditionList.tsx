@@ -104,11 +104,8 @@ export function ConditionList({
             )}
             style={{ flexGrow: conditions.length === 0 ? 1 : 0 }}
         >
-            {conditions.length === 0 ? (
-                <Text className="px-4 py-8 text-center text-sm text-muted-foreground">
-                    Drag a tag here to start.
-                </Text>
-            ) : (
+            {/* the empty prompt is drawn by the query builder, over this */}
+            {conditions.length === 0 ? null : (
                 <>
                     <View className="-mt-7">
                         <MeasuredReorderList

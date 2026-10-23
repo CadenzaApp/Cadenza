@@ -3,14 +3,19 @@
 //! touched is queryable too.
 //!
 //! The stored rows are what metadata queries filter on and what a song's Metadata Tags show
-//! (`GET /songs/metadata-tags`), so the two always agree. They are not authoritative: every
-//! other screen keeps asking Apple Music for titles, and a stale row only makes a query miss
-//! a song or a pill lag behind Apple.
+//! (`GET /songs/metadata-tags`), so the two always agree. A sorted or grouped list draws its
+//! rows from them too, artwork included ([`song_rows_for_list`]), so it shows a thousand
+//! songs without asking Apple for each. They are not authoritative: every other screen
+//! keeps asking Apple Music for titles, and a stale row only makes a query miss a song, a
+//! pill lag behind Apple, or a sorted row show an old title.
 //!
 //! How much gets stored depends on what the user did with a song:
 //!
 //! - shown in any list, or read by the tag editor: that song
 //!   ([`spawn_store_song_metadata`], from the default tag routes)
+//! - added to someone's library: that song, as soon as the library syncs (`PATCH /songs`)
+//! - in a sorted or grouped list: that song, waited for when there are only a few
+//!   ([`store_metadata_before_sorting`])
 //! - opened in the player: that song, and its album is queued ([`record_song_opened`])
 //! - in someone's library: that song, and its album is queued (the crawl's library walk)
 //!
@@ -34,9 +39,10 @@ use tokio::time::{MissedTickBehavior, interval, sleep};
 
 use crate::db::entity::metadata_song_tags_applied;
 use crate::db::metadata_tags::{
-    claim_pending_albums, finish_albums, get_library_songs_without_metadata, get_song_metadata,
-    get_songs_without_metadata, get_stored_album_id, queue_albums, release_albums,
-    requeue_done_albums, reset_in_flight_albums, store_song_metadata,
+    SongRow, claim_pending_albums, finish_albums, get_library_songs_without_metadata,
+    get_song_metadata, get_song_rows, get_songs_without_artwork, get_songs_without_metadata,
+    get_stored_album_id, mark_without_artwork, queue_albums, release_albums, requeue_done_albums,
+    reset_in_flight_albums, store_song_metadata,
 };
 use crate::err::CadenzaError;
 use crate::services::song_metadata::{
@@ -49,6 +55,9 @@ const LOG_TAG: &str = "[metadata-tags]";
 
 /// Song ids per Apple catalog songs request, Apple's own cap.
 const SONG_IDS_PER_REQUEST: usize = 300;
+
+/// The most songs with no row a sorted list waits on Apple for: one request.
+const MAX_SONGS_TO_WAIT_FOR: usize = SONG_IDS_PER_REQUEST;
 
 /// Albums one pass crawls when `METADATA_CRAWL_ALBUM_BATCH_SIZE` is unset.
 const DEFAULT_ALBUM_BATCH_SIZE: usize = 20;
@@ -126,6 +135,113 @@ pub async fn store_fetched_song_metadata(
 
     store_song_metadata(db, &found, &not_found).await?;
     Ok(found)
+}
+
+/// What a sorted or grouped song list does before it sorts: stores the songs in `song_ids`
+/// that have no row yet, so the sort reads a row for each rather than putting them last.
+///
+/// It only waits when that is one Apple request's worth of songs, which is quick. Any more,
+/// like a large library sorted for the first time, are stored on their own task and the
+/// list sorts now: those songs come back in the response's `missing_metadata`, read as
+/// having no metadata, and sort properly from the next read on. Most of a library is stored
+/// long before this, when it syncs (`PATCH /songs`) and by the crawl's library walk.
+///
+/// A failure (Apple down, or rate limiting us) is logged and dropped, and the next sorted
+/// read tries those songs again.
+pub async fn store_metadata_before_sorting(
+    db: &DatabaseConnection,
+    song_meta_service: &SongMetadataService,
+    song_ids: &[String],
+) {
+    let missing = match get_songs_without_metadata(db, song_ids).await {
+        Ok(missing) => missing,
+        Err(err) => {
+            eprintln!("{LOG_TAG} could not read which sorted songs have metadata: {err}");
+            return;
+        }
+    };
+    if missing.is_empty() {
+        return;
+    }
+    if missing.len() > MAX_SONGS_TO_WAIT_FOR {
+        spawn_store_song_metadata(db.clone(), song_meta_service.clone(), missing);
+        return;
+    }
+    if let Err(err) = ensure_song_metadata_stored(db, song_meta_service, &missing).await {
+        eprintln!("{LOG_TAG} could not store metadata for a sorted list: {err}");
+    }
+}
+
+/// The rows a sorted or grouped list draws its songs from, keyed by song id, so the phone
+/// shows them without asking Apple for each. A song with no stored title is left out, and
+/// the phone looks it up itself.
+///
+/// Catalog rows stored before artwork was kept get theirs on their own task, so the next
+/// read has it. The phone fills those rows' artwork from Apple meanwhile.
+pub async fn song_rows_for_list(
+    db: &DatabaseConnection,
+    song_meta_service: &SongMetadataService,
+    song_ids: &[String],
+) -> Result<HashMap<String, SongRow>, CadenzaError> {
+    let rows = get_song_rows(db, song_ids).await?;
+    let without_artwork: Vec<String> = song_ids
+        .iter()
+        .filter(|song_id| {
+            rows.get(*song_id)
+                .is_some_and(|row| row.artwork_url.is_none())
+        })
+        .cloned()
+        .collect();
+    spawn_store_missing_artwork(db.clone(), song_meta_service.clone(), without_artwork);
+    Ok(rows)
+}
+
+/// Asks Apple again for catalog songs stored before artwork was kept, on its own task, and
+/// stores their artwork with the rest of what Apple says. A song Apple sends back without
+/// artwork, or no longer sends back, is marked as having none, so it is not asked about
+/// again. A failure is logged and dropped; the next list those songs are in tries again.
+fn spawn_store_missing_artwork(
+    db: DatabaseConnection,
+    song_meta_service: SongMetadataService,
+    song_ids: Vec<String>,
+) {
+    if song_ids.is_empty() {
+        return;
+    }
+
+    tokio::spawn(async move {
+        if let Err(err) = store_missing_artwork(&db, &song_meta_service, &song_ids).await {
+            eprintln!("{LOG_TAG} could not store artwork for listed songs: {err}");
+        }
+    });
+}
+
+async fn store_missing_artwork(
+    db: &DatabaseConnection,
+    song_meta_service: &SongMetadataService,
+    song_ids: &[String],
+) -> Result<(), CadenzaError> {
+    let missing = get_songs_without_artwork(db, song_ids).await?;
+    for chunk in missing.chunks(SONG_IDS_PER_REQUEST) {
+        let mut fetched = song_meta_service.get_songs_metadata(chunk).await?;
+        let found: Vec<SongMetadata> = chunk
+            .iter()
+            .filter_map(|song_id| fetched.remove(song_id))
+            .collect();
+        // only what Apple still knows is written: a song it dropped keeps its row
+        store_song_metadata(db, &found, &[]).await?;
+        let none: Vec<String> = chunk
+            .iter()
+            .filter(|song_id| {
+                !found
+                    .iter()
+                    .any(|song| &song.id == *song_id && song.artwork_url.is_some())
+            })
+            .cloned()
+            .collect();
+        mark_without_artwork(db, &none).await?;
+    }
+    Ok(())
 }
 
 /// Runs [`ensure_song_metadata_stored`] on its own task, so a list read does not wait on

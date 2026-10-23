@@ -1,20 +1,19 @@
+import type { MusicItem } from "@apple-musickit";
 import { useLocalSearchParams } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
 
-import type { MusicListSort } from "@/components/custom/music-list";
 import QueryResults from "@/features/query-builder/QueryResults";
-import { usePagedTracksForSongIds } from "@/lib/musickit-hooks";
-import { queryQueueIds } from "@/lib/paged-tracks";
+import {
+    COVER_SONG_COUNT,
+    useArrangedTrackList,
+} from "@/lib/arranged-track-list";
+import { useTrackLookup } from "@/lib/musickit-hooks";
 import { encodeQuerySource, type PlaySource } from "@/lib/play-source";
 import type { QueryJSON } from "@/lib/query-json";
-import {
-    useQueryResultsSnapshot,
-    type QueryResultsSort,
-} from "@/lib/routes/queries";
+import type { ArrangeSource } from "@/lib/routes/arrange";
 import { useActivityTagIdsInQuery } from "@/lib/routes/tags";
-
-/** What the list opens sorted by, the same as every other song list. */
-const DEFAULT_SORT: MusicListSort = { option: "title", direction: "ascending" };
+import { queryQueueIds } from "@/lib/paged-tracks";
+import { NO_ARRANGEMENT, type SongArrangement } from "@/lib/song-arrangement";
 
 /** Full-screen query matches, presented like the album and playlist heroes. */
 export default function QueryResultsScreen() {
@@ -28,16 +27,18 @@ export default function QueryResultsScreen() {
         query?: string;
         /** "1" when the builder had Include suggested tags on. */
         suggested?: string;
-        /** "1" when Show songs only in your library was on. */
+        /** "1" when Show songs only in library or tagged was on. */
         library?: string;
         relevantTags?: string;
         /** The query as one readable line, for the analytics ranking. */
         name?: string;
     }>();
     const query = useMemo(() => parseQuery(encodedQuery), [encodedQuery]);
-    const libraryOnly = library === "1";
-    const [sort, setSort] = useState<MusicListSort>(DEFAULT_SORT);
-    const resultsSort = useMemo(() => toResultsSort(sort), [sort]);
+    const libraryOrTagged = library === "1";
+    const considerDefaultTags = suggested === "1";
+    // starts unsorted every time the screen opens, and is never saved
+    const [arrangement, setArrangement] =
+        useState<SongArrangement>(NO_ARRANGEMENT);
     // what a play from here is credited to
     const playSource = useMemo<PlaySource | undefined>(
         () =>
@@ -46,12 +47,12 @@ export default function QueryResultsScreen() {
                       kind: "query",
                       id: encodeQuerySource({
                           query,
-                          suggested: suggested === "1",
+                          suggested: considerDefaultTags,
                       }),
                       name: name || "Query",
                   }
                 : undefined,
-        [name, query, suggested],
+        [considerDefaultTags, name, query],
     );
     const mostRelevantTags = useMemo(
         () => parseRelevantTags(relevantTags),
@@ -59,65 +60,88 @@ export default function QueryResultsScreen() {
     );
     const activityTagIds = useActivityTagIdsInQuery(query);
     // held for as long as the screen is open, so the list cannot move while it
-    // is scrolled. sorting asks for a new one
-    const {
-        matchedSongs,
-        matchedSongIds,
-        resultsCapped,
-        queryResultsLoading,
-        queryResultsErr,
-    } = useQueryResultsSnapshot(
-        query,
-        suggested === "1",
-        libraryOnly,
-        resultsSort,
+    // is scrolled. a new sort or group asks for a new one. waits for the saved
+    // arrangement, so a sorted screen is not fetched unsorted first
+    const source = useMemo<ArrangeSource | null>(
+        () =>
+            query
+                ? {
+                      kind: "query",
+                      query,
+                      considerDefaultTags,
+                      scope: libraryOrTagged ? "libraryOrTagged" : "everything",
+                  }
+                : null,
+        [considerDefaultTags, libraryOrTagged, query],
     );
-    const {
-        tracks,
-        loadedCount,
-        tracksLoading,
-        isLoadingNextPage,
-        hasNextPage,
-        loadNextPage,
-        resolveTracks,
-        tracksErr,
-    } = usePagedTracksForSongIds(matchedSongIds);
-    // every song that is certainly the user's own plays, scrolled to or not.
-    // the rest only once the list has shown them
+    const lookupTracks = useTrackLookup();
+    const resetArrangement = useCallback(
+        () => setArrangement(NO_ARRANGEMENT),
+        [setArrangement],
+    );
+    const list = useArrangedTrackList({
+        source,
+        arrangement,
+        lookupTracks,
+        onRejected: resetArrangement,
+        // the rows show these, so a grouped list loads them with the songs
+        warmActivityTags: activityTagIds.length > 0,
+    });
+    const { arranged, loadedCount, resolveTracks, shownTracks, songs } = list;
+    // unsorted, every song that is certainly the user's own plays, scrolled to
+    // or not, and the rest once the list has shown them. sorted or grouped,
+    // what the list has shown
     const resolvePlayQueue = useCallback(
-        () => resolveTracks(queryQueueIds(matchedSongs, loadedCount)),
-        [loadedCount, matchedSongs, resolveTracks],
+        async () =>
+            arranged
+                ? shownTracks
+                : resolveTracks(queryQueueIds(songs, loadedCount)),
+        [arranged, loadedCount, resolveTracks, shownTracks, songs],
     );
+
+    // the cover and page color come from the first songs of the result, open
+    // groups or not, and are held for as long as the screen shows this query:
+    // opening a group, or a new sort or group, never repaints the page
+    const shown = list.sections ? list.shownTracks : list.tracks;
+    const candidates = list.cover?.tracks ?? shown;
+    const firstSongsSettled = list.cover
+        ? list.cover.ready && candidates.length > 0
+        : shown.length >= COVER_SONG_COUNT ||
+          (shown.length > 0 &&
+              !list.loading &&
+              !list.pagination?.isLoadingNextPage);
+    const [cover, setCover] = useState<{
+        source: ArrangeSource | null;
+        tracks: MusicItem[];
+    } | null>(null);
+    // set while rendering, React's way of keeping a value from an earlier render
+    if (firstSongsSettled && cover?.source !== source) {
+        setCover({ source, tracks: candidates.slice(0, COVER_SONG_COUNT) });
+    }
+    const coverSongs = cover?.source === source ? cover.tracks : candidates;
 
     return (
         <QueryResults
-            songs={tracks}
-            isLoading={queryResultsLoading || tracksLoading}
-            error={queryResultsErr ?? tracksErr}
-            matchCount={matchedSongIds.length}
-            capped={resultsCapped}
-            libraryOnly={libraryOnly}
-            pagination={{
-                hasNextPage,
-                isLoadingNextPage,
-                onLoadNextPage: loadNextPage,
+            songs={shown}
+            coverSongs={coverSongs}
+            isLoading={list.loading}
+            error={list.error}
+            matchCount={list.songIds.length}
+            capped={list.capped}
+            libraryOrTagged={libraryOrTagged}
+            pagination={list.pagination}
+            sections={list.sections}
+            arrangement={{
+                value: arrangement,
+                onChange: setArrangement,
+                sortValues: list.sortValues,
             }}
-            sort={sort}
-            onSortChange={setSort}
             resolvePlayQueue={resolvePlayQueue}
             mostRelevantTags={mostRelevantTags}
             activityTagIds={activityTagIds}
             playSource={playSource}
         />
     );
-}
-
-/** The list's sort as the backend takes it. The list only offers these three. */
-function toResultsSort(sort: MusicListSort): QueryResultsSort {
-    return {
-        key: sort.option === "dateAdded" ? "title" : sort.option,
-        direction: sort.direction,
-    };
 }
 
 function parseRelevantTags(encoded?: string): string[] {

@@ -8,16 +8,16 @@ submitted query, shared results action, and the Simple / Advanced mode toggle.
 
 ## Files
 
-| file                       | role                                                                                                                                                                                                       |
-| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `types.ts`                 | The builder tree (`AdvancedGroupNode`, `AdvancedFilterNode`), `FilterField`, and `FieldKind`. Re-exports `FilterOp`; the wire format itself lives in `@/lib/query-json`.                                   |
-| `AdvancedQueryUtils.ts`    | Pure: operator tables and labels, immutable tree ops, date helpers, and `buildAdvancedQuery`, which compiles the tree to `QueryJSON`. Unit tested in `AdvancedQueryUtils.test.ts`.                         |
-| `AdvancedQueryBuilder.tsx` | Scrollable root group. Binds tree ops to `BuilderActions`; shared results/history actions float above the navigation/player inset.                                                                         |
-| `FilterGroup.tsx`          | One group: the all / any / none selector, its children, and the "Add filter" / "Add filter group" buttons. Recursive. Exports `BuilderTags` and `BuilderActions`.                                          |
-| `FilterRow.tsx`            | One filter line: connector word, field picker (Properties, Metadata, Your tags), operator picker, value input, and the remove button. Exports `RemoveButton`.                                              |
-| `FilterValueInput.tsx`     | The value input for a line: text, number, a calendar day, a date and time, or a tag type. Its compact width is shared with Simple's value-tag popup.                                                       |
-| `OptionPicker.tsx`         | Liquid-glass popup list with optional sections and search. Its own `Modal`, sized for a phone: near full width, up to 80% of the screen tall, 56pt rows. Scrolls vertically and wraps long labels.         |
-| `field-icons.ts`           | `TYPE_ICONS` (an alias of `@/lib/tag-values::TAG_TYPE_ICONS`, shared with `TagPill`), the three "property" fields (tag name, tag value, tag type), and the metadata fields, each with its tag type's icon. |
+| file                                | role                                                                                                                                                                                                                |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `types.ts`                          | The builder tree (`AdvancedGroupNode`, `AdvancedFilterNode`), `FilterField`, and `FieldKind`. Re-exports `FilterOp`; the wire format itself lives in `@/lib/query-json`.                                            |
+| `AdvancedQueryUtils.ts`             | Pure: operator tables and labels, immutable tree ops, date helpers, and `buildAdvancedQuery`, which compiles the tree to `QueryJSON`. Unit tested in `AdvancedQueryUtils.test.ts`.                                  |
+| `AdvancedQueryBuilder.tsx`          | Scrollable root group. Binds tree ops to `BuilderActions`; shared results/history actions float above the navigation/player inset.                                                                                  |
+| `FilterGroup.tsx`                   | One group: the all / any / none selector, its children, and the "Add filter" / "Add filter group" buttons. Recursive. Exports `BuilderTags` and `BuilderActions`.                                                   |
+| `FilterRow.tsx`                     | One filter line: connector word, field picker (Properties, Metadata, Your tags), operator picker, value input, and the remove button. Exports `RemoveButton`.                                                       |
+| `FilterValueInput.tsx`              | The value input for a line: text, number, a calendar day, a date and time, or a tag type. Its compact width is shared with Simple's value-tag popup.                                                                |
+| `@/components/custom/option-picker` | Not in this folder: the liquid-glass popup list every picker here uses, shared with a song list's Sort by / Group by. Its own `Modal`, sized for a phone: near full width, up to 80% of the screen tall, 56pt rows. |
+| `field-icons.ts`                    | `TYPE_ICONS` (an alias of `@/lib/tag-values::TAG_TYPE_ICONS`, shared with `TagPill`), the three "property" fields (tag name, tag value, tag type), and the metadata fields, each with its tag type's icon.          |
 
 ## The model
 

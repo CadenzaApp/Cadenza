@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import useSWR, { mutate, unstable_serialize, useSWRConfig } from "swr";
 import useSWRMutation from "swr/mutation";
 import { useAccount } from "./account";
@@ -9,16 +9,20 @@ import { matchesEndpoint, type APIDataEndpoint } from "./api-endpoints";
 import { logAPIFailure } from "./api-log";
 
 type BatchedReadCacheEntry = {
+    accountId: string;
     path: string;
     items: readonly unknown[];
     response: Promise<unknown>;
 };
 
 // SWR caches the merged result for each caller. This smaller read-through
-// cache preserves completed transport chunks when a paginated caller appends
-// more ids and therefore changes its merged SWR key.
+// cache keeps every transport batch, so when a caller's id list changes (a
+// list pages in more, or a grouped list opens a group in the middle) only the
+// ids no batch holds yet are asked for again.
 const batchedReadCache = new Map<string, BatchedReadCacheEntry>();
-const MAX_BATCHED_READ_CACHE_ENTRIES = 256;
+// enough for a whole grouped list warmed ahead (40 batches of 25 for 1,000
+// songs, for each kind of tag) alongside the screens under it
+const MAX_BATCHED_READ_CACHE_ENTRIES = 512;
 
 function queryParamsToStr(params?: Record<string, any>) {
     return !params || Object.keys(params).length === 0
@@ -321,13 +325,23 @@ const SNAPSHOT_RETRY_DELAYS_MS = [1000, 3000] as const;
 export function useAPIPostSnapshot<Body, Output>(
     path: string,
     body: Body | null,
+    /**
+     * Bumping this fetches the same body again, for a caller that knows the
+     * answer changed, like after filling in what the last one was missing.
+     */
+    revision = 0,
 ) {
     const { account } = useAccount();
-    // the body as a string, so an equal body in a new object does not refetch
-    const requestKey =
-        account && body !== null
-            ? JSON.stringify([account.id, path, body])
-            : null;
+    const accountId = account?.id;
+    // the body as a string, so an equal body in a new object does not refetch.
+    // memoized, since a body can hold thousands of song ids
+    const requestKey = useMemo(
+        () =>
+            accountId && body !== null
+                ? JSON.stringify([accountId, path, body, revision])
+                : null,
+        [accountId, body, path, revision],
+    );
     const [result, setResult] = useState<{
         requestKey: string;
         data?: Output;
@@ -341,6 +355,7 @@ export function useAPIPostSnapshot<Body, Output>(
             string,
             string,
             Body,
+            number,
         ];
 
         // SWR would retry a failed read, so this does too, a few times with
@@ -408,42 +423,103 @@ export function useAPIPostDataBatched<Item, Body, Output>(
         account && items.length > 0
             ? { keyType: "api-data", path, items, accountId: account.id }
             : null,
-        async () => {
-            const responses = await Promise.all(
-                chunk(items, batchSize).map((batch) => {
-                    const cacheKey = JSON.stringify([account!.id, path, batch]);
-                    const cached = batchedReadCache.get(cacheKey);
-                    if (cached) return cached.response as Promise<Output>;
-
-                    const response = apiRequest<Output>(BACKEND_URL + path, {
-                        method: "POST",
-                        body: toBody(batch),
-                    }).catch((error) => {
-                        batchedReadCache.delete(cacheKey);
-                        throw error;
-                    });
-                    batchedReadCache.set(cacheKey, {
-                        path,
-                        items: batch,
-                        response,
-                    });
-                    while (
-                        batchedReadCache.size > MAX_BATCHED_READ_CACHE_ENTRIES
-                    ) {
-                        const oldestKey = batchedReadCache.keys().next().value;
-                        if (oldestKey === undefined) break;
-                        batchedReadCache.delete(oldestKey);
-                    }
-                    return response;
-                }),
-            );
-
-            return merge(responses);
-        },
+        async () =>
+            merge(
+                await batchedResponses<Item, Body, Output>(
+                    account!.id,
+                    path,
+                    items,
+                    batchSize,
+                    toBody,
+                ),
+            ),
         // the id list grows as a screen pages in, so hold the last result
         // rather than flashing empty on every new page
         { keepPreviousData: true },
     );
+}
+
+/**
+ * Asks for `items` the way `useAPIPostDataBatched` would, ahead of any screen
+ * reading them, so a later read of any of them is answered from the batches
+ * this leaves behind. For warming a list's rows before they are shown. A
+ * failure is dropped: the read itself asks again.
+ */
+export async function warmAPIDataBatched<Item, Body>(
+    accountId: string,
+    path: string,
+    items: readonly Item[],
+    batchSize: number,
+    toBody: (batch: Item[]) => Body,
+): Promise<void> {
+    if (items.length === 0) return;
+    try {
+        await batchedResponses(accountId, path, items, batchSize, toBody);
+    } catch {
+        // the read that needs these asks again
+    }
+}
+
+/**
+ * The responses for `items`: from any cached batch already holding an item,
+ * and from new batches of the rest. The responses must be per-item maps, since
+ * a reused batch can hold items this caller does not.
+ */
+async function batchedResponses<Item, Body, Output>(
+    accountId: string,
+    path: string,
+    items: readonly Item[],
+    batchSize: number,
+    toBody: (batch: Item[]) => Body,
+): Promise<Output[]> {
+    // batches that already hold some of these items answer for them,
+    // the latest one for an item that more than one holds
+    const holder = new Map<unknown, BatchedReadCacheEntry>();
+    for (const entry of batchedReadCache.values()) {
+        if (entry.accountId !== accountId || entry.path !== path) continue;
+        for (const item of entry.items) holder.set(item, entry);
+    }
+    const reused = new Set<BatchedReadCacheEntry>();
+    const missing: Item[] = [];
+    for (const item of items) {
+        const entry = holder.get(item);
+        if (entry) reused.add(entry);
+        else missing.push(item);
+    }
+    // in the order the cache holds them, oldest first, so a newer batch's
+    // answer for an item is the one a merge keeps
+    const reusedInOrder = [...batchedReadCache.values()].filter((entry) =>
+        reused.has(entry),
+    );
+
+    return Promise.all([
+        ...reusedInOrder.map((entry) => entry.response as Promise<Output>),
+        ...chunk(missing, batchSize).map((batch) => {
+            const cacheKey = JSON.stringify([accountId, path, batch]);
+            const cached = batchedReadCache.get(cacheKey);
+            if (cached) return cached.response as Promise<Output>;
+
+            const response = apiRequest<Output>(BACKEND_URL + path, {
+                method: "POST",
+                body: toBody(batch),
+            }).catch((error) => {
+                batchedReadCache.delete(cacheKey);
+                throw error;
+            });
+            batchedReadCache.set(cacheKey, {
+                accountId,
+                path,
+                items: batch,
+                response,
+            });
+            while (batchedReadCache.size > MAX_BATCHED_READ_CACHE_ENTRIES) {
+                const oldestKey = batchedReadCache.keys().next().value;
+                if (oldestKey === undefined) break;
+                batchedReadCache.delete(oldestKey);
+            }
+            return response;
+        }),
+    ]);
 }
 
 function chunk<T>(values: readonly T[], size: number): T[][] {

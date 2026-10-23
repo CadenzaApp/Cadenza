@@ -7,7 +7,12 @@ import { TagPill } from "@/components/custom/tag-pill";
 import { activityTagDisplayValue, unownedDefaultTags } from "@/lib/tag-values";
 import type { AppliedTag, Tag, TagMetadata } from "@/lib/types";
 
-import { sortMusicListTags } from "./sort-tags";
+import {
+    leadPillFirst,
+    sortMusicListTags,
+    type RailLead,
+    type RailPillSource,
+} from "./sort-tags";
 
 const TAG_RAIL_TOUCH_INSET = 10;
 const EMPTY_TAG_NAMES: readonly string[] = [];
@@ -22,11 +27,21 @@ const FILL = {
 const MASK_ROW = { ...FILL, flexDirection: "row" } as const;
 const MASK_SOLID = { flex: 1, backgroundColor: "black" } as const;
 
+/** One pill on the rail, with the value it shows. */
+type RailPill = {
+    source: RailPillSource;
+    tag: Tag | AppliedTag;
+    value?: string | null;
+};
+
 /**
  * The song's own and shared default tags in list-wide relevance order.
  * Defaults stay unfilled so their source remains visible after sorting.
  * Activity tags come first when given, since a list only passes the ones its
  * query filters on, each with the song's value ("My Plays 3").
+ *
+ * A list sorted by a tag passes it as `lead`, and it goes first of all, so
+ * the value the list is sorted by is always in view.
  */
 export const TagFadeRail = memo(function TagFadeRail({
     tags,
@@ -34,6 +49,7 @@ export const TagFadeRail = memo(function TagFadeRail({
     mostRelevantTags,
     tagMetadata,
     activityTags = [],
+    lead,
     compact,
 }: {
     tags: readonly AppliedTag[];
@@ -42,6 +58,8 @@ export const TagFadeRail = memo(function TagFadeRail({
     tagMetadata?: Readonly<Record<number, TagMetadata>>;
     /** Already narrowed to the ones to show, in order. */
     activityTags?: readonly AppliedTag[];
+    /** The tag the list is sorted by, shown first. */
+    lead?: RailLead;
     compact: boolean;
 }) {
     const shownDefaultTags = useMemo(
@@ -58,6 +76,30 @@ export const TagFadeRail = memo(function TagFadeRail({
             ),
         [mostRelevantTags, shownDefaultTags, tagMetadata, tags],
     );
+    const pills = useMemo(() => {
+        const all: RailPill[] = [
+            ...activityTags.map(
+                (tag): RailPill => ({
+                    source: "activity",
+                    tag,
+                    value: activityTagDisplayValue(tag),
+                }),
+            ),
+            ...orderedTags.map(
+                ({ source, tag }): RailPill =>
+                    source === "local"
+                        ? { source: "own", tag, value: tag.value }
+                        : { source: "suggested", tag },
+            ),
+        ];
+        if (lead?.kind === "pill") {
+            return [
+                { source: "lead", tag: lead.tag, value: lead.value } as const,
+                ...all,
+            ];
+        }
+        return leadPillFirst(all, lead);
+    }, [activityTags, lead, orderedTags]);
     const fadeWidth = compact ? 16 : 24;
     // only a rail whose tags run past its edge gets the mask: a mask makes
     // iOS draw the row offscreen, every frame it moves. the widths live in
@@ -88,26 +130,17 @@ export const TagFadeRail = memo(function TagFadeRail({
                 paddingVertical: TAG_RAIL_TOUCH_INSET,
             }}
         >
-            {activityTags.map((tag) => (
-                <TagPill
-                    key={`activity:${tag.id}`}
-                    tag={tag}
-                    value={activityTagDisplayValue(tag)}
-                    height={compact ? 8 : 9}
-                    showIcon={false}
-                />
-            ))}
-            {orderedTags.map(({ source, tag }) => (
+            {pills.map(({ source, tag, value }) => (
                 <View
                     key={`${source}:${tag.id}`}
-                    style={source === "default" ? SUGGESTED_TAG_STYLE : null}
+                    style={source === "suggested" ? SUGGESTED_TAG_STYLE : null}
                 >
                     <TagPill
                         tag={tag}
-                        value={source === "local" ? tag.value : undefined}
+                        value={value}
                         height={compact ? 8 : 9}
                         showIcon={false}
-                        suggested={source === "default"}
+                        suggested={source === "suggested"}
                     />
                 </View>
             ))}

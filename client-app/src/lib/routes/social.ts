@@ -573,7 +573,9 @@ export function useUpdateCachedPostCommentCount() {
                 current == null
                     ? current
                     : applyPostCommentDelta(current, postId, delta);
-            const writes = [
+            // one filtered write answers with a list and each keyed write
+            // with one entry, so the array holds either
+            const writes: Promise<unknown>[] = [
                 mutate(isSocialPostListKey, apply, { revalidate: false }),
             ];
             for (const key of cache.keys()) {

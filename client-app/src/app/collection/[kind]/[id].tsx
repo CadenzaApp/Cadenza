@@ -1,17 +1,31 @@
 import { ShuffleMode, type MusicItem } from "@apple-musickit";
 import { useLocalSearchParams } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
-import { View } from "react-native";
+import { ActivityIndicator, View } from "react-native";
+import { useTheme } from "expo-router/react-navigation";
 
 import { CollectionOptionsMenu } from "@/components/custom/options-menu/collection-options-menu";
 import { TrackCollectionView } from "@/components/custom/track-collection-view";
 import { FloatingCloseButton } from "@/components/ui/floating-close-button";
-import { ContrastText as Text } from "@/lib/surface-contrast-context";
+import { useArrangedTrackList } from "@/lib/arranged-track-list";
+import {
+    ContrastText as Text,
+    useSurfacePalette,
+} from "@/lib/surface-contrast-context";
 import { useArtworkTint } from "@/lib/artwork-color";
-import { useCollectionSongsOrFallback } from "@/lib/musickit-hooks";
+import {
+    indexTracksById,
+    useCollectionSongsOrFallback,
+} from "@/lib/musickit-hooks";
 import { isTrackInCollection } from "@/lib/playable-item";
 import type { PlaySource } from "@/lib/play-source";
 import { usePlaybackCommands, usePlaybackTrackState } from "@/lib/playback";
+import type { ArrangeSource } from "@/lib/routes/arrange";
+import {
+    isArranged,
+    NO_ARRANGEMENT,
+    type SongArrangement,
+} from "@/lib/song-arrangement";
 import { ZoomDismissScreen } from "@/lib/zoom-dismiss";
 import { MediaPlayerZoomOverlay } from "@/components/custom/media-player";
 
@@ -65,6 +79,48 @@ export default function CollectionDetailScreen() {
         tracksErr,
     } = useCollectionSongsOrFallback(kind, routeId, fallbackId);
     const firstTrack = tracks[0];
+
+    // sorted or grouped, the backend orders the whole collection, so every page
+    // has to be in before it can be asked. the pages load either way
+    // starts unsorted every time the screen opens, and is never saved
+    const [arrangement, setArrangement] =
+        useState<SongArrangement>(NO_ARRANGEMENT);
+    const arranged = isArranged(arrangement);
+    const everyPageIn =
+        !tracksLoading && !hasNextCollectionPage && !tracksLoadingNextPage;
+    const source = useMemo<ArrangeSource | null>(
+        () =>
+            arranged && everyPageIn
+                ? {
+                      kind: "songs",
+                      // the id tags and metadata are kept under
+                      songIds: tracks.map(
+                          (track) => track.catalogId ?? track.id,
+                      ),
+                  }
+                : null,
+        [arranged, everyPageIn, tracks],
+    );
+    // every song is already here, so nothing needs Apple to find it
+    const lookupTracks = useCallback(
+        async () => indexTracksById(tracks),
+        [tracks],
+    );
+    const resetArrangement = useCallback(
+        () => setArrangement(NO_ARRANGEMENT),
+        [setArrangement],
+    );
+    const list = useArrangedTrackList({
+        source,
+        arrangement,
+        lookupTracks,
+        localTracks: tracks,
+        onRejected: resetArrangement,
+    });
+    const waitingToSort = arranged && (!everyPageIn || list.loading);
+    // what plays, and what the hero counts: every song, in the list's order
+    const orderedTracks =
+        arranged && list.active ? list.allLocalTracks : tracks;
     // a playlist is somewhere a play can come from, so its plays are credited
     // to it. an album already ranks off the track itself
     const playSource = useMemo<PlaySource | undefined>(
@@ -94,7 +150,7 @@ export default function CollectionDetailScreen() {
 
     /** Plays the collection from the top, replacing the queue. */
     async function play() {
-        if (tracks.length === 0 || playbackCommandPending) return;
+        if (orderedTracks.length === 0 || playbackCommandPending) return;
         setPlaybackCommandPending(true);
         try {
             if (isCurrentCollection && activeTrack) {
@@ -102,7 +158,7 @@ export default function CollectionDetailScreen() {
                 return;
             }
             await setShuffleMode(ShuffleMode.Off);
-            await playQueue({ tracks, source: playSource });
+            await playQueue({ tracks: orderedTracks, source: playSource });
         } finally {
             setPlaybackCommandPending(false);
         }
@@ -110,13 +166,13 @@ export default function CollectionDetailScreen() {
 
     /** The same queue, shuffled, starting somewhere other than the first song. */
     async function shuffle() {
-        if (tracks.length === 0 || playbackCommandPending) return;
+        if (orderedTracks.length === 0 || playbackCommandPending) return;
         setPlaybackCommandPending(true);
         try {
             await setShuffleMode(ShuffleMode.Songs);
             await playQueue({
-                tracks,
-                startIndex: Math.floor(Math.random() * tracks.length),
+                tracks: orderedTracks,
+                startIndex: Math.floor(Math.random() * orderedTracks.length),
                 source: playSource,
             });
         } finally {
@@ -137,17 +193,27 @@ export default function CollectionDetailScreen() {
                     title={
                         title ?? (kind === "playlist" ? "Playlist" : "Album")
                     }
-                    tracks={tracks}
+                    tracks={orderedTracks}
                     isLoading={tracksLoading}
                     highlightTrackId={highlight}
-                    error={tracksErr}
+                    error={tracksErr ?? list.error}
                     pagination={{
                         hasNextPage: hasNextCollectionPage,
                         isLoadingNextPage: tracksLoadingNextPage,
                         onLoadNextPage: loadNextCollectionPage,
                     }}
                     loadAllPages
-                    sorting={null}
+                    sections={arranged ? list.sections : null}
+                    arrangement={{
+                        value: arrangement,
+                        onChange: setArrangement,
+                        sortValues: list.sortValues,
+                    }}
+                    listOverlay={
+                        waitingToSort ? (
+                            <WaitingToSort loadedCount={tracks.length} />
+                        ) : null
+                    }
                     multiSelect={DEFAULT_MULTI_SELECT_CONFIG}
                     subtitle={artistName ?? firstTrack?.artistName}
                     summary={collectionMeta(firstTrack)}
@@ -197,6 +263,35 @@ export default function CollectionDetailScreen() {
                 ) : null}
             </View>
         </ZoomDismissScreen>
+    );
+}
+
+/**
+ * Shown in place of the songs while a sorted collection waits for its last
+ * pages, then for the backend to sort it. A long playlist takes a few seconds.
+ */
+function WaitingToSort({ loadedCount }: { loadedCount: number }) {
+    const { colors } = useTheme();
+    const palette = useSurfacePalette();
+    return (
+        <View
+            className="items-center gap-3 px-6 py-12"
+            accessibilityRole="progressbar"
+            accessibilityLabel="Loading every song so the list can be sorted"
+        >
+            <ActivityIndicator
+                size="large"
+                color={palette?.foreground ?? colors.text}
+            />
+            <Text className="text-center text-base font-semibold">
+                Sorting every song
+            </Text>
+            <Text className="text-center text-sm text-muted-foreground">
+                {loadedCount > 0
+                    ? `${loadedCount} ${loadedCount === 1 ? "song" : "songs"} loaded so far`
+                    : "Loading songs"}
+            </Text>
+        </View>
     );
 }
 
