@@ -51,9 +51,10 @@ inset and 64 points for the handle/heading. Floating actions follow its top edge
 clearance updates on release. A fixed bottom spacer lets the final tag row reach the top.
 Palette scrolling stays enabled at every height, including the minimum. Palette tag pickup
 requires a 155ms hold, so ordinary vertical swipes scroll rather than start a tag drag.
-Query tags use movement activation without a long-press timer, preserving tap-to-remove. The
+Query tags also activate after a 155ms hold, with a pickup haptic before movement. Short taps
+still remove basic tags or edit value tags. The
 whole visible palette accepts delete drops without the query-content bottom inset. Its delete
-backdrop is white in light mode and black in dark mode.
+prompt centers above the playback/navigation clearance and keeps the glass backdrop visible.
 
 ## Gesture and rendering contracts
 

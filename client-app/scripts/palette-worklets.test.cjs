@@ -66,6 +66,7 @@ test("tag pickup and release callbacks remain UI worklets with conditional hold 
         },
     );
     const gestures = [];
+    const holds = [];
     const shared = (value) => ({
         get: () => value,
         set: (next) => {
@@ -92,6 +93,10 @@ test("tag pickup and release callbacks remain UI worklets with conditional hold 
                 callbacks[name] = callback;
                 return pan;
             };
+        pan.activateAfterLongPress = (duration) => {
+            holds.push(duration);
+            return pan;
+        };
         gestures.push(callbacks);
         return pan;
     };
@@ -133,6 +138,7 @@ test("tag pickup and release callbacks remain UI worklets with conditional hold 
     for (const source of ["palette", "query"])
         context.exports.DraggablePill({ payload: { source }, children: null });
     assert.equal(gestures.length, 2);
+    assert.deepEqual(holds, [155, 155]);
     for (const callbacks of gestures)
         for (const [name, callback] of Object.entries(callbacks))
             assert.ok(

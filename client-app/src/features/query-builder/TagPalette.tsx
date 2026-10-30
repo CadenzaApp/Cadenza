@@ -78,7 +78,6 @@ export function TagPalette({
     });
     const { dragState } = useDrag();
     const deleteHovered = useDropHover("delete");
-    const { colors: theme, scheme } = useAppTheme();
     const { playerBottomInset } = useScreenOverlayInsets();
     // The native tab bar floats over this screen on both platforms. Its
     // platform-specific inset (and the player, when present) sets the floor;
@@ -207,6 +206,11 @@ export function TagPalette({
         transform: [{ translateY: translation.get() }],
     }));
 
+    const { colors: theme } = useAppTheme();
+    const deletePromptStyle = useAnimatedStyle(() => ({
+        height: Math.max(0, visibleHeight.get() - playerBottomInset),
+    }));
+
     return (
         <Animated.View
             className="absolute bottom-0 left-0 right-0 overflow-hidden"
@@ -260,6 +264,7 @@ export function TagPalette({
                         scrollEventThrottle={16}
                         removeClippedSubviews={false}
                         className="flex-1 overflow-hidden"
+                        style={{ opacity: deleteHovered ? 0 : 1 }}
                         contentContainerClassName="px-5 pb-2"
                         contentContainerStyle={{ flexGrow: 0, flexShrink: 0 }}
                         keyboardShouldPersistTaps="handled"
@@ -360,36 +365,22 @@ export function TagPalette({
                         </>
                     </Animated.ScrollView>
                     {deleteHovered ? (
-                        <>
-                            <Animated.View
-                                pointerEvents="none"
-                                entering={FadeIn.duration(200)}
-                                exiting={FadeOut.duration(160)}
-                                className="absolute inset-0 z-10"
-                                style={{
-                                    backgroundColor:
-                                        scheme === "light"
-                                            ? "#ffffff"
-                                            : "#000000",
-                                }}
+                        <Animated.View
+                            pointerEvents="none"
+                            entering={FadeIn.duration(160)}
+                            exiting={FadeOut.duration(120)}
+                            className="absolute left-0 right-0 top-0 z-20 items-center justify-center gap-2"
+                            style={deletePromptStyle}
+                        >
+                            <Ionicons
+                                name="trash-outline"
+                                size={32}
+                                color={theme.foreground}
                             />
-                            <Animated.View
-                                pointerEvents="none"
-                                entering={FadeIn.delay(40).duration(180)}
-                                exiting={FadeOut.duration(120)}
-                                className="absolute inset-0 z-20 items-center justify-center"
-                            >
-                                <Ionicons
-                                    name="trash-outline"
-                                    size={32}
-                                    color={theme.destructive}
-                                />
-                                <Text className="mt-2 text-sm font-semibold text-destructive">
-                                    Drop to delete{" "}
-                                    {deletingGroup ? "group" : "tag"}
-                                </Text>
-                            </Animated.View>
-                        </>
+                            <Text className="w-3/4 text-center text-xl font-semibold">
+                                Drop to delete {deletingGroup ? "group" : "tag"}
+                            </Text>
+                        </Animated.View>
                     ) : null}
                 </DropSlot>
             </DropViewport>
@@ -450,7 +441,7 @@ function PaletteSearchField({
     onFocus: () => void;
     accessibilityLabel: string;
 }) {
-    const { colors } = useAppTheme();
+    const { colors, scheme } = useAppTheme();
     return (
         <View className="relative h-9 flex-1 justify-center overflow-hidden rounded-full">
             <Input
@@ -460,8 +451,20 @@ function PaletteSearchField({
                 placeholder="Search"
                 placeholderTextColor={colors.mutedForeground}
                 accessibilityLabel={accessibilityLabel}
-                className="h-9 rounded-full border-input bg-transparent pl-9 text-sm font-semibold shadow-none"
-                style={{ backgroundColor: "transparent" }}
+                className="h-9 rounded-full border-input bg-transparent py-0 pl-9 text-sm font-semibold leading-normal shadow-none"
+                style={{
+                    paddingVertical: 0,
+                    includeFontPadding: false,
+                    textAlignVertical: "center",
+                    backgroundColor:
+                        scheme === "dark"
+                            ? "rgba(255,255,255,0.08)"
+                            : "rgba(0,0,0,0.05)",
+                    borderColor:
+                        scheme === "dark"
+                            ? "rgba(255,255,255,0.28)"
+                            : "rgba(0,0,0,0.24)",
+                }}
                 autoCapitalize="none"
                 autoCorrect={false}
             />

@@ -89,10 +89,9 @@ export function DraggablePill({
     // These callbacks execute later on the UI runtime, never during render.
     /* eslint-disable react-hooks/refs, react-hooks/purity */
     const pan = useMemo(() => {
-        const gesture = Gesture.Pan().minDistance(6);
-        // Do not pass zero: RNGH treats it as an immediate long press,
-        // bypassing the movement threshold and stealing query-tag taps.
-        if (payload.source === "palette") gesture.activateAfterLongPress(155);
+        const gesture = Gesture.Pan()
+            .minDistance(6)
+            .activateAfterLongPress(155);
         // A variable-rooted gesture chain is not auto-workletized. Keep each
         // callback explicit so release and finalization share UI-thread state.
         return gesture
@@ -140,7 +139,6 @@ export function DraggablePill({
                 if (started.get() && !released.get()) runOnJS(cancel)();
             });
     }, [
-        payload.source,
         origin,
         opacity,
         started,

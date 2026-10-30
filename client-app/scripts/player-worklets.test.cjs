@@ -493,7 +493,7 @@ test("hold unlocks once, free dragging and repeated holds stay silent", () => {
     const r = fixture(),
         m = r.mount(),
         circle = m.circleGesture("tab");
-    assert.equal(circle.gestures[1].callbacks.minDuration, 220);
+    assert.equal(circle.gestures[1].callbacks.minDuration, 155);
     circle.gestures[1].callbacks.onStart();
     assert.equal(m.free.get(), true);
     assert.deepEqual(r.haptics, ["light"]);

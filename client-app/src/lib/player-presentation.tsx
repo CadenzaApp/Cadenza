@@ -578,7 +578,7 @@ function usePresentation() {
             return Gesture.Simultaneous(
                 pan(false, id),
                 Gesture.LongPress()
-                    .minDuration(220)
+                    .minDuration(155)
                     .maxDistance(6)
                     .onStart(() => {
                         "worklet";

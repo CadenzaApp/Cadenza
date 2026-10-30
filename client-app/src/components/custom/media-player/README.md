@@ -32,7 +32,7 @@ cancelling restores expanded playback before native reinsertion. Artwork taps sp
 and artwork down to the circle immediately.
 The locked circle is 52 points wide with a
 3-point artwork rim. A right drag widens it with the finger and projects release velocity into
-a spring. Holding for 220ms unlocks free dragging with one haptic. Free bubbles grow 10%, drag
+a spring. Holding for 155ms unlocks free dragging with one haptic. Free bubbles grow 10%, drag
 silently, and expand only on a tap. Dropping within 1.5 free radii of home springs back and locks;
 a post-release spring landing also captures. A free tap first returns vertically over 160ms,
 pauses 80ms, then expands. The native accessory is inserted only after expansion completes. Floating glass is hidden
