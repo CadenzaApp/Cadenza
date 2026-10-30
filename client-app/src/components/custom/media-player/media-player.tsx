@@ -1,7 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRouter } from "expo-router";
 import { useTheme } from "expo-router/react-navigation";
-import { useCallback, useId, useLayoutEffect, useMemo, useRef } from "react";
+import { useCallback, useId, useLayoutEffect, useRef } from "react";
 import { Image, Pressable, View, type LayoutChangeEvent } from "react-native";
 import { GestureDetector } from "react-native-gesture-handler";
 import Animated, {
@@ -12,7 +12,10 @@ import Animated, {
     type SharedValue,
 } from "react-native-reanimated";
 import { GlassSurface } from "@/components/ui/glass-surface";
-import { usePlayerPresentation } from "@/lib/player-presentation";
+import {
+    usePlayerGestures,
+    usePlayerPresentation,
+} from "@/lib/player-presentation";
 import { usePlaybackCommands, usePlaybackTrackState } from "@/lib/playback";
 import { PLAYER_CONTROL_SIZE as SIZE } from "@/lib/screen-overlay-geometry";
 import { MediaPlayerCompact } from "./compact";
@@ -80,11 +83,7 @@ export function MediaPlayer({
         },
         [motion, id],
     );
-    const gesture = useMemo(() => motion.circleGesture(id), [motion, id]);
-    const nativeGesture = useMemo(
-        () => motion.pan(true, `${id}:proxy`),
-        [motion, id],
-    );
+    const { gesture, nativeGesture } = usePlayerGestures(id);
     const proxyStyle = useAnimatedStyle(() => {
         const frame = source.get() ?? nativeFrame.get();
         const origin = anchor.get();

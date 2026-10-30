@@ -1,6 +1,10 @@
 import { useEffect, type ReactNode } from "react";
 import { View, type StyleProp, type ViewStyle } from "react-native";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import {
+    usePanGesture,
+    InterceptingGestureDetector,
+    VirtualGestureDetector,
+} from "react-native-gesture-handler";
 import Animated, {
     runOnJS,
     scrollTo,
@@ -146,50 +150,52 @@ export function ReorderableList<T>({
     }
 
     return (
-        <Animated.ScrollView
-            ref={scrollRef}
-            style={style}
-            contentContainerStyle={contentContainerStyle}
-            onScroll={onScroll}
-            scrollEventThrottle={16}
-            showsVerticalScrollIndicator={false}
-            onLayout={(event) =>
-                viewportHeight.set(event.nativeEvent.layout.height)
-            }
-        >
-            {header}
-            {rowCount === 0 ? (
-                empty
-            ) : (
-                <View style={{ height: contentHeight }}>
-                    {data.map((item, index) => (
-                        <ReorderableRow
-                            key={keys[index]}
-                            rowKey={keys[index]}
-                            index={index}
-                            rowCount={rowCount}
-                            itemHeight={itemHeight}
-                            activeIndex={activeIndex}
-                            targetIndex={targetIndex}
-                            dragOffset={dragOffset}
-                            fingerOffset={fingerOffset}
-                            autoScrolled={autoScrolled}
-                            fingerViewportY={fingerViewportY}
-                            scrollY={scrollY}
-                            slots={slots}
-                            moving={moving}
-                            droppedKey={droppedKey}
-                            dropOffset={dropOffset}
-                            setAutoScrollActive={autoScroll.setActive}
-                            onCommit={commitReorder}
-                            render={renderItem}
-                            item={item}
-                        />
-                    ))}
-                </View>
-            )}
-            {footer}
-        </Animated.ScrollView>
+        <InterceptingGestureDetector>
+            <Animated.ScrollView
+                ref={scrollRef}
+                style={style}
+                contentContainerStyle={contentContainerStyle}
+                onScroll={onScroll}
+                scrollEventThrottle={16}
+                showsVerticalScrollIndicator={false}
+                onLayout={(event) =>
+                    viewportHeight.set(event.nativeEvent.layout.height)
+                }
+            >
+                {header}
+                {rowCount === 0 ? (
+                    empty
+                ) : (
+                    <View style={{ height: contentHeight }}>
+                        {data.map((item, index) => (
+                            <ReorderableRow
+                                key={keys[index]}
+                                rowKey={keys[index]}
+                                index={index}
+                                rowCount={rowCount}
+                                itemHeight={itemHeight}
+                                activeIndex={activeIndex}
+                                targetIndex={targetIndex}
+                                dragOffset={dragOffset}
+                                fingerOffset={fingerOffset}
+                                autoScrolled={autoScrolled}
+                                fingerViewportY={fingerViewportY}
+                                scrollY={scrollY}
+                                slots={slots}
+                                moving={moving}
+                                droppedKey={droppedKey}
+                                dropOffset={dropOffset}
+                                setAutoScrollActive={autoScroll.setActive}
+                                onCommit={commitReorder}
+                                render={renderItem}
+                                item={item}
+                            />
+                        ))}
+                    </View>
+                )}
+                {footer}
+            </Animated.ScrollView>
+        </InterceptingGestureDetector>
     );
 }
 
@@ -234,12 +240,11 @@ function ReorderableRow<T>({
     onCommit: (from: number, to: number) => void;
     render: (info: { item: T; index: number }) => ReactNode;
 }) {
-    const gesture = Gesture.Pan()
-        .activateAfterLongPress(220)
-        // A drag is vertical. Let a horizontal swipe through to whatever the
-        // row put behind it.
-        .failOffsetX([-20, 20])
-        .onStart(() => {
+    const gesture = usePanGesture({
+        activateAfterLongPress: 220,
+        failOffsetX: [-20, 20],
+        onActivate: () => {
+            "worklet";
             // the slot, not the render index: a drop's reorder may not have
             // re-rendered this row yet
             const slot = slots.get()[rowKey] ?? index;
@@ -251,8 +256,9 @@ function ReorderableRow<T>({
             autoScrolled.set(0);
             dragOffset.set(0);
             runOnJS(setAutoScrollActive)(true);
-        })
-        .onUpdate((event) => {
+        },
+        onUpdate: (event) => {
+            "worklet";
             fingerOffset.set(event.translationY);
             fingerViewportY.set(
                 activeIndex.get() * itemHeight +
@@ -263,8 +269,11 @@ function ReorderableRow<T>({
             targetIndex.set(
                 landingIndex(activeIndex, dragOffset, itemHeight, rowCount),
             );
-        })
-        .onEnd(() => {
+        },
+        onDeactivate: (event) => {
+            "worklet";
+            if (event.canceled) return;
+
             const from = activeIndex.get();
             const to = targetIndex.get();
             // move to the new order here, before the caller's reorder renders
@@ -284,17 +293,19 @@ function ReorderableRow<T>({
             activeIndex.set(-1);
             targetIndex.set(-1);
             runOnJS(onCommit)(from, to);
-        })
-        .onFinalize((_event, success) => {
+        },
+        onFinalize: (_event) => {
+            "worklet";
             runOnJS(setAutoScrollActive)(false);
             // a drag that never dropped has nothing to settle
-            if (!success && droppedKey.get() === "") moving.set(false);
+            if (_event.canceled && droppedKey.get() === "") moving.set(false);
             activeIndex.set(-1);
             targetIndex.set(-1);
             dragOffset.set(0);
             fingerOffset.set(0);
             autoScrolled.set(0);
-        });
+        },
+    });
 
     const rowStyle = useAnimatedStyle(() => {
         const active = activeIndex.get();
@@ -350,7 +361,7 @@ function ReorderableRow<T>({
     });
 
     return (
-        <GestureDetector gesture={gesture}>
+        <VirtualGestureDetector gesture={gesture}>
             <Animated.View
                 style={[
                     {
@@ -365,7 +376,7 @@ function ReorderableRow<T>({
             >
                 {render({ item, index })}
             </Animated.View>
-        </GestureDetector>
+        </VirtualGestureDetector>
     );
 }
 

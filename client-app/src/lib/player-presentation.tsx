@@ -11,8 +11,10 @@ import {
 import { useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
-    Gesture,
-    type LegacyGestureStateManager as GestureStateManager,
+    GestureStateManager,
+    usePanGesture,
+    useLongPressGesture,
+    useSimultaneousGestures,
     type GestureTouchEvent,
 } from "react-native-gesture-handler";
 import {
@@ -392,10 +394,7 @@ function usePresentation() {
             suppressPress.set(busy());
             if (p) touch.set([p.absoluteX, p.absoluteY]);
         }
-        function touchMove(
-            event: GestureTouchEvent,
-            manager: GestureStateManager,
-        ) {
+        function touchMove(event: GestureTouchEvent) {
             "worklet";
             const p = event.allTouches[0];
             if (!p || !usable() || busy() || phase.get() === "drag") return;
@@ -403,11 +402,12 @@ function usePresentation() {
                 dy = p.absoluteY - touch.get()[1];
             const moved = playerTouchMoved(false, dx, dy);
             suppressPress.set(suppressPress.get() || moved);
-            if (collapsed.get() && free.get() && moved) manager.activate();
+            if (collapsed.get() && free.get() && moved)
+                GestureStateManager.activate(event.handlerTag);
             else if (Math.abs(dy) > 16 || (collapsed.get() ? dx < -6 : dx > 6))
-                manager.fail();
+                GestureStateManager.fail(event.handlerTag);
             else if (collapsed.get() ? dx > 6 : dx < -COLLAPSE_DRAG_THRESHOLD)
-                manager.activate();
+                GestureStateManager.activate(event.handlerTag);
         }
         function start(native: boolean) {
             "worklet";
@@ -504,17 +504,25 @@ function usePresentation() {
             phase.set("idle");
             runOnJS(unlockHaptic)();
         }
-        function pan(native = false, id = "native-player") {
+        function panConfig(native = false, id = "native-player") {
             const valid = () => {
                 "worklet";
                 return native ? hostKind.get() === "tabs" : host.get() === id;
             };
-            const gesture = Gesture.Pan()
-                .onTouchesDown((event) => {
+            return {
+                manualActivation: !native,
+                ...(native
+                    ? {
+                          activeOffsetX: -COLLAPSE_DRAG_THRESHOLD,
+                          failOffsetX: 10,
+                          failOffsetY: [-16, 16] as [number, number],
+                      }
+                    : {}),
+                onTouchesDown: (event: GestureTouchEvent) => {
                     "worklet";
                     if (valid()) touchDown(event);
-                })
-                .onStart(() => {
+                },
+                onActivate: () => {
                     "worklet";
                     if (
                         !valid() ||
@@ -529,62 +537,46 @@ function usePresentation() {
                         return;
                     gestureOwner.set(id);
                     start(native);
-                })
-                .onUpdate((event) => {
+                },
+                onUpdate: (event: Pan) => {
                     "worklet";
                     if (gestureOwner.get() === id) update(event);
-                })
-                .onEnd((event) => {
+                },
+                onDeactivate: (event: Pan & { canceled: boolean }) => {
                     "worklet";
-                    if (gestureOwner.get() === id) end(event);
-                })
-                .onFinalize((event, success) => {
+                    if (!event.canceled && gestureOwner.get() === id)
+                        end(event);
+                },
+                onFinalize: (event: { canceled: boolean }) => {
                     "worklet";
                     if (gestureOwner.get() === id) {
-                        finalize(event, success);
+                        finalize(event, !event.canceled);
                         gestureOwner.set(null);
                     }
-                });
-            return native
-                ? gesture
-                      .onTouchesMove((event) => {
-                          "worklet";
-                          const p = event.allTouches[0];
-                          if (valid() && p)
-                              suppressPress.set(
-                                  playerTouchMoved(
-                                      suppressPress.get(),
-                                      p.absoluteX - touch.get()[0],
-                                      p.absoluteY - touch.get()[1],
-                                  ),
-                              );
-                      })
-                      .activeOffsetX(-COLLAPSE_DRAG_THRESHOLD)
-                      .failOffsetX(10)
-                      .failOffsetY([-16, 16])
-                : gesture
-                      .manualActivation(true)
-                      .onTouchesMove((event, manager) => {
-                          "worklet";
-                          if (valid()) touchMove(event, manager);
-                          else manager.fail();
-                      })
-                      .onTouchesUp((_event, manager) => {
-                          "worklet";
-                          if (gestureOwner.get() !== id) manager.fail();
-                      });
-        }
-        function circleGesture(id: string) {
-            return Gesture.Simultaneous(
-                pan(false, id),
-                Gesture.LongPress()
-                    .minDuration(155)
-                    .maxDistance(6)
-                    .onStart(() => {
-                        "worklet";
-                        if (host.get() === id) unlock();
-                    }),
-            );
+                },
+                onTouchesMove: (event: GestureTouchEvent) => {
+                    "worklet";
+                    if (!native) {
+                        if (valid()) touchMove(event);
+                        else GestureStateManager.fail(event.handlerTag);
+                        return;
+                    }
+                    const p = event.allTouches[0];
+                    if (valid() && p)
+                        suppressPress.set(
+                            playerTouchMoved(
+                                suppressPress.get(),
+                                p.absoluteX - touch.get()[0],
+                                p.absoluteY - touch.get()[1],
+                            ),
+                        );
+                },
+                onTouchesUp: (event: GestureTouchEvent) => {
+                    "worklet";
+                    if (!native && gestureOwner.get() !== id)
+                        GestureStateManager.fail(event.handlerTag);
+                },
+            };
         }
         function setVisible(id: string, value: boolean) {
             "worklet";
@@ -630,8 +622,7 @@ function usePresentation() {
             reportFrame,
             setVisible,
             setLift,
-            pan,
-            circleGesture,
+            panConfig,
             expand,
             collapse,
             prepareEntrance,
@@ -828,4 +819,22 @@ export function useNativePlayerHandoff(
             })();
     }, [wanted, inFlight]);
     return wanted && ready;
+}
+
+/** Hooks own native handlers; the shared controller keeps drag state across handoff. */
+export function usePlayerGestures(id: string) {
+    const { motion } = usePlayerPresentation();
+    const pan = usePanGesture(motion.panConfig(false, id));
+    const nativeGesture = usePanGesture(motion.panConfig(true, `${id}:proxy`));
+    const { host, unlock } = motion;
+    const hold = useLongPressGesture({
+        minDuration: 155,
+        maxDistance: 6,
+        onActivate: () => {
+            "worklet";
+            if (host.get() === id) unlock();
+        },
+    });
+    const gesture = useSimultaneousGestures(pan, hold);
+    return { gesture, nativeGesture };
 }

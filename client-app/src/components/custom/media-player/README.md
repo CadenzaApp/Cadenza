@@ -55,6 +55,10 @@ player or below a circle. Its modal state stays mounted while keyboard suppressi
 Full-height positioning wrappers use `pointerEvents="box-none"` so palette and list scrolling
 passes through outside the visible controls. Do not animate the host's bounds or poll hidden native views with Reanimated `measure()`.
 
+Gesture Handler 3 hooks live in `usePlayerGestures`, outside the shared controller. The
+controller supplies worklet callbacks; handler tags drive manual activation, and canceled
+deactivation never commits a collapse. The renderer owns stable native handler lifetimes.
+
 The worklet tests exercise the shared controller with React Compiler enabled, including stale
 host events, native drag handoff, lock/capture, and expansion ordering. Shared values are read
 only in callbacks/worklets (`.get()`), never during React render. Native visual behavior still

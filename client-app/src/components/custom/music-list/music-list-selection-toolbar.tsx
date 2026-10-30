@@ -3,7 +3,7 @@ import type { MusicItem } from "@apple-musickit";
 import { useCallback, useMemo, useState } from "react";
 import { StyleSheet, View, type LayoutChangeEvent } from "react-native";
 import { useIsFocused, useTheme } from "expo-router/react-navigation";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import { usePanGesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
     SlideInLeft,
     SlideOutLeft,
@@ -114,40 +114,40 @@ function MusicListSelectionToolbarContent({
         };
     });
     const dismissSelection = useCallback(() => onClear(), [onClear]);
-    const swipeGesture = useMemo(
-        () =>
-            Gesture.Pan()
-                .activeOffsetX([-16, 16])
-                .failOffsetY([-12, 12])
-                .onUpdate((event) => {
-                    translateX.set(event.translationX);
-                })
-                .onEnd((event) => {
-                    const shouldDismiss =
-                        Math.abs(event.translationX) >=
-                            SWIPE_DISMISS_DISTANCE ||
-                        Math.abs(event.velocityX) >= SWIPE_DISMISS_VELOCITY;
-                    if (shouldDismiss) {
-                        const direction =
-                            event.translationX === 0
-                                ? Math.sign(event.velocityX)
-                                : Math.sign(event.translationX);
-                        translateX.set(
-                            withTiming(direction * 500, { duration: 140 }, () =>
-                                runOnJS(dismissSelection)(),
-                            ),
-                        );
-                    } else {
-                        translateX.set(
-                            withSpring(0, {
-                                damping: 18,
-                                stiffness: 220,
-                            }),
-                        );
-                    }
-                }),
-        [dismissSelection, translateX],
-    );
+    const swipeGesture = usePanGesture({
+        activeOffsetX: [-16, 16],
+        failOffsetY: [-12, 12],
+        onUpdate: (event) => {
+            "worklet";
+            translateX.set(event.translationX);
+        },
+        onDeactivate: (event) => {
+            "worklet";
+            if (event.canceled) return;
+
+            const shouldDismiss =
+                Math.abs(event.translationX) >= SWIPE_DISMISS_DISTANCE ||
+                Math.abs(event.velocityX) >= SWIPE_DISMISS_VELOCITY;
+            if (shouldDismiss) {
+                const direction =
+                    event.translationX === 0
+                        ? Math.sign(event.velocityX)
+                        : Math.sign(event.translationX);
+                translateX.set(
+                    withTiming(direction * 500, { duration: 140 }, () =>
+                        runOnJS(dismissSelection)(),
+                    ),
+                );
+            } else {
+                translateX.set(
+                    withSpring(0, {
+                        damping: 18,
+                        stiffness: 220,
+                    }),
+                );
+            }
+        },
+    });
     const actions = useMemo<ResolvedSelectionAction[]>(
         () =>
             (config.actions ?? DEFAULT_ACTIONS).map((definition) => {

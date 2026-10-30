@@ -4,7 +4,7 @@ import { Image } from "expo-image";
 import { useTheme } from "expo-router/react-navigation";
 import { useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import { usePanGesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
     interpolate,
     runOnJS,
@@ -80,18 +80,20 @@ export function HeroCarousel({ songs, phrase, accent }: Props) {
     // reached. a short drag or a quick flick both count, so a small fast swipe
     // moves one cover. runs on the UI thread, so the drag does not lag the
     // finger while JS is busy
-    const swipe = Gesture.Pan()
-        // horizontal wins early, and a vertical drag has to be clearly
-        // vertical to fail it, so the page still scrolls under one
-        .activeOffsetX([-6, 6])
-        .failOffsetY([-24, 24])
-        .onUpdate((event) => {
+    const swipe = usePanGesture({
+        activeOffsetX: [-6, 6],
+        failOffsetY: [-24, 24],
+        onUpdate: (event) => {
+            "worklet";
             const dragged = selected - event.translationX / DRAG_PER_COVER;
             // past either end it stretches a little rather than stopping dead
             const clamped = Math.max(-0.3, Math.min(last + 0.3, dragged));
             active.set(clamped);
-        })
-        .onEnd((event) => {
+        },
+        onDeactivate: (event) => {
+            "worklet";
+            if (event.canceled) return;
+
             const forward =
                 event.translationX < -SWIPE_DISTANCE ||
                 event.velocityX < -FLICK_VELOCITY;
@@ -107,10 +109,12 @@ export function HeroCarousel({ songs, phrase, accent }: Props) {
             // the effect only fires on a change, so a swipe that lands back
             // where it started has to settle here
             active.set(withSpring(next, SNAP));
-        })
-        .onFinalize((_, success) => {
-            if (!success) active.set(withSpring(selected, SNAP));
-        });
+        },
+        onFinalize: (event) => {
+            "worklet";
+            if (event.canceled) active.set(withSpring(selected, SNAP));
+        },
+    });
 
     const entry = entries[selected];
     const track = entry ? tracksById.get(entry.sample_song_id) : undefined;

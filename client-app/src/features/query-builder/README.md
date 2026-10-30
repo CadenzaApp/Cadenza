@@ -58,7 +58,9 @@ prompt centers above the playback/navigation clearance and keeps the glass backd
 
 ## Gesture and rendering contracts
 
-- Keep pan gestures stable during pickup. Replacing a gesture during drag can cancel it.
+- Gesture Handler 3 hooks preserve handler identity during pickup. Reorder handles use virtual
+  detectors under a list-level intercepting detector so row movement does not detach a handler.
+  Canceled deactivation rolls back instead of committing a drop.
   Handles reorder cards; other card controls and surfaces retain their own interactions.
 - Commands, presentation, and keyed hover subscriptions are separate. Only the old and new
   hover targets are notified. Coordinates and palette motion stay on the UI runtime.

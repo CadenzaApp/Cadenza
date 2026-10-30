@@ -63,6 +63,7 @@ function fixture(collapsed = true) {
         timers: new Map(),
         commands: [],
         haptics: [],
+        managerCalls: [],
         styles: [],
         styleInputs: [],
         focused: true,
@@ -140,7 +141,7 @@ function fixture(collapsed = true) {
     }
     const react = {
         createContext: (value) => ({ Provider: "Provider", value }),
-        useContext: (ctx) => ctx.value,
+        useContext: (ctx) => ctx.value ?? r.api,
         useId: () => slot(() => `${r.key}:${r.cursor}`),
         useRef: () => slot(() => ({ current: null })),
         useState: (initial) => {
@@ -167,26 +168,6 @@ function fixture(collapsed = true) {
         useCallback: (fn, deps) => react.useMemo(() => fn, deps),
         useEffect: effect,
         useLayoutEffect: effect,
-    };
-    const chain = () => {
-        const cb = {};
-        let proxy;
-        proxy = new Proxy(
-            {},
-            {
-                get: (_, key) =>
-                    key === "callbacks"
-                        ? cb
-                        : (value) => {
-                              cb[key] =
-                                  typeof value === "function"
-                                      ? ui(value)
-                                      : value;
-                              return proxy;
-                          },
-            },
-        );
-        return proxy;
     };
     const animated = {
         __esModule: true,
@@ -277,10 +258,26 @@ function fixture(collapsed = true) {
         if (name === "react-native-reanimated") return animated;
         if (name === "react-native-gesture-handler")
             return {
-                Gesture: {
-                    Pan: chain,
-                    LongPress: chain,
-                    Simultaneous: (...gestures) => ({ gestures }),
+                usePanGesture: (config) => ({
+                    callbacks: Object.fromEntries(
+                        Object.entries(config).map(([key, value]) => [
+                            key,
+                            typeof value === "function" ? ui(value) : value,
+                        ]),
+                    ),
+                }),
+                useLongPressGesture: (config) => ({
+                    callbacks: Object.fromEntries(
+                        Object.entries(config).map(([key, value]) => [
+                            key,
+                            typeof value === "function" ? ui(value) : value,
+                        ]),
+                    ),
+                }),
+                useSimultaneousGestures: (...gestures) => ({ gestures }),
+                GestureStateManager: {
+                    activate: (tag) => r.managerCalls.push(["activate", tag]),
+                    fail: (tag) => r.managerCalls.push(["fail", tag]),
                 },
                 GestureDetector: "GestureDetector",
             };
@@ -322,7 +319,10 @@ function fixture(collapsed = true) {
                 usePlaybackCommands: () => commands,
             };
         if (name === "@/lib/player-presentation")
-            return { usePlayerPresentation: () => r.api };
+            return {
+                usePlayerPresentation: () => r.api,
+                usePlayerGestures: (id) => r.playerGestures(id),
+            };
         if (name.includes("screen-overlay-geometry")) return geometry;
         if (name === "@/lib/screen-overlay")
             return {
@@ -387,6 +387,8 @@ function fixture(collapsed = true) {
         for (const item of r.instances.get(key)?.slots ?? []) item.cleanup?.();
         r.instances.delete(key);
     };
+    r.playerGestures = (id) =>
+        r.render(controllerFile, "usePlayerGestures", [id], `gestures:${id}`);
     r.controller = () => {
         r.api = r.render(controllerFile, "PlayerPresentationProvider", [
             { children: null },
@@ -413,15 +415,27 @@ function fixture(collapsed = true) {
     return r;
 }
 function pan(r, id = "tab", native = false) {
-    const cb = r.api.motion.pan(native, id).callbacks;
+    const cb = Object.fromEntries(
+        Object.entries(r.api.motion.panConfig(native, id)).map(
+            ([key, value]) => [
+                key,
+                typeof value === "function" ? ui(value) : value,
+            ],
+        ),
+    );
     return {
         ...cb,
-        start: () => cb.onStart(),
+        start: () => cb.onActivate(),
         update: (x, y = 0) =>
             cb.onUpdate({ translationX: x, translationY: y, velocityX: 0 }),
         end: (x, y = 0, velocityX = 0) => {
-            cb.onEnd({ translationX: x, translationY: y, velocityX });
-            cb.onFinalize({}, true);
+            cb.onDeactivate({
+                translationX: x,
+                translationY: y,
+                velocityX,
+                canceled: false,
+            });
+            cb.onFinalize({ canceled: false });
         },
     };
 }
@@ -481,7 +495,7 @@ test("stale tab gestures cannot move or re-lock an active detail drag", () => {
     ui(m.reportFrame)("tab", { x: 20, y: 300, width: 100, height: 52 });
     ui(m.setLift)("tab", -400);
     active.update(0, 0);
-    old.onFinalize({}, false);
+    old.onFinalize({ canceled: true });
     old.update(-200, 100);
     r.tick();
     assert.equal(m.phase.get(), "drag");
@@ -492,9 +506,9 @@ test("stale tab gestures cannot move or re-lock an active detail drag", () => {
 test("hold unlocks once, free dragging and repeated holds stay silent", () => {
     const r = fixture(),
         m = r.mount(),
-        circle = m.circleGesture("tab");
+        circle = r.playerGestures("tab").gesture;
     assert.equal(circle.gestures[1].callbacks.minDuration, 155);
-    circle.gestures[1].callbacks.onStart();
+    circle.gestures[1].callbacks.onActivate();
     assert.equal(m.free.get(), true);
     assert.deepEqual(r.haptics, ["light"]);
     const p = pan(r);
@@ -612,7 +626,7 @@ test("cancelled native drag returns to expanded before reinserting the accessory
     const p = pan(r, "tab:proxy", true);
     p.start();
     p.update(-60);
-    p.onFinalize({}, false);
+    p.onFinalize({ canceled: true });
     assert.deepEqual(r.commands, [true, false]);
     assert.equal(m.phase.get(), "expanding");
     assert.equal(r.api.inFlight.get(), true);
@@ -762,7 +776,7 @@ test("free size increases ten percent and an interrupted near-home drag re-locks
     m.position.set([50, 680]);
     const p = pan(r);
     p.start();
-    p.onFinalize({}, false);
+    p.onFinalize({ canceled: true });
     assert.equal(m.phase.get(), "snapping");
     m.position.finish();
     assert.equal(m.free.get(), false);
@@ -777,7 +791,7 @@ test("temporary hiding cancels an active drag and cannot wedge the controller", 
     p.update(50, -50);
     ui(m.setVisible)("tab", false);
     assert.equal(m.phase.get(), "idle");
-    p.onFinalize({}, false);
+    p.onFinalize({ canceled: true });
     ui(m.setVisible)("tab", true);
     const next = pan(r);
     next.start();
@@ -1007,4 +1021,21 @@ test("native layout ignores measurements overtaken by newer layout or unmount", 
     r.unmount("NativePlayerAccessory");
     callbacks[2](20, 500, 353, 52);
     assert.equal(r.api.nativeFrame.get(), null);
+});
+
+test("manual player gestures activate and fail using the v3 handler tag", () => {
+    const r = fixture();
+    r.mount();
+    const p = pan(r);
+    p.onTouchesDown({
+        handlerTag: 42,
+        allTouches: [{ absoluteX: 40, absoluteY: 700 }],
+    });
+    p.onTouchesMove({
+        handlerTag: 42,
+        allTouches: [{ absoluteX: 52, absoluteY: 700 }],
+    });
+    assert.deepEqual(r.managerCalls, [["activate", 42]]);
+    p.onTouchesUp({ handlerTag: 42 });
+    assert.deepEqual(r.managerCalls.at(-1), ["fail", 42]);
 });

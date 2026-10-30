@@ -57,7 +57,7 @@ test("sheet translation and action position track visible height with fixed shee
     assert.equal(clampPaletteHeight(200, 600), 450);
 });
 
-test("tag pickup and release callbacks remain UI worklets with conditional hold activation", () => {
+test("tag holds and canceled releases use the hook API on the UI runtime", () => {
     const { code: pillCode } = babel.transformFileSync(
         path.join(appRoot, "src/features/query-builder/DraggablePill.tsx"),
         {
@@ -73,32 +73,16 @@ test("tag pickup and release callbacks remain UI worklets with conditional hold 
             value = next;
         },
     });
-    const gesture = () => {
-        const callbacks = {};
-        const pan = {};
-        for (const name of [
-            "minDistance",
-            "activateAfterLongPress",
-            "maxPointers",
-        ])
-            pan[name] = () => pan;
-        for (const name of [
-            "onBegin",
-            "onStart",
-            "onUpdate",
-            "onEnd",
-            "onFinalize",
-        ])
-            pan[name] = (callback) => {
-                callbacks[name] = callback;
-                return pan;
-            };
-        pan.activateAfterLongPress = (duration) => {
-            holds.push(duration);
-            return pan;
-        };
-        gestures.push(callbacks);
-        return pan;
+    const gesture = (config) => {
+        holds.push(config.activateAfterLongPress);
+        gestures.push(
+            Object.fromEntries(
+                Object.entries(config).filter(
+                    ([, value]) => typeof value === "function",
+                ),
+            ),
+        );
+        return {};
     };
     const react = {
         useCallback: (fn) => fn,
@@ -106,7 +90,14 @@ test("tag pickup and release callbacks remain UI worklets with conditional hold 
         useMemo: (fn) => fn(),
         useRef: (value) => ({ current: value }),
     };
-    const commands = { dragX: shared(0), dragY: shared(0) };
+    const calls = [];
+    const commands = {
+        dragX: shared(0),
+        dragY: shared(0),
+        beginDrag: () => calls.push("pickup"),
+        finishDrag: async () => calls.push("drop"),
+        cancelDrag: () => calls.push("cancel"),
+    };
     const context = {
         exports: {},
         global: { Error },
@@ -121,13 +112,20 @@ test("tag pickup and release callbacks remain UI worklets with conditional hold 
                         ),
                 };
             if (id.endsWith("/jsx-runtime")) return { jsx: () => null };
-            if (id === "expo-haptics") return {};
+            if (id === "expo-haptics")
+                return {
+                    ImpactFeedbackStyle: { Light: "light" },
+                    impactAsync: async () => calls.push("haptic"),
+                };
             if (id === "react-native-gesture-handler")
-                return { Gesture: { Pan: gesture } };
+                return { usePanGesture: gesture };
             if (id === "react-native-reanimated")
                 return {
                     useSharedValue: shared,
                     useAnimatedStyle: () => ({}),
+                    runOnJS: (fn) => fn,
+                    withTiming: (value) => value,
+                    ReduceMotion: { System: "system" },
                 };
             if (id === "./DragContext")
                 return { useDragCommands: () => commands };
@@ -139,10 +137,18 @@ test("tag pickup and release callbacks remain UI worklets with conditional hold 
         context.exports.DraggablePill({ payload: { source }, children: null });
     assert.equal(gestures.length, 2);
     assert.deepEqual(holds, [155, 155]);
-    for (const callbacks of gestures)
+    for (const callbacks of gestures) {
         for (const [name, callback] of Object.entries(callbacks))
             assert.ok(
                 callback.__initData?.code,
                 `${name} must execute on the UI runtime`,
             );
+        calls.length = 0;
+        callbacks.onBegin({ x: 5, y: 5 });
+        callbacks.onActivate({ absoluteX: 20, absoluteY: 30 });
+        assert.deepEqual(calls, ["pickup", "haptic"]);
+        callbacks.onDeactivate({ canceled: true });
+        callbacks.onFinalize({ canceled: true });
+        assert.deepEqual(calls, ["pickup", "haptic", "cancel"]);
+    }
 });

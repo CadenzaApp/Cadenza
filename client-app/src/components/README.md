@@ -377,3 +377,8 @@ caches to warm artist details, portrait color, and artwork while the menu is ope
 
 Touching files in this directory? Update this README in the same change.
 See [../../../AGENT_GUIDE.md](../../../AGENT_GUIDE.md).
+
+Gesture handlers use the Gesture Handler 3 hook API (`usePanGesture`, `useTapGesture`, and
+composition hooks). Use `event.canceled` in deactivation/finalization callbacks; a canceled
+gesture must not commit a drop or seek. Reorderable rows use virtual detectors under a
+list-level intercepting detector to retain the handler when their native views move.
