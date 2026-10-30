@@ -17,6 +17,8 @@ type GlassIconButtonProps = Omit<PressableProps, "children" | "style"> & {
     size?: number;
     surfaceScheme?: "light" | "dark";
     bordered?: boolean;
+    /** Allow the native material edge to extend beyond the button bounds. */
+    clipGlass?: boolean;
     className?: string;
     style?: StyleProp<ViewStyle>;
     children: ReactNode;
@@ -42,6 +44,7 @@ export function GlassIconButton({
     size = 40,
     surfaceScheme,
     bordered = true,
+    clipGlass = true,
     className,
     style,
     children,
@@ -73,7 +76,7 @@ export function GlassIconButton({
                             borderRadius: radius,
                             alignItems: "center",
                             justifyContent: "center",
-                            overflow: "hidden",
+                            overflow: clipGlass ? "hidden" : "visible",
                         },
                         pressed && styles.pressed,
                     ]}
@@ -90,7 +93,7 @@ export function GlassIconButton({
                                 // Inset the glass only when the wrapper has a border.
                                 {
                                     borderRadius: radius - (bordered ? 1 : 0),
-                                    overflow: "hidden",
+                                    overflow: clipGlass ? "hidden" : "visible",
                                 },
                             ]}
                         />

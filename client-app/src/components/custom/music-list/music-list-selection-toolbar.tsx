@@ -2,18 +2,20 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import type { MusicItem } from "@apple-musickit";
 import { useCallback, useMemo, useState } from "react";
 import { StyleSheet, View, type LayoutChangeEvent } from "react-native";
-import { useTheme } from "expo-router/react-navigation";
+import { useIsFocused, useTheme } from "expo-router/react-navigation";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
-    Easing,
-    FadeInDown,
-    FadeOutDown,
+    SlideInLeft,
+    SlideOutLeft,
     runOnJS,
     useAnimatedStyle,
     useSharedValue,
     withSpring,
     withTiming,
 } from "react-native-reanimated";
+
+import { useScreenOverlayInsets } from "@/lib/screen-overlay";
+import { useRegisterBottomSelectionOverlay } from "@/lib/bottom-selection-overlay";
 
 import { ModalPopup } from "@/components/custom/modal-popup";
 import {
@@ -63,7 +65,25 @@ type ResolvedSelectionAction = MusicListSelectionAction & {
     };
 };
 
-export function MusicListSelectionToolbar({
+export function MusicListSelectionToolbar(
+    props: MusicListSelectionToolbarProps,
+) {
+    const focused = useIsFocused();
+    const { bottomControlRowAvailable } = useScreenOverlayInsets();
+    const shared = focused && bottomControlRowAvailable;
+    const content = useMemo(
+        () => (
+            <MusicListSelectionToolbarContent {...props} bottom={0} inOverlay />
+        ),
+        [props],
+    );
+    useRegisterBottomSelectionOverlay(shared ? content : null);
+    return !shared && focused ? (
+        <MusicListSelectionToolbarContent {...props} />
+    ) : null;
+}
+
+function MusicListSelectionToolbarContent({
     tracks,
     config,
     bottom,
@@ -75,7 +95,8 @@ export function MusicListSelectionToolbar({
     defaultTagsBySong,
     tagsLoading,
     suggestedTagsLoading,
-}: MusicListSelectionToolbarProps) {
+    inOverlay = false,
+}: MusicListSelectionToolbarProps & { inOverlay?: boolean }) {
     const [moreOpen, setMoreOpen] = useState(false);
     const [tagAction, setTagAction] = useState<
         ResolvedSelectionAction["tagAction"] | null
@@ -211,19 +232,31 @@ export function MusicListSelectionToolbar({
 
     return (
         <Animated.View
-            className="absolute left-4 right-4 z-20"
-            style={{ bottom }}
-            entering={FadeInDown.duration(220).easing(Easing.out(Easing.cubic))}
-            exiting={FadeOutDown.duration(160).easing(Easing.in(Easing.cubic))}
+            className={inOverlay ? undefined : "absolute left-4 right-4 z-20"}
+            style={inOverlay ? undefined : { bottom, borderRadius: 12 }}
+            entering={
+                inOverlay
+                    ? undefined
+                    : SlideInLeft.springify()
+                          .damping(32)
+                          .stiffness(520)
+                          .mass(0.8)
+            }
+            exiting={inOverlay ? undefined : SlideOutLeft.duration(180)}
         >
             <GestureDetector gesture={swipeGesture}>
                 <Animated.View
-                    className="gap-1 overflow-hidden rounded-xl border border-border p-2 shadow-lg shadow-black/10"
+                    className="gap-1 rounded-xl p-2"
                     style={swipeStyle}
                     onLayout={handleLayout}
                 >
                     <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-                        <GlassSurface style={StyleSheet.absoluteFill} />
+                        <GlassSurface
+                            style={[
+                                StyleSheet.absoluteFill,
+                                { borderRadius: 12 },
+                            ]}
+                        />
                     </View>
                     <View className="relative min-h-7 justify-center">
                         <Text className="px-8 text-center text-sm font-bold text-popover-foreground">

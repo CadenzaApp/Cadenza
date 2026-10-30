@@ -4,12 +4,16 @@
         "jsx": "react-native",
         "strict": true,
         "allowImportingTsExtensions": true,
-        "baseUrl": ".",
         "paths": {
             "@/*": ["./src/*"],
             "@apple-musickit": ["./modules/apple-musickit/index"],
             "@image-color": ["./modules/image-color/index"]
-        }
+        },
+        "customConditions": [
+            "react-native",
+            "react-native-legacy-deep-imports"
+        ],
+        "types": ["node", "react"]
     },
     "include": [
         "**/*.ts",

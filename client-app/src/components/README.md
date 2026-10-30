@@ -175,6 +175,10 @@ variables), `tailwind.config.js`, and `global.css`. Class merging goes through
 | `selection-utils.ts`               | `reduceMusicListSelection`, the pure reducer behind the hook.                                                                       |
 | `types.ts`                         | `MusicListProps`, `MusicListArrangement`, and the section types, so callers do not import from `index.tsx`.                         |
 
+Multiselect registers its panel in the shared bottom overlay. Sort and Library Tags' plus use
+`useBottomRowActionButton`; sources own their dialogs while the foreground host owns placement.
+See [media-player](custom/media-player/README.md) for stacking, visibility, and animation rules.
+
 The list never sorts anything itself. `arrangement` only draws the Sort by / Group by control;
 the caller has the backend order the whole list (`@/lib/arranged-track-list`) and hands back the
 songs in order, or `sections`, one collapsible header per group. A grouped list ignores

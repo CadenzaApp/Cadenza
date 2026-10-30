@@ -15,6 +15,9 @@ type FloatingBubbleProps = {
     >["accessibilityState"];
     bottomOffset?: number;
     rightOffset?: number;
+    size?: number;
+    bordered?: boolean;
+    shadow?: boolean;
 };
 
 /** Pure circular action button pinned to the lower-right of its parent. */
@@ -25,6 +28,9 @@ export function FloatingBubble({
     accessibilityState,
     bottomOffset = DEFAULT_BOTTOM_OFFSET,
     rightOffset = 24,
+    size = 56,
+    bordered = true,
+    shadow = true,
 }: FloatingBubbleProps) {
     return (
         <View
@@ -33,17 +39,22 @@ export function FloatingBubble({
                 right: rightOffset,
                 bottom: bottomOffset,
                 zIndex: 10,
-                elevation: 10,
+                elevation: shadow ? 10 : 0,
             }}
         >
             <GlassIconButton
-                size={56}
-                style={{
-                    shadowColor: "#000",
-                    shadowOpacity: 0.16,
-                    shadowRadius: 10,
-                    shadowOffset: { width: 0, height: 4 },
-                }}
+                size={size}
+                bordered={bordered}
+                style={
+                    shadow
+                        ? {
+                              shadowColor: "#000",
+                              shadowOpacity: 0.16,
+                              shadowRadius: 10,
+                              shadowOffset: { width: 0, height: 4 },
+                          }
+                        : undefined
+                }
                 onPress={onPress}
                 accessibilityLabel={accessibilityLabel}
                 accessibilityState={accessibilityState}

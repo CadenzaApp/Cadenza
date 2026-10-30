@@ -7,7 +7,6 @@ import Animated, {
     FadeIn,
     FadeOut,
     runOnJS,
-    runOnUI,
     scrollTo,
     useAnimatedRef,
     useAnimatedScrollHandler,
@@ -79,7 +78,7 @@ export function TagPalette({
     });
     const { dragState } = useDrag();
     const deleteHovered = useDropHover("delete");
-    const { colors: theme } = useAppTheme();
+    const { colors: theme, scheme } = useAppTheme();
     const { playerBottomInset } = useScreenOverlayInsets();
     // The native tab bar floats over this screen on both platforms. Its
     // platform-specific inset (and the player, when present) sets the floor;
@@ -165,13 +164,6 @@ export function TagPalette({
     useEffect(() => {
         if (height < minimumHeight) onHeightChange(minimumHeight);
     }, [height, minimumHeight, onHeightChange]);
-    useEffect(() => {
-        if (!collapsed) return;
-        runOnUI(() => {
-            scrollTo(scrollRef, 0, 0, false);
-            scrollOffset.set(0);
-        })();
-    }, [collapsed, scrollRef, scrollOffset]);
     const raiseForSearch = useRaiseWhileKeyboardUp(height, onHeightChange);
     const commitHeight = useCallback(
         (nextHeight: number) => onHeightChange(nextHeight),
@@ -271,8 +263,7 @@ export function TagPalette({
                         contentContainerClassName="px-5 pb-2"
                         contentContainerStyle={{ flexGrow: 0, flexShrink: 0 }}
                         keyboardShouldPersistTaps="handled"
-                        showsVerticalScrollIndicator={!collapsed}
-                        scrollEnabled={!collapsed}
+                        showsVerticalScrollIndicator
                     >
                         <>
                             <View className="mb-3 flex-row items-center gap-3">
@@ -305,13 +296,7 @@ export function TagPalette({
                                     />
                                 ) : null}
                             </View>
-                            <View
-                                className="shrink-0"
-                                accessibilityElementsHidden={collapsed}
-                                importantForAccessibility={
-                                    collapsed ? "no-hide-descendants" : "auto"
-                                }
-                            >
+                            <View className="shrink-0">
                                 {pendingTag ? (
                                     <View className="min-h-24 items-center justify-center">
                                         <Text className="w-3/4 text-center text-xl font-semibold">
@@ -381,7 +366,12 @@ export function TagPalette({
                                 entering={FadeIn.duration(200)}
                                 exiting={FadeOut.duration(160)}
                                 className="absolute inset-0 z-10"
-                                style={{ backgroundColor: "#000000" }}
+                                style={{
+                                    backgroundColor:
+                                        scheme === "light"
+                                            ? "#ffffff"
+                                            : "#000000",
+                                }}
                             />
                             <Animated.View
                                 pointerEvents="none"

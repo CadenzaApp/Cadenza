@@ -49,7 +49,11 @@ The sheet stays 450 points tall and moves with a UI-thread translation. Its init
 is 268 points plus any compatibility-player inset. The minimum includes the platform tab/player
 inset and 64 points for the handle/heading. Floating actions follow its top edge; query scroll
 clearance updates on release. A fixed bottom spacer lets the final tag row reach the top.
-Collapsing resets palette scroll and hides offscreen tag actions from accessibility.
+Palette scrolling stays enabled at every height, including the minimum. Palette tag pickup
+requires a 155ms hold, so ordinary vertical swipes scroll rather than start a tag drag.
+Query tags use movement activation without a long-press timer, preserving tap-to-remove. The
+whole visible palette accepts delete drops without the query-content bottom inset. Its delete
+backdrop is white in light mode and black in dark mode.
 
 ## Gesture and rendering contracts
 

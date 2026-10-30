@@ -1,6 +1,11 @@
+import {
+    PLAYER_CONTROL_SIZE,
+    PLAYER_SIDE_INSET,
+} from "@/lib/screen-overlay-geometry";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { useBottomRowActionButton } from "@/lib/screen-overlay";
 import { useTheme } from "expo-router/react-navigation";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Pressable, View } from "react-native";
 
 import { ScreenFloatingBubble } from "@/components/custom/floating-bubble";
@@ -67,22 +72,41 @@ export function MusicListArrangeButton({ value, onChange }: Props) {
     const { colors } = useTheme();
     const [open, setOpen] = useState(false);
     const arranged = isArranged(value);
+    const openSort = useCallback(() => setOpen(true), []);
+    const rowAction = useMemo(
+        () => ({
+            expanded: open,
+            onPress: openSort,
+            icon: arranged ? ("funnel" as const) : ("funnel-outline" as const),
+            accessibilityLabel: arranged
+                ? "Sort and group, on"
+                : "Sort and group",
+        }),
+        [arranged, open, openSort],
+    );
+    const showLocal = useBottomRowActionButton(rowAction);
 
     return (
         <>
-            <ScreenFloatingBubble
-                onPress={() => setOpen(true)}
-                accessibilityLabel={
-                    arranged ? "Sort and group, on" : "Sort and group"
-                }
-                accessibilityState={{ expanded: open }}
-            >
-                <Ionicons
-                    name={arranged ? "funnel" : "funnel-outline"}
-                    size={28}
-                    color={colors.text}
-                />
-            </ScreenFloatingBubble>
+            {showLocal ? (
+                <ScreenFloatingBubble
+                    size={PLAYER_CONTROL_SIZE}
+                    bordered={false}
+                    shadow={false}
+                    rightOffset={PLAYER_SIDE_INSET}
+                    onPress={openSort}
+                    accessibilityLabel={
+                        arranged ? "Sort and group, on" : "Sort and group"
+                    }
+                    accessibilityState={{ expanded: open }}
+                >
+                    <Ionicons
+                        name={arranged ? "funnel" : "funnel-outline"}
+                        size={28}
+                        color={colors.text}
+                    />
+                </ScreenFloatingBubble>
+            ) : null}
 
             {open ? (
                 <ArrangeSheet

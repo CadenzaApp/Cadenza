@@ -1,4 +1,5 @@
-import { useRootNavigationState, useSegments } from "expo-router";
+import { useIsFocused } from "expo-router/react-navigation";
+import { useRootNavigationState, useSegments, useRoute } from "expo-router";
 import {
     createContext,
     createElement,
@@ -18,9 +19,18 @@ import {
     useSafeAreaInsets,
 } from "react-native-safe-area-context";
 
+import { BottomSelectionOverlayProvider } from "./bottom-selection-overlay";
+import {
+    PlayerPresentationProvider,
+    usePlayerPresentation,
+    useNativePlayerHandoff,
+} from "./player-presentation";
 import { usePlaybackTrackState } from "./playback";
 import {
     calculateScreenOverlayInsets,
+    bottomActionPlacement,
+    playerHostIsActive,
+    nativePlayerAccessoryEnabled,
     OVERLAY_GAP,
 } from "./screen-overlay-geometry";
 export {
@@ -33,14 +43,6 @@ const NATIVE_TAB_BAR_HEIGHT = Platform.select({
     android: 80,
     default: 60,
 }) as number;
-
-/** Whether UITabBarController can host the native player accessory. */
-export function supportsNativeTabBottomAccessory() {
-    return (
-        Platform.OS === "ios" &&
-        Number.parseInt(String(Platform.Version), 10) >= 26
-    );
-}
 
 /**
  * Root segments presented as a sheet rather than as a screen of their own. A
@@ -79,10 +81,21 @@ const PLAYER_OVERLAY_SEGMENTS = new Set([
 /** Routes whose player is still hosted outside their screen content. */
 const ROOT_PLAYER_OVERLAY_SEGMENTS = new Set(["query-results"]);
 
+export type BottomRowAction = {
+    expanded: boolean;
+    icon: "add" | "funnel" | "funnel-outline";
+    accessibilityLabel: string;
+    onPress: () => void;
+};
+
 type BottomBarVisibility = {
+    rowAction: BottomRowAction | null;
+    setRowAction: (token: string, action: BottomRowAction | null) => void;
     suppressed: boolean;
     setSuppressed: (token: string, suppressed: boolean) => void;
 };
+
+const NativePlayerAccessoryContext = createContext(false);
 
 const BottomBarVisibilityContext = createContext<BottomBarVisibility | null>(
     null,
@@ -130,6 +143,21 @@ export function BottomBarVisibilityProvider({
     children: ReactNode;
 }) {
     const keyboardVisible = useKeyboardVisible();
+    const [rowActions, setRowActions] = useState<
+        ReadonlyMap<string, BottomRowAction>
+    >(() => new Map());
+    const setRowAction = useCallback(
+        (token: string, action: BottomRowAction | null) => {
+            setRowActions((current) => {
+                if ((current.get(token) ?? null) === action) return current;
+                const next = new Map(current);
+                if (action) next.set(token, action);
+                else next.delete(token);
+                return next;
+            });
+        },
+        [],
+    );
     const [tokens, setTokens] = useState<ReadonlySet<string>>(() => new Set());
     const setSuppressed = useCallback((token: string, suppressed: boolean) => {
         setTokens((current) => {
@@ -143,17 +171,50 @@ export function BottomBarVisibilityProvider({
     }, []);
     const value = useMemo(
         () => ({
+            rowAction: Array.from(rowActions.values()).at(-1) ?? null,
+            setRowAction,
             suppressed: keyboardVisible || tokens.size > 0,
             setSuppressed,
         }),
-        [keyboardVisible, setSuppressed, tokens],
+        [keyboardVisible, setSuppressed, tokens, rowActions, setRowAction],
     );
 
     return createElement(
         BottomBarVisibilityContext.Provider,
         { value },
-        children,
+        createElement(
+            BottomSelectionOverlayProvider,
+            null,
+            createElement(
+                PlayerPresentationProvider,
+                null,
+                createElement(NativePlayerAccessoryProvider, null, children),
+            ),
+        ),
     );
+}
+
+/** The source owns its sheet; the shared host owns placement and visibility. */
+export function useBottomRowActionButton(action: BottomRowAction) {
+    const focused = useIsFocused();
+    const { bottomControlRowAvailable } = useScreenOverlayInsets();
+    const hidden = useBottomBarsHidden();
+    const placement = bottomActionPlacement(
+        bottomControlRowAvailable,
+        hidden,
+        focused,
+    );
+    const setAction = useContext(BottomBarVisibilityContext)?.setRowAction;
+    const token = useId();
+    useLayoutEffect(() => {
+        setAction?.(token, placement === "shared" ? action : null);
+        return () => setAction?.(token, null);
+    }, [setAction, token, action, placement]);
+    return placement === "local";
+}
+
+export function useBottomRowAction() {
+    return useContext(BottomBarVisibilityContext)?.rowAction ?? null;
 }
 
 /** Hides both bottom bars while this caller's condition is true. */
@@ -233,6 +294,19 @@ export function useIsPushedDetailScreen() {
     );
 }
 
+/** Keep foreground chrome alive underneath native sheets during dismissal. */
+export function usePlayerHostActive() {
+    const focused = useIsFocused();
+    const route = useRoute();
+    const state = useRootNavigationState();
+    return playerHostIsActive(
+        focused,
+        route.key,
+        state?.routes ?? [],
+        state?.index,
+    );
+}
+
 /** Root screens over which the app-level compact player is visible. */
 export function useShowsPushedPlayerOverlay() {
     const segments = useSegments();
@@ -257,12 +331,46 @@ export function useShowsRootPlayerOverlay() {
     );
 }
 
+/** Expanded playback docks while auxiliary controls float above it. */
+function useWantsNativePlayerAccessory() {
+    const { activeTrack, isPlayerCollapsed } = usePlaybackTrackState();
+    const rootSegment = useBaseRouteSegment();
+    const insideSheet = useContext(InsideSheetContext);
+    return nativePlayerAccessoryEnabled({
+        supported:
+            Platform.OS === "ios" &&
+            Number.parseInt(String(Platform.Version), 10) >= 26,
+        inTabs: !insideSheet && rootSegment === "(tabs)",
+        hasTrack: activeTrack != null,
+        collapsed: isPlayerCollapsed,
+    });
+}
+
+/** The floating expansion finishes before UIKit inserts the native accessory. */
+function NativePlayerAccessoryProvider({ children }: { children: ReactNode }) {
+    const wanted = useWantsNativePlayerAccessory();
+    const { inFlight, nativePresented, entrancePending } =
+        usePlayerPresentation();
+    const ready = useNativePlayerHandoff(wanted, inFlight);
+    // Completion gates insertion, never an accessory that already owns a drag.
+    const enabled = wanted && !entrancePending && (ready || nativePresented);
+    return createElement(
+        NativePlayerAccessoryContext.Provider,
+        { value: enabled },
+        children,
+    );
+}
+
+export function useNativePlayerAccessoryEnabled() {
+    return useContext(NativePlayerAccessoryContext);
+}
+
 /**
  * Extra insets for app-owned overlays. Native tabs inset scrolling content on
  * their own; absolute controls still need a conservative chrome footprint.
  */
 export function useScreenOverlayInsets() {
-    const { activeTrack, isPlayerDismissed } = usePlaybackTrackState();
+    const { activeTrack } = usePlaybackTrackState();
     const insets = useSafeAreaInsets();
     const rootSegment = useBaseRouteSegment();
     const insideSheet = useContext(InsideSheetContext);
@@ -270,21 +378,25 @@ export function useScreenOverlayInsets() {
     const showsPushedPlayerOverlay = useShowsPushedPlayerOverlay();
     const inNativeTabs = !insideSheet && rootSegment === "(tabs)";
     const bottomBarsVisible = inNativeTabs && !hidden;
-    const compactPlayerVisible =
-        !hidden &&
-        activeTrack != null &&
-        !isPlayerDismissed &&
-        (bottomBarsVisible || showsPushedPlayerOverlay);
-    const nativePlayerAccessory = supportsNativeTabBottomAccessory();
+    const bottomControlRowAvailable = inNativeTabs || showsPushedPlayerOverlay;
+    const bottomControlRowVisible = !hidden && bottomControlRowAvailable;
+    const compactPlayerVisible = activeTrack != null && bottomControlRowVisible;
+    const nativePlayerAccessory =
+        useNativePlayerAccessoryEnabled() && inNativeTabs;
 
-    return calculateScreenOverlayInsets({
-        safeAreaBottom: insets.bottom,
-        nativeTabBarHeight: NATIVE_TAB_BAR_HEIGHT,
-        bottomBarsVisible,
-        compactPlayerVisible,
+    return {
+        bottomControlRowAvailable,
+        bottomControlRowVisible,
         nativePlayerAccessory,
-        tabContentAboveTabBar: inNativeTabs && Platform.OS === "android",
-    });
+        ...calculateScreenOverlayInsets({
+            safeAreaBottom: insets.bottom,
+            nativeTabBarHeight: NATIVE_TAB_BAR_HEIGHT,
+            bottomBarsVisible,
+            compactPlayerVisible,
+            nativePlayerAccessory,
+            tabContentAboveTabBar: inNativeTabs && Platform.OS === "android",
+        }),
+    };
 }
 
 /**

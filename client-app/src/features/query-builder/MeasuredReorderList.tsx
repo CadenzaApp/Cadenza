@@ -8,7 +8,10 @@ import {
     useRef,
     type ReactNode,
 } from "react";
-import { Gesture, type PanGesture } from "react-native-gesture-handler";
+import {
+    Gesture,
+    type LegacyPanGesture as PanGesture,
+} from "react-native-gesture-handler";
 import Animated, {
     measure,
     ReduceMotion,

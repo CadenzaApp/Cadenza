@@ -1,63 +1,64 @@
 # media-player
 
-The global Apple Music player. On iOS 26 its compact form is the native tab controller's bottom
-accessory; UIKit moves it inline when native scrolling minimizes the tab bar. Older iOS, Android,
-and web use a floating fallback. Tapping it opens the `/player` sheet; swiping it horizontally
-pauses playback and dismisses the compact player. Discuss, Player, and Tags are three
-always-mounted pages in one horizontal pager at the bottom of that sheet.
+Global Apple Music playback controls. Expanded playback uses the iOS 26+ native tab accessory
+and tucks on scroll. Unsupported platforms and pushed screens use floating controls. The full
+player sheet at `/player` has Player, Discuss, and Tags pages.
 
-## Files
+## Entry points
 
-| file                     | role                                                                                                                        |
-| ------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
-| `index.ts`               | Public exports for the native accessory and compatibility overlay.                                                          |
-| `media-player-host.tsx`  | Adapts native accessory placement, owns zoom-card and root-screen compact-player hosts, and positions the fallback.         |
-| `media-player.tsx`       | Playback wiring shared by both native placements and the fallback.                                                          |
-| `player-pager.tsx`       | Always-mounted horizontal pager plus its glass Discuss / Player / Tags selector.                                            |
-| `player-tabs.tsx`        | Selected-page context shared by the pager and its glass tab selector.                                                       |
-| `player-scope.tsx`       | Resolves and shares the focused song across the sheet's three pages.                                                        |
-| `player-page.tsx`        | The Player route: artwork or the queue, the scrubber, and the transport. The only route that touches playback.              |
-| `discuss-page.tsx`       | Posts about a song, most liked first. The sheet passes `focusedSong`. `SongDiscussPage` is that list on `/discuss/:songId`. |
-| `tags-page.tsx`          | The Tags route: every user tag for `focusedSong`, applied first, plus default tags a tap adopts and a long press removes.   |
-| `compact.tsx`            | Regular and inline compact content. Adds glass only for the compatibility fallback.                                         |
-| `playback-details.tsx`   | `MediaPlayerTrackHeading` (title, artist, favorite, `...`) and `MediaPlayerProgress` (scrubber and timestamps).             |
-| `queue-view.tsx`         | What replaces the artwork when the queue is open: compact heading, shuffle/repeat pills, and the reorderable next list.     |
-| `transport-controls.tsx` | Shuffle, skip, play, skip, queue.                                                                                           |
+- `media-player-host.tsx` mounts the foreground tab, zoom-card, or root-screen host.
+  Tab and zoom-card hosts remain mounted under native sheets to avoid a dismissal flash.
+- `media-player.tsx` renders the floating surface; it does not own motion state.
+- `native-player-accessory.tsx` renders UIKit's regular/inline content.
+- `@/lib/player-presentation.tsx` owns one UI-thread motion controller, foreground geometry,
+  native layout, and handoff readiness. Host and gesture tokens reject stale callbacks.
+  Its derived geometry is a direct mapper input for the floating surface; do not hide shared
+  geometry dependencies inside a helper worklet called by `useAnimatedStyle`. Floating width
+  uses untransformed layout dimensions, so opening zoom cards cannot leave it narrowed.
+- `@/lib/screen-overlay-geometry.ts` owns bottom spacing, spring settings, and gesture math.
 
-The `...` menu and its tag editor are **not** in this directory any more. They moved to
-`@/components/custom/options-menu::SongOptionsMenu` and `@/components/custom/song-tag-editor`,
-since the list-row song menu needed the same Favorite/Share/Add to Playlist/Go to Album/Go to
-Artist/Discuss/Modify Tags shape this sheet already had. `player-page.tsx` renders `SongOptionsMenu`
-with a `navigate` that keeps the sheet beneath artist and album routes, and closes it for other
-full-screen destinations. Discuss is one of
-those routes: `/discuss/:songId`, the posts list with no now-playing chrome. Modify Tags stays in
-place and swaps the options menu for the shared selector popup (see Connects to).
+## Behavior and invariants
 
-## How it works
+When playback first supplies a track, a centered artwork circle fades in over 100ms, pauses for
+150ms, then springs outward to the expanded bar. Native insertion waits for completion. Changing songs
+keeps the existing presentation and does not replay the entrance.
 
-`src/app/(tabs)/_layout.tsx` declares `NativeTabs.BottomAccessory`. UIKit supplies its position,
-transition, and Liquid Glass. `MediaPlayerAccessory` reads `usePlacement()` and renders regular
-or inline content. The native host owns its height, so `compact.tsx` fills the measured frame.
+Tapping expanded artwork collapses the player without pausing. A left drag must cross 8 points
+before changing visuals. A transparent interaction proxy above the native accessory owns the
+whole gesture and remains mounted as the accessory is removed. Swipe collapse is disabled
+while UIKit has tucked the player inline with the navigation bar. The floating bar then tracks
+finger movement beyond the threshold. Releasing projects velocity into its settling spring;
+cancelling restores expanded playback before native reinsertion. Artwork taps spring the bar
+and artwork down to the circle immediately.
+The locked circle is 52 points wide with a
+3-point artwork rim. A right drag widens it with the finger and projects release velocity into
+a spring. Holding for 220ms unlocks free dragging with one haptic. Free bubbles grow 10%, drag
+silently, and expand only on a tap. Dropping within 1.5 free radii of home springs back and locks;
+a post-release spring landing also captures. A free tap first returns vertically over 160ms,
+pauses 80ms, then expands. The native accessory is inserted only after expansion completes. Floating glass is hidden
+in that same React commit, before native layout reports, to avoid stacked-material flashes.
+Track and queue changes preserve the current collapsed or expanded state.
 
-Whether the accessory is declared at all comes from `useMediaPlayerAccessoryDeclared`. UIKit keeps
-the accessory's slot in the minimized tab bar reserved for as long as one is declared, so a
-dismissed player would leave that slot empty between the tab buttons once a scroll minimizes the
-bar. The declaration outlives the dismissal by UIKit's own hide animation, since dropping it on
-the same commit as `bottomAccessoryHidden` tears the accessory out before that animation can play.
+On a committed native collapse, the floating renderer owns the width and artwork animation. The screens patch
+removes insertion/removal fades. Movement below the threshold leaves native glass untouched. Run `npx pod-install` and rebuild iOS after changing
+the patch. Scroll minimization remains UIKit-owned.
 
-The same flag drives `minimizeBehavior`. Minimizing is worth it only when there is a player to
-minimize around; with no accessory the shrunk bar is the selected tab and Search with a hole
-between them, so the bar stays at full size instead (`"never"`).
+Sort and Library Tags' plus action share `useBottomRowActionButton`. Their sources own their
+sheets; the host owns placement. Floating bottom controls leave the native glass edge unclipped;
+artwork and transport content have separate clipping. The control sits above expanded playback, follows native tuck,
+and centers above Search when tucked. In circle mode it shares the bottom row. Temporary chrome
+suppression hides it without mounting a local fallback. Controls enter and exit from the right.
 
-UIKit exposes no public command for forcing accessory placement. The app therefore relies on
-`minimizeBehavior="onScrollDown"` and native scrolling, with no direct vertical docking gesture or
-private UIKit selector. A horizontal pan is still owned by the React content in either native
-placement: crossing a quarter of the screen or flicking past the velocity threshold pauses native
-playback and sets `bottomAccessoryHidden`, letting UIKit animate the complete glass accessory away.
-UIKit does not expose an interactive transform for its accessory wrapper, so the native shell does
-not track the finger before release. Starting another song or resuming from a system transport
-restores it. The app-owned floating compatibility player tracks the finger and animates fully
-offscreen before it is hidden.
+Multiselect registers content in the separate `bottom-selection-overlay.tsx` context to avoid
+feeding panel updates back through list layout. It slides in from the left, above an expanded
+player or below a circle. Its modal state stays mounted while keyboard suppression hides chrome.
+Full-height positioning wrappers use `pointerEvents="box-none"` so palette and list scrolling
+passes through outside the visible controls. Do not animate the host's bounds or poll hidden native views with Reanimated `measure()`.
+
+The worklet tests exercise the shared controller with React Compiler enabled, including stale
+host events, native drag handoff, lock/capture, and expansion ordering. Shared values are read
+only in callbacks/worklets (`.get()`), never during React render. Native visual behavior still
+needs device verification; no test harness simulates UIKit's material or hit testing.
 
 ### The now playing sheet's three pages
 
@@ -96,7 +97,7 @@ covers them, which lets both appear on the first frame of dismissal instead of w
 route transition to finish. Focused Search still suppresses them explicitly, and so does a raised
 keyboard, which `BottomBarVisibilityProvider` watches for every screen at once.
 
-Pushed detail screens sit above the native tab controller, so the controller's accessory cannot be
+Pushed detail screens sit above the native tab controller, so the tab-level player cannot be
 raised over them. One app-level `MediaPlayerPushedScreenOverlay`, mounted above the root stack,
 renders the same regular compact content over **every** pushed route whenever playback has an
 active track and the bars are not suppressed. Its route predicate
@@ -166,12 +167,8 @@ smoothly between the 750ms native snapshot polls, and scrubbing overrides it wit
 
 - Keep `app/player/` outside `(tabs)`. It is a root sheet over the primary tabs, and its pager is
   deliberately a plain horizontal scroll surface rather than another navigator.
-- State shared by the native regular and inline accessory instances must stay above the accessory.
-- Dismissal state lives in `PlaybackProvider`, not in an accessory instance. UIKit can replace the
-  regular content with inline content during a scroll, and every native/fallback host must agree
-  that the player is hidden.
-- Do not add `GlassSurface` to the native accessory. UIKit owns its material. Only the fallback
-  paints its own glass.
+- Collapse state stays in `PlaybackProvider` so tab and pushed-screen hosts agree on the shape.
+- The app-owned surface paints the glass once behind the controls and artwork.
 - A sheet belongs in `SHEET_SEGMENTS` so base-route and sheet-local inset calculations keep using
   the screen beneath it. Sheets do not explicitly hide the primary bars; their native surface
   covers bars that remain mounted underneath.

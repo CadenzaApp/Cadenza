@@ -1,6 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTheme } from "expo-router/react-navigation";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
     ActivityIndicator,
     Pressable,
@@ -9,6 +9,11 @@ import {
     View,
 } from "react-native";
 import { ScreenFloatingBubble } from "@/components/custom/floating-bubble";
+import { useBottomRowActionButton } from "@/lib/screen-overlay";
+import {
+    PLAYER_CONTROL_SIZE,
+    PLAYER_SIDE_INSET,
+} from "@/lib/screen-overlay-geometry";
 import { ModalPopup } from "@/components/custom/modal-popup";
 import { TagColorPicker } from "@/components/custom/tag-color-picker";
 import { TAG_COLOR_OPTIONS } from "@/lib/tag-color-palette";
@@ -58,14 +63,31 @@ export function CreateTagBubble() {
     const { colors } = useTheme();
     const [open, setOpen] = useState(false);
 
+    const action = useMemo(
+        () => ({
+            expanded: open,
+            icon: "add" as const,
+            accessibilityLabel: "Create a new tag",
+            onPress: () => setOpen(true),
+        }),
+        [open],
+    );
+    const showLocal = useBottomRowActionButton(action);
+
     return (
         <>
-            <ScreenFloatingBubble
-                onPress={() => setOpen(true)}
-                accessibilityLabel="Create a new tag"
-            >
-                <Ionicons name="add" size={28} color={colors.text} />
-            </ScreenFloatingBubble>
+            {showLocal ? (
+                <ScreenFloatingBubble
+                    size={PLAYER_CONTROL_SIZE}
+                    rightOffset={PLAYER_SIDE_INSET}
+                    bordered={false}
+                    shadow={false}
+                    onPress={action.onPress}
+                    accessibilityLabel="Create a new tag"
+                >
+                    <Ionicons name="add" size={28} color={colors.text} />
+                </ScreenFloatingBubble>
+            ) : null}
             <CreateTagDialog open={open} onOpenChange={setOpen} />
         </>
     );

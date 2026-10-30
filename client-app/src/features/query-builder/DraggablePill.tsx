@@ -88,66 +88,71 @@ export function DraggablePill({
     const cancel = useCallback(() => handlers.current.cancelDrag(), []);
     // These callbacks execute later on the UI runtime, never during render.
     /* eslint-disable react-hooks/refs, react-hooks/purity */
-    const pan = useMemo(
-        () =>
-            Gesture.Pan()
-                .minDistance(6)
-                .maxPointers(1)
-                .onBegin((event) => {
-                    origin.set({ x: event.x, y: event.y });
-                    started.set(false);
-                    released.set(false);
-                })
-                .onStart((event) => {
-                    started.set(true);
-                    opacity.set(0);
-                    dragX.set(event.absoluteX);
-                    dragY.set(event.absoluteY);
-                    runOnJS(start)(
-                        event.absoluteX,
-                        event.absoluteY,
-                        origin.get(),
+    const pan = useMemo(() => {
+        const gesture = Gesture.Pan().minDistance(6);
+        // Do not pass zero: RNGH treats it as an immediate long press,
+        // bypassing the movement threshold and stealing query-tag taps.
+        if (payload.source === "palette") gesture.activateAfterLongPress(155);
+        // A variable-rooted gesture chain is not auto-workletized. Keep each
+        // callback explicit so release and finalization share UI-thread state.
+        return gesture
+            .maxPointers(1)
+            .onBegin((event) => {
+                "worklet";
+                origin.set({ x: event.x, y: event.y });
+                started.set(false);
+                released.set(false);
+            })
+            .onStart((event) => {
+                "worklet";
+                started.set(true);
+                opacity.set(0);
+                dragX.set(event.absoluteX);
+                dragY.set(event.absoluteY);
+                runOnJS(start)(event.absoluteX, event.absoluteY, origin.get());
+            })
+            .onUpdate((event) => {
+                "worklet";
+                dragX.set(event.absoluteX);
+                dragY.set(event.absoluteY);
+                const now = Date.now();
+                if (now - lastHover.get() >= 80) {
+                    lastHover.set(now);
+                    runOnJS(move)(event.absoluteX, event.absoluteY);
+                }
+            })
+            .onEnd((event) => {
+                "worklet";
+                released.set(true);
+                dragX.set(event.absoluteX);
+                dragY.set(event.absoluteY);
+                runOnJS(finish)(event.absoluteX, event.absoluteY);
+            })
+            .onFinalize(() => {
+                "worklet";
+                if (!released.get())
+                    opacity.set(
+                        withTiming(1, {
+                            duration: 100,
+                            reduceMotion: ReduceMotion.System,
+                        }),
                     );
-                })
-                .onUpdate((event) => {
-                    dragX.set(event.absoluteX);
-                    dragY.set(event.absoluteY);
-                    const now = Date.now();
-                    if (now - lastHover.get() >= 80) {
-                        lastHover.set(now);
-                        runOnJS(move)(event.absoluteX, event.absoluteY);
-                    }
-                })
-                .onEnd((event) => {
-                    released.set(true);
-                    dragX.set(event.absoluteX);
-                    dragY.set(event.absoluteY);
-                    runOnJS(finish)(event.absoluteX, event.absoluteY);
-                })
-                .onFinalize(() => {
-                    if (!released.get())
-                        opacity.set(
-                            withTiming(1, {
-                                duration: 100,
-                                reduceMotion: ReduceMotion.System,
-                            }),
-                        );
-                    if (started.get() && !released.get()) runOnJS(cancel)();
-                }),
-        [
-            origin,
-            opacity,
-            started,
-            released,
-            dragX,
-            dragY,
-            lastHover,
-            start,
-            move,
-            finish,
-            cancel,
-        ],
-    );
+                if (started.get() && !released.get()) runOnJS(cancel)();
+            });
+    }, [
+        payload.source,
+        origin,
+        opacity,
+        started,
+        released,
+        dragX,
+        dragY,
+        lastHover,
+        start,
+        move,
+        finish,
+        cancel,
+    ]);
     /* eslint-enable react-hooks/refs, react-hooks/purity */
     const style = useAnimatedStyle(() => ({ opacity: opacity.get() }));
     return (

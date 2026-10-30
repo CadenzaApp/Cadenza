@@ -11,9 +11,9 @@ import Foundation
 /// `"ERR_APPLE_MUSIC_API: undefined reason"` and threw away the status code and
 /// body Apple sent back. Overriding `reason` is what actually reaches JS.
 internal final class MusicKitException: Exception, @unchecked Sendable {
-    private let message: String
+    private let bridgeReason: String
 
-    override var reason: String { message }
+    override var reason: String { bridgeReason }
 
     init(
         name: String,
@@ -22,7 +22,7 @@ internal final class MusicKitException: Exception, @unchecked Sendable {
         line: UInt = #line,
         function: String = #function
     ) {
-        self.message = reason
+        self.bridgeReason = reason
         super.init(file: file, line: line, function: function)
         self.name = name
     }

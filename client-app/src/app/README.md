@@ -90,7 +90,7 @@ by the splash screen or from a fresh sign in. The social feed service ignores it
 in the last 6 hours.
 
 `PortalHost` remains beside the root `Stack`. The tab bar and player are inside the `(tabs)`
-navigator. `NativeTabs` owns the platform tab bar and its iOS 26 bottom accessory. Playback state
+navigator. `NativeTabs` owns the platform tab bar and the dockable expanded player on iOS 26+. Playback state
 still lives above navigation in `PlaybackProvider`.
 
 Auth gating for the five primary screens is centralized in `(tabs)/_layout.tsx`:
@@ -106,25 +106,26 @@ authentication both land on `/library`.
 
 ## Native tabs and the mini player
 
-`(tabs)/_layout.tsx` uses `expo-router/unstable-native-tabs`, the SDK 57 name for Expo Router's
-native tabs API. The five `NativeTabs.Trigger` declarations are the tab order. Search uses the
+`(tabs)/_layout.tsx` uses SDK 58's `expo-router/native-tabs` API. The five `NativeTabs.Trigger` declarations are the tab order. Search uses the
 native `search` role, and iOS 26 draws the system Liquid Glass tab bar without an app-owned
 background or selection bubble.
 
-The player is `NativeTabs.BottomAccessory` on iOS 26. `minimizeBehavior="onScrollDown"` lets UIKit
-minimize the tab bar from native scrolling, while `usePlacement()` selects the regular or inline
-player content. UIKit exposes no public command for setting that placement, so the player has no
-direct vertical docking gesture. Its React content still accepts a horizontal swipe to pause and
-dismiss the player through UIKit's animated `bottomAccessoryHidden` control, which removes the
-whole native glass accessory. Older iOS, Android, and web keep a floating `GlassSurface` fallback
-above their native tab bar with the same swipe-away behavior.
+On iOS 26+, expanded playback uses `NativeTabs.BottomAccessory` with
+`minimizeBehavior="onScrollDown"`, including when sort or multiselect is visible.
+`NativePlayerAccessory` uses `usePlacement()` to hide artist and skip controls in the smaller
+inline frame. Auxiliary controls retain their separate glass surfaces above expanded playback.
+
+`player-presentation.tsx` owns a single motion controller for foreground hosts. Native frames
+position auxiliary controls; expansion completion gates native insertion. See the
+[media-player guide](../components/custom/media-player/README.md) for gestures and native-patch
+setup. Covered hosts do not run gesture reactions.
 
 Native tabs apply scrolling content insets. `useScreenOverlayInsets` now adds only app spacing
 for scroll content and keeps a conservative maximum chrome footprint for absolute controls such
 as floating buttons and the selection toolbar. A tab screen the native bar floats over, like the
 Cadenza query workspace, uses `floatingOverTabBarBottom` instead, which clears the whole bar.
 Expo does not expose native tab-bar measurement.
-The focused Search state hides both the native bar and the accessory through the existing token
+The focused Search state hides both the native bar and the player through the existing token
 based visibility context.
 
 Expo documents limited native-tab integration with `FlatList`. Cadenza's primary scrollers are
@@ -272,7 +273,7 @@ holds only the songs the user added. Its `fallbackId` is the library album, show
 fails or is empty. Its `highlight` param names the song it came from, and that row shimmers once,
 the first time it is on screen.
 
-These root routes render above the native tab controller, so its bottom accessory cannot appear
+These root routes render above the native tab controller, so the tab-level player cannot appear
 over them. Every zoom-dismiss card owns a compact player layer, which makes the player transform
 with that card and lets a nested close reveal the parent card's already-mounted player. Query
 results do not use a zoom card, so `MediaPlayerPushedScreenOverlay` hosts their compact player at

@@ -1,7 +1,31 @@
-export const COMPACT_PLAYER_HEIGHT = 64;
+/** Shared spring style for bottom controls, including native docking target changes. */
+export const BOTTOM_CONTROL_SPRING = {
+    damping: 32,
+    stiffness: 520,
+    mass: 0.8,
+} as const;
+
+export const COMPACT_PLAYER_HEIGHT = 48;
 export const FLOATING_ACTION_SIZE = 56;
+export const PLAYER_CONTROL_SIZE = 52;
 export const OVERLAY_GAP = 12;
-const ACCESSORY_GAP = 8;
+export const PLAYER_ROW_GAP = 8;
+export const PLAYER_SIDE_INSET = 20;
+
+/** UIKit owns scroll docking only for the expanded player on primary tabs. */
+export function nativePlayerAccessoryEnabled({
+    supported,
+    inTabs,
+    hasTrack,
+    collapsed,
+}: {
+    supported: boolean;
+    inTabs: boolean;
+    hasTrack: boolean;
+    collapsed: boolean;
+}) {
+    return supported && inTabs && hasTrack && !collapsed;
+}
 
 export function calculateScreenOverlayInsets({
     safeAreaBottom,
@@ -25,9 +49,9 @@ export function calculateScreenOverlayInsets({
     const playerBottomInset = bottomBarsVisible
         ? safeAreaBottom +
           nativeTabBarHeight +
-          (compactPlayerVisible ? ACCESSORY_GAP + COMPACT_PLAYER_HEIGHT : 0)
+          (compactPlayerVisible ? PLAYER_ROW_GAP + PLAYER_CONTROL_SIZE : 0)
         : compactPlayerVisible
-          ? safeAreaBottom + ACCESSORY_GAP + COMPACT_PLAYER_HEIGHT
+          ? safeAreaBottom + PLAYER_ROW_GAP + PLAYER_CONTROL_SIZE
           : safeAreaBottom;
     // UIKit already shortens a native-tab screen's usable overlay area above
     // its bottom accessory. Adding the tab and player heights again puts an
@@ -35,7 +59,7 @@ export function calculateScreenOverlayInsets({
     // On Android the tab screen already sits above the tab bar and the system
     // inset, so only the floating player is left to clear.
     const floatingActionBottom = tabContentAboveTabBar
-        ? (compactPlayerVisible ? ACCESSORY_GAP + COMPACT_PLAYER_HEIGHT : 0) +
+        ? (compactPlayerVisible ? PLAYER_ROW_GAP + PLAYER_CONTROL_SIZE : 0) +
           OVERLAY_GAP
         : bottomBarsVisible && nativePlayerAccessory
           ? safeAreaBottom + OVERLAY_GAP
@@ -49,7 +73,7 @@ export function calculateScreenOverlayInsets({
             ? safeAreaBottom +
               nativeTabBarHeight +
               (compactPlayerVisible && !nativePlayerAccessory
-                  ? ACCESSORY_GAP + COMPACT_PLAYER_HEIGHT
+                  ? PLAYER_ROW_GAP + PLAYER_CONTROL_SIZE
                   : 0)
             : playerBottomInset) + OVERLAY_GAP;
     // The tab screens turn off UIKit's automatic content insets (see
@@ -58,11 +82,11 @@ export function calculateScreenOverlayInsets({
     const contentBottomInset = bottomBarsVisible
         ? tabContentAboveTabBar
             ? compactPlayerVisible && !nativePlayerAccessory
-                ? COMPACT_PLAYER_HEIGHT + ACCESSORY_GAP + OVERLAY_GAP
+                ? PLAYER_CONTROL_SIZE + PLAYER_ROW_GAP + OVERLAY_GAP
                 : OVERLAY_GAP
             : playerBottomInset + OVERLAY_GAP
         : compactPlayerVisible
-          ? COMPACT_PLAYER_HEIGHT + ACCESSORY_GAP + safeAreaBottom + OVERLAY_GAP
+          ? PLAYER_CONTROL_SIZE + PLAYER_ROW_GAP + safeAreaBottom + OVERLAY_GAP
           : Math.max(40, safeAreaBottom + OVERLAY_GAP);
 
     return {
@@ -77,4 +101,137 @@ export function calculateScreenOverlayInsets({
             contentBottomInset + FLOATING_ACTION_SIZE + OVERLAY_GAP,
         ),
     };
+}
+
+/** Both transforms use the same progress and a fixed bottom anchor. */
+export function selectionOverlayOffsets(
+    progress: number,
+    panelHeight: number,
+    windowWidth: number,
+    gap = 8,
+    collapsed: boolean | number = true,
+    hasPlayer = true,
+) {
+    "worklet";
+    const circle =
+        typeof collapsed === "boolean" ? Number(collapsed) : collapsed;
+    return {
+        playerTranslateY: hasPlayer
+            ? 0 - (panelHeight + gap) * progress * circle
+            : 0,
+        panelTranslateX: -windowWidth * (1 - progress),
+    };
+}
+
+/** Keep the panel above the actual accessory frame as UIKit moves it inline. */
+export function selectionOffsetAboveNativePlayer(
+    rowBottom: number,
+    playerTop: number,
+    gap = 8,
+) {
+    "worklet";
+    return playerTop - gap - rowBottom;
+}
+
+/** Sort and selection share the same animated anchor above expanded playback. */
+export function auxiliaryControlY(
+    anchorY: number,
+    circleProgress: number,
+    hasPlayer: boolean,
+) {
+    "worklet";
+    return hasPlayer ? anchorY * (1 - circleProgress) : 0;
+}
+
+/** Translate finger movement into the current shape, without restarting at an endpoint. */
+export function playerDragProgress(
+    start: number,
+    translationX: number,
+    travel: number,
+) {
+    "worklet";
+    return Math.min(1, Math.max(0, start - translationX / Math.max(1, travel)));
+}
+
+/** Project the release briefly forward so a flick carries into the settling spring. */
+export function playerReleaseTarget(
+    progress: number,
+    velocityX: number,
+    travel: number,
+): 0 | 1 {
+    "worklet";
+    const projected = progress - (velocityX / Math.max(1, travel)) * 0.16;
+    return projected > 0.5 ? 1 : 0;
+}
+
+/** Once a touch becomes a drag, its release cannot activate a button. */
+export function playerTouchMoved(
+    suppressed: boolean,
+    deltaX: number,
+    deltaY: number,
+) {
+    "worklet";
+    return suppressed || Math.hypot(deltaX, deltaY) >= 6;
+}
+
+/** Keep a freely placed bubble inside the usable page, above the navigation bar. */
+export function clampBubblePosition(
+    x: number,
+    y: number,
+    minX: number,
+    maxX: number,
+    minY: number,
+    maxY: number,
+) {
+    "worklet";
+    return {
+        x: Math.max(minX, Math.min(Math.max(minX, maxX), x)),
+        y: Math.max(minY, Math.min(Math.max(minY, maxY), y)),
+    };
+}
+
+/** Home capture is a circle, measured between bubble centers (or equal-sized origins). */
+export function bubbleNearHome(
+    x: number,
+    y: number,
+    homeX: number,
+    homeY: number,
+    radius: number,
+) {
+    "worklet";
+    return Math.hypot(x - homeX, y - homeY) <= radius;
+}
+
+/** Supported routes keep their shared host even while temporarily hidden. */
+export function bottomActionPlacement(
+    available: boolean,
+    hidden: boolean,
+    focused: boolean,
+) {
+    return !focused
+        ? "hidden"
+        : available
+          ? "shared"
+          : hidden
+            ? "hidden"
+            : "local";
+}
+
+/** Preserve the underlying host through sheet presentation, not pushed navigation. */
+export function playerHostIsActive(
+    focused: boolean,
+    key: string,
+    routes: readonly { key: string; name: string }[],
+    index = routes.length - 1,
+) {
+    if (focused) return true;
+    const sheets = ["player", "account", "appearance"];
+    if (!sheets.includes(routes[index]?.name.split("/")[0])) return false;
+    let underlying = index;
+    while (
+        underlying >= 0 &&
+        sheets.includes(routes[underlying].name.split("/")[0])
+    )
+        underlying--;
+    return routes[underlying]?.key === key;
 }
