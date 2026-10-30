@@ -13,10 +13,7 @@ export function resolveSwatchSlots(
     count: number,
 ): SwatchSlots {
     const source = stored ?? presets;
-    return Array.from(
-        { length: count },
-        (_, index) => source[index] ?? null,
-    );
+    return Array.from({ length: count }, (_, index) => source[index] ?? null);
 }
 
 /** `slots` with slot `index` set to `color`, or emptied by null. */

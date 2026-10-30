@@ -6,21 +6,21 @@ glass, color slots, explicit filter, tag suggestions) go through `useUserSetting
 
 ## Files
 
-| file                            | role                                                                                                                                                                |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| file                            | role                                                                                                                                                                      |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `account-settings.tsx`          | `/account`. Avatar, username, and email (the header opens `/account-details`), Apple Music card, the Listening and Appearance tiles, Privacy and Apple Music limits rows. |
-| `apple-music-settings.tsx`      | `/apple-music`. Connection status, connect or reconnect, library sync, and disconnect.                                                                              |
-| `listening-preferences.tsx`     | `/listening-preferences`. Tag suggestions and Hide explicit content toggles.                                                                                        |
-| `appearance-settings.tsx`       | `/appearance`. Mode (System, Light, Dark, Custom), background, accent, glass tint, Clear or Tinted glass, a live preview, and reset.                                |
-| `privacy-settings.tsx`          | `/privacy`. What Cadenza keeps and what it does not, and the way into Your data.                                                                                    |
-| `account-details.tsx`           | `/account-details`. Name and member since, the username and bio form, view public profile, Your data, Cadenza sign out.                                          |
-| `your-data.tsx`                 | `/your-data`. Profile, the counts from `GET /profile/data`, and every saved setting, as tables. Delete account opens a confirm that does nothing yet, and says so.               |
-| `apple-music-limits.tsx`        | `/apple-music-limits`. What MusicKit and the Apple Music API do not allow.                                                                                         |
-| `profile-form.tsx`              | `ProfileForm`, the only username and bio editor. `PATCH /profile`.                                                                                                  |
-| `account-avatar.tsx`            | `AccountAvatar`, `useAccountIdentity` (display name and initial), and `memberSince`.                                                                              |
-| `apple-music-connection.ts`     | Shared by the card and the sheet: `appleMusicStatus`, `useConnectAppleMusic`, `useLastSyncedLabel`.                                                                 |
-| `settings-ui.tsx`               | `SettingsSheet`, sections, rows, groups, tiles, explainer cards (`SettingsPoints`), plain accent icons, status dots, `SaveError`.                                                                       |
-| `apple-music-session-guard.tsx` | `AppleMusicSessionGuard`: renders nothing, opens `/account` once when Apple rejects the stored music-user token. Mounted in `src/app/_layout.tsx`.                  |
+| `apple-music-settings.tsx`      | `/apple-music`. Connection status, connect or reconnect, library sync, and disconnect.                                                                                    |
+| `listening-preferences.tsx`     | `/listening-preferences`. Tag suggestions and Hide explicit content toggles.                                                                                              |
+| `appearance-settings.tsx`       | `/appearance`. Mode (System, Light, Dark, Custom), background, accent, glass tint, Clear or Tinted glass, a live preview, and reset.                                      |
+| `privacy-settings.tsx`          | `/privacy`. What Cadenza keeps and what it does not, and the way into Your data.                                                                                          |
+| `account-details.tsx`           | `/account-details`. Name and member since, the username and bio form, view public profile, Your data, Cadenza sign out.                                                   |
+| `your-data.tsx`                 | `/your-data`. Profile, the counts from `GET /profile/data`, and every saved setting, as tables. Delete account opens a confirm that does nothing yet, and says so.        |
+| `apple-music-limits.tsx`        | `/apple-music-limits`. What MusicKit and the Apple Music API do not allow.                                                                                                |
+| `profile-form.tsx`              | `ProfileForm`, the only username and bio editor. `PATCH /profile`.                                                                                                        |
+| `account-avatar.tsx`            | `AccountAvatar`, `useAccountIdentity` (display name and initial), and `memberSince`.                                                                                      |
+| `apple-music-connection.ts`     | Shared by the card and the sheet: `appleMusicStatus`, `useConnectAppleMusic`, `useLastSyncedLabel`.                                                                       |
+| `settings-ui.tsx`               | `SettingsSheet`, sections, rows, groups, tiles, explainer cards (`SettingsPoints`), plain accent icons, status dots, `SaveError`.                                         |
+| `apple-music-session-guard.tsx` | `AppleMusicSessionGuard`: renders nothing, opens `/account` once when Apple rejects the stored music-user token. Mounted in `src/app/_layout.tsx`.                        |
 
 ## How it works
 
