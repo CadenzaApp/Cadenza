@@ -2,7 +2,13 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRouter } from "expo-router";
 import { useTheme } from "expo-router/react-navigation";
 import { useCallback, useId, useLayoutEffect, useRef } from "react";
-import { Image, Pressable, View, type LayoutChangeEvent } from "react-native";
+import {
+    Image,
+    Platform,
+    Pressable,
+    View,
+    type LayoutChangeEvent,
+} from "react-native";
 import { GestureDetector } from "react-native-gesture-handler";
 import Animated, {
     interpolate,
@@ -110,13 +116,19 @@ export function MediaPlayer({
         left: 0,
         ...geometry.get(),
     }));
-    const cornerStyle = useAnimatedStyle(() => ({
-        borderRadius: interpolate(
+    const clipCorners = Platform.OS === "android";
+    const cornerStyle = useAnimatedStyle(() => {
+        const borderRadius = interpolate(
             progress.get(),
             [0, 1],
             [(source.get()?.height ?? height.get()) / 2, SIZE / 2],
-        ),
-    }));
+        );
+        // The glass fill is a child. iOS glass draws its own rounded edge, so
+        // this view stays unclipped. Android needs the clip or the bar is square.
+        return clipCorners
+            ? { borderRadius, overflow: "hidden" as const }
+            : { borderRadius };
+    });
     const controlsStyle = useAnimatedStyle(() => ({
         opacity: interpolate(progress.get(), [0, 0.5, 1], [1, 0, 0]),
         transform: [{ translateX: -24 * progress.get() }],
@@ -199,7 +211,11 @@ export function MediaPlayer({
             >
                 <GestureDetector gesture={gesture}>
                     <Animated.View style={surfaceStyle}>
-                        <Animated.View className="flex-1" style={cornerStyle}>
+                        <Animated.View
+                            className="flex-1"
+                            collapsable={false}
+                            style={cornerStyle}
+                        >
                             <View
                                 className="absolute inset-0"
                                 pointerEvents="none"

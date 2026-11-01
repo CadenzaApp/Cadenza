@@ -36,7 +36,7 @@ the controller lives in the `ZoomDismissScreen` that screen renders.
 `glass-surface.tsx` exports `GlassSurface`, the translucent background layer behind app-owned
 glass controls and compatibility surfaces. It renders liquid glass on iOS 26, an `expo-blur` `BlurView` on anything
 older, and a flat translucent card on web, all behind one component. It paints a background and
-nothing else; the caller supplies size, radius, and `overflow: "hidden"`. Its optional
+nothing else; the caller supplies size and radius. Android copies that radius onto its fill, so a visible overflow (how iOS lets the liquid-glass edge extend) does not leave a square. Its optional
 `tintColor` reaches native liquid glass and gets a translucent approximation on fallbacks.
 Glass does not stack: a `GlassSurface` under another one, or under a `GlassLayer`, paints a flat
 fill instead. A container whose glass is a sibling under its content (like `AnalyticsCard`) wraps

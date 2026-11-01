@@ -15,7 +15,9 @@ import {
     StyleSheet,
     View,
     type ColorValue,
+    type StyleProp,
     type ViewProps,
+    type ViewStyle,
 } from "react-native";
 
 import { PALETTE, useOptionalAppTheme } from "@/lib/theme";
@@ -107,9 +109,13 @@ const ANDROID_FILL_OPACITY: Record<GlassSurfaceVariant, number> = {
  * Inside another glass surface, or a `GlassLayer`, it paints a flat fill
  * instead, since liquid glass is not meant to stack on glass.
  *
- * It paints a background and nothing else. Give it a size, a radius, and
- * `overflow: "hidden"` from the caller. Note that clipping kills an iOS shadow,
- * so keep the shadow on a parent rather than on this view.
+ * It paints a background and nothing else. Give it a size and a radius.
+ * iOS liquid glass uses that radius for its own shape, and the caller can
+ * leave overflow visible so the material edge extends. Android's fill is a
+ * child of this view, and a child ignores its parent's radius, so a visible
+ * overflow paints a square. Android therefore copies the radius onto the fill
+ * and clips. An opacity style drops that radius, so the fill's alpha is in
+ * the color. Clipping kills an iOS shadow; keep the shadow on a parent.
  */
 export function GlassSurface({
     colorScheme: surfaceScheme,
@@ -142,11 +148,14 @@ export function GlassSurface({
     const followsUser = !nested && !surfaceScheme;
     const resolvedTint =
         tintColor ?? (followsUser ? (userGlass?.tint ?? undefined) : undefined);
+    // The caller's radius, copied onto Android fills. A child fill does not
+    // inherit it, which is what leaves floating glass square.
+    const radii = cornerRadii(rest.style);
     // Tinted dims glass toward the card color. Glass that brings its own color,
     // like a toggle on, keeps that color true
     const tintedFill =
         followsUser && tintColor == null && userGlass?.style === "tinted" ? (
-            <TintedFill color={palette.card} />
+            <TintedFill color={palette.card} radii={radii} />
         ) : null;
 
     // Everything below can hold children, so they learn they are on glass.
@@ -154,20 +163,22 @@ export function GlassSurface({
 
     if (nested) {
         return (
-            <View className={className} {...rest}>
+            <View className={className} {...rest} {...androidClip(rest)}>
                 <View
                     pointerEvents="none"
                     style={[
                         StyleSheet.absoluteFill,
-                        {
-                            backgroundColor: palette.glassNestedFill,
-                            opacity: NESTED_FILL_OPACITY[variant],
-                        },
+                        radii,
+                        fillPaint(
+                            palette.glassNestedFill,
+                            NESTED_FILL_OPACITY[variant],
+                        ),
                     ]}
                 />
                 <FallbackTint
                     color={resolvedTint}
                     opacity={NESTED_TINT_OPACITY}
+                    radii={radii}
                 />
                 {tintedFill}
                 {content}
@@ -187,7 +198,7 @@ export function GlassSurface({
                         : undefined,
                 ]}
             >
-                <FallbackTint color={resolvedTint} />
+                <FallbackTint color={resolvedTint} radii={radii} />
                 {tintedFill}
                 {content}
             </View>
@@ -217,21 +228,20 @@ export function GlassSurface({
 
     // Android with nothing to blur: a translucent fill alone lets the content
     // underneath read straight through, so paint a mostly solid surface
-    // instead. The frost look comes from opacity here, not a blur.
+    // instead. The frost is alpha in the fill color. An opacity style would
+    // drop the corner radius.
     if (Platform.OS === "android" && !androidTarget) {
         return (
-            <View className={className} {...rest}>
+            <View className={className} {...rest} {...androidClip(rest)}>
                 <View
                     pointerEvents="none"
                     style={[
                         StyleSheet.absoluteFill,
-                        {
-                            backgroundColor: palette.card,
-                            opacity: ANDROID_FILL_OPACITY[variant],
-                        },
+                        radii,
+                        fillPaint(palette.card, ANDROID_FILL_OPACITY[variant]),
                     ]}
                 />
-                <FallbackTint color={resolvedTint} />
+                <FallbackTint color={resolvedTint} radii={radii} />
                 {tintedFill}
                 {content}
             </View>
@@ -248,8 +258,9 @@ export function GlassSurface({
             blurMethod={androidTarget ? "dimezisBlurViewSdk31Plus" : "none"}
             className={className}
             {...rest}
+            {...androidClip(rest)}
         >
-            <FallbackTint color={resolvedTint} />
+            <FallbackTint color={resolvedTint} radii={radii} />
             {tintedFill}
             {content}
         </BlurView>
@@ -323,13 +334,14 @@ export function GlassBlurTarget({ children, ...rest }: ViewProps) {
 const TINTED_FILL_OPACITY = 0.55;
 
 /** The extra opacity of Tinted glass. */
-function TintedFill({ color }: { color: string }) {
+function TintedFill({ color, radii }: { color: string; radii?: ViewStyle }) {
     return (
         <View
             pointerEvents="none"
             style={[
                 StyleSheet.absoluteFill,
-                { backgroundColor: color, opacity: TINTED_FILL_OPACITY },
+                radii,
+                fillPaint(color, TINTED_FILL_OPACITY),
             ]}
         />
     );
@@ -339,9 +351,11 @@ function TintedFill({ color }: { color: string }) {
 function FallbackTint({
     color,
     opacity = 0.18,
+    radii,
 }: {
     color?: ColorValue;
     opacity?: number;
+    radii?: ViewStyle;
 }) {
     if (color == null) return null;
 
@@ -350,8 +364,60 @@ function FallbackTint({
             pointerEvents="none"
             style={[
                 StyleSheet.absoluteFill,
-                { backgroundColor: color, opacity },
+                radii,
+                typeof color === "string"
+                    ? fillPaint(color, opacity)
+                    : { backgroundColor: color, opacity },
             ]}
         />
     );
+}
+
+const HEX = /^#[0-9a-fA-F]{6}$/;
+
+/**
+ * Alpha in the color, not an `opacity` style. On Android an opacity below 1
+ * promotes the view to a rectangular layer and drops its corner radius.
+ */
+function fillPaint(color: string, alpha: number): ViewStyle {
+    if (Platform.OS === "android" && HEX.test(color)) {
+        const channel = Math.round(Math.min(1, Math.max(0, alpha)) * 255)
+            .toString(16)
+            .padStart(2, "0");
+        return { backgroundColor: `${color}${channel}` };
+    }
+    return { backgroundColor: color, opacity: alpha };
+}
+
+/** Radii the caller put on this surface, for the Android fills that paint it. */
+function cornerRadii(style: StyleProp<ViewStyle> | undefined): ViewStyle {
+    if (Platform.OS !== "android") return {};
+    const flat = StyleSheet.flatten(style);
+    if (!flat) return {};
+    const radii: ViewStyle = {};
+    const keys = [
+        "borderRadius",
+        "borderTopLeftRadius",
+        "borderTopRightRadius",
+        "borderBottomLeftRadius",
+        "borderBottomRightRadius",
+    ] as const;
+    for (const key of keys) {
+        const value = flat[key];
+        if (value != null) radii[key] = value;
+    }
+    return radii;
+}
+
+const styles = StyleSheet.create({
+    androidClip: { overflow: "hidden" },
+});
+
+/** Clip Android glass to its radius. A caller's `overflow: "visible"` loses. */
+function androidClip(rest: ViewProps): ViewProps {
+    if (Platform.OS !== "android") return {};
+    return {
+        collapsable: false,
+        style: [rest.style, styles.androidClip],
+    };
 }
