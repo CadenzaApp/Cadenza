@@ -91,7 +91,7 @@ Most of the tables below are keyed on song ids that come from Apple Music.
   `user2`. A friend count is completed rows where the person is `user1` or `user2`. Cancelling
   deletes the row for that pair, whatever the status is.
 - `profile` - one public profile per auth user. `uid` (uuid pk, references `auth.users`, cascades),
-  `username` (text, unique), and `bio` (text, defaults to `''`). A trigger on `auth.users` insert
+  `username` (text, unique), `bio` (text, defaults to `''`), and `friends` (bigint, default 0). A trigger on `auth.users` insert
   creates the row with username equal to the email local part (everything before `@`), appending
   a number when that name is taken. `POST /profile` does the same for a missing row. See Profiles
   below.
