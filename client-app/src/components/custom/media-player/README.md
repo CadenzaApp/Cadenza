@@ -44,11 +44,10 @@ removes insertion/removal fades. Movement below the threshold leaves native glas
 the patch. Scroll minimization remains UIKit-owned.
 
 Sort and Library Tags' plus action share `useBottomRowActionButton`. Their sources own their
-sheets; the host owns placement. Floating bottom controls leave the native glass edge unclipped
-on iOS. Android clips that same radius, because its fill is a child view and a visible overflow
-leaves the bar and the filter button square. iOS clips too on pushed screens: a zoom card's page
-clips to its rounded corners, and Query results sits in a `FullWindowOverlay`. Unclipped glass in
-either paints dark rectangles. `useGlassClip` and `GlassClipScope` in `glass-surface.tsx` decide this. Artwork and transport content have separate clipping.
+sheets; the host owns placement. Floating bottom glass always clips to its radius. Unclipped, it
+goes square on Android, and on iOS it paints dark rectangles whenever UIKit clips something above
+it: the screen behind any sheet, a zoom card, or the Query results window overlay. Artwork and
+transport content have separate clipping.
 The control sits above expanded playback, follows native tuck,
 and centers above Search when tucked. In circle mode it shares the bottom row. Temporary chrome
 suppression hides it without mounting a local fallback. Controls enter and exit from the right.

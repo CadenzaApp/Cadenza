@@ -1,7 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTheme } from "expo-router/react-navigation";
 import { GlassIconButton } from "@/components/ui/glass-icon-button";
-import { GlassClipScope } from "@/components/ui/glass-surface";
 import { Platform, StyleSheet, View, useWindowDimensions } from "react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Animated, {
@@ -113,12 +112,12 @@ export function MediaPlayerPushedScreenOverlay() {
 
     // A native screen sits above ordinary React siblings on iOS, regardless
     // of z-index. Query results do not own a zoom card, so their player stays
-    // at the root and moves to the window layer, where its glass clips.
+    // at the root and moves to the window layer.
     if (Platform.OS !== "ios") return player;
 
     return (
         <FullWindowOverlay unstable_accessibilityContainerViewIsModal={false}>
-            <GlassClipScope>{player}</GlassClipScope>
+            {player}
         </FullWindowOverlay>
     );
 }
@@ -401,7 +400,6 @@ function MediaPlayerRow({
                 }
             >
                 <GlassIconButton
-                    clipGlass={false}
                     size={PLAYER_CONTROL_SIZE}
                     bordered={false}
                     style={{

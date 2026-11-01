@@ -11,7 +11,7 @@ import Animated, {
     useAnimatedReaction,
     type SharedValue,
 } from "react-native-reanimated";
-import { GlassSurface, useGlassClip } from "@/components/ui/glass-surface";
+import { GlassSurface } from "@/components/ui/glass-surface";
 import {
     usePlayerGestures,
     usePlayerPresentation,
@@ -110,19 +110,15 @@ export function MediaPlayer({
         left: 0,
         ...geometry.get(),
     }));
-    const clipCorners = useGlassClip();
     const cornerStyle = useAnimatedStyle(() => {
         const borderRadius = interpolate(
             progress.get(),
             [0, 1],
             [(source.get()?.height ?? height.get()) / 2, SIZE / 2],
         );
-        // The glass fill is a child. iOS glass in the app's window draws its own
-        // rounded edge, so this view stays unclipped. Everywhere else it needs
-        // the clip or the bar is square, see `useGlassClip`.
-        return clipCorners
-            ? { borderRadius, overflow: "hidden" as const }
-            : { borderRadius };
+        // Clipped on every platform. Unclipped glass goes square on Android,
+        // and dark under a sheet or zoom card on iOS.
+        return { borderRadius, overflow: "hidden" as const };
     });
     const controlsStyle = useAnimatedStyle(() => ({
         opacity: interpolate(progress.get(), [0, 0.5, 1], [1, 0, 0]),

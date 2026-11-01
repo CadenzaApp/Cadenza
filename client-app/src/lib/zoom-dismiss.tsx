@@ -43,7 +43,6 @@ import {
     type ZoomRect,
 } from "./zoom-dismiss-geometry";
 
-import { GlassClipScope } from "@/components/ui/glass-surface";
 import { SkeletonAnimationContext } from "@/components/ui/skeleton";
 
 /**
@@ -556,14 +555,10 @@ export function ZoomDismissScreen({
                     ref={pageRef}
                     style={[styles.page, { width, height }, pageStyle]}
                 >
-                    {/* the page clips to its rounded corners, so glass on
-                        it has to clip to its own radius */}
-                    <GlassClipScope>
-                        <SkeletonAnimationContext.Provider value={opened}>
-                            {children}
-                            {overlay}
-                        </SkeletonAnimationContext.Provider>
-                    </GlassClipScope>
+                    <SkeletonAnimationContext.Provider value={opened}>
+                        {children}
+                        {overlay}
+                    </SkeletonAnimationContext.Provider>
                 </Animated.View>
             </View>
         </ZoomDismissContext.Provider>

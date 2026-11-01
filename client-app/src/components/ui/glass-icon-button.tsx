@@ -8,7 +8,7 @@ import {
     type ViewStyle,
 } from "react-native";
 
-import { GlassSurface, useGlassClip } from "@/components/ui/glass-surface";
+import { GlassSurface } from "@/components/ui/glass-surface";
 import { usePressedFill } from "@/components/ui/pressed-fill";
 import { cn } from "@/lib/utils";
 
@@ -17,11 +17,6 @@ type GlassIconButtonProps = Omit<PressableProps, "children" | "style"> & {
     size?: number;
     surfaceScheme?: "light" | "dark";
     bordered?: boolean;
-    /**
-     * False leaves the liquid-glass edge unclipped where `useGlassClip`
-     * allows it. Android and glass in a `GlassClipScope` always clip.
-     */
-    clipGlass?: boolean;
     className?: string;
     style?: StyleProp<ViewStyle>;
     children: ReactNode;
@@ -42,21 +37,17 @@ type GlassIconButtonProps = Omit<PressableProps, "children" | "style"> & {
  * Sizing, clipping, and centering live on the wrapper below it. The glass
  * carries its own radius rather than leaning on the wrapper's clip, which is
  * what the other glass surfaces in the app do and what Android needs.
- * `clipGlass` only skips that clip on iOS.
  */
 export function GlassIconButton({
     size = 40,
     surfaceScheme,
     bordered = true,
-    clipGlass = true,
     className,
     style,
     children,
     ...rest
 }: GlassIconButtonProps) {
     const radius = size / 2;
-    const mustClip = useGlassClip();
-    const clip = clipGlass || mustClip;
 
     const pressedFill = usePressedFill(surfaceScheme);
 
@@ -82,7 +73,7 @@ export function GlassIconButton({
                             borderRadius: radius,
                             alignItems: "center",
                             justifyContent: "center",
-                            overflow: clip ? "hidden" : "visible",
+                            overflow: "hidden",
                         },
                         pressed && styles.pressed,
                     ]}
@@ -99,7 +90,7 @@ export function GlassIconButton({
                                 // Inset the glass only when the wrapper has a border.
                                 {
                                     borderRadius: radius - (bordered ? 1 : 0),
-                                    overflow: clip ? "hidden" : "visible",
+                                    overflow: "hidden",
                                 },
                             ]}
                         />
