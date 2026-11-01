@@ -3,6 +3,7 @@ import { useCallback, useLayoutEffect } from "react";
 import { FlatList, Pressable, View, type ListRenderItem } from "react-native";
 import Animated from "react-native-reanimated";
 
+import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { useAccount } from "@/lib/account";
 import { useUserPosts } from "@/lib/routes/social";
@@ -22,8 +23,9 @@ type Props = {
  * One user's public profile: avatar, username, bio, then their posts newest
  * first. Opened by tapping an author on the feed, the feed's Me button,
  * account details, or from Discuss, which closes itself and lands here on the
- * Social tab. Read only: on your own page, Edit opens account
- * details, the one place a username and bio are edited.
+ * Social tab. On your own page, Edit opens account details, the one place
+ * a username and bio are edited. On someone else's page, Add friend sits
+ * under the avatar and username and does nothing yet.
  */
 export function UserProfileScreen({ userId }: Props) {
     const { listBottomInset } = useScreenOverlayInsets();
@@ -70,6 +72,9 @@ export function UserProfileScreen({ userId }: Props) {
                             bio={bio}
                             loading={userPostsLoading && !profile}
                             canEdit={account?.id === userId}
+                            canAddFriend={
+                                account != null && account.id !== userId
+                            }
                             onEdit={() =>
                                 router.push("/account-details" as Href)
                             }
@@ -102,12 +107,14 @@ function ProfileHeader({
     bio,
     loading,
     canEdit,
+    canAddFriend,
     onEdit,
 }: {
     username?: string;
     bio?: string;
     loading: boolean;
     canEdit: boolean;
+    canAddFriend: boolean;
     onEdit: () => void;
 }) {
     if (loading) {
@@ -151,6 +158,17 @@ function ProfileHeader({
                     </Pressable>
                 ) : null}
             </View>
+            {canAddFriend ? (
+                <Button
+                    accessibilityLabel="Add friend"
+                    className="self-start"
+                    size="sm"
+                    variant="outline"
+                    onPress={() => {}}
+                >
+                    <Text>Add friend</Text>
+                </Button>
+            ) : null}
             {trimmedBio ? (
                 <Text className="text-base leading-6 text-foreground">
                     {trimmedBio}
