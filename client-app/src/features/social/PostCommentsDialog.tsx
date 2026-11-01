@@ -11,11 +11,13 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ModalPopup } from "@/components/custom/modal-popup";
+import { Button } from "@/components/ui/button";
 import { DialogCloseButton } from "@/components/ui/dialog-close-button";
 import { Text } from "@/components/ui/text";
+import { useAccount } from "@/lib/account";
 import { pinComments } from "@/lib/post-comment";
-import { useAppTheme } from "@/lib/theme";
 import { useProfile } from "@/lib/routes/profile";
+import { useAppTheme } from "@/lib/theme";
 import {
     useCreateComment,
     useInsertCachedComment,
@@ -30,6 +32,7 @@ import {
 } from "@/lib/routes/social";
 import { cn } from "@/lib/utils";
 
+import { CommentOptionsMenu } from "./CommentOptionsMenu";
 import { formatRelativeTime, initialsFromUsername } from "./format";
 import { PostTopicCard } from "./PostTopicCard";
 import { useResolvedTopic } from "./topic";
@@ -50,6 +53,8 @@ type Props = {
     onAuthorPress?: (userId: string) => void;
     /** A comment was stored. The card bumps its own count from this. */
     onCommentCreated?: () => void;
+    /** A comment was deleted. The card drops its own count from this. */
+    onCommentDeleted?: () => void;
 };
 
 /** Post plus its comments, most liked first, with a composer. */
@@ -62,6 +67,7 @@ export function PostCommentsDialog({
     onLikedChange,
     onAuthorPress,
     onCommentCreated,
+    onCommentDeleted,
 }: Props) {
     const { mutedForeground } = useAppTheme().colors;
     const sendColor = useAppTheme().colors.primaryForeground;
@@ -240,6 +246,14 @@ export function PostCommentsDialog({
                                 key={comment.comment_id}
                                 comment={comment}
                                 onAuthorPress={openAuthor}
+                                onDeleted={() => {
+                                    setPinnedIds((ids) =>
+                                        ids.filter(
+                                            (id) => id !== comment.comment_id,
+                                        ),
+                                    );
+                                    onCommentDeleted?.();
+                                }}
                             />
                         ))
                     )}
@@ -371,11 +385,16 @@ function PostSummary({
 function CommentRow({
     comment,
     onAuthorPress,
+    onDeleted,
 }: {
     comment: SocialComment;
     onAuthorPress?: (userId: string) => void;
+    onDeleted?: () => void;
 }) {
-    const { like } = useAppTheme().colors;
+    const { account } = useAccount();
+    const { foreground, like } = useAppTheme().colors;
+    const isOwnComment = account?.id === comment.author.user_id;
+    const [menuOpen, setMenuOpen] = useState(false);
     const { likeComment } = useLikeComment();
     const { unlikeComment } = useUnlikeComment();
     const updateCachedCommentLike = useUpdateCachedCommentLike();
@@ -416,30 +435,47 @@ function CommentRow({
 
     return (
         <View className="gap-2 rounded-2xl px-3 py-3">
-            <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`View ${comment.author.username}'s profile`}
-                onPress={() => onAuthorPress?.(comment.author.user_id)}
-                disabled={!comment.author.user_id}
-                className="flex-row items-center gap-2.5 active:opacity-60"
-            >
-                <View className="h-8 w-8 items-center justify-center rounded-full bg-muted">
-                    <Text className="text-xs font-semibold text-foreground">
-                        {initialsFromUsername(comment.author.username)}
-                    </Text>
-                </View>
-                <View className="min-w-0 flex-1">
-                    <Text
-                        className="text-sm font-semibold text-foreground"
-                        numberOfLines={1}
+            <View className="flex-row items-center">
+                <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`View ${comment.author.username}'s profile`}
+                    onPress={() => onAuthorPress?.(comment.author.user_id)}
+                    disabled={!comment.author.user_id}
+                    className="min-w-0 flex-1 flex-row items-center gap-2.5 active:opacity-60"
+                >
+                    <View className="h-8 w-8 items-center justify-center rounded-full bg-muted">
+                        <Text className="text-xs font-semibold text-foreground">
+                            {initialsFromUsername(comment.author.username)}
+                        </Text>
+                    </View>
+                    <View className="min-w-0 flex-1">
+                        <Text
+                            className="text-sm font-semibold text-foreground"
+                            numberOfLines={1}
+                        >
+                            {comment.author.username}
+                        </Text>
+                        <Text className="text-xs text-muted-foreground">
+                            {formatRelativeTime(comment.created_at)}
+                        </Text>
+                    </View>
+                </Pressable>
+                {isOwnComment ? (
+                    <Button
+                        size="icon"
+                        variant="ghost"
+                        className="-mr-2 h-8 w-8 shrink-0 rounded-full"
+                        onPress={() => setMenuOpen(true)}
+                        accessibilityLabel="Comment options"
                     >
-                        {comment.author.username}
-                    </Text>
-                    <Text className="text-xs text-muted-foreground">
-                        {formatRelativeTime(comment.created_at)}
-                    </Text>
-                </View>
-            </Pressable>
+                        <Ionicons
+                            name="ellipsis-horizontal"
+                            size={20}
+                            color={foreground}
+                        />
+                    </Button>
+                ) : null}
+            </View>
 
             <Text className="text-sm leading-5 text-foreground">
                 {comment.content}
@@ -467,6 +503,12 @@ function CommentRow({
                     {likes}
                 </Text>
             </Pressable>
+
+            <CommentOptionsMenu
+                comment={menuOpen ? comment : null}
+                onClose={() => setMenuOpen(false)}
+                onDeleted={() => onDeleted?.()}
+            />
         </View>
     );
 }

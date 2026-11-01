@@ -125,6 +125,24 @@ pub async fn insert_post(
     Ok(row.try_get_by_index(0)?)
 }
 
+/// Deletes the author's post. `NotFound` when no row matches, including a post
+/// owned by someone else. Comments, likes, and view status cascade from `posts`.
+pub async fn delete_post(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+    post_id: i64,
+) -> Result<(), CadenzaError> {
+    let deleted = posts::Entity::delete_many()
+        .filter(posts::Column::PostId.eq(post_id))
+        .filter(posts::Column::UserId.eq(user_id))
+        .exec(db)
+        .await?;
+    if deleted.rows_affected == 0 {
+        return Err(CadenzaError::NotFound);
+    }
+    Ok(())
+}
+
 /// Records a like and bumps `likes` / `hot_score` only when the row is new.
 pub async fn like_post(
     db: &DatabaseConnection,
@@ -235,6 +253,36 @@ pub async fn insert_comment(
         .await?;
     txn.commit().await?;
     Ok(comment_id)
+}
+
+/// Deletes the author's comment and drops `posts.comments`. `NotFound` when
+/// no row matches, including a comment owned by someone else. Comment likes
+/// cascade from `comments`.
+pub async fn delete_comment(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+    comment_id: i64,
+) -> Result<(), CadenzaError> {
+    let txn = db.begin().await?;
+    let deleted = comments::Entity::delete_many()
+        .filter(comments::Column::CommentId.eq(comment_id))
+        .filter(comments::Column::UserId.eq(user_id))
+        .exec_with_returning(&txn)
+        .await?;
+    let Some(comment) = deleted.first() else {
+        txn.rollback().await?;
+        return Err(CadenzaError::NotFound);
+    };
+    txn.execute_raw(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "UPDATE posts
+         SET comments = GREATEST(comments - 1, 0)
+         WHERE post_id = $1",
+        vec![comment.post_id.into()],
+    ))
+    .await?;
+    txn.commit().await?;
+    Ok(())
 }
 
 /// Comments on `post_id`, most liked first, then newest, then comment id.

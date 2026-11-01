@@ -172,6 +172,17 @@ impl SocialFeedService {
         social::insert_post(db, user_id, content, &embedding, &with_bday, topic_mk_id).await
     }
 
+    /// Deletes the author's post. `NotFound` when it is missing or owned by
+    /// someone else. Related likes, comments, and view rows cascade.
+    pub async fn delete_post(
+        &self,
+        db: &DatabaseConnection,
+        user_id: Uuid,
+        post_id: i64,
+    ) -> Result<(), CadenzaError> {
+        social::delete_post(db, user_id, post_id).await
+    }
+
     /// Ranked posts for `user_id`. Marks the returned ids `loaded`.
     pub async fn get_feed(
         &self,
@@ -415,6 +426,17 @@ impl SocialFeedService {
         content: &str,
     ) -> Result<i64, CadenzaError> {
         social::insert_comment(db, user_id, post_id, content).await
+    }
+
+    /// Deletes the author's comment. `NotFound` when it is missing or owned by
+    /// someone else. `posts.comments` drops in the same transaction.
+    pub async fn delete_comment(
+        &self,
+        db: &DatabaseConnection,
+        user_id: Uuid,
+        comment_id: i64,
+    ) -> Result<(), CadenzaError> {
+        social::delete_comment(db, user_id, comment_id).await
     }
 
     /// Likes `comment_id` unless `timestamp` is older than the last click this

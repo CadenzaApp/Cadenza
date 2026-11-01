@@ -3,21 +3,24 @@ import { useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 
+import { Button } from "@/components/ui/button";
 import { GlassSurface } from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
+import { useAccount } from "@/lib/account";
 import {
     useLikePost,
     useUnlikePost,
     useUpdateCachedPostLike,
 } from "@/lib/routes/social";
+import { useAppTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 
 import { formatRelativeTime, initialsFromUsername } from "./format";
 import { PostCommentsDialog } from "./PostCommentsDialog";
+import { PostOptionsMenu } from "./PostOptionsMenu";
 import { PostTopicCard } from "./PostTopicCard";
 import { useResolvedTopic } from "./topic";
 import type { PostTopic, SocialPost } from "./types";
-import { useAppTheme } from "@/lib/theme";
 
 type Props = {
     post: SocialPost;
@@ -36,6 +39,10 @@ type Props = {
      * closes itself first.
      */
     onAuthorPress?: (userId: string) => void;
+    /** The post left the screen. Fired before the delete request returns. */
+    onDeleted?: (postId: number) => void;
+    /** The delete request failed. The caller can show the post again. */
+    onDeleteFailed?: (postId: number) => void;
 };
 
 /** One feed row: author, attached topic, body, likes, and comments. */
@@ -45,12 +52,16 @@ export function PostCard({
     showTopic = true,
     onLikedChange,
     onAuthorPress,
+    onDeleted,
+    onDeleteFailed,
 }: Props) {
-    const { like, mutedForeground } = useAppTheme().colors;
+    const { foreground, like, mutedForeground } = useAppTheme().colors;
+    const { account } = useAccount();
     const router = useRouter();
     const { likePost } = useLikePost();
     const { unlikePost } = useUnlikePost();
     const updateCachedPostLike = useUpdateCachedPostLike();
+    const isOwnPost = account?.id === post.author.user_id;
     const topic = useResolvedTopic(
         showTopic ? post.topic_mk_id : null,
         showTopic ? topicHint : null,
@@ -58,6 +69,7 @@ export function PostCard({
     const [liked, setLiked] = useState(post.liked);
     const likedRef = useRef(liked);
     const [commentsOpen, setCommentsOpen] = useState(false);
+    const [menuOpen, setMenuOpen] = useState(false);
     // The card remounts from the cached post after a navigation. Follow that
     // post, or an unlike that already saved still paints as liked.
     useEffect(() => {
@@ -100,6 +112,16 @@ export function PostCard({
                 return { postId: post.post_id, count, extra: 1 };
             }
             return { ...current, extra: current.extra + 1 };
+        });
+    }
+
+    function noteCommentDeleted() {
+        setCommentBump((current) => {
+            const count = post.comment_count ?? 0;
+            if (current.postId !== post.post_id || current.count !== count) {
+                return { postId: post.post_id, count, extra: 0 };
+            }
+            return { ...current, extra: Math.max(0, current.extra - 1) };
         });
     }
 
@@ -175,17 +197,37 @@ export function PostCard({
                     />
                 </View>
 
-                <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={`View ${post.author.username}'s profile`}
-                    onPress={(event) => {
-                        event.stopPropagation();
-                        openAuthor();
-                    }}
-                    className="flex-row items-center gap-3 active:opacity-60"
-                >
-                    {authorRow}
-                </Pressable>
+                <View className="flex-row items-center">
+                    <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`View ${post.author.username}'s profile`}
+                        onPress={(event) => {
+                            event.stopPropagation();
+                            openAuthor();
+                        }}
+                        className="min-w-0 flex-1 flex-row items-center gap-3 active:opacity-60"
+                    >
+                        {authorRow}
+                    </Pressable>
+                    {isOwnPost ? (
+                        <Button
+                            size="icon"
+                            variant="ghost"
+                            className="-mr-2 h-10 w-10 shrink-0 rounded-full"
+                            onPress={(event) => {
+                                event.stopPropagation();
+                                setMenuOpen(true);
+                            }}
+                            accessibilityLabel="Post options"
+                        >
+                            <Ionicons
+                                name="ellipsis-horizontal"
+                                size={24}
+                                color={foreground}
+                            />
+                        </Button>
+                    ) : null}
+                </View>
 
                 {topic ? (
                     <PostTopicCard
@@ -249,6 +291,13 @@ export function PostCard({
                 </View>
             </Pressable>
 
+            <PostOptionsMenu
+                post={menuOpen ? post : null}
+                onClose={() => setMenuOpen(false)}
+                onDeleted={onDeleted}
+                onDeleteFailed={onDeleteFailed}
+            />
+
             <PostCommentsDialog
                 open={commentsOpen}
                 onOpenChange={setCommentsOpen}
@@ -258,6 +307,7 @@ export function PostCard({
                 onLikedChange={onLikedChange}
                 onAuthorPress={openAuthor}
                 onCommentCreated={noteCommentCreated}
+                onCommentDeleted={noteCommentDeleted}
             />
         </>
     );

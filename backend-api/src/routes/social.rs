@@ -1,7 +1,7 @@
 use axum::{
     Json, Router,
     extract::{Path, Query, State},
-    routing::{get, patch, post},
+    routing::{delete, get, patch, post},
 };
 use axum_jwt_auth::Claims;
 use sea_orm::DatabaseConnection;
@@ -163,6 +163,19 @@ async fn create_post(
         )
         .await?;
     Ok(Json(CreatePostResponse { post_id }))
+}
+
+/// Deletes the signed-in user's post. Likes, comments, and view rows go with
+/// it. 404 when the post is missing or belongs to someone else. Responds with
+/// `null`.
+async fn delete_post(
+    State(db): State<DatabaseConnection>,
+    State(social): State<SocialFeedService>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Path(post_id): Path<i64>,
+) -> Result<Json<Value>, CadenzaError> {
+    social.delete_post(&db, claims.user_id, post_id).await?;
+    Ok(Json(Value::Null))
 }
 
 fn parse_optional_text(
@@ -338,6 +351,21 @@ async fn create_comment(
     Ok(Json(CreateCommentResponse { comment_id }))
 }
 
+/// Deletes the signed-in user's comment and drops the post's comment count.
+/// Comment likes go with it. 404 when the comment is missing or belongs to
+/// someone else. Responds with `null`.
+async fn delete_comment(
+    State(db): State<DatabaseConnection>,
+    State(social): State<SocialFeedService>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Path(comment_id): Path<i64>,
+) -> Result<Json<Value>, CadenzaError> {
+    social
+        .delete_comment(&db, claims.user_id, comment_id)
+        .await?;
+    Ok(Json(Value::Null))
+}
+
 /// Likes a comment. `timestamp` is the client's click time in milliseconds.
 /// Same older-click rule as post likes. Responds with `null`.
 async fn like_comment(
@@ -374,6 +402,7 @@ pub fn get_social_router() -> Router<AppState> {
         .route("/interests/update", patch(update_interests))
         .route("/interests/decay", patch(decay_interests))
         .route("/posts", post(create_post))
+        .route("/posts/{post_id}", delete(delete_post))
         .route("/posts/views", post(mark_viewed))
         .route("/posts/topic", get(topic_posts))
         .route("/posts/user/{author_id}", get(user_posts))
@@ -385,6 +414,7 @@ pub fn get_social_router() -> Router<AppState> {
             "/posts/{post_id}/comments",
             get(get_comments).post(create_comment),
         )
+        .route("/comments/{comment_id}", delete(delete_comment))
         .route(
             "/comments/{comment_id}/likes",
             post(like_comment).delete(unlike_comment),

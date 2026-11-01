@@ -142,6 +142,12 @@ export function DiscussPage({
         [],
     );
 
+    const handleDeleted = useCallback((postId: number) => {
+        setCreated((current) =>
+            current.filter((item) => item.post_id !== postId),
+        );
+    }, []);
+
     const rankedPosts = useMemo(() => {
         const loaded = new Set(posts.map((post) => post.post_id));
         const pending = created.filter((post) => !loaded.has(post.post_id));
@@ -268,6 +274,7 @@ export function DiscussPage({
                             showTopic={false}
                             onLikedChange={rememberLike}
                             onAuthorPress={openSocialProfile}
+                            onDeleted={handleDeleted}
                         />
                     ))}
                 </View>

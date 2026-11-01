@@ -106,6 +106,9 @@ export function SocialFeedScreen() {
     );
 
     const [created, setCreated] = useState<SocialPost[]>([]);
+    const [hiddenIds, setHiddenIds] = useState<ReadonlySet<number>>(
+        () => new Set(),
+    );
     const [localTopics, setLocalTopics] = useState<Record<number, PostTopic>>(
         {},
     );
@@ -130,7 +133,9 @@ export function SocialFeedScreen() {
 
     const feed = useMemo((): FeedRow[] => {
         const loaded = new Set(posts.map((post) => post.post_id));
-        const pending = created.filter((post) => !loaded.has(post.post_id));
+        const pending = created.filter(
+            (post) => !loaded.has(post.post_id) && !hiddenIds.has(post.post_id),
+        );
         const rows: FeedRow[] = pending.map((post) => ({
             kind: "post",
             post,
@@ -138,6 +143,7 @@ export function SocialFeedScreen() {
         const unseenPosts = posts.slice(0, unseenCount);
         const seenPosts = posts.slice(unseenCount);
         for (const post of unseenPosts) {
+            if (hiddenIds.has(post.post_id)) continue;
             rows.push({ kind: "post", post });
         }
         // Never-loaded pages ran dry: separator, then exclude=none pages
@@ -145,10 +151,11 @@ export function SocialFeedScreen() {
             rows.push({ kind: "caught-up" });
         }
         for (const post of seenPosts) {
+            if (hiddenIds.has(post.post_id)) continue;
             rows.push({ kind: "post", post });
         }
         return rows;
-    }, [created, posts, showingSeen, unseenCount]);
+    }, [created, hiddenIds, posts, showingSeen, unseenCount]);
 
     useLayoutEffect(() => {
         navigation.setOptions({
@@ -275,6 +282,62 @@ export function SocialFeedScreen() {
             : `${item.post.post_id}-${index}`;
     }, []);
 
+    const removedCreated = useRef(
+        new Map<number, { post: SocialPost; topic?: PostTopic }>(),
+    );
+
+    const handleDeleted = useCallback((postId: number) => {
+        setHiddenIds((current) => {
+            if (current.has(postId)) return current;
+            const next = new Set(current);
+            next.add(postId);
+            return next;
+        });
+        setCreated((current) => {
+            const removed = current.find((item) => item.post_id === postId);
+            if (!removed) return current;
+            removedCreated.current.set(postId, { post: removed });
+            return current.filter((item) => item.post_id !== postId);
+        });
+        setLocalTopics((current) => {
+            if (!(postId in current)) return current;
+            const saved = removedCreated.current.get(postId);
+            if (saved) saved.topic = current[postId];
+            const next = { ...current };
+            delete next[postId];
+            return next;
+        });
+    }, []);
+
+    const handleDeleteFailed = useCallback(
+        (postId: number) => {
+            setHiddenIds((current) => {
+                if (!current.has(postId)) return current;
+                const next = new Set(current);
+                next.delete(postId);
+                return next;
+            });
+            const saved = removedCreated.current.get(postId);
+            removedCreated.current.delete(postId);
+            if (saved) {
+                setCreated((current) =>
+                    current.some((item) => item.post_id === postId)
+                        ? current
+                        : [saved.post, ...current],
+                );
+                if (saved.topic) {
+                    const topic = saved.topic;
+                    setLocalTopics((current) => ({
+                        ...current,
+                        [postId]: topic,
+                    }));
+                }
+            }
+            showToast("Couldn't delete your post.");
+        },
+        [showToast],
+    );
+
     const renderItem = useCallback<ListRenderItem<FeedRow>>(
         ({ item }) => {
             if (item.kind === "caught-up") {
@@ -284,10 +347,12 @@ export function SocialFeedScreen() {
                 <PostCard
                     post={item.post}
                     topicHint={localTopics[item.post.post_id]}
+                    onDeleted={handleDeleted}
+                    onDeleteFailed={handleDeleteFailed}
                 />
             );
         },
-        [localTopics],
+        [handleDeleteFailed, handleDeleted, localTopics],
     );
 
     const onEndReached = useCallback(() => {

@@ -56,6 +56,52 @@ export function applyPostLike(
     return changed ? next : data;
 }
 
+/**
+ * Drops one post from a cached list. Feed pages, topic posts, a profile, and
+ * an infinite list of those pages all go through here.
+ */
+export function removePost(data: unknown, postId: number): unknown {
+    if (Array.isArray(data)) {
+        let changed = false;
+        const pages = data.map((page) => {
+            const next = removePost(page, postId);
+            if (next !== page) changed = true;
+            return next;
+        });
+        return changed ? pages : data;
+    }
+    if (!data || typeof data !== "object") return data;
+
+    const record = data as { posts?: unknown; feed?: unknown };
+    let changed = false;
+    const next: { posts?: unknown; feed?: unknown } = {
+        ...(data as object),
+    };
+    if (Array.isArray(record.posts)) {
+        const posts = record.posts.filter((post) => !isPostId(post, postId));
+        if (posts.length !== record.posts.length) {
+            next.posts = posts;
+            changed = true;
+        }
+    }
+    if (Array.isArray(record.feed)) {
+        const feed = record.feed.filter((post) => !isPostId(post, postId));
+        if (feed.length !== record.feed.length) {
+            next.feed = feed;
+            changed = true;
+        }
+    }
+    return changed ? next : data;
+}
+
+function isPostId(post: unknown, postId: number): boolean {
+    return (
+        !!post &&
+        typeof post === "object" &&
+        (post as { post_id?: unknown }).post_id === postId
+    );
+}
+
 function adjustPost(post: unknown, postId: number, liked: boolean): unknown {
     if (!post || typeof post !== "object") return post;
     const row = post as SocialPost;

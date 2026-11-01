@@ -6,6 +6,7 @@ import {
     applyPostCommentDelta,
     commentsPath,
     insertCachedComment,
+    removeCachedComment,
     isPostCommentsKey,
     isSocialPostPages,
     pinComments,
@@ -119,4 +120,13 @@ test("comment count delta updates feed and profile caches", () => {
         posts: (typeof post)[];
     }[];
     assert.equal(pages[0].posts[0].comment_count, 0);
+});
+
+test("removing a comment drops only that row", () => {
+    const other = { ...comment, comment_id: 9 };
+    const cached = { comments: [comment, other] };
+    const next = removeCachedComment(cached, 2) as typeof cached;
+    assert.deepEqual(next.comments, [other]);
+    assert.equal(next.comments[0], other);
+    assert.equal(removeCachedComment(cached, 99), cached);
 });

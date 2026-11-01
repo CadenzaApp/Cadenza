@@ -10,9 +10,10 @@ import {
     commentsPath,
     insertCachedComment,
     isPostCommentsKey,
+    removeCachedComment,
     isSocialPostPages,
 } from "../post-comment";
-import { applyPostLike, isSocialPostListKey } from "../post-like";
+import { applyPostLike, isSocialPostListKey, removePost } from "../post-like";
 import type {
     InterestScoreDelta,
     SocialComment,
@@ -272,6 +273,61 @@ export function useCreatePost() {
     };
 }
 
+type DeletePostPayload = {
+    post_id: number;
+};
+
+function deletePostPath({ post_id }: DeletePostPayload) {
+    return `/social/posts/${post_id}`;
+}
+
+/**
+ * Deletes one of the signed-in user's posts. A missing post, or one they do
+ * not own, is a 404. Cache removal is separate: call `useRemoveCachedPost`.
+ */
+export function useDeletePost() {
+    const x = useAPIMutation<DeletePostPayload, void>(
+        "DELETE",
+        deletePostPath,
+        [],
+        { invalidation: "none" },
+    );
+    const deletePost = useCallback(
+        (post_id: number) => x.trigger({ post_id }),
+        [x.trigger],
+    );
+    return {
+        deletePostErr: x.error,
+        deletePostLoading: x.isMutating,
+        resetDeletePost: x.reset,
+        deletePost,
+    };
+}
+
+/**
+ * Drops one post from every cached post list, including the infinite feed.
+ * A filtered `mutate` skips `$inf$` keys, so those entries are written by key.
+ */
+export function useRemoveCachedPost() {
+    const { cache, mutate } = useSWRConfig();
+    return useCallback(
+        (postId: number) => {
+            const apply = (current: unknown) =>
+                current == null ? current : removePost(current, postId);
+            const writes: Promise<unknown>[] = [
+                mutate(isSocialPostListKey, apply, { revalidate: false }),
+            ];
+            for (const key of cache.keys()) {
+                if (!key.startsWith("$inf$")) continue;
+                if (!isSocialPostPages(cache.get(key)?.data)) continue;
+                writes.push(mutate(key, apply, { revalidate: false }));
+            }
+            return Promise.all(writes);
+        },
+        [cache, mutate],
+    );
+}
+
 type MarkPostsViewedPayload = {
     post_ids: number[];
 };
@@ -481,6 +537,54 @@ export function useCreateComment() {
         createComment: async (body: NewCommentPayload) =>
             (await x.trigger(body))?.comment_id,
     };
+}
+
+type DeleteCommentPayload = {
+    comment_id: number;
+};
+
+function deleteCommentPath({ comment_id }: DeleteCommentPayload) {
+    return `/social/comments/${comment_id}`;
+}
+
+/**
+ * Deletes one of the signed-in user's comments. A missing comment, or one
+ * they do not own, is a 404. The post's comment count drops with it.
+ */
+export function useDeleteComment() {
+    const x = useAPIMutation<DeleteCommentPayload, void>(
+        "DELETE",
+        deleteCommentPath,
+        [],
+        { invalidation: "none" },
+    );
+    const deleteComment = useCallback(
+        (comment_id: number) => x.trigger({ comment_id }),
+        [x.trigger],
+    );
+    return {
+        deleteCommentErr: x.error,
+        deleteCommentLoading: x.isMutating,
+        resetDeleteComment: x.reset,
+        deleteComment,
+    };
+}
+
+/** Drops one comment from the cached list for its post. */
+export function useRemoveCachedComment() {
+    const { mutate } = useSWRConfig();
+    return useCallback(
+        (postId: number, commentId: number) =>
+            mutate(
+                (key) => isPostCommentsKey(key, postId),
+                (current: unknown) =>
+                    current == null
+                        ? current
+                        : removeCachedComment(current, commentId),
+                { revalidate: false },
+            ),
+        [mutate],
+    );
 }
 
 type CommentLikePayload = {

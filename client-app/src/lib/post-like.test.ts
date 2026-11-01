@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { applyPostLike, isSocialPostListKey } from "./post-like.ts";
+import { applyPostLike, isSocialPostListKey, removePost } from "./post-like.ts";
 
 const likedPost = {
     post_id: 4,
@@ -39,4 +39,19 @@ test("a feed page and an infinite list of pages both update", () => {
     const next = applyPostLike([page], 4, false) as (typeof page)[];
     assert.equal(next[0].feed[0].liked, false);
     assert.equal(next[0].feed[0].likes, 2);
+});
+
+test("removing a post drops it from posts, feed, and page lists", () => {
+    const other = { ...likedPost, post_id: 9 };
+    const cached = { posts: [likedPost, other], feed: [likedPost] };
+    const next = removePost(cached, 4) as typeof cached;
+    assert.deepEqual(next.posts, [other]);
+    assert.deepEqual(next.feed, []);
+    assert.equal(next.posts[0], other);
+
+    const pages = removePost([{ feed: [likedPost, other] }], 4) as {
+        feed: (typeof likedPost)[];
+    }[];
+    assert.deepEqual(pages[0].feed, [other]);
+    assert.equal(removePost(cached, 99), cached);
 });
