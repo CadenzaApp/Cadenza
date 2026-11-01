@@ -13,6 +13,7 @@ pub struct Model {
     pub created_at: DateTimeWithTimeZone,
     #[sea_orm(primary_key)]
     pub comment_id: i64,
+    pub edited_at: Option<DateTimeWithTimeZone>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

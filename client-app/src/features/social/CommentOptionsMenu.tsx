@@ -14,15 +14,32 @@ type Props = {
     onClose: () => void;
     /** The comment left the server. The caller drops any copy the cache does not own. */
     onDeleted?: (comment: SocialComment) => void;
+    /** Opens the inline editor. The menu closes first. */
+    onEdit?: () => void;
 };
 
 /** The comment "..." menu, the same popup a post uses. */
-export function CommentOptionsMenu({ comment, onClose, onDeleted }: Props) {
+export function CommentOptionsMenu({
+    comment,
+    onClose,
+    onDeleted,
+    onEdit,
+}: Props) {
     const { deleteComment } = useDeleteComment();
     const removeCachedComment = useRemoveCachedComment();
     const updateCommentCount = useUpdateCachedPostCommentCount();
 
     if (!comment) return null;
+
+    const editAction: MusicListAction<SocialComment> = {
+        id: "edit-comment",
+        label: "Edit Comment",
+        icon: "pencil-outline",
+        onPress: () => {
+            onEdit?.();
+            onClose();
+        },
+    };
 
     const deleteAction: MusicListAction<SocialComment> = {
         id: "delete-comment",
@@ -43,6 +60,7 @@ export function CommentOptionsMenu({ comment, onClose, onDeleted }: Props) {
 
     return (
         <ModalPopup visible onClose={onClose}>
+            <MusicListActionButton action={editAction} target={comment} />
             <MusicListActionButton action={deleteAction} target={comment} />
         </ModalPopup>
     );

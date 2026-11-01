@@ -99,6 +99,8 @@ export type SocialPost = {
     liked: boolean;
     /** RFC 3339 in UTC */
     created_at: string;
+    /** RFC 3339 in UTC, or null when the author has not edited it. */
+    edited_at: string | null;
     author: {
         /** Auth user id; used to open their profile page. */
         user_id: string;
@@ -122,6 +124,8 @@ export type SocialComment = {
     liked: boolean;
     /** RFC 3339 in UTC */
     created_at: string;
+    /** RFC 3339 in UTC, or null when the author has not edited it. */
+    edited_at: string | null;
     author: {
         user_id: string;
         username: string;

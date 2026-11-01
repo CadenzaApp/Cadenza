@@ -15,6 +15,7 @@ use crate::db::social::{PublicProfile, SocialComment as CommentRow, SocialPost a
 ///   "likes": 2,
 ///   "liked": false,
 ///   "created_at": "2026-10-16T18:00:00Z",
+///   "edited_at": null,
 ///   "author": { "user_id": "11111111-1111-1111-1111-111111111111", "username": "ada" },
 ///   "topic_mk_id": "1615585008",
 ///   "comment_count": 3
@@ -27,6 +28,8 @@ pub struct SocialPost {
     pub likes: i64,
     pub liked: bool,
     pub created_at: DateTime<Utc>,
+    /// `null` until the author edits the post.
+    pub edited_at: Option<DateTime<Utc>>,
     pub author: SocialAuthor,
     /// Apple Music catalog id of the attached song or artist, or `null`.
     pub topic_mk_id: Option<String>,
@@ -47,6 +50,7 @@ impl From<PostRow> for SocialPost {
             likes: post.likes,
             liked: post.liked,
             created_at: post.created_at,
+            edited_at: post.edited_at,
             author: SocialAuthor {
                 user_id: post.author_id.to_string(),
                 username: post.author_username,
@@ -67,6 +71,7 @@ impl From<PostRow> for SocialPost {
 ///   "likes": 2,
 ///   "liked": false,
 ///   "created_at": "2026-10-16T18:00:00Z",
+///   "edited_at": null,
 ///   "author": { "user_id": "11111111-1111-1111-1111-111111111111", "username": "ada" }
 /// }
 /// ```
@@ -78,6 +83,8 @@ pub struct SocialComment {
     pub likes: i64,
     pub liked: bool,
     pub created_at: DateTime<Utc>,
+    /// `null` until the author edits the comment.
+    pub edited_at: Option<DateTime<Utc>>,
     pub author: SocialAuthor,
 }
 
@@ -90,6 +97,7 @@ impl From<CommentRow> for SocialComment {
             likes: comment.likes,
             liked: comment.liked,
             created_at: comment.created_at,
+            edited_at: comment.edited_at,
             author: SocialAuthor {
                 user_id: comment.author_id.to_string(),
                 username: comment.author_username,

@@ -10,11 +10,14 @@ import { useAccount } from "@/lib/account";
 import {
     useLikePost,
     useUnlikePost,
+    useUpdateCachedPostContent,
     useUpdateCachedPostLike,
+    useUpdatePost,
 } from "@/lib/routes/social";
 import { useAppTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 
+import { EditContentDialog } from "./EditContentDialog";
 import { formatRelativeTime, initialsFromUsername } from "./format";
 import { PostCommentsDialog } from "./PostCommentsDialog";
 import { PostOptionsMenu } from "./PostOptionsMenu";
@@ -43,7 +46,18 @@ type Props = {
     onDeleted?: (postId: number) => void;
     /** The delete request failed. The caller can show the post again. */
     onDeleteFailed?: (postId: number) => void;
+    /**
+     * The text changed on a copy the cache does not own, such as one just
+     * written. `editedAt` is null when an edit is reverted.
+     */
+    onEdited?: (
+        postId: number,
+        content: string,
+        editedAt: string | null,
+    ) => void;
 };
+
+const MAX_POST_LENGTH = 500;
 
 /** One feed row: author, attached topic, body, likes, and comments. */
 export function PostCard({
@@ -54,6 +68,7 @@ export function PostCard({
     onAuthorPress,
     onDeleted,
     onDeleteFailed,
+    onEdited,
 }: Props) {
     const { foreground, like, mutedForeground } = useAppTheme().colors;
     const { account } = useAccount();
@@ -61,6 +76,8 @@ export function PostCard({
     const { likePost } = useLikePost();
     const { unlikePost } = useUnlikePost();
     const updateCachedPostLike = useUpdateCachedPostLike();
+    const { updatePost } = useUpdatePost();
+    const updateCachedPostContent = useUpdateCachedPostContent();
     const isOwnPost = account?.id === post.author.user_id;
     const topic = useResolvedTopic(
         showTopic ? post.topic_mk_id : null,
@@ -70,12 +87,24 @@ export function PostCard({
     const likedRef = useRef(liked);
     const [commentsOpen, setCommentsOpen] = useState(false);
     const [menuOpen, setMenuOpen] = useState(false);
+    const [editing, setEditing] = useState(false);
+    // The card paints this as soon as Submit is pressed. The feed cache
+    // follows, but the embed request is slow, so the prop can lag.
+    const [savedEdit, setSavedEdit] = useState<{
+        content: string;
+        edited_at: string | null;
+    } | null>(null);
     // The card remounts from the cached post after a navigation. Follow that
     // post, or an unlike that already saved still paints as liked.
     useEffect(() => {
         likedRef.current = post.liked;
         setLiked(post.liked);
     }, [post.liked, post.post_id]);
+
+    useEffect(() => {
+        if (!savedEdit) return;
+        if (post.content === savedEdit.content) setSavedEdit(null);
+    }, [post.content, savedEdit]);
 
     const propCommentCount = post.comment_count ?? 0;
     // Posts the user just created sit outside SWR, so the cache write never
@@ -126,8 +155,41 @@ export function PostCard({
     }
 
     function openComments() {
-        if (post.post_id < 0) return;
+        if (editing || post.post_id < 0) return;
         setCommentsOpen(true);
+    }
+
+    const displayPost: SocialPost = savedEdit
+        ? {
+              ...post,
+              content: savedEdit.content,
+              edited_at: savedEdit.edited_at,
+          }
+        : post;
+
+    async function saveEdit(content: string) {
+        const previous = {
+            content: displayPost.content,
+            edited_at: displayPost.edited_at ?? null,
+        };
+        const editedAt = new Date().toISOString();
+        setSavedEdit({ content, edited_at: editedAt });
+        setEditing(false);
+        onEdited?.(post.post_id, content, editedAt);
+        if (post.post_id <= 0) return;
+        void updateCachedPostContent(post.post_id, content, editedAt);
+        try {
+            await updatePost(post.post_id, content);
+        } catch (error) {
+            console.error("Editing a post failed", error);
+            setSavedEdit(previous);
+            onEdited?.(post.post_id, previous.content, previous.edited_at);
+            void updateCachedPostContent(
+                post.post_id,
+                previous.content,
+                previous.edited_at,
+            );
+        }
     }
 
     function toggleLike() {
@@ -237,7 +299,7 @@ export function PostCard({
                 ) : null}
 
                 <Text className="text-base leading-6 text-foreground">
-                    {post.content}
+                    {displayPost.content}
                 </Text>
 
                 <View className="flex-row items-center gap-4 self-start">
@@ -288,20 +350,36 @@ export function PostCard({
                             {commentCount}
                         </Text>
                     </Pressable>
+                    {displayPost.edited_at ? (
+                        <Text className="text-sm text-muted-foreground">
+                            (edited)
+                        </Text>
+                    ) : null}
                 </View>
             </Pressable>
 
             <PostOptionsMenu
-                post={menuOpen ? post : null}
+                post={menuOpen ? displayPost : null}
                 onClose={() => setMenuOpen(false)}
                 onDeleted={onDeleted}
                 onDeleteFailed={onDeleteFailed}
+                onEdit={() => setEditing(true)}
+            />
+
+            <EditContentDialog
+                open={editing}
+                title="Edit Post"
+                initial={displayPost.content}
+                maxLength={MAX_POST_LENGTH}
+                saving={false}
+                onSubmit={(content) => void saveEdit(content)}
+                onCancel={() => setEditing(false)}
             />
 
             <PostCommentsDialog
                 open={commentsOpen}
                 onOpenChange={setCommentsOpen}
-                post={post}
+                post={displayPost}
                 topicHint={topicHint}
                 showTopic={showTopic}
                 onLikedChange={onLikedChange}

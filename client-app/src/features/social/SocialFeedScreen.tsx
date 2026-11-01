@@ -28,6 +28,7 @@ import {
     useCreatePost,
     useFeed,
     useMarkPostsViewed,
+    useUpdatePost,
 } from "@/lib/routes/social";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { useScreenScroll } from "@/lib/screen-scroll";
@@ -73,6 +74,10 @@ export function SocialFeedScreen() {
         feedErr,
     } = useFeed();
     const { createPost } = useCreatePost();
+    const { updatePost } = useUpdatePost();
+    const pendingEdits = useRef(
+        new Map<number, { content: string; edited_at: string | null }>(),
+    );
     const { markPostsViewed } = useMarkPostsViewed();
     const { profile } = useProfile();
     const markedViewedIds = useRef(new Set<number>());
@@ -203,6 +208,7 @@ export function SocialFeedScreen() {
                 likes: 0,
                 liked: false,
                 created_at: new Date().toISOString(),
+                edited_at: null,
                 author: {
                     user_id: profile?.uid ?? "",
                     username: profile?.username ?? "unknown",
@@ -210,12 +216,17 @@ export function SocialFeedScreen() {
                 topic_mk_id: topic ? topicMkId(topic) : null,
                 comment_count: 0,
             };
+            pendingEdits.current.set(tempId, {
+                content,
+                edited_at: null,
+            });
             setCreated((current) => [post, ...current]);
             if (topic) {
                 setLocalTopics((current) => ({ ...current, [tempId]: topic }));
             }
 
             function dropTemp() {
+                pendingEdits.current.delete(tempId);
                 setCreated((current) =>
                     current.filter((item) => item.post_id !== tempId),
                 );
@@ -236,6 +247,8 @@ export function SocialFeedScreen() {
                         showToast("Couldn't publish your post.");
                         return;
                     }
+                    const pending = pendingEdits.current.get(tempId);
+                    pendingEdits.current.delete(tempId);
                     setCreated((current) =>
                         current.map((item) =>
                             item.post_id === tempId
@@ -243,6 +256,24 @@ export function SocialFeedScreen() {
                                 : item,
                         ),
                     );
+                    if (pending && pending.content !== content) {
+                        void updatePost(post_id, pending.content).catch(
+                            (error) => {
+                                console.error("Editing a post failed", error);
+                                setCreated((current) =>
+                                    current.map((item) =>
+                                        item.post_id === post_id
+                                            ? {
+                                                  ...item,
+                                                  content,
+                                                  edited_at: null,
+                                              }
+                                            : item,
+                                    ),
+                                );
+                            },
+                        );
+                    }
                     setLocalTopics((current) => {
                         const attached = current[tempId];
                         if (!attached) return current;
@@ -257,7 +288,24 @@ export function SocialFeedScreen() {
                     showToast("Couldn't publish your post.");
                 });
         },
-        [createPost, profile?.uid, profile?.username, showToast],
+        [createPost, profile?.uid, profile?.username, showToast, updatePost],
+    );
+
+    const handleEdited = useCallback(
+        (postId: number, content: string, editedAt: string | null) => {
+            pendingEdits.current.set(postId, {
+                content,
+                edited_at: editedAt,
+            });
+            setCreated((current) =>
+                current.map((item) =>
+                    item.post_id === postId
+                        ? { ...item, content, edited_at: editedAt }
+                        : item,
+                ),
+            );
+        },
+        [],
     );
 
     const reload = useCallback(async () => {
@@ -355,10 +403,11 @@ export function SocialFeedScreen() {
                     topicHint={localTopics[item.post.post_id]}
                     onDeleted={handleDeleted}
                     onDeleteFailed={handleDeleteFailed}
+                    onEdited={handleEdited}
                 />
             );
         },
-        [handleDeleteFailed, handleDeleted, localTopics],
+        [handleDeleteFailed, handleDeleted, handleEdited, localTopics],
     );
 
     const onEndReached = useCallback(() => {

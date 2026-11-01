@@ -49,6 +49,8 @@ pub struct SocialPost {
     pub likes: i64,
     pub liked: bool,
     pub created_at: DateTime<Utc>,
+    /// `None` until the author edits the post.
+    pub edited_at: Option<DateTime<Utc>>,
     pub author_id: Uuid,
     pub author_username: String,
     /// Apple Music catalog id of the attached song or artist, when the author
@@ -66,6 +68,8 @@ pub struct SocialComment {
     pub likes: i64,
     pub liked: bool,
     pub created_at: DateTime<Utc>,
+    /// `None` until the author edits the comment.
+    pub edited_at: Option<DateTime<Utc>>,
     pub author_id: Uuid,
     pub author_username: String,
 }
@@ -150,6 +154,60 @@ pub async fn delete_post(
     }
     Ok(())
 }
+
+/// The author's post `created_at`, used to keep the age component of
+/// `embedding_w_bday` when the text changes. `None` when the post is missing
+/// or owned by someone else.
+pub async fn author_post_created_at(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+    post_id: i64,
+) -> Result<Option<DateTime<Utc>>, CadenzaError> {
+    let row = CreatedAtRow::find_by_statement(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "SELECT created_at FROM posts WHERE post_id = $1 AND user_id = $2",
+        vec![post_id.into(), user_id.into()],
+    ))
+    .one(db)
+    .await?;
+    Ok(row.map(|row| row.created_at.with_timezone(&Utc)))
+}
+
+/// Replaces the author's post text and embedding and stamps `edited_at`.
+/// `NotFound` when no row matches, including a post owned by someone else.
+pub async fn update_post_text(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+    post_id: i64,
+    content: &str,
+    embedding: &[f64],
+    embedding_w_bday: &[f64],
+) -> Result<(), CadenzaError> {
+    let row = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            "UPDATE posts
+             SET content = $3,
+                 edited_at = now(),
+                 embedding = $4::vector,
+                 embedding_w_bday = $5::vector
+             WHERE post_id = $1 AND user_id = $2
+             RETURNING post_id",
+            vec![
+                post_id.into(),
+                user_id.into(),
+                content.to_owned().into(),
+                vector_literal(embedding).into(),
+                vector_literal(embedding_w_bday).into(),
+            ],
+        ))
+        .await?;
+    if row.is_none() {
+        return Err(CadenzaError::NotFound);
+    }
+    Ok(())
+}
+
 /// Records a like and bumps `likes` / `hot_score` only when the row is new.
 pub async fn like_post(
     db: &DatabaseConnection,
@@ -239,6 +297,7 @@ pub async fn insert_comment(
         likes: NotSet,
         created_at: NotSet,
         comment_id: NotSet,
+        edited_at: NotSet,
     })
     .exec(&txn)
     .await;
@@ -291,6 +350,32 @@ pub async fn delete_comment(
     txn.commit().await?;
     Ok(())
 }
+
+/// Replaces the author's comment text and stamps `edited_at`. `NotFound` when
+/// no row matches, including a comment owned by someone else.
+pub async fn update_comment_text(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+    comment_id: i64,
+    content: &str,
+) -> Result<(), CadenzaError> {
+    let row = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            "UPDATE comments
+             SET content = $3,
+                 edited_at = now()
+             WHERE comment_id = $1 AND user_id = $2
+             RETURNING comment_id",
+            vec![comment_id.into(), user_id.into(), content.to_owned().into()],
+        ))
+        .await?;
+    if row.is_none() {
+        return Err(CadenzaError::NotFound);
+    }
+    Ok(())
+}
+
 /// Comments on `post_id`, most liked first, then newest, then comment id.
 pub async fn get_post_comments(
     db: &DatabaseConnection,
@@ -325,6 +410,7 @@ fn comments_on_post(viewer_id: Uuid, post_id: i64) -> sea_orm::Select<comments::
         .column(comments::Column::Content)
         .column(comments::Column::Likes)
         .column(comments::Column::CreatedAt)
+        .column(comments::Column::EditedAt)
         .expr_as(
             Func::coalesce([
                 Expr::col((profile::Entity, profile::Column::Username)),
@@ -478,6 +564,7 @@ pub async fn get_posts(
              p.content,
              p.likes,
              p.created_at,
+             p.edited_at,
              p.topic_mk_id,
              COALESCE(pr.username, 'unknown') AS username,
              EXISTS (
@@ -803,6 +890,7 @@ pub async fn get_topic_posts(
              p.content,
              p.likes,
              p.created_at,
+             p.edited_at,
              p.topic_mk_id,
              COALESCE(pr.username, 'unknown') AS username,
              EXISTS (
@@ -836,6 +924,7 @@ pub async fn get_author_posts(
              p.content,
              p.likes,
              p.created_at,
+             p.edited_at,
              p.topic_mk_id,
              COALESCE(pr.username, 'unknown') AS username,
              EXISTS (
@@ -1271,6 +1360,7 @@ struct PostRow {
     content: String,
     likes: i64,
     created_at: DateTime<chrono::FixedOffset>,
+    edited_at: Option<DateTime<chrono::FixedOffset>>,
     username: String,
     liked: bool,
     topic_mk_id: Option<String>,
@@ -1285,6 +1375,9 @@ impl PostRow {
             likes: self.likes,
             liked: self.liked,
             created_at: self.created_at.with_timezone(&Utc),
+            edited_at: self
+                .edited_at
+                .map(|edited_at| edited_at.with_timezone(&Utc)),
             author_id: self.author_id,
             author_username: self.username.clone(),
             topic_mk_id: self.topic_mk_id.clone(),
@@ -1301,6 +1394,7 @@ struct CommentRow {
     content: String,
     likes: i64,
     created_at: DateTime<chrono::FixedOffset>,
+    edited_at: Option<DateTime<chrono::FixedOffset>>,
     username: String,
     liked: bool,
 }
@@ -1314,11 +1408,20 @@ impl CommentRow {
             likes: self.likes,
             liked: self.liked,
             created_at: self.created_at.with_timezone(&Utc),
+            edited_at: self
+                .edited_at
+                .map(|edited_at| edited_at.with_timezone(&Utc)),
             author_id: self.author_id,
             author_username: self.username.clone(),
         }
     }
 }
+
+#[derive(Debug, FromQueryResult)]
+struct CreatedAtRow {
+    created_at: DateTime<chrono::FixedOffset>,
+}
+
 #[derive(Debug, FromQueryResult)]
 struct FriendshipListRow {
     user_id: Uuid,
@@ -1421,5 +1524,6 @@ mod tests {
             ),
             "{sql}"
         );
+        assert!(sql.contains(r#""comments"."edited_at""#), "{sql}");
     }
 }

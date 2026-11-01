@@ -33,7 +33,7 @@ const TOPIC_NAME_MAX: usize = 200;
 /// posts. Each returned id is marked `loaded`.
 ///
 /// ```json
-/// { "feed": [ { "post_id": 1, "content": "hi", "likes": 0, "liked": false, "created_at": "2026-10-16T18:00:00Z", "author": { "user_id": "...", "username": "ada" }, "topic_mk_id": null, "comment_count": 0 } ] }
+/// { "feed": [ { "post_id": 1, "content": "hi", "likes": 0, "liked": false, "created_at": "2026-10-16T18:00:00Z", "edited_at": null, "author": { "user_id": "...", "username": "ada" }, "topic_mk_id": null, "comment_count": 0 } ] }
 /// ```
 async fn get_feed(
     State(db): State<DatabaseConnection>,
@@ -165,6 +165,29 @@ async fn create_post(
         .await?;
     Ok(Json(CreatePostResponse { post_id }))
 }
+
+#[derive(Deserialize)]
+struct EditContentBody {
+    content: String,
+}
+
+/// Replaces the signed-in user's post text. `content` is trimmed and at most
+/// 500 characters. Stamps `edited_at` and re-embeds the stored text. 404 when
+/// the post is missing or belongs to someone else. Responds with `null`.
+async fn update_post(
+    State(db): State<DatabaseConnection>,
+    State(social): State<SocialFeedService>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Path(post_id): Path<i64>,
+    Json(body): Json<EditContentBody>,
+) -> Result<Json<Value>, CadenzaError> {
+    let content = require_content(&body.content, POST_CONTENT_MAX)?;
+    social
+        .update_post(&db, claims.user_id, post_id, content)
+        .await?;
+    Ok(Json(Value::Null))
+}
+
 /// Deletes the signed-in user's post. Likes, comments, and view rows go with
 /// it. 404 when the post is missing or belongs to someone else. Responds with
 /// `null`.
@@ -177,6 +200,22 @@ async fn delete_post(
     social.delete_post(&db, claims.user_id, post_id).await?;
     Ok(Json(Value::Null))
 }
+
+fn require_content(raw: &str, max_chars: usize) -> Result<&str, CadenzaError> {
+    let content = raw.trim();
+    if content.is_empty() {
+        return Err(CadenzaError::InvalidRequestBody(
+            "content is required".into(),
+        ));
+    }
+    if content.chars().count() > max_chars {
+        return Err(CadenzaError::InvalidRequestBody(format!(
+            "content is longer than {max_chars} characters"
+        )));
+    }
+    Ok(content)
+}
+
 fn parse_optional_text(
     raw: Option<String>,
     field: &str,
@@ -223,7 +262,7 @@ struct TopicPostsQuery {
 /// Posts whose topic is this Apple Music catalog id, most liked first.
 ///
 /// ```json
-/// { "posts": [ { "post_id": 1, "content": "hi", "likes": 3, "liked": false, "created_at": "2026-10-16T18:00:00Z", "author": { "user_id": "...", "username": "ada" }, "topic_mk_id": "1615585008", "comment_count": 0 } ] }
+/// { "posts": [ { "post_id": 1, "content": "hi", "likes": 3, "liked": false, "created_at": "2026-10-16T18:00:00Z", "edited_at": null, "author": { "user_id": "...", "username": "ada" }, "topic_mk_id": "1615585008", "comment_count": 0 } ] }
 /// ```
 async fn topic_posts(
     State(db): State<DatabaseConnection>,
@@ -365,7 +404,7 @@ async fn unlike_post(
 /// Comments on this post, most liked first, then newest.
 ///
 /// ```json
-/// { "comments": [ { "comment_id": 1, "post_id": 4, "content": "this", "likes": 2, "liked": false, "created_at": "2026-10-16T18:00:00Z", "author": { "user_id": "...", "username": "ada" } } ] }
+/// { "comments": [ { "comment_id": 1, "post_id": 4, "content": "this", "likes": 2, "liked": false, "created_at": "2026-10-16T18:00:00Z", "edited_at": null, "author": { "user_id": "...", "username": "ada" } } ] }
 /// ```
 async fn get_comments(
     State(db): State<DatabaseConnection>,
@@ -399,22 +438,30 @@ async fn create_comment(
     Path(post_id): Path<i64>,
     Json(body): Json<CreateCommentBody>,
 ) -> Result<Json<CreateCommentResponse>, CadenzaError> {
-    let content = body.content.trim();
-    if content.is_empty() {
-        return Err(CadenzaError::InvalidRequestBody(
-            "content is required".into(),
-        ));
-    }
-    if content.chars().count() > COMMENT_CONTENT_MAX {
-        return Err(CadenzaError::InvalidRequestBody(
-            "content is longer than 500 characters".into(),
-        ));
-    }
+    let content = require_content(&body.content, COMMENT_CONTENT_MAX)?;
     let comment_id = social
         .create_comment(&db, claims.user_id, post_id, content)
         .await?;
     Ok(Json(CreateCommentResponse { comment_id }))
 }
+
+/// Replaces the signed-in user's comment text. `content` is trimmed and at
+/// most 500 characters. Stamps `edited_at`. 404 when the comment is missing or
+/// belongs to someone else. Responds with `null`.
+async fn update_comment(
+    State(db): State<DatabaseConnection>,
+    State(social): State<SocialFeedService>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Path(comment_id): Path<i64>,
+    Json(body): Json<EditContentBody>,
+) -> Result<Json<Value>, CadenzaError> {
+    let content = require_content(&body.content, COMMENT_CONTENT_MAX)?;
+    social
+        .update_comment(&db, claims.user_id, comment_id, content)
+        .await?;
+    Ok(Json(Value::Null))
+}
+
 /// Deletes the signed-in user's comment and drops the post's comment count.
 /// Comment likes go with it. 404 when the comment is missing or belongs to
 /// someone else. Responds with `null`.
@@ -466,7 +513,7 @@ pub fn get_social_router() -> Router<AppState> {
         .route("/interests/update", patch(update_interests))
         .route("/interests/decay", patch(decay_interests))
         .route("/posts", post(create_post))
-        .route("/posts/{post_id}", delete(delete_post))
+        .route("/posts/{post_id}", delete(delete_post).patch(update_post))
         .route("/posts/views", post(mark_viewed))
         .route("/posts/topic", get(topic_posts))
         .route("/posts/user/{author_id}", get(user_posts))
@@ -484,7 +531,10 @@ pub fn get_social_router() -> Router<AppState> {
             "/posts/{post_id}/comments",
             get(get_comments).post(create_comment),
         )
-        .route("/comments/{comment_id}", delete(delete_comment))
+        .route(
+            "/comments/{comment_id}",
+            delete(delete_comment).patch(update_comment),
+        )
         .route(
             "/comments/{comment_id}/likes",
             post(like_comment).delete(unlike_comment),

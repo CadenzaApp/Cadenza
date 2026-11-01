@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { applyPostLike, isSocialPostListKey, removePost } from "./post-like.ts";
+import {
+    applyPostContent,
+    applyPostLike,
+    isSocialPostListKey,
+    removePost,
+} from "./post-like.ts";
 
 const likedPost = {
     post_id: 4,
@@ -9,6 +14,7 @@ const likedPost = {
     likes: 3,
     liked: true,
     created_at: "2026-10-16T18:00:00Z",
+    edited_at: null,
     author: { user_id: "u", username: "ada" },
     topic_mk_id: "song",
 };
@@ -54,4 +60,21 @@ test("removing a post drops it from posts, feed, and page lists", () => {
     }[];
     assert.deepEqual(pages[0].feed, [other]);
     assert.equal(removePost(cached, 99), cached);
+});
+
+test("editing a cached post replaces the text and stamps edited_at", () => {
+    const cached = { posts: [likedPost, { ...likedPost, post_id: 9 }] };
+    const next = applyPostContent(
+        cached,
+        4,
+        "edited",
+        "2026-10-17T18:00:00Z",
+    ) as typeof cached;
+    assert.equal(next.posts[0].content, "edited");
+    assert.equal(next.posts[0].edited_at, "2026-10-17T18:00:00Z");
+    assert.equal(next.posts[1], cached.posts[1]);
+    assert.equal(
+        applyPostContent(next, 4, "edited", "2026-10-17T18:00:00Z"),
+        next,
+    );
 });

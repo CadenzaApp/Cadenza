@@ -26,13 +26,16 @@ import {
     usePostComments,
     useUnlikeComment,
     useUnlikePost,
+    useUpdateCachedCommentContent,
     useUpdateCachedCommentLike,
     useUpdateCachedPostCommentCount,
     useUpdateCachedPostLike,
+    useUpdateComment,
 } from "@/lib/routes/social";
 import { cn } from "@/lib/utils";
 
 import { CommentOptionsMenu } from "./CommentOptionsMenu";
+import { EditContentDialog } from "./EditContentDialog";
 import { formatRelativeTime, initialsFromUsername } from "./format";
 import { PostTopicCard } from "./PostTopicCard";
 import { useResolvedTopic } from "./topic";
@@ -122,6 +125,7 @@ export function PostCommentsDialog({
                 likes: 0,
                 liked: false,
                 created_at: new Date().toISOString(),
+                edited_at: null,
                 author: {
                     user_id: profile?.uid ?? "",
                     username: profile?.username ?? "unknown",
@@ -319,7 +323,7 @@ function PostSummary({
     }
 
     return (
-        <View className="gap-3 overflow-hidden rounded-3xl border border-border p-4">
+        <View className="mt-8 gap-3 overflow-hidden rounded-3xl border border-border p-4">
             <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={`View ${post.author.username}'s profile`}
@@ -356,28 +360,35 @@ function PostSummary({
                 {post.content}
             </Text>
 
-            <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={liked ? "Unlike post" : "Like post"}
-                accessibilityState={{ selected: liked }}
-                onPress={toggleLike}
-                hitSlop={8}
-                className="flex-row items-center gap-1.5 self-start active:opacity-60"
-            >
-                <Ionicons
-                    name={liked ? "heart" : "heart-outline"}
-                    size={18}
-                    color={like}
-                />
-                <Text
-                    className={cn(
-                        "text-sm",
-                        liked ? "text-rose-600" : "text-muted-foreground",
-                    )}
+            <View className="flex-row items-center gap-4 self-start">
+                <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={liked ? "Unlike post" : "Like post"}
+                    accessibilityState={{ selected: liked }}
+                    onPress={toggleLike}
+                    hitSlop={8}
+                    className="flex-row items-center gap-1.5 active:opacity-60"
                 >
-                    {likes}
-                </Text>
-            </Pressable>
+                    <Ionicons
+                        name={liked ? "heart" : "heart-outline"}
+                        size={18}
+                        color={like}
+                    />
+                    <Text
+                        className={cn(
+                            "text-sm",
+                            liked ? "text-rose-600" : "text-muted-foreground",
+                        )}
+                    >
+                        {likes}
+                    </Text>
+                </Pressable>
+                {post.edited_at ? (
+                    <Text className="text-sm text-muted-foreground">
+                        (edited)
+                    </Text>
+                ) : null}
+            </View>
         </View>
     );
 }
@@ -395,6 +406,10 @@ function CommentRow({
     const { foreground, like } = useAppTheme().colors;
     const isOwnComment = account?.id === comment.author.user_id;
     const [menuOpen, setMenuOpen] = useState(false);
+    const [editing, setEditing] = useState(false);
+    const [savingEdit, setSavingEdit] = useState(false);
+    const { updateComment } = useUpdateComment();
+    const updateCachedCommentContent = useUpdateCachedCommentContent();
     const { likeComment } = useLikeComment();
     const { unlikeComment } = useUnlikeComment();
     const updateCachedCommentLike = useUpdateCachedCommentLike();
@@ -407,6 +422,26 @@ function CommentRow({
     }, [comment.liked, comment.comment_id]);
 
     const likes = comment.likes + (liked ? 1 : 0) - (comment.liked ? 1 : 0);
+
+    async function saveEdit(content: string) {
+        if (comment.comment_id <= 0) return;
+        const editedAt = new Date().toISOString();
+        setSavingEdit(true);
+        try {
+            await updateComment(comment.comment_id, content);
+            await updateCachedCommentContent(
+                comment.post_id,
+                comment.comment_id,
+                content,
+                editedAt,
+            );
+            setEditing(false);
+        } catch (error) {
+            console.error("Editing a comment failed", error);
+        } finally {
+            setSavingEdit(false);
+        }
+    }
 
     function toggleLike() {
         const nowLiked = !likedRef.current;
@@ -481,33 +516,53 @@ function CommentRow({
                 {comment.content}
             </Text>
 
-            <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={liked ? "Unlike comment" : "Like comment"}
-                accessibilityState={{ selected: liked }}
-                onPress={toggleLike}
-                hitSlop={8}
-                className="flex-row items-center gap-1.5 self-start active:opacity-60"
-            >
-                <Ionicons
-                    name={liked ? "heart" : "heart-outline"}
-                    size={16}
-                    color={like}
-                />
-                <Text
-                    className={cn(
-                        "text-sm",
-                        liked ? "text-rose-600" : "text-muted-foreground",
-                    )}
+            <View className="flex-row items-center gap-4 self-start">
+                <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                        liked ? "Unlike comment" : "Like comment"
+                    }
+                    accessibilityState={{ selected: liked }}
+                    onPress={toggleLike}
+                    hitSlop={8}
+                    className="flex-row items-center gap-1.5 active:opacity-60"
                 >
-                    {likes}
-                </Text>
-            </Pressable>
+                    <Ionicons
+                        name={liked ? "heart" : "heart-outline"}
+                        size={16}
+                        color={like}
+                    />
+                    <Text
+                        className={cn(
+                            "text-sm",
+                            liked ? "text-rose-600" : "text-muted-foreground",
+                        )}
+                    >
+                        {likes}
+                    </Text>
+                </Pressable>
+                {comment.edited_at ? (
+                    <Text className="text-sm text-muted-foreground">
+                        (edited)
+                    </Text>
+                ) : null}
+            </View>
 
             <CommentOptionsMenu
                 comment={menuOpen ? comment : null}
                 onClose={() => setMenuOpen(false)}
                 onDeleted={() => onDeleted?.()}
+                onEdit={() => setEditing(true)}
+            />
+
+            <EditContentDialog
+                open={editing}
+                title="Edit Comment"
+                initial={comment.content}
+                maxLength={MAX_COMMENT_LENGTH}
+                saving={savingEdit}
+                onSubmit={(content) => void saveEdit(content)}
+                onCancel={() => setEditing(false)}
             />
         </View>
     );

@@ -171,6 +171,28 @@ impl SocialFeedService {
         with_bday.extend_from_slice(&embedding);
         social::insert_post(db, user_id, content, &embedding, &with_bday, topic_mk_id).await
     }
+
+    /// Replaces the author's post text. Re-embeds the stored content without
+    /// the topic-name prefix, because those names are not stored. The age
+    /// component of `embedding_w_bday` stays the original `created_at`.
+    /// `NotFound` when the post is missing or owned by someone else.
+    pub async fn update_post(
+        &self,
+        db: &DatabaseConnection,
+        user_id: Uuid,
+        post_id: i64,
+        content: &str,
+    ) -> Result<(), CadenzaError> {
+        let Some(created_at) = social::author_post_created_at(db, user_id, post_id).await? else {
+            return Err(CadenzaError::NotFound);
+        };
+        let embedding = self.embed_post(content).await?;
+        let mut with_bday = Vec::with_capacity(embedding.len() + 1);
+        with_bday.push(social::days_since_posts_epoch(created_at) as f64);
+        with_bday.extend_from_slice(&embedding);
+        social::update_post_text(db, user_id, post_id, content, &embedding, &with_bday).await
+    }
+
     /// Deletes the author's post. `NotFound` when it is missing or owned by
     /// someone else. Related likes, comments, and view rows cascade.
     pub async fn delete_post(
@@ -436,6 +458,19 @@ impl SocialFeedService {
     ) -> Result<i64, CadenzaError> {
         social::insert_comment(db, user_id, post_id, content).await
     }
+
+    /// Replaces the author's comment text and stamps `edited_at`. `NotFound`
+    /// when the comment is missing or owned by someone else.
+    pub async fn update_comment(
+        &self,
+        db: &DatabaseConnection,
+        user_id: Uuid,
+        comment_id: i64,
+        content: &str,
+    ) -> Result<(), CadenzaError> {
+        social::update_comment_text(db, user_id, comment_id, content).await
+    }
+
     /// Deletes the author's comment. `NotFound` when it is missing or owned by
     /// someone else. `posts.comments` drops in the same transaction.
     pub async fn delete_comment(

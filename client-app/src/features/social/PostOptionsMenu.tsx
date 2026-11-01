@@ -10,6 +10,8 @@ type Props = {
     onClose: () => void;
     /** Drops the post from a list the cache does not own, such as one just written. */
     onDeleted?: (postId: number) => void;
+    /** Opens the inline editor. The menu closes first. */
+    onEdit?: () => void;
     /** The delete request failed. The caller can show the post again. */
     onDeleteFailed?: (postId: number) => void;
 };
@@ -20,11 +22,22 @@ export function PostOptionsMenu({
     onClose,
     onDeleted,
     onDeleteFailed,
+    onEdit,
 }: Props) {
     const { deletePost } = useDeletePost();
     const removeCachedPost = useRemoveCachedPost();
 
     if (!post) return null;
+
+    const editAction: MusicListAction<SocialPost> = {
+        id: "edit-post",
+        label: "Edit Post",
+        icon: "pencil-outline",
+        onPress: () => {
+            onEdit?.();
+            onClose();
+        },
+    };
 
     const deleteAction: MusicListAction<SocialPost> = {
         id: "delete-post",
@@ -47,6 +60,7 @@ export function PostOptionsMenu({
 
     return (
         <ModalPopup visible onClose={onClose}>
+            <MusicListActionButton action={editAction} target={post} />
             <MusicListActionButton action={deleteAction} target={post} />
         </ModalPopup>
     );

@@ -5,6 +5,7 @@ import useSWRInfinite from "swr/infinite";
 import { useAccount } from "../account";
 import { fetchAPIData, useAPIData, useAPIMutation } from "../api-actions";
 import {
+    applyCommentContent,
     applyCommentLike,
     applyPostCommentDelta,
     commentsPath,
@@ -13,7 +14,12 @@ import {
     removeCachedComment,
     isSocialPostPages,
 } from "../post-comment";
-import { applyPostLike, isSocialPostListKey, removePost } from "../post-like";
+import {
+    applyPostContent,
+    applyPostLike,
+    isSocialPostListKey,
+    removePost,
+} from "../post-like";
 import type {
     InterestScoreDelta,
     SocialComment,
@@ -304,6 +310,62 @@ export function useDeletePost() {
         deletePost,
     };
 }
+
+type EditPostPayload = {
+    post_id: number;
+    content: string;
+};
+
+function editPostPath({ post_id }: EditPostPayload) {
+    return `/social/posts/${post_id}`;
+}
+
+/**
+ * Replaces one of the signed-in user's posts. A missing post, or one they do
+ * not own, is a 404. Cache updates are separate.
+ */
+export function useUpdatePost() {
+    const x = useAPIMutation<EditPostPayload, void>("PATCH", editPostPath, [], {
+        invalidation: "none",
+    });
+    const updatePost = useCallback(
+        (post_id: number, content: string) => x.trigger({ post_id, content }),
+        [x.trigger],
+    );
+    return {
+        updatePostErr: x.error,
+        updatePostLoading: x.isMutating,
+        resetUpdatePost: x.reset,
+        updatePost,
+    };
+}
+
+/**
+ * Writes new text and `edited_at` through every cached post list, including
+ * the infinite feed.
+ */
+export function useUpdateCachedPostContent() {
+    const { cache, mutate } = useSWRConfig();
+    return useCallback(
+        (postId: number, content: string, editedAt: string | null) => {
+            const apply = (current: unknown) =>
+                current == null
+                    ? current
+                    : applyPostContent(current, postId, content, editedAt);
+            const writes: Promise<unknown>[] = [
+                mutate(isSocialPostListKey, apply, { revalidate: false }),
+            ];
+            for (const key of cache.keys()) {
+                if (!key.startsWith("$inf$")) continue;
+                if (!isSocialPostPages(cache.get(key)?.data)) continue;
+                writes.push(mutate(key, apply, { revalidate: false }));
+            }
+            return Promise.all(writes);
+        },
+        [cache, mutate],
+    );
+}
+
 /**
  * Drops one post from every cached post list, including the infinite feed.
  * A filtered `mutate` skips `$inf$` keys, so those entries are written by key.
@@ -636,6 +698,67 @@ type DeleteCommentPayload = {
 function deleteCommentPath({ comment_id }: DeleteCommentPayload) {
     return `/social/comments/${comment_id}`;
 }
+
+type EditCommentPayload = {
+    comment_id: number;
+    content: string;
+};
+
+function editCommentPath({ comment_id }: EditCommentPayload) {
+    return `/social/comments/${comment_id}`;
+}
+
+/**
+ * Replaces one of the signed-in user's comments. A missing comment, or one
+ * they do not own, is a 404. Cache updates are separate.
+ */
+export function useUpdateComment() {
+    const x = useAPIMutation<EditCommentPayload, void>(
+        "PATCH",
+        editCommentPath,
+        [],
+        { invalidation: "none" },
+    );
+    const updateComment = useCallback(
+        (comment_id: number, content: string) =>
+            x.trigger({ comment_id, content }),
+        [x.trigger],
+    );
+    return {
+        updateCommentErr: x.error,
+        updateCommentLoading: x.isMutating,
+        resetUpdateComment: x.reset,
+        updateComment,
+    };
+}
+
+/** Writes new text and `edited_at` through the cached comments list. */
+export function useUpdateCachedCommentContent() {
+    const { mutate } = useSWRConfig();
+    return useCallback(
+        (
+            postId: number,
+            commentId: number,
+            content: string,
+            editedAt: string | null,
+        ) =>
+            mutate(
+                (key) => isPostCommentsKey(key, postId),
+                (current: unknown) =>
+                    current == null
+                        ? current
+                        : applyCommentContent(
+                              current,
+                              commentId,
+                              content,
+                              editedAt,
+                          ),
+                { revalidate: false },
+            ),
+        [mutate],
+    );
+}
+
 /**
  * Deletes one of the signed-in user's comments. A missing comment, or one
  * they do not own, is a 404. The post's comment count drops with it.

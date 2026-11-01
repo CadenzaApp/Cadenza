@@ -18,6 +18,7 @@ import {
     useCreatePost,
     useTopicPosts,
     useUpdateCachedPostLike,
+    useUpdatePost,
 } from "@/lib/routes/social";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { useScreenScroll, type ScreenScrollBinding } from "@/lib/screen-scroll";
@@ -51,6 +52,10 @@ export function DiscussPage({
     const openSocialProfile = useOpenSocialProfile();
     const { profile } = useProfile(enabled);
     const { createPost } = useCreatePost();
+    const { updatePost } = useUpdatePost();
+    const pendingEdits = useRef(
+        new Map<number, { content: string; edited_at: string | null }>(),
+    );
     const updateCachedPostLike = useUpdateCachedPostLike();
     const pendingLikes = useRef(new Map<number, boolean>());
     const activeRef = useRef(active);
@@ -165,6 +170,7 @@ export function DiscussPage({
                 likes: 0,
                 liked: false,
                 created_at: new Date().toISOString(),
+                edited_at: null,
                 author: {
                     user_id: profile?.uid ?? "",
                     username: profile?.username ?? "unknown",
@@ -172,9 +178,14 @@ export function DiscussPage({
                 topic_mk_id: topicMkId(postedTopic),
                 comment_count: 0,
             };
+            pendingEdits.current.set(tempId, {
+                content,
+                edited_at: null,
+            });
             setCreated((current) => [...current, post]);
 
             function dropTemp() {
+                pendingEdits.current.delete(tempId);
                 setCreated((current) =>
                     current.filter((item) => item.post_id !== tempId),
                 );
@@ -190,6 +201,8 @@ export function DiscussPage({
                         showToast("Couldn't publish your post.");
                         return;
                     }
+                    const pending = pendingEdits.current.get(tempId);
+                    pendingEdits.current.delete(tempId);
                     setCreated((current) =>
                         current.map((item) =>
                             item.post_id === tempId
@@ -197,6 +210,24 @@ export function DiscussPage({
                                 : item,
                         ),
                     );
+                    if (pending && pending.content !== content) {
+                        void updatePost(post_id, pending.content).catch(
+                            (error) => {
+                                console.error("Editing a post failed", error);
+                                setCreated((current) =>
+                                    current.map((item) =>
+                                        item.post_id === post_id
+                                            ? {
+                                                  ...item,
+                                                  content,
+                                                  edited_at: null,
+                                              }
+                                            : item,
+                                    ),
+                                );
+                            },
+                        );
+                    }
                     void refreshTopicPosts();
                 })
                 .catch(() => {
@@ -211,7 +242,25 @@ export function DiscussPage({
             refreshTopicPosts,
             showToast,
             topic,
+            updatePost,
         ],
+    );
+
+    const handleEdited = useCallback(
+        (postId: number, content: string, editedAt: string | null) => {
+            pendingEdits.current.set(postId, {
+                content,
+                edited_at: editedAt,
+            });
+            setCreated((current) =>
+                current.map((item) =>
+                    item.post_id === postId
+                        ? { ...item, content, edited_at: editedAt }
+                        : item,
+                ),
+            );
+        },
+        [],
     );
 
     const reload = useCallback(async () => {
@@ -275,6 +324,7 @@ export function DiscussPage({
                             onLikedChange={rememberLike}
                             onAuthorPress={openSocialProfile}
                             onDeleted={handleDeleted}
+                            onEdited={handleEdited}
                         />
                     ))}
                 </View>
