@@ -21,6 +21,9 @@ use sea_orm::{
 /// mode is exhausted.
 pub const FEED_SIZE: i64 = 10;
 
+/// Flat extra on [`score_post`] when the author is a completed friend.
+pub const FRIEND_SCORE_BOOST: f64 = 10_000.0;
+
 /// Prepended to the user vector so one day of age costs this much similarity
 /// in the nearest-post lookup. Matches the python feed this replaced.
 const AGE_MULTIPLIER: f64 = 0.02;
@@ -98,13 +101,15 @@ pub struct InterestDelta {
     pub delta: f64,
 }
 
-/// A candidate from the similar or hot query, before it is rescored.
+/// A candidate from the similar, hot, or friend query, before it is rescored.
 #[derive(Clone, Debug)]
 pub struct FeedCandidate {
     pub post_id: i64,
     pub embedding: Vec<f64>,
     pub likes: i64,
     pub created_at: DateTime<Utc>,
+    /// Set by the friend source. Other sources leave it false; merge keeps true.
+    pub sent_by_friend: bool,
 }
 
 /// Inserts a post and returns its id. `embedding` is the model vector;
@@ -1019,6 +1024,83 @@ pub async fn hot_posts(
     candidate_posts(db, user_id, exclude, "ORDER BY hot_score DESC", None).await
 }
 
+/// `FEED_SIZE` posts by completed friends, after `exclude`. Newest first.
+pub async fn friend_posts(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+    exclude: FeedExclude,
+) -> Result<Vec<FeedCandidate>, CadenzaError> {
+    let exclude_and = match exclude {
+        FeedExclude::None => "",
+        FeedExclude::Viewed => {
+            "AND NOT EXISTS (
+                 SELECT 1 FROM post_view_status
+                 WHERE post_view_status.post_id = posts.post_id
+                   AND post_view_status.user_id = $1
+                   AND post_view_status.status = 'viewed'
+             )"
+        }
+        FeedExclude::Loaded => {
+            "AND NOT EXISTS (
+                 SELECT 1 FROM post_view_status
+                 WHERE post_view_status.post_id = posts.post_id
+                   AND post_view_status.user_id = $1
+             )"
+        }
+    };
+    let sql = format!(
+        "SELECT post_id, embedding::text AS embedding, likes, created_at
+         FROM posts
+         WHERE user_id IN (
+             SELECT CASE WHEN f.user1 = $1 THEN f.user2 ELSE f.user1 END
+             FROM friendships f
+             WHERE f.status = 'complete'
+               AND (f.user1 = $1 OR f.user2 = $1)
+         )
+         {exclude_and}
+         ORDER BY created_at DESC
+         LIMIT $2"
+    );
+    let rows = CandidateRow::find_by_statement(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        sql,
+        vec![user_id.into(), FEED_SIZE.into()],
+    ))
+    .all(db)
+    .await?;
+    rows.into_iter()
+        .map(|row| {
+            Ok(FeedCandidate {
+                post_id: row.post_id,
+                embedding: parse_vector(&row.embedding)?,
+                likes: row.likes,
+                created_at: row.created_at.with_timezone(&Utc),
+                sent_by_friend: true,
+            })
+        })
+        .collect()
+}
+
+/// Dedupes by `post_id`. A friend-sourced copy keeps `sent_by_friend`.
+pub fn merge_feed_candidates(
+    sources: impl IntoIterator<Item = FeedCandidate>,
+) -> Vec<FeedCandidate> {
+    let mut by_id: HashMap<i64, FeedCandidate> = HashMap::new();
+    for post in sources {
+        match by_id.get_mut(&post.post_id) {
+            Some(existing) => {
+                if post.sent_by_friend {
+                    existing.sent_by_friend = true;
+                }
+            }
+            None => {
+                by_id.insert(post.post_id, post);
+            }
+        }
+    }
+    by_id.into_values().collect()
+}
+
 /// Ensures each interest exists. Returns whether it already had an embedding.
 pub async fn upsert_interests(
     db: &DatabaseConnection,
@@ -1166,11 +1248,17 @@ pub fn age_days(created_at: DateTime<Utc>, now: DateTime<Utc>) -> i64 {
     (now - created_at).num_days()
 }
 
-/// `3 log2(likes+1) - log2(age_days+1) + 100 * similarity`.
-pub fn score_post(likes: i64, age_days: i64, similarity: f64) -> f64 {
+/// `3 log2(likes+1) - log2(age_days+1) + 100 * similarity`, plus
+/// [`FRIEND_SCORE_BOOST`] when `sent_by_friend`.
+pub fn score_post(likes: i64, age_days: i64, similarity: f64, sent_by_friend: bool) -> f64 {
     let likes_score = 3.0 * ((likes + 1) as f64).log2();
     let age_score = -((age_days + 1) as f64).log2();
-    likes_score + age_score + 100.0 * similarity
+    let friend_boost = if sent_by_friend {
+        FRIEND_SCORE_BOOST
+    } else {
+        0.0
+    };
+    likes_score + age_score + 100.0 * similarity + friend_boost
 }
 
 /// Normalized weighted sum of interest vectors. `None` when there is nothing
@@ -1271,6 +1359,7 @@ async fn candidate_posts(
                 embedding: parse_vector(&row.embedding)?,
                 likes: row.likes,
                 created_at: row.created_at.with_timezone(&Utc),
+                sent_by_friend: false,
             })
         })
         .collect()
@@ -1481,9 +1570,49 @@ mod tests {
 
     #[test]
     fn score_prefers_a_closer_newer_post() {
-        let fresh = score_post(0, 0, 1.0);
-        let old = score_post(0, 10, 0.0);
+        let fresh = score_post(0, 0, 1.0, false);
+        let old = score_post(0, 10, 0.0, false);
         assert!(fresh > old);
+    }
+
+    #[test]
+    fn score_boosts_a_friend_post() {
+        let other = score_post(100, 0, 1.0, false);
+        let friend = score_post(0, 100, 0.0, true);
+        assert!(friend > other);
+        assert!(
+            (score_post(0, 0, 0.0, true) - score_post(0, 0, 0.0, false) - FRIEND_SCORE_BOOST).abs()
+                < 1e-9
+        );
+    }
+
+    fn candidate(post_id: i64, sent_by_friend: bool) -> FeedCandidate {
+        FeedCandidate {
+            post_id,
+            embedding: Vec::new(),
+            likes: 0,
+            created_at: Utc::now(),
+            sent_by_friend,
+        }
+    }
+
+    #[test]
+    fn merge_keeps_sent_by_friend_across_sources() {
+        let posts = merge_feed_candidates([
+            candidate(1, false),
+            candidate(2, false),
+            candidate(1, true),
+            candidate(2, false),
+            candidate(3, true),
+        ]);
+        let by_id: HashMap<_, _> = posts
+            .into_iter()
+            .map(|post| (post.post_id, post.sent_by_friend))
+            .collect();
+        assert_eq!(by_id.get(&1), Some(&true));
+        assert_eq!(by_id.get(&2), Some(&false));
+        assert_eq!(by_id.get(&3), Some(&true));
+        assert_eq!(by_id.len(), 3);
     }
 
     #[test]

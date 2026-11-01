@@ -3,7 +3,7 @@
 //! The model never sees the database. This process loads the rows, sends the
 //! text the model needs, and writes the vectors it gets back.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStderr, ChildStdout, Command, Stdio};
@@ -229,18 +229,14 @@ impl SocialFeedService {
             vector
         };
 
-        let (similar, hot) = tokio::try_join!(
+        let (similar, hot, friends) = tokio::try_join!(
             social::similar_and_recent_posts(db, user_id, exclude, vector.as_deref()),
             social::hot_posts(db, user_id, exclude),
+            social::friend_posts(db, user_id, exclude),
         )?;
 
-        let mut seen = HashSet::new();
-        let mut posts = Vec::new();
-        for post in similar.into_iter().chain(hot) {
-            if seen.insert(post.post_id) {
-                posts.push(post);
-            }
-        }
+        let mut posts =
+            social::merge_feed_candidates(similar.into_iter().chain(hot).chain(friends));
         if posts.is_empty() {
             return Ok(Vec::new());
         }
@@ -260,6 +256,7 @@ impl SocialFeedService {
                         post.likes,
                         social::age_days(post.created_at, now),
                         similarities.get(&post.post_id).copied().unwrap_or(0.0),
+                        post.sent_by_friend,
                     ),
                 )
             })
