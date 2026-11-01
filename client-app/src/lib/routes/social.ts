@@ -17,6 +17,7 @@ import { applyPostLike, isSocialPostListKey, removePost } from "../post-like";
 import type {
     InterestScoreDelta,
     SocialComment,
+    Friendships,
     SocialPost,
     SocialUserProfile,
 } from "@/lib/types";
@@ -303,7 +304,6 @@ export function useDeletePost() {
         deletePost,
     };
 }
-
 /**
  * Drops one post from every cached post list, including the infinite feed.
  * A filtered `mutate` skips `$inf$` keys, so those entries are written by key.
@@ -465,6 +465,96 @@ type UserPostsResponse = {
  *     useUserPosts(authorId);
  * ```
  */
+const EMPTY_PEOPLE: Friendships["friends"] = [];
+
+type FriendRequestPayload = {
+    user_id: string;
+};
+
+/**
+ * Sends a friend request to `user_id`. A request already sent is a no-op.
+ * An incoming request from them is accepted. Refreshes the profile and the
+ * friends list so the button and outgoing requests catch up.
+ */
+export function useRequestFriend() {
+    const { account } = useAccount();
+    const x = useAPIMutation<FriendRequestPayload, null>(
+        "POST",
+        ({ user_id }) => `/social/friends/${user_id}`,
+        ({ user_id }) => [
+            { path: "/social/friends" },
+            { path: `/social/posts/user/${user_id}` },
+            ...(account ? [{ path: `/social/posts/user/${account.id}` }] : []),
+        ],
+    );
+    return {
+        requestFriendErr: x.error,
+        requestFriendLoading: x.isMutating,
+        resetRequestFriend: x.reset,
+        requestFriend: x.trigger,
+    };
+}
+
+/**
+ * Deletes the friendship row with `user_id`, whatever its status is.
+ * Refreshes the friends list and both profiles so friend counts update.
+ */
+export function useCancelFriendRequest() {
+    const { account } = useAccount();
+    const x = useAPIMutation<FriendRequestPayload, null>(
+        "DELETE",
+        ({ user_id }) => `/social/friends/${user_id}`,
+        ({ user_id }) => [
+            { path: "/social/friends" },
+            { path: `/social/posts/user/${user_id}` },
+            ...(account ? [{ path: `/social/posts/user/${account.id}` }] : []),
+        ],
+    );
+    return {
+        cancelFriendRequestErr: x.error,
+        cancelFriendRequestLoading: x.isMutating,
+        resetCancelFriendRequest: x.reset,
+        cancelFriendRequest: x.trigger,
+    };
+}
+
+/**
+ * Accepts an incoming friend request from `user_id`, which completes that
+ * friendship. Refreshes the friends list and that person's profile.
+ */
+export function useAcceptFriendRequest() {
+    const { account } = useAccount();
+    const x = useAPIMutation<FriendRequestPayload, null>(
+        "POST",
+        ({ user_id }) => `/social/friends/${user_id}/accept`,
+        ({ user_id }) => [
+            { path: "/social/friends" },
+            { path: `/social/posts/user/${user_id}` },
+            ...(account
+                ? [{ path: `/social/posts/user/${account.id}` }]
+                : []),
+        ],
+    );
+    return {
+        acceptFriendRequestErr: x.error,
+        acceptFriendRequestLoading: x.isMutating,
+        resetAcceptFriendRequest: x.reset,
+        acceptFriendRequest: x.trigger,
+    };
+}
+
+/** The signed-in user's friends and pending requests. */
+export function useFriendships() {
+    const x = useAPIData<Friendships>("/social/friends");
+    return {
+        incoming: x.data?.incoming ?? EMPTY_PEOPLE,
+        outgoing: x.data?.outgoing ?? EMPTY_PEOPLE,
+        friends: x.data?.friends ?? EMPTY_PEOPLE,
+        friendshipsLoading: x.isLoading,
+        friendshipsErr: x.error,
+    };
+}
+
 export function useUserPosts(authorId?: string) {
     const x = useAPIData<UserPostsResponse>(
         `/social/posts/user/${authorId}`,
@@ -546,7 +636,6 @@ type DeleteCommentPayload = {
 function deleteCommentPath({ comment_id }: DeleteCommentPayload) {
     return `/social/comments/${comment_id}`;
 }
-
 /**
  * Deletes one of the signed-in user's comments. A missing comment, or one
  * they do not own, is a 404. The post's comment count drops with it.

@@ -76,6 +76,14 @@ pub struct PublicProfile {
     pub user_id: Uuid,
     pub username: String,
     pub bio: String,
+    /// Completed rows in `friendships` where this user is `user1` or `user2`.
+    pub friend_count: i64,
+    /// The viewer already has a pending request to this user.
+    pub friend_request_sent: bool,
+    /// This user already has a pending request to the viewer.
+    pub friend_request_received: bool,
+    /// The viewer and this user have a completed friendship.
+    pub is_friend: bool,
 }
 
 /// One named interest a score update wants to move.
@@ -142,7 +150,6 @@ pub async fn delete_post(
     }
     Ok(())
 }
-
 /// Records a like and bumps `likes` / `hot_score` only when the row is new.
 pub async fn like_post(
     db: &DatabaseConnection,
@@ -284,7 +291,6 @@ pub async fn delete_comment(
     txn.commit().await?;
     Ok(())
 }
-
 /// Comments on `post_id`, most liked first, then newest, then comment id.
 pub async fn get_post_comments(
     db: &DatabaseConnection,
@@ -499,13 +505,28 @@ pub async fn get_posts(
 }
 
 /// The author's profile row, when they have one.
+///
+/// `friend_count` is completed friendships only. In `friendships`, `user1` is
+/// always the lexicographically smaller uuid, so the same person can be stored
+/// in either column.
 pub async fn find_public_profile(
     db: &DatabaseConnection,
     author_id: Uuid,
 ) -> Result<Option<PublicProfile>, CadenzaError> {
     let row = ProfileRow::find_by_statement(Statement::from_sql_and_values(
         DbBackend::Postgres,
-        "SELECT uid, username, bio FROM profile WHERE uid = $1",
+        "SELECT
+             uid,
+             username,
+             bio,
+             (
+                 SELECT COUNT(*)::bigint
+                 FROM friendships
+                 WHERE status = 'complete'
+                   AND (user1 = profile.uid OR user2 = profile.uid)
+             ) AS friend_count
+         FROM profile
+         WHERE uid = $1",
         vec![author_id.into()],
     ))
     .one(db)
@@ -515,7 +536,256 @@ pub async fn find_public_profile(
         user_id: row.uid,
         username: row.username,
         bio: row.bio,
+        friend_count: row.friend_count,
+        friend_request_sent: false,
+        friend_request_received: false,
+        is_friend: false,
     }))
+}
+
+/// `user1` is the lexicographically smaller uuid.
+fn ordered_friend_users(a: Uuid, b: Uuid) -> (Uuid, Uuid) {
+    if a < b { (a, b) } else { (b, a) }
+}
+
+/// Pending status for a request whose recipient is `recipient_id`.
+/// `to_user1` and `to_user2` name the recipient. `user1` is the smaller uuid.
+fn friend_request_status(recipient_id: Uuid, user1: Uuid) -> &'static str {
+    if recipient_id == user1 {
+        "to_user1"
+    } else {
+        "to_user2"
+    }
+}
+
+/// Whether `sender_id` has a pending request to `recipient_id`.
+pub async fn friend_request_sent(
+    db: &DatabaseConnection,
+    sender_id: Uuid,
+    recipient_id: Uuid,
+) -> Result<bool, CadenzaError> {
+    if sender_id == recipient_id {
+        return Ok(false);
+    }
+    let (user1, user2) = ordered_friend_users(sender_id, recipient_id);
+    let status = friend_request_status(recipient_id, user1);
+    let row = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            "SELECT EXISTS (
+                 SELECT 1 FROM friendships
+                 WHERE user1 = $1 AND user2 = $2 AND status = $3::friendship_status
+             )",
+            vec![user1.into(), user2.into(), status.into()],
+        ))
+        .await?;
+    let Some(row) = row else {
+        return Ok(false);
+    };
+    Ok(row.try_get_by_index(0)?)
+}
+
+/// Whether `viewer_id` and `other_id` have a completed friendship.
+/// The same user is never their own friend.
+pub async fn is_friend(
+    db: &DatabaseConnection,
+    viewer_id: Uuid,
+    other_id: Uuid,
+) -> Result<bool, CadenzaError> {
+    if viewer_id == other_id {
+        return Ok(false);
+    }
+    let (user1, user2) = ordered_friend_users(viewer_id, other_id);
+    let row = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            "SELECT EXISTS (
+                 SELECT 1 FROM friendships
+                 WHERE user1 = $1 AND user2 = $2 AND status = 'complete'
+             )",
+            vec![user1.into(), user2.into()],
+        ))
+        .await?;
+    let Some(row) = row else {
+        return Ok(false);
+    };
+    Ok(row.try_get_by_index(0)?)
+}
+
+/// Inserts a pending request from `sender_id` to `recipient_id`.
+///
+/// `user1` is the lexicographically smaller uuid. Status is `to_user1` when
+/// the recipient is `user1`, and `to_user2` when they are `user2`. Sending the
+/// same request again is a no-op. If the other person already sent a request,
+/// this accepts it and the row becomes `complete`. A completed friendship is
+/// [`CadenzaError::FriendshipAlreadyExists`].
+pub async fn request_friendship(
+    db: &DatabaseConnection,
+    sender_id: Uuid,
+    recipient_id: Uuid,
+) -> Result<(), CadenzaError> {
+    if sender_id == recipient_id {
+        return Err(CadenzaError::InvalidRequestBody(
+            "you cannot send yourself a friend request".into(),
+        ));
+    }
+    let (user1, user2) = ordered_friend_users(sender_id, recipient_id);
+    let status = friend_request_status(recipient_id, user1);
+    let incoming = friend_request_status(sender_id, user1);
+    let inserted = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            "INSERT INTO friendships (created_at, user1, user2, status)
+             VALUES (NOW(), $1, $2, $3::friendship_status)
+             ON CONFLICT (user1, user2) DO NOTHING
+             RETURNING user1",
+            vec![user1.into(), user2.into(), status.into()],
+        ))
+        .await?;
+    if inserted.is_some() {
+        return Ok(());
+    }
+    let existing = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            "SELECT status::text FROM friendships WHERE user1 = $1 AND user2 = $2",
+            vec![user1.into(), user2.into()],
+        ))
+        .await?;
+    let Some(existing) = existing else {
+        return Err(CadenzaError::DatabaseError(
+            "friendship conflict left no row".into(),
+        ));
+    };
+    let current: String = existing.try_get_by_index(0)?;
+    if current == status {
+        Ok(())
+    } else if current == incoming {
+        accept_friendship(db, sender_id, recipient_id).await
+    } else {
+        Err(CadenzaError::FriendshipAlreadyExists)
+    }
+}
+
+/// Deletes the friendship row for this pair, whatever its status is.
+/// A missing row is a no-op. `user1` is the lexicographically smaller uuid.
+pub async fn delete_friendship(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+    other_id: Uuid,
+) -> Result<(), CadenzaError> {
+    if user_id == other_id {
+        return Err(CadenzaError::InvalidRequestBody(
+            "you cannot cancel a friend request with yourself".into(),
+        ));
+    }
+    let (user1, user2) = ordered_friend_users(user_id, other_id);
+    db.execute_raw(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "DELETE FROM friendships WHERE user1 = $1 AND user2 = $2",
+        vec![user1.into(), user2.into()],
+    ))
+    .await?;
+    Ok(())
+}
+
+/// Turns an incoming request into a completed friendship.
+///
+/// The caller has to be the recipient: `to_user1` when they are `user1`, or
+/// `to_user2` when they are `user2`. `user1` is the lexicographically smaller
+/// uuid. Anything else, including a missing row, is [`CadenzaError::NotFound`].
+pub async fn accept_friendship(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+    other_id: Uuid,
+) -> Result<(), CadenzaError> {
+    if user_id == other_id {
+        return Err(CadenzaError::InvalidRequestBody(
+            "you cannot accept a friend request from yourself".into(),
+        ));
+    }
+    let (user1, user2) = ordered_friend_users(user_id, other_id);
+    let status = friend_request_status(user_id, user1);
+    let updated = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            "UPDATE friendships
+             SET status = 'complete'
+             WHERE user1 = $1 AND user2 = $2 AND status = $3::friendship_status
+             RETURNING user1",
+            vec![user1.into(), user2.into(), status.into()],
+        ))
+        .await?;
+    if updated.is_none() {
+        return Err(CadenzaError::NotFound);
+    }
+    Ok(())
+}
+
+/// One other person on a friendship row.
+#[derive(Clone, Debug)]
+pub struct FriendPerson {
+    pub user_id: Uuid,
+    pub username: String,
+}
+
+/// The signed-in user's completed friends and both directions of pending
+/// requests.
+///
+/// `user1` is the lexicographically smaller uuid. `to_user2` on a row where
+/// the caller is `user1`, or `to_user1` where they are `user2`, is a request
+/// they sent. The other pending status is incoming. All three lists are
+/// username order.
+pub struct FriendLists {
+    pub incoming: Vec<FriendPerson>,
+    pub outgoing: Vec<FriendPerson>,
+    pub friends: Vec<FriendPerson>,
+}
+
+/// Completed friends and pending requests for `user_id`.
+pub async fn list_friendships(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+) -> Result<FriendLists, CadenzaError> {
+    let rows = FriendshipListRow::find_by_statement(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "SELECT
+             CASE WHEN f.user1 = $1 THEN f.user2 ELSE f.user1 END AS user_id,
+             COALESCE(pr.username, 'unknown') AS username,
+             CASE
+                 WHEN f.status = 'complete' THEN 'friend'
+                 WHEN (f.user1 = $1 AND f.status = 'to_user2')
+                   OR (f.user2 = $1 AND f.status = 'to_user1') THEN 'outgoing'
+                 ELSE 'incoming'
+             END AS kind
+         FROM friendships f
+         LEFT JOIN profile pr
+           ON pr.uid = CASE WHEN f.user1 = $1 THEN f.user2 ELSE f.user1 END
+         WHERE f.user1 = $1 OR f.user2 = $1
+         ORDER BY username, user_id",
+        vec![user_id.into()],
+    ))
+    .all(db)
+    .await?;
+
+    let mut lists = FriendLists {
+        incoming: Vec::new(),
+        outgoing: Vec::new(),
+        friends: Vec::new(),
+    };
+    for row in rows {
+        let person = FriendPerson {
+            user_id: row.user_id,
+            username: row.username,
+        };
+        match row.kind.as_str() {
+            "outgoing" => lists.outgoing.push(person),
+            "friend" => lists.friends.push(person),
+            "incoming" => lists.incoming.push(person),
+            _ => {}
+        }
+    }
+    Ok(lists)
 }
 
 /// Posts whose topic is this Apple Music catalog id, most liked first.
@@ -1049,12 +1319,19 @@ impl CommentRow {
         }
     }
 }
+#[derive(Debug, FromQueryResult)]
+struct FriendshipListRow {
+    user_id: Uuid,
+    username: String,
+    kind: String,
+}
 
 #[derive(Debug, FromQueryResult)]
 struct ProfileRow {
     uid: Uuid,
     username: String,
     bio: String,
+    friend_count: i64,
 }
 
 #[derive(Debug, FromQueryResult)]
@@ -1110,6 +1387,18 @@ mod tests {
     fn vector_literal_round_trips() {
         let text = vector_literal(&[0.5, -1.0, 2.0]);
         assert_eq!(parse_vector(&text).unwrap(), vec![0.5, -1.0, 2.0]);
+    }
+
+    #[test]
+    fn friend_request_status_names_the_recipient() {
+        let smaller = Uuid::parse_str("00000000-0000-0000-0000-000000000001").unwrap();
+        let larger = Uuid::parse_str("ffffffff-ffff-ffff-ffff-ffffffffffff").unwrap();
+        let (user1, user2) = ordered_friend_users(smaller, larger);
+        assert_eq!((user1, user2), (smaller, larger));
+        let (user1, _) = ordered_friend_users(larger, smaller);
+        assert_eq!(user1, smaller);
+        assert_eq!(friend_request_status(smaller, user1), "to_user1");
+        assert_eq!(friend_request_status(larger, user1), "to_user2");
     }
 
     #[test]

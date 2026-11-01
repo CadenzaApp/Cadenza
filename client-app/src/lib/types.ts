@@ -128,9 +128,30 @@ export type SocialComment = {
     };
 };
 
+/** One person from `GET /social/friends`. */
+export type SocialPerson = {
+    user_id: string;
+    username: string;
+};
+
+/** Completed friends and pending requests in both directions. */
+export type Friendships = {
+    incoming: SocialPerson[];
+    outgoing: SocialPerson[];
+    friends: SocialPerson[];
+};
+
 /** Public profile header from `GET /social/posts/user/:author_id`. */
 export type SocialUserProfile = {
     user_id: string;
     username: string;
     bio: string;
+    /** Completed rows in `friendships` for this user. */
+    friend_count: number;
+    /** The signed-in user already has a pending request to this user. */
+    friend_request_sent: boolean;
+    /** This user already has a pending request to the signed-in user. */
+    friend_request_received: boolean;
+    /** The signed-in user and this user have a completed friendship. */
+    is_friend: boolean;
 };

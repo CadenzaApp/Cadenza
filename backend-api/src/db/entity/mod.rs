@@ -8,6 +8,7 @@ pub mod default_tag_activity;
 pub mod default_tags_applied;
 pub mod default_tags_generation;
 pub mod default_tags_removed;
+pub mod friendships;
 pub mod interest_scores;
 pub mod interest_scores_metadata;
 pub mod interests;

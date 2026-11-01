@@ -171,7 +171,6 @@ impl SocialFeedService {
         with_bday.extend_from_slice(&embedding);
         social::insert_post(db, user_id, content, &embedding, &with_bday, topic_mk_id).await
     }
-
     /// Deletes the author's post. `NotFound` when it is missing or owned by
     /// someone else. Related likes, comments, and view rows cascade.
     pub async fn delete_post(
@@ -279,18 +278,28 @@ impl SocialFeedService {
         viewer_id: Uuid,
         author_id: Uuid,
     ) -> Result<(PublicProfile, Vec<SocialPost>), CadenzaError> {
-        let (posts, profile) = tokio::try_join!(
+        let (posts, profile, friend_request_sent, friend_request_received, is_friend) = tokio::try_join!(
             social::get_author_posts(db, viewer_id, author_id),
             social::find_public_profile(db, author_id),
+            social::friend_request_sent(db, viewer_id, author_id),
+            social::friend_request_sent(db, author_id, viewer_id),
+            social::is_friend(db, viewer_id, author_id),
         )?;
-        let profile = profile.unwrap_or_else(|| PublicProfile {
+        let mut profile = profile.unwrap_or_else(|| PublicProfile {
             user_id: author_id,
             username: posts
                 .first()
                 .map(|post| post.author_username.clone())
                 .unwrap_or_else(|| "unknown".to_owned()),
             bio: String::new(),
+            friend_count: 0,
+            friend_request_sent: false,
+            friend_request_received: false,
+            is_friend: false,
         });
+        profile.friend_request_sent = friend_request_sent;
+        profile.friend_request_received = friend_request_received;
+        profile.is_friend = is_friend;
         Ok((profile, posts))
     }
 
@@ -427,7 +436,6 @@ impl SocialFeedService {
     ) -> Result<i64, CadenzaError> {
         social::insert_comment(db, user_id, post_id, content).await
     }
-
     /// Deletes the author's comment. `NotFound` when it is missing or owned by
     /// someone else. `posts.comments` drops in the same transaction.
     pub async fn delete_comment(

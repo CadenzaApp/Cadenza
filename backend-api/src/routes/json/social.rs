@@ -98,12 +98,20 @@ impl From<CommentRow> for SocialComment {
     }
 }
 
-/// `{user_id, username, bio}` from `GET /social/posts/user/:id`.
+/// `{user_id, username, bio, friend_count, friend_request_sent, friend_request_received, is_friend}`
+/// from `GET /social/posts/user/:id`. `friend_count` is completed rows in
+/// `friendships`. `friend_request_sent` is the viewer's pending request to
+/// this user. `friend_request_received` is this user's pending request to the
+/// viewer. `is_friend` is a completed friendship with the viewer.
 #[derive(Serialize)]
 pub struct SocialUserProfile {
     pub user_id: String,
     pub username: String,
     pub bio: String,
+    pub friend_count: i64,
+    pub friend_request_sent: bool,
+    pub friend_request_received: bool,
+    pub is_friend: bool,
 }
 
 impl From<PublicProfile> for SocialUserProfile {
@@ -112,6 +120,10 @@ impl From<PublicProfile> for SocialUserProfile {
             user_id: profile.user_id.to_string(),
             username: profile.username,
             bio: profile.bio,
+            friend_count: profile.friend_count,
+            friend_request_sent: profile.friend_request_sent,
+            friend_request_received: profile.friend_request_received,
+            is_friend: profile.is_friend,
         }
     }
 }
@@ -147,4 +159,15 @@ pub struct PostCommentsResponse {
 #[derive(Serialize)]
 pub struct CreateCommentResponse {
     pub comment_id: i64,
+}
+
+/// `{incoming, outgoing, friends}` from `GET /social/friends`.
+/// Each person is `{user_id, username}`.
+/// `incoming` is requests waiting on the signed-in user. `outgoing` is
+/// requests they sent. `friends` is completed pairs.
+#[derive(Serialize)]
+pub struct FriendshipsResponse {
+    pub incoming: Vec<SocialAuthor>,
+    pub outgoing: Vec<SocialAuthor>,
+    pub friends: Vec<SocialAuthor>,
 }

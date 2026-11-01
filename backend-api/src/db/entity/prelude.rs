@@ -6,6 +6,7 @@ pub use super::default_tag_activity::Entity as DefaultTagActivity;
 pub use super::default_tags_applied::Entity as DefaultTagsApplied;
 pub use super::default_tags_generation::Entity as DefaultTagsGeneration;
 pub use super::default_tags_removed::Entity as DefaultTagsRemoved;
+pub use super::friendships::Entity as Friendships;
 pub use super::interest_scores::Entity as InterestScores;
 pub use super::interest_scores_metadata::Entity as InterestScoresMetadata;
 pub use super::interests::Entity as Interests;
