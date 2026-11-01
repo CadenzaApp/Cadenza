@@ -268,6 +268,33 @@ export function GlassSurface({
 }
 
 /**
+ * True inside a separate native window, like `FullWindowOverlay`. Liquid glass
+ * there cannot sample the app's window, so it paints a dark fill over its whole
+ * rectangular bounds, and only a clip to its radius hides the corners.
+ */
+const GlassDetachedWindowContext = createContext(false);
+
+/** Marks glass below as living in a separate native window. See `useGlassClip`. */
+export function GlassDetachedWindow({ children }: { children: ReactNode }) {
+    return (
+        <GlassDetachedWindowContext.Provider value={true}>
+            {children}
+        </GlassDetachedWindowContext.Provider>
+    );
+}
+
+/**
+ * Whether floating glass has to be clipped to its radius. iOS glass in the
+ * app's own window can leave its material edge unclipped. Android always
+ * clips, since its fill is a child view and a visible overflow paints a
+ * square. Glass in a separate window clips too, see `GlassDetachedWindow`.
+ */
+export function useGlassClip(): boolean {
+    const detached = useContext(GlassDetachedWindowContext);
+    return Platform.OS !== "ios" || detached;
+}
+
+/**
  * Marks its children as sitting on glass, so any glass among them paints a
  * flat fill. For a container whose glass is a sibling layer under its content
  * rather than the parent of it.

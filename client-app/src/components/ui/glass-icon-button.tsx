@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 import {
-    Platform,
     Pressable,
     StyleSheet,
     View,
@@ -9,7 +8,7 @@ import {
     type ViewStyle,
 } from "react-native";
 
-import { GlassSurface } from "@/components/ui/glass-surface";
+import { GlassSurface, useGlassClip } from "@/components/ui/glass-surface";
 import { usePressedFill } from "@/components/ui/pressed-fill";
 import { cn } from "@/lib/utils";
 
@@ -19,8 +18,8 @@ type GlassIconButtonProps = Omit<PressableProps, "children" | "style"> & {
     surfaceScheme?: "light" | "dark";
     bordered?: boolean;
     /**
-     * On iOS, leave the liquid-glass edge unclipped. Android always clips:
-     * its fill is a child view, and a visible overflow leaves a square.
+     * False leaves the liquid-glass edge unclipped where `useGlassClip`
+     * allows it. Android and glass in a separate window always clip.
      */
     clipGlass?: boolean;
     className?: string;
@@ -56,9 +55,8 @@ export function GlassIconButton({
     ...rest
 }: GlassIconButtonProps) {
     const radius = size / 2;
-    // iOS can let the material edge extend. Android's fill stays square unless
-    // the circle clips it.
-    const clip = clipGlass || Platform.OS !== "ios";
+    const mustClip = useGlassClip();
+    const clip = clipGlass || mustClip;
 
     const pressedFill = usePressedFill(surfaceScheme);
 

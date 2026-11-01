@@ -2,13 +2,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRouter } from "expo-router";
 import { useTheme } from "expo-router/react-navigation";
 import { useCallback, useId, useLayoutEffect, useRef } from "react";
-import {
-    Image,
-    Platform,
-    Pressable,
-    View,
-    type LayoutChangeEvent,
-} from "react-native";
+import { Image, Pressable, View, type LayoutChangeEvent } from "react-native";
 import { GestureDetector } from "react-native-gesture-handler";
 import Animated, {
     interpolate,
@@ -17,7 +11,7 @@ import Animated, {
     useAnimatedReaction,
     type SharedValue,
 } from "react-native-reanimated";
-import { GlassSurface } from "@/components/ui/glass-surface";
+import { GlassSurface, useGlassClip } from "@/components/ui/glass-surface";
 import {
     usePlayerGestures,
     usePlayerPresentation,
@@ -116,15 +110,16 @@ export function MediaPlayer({
         left: 0,
         ...geometry.get(),
     }));
-    const clipCorners = Platform.OS === "android";
+    const clipCorners = useGlassClip();
     const cornerStyle = useAnimatedStyle(() => {
         const borderRadius = interpolate(
             progress.get(),
             [0, 1],
             [(source.get()?.height ?? height.get()) / 2, SIZE / 2],
         );
-        // The glass fill is a child. iOS glass draws its own rounded edge, so
-        // this view stays unclipped. Android needs the clip or the bar is square.
+        // The glass fill is a child. iOS glass in the app's window draws its own
+        // rounded edge, so this view stays unclipped. Everywhere else it needs
+        // the clip or the bar is square, see `useGlassClip`.
         return clipCorners
             ? { borderRadius, overflow: "hidden" as const }
             : { borderRadius };
