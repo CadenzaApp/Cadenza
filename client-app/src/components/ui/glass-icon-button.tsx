@@ -19,7 +19,7 @@ type GlassIconButtonProps = Omit<PressableProps, "children" | "style"> & {
     bordered?: boolean;
     /**
      * False leaves the liquid-glass edge unclipped where `useGlassClip`
-     * allows it. Android and glass in a separate window always clip.
+     * allows it. Android and glass in a `GlassClipScope` always clip.
      */
     clipGlass?: boolean;
     className?: string;

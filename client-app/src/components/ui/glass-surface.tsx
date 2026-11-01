@@ -268,30 +268,31 @@ export function GlassSurface({
 }
 
 /**
- * True inside a separate native window, like `FullWindowOverlay`. Liquid glass
- * there cannot sample the app's window, so it paints a dark fill over its whole
- * rectangular bounds, and only a clip to its radius hides the corners.
+ * True where unclipped liquid glass breaks: a separate native window, like
+ * `FullWindowOverlay`, or a container that clips with a radius, like a zoom
+ * card. Glass there paints a dark fill over its whole rectangular bounds, and
+ * only a clip to its own radius hides the corners.
  */
-const GlassDetachedWindowContext = createContext(false);
+const GlassClipScopeContext = createContext(false);
 
-/** Marks glass below as living in a separate native window. See `useGlassClip`. */
-export function GlassDetachedWindow({ children }: { children: ReactNode }) {
+/** Marks glass below as needing a clip. See `useGlassClip`. */
+export function GlassClipScope({ children }: { children: ReactNode }) {
     return (
-        <GlassDetachedWindowContext.Provider value={true}>
+        <GlassClipScopeContext.Provider value={true}>
             {children}
-        </GlassDetachedWindowContext.Provider>
+        </GlassClipScopeContext.Provider>
     );
 }
 
 /**
- * Whether floating glass has to be clipped to its radius. iOS glass in the
- * app's own window can leave its material edge unclipped. Android always
- * clips, since its fill is a child view and a visible overflow paints a
- * square. Glass in a separate window clips too, see `GlassDetachedWindow`.
+ * Whether floating glass has to be clipped to its radius. iOS glass with no
+ * clipping container above it can leave its material edge unclipped. Android
+ * always clips, since its fill is a child view and a visible overflow paints
+ * a square. Glass inside a `GlassClipScope` clips too.
  */
 export function useGlassClip(): boolean {
-    const detached = useContext(GlassDetachedWindowContext);
-    return Platform.OS !== "ios" || detached;
+    const scoped = useContext(GlassClipScopeContext);
+    return Platform.OS !== "ios" || scoped;
 }
 
 /**

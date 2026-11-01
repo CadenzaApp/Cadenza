@@ -1,7 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTheme } from "expo-router/react-navigation";
 import { GlassIconButton } from "@/components/ui/glass-icon-button";
-import { GlassDetachedWindow } from "@/components/ui/glass-surface";
+import { GlassClipScope } from "@/components/ui/glass-surface";
 import { Platform, StyleSheet, View, useWindowDimensions } from "react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Animated, {
@@ -118,7 +118,7 @@ export function MediaPlayerPushedScreenOverlay() {
 
     return (
         <FullWindowOverlay unstable_accessibilityContainerViewIsModal={false}>
-            <GlassDetachedWindow>{player}</GlassDetachedWindow>
+            <GlassClipScope>{player}</GlassClipScope>
         </FullWindowOverlay>
     );
 }
