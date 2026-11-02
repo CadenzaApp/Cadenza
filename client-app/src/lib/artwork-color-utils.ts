@@ -173,6 +173,22 @@ export function distinctColors(
     return picked.map((color) => color.hex);
 }
 
+/** Highest Oklch lightness of the page behind a full-bleed cover in dark mode. */
+const HERO_PAGE_MAX_LIGHTNESS = 0.3;
+
+/**
+ * The source color for the page behind a full-bleed cover. In dark mode a deep
+ * shade of the cover, so the fade lands somewhere dark and the title over it
+ * reads in white. Light mode keeps the cover color, since its tint already
+ * lightens it.
+ */
+export function heroPageColor(hex: string, scheme: ColorScheme) {
+    if (scheme !== "dark") return hex;
+    const color = toOklch(hex);
+    if (!color || color.l <= HERO_PAGE_MAX_LIGHTNESS) return hex;
+    return formatHex(toRgb({ ...color, l: HERO_PAGE_MAX_LIGHTNESS })) ?? hex;
+}
+
 /** Fade the portrait over most of its height, independently of the page color. */
 export const ARTIST_ARTWORK_FADE_START = 0.2;
 export const ARTIST_GRADIENT_SCREEN_HEIGHTS = 3;

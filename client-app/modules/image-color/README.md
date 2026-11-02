@@ -13,14 +13,22 @@ fed from anywhere.
 import { ImageColor } from "@image-color";
 
 const color = await ImageColor.getAverageColor(artworkUrl); // "#7a3f5e" | null
+const bottom = await ImageColor.getAverageColor(artworkUrl, {
+    x: 0,
+    y: 0.5,
+    width: 1,
+    height: 0.5,
+}); // just the bottom half
 ```
+
+`region` is in fractions of the image from its top left. Left out, it is the whole image.
 
 Null, never a throw, for everything that does not produce a color: a blank URL,
 a fetch that fails, an undecodable image, fully transparent artwork, or no
 native module at all. Expo Go is that last case, so it always returns null
 there and the caller renders untinted.
 
-Results are cached by URL on the native side. The average of a given URL cannot
+Results are cached by URL and region on the native side. The average of a given URL cannot
 change, so the second call for the same artwork costs nothing.
 
 ## Files
@@ -37,13 +45,13 @@ change, so the second call for the same artwork costs nothing.
 Both platforms do the same two things: fetch the bytes, then reduce them to one
 color without ever holding the full image.
 
-iOS draws the whole `CGImage` into a 1x1 `CGContext`. The downsample _is_ the
+iOS crops the `CGImage` to the region, then draws it into a 1x1 `CGContext`. The downsample _is_ the
 average, so there is no pixel loop. The context is premultiplied, so a partly
 transparent result is divided back out before it is returned, or it would come
 back darker than the image looks.
 
 Android has no equivalent one-step draw, so it decodes with an `inSampleSize`
-that caps the long edge at 64 pixels and averages what comes back, weighting
+that caps the long edge at 64 pixels and averages the pixels inside the region, weighting
 each pixel by its alpha for the same reason.
 
 ## Connects to

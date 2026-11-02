@@ -1,4 +1,4 @@
-import { ImageColor } from "@image-color";
+import { ImageColor, type ImageRegion } from "@image-color";
 import useSWRImmutable from "swr/immutable";
 
 import { readableTextColor } from "@/components/custom/tag-pill";
@@ -89,6 +89,26 @@ export function useArtworkTint(source?: ArtworkSource | null): ArtworkTint {
         textColor: readableTextColor(tint),
         isLoading: false,
     };
+}
+
+/** The bottom half of an image, where a full-bleed cover meets its page. */
+export const BOTTOM_HALF: ImageRegion = { x: 0, y: 0.5, width: 1, height: 0.5 };
+
+/**
+ * Average color of one region of the image at `url`, null until it lands or
+ * when there is none. Always the averaged pixels, never Apple's color, since
+ * Apple's describes the whole image.
+ */
+export function useArtworkRegionColor(
+    url: string | null | undefined,
+    region: ImageRegion,
+): string | null {
+    const { x, y, width, height } = region;
+    const { data } = useSWRImmutable<string | null>(
+        url ? ["ImageColor.getAverageColor", url, x, y, width, height] : null,
+        () => ImageColor.getAverageColor(url, { x, y, width, height }),
+    );
+    return data ?? null;
 }
 
 /**
