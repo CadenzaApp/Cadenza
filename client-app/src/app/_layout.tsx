@@ -1,8 +1,4 @@
-import {
-    AppThemeProvider,
-    pushedScreenOptions,
-    sheetScreenOptions,
-} from "@/lib/theme";
+import { AppThemeProvider, sheetScreenOptions } from "@/lib/theme";
 import { useTheme } from "expo-router/react-navigation";
 import { Stack } from "expo-router";
 import AccountProvider from "@/lib/account";
@@ -14,10 +10,8 @@ import { TasksHost, TasksProvider } from "@/components/custom/tasks";
 import { AppleMusicSessionGuard } from "@/features/account/apple-music-session-guard";
 import { LibraryCategoriesProvider } from "@/features/library/library-categories";
 import { BottomBarVisibilityProvider } from "@/lib/screen-overlay";
-import { ZoomOriginProvider } from "@/lib/zoom-dismiss";
 import { PortalHost } from "@rn-primitives/portal";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
-import { MediaPlayerPushedScreenOverlay } from "@/components/custom/media-player";
 import { MusicListPreferencesProvider } from "@/lib/music-list-preferences";
 import { UserSettingsProvider } from "@/lib/routes/settings";
 import { InterestPlayTracker } from "@/lib/interest-play-tracker";
@@ -39,15 +33,12 @@ export default function RootLayout() {
                                             <MusicListPreferencesProvider>
                                                 <BottomBarVisibilityProvider>
                                                     <LibraryCategoriesProvider>
-                                                        <ZoomOriginProvider>
-                                                            <RootStack />
-                                                            <AppleMusicSessionGuard />
-                                                            <MediaPlayerPushedScreenOverlay />
-                                                            <InterestPlayTracker />
-                                                            <InterestDecay />
-                                                            <TasksHost />
-                                                            <PortalHost />
-                                                        </ZoomOriginProvider>
+                                                        <RootStack />
+                                                        <AppleMusicSessionGuard />
+                                                        <InterestPlayTracker />
+                                                        <InterestDecay />
+                                                        <TasksHost />
+                                                        <PortalHost />
                                                     </LibraryCategoriesProvider>
                                                 </BottomBarVisibilityProvider>
                                             </MusicListPreferencesProvider>
@@ -116,34 +107,11 @@ function RootStack() {
             />
             <Stack.Screen
                 name="library-categories"
-                options={pushedScreenOptions()}
+                options={sheetScreenOptions(theme)}
             />
-            <Stack.Screen
-                name="category/[kind]"
-                options={pushedScreenOptions()}
-            />
-            <Stack.Screen
-                name="collection/[kind]/[id]"
-                options={pushedScreenOptions()}
-            />
-            <Stack.Screen
-                name="discuss/[songId]"
-                options={pushedScreenOptions()}
-            />
-            <Stack.Screen
-                name="query-results"
-                options={{
-                    headerShown: false,
-                    contentStyle: {
-                        backgroundColor: theme.colors.background,
-                    },
-                }}
-            />
-            <Stack.Screen name="tag/[tagId]" options={pushedScreenOptions()} />
-            <Stack.Screen name="artist/[id]" options={pushedScreenOptions()} />
             <Stack.Screen
                 name="add-to-playlist"
-                options={pushedScreenOptions()}
+                options={sheetScreenOptions(theme)}
             />
         </Stack>
     );

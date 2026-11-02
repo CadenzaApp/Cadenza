@@ -6,7 +6,7 @@ import { useTheme } from "expo-router/react-navigation";
 
 import { CollectionOptionsMenu } from "@/components/custom/options-menu/collection-options-menu";
 import { TrackCollectionView } from "@/components/custom/track-collection-view";
-import { FloatingCloseButton } from "@/components/ui/floating-close-button";
+import { FloatingBackButton } from "@/components/ui/floating-back-button";
 import { useArrangedTrackList } from "@/lib/arranged-track-list";
 import {
     ContrastText as Text,
@@ -26,8 +26,6 @@ import {
     NO_ARRANGEMENT,
     type SongArrangement,
 } from "@/lib/song-arrangement";
-import { ZoomDismissScreen } from "@/lib/zoom-dismiss";
-import { MediaPlayerZoomOverlay } from "@/components/custom/media-player";
 
 import type { LibraryCollectionKind } from "@/lib/musickit-hooks";
 
@@ -187,82 +185,73 @@ export default function CollectionDetailScreen() {
     );
 
     return (
-        <ZoomDismissScreen overlay={<MediaPlayerZoomOverlay />}>
-            <View className="flex-1">
-                <TrackCollectionView
-                    title={
-                        title ?? (kind === "playlist" ? "Playlist" : "Album")
-                    }
-                    tracks={orderedTracks}
-                    isLoading={tracksLoading}
-                    highlightTrackId={highlight}
-                    error={tracksErr ?? list.error}
-                    pagination={{
-                        hasNextPage: hasNextCollectionPage,
-                        isLoadingNextPage: tracksLoadingNextPage,
-                        onLoadNextPage: loadNextCollectionPage,
-                    }}
-                    loadAllPages
-                    sections={arranged ? list.sections : null}
-                    arrangement={{
-                        value: arrangement,
-                        onChange: setArrangement,
-                        sortValues: list.sortValues,
-                    }}
-                    listOverlay={
-                        waitingToSort ? (
-                            <WaitingToSort loadedCount={tracks.length} />
-                        ) : null
-                    }
-                    multiSelect={DEFAULT_MULTI_SELECT_CONFIG}
-                    subtitle={artistName ?? firstTrack?.artistName}
-                    summary={collectionMeta(firstTrack)}
-                    backgroundColor={tint}
-                    artworkUrls={[
-                        artworkUrlLarge ??
-                            firstTrack?.artworkUrlLarge ??
-                            artworkUrl ??
-                            firstTrack?.artworkUrl ??
-                            "",
-                    ].filter(Boolean)}
-                    isPlaying={isCollectionPlaying}
-                    respectTopSafeArea
-                    onPlay={play}
-                    onShuffle={shuffle}
-                    onTrackPressOverride={playRow}
-                    options={[
-                        {
-                            id: "collection-options",
-                            label: "More options",
-                            icon: "ellipsis-horizontal",
-                            onPress: () => setOptionsOpen(true),
-                        },
-                    ]}
-                    closeControl={
-                        <FloatingCloseButton
-                            label="Close"
-                            size={HERO_BUTTON_SIZE}
-                        />
-                    }
-                    footer={
-                        summary ? (
-                            <Text className="px-6 pb-2 pt-5 text-center text-sm text-muted-foreground">
-                                {summary}
-                            </Text>
-                        ) : null
-                    }
-                />
+        <View className="flex-1">
+            <TrackCollectionView
+                title={title ?? (kind === "playlist" ? "Playlist" : "Album")}
+                tracks={orderedTracks}
+                isLoading={tracksLoading}
+                highlightTrackId={highlight}
+                error={tracksErr ?? list.error}
+                pagination={{
+                    hasNextPage: hasNextCollectionPage,
+                    isLoadingNextPage: tracksLoadingNextPage,
+                    onLoadNextPage: loadNextCollectionPage,
+                }}
+                loadAllPages
+                sections={arranged ? list.sections : null}
+                arrangement={{
+                    value: arrangement,
+                    onChange: setArrangement,
+                    sortValues: list.sortValues,
+                }}
+                listOverlay={
+                    waitingToSort ? (
+                        <WaitingToSort loadedCount={tracks.length} />
+                    ) : null
+                }
+                multiSelect={DEFAULT_MULTI_SELECT_CONFIG}
+                subtitle={artistName ?? firstTrack?.artistName}
+                summary={collectionMeta(firstTrack)}
+                backgroundColor={tint}
+                artworkUrls={[
+                    artworkUrlLarge ??
+                        firstTrack?.artworkUrlLarge ??
+                        artworkUrl ??
+                        firstTrack?.artworkUrl ??
+                        "",
+                ].filter(Boolean)}
+                isPlaying={isCollectionPlaying}
+                respectTopSafeArea
+                onPlay={play}
+                onShuffle={shuffle}
+                onTrackPressOverride={playRow}
+                options={[
+                    {
+                        id: "collection-options",
+                        label: "More options",
+                        icon: "ellipsis-horizontal",
+                        onPress: () => setOptionsOpen(true),
+                    },
+                ]}
+                backControl={<FloatingBackButton size={HERO_BUTTON_SIZE} />}
+                footer={
+                    summary ? (
+                        <Text className="px-6 pb-2 pt-5 text-center text-sm text-muted-foreground">
+                            {summary}
+                        </Text>
+                    ) : null
+                }
+            />
 
-                {optionsOpen ? (
-                    <CollectionOptionsMenu
-                        kind={kind}
-                        collectionId={id}
-                        tracks={tracks}
-                        onClose={() => setOptionsOpen(false)}
-                    />
-                ) : null}
-            </View>
-        </ZoomDismissScreen>
+            {optionsOpen ? (
+                <CollectionOptionsMenu
+                    kind={kind}
+                    collectionId={id}
+                    tracks={tracks}
+                    onClose={() => setOptionsOpen(false)}
+                />
+            ) : null}
+        </View>
     );
 }
 

@@ -76,7 +76,7 @@ export default function AddToPlaylistScreen() {
     }
 
     return (
-        <DetailScreen title="Add to Playlist">
+        <DetailScreen title="Add to Playlist" presentation="sheet">
             {title ? (
                 <Text
                     className="px-6 pb-2 text-base text-muted-foreground"

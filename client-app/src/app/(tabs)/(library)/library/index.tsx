@@ -1,4 +1,3 @@
-import type { MusicItem } from "@apple-musickit";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useNavigation } from "expo-router";
 import { useTheme } from "expo-router/react-navigation";
@@ -12,7 +11,6 @@ import { CategoryRow } from "@/features/library/category-row";
 import { useLibraryCategories } from "@/features/library/library-categories";
 import { RecentlyAddedGrid } from "@/features/library/recently-added";
 import { useAppleMusic } from "@/lib/apple-music-auth";
-import { collectionRoute } from "@/lib/music-routes";
 import { useRecentlyAdded } from "@/lib/musickit-hooks";
 import { useOpenScreen } from "@/lib/open-screen";
 
@@ -61,10 +59,6 @@ export default function LibraryScreen() {
         });
     }
 
-    function openCollection(collection: MusicItem) {
-        openScreen(collectionRoute(collection));
-    }
-
     return (
         <RecentlyAddedGrid
             items={recentlyAdded}
@@ -72,7 +66,6 @@ export default function LibraryScreen() {
             isLoadingNextPage={recentlyAddedLoadingNextPage}
             hasNextPage={hasNextRecentlyAddedPage}
             onLoadNextPage={loadNextRecentlyAddedPage}
-            onOpenCollection={openCollection}
             header={
                 <View>
                     {recentlyAddedErr ? (

@@ -24,7 +24,7 @@ export default function LibraryCategoriesScreen() {
     const scroll = useScreenScroll();
 
     return (
-        <DetailScreen title="Library">
+        <DetailScreen title="Library" presentation="sheet">
             <ScreenScrollMarker>
                 <Animated.ScrollView
                     {...scroll}

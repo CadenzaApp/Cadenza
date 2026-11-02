@@ -1,6 +1,9 @@
 import { TabStack } from "@/components/custom/tab-stack";
 import { AnalyticsPeriodProvider } from "@/features/analytics/analytics-period";
 
+/** Puts the tab's own index under a detail route opened by deep link. */
+export const unstable_settings = { initialRouteName: "analytics/index" };
+
 /**
  * The provider wraps the stack, not a screen, so the selected period survives
  * navigating into a detail page and back.
@@ -14,7 +17,11 @@ const PINNED_RAIL = ["[dimension]", "songs", "tags"];
 export default function AnalyticsLayout() {
     return (
         <AnalyticsPeriodProvider>
-            <TabStack title="Analytics" pinnedRail={PINNED_RAIL} />
+            <TabStack
+                tab="analytics"
+                title="Analytics"
+                pinnedRail={PINNED_RAIL}
+            />
         </AnalyticsPeriodProvider>
     );
 }

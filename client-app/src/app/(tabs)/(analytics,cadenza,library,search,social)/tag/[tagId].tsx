@@ -1,9 +1,8 @@
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
 import { View } from "react-native";
 
 import { EditTagDialog } from "@/components/custom/edit-tag-dialog";
-import { MediaPlayerZoomOverlay } from "@/components/custom/media-player";
 import type { MusicListTrackAction } from "@/components/custom/music-list";
 import { TagPill } from "@/components/custom/tag-pill";
 import {
@@ -11,7 +10,7 @@ import {
     TrackCollectionView,
     type TrackCollectionOption,
 } from "@/components/custom/track-collection-view";
-import { FloatingCloseButton } from "@/components/ui/floating-close-button";
+import { FloatingBackButton } from "@/components/ui/floating-back-button";
 import { GlassConfirmDialog } from "@/components/ui/glass-confirm-dialog";
 import { useArrangedTrackList } from "@/lib/arranged-track-list";
 import { indexTracksById, useSongInfo } from "@/lib/musickit-hooks";
@@ -25,22 +24,13 @@ import { TAG_TYPE_ICONS } from "@/lib/tag-values";
 import { useRemoveTagsFromSongs } from "@/lib/routes/songs";
 import { useDeleteTag, useTag } from "@/lib/routes/tags";
 import type { Tag } from "@/lib/types";
-import { useCloseScreen, ZoomDismissScreen } from "@/lib/zoom-dismiss";
 
 const HERO_BUTTON_SIZE = 52;
 
 /** One user tag rendered as a playable, shuffleable collection of its songs. */
 export default function TagDetailScreen() {
-    return (
-        <ZoomDismissScreen overlay={<MediaPlayerZoomOverlay />}>
-            <TagDetailCollection />
-        </ZoomDismissScreen>
-    );
-}
-
-function TagDetailCollection() {
     const { tagId } = useLocalSearchParams<{ tagId: string }>();
-    const closeScreen = useCloseScreen();
+    const router = useRouter();
     const { tag, songIds, tagsLoading, tagsErr } = useTag(Number(tagId));
     const {
         songInfo: tracks = [],
@@ -167,7 +157,7 @@ function TagDetailCollection() {
         try {
             await deleteTag({ tag_id: tag.id });
             setDeleteOpen(false);
-            closeScreen();
+            router.back();
         } catch {
             // The confirm dialog renders deleteTagErr and stays open for retry.
         }
@@ -209,12 +199,7 @@ function TagDetailCollection() {
                 options={options}
                 backgroundColor={tag?.color}
                 respectTopSafeArea
-                closeControl={
-                    <FloatingCloseButton
-                        label="Close tag"
-                        size={HERO_BUTTON_SIZE}
-                    />
-                }
+                backControl={<FloatingBackButton size={HERO_BUTTON_SIZE} />}
             />
 
             {tag && editMode ? (

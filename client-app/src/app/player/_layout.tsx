@@ -8,7 +8,6 @@ import {
     usePlayerScope,
 } from "@/components/custom/media-player/player-scope";
 import { DetailScreen } from "@/components/ui/detail-screen";
-import { ZoomSheetSourceScope } from "@/lib/zoom-dismiss";
 import { useArtworkTint } from "@/lib/artwork-color";
 
 export default function PlayerLayout() {
@@ -19,9 +18,7 @@ export default function PlayerLayout() {
     return (
         <PlayerTabsProvider key={nextKey}>
             <PlayerScopeProvider>
-                <ZoomSheetSourceScope>
-                    <PlayerSheet />
-                </ZoomSheetSourceScope>
+                <PlayerSheet />
             </PlayerScopeProvider>
         </PlayerTabsProvider>
     );

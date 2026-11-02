@@ -17,7 +17,7 @@ import {
 
 import { ErrorNotice } from "@/components/custom/error-notice";
 import { TrackCollectionView } from "@/components/custom/track-collection-view";
-import { FloatingCloseButton } from "@/components/ui/floating-close-button";
+import { FloatingBackButton } from "@/components/ui/floating-back-button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
     ContrastRegion,
@@ -29,14 +29,12 @@ import {
     ARTIST_ARTWORK_FADE_START,
     ARTIST_GRADIENT_SCREEN_HEIGHTS,
 } from "@/lib/artwork-color-utils";
-import { useZoomSource, ZoomDismissScreen } from "@/lib/zoom-dismiss";
-import { MediaPlayerZoomOverlay } from "@/components/custom/media-player";
 import { collectionRoute } from "@/lib/music-routes";
 import { useArtist } from "@/lib/musickit-hooks";
 import { samePlayableItem } from "@/lib/playable-item";
 import { usePlaybackCommands, usePlaybackTrackState } from "@/lib/playback";
 import { useOpenTransitionSettled } from "@/lib/use-open-transition-settled";
-import { useOpenScreen } from "@/lib/open-screen";
+import { ZoomTile } from "@/components/custom/zoom-tile";
 
 const EMPTY_TRACKS: MusicItem[] = [];
 const ALBUM_TILE_WIDTH = 132;
@@ -69,7 +67,6 @@ const HERO_HEIGHT_RATIO = 0.45;
  */
 export default function ArtistScreen() {
     const { id, name } = useLocalSearchParams<{ id: string; name?: string }>();
-    const openScreen = useOpenScreen();
     const { colorScheme = "light" } = useColorScheme();
     const { height: windowHeight } = useWindowDimensions();
     const { artist, artistLoading, artistErr } = useArtist(id);
@@ -105,13 +102,6 @@ export default function ArtistScreen() {
         [portraitTint, heroHeight],
     );
 
-    const openAlbum = useCallback(
-        (album: MusicItem) => {
-            openScreen(collectionRoute(album));
-        },
-        [openScreen],
-    );
-
     /** Replaces the queue with the top songs, in Apple's order. */
     async function playTopSongs() {
         if (topSongs.length === 0 || playbackCommandPending) return;
@@ -128,60 +118,57 @@ export default function ArtistScreen() {
     }
 
     return (
-        <ZoomDismissScreen overlay={<MediaPlayerZoomOverlay />}>
-            <View className="flex-1" style={{ backgroundColor: loadingColor }}>
-                {artistErr ? <ErrorNotice error={artistErr} /> : null}
+        <View className="flex-1" style={{ backgroundColor: loadingColor }}>
+            {artistErr ? <ErrorNotice error={artistErr} /> : null}
 
-                <TrackCollectionView
-                    title={artist?.name ?? name ?? "Artist"}
-                    tracks={topSongs}
-                    isLoading={artistLoading}
-                    error={artistErr}
-                    pagination={NO_PAGINATION}
-                    multiSelect={DEFAULT_MULTI_SELECT_CONFIG}
-                    backgroundColor={portraitTint}
-                    backgroundGradient={gradient}
-                    gradientMinHeight={
-                        windowHeight * ARTIST_GRADIENT_SCREEN_HEIGHTS
-                    }
-                    artworkSurface={artworkSurface}
-                    header={
-                        <>
-                            <ArtistHero
-                                artist={artist}
-                                artistLoading={artistLoading}
-                                name={artist?.name ?? name ?? "Artist"}
-                                height={heroHeight}
-                                canPlay={topSongs.length > 0}
-                                isPlaying={isArtistPlaying}
-                                isLoading={isLoading || playbackCommandPending}
-                                onPlay={() => void playTopSongs()}
+            <TrackCollectionView
+                title={artist?.name ?? name ?? "Artist"}
+                tracks={topSongs}
+                isLoading={artistLoading}
+                error={artistErr}
+                pagination={NO_PAGINATION}
+                multiSelect={DEFAULT_MULTI_SELECT_CONFIG}
+                backgroundColor={portraitTint}
+                backgroundGradient={gradient}
+                gradientMinHeight={
+                    windowHeight * ARTIST_GRADIENT_SCREEN_HEIGHTS
+                }
+                artworkSurface={artworkSurface}
+                header={
+                    <>
+                        <ArtistHero
+                            artist={artist}
+                            artistLoading={artistLoading}
+                            name={artist?.name ?? name ?? "Artist"}
+                            height={heroHeight}
+                            canPlay={topSongs.length > 0}
+                            isPlaying={isArtistPlaying}
+                            isLoading={isLoading || playbackCommandPending}
+                            onPlay={() => void playTopSongs()}
+                        />
+                        <ContrastRegion offset={heroHeight + 30}>
+                            <Text className="px-6 pb-1 pt-5 text-xl font-bold text-foreground">
+                                Top Songs
+                            </Text>
+                        </ContrastRegion>
+                    </>
+                }
+                footer={
+                    artistLoading || albums.length > 0 ? (
+                        <View className="pt-6">
+                            <Text className="px-6 pb-3 text-xl font-bold text-foreground">
+                                Albums
+                            </Text>
+                            <AlbumRail
+                                albums={albums}
+                                isLoading={artistLoading}
                             />
-                            <ContrastRegion offset={heroHeight + 30}>
-                                <Text className="px-6 pb-1 pt-5 text-xl font-bold text-foreground">
-                                    Top Songs
-                                </Text>
-                            </ContrastRegion>
-                        </>
-                    }
-                    footer={
-                        artistLoading || albums.length > 0 ? (
-                            <View className="pt-6">
-                                <Text className="px-6 pb-3 text-xl font-bold text-foreground">
-                                    Albums
-                                </Text>
-                                <AlbumRail
-                                    albums={albums}
-                                    isLoading={artistLoading}
-                                    onSelect={openAlbum}
-                                />
-                            </View>
-                        ) : null
-                    }
-                    closeControl={<FloatingCloseButton label="Close artist" />}
-                />
-            </View>
-        </ZoomDismissScreen>
+                        </View>
+                    ) : null
+                }
+                backControl={<FloatingBackButton />}
+            />
+        </View>
     );
 }
 
@@ -317,19 +304,15 @@ function PlayButton({
 const AlbumRail = memo(function AlbumRail({
     albums,
     isLoading,
-    onSelect,
 }: {
     albums: MusicItem[];
     isLoading: boolean;
-    onSelect: (album: MusicItem) => void;
 }) {
     const settled = useOpenTransitionSettled(true);
     const { fontScale } = useWindowDimensions();
     const renderAlbum = useCallback(
-        ({ item }: { item: MusicItem }) => (
-            <AlbumTile album={item} onSelect={onSelect} />
-        ),
-        [onSelect],
+        ({ item }: { item: MusicItem }) => <AlbumTile album={item} />,
+        [],
     );
     return (
         <FlatList
@@ -381,57 +364,49 @@ function AlbumPlaceholders() {
     );
 }
 
-const AlbumTile = memo(function AlbumTile({
-    album,
-    onSelect,
-}: {
-    album: MusicItem;
-    onSelect: (album: MusicItem) => void;
-}) {
+const AlbumTile = memo(function AlbumTile({ album }: { album: MusicItem }) {
     const { colors } = useTheme();
-    const { ref: zoomRef, capture: captureZoom } = useZoomSource();
     const artworkUrl = album.artworkUrl?.trim();
     const canRenderArtwork =
         typeof artworkUrl === "string" && /^https?:\/\//i.test(artworkUrl);
 
     return (
-        <Pressable
+        <ZoomTile
+            href={collectionRoute(album)}
             accessibilityRole="button"
             accessibilityLabel={`Open ${album.title}`}
-            onPress={() => {
-                captureZoom();
-                onSelect(album);
-            }}
             style={{ width: ALBUM_TILE_WIDTH }}
             className="active:opacity-80"
+            artwork={
+                <View collapsable={false} className="aspect-square w-full">
+                    {canRenderArtwork ? (
+                        <Image
+                            source={{ uri: artworkUrl }}
+                            style={ALBUM_IMAGE_STYLE}
+                            className="rounded-lg bg-muted"
+                            contentFit="cover"
+                            cachePolicy="memory-disk"
+                            recyclingKey={album.id}
+                            transition={0}
+                        />
+                    ) : (
+                        <View className="h-full w-full items-center justify-center rounded-lg bg-muted">
+                            <Ionicons
+                                name="disc"
+                                size={28}
+                                color={colors.text}
+                            />
+                        </View>
+                    )}
+                </View>
+            }
         >
-            <View
-                ref={zoomRef}
-                collapsable={false}
-                className="aspect-square w-full"
-            >
-                {canRenderArtwork ? (
-                    <Image
-                        source={{ uri: artworkUrl }}
-                        style={ALBUM_IMAGE_STYLE}
-                        className="rounded-lg bg-muted"
-                        contentFit="cover"
-                        cachePolicy="memory-disk"
-                        recyclingKey={album.id}
-                        transition={0}
-                    />
-                ) : (
-                    <View className="h-full w-full items-center justify-center rounded-lg bg-muted">
-                        <Ionicons name="disc" size={28} color={colors.text} />
-                    </View>
-                )}
-            </View>
             <Text
                 className="mt-2 text-sm font-semibold text-foreground"
                 numberOfLines={2}
             >
                 {album.title}
             </Text>
-        </Pressable>
+        </ZoomTile>
     );
 });

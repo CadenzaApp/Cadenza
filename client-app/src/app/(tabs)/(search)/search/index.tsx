@@ -133,16 +133,6 @@ export default function SearchScreen() {
         Keyboard.dismiss();
     }
 
-    function openArtist(artist: ArtistItem) {
-        // Catalog only; ArtistRail already disables a row without a catalog id.
-        if (!artist.catalogId) return;
-        Keyboard.dismiss();
-        openScreen({
-            pathname: "/artist/[id]",
-            params: { id: artist.catalogId, name: artist.name },
-        });
-    }
-
     // A recent row stores only what it draws, so playing one means fetching
     // the real track first. One-off and not reusable, thus imperative.
     async function playRecentSong(
@@ -218,7 +208,7 @@ export default function SearchScreen() {
                         <SearchArtists
                             artists={artists}
                             isLoading={artistsLoading}
-                            onSelect={openArtist}
+                            onOpen={() => Keyboard.dismiss()}
                         />
                     }
                     onTrackPressOverride={(track) => {
