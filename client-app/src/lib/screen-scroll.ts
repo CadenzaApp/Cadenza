@@ -1,29 +1,18 @@
-import { useRouter } from "expo-router";
-import { useIsFocused, useScrollToTop } from "expo-router/react-navigation";
-import { useCallback } from "react";
+import { useScrollToTop } from "expo-router/react-navigation";
 import {
     Easing,
     useAnimatedRef,
-    useAnimatedStyle,
     useAnimatedScrollHandler,
-    runOnJS,
     useSharedValue,
     withTiming,
-    type AnimatedStyle,
     type AnimatedRef,
 } from "react-native-reanimated";
 import type Animated from "react-native-reanimated";
 import type { Component, ElementType } from "react";
 import type { StyleProp, ViewStyle } from "react-native";
 
-import { useIsPushedDetailScreen } from "./screen-overlay";
 import { useScreenFloatingRail, useTopRailInset } from "./top-rail";
 import { nextRailShown } from "./top-rail-geometry";
-import { resetZoomProgress, useZoomDismiss } from "./zoom-dismiss";
-import {
-    shouldDismissZoom,
-    zoomProgressForScrollOffset,
-} from "./zoom-dismiss-geometry";
 
 /** Short and eased out, so the rail settles in rather than snapping. */
 const RAIL_TIMING = { duration: 200, easing: Easing.out(Easing.cubic) };
@@ -35,7 +24,6 @@ type ScreenScrollProps<T extends Scroller> = {
     ref: AnimatedRef<T>;
     onScroll: ReturnType<typeof useAnimatedScrollHandler>;
     scrollEventThrottle: number;
-    style: AnimatedStyle<ViewStyle> | undefined;
     /**
      * The top padding a floating rail needs, undefined with none. A scroller
      * with its own content style lists this last in it, so it wins over the
@@ -59,8 +47,8 @@ export type ScreenScrollBinding = ScreenScrollProps<Animated.ScrollView>;
  * />
  * ```
  *
- * It handles active-tab scroll-to-top, the floating `TopRail`, and, on pushed
- * detail screens, the pull-down close. Under a floating rail it sets the
+ * It handles active-tab scroll-to-top and the floating `TopRail`. Under a
+ * floating rail it sets the
  * content's top padding to the rail's height plus the shared gap, the same on
  * every page, then hides the rail on a scroll down and brings it back at the
  * top (see `@/lib/top-rail`). Place the scroller inside `ScreenScrollMarker` so nested
@@ -71,19 +59,6 @@ export function useScreenScroll<
     T extends Scroller = Animated.ScrollView,
 >(): ScreenScrollProps<T> {
     const ref = useAnimatedRef<T>();
-    const isFocused = useIsFocused();
-    const router = useRouter();
-    const canPullToDismiss = useIsPushedDetailScreen();
-    const zoom = useZoomDismiss();
-    // A screen with no zoom card still needs somewhere to write the pull, so
-    // the handler can stay one shape rather than two.
-    const spareZoomProgress = useSharedValue(0);
-    const spareClosing = useSharedValue(false);
-    const pullOffset = useSharedValue(0);
-    // the close follows a finger pulling past the top, nothing else: momentum
-    // and a list nudging its own offset while it lays out rows report negative
-    // offsets too, and with no drag ending after them nothing let the close go
-    const dragging = useSharedValue(false);
     // a screen without a floating rail still gets one shape of handler
     const spareProgress = useSharedValue(1);
     const spareTarget = useSharedValue(1);
@@ -93,114 +68,35 @@ export function useScreenScroll<
     const hasRail = rail != null;
     const railInset = useTopRailInset();
     const lastOffset = useSharedValue(0);
-    const progress = zoom?.progress ?? spareZoomProgress;
-    const closing = zoom?.closing ?? spareClosing;
-    const finishZoomClose = zoom?.finishGestureClose;
-    const compensatesZoomPull = canPullToDismiss && zoom != null;
 
     // `useScrollToTop` types itself against the navigation scrollables rather
     // than an animated ref. It only ever calls a scroll method on it.
     useScrollToTop(ref as never);
 
-    // Android does not overscroll past the top by default, so the pull is an
-    // iOS gesture. The X is on every one of these screens regardless.
-    const dismiss = useCallback(() => {
-        if (!isFocused || !canPullToDismiss) return;
-        if (router.canGoBack()) router.back();
-    }, [isFocused, canPullToDismiss, router]);
-
     const onScroll = useAnimatedScrollHandler(
         {
             onScroll: (event) => {
+                if (!hasRail) return;
                 const offset = event.contentOffset.y;
-
-                if (hasRail) {
-                    const shown = nextRailShown(
-                        railTarget.get(),
-                        lastOffset.get(),
-                        offset,
-                    );
-                    lastOffset.set(offset);
-                    if (shown !== railTarget.get()) {
-                        railTarget.set(shown);
-                        railProgress.set(withTiming(shown, RAIL_TIMING));
-                    }
+                const shown = nextRailShown(
+                    railTarget.get(),
+                    lastOffset.get(),
+                    offset,
+                );
+                lastOffset.set(offset);
+                if (shown !== railTarget.get()) {
+                    railTarget.set(shown);
+                    railProgress.set(withTiming(shown, RAIL_TIMING));
                 }
-                // iOS moves the scroll content down while overscrolling. Move
-                // the scroll view up by the same amount so the hero stays
-                // anchored inside the shrinking card instead of growing a
-                // large empty area above it.
-                // Written only when they change: a write reruns every style
-                // that reads it, and these run on every scroll frame. Most of
-                // the time both are 0, and rewriting 0 restyled the whole card
-                // on each frame of an ordinary scroll.
-                const pull = compensatesZoomPull ? Math.min(offset, 0) : 0;
-                if (pull !== pullOffset.get()) pullOffset.set(pull);
-
-                // Once the close is committed the animation owns progress.
-                if (
-                    !isFocused ||
-                    !canPullToDismiss ||
-                    closing.get() ||
-                    !dragging.get()
-                ) {
-                    return;
-                }
-                const next = zoomProgressForScrollOffset(offset);
-                if (next !== progress.get()) progress.set(next);
-            },
-            onBeginDrag: () => {
-                dragging.set(true);
-            },
-            onEndDrag: (event) => {
-                dragging.set(false);
-                if (!isFocused || !canPullToDismiss || closing.get()) return;
-                if (shouldDismissZoom(event.contentOffset.y)) {
-                    // Continue straight from the scroll worklet. A busy JS
-                    // thread must not pause the card at the release point.
-                    if (finishZoomClose) {
-                        finishZoomClose();
-                    } else {
-                        closing.set(true);
-                        runOnJS(dismiss)();
-                    }
-                    return;
-                }
-                resetZoomProgress(progress);
-            },
-            onMomentumEnd: () => {
-                // whatever moved it, a resting list is never mid close
-                if (!isFocused || !canPullToDismiss || closing.get()) return;
-                if (progress.get() > 0) resetZoomProgress(progress);
             },
         },
-        [
-            dragging,
-            dismiss,
-            finishZoomClose,
-            isFocused,
-            canPullToDismiss,
-            compensatesZoomPull,
-            closing,
-            progress,
-            pullOffset,
-            hasRail,
-            railProgress,
-            railTarget,
-            lastOffset,
-        ],
+        [hasRail, railProgress, railTarget, lastOffset],
     );
-
-    const pullCompensationStyle = useAnimatedStyle(() => ({
-        transform: [{ translateY: pullOffset.get() }],
-    }));
 
     return {
         ref,
         onScroll,
         scrollEventThrottle: 16,
-        // A no-op transform still clips the iOS refresh indicator.
-        style: compensatesZoomPull ? pullCompensationStyle : undefined,
         // padding rather than a native content inset: 0 stays the top, so
         // scroll-to-top and the first frame need nothing special
         contentContainerStyle:

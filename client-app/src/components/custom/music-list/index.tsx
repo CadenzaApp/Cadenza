@@ -686,7 +686,7 @@ export function MusicList({
                     >
                         <AnimatedFlashList
                             {...scroll}
-                            style={[{ flex: 1 }, scroll.style]}
+                            style={{ flex: 1 }}
                             renderScrollComponent={MarkedScrollView}
                             // for chat views that prepend; a song list only
                             // grows at the end, and the offset nudges fought

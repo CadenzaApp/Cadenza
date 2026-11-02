@@ -1,4 +1,4 @@
-import type { ArtistItem, LibrarySongSort, MusicItem } from "@apple-musickit";
+import type { LibrarySongSort } from "@apple-musickit";
 import { useLocalSearchParams, useNavigation } from "expo-router";
 import { useCallback, useLayoutEffect, useMemo, useState } from "react";
 import { Platform, View } from "react-native";
@@ -7,11 +7,9 @@ import { ErrorNotice } from "@/components/custom/error-notice";
 import { ArtistList } from "@/components/custom/artist-list";
 import { CollectionList } from "@/components/custom/collection-list";
 import { MusicList } from "@/components/custom/music-list";
-import { DetailScreen } from "@/components/ui/detail-screen";
 import { Text } from "@/components/ui/text";
 import { useAppleMusic } from "@/lib/apple-music-auth";
 import { useArrangedTrackList } from "@/lib/arranged-track-list";
-import { collectionRoute } from "@/lib/music-routes";
 import {
     useLibraryAlbums,
     useLibraryArtists,
@@ -19,7 +17,6 @@ import {
     useTracksFromLibrary,
     useUserPlaylists,
 } from "@/lib/musickit-hooks";
-import { useOpenScreen } from "@/lib/open-screen";
 import type { QueryJSON } from "@/lib/query-json";
 import type { ArrangeSource } from "@/lib/routes/arrange";
 import {
@@ -47,15 +44,10 @@ const APPLE_LIBRARY_ORDER: LibrarySongSort | undefined =
 const WHOLE_LIBRARY: QueryJSON = { where: { and: [] } };
 const DEFAULT_MULTI_SELECT_CONFIG = {} as const;
 
-/** The five Library category bodies, hosted by either a root or tab stack. */
-export function LibraryCategoryScreen({
-    presentation,
-}: {
-    presentation: "detail" | "tab";
-}) {
+/** The five Library category bodies, pushed in the Library tab's stack. */
+export function LibraryCategoryScreen() {
     const { kind } = useLocalSearchParams<{ kind: string }>();
     const category = parseLibraryCategory(kind);
-    const openScreen = useOpenScreen();
     const navigation = useNavigation();
 
     const { isConnected } = useAppleMusic();
@@ -66,8 +58,8 @@ export function LibraryCategoryScreen({
     const title = category ? LIBRARY_CATEGORY_META[category].label : "Library";
 
     useLayoutEffect(() => {
-        if (presentation === "tab") navigation.setOptions({ title });
-    }, [navigation, presentation, title]);
+        navigation.setOptions({ title });
+    }, [navigation, title]);
 
     const songs = useTracksFromLibrary({
         enabled: isConnected && category === "song" && !arranged,
@@ -100,18 +92,6 @@ export function LibraryCategoryScreen({
     const albums = useLibraryAlbums(category === "album");
     const playlists = useUserPlaylists(category === "playlist");
     const artists = useLibraryArtists(category === "artist");
-
-    function openArtist(artist: ArtistItem) {
-        if (!artist.catalogId) return;
-        openScreen({
-            pathname: "/artist/[id]",
-            params: { id: artist.catalogId, name: artist.name },
-        });
-    }
-
-    function openCollection(collection: MusicItem) {
-        openScreen(collectionRoute(collection));
-    }
 
     const error = category
         ? categoryError(
@@ -169,7 +149,6 @@ export function LibraryCategoryScreen({
                         isLoadingNextPage={artists.artistsLoadingNextPage}
                         hasNextPage={artists.hasNextArtistsPage}
                         onLoadNextPage={artists.loadNextArtistsPage}
-                        onSelect={openArtist}
                         emptyLabel="No artists in your library yet."
                     />
                 ) : category === "album" ? (
@@ -179,8 +158,6 @@ export function LibraryCategoryScreen({
                         isLoadingNextPage={albums.albumsLoadingNextPage}
                         hasNextPage={albums.hasNextAlbumPage}
                         onLoadNextPage={albums.loadNextAlbumPage}
-                        onSelect={openCollection}
-                        prefetchSongs
                         emptyLabel="No albums in your library yet."
                     />
                 ) : (
@@ -190,18 +167,12 @@ export function LibraryCategoryScreen({
                         isLoadingNextPage={playlists.playlistsLoadingNextPage}
                         hasNextPage={playlists.hasNextPlaylistPage}
                         onLoadNextPage={playlists.loadNextPlaylistPage}
-                        onSelect={openCollection}
-                        prefetchSongs
                         emptyLabel="No playlists in your library yet."
                     />
                 )}
             </View>
         </>
     );
-
-    if (presentation === "detail") {
-        return <DetailScreen title={title}>{content}</DetailScreen>;
-    }
 
     return <View className="flex-1 bg-background">{content}</View>;
 }

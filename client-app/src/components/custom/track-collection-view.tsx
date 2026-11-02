@@ -2,7 +2,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import type { MusicItem } from "@apple-musickit";
 import { useIsFocused, useTheme } from "expo-router/react-navigation";
 import type { ComponentProps, ReactNode } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
     Image,
     View,
@@ -14,15 +14,14 @@ import {
 import Animated, {
     Extrapolation,
     interpolate,
-    useAnimatedReaction,
     useAnimatedScrollHandler,
     useAnimatedStyle,
     useSharedValue,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useIsPushedDetailScreen } from "@/lib/screen-overlay";
+import { Link } from "expo-router";
+import { useIsPushedScreen } from "@/lib/screen-overlay";
 import { useOpenTransitionSettled } from "@/lib/use-open-transition-settled";
-import { useZoomDismiss } from "@/lib/zoom-dismiss";
 
 import {
     MusicList,
@@ -66,17 +65,6 @@ function artworkScale(scrollY: number) {
     );
 }
 
-/**
- * The hero artwork as measured once at full size: its unshrunk size, the
- * point it shrinks toward, and the scroll it was measured at.
- */
-type ArtworkBase = {
-    centerX: number;
-    bottom: number;
-    width: number;
-    height: number;
-    scrollY: number;
-};
 const ARTWORK_SHADOW: ViewStyle = {
     shadowColor: "#000",
     shadowOpacity: 0.16,
@@ -114,8 +102,8 @@ type Props = {
     highlightTrackId?: string;
     error?: unknown;
     anticipatedTrackCount?: number;
-    onBackPress?: () => void;
-    closeControl?: ReactNode;
+    /** Floats over the hero, like `FloatingBackButton`. */
+    backControl?: ReactNode;
     options?: readonly TrackCollectionOption[];
     multiSelect?: MusicListMultiSelectConfig | null;
     trackMenuActions?: readonly MusicListTrackAction[];
@@ -171,7 +159,6 @@ export function TrackCollectionView({
     highlightTrackId,
     error,
     anticipatedTrackCount,
-    onBackPress,
     options = [],
     multiSelect = null,
     trackMenuActions,
@@ -199,7 +186,7 @@ export function TrackCollectionView({
     onShuffle,
     onTrackPressOverride,
     isPlaying = false,
-    closeControl,
+    backControl,
     respectTopSafeArea = false,
 }: Props) {
     const { colors } = useTheme();
@@ -211,7 +198,7 @@ export function TrackCollectionView({
     const { playQueue } = usePlaybackCommands();
     const [optionsOpen, setOptionsOpen] = useState(false);
     const isFocused = useIsFocused();
-    const settled = useOpenTransitionSettled(useIsPushedDetailScreen());
+    const settled = useOpenTransitionSettled(useIsPushedScreen());
     const scrollY = useSharedValue(0);
     const hasNextPage = pagination?.hasNextPage ?? false;
     const loadingNextPage = pagination?.isLoadingNextPage ?? false;
@@ -255,69 +242,6 @@ export function TrackCollectionView({
     const onScroll = useAnimatedScrollHandler((event) => {
         scrollY.set(Math.max(0, event.contentOffset.y));
     });
-    // where the hero artwork is, for the close to land it on its tile
-    const zoom = useZoomDismiss();
-    const zoomFocus = zoom?.focus;
-    const setZoomArtwork = zoom?.setArtwork;
-    const zoomPageRef = zoom?.pageRef;
-    const artworkRef = useRef<View>(null);
-    const artworkBase = useSharedValue<ArtworkBase | null>(null);
-    // measured against the page by layout, which ignores the card's
-    // transforms, so it is right before the open has even run. layout knows
-    // nothing of scrolling either, so this is the artwork at the top
-    function measureArtwork() {
-        const page = zoomPageRef?.current;
-        if (!page || header) return;
-        artworkRef.current?.measureLayout(page, (left, top, width, height) => {
-            if (width <= 0 || height <= 0) return;
-            artworkBase.set({
-                centerX: left + width / 2,
-                bottom: top + height,
-                width,
-                height,
-                scrollY: 0,
-            });
-        });
-    }
-    // the copy the card shows as the page fades, so the close reads as this
-    // artwork shrinking into its tile
-    useEffect(() => {
-        if (!settled || !setZoomArtwork || header) return;
-        setZoomArtwork({
-            node: (
-                <View style={ARTWORK_SHADOW}>
-                    <ArtworkMosaic
-                        artworkUrls={artworkUrls}
-                        placeholderColor={colors.text}
-                    />
-                </View>
-            ),
-            width: ARTWORK_SIZE,
-            height: ARTWORK_SIZE,
-        });
-        return () => setZoomArtwork(null);
-    }, [artworkUrls, colors.text, header, setZoomArtwork, settled]);
-    useAnimatedReaction(
-        () => {
-            const base = artworkBase.get();
-            if (!base) return null;
-            const scrolled = scrollY.get();
-            const scale = artworkScale(scrolled);
-            const width = base.width * scale;
-            const height = base.height * scale;
-            const bottom = base.bottom - (scrolled - base.scrollY);
-            return {
-                x: base.centerX - width / 2,
-                y: bottom - height,
-                width,
-                height,
-            };
-        },
-        (rect) => {
-            zoomFocus?.set(rect);
-        },
-    );
-
     const hasDefaultHero = header == null;
     const artworkStyle = useAnimatedStyle(() =>
         hasDefaultHero
@@ -374,16 +298,15 @@ export function TrackCollectionView({
         >
             <View className="items-center">
                 <Animated.View style={[artworkStyle, ARTWORK_SHADOW]}>
-                    <View
-                        ref={artworkRef}
-                        collapsable={false}
-                        onLayout={measureArtwork}
-                    >
-                        <ArtworkMosaic
-                            artworkUrls={artworkUrls}
-                            placeholderColor={colors.text}
-                        />
-                    </View>
+                    {/* what the native zoom grows out of the tile into */}
+                    <Link.AppleZoomTarget>
+                        <View collapsable={false}>
+                            <ArtworkMosaic
+                                artworkUrls={artworkUrls}
+                                placeholderColor={colors.text}
+                            />
+                        </View>
+                    </Link.AppleZoomTarget>
                 </Animated.View>
                 {titleContent ? (
                     <View className="mt-4" style={TITLE_CONTENT_SHADOW}>
@@ -537,29 +460,7 @@ export function TrackCollectionView({
                 fullBleedRows
             />
 
-            {closeControl ??
-                (onBackPress ? (
-                    <View className="absolute left-4 top-3 z-20">
-                        <GlassIconButton
-                            size={48}
-                            onPress={onBackPress}
-                            accessibilityLabel="Back"
-                            style={{
-                                shadowColor: "#000",
-                                shadowOpacity: 0.18,
-                                shadowRadius: 9,
-                                shadowOffset: { width: 0, height: 3 },
-                                elevation: 8,
-                            }}
-                        >
-                            <Ionicons
-                                name="chevron-back"
-                                size={28}
-                                color={colors.text}
-                            />
-                        </GlassIconButton>
-                    </View>
-                ) : null)}
+            {backControl}
 
             <ModalPopup
                 visible={optionsOpen}

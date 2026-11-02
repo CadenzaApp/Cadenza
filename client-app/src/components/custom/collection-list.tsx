@@ -1,18 +1,19 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type { MusicItem } from "@apple-musickit";
 import { useTheme } from "expo-router/react-navigation";
-import { FlatList, Image, Pressable, View } from "react-native";
+import { FlatList, Image, View } from "react-native";
 import Animated from "react-native-reanimated";
 import { usePrefetchCollectionSongs } from "@/lib/musickit-hooks";
 
 import { MusicListItemSkeleton } from "@/components/custom/music-list/music-list-item";
+import { ZoomTile } from "@/components/custom/zoom-tile";
 import { Text } from "@/components/ui/text";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { useScreenScroll } from "@/lib/screen-scroll";
 import { useTopRailInset } from "@/lib/top-rail";
 import { useVisibleItems } from "@/lib/use-visible-items";
 import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
-import { useZoomSource } from "@/lib/zoom-dismiss";
+import { collectionRoute } from "@/lib/music-routes";
 import { cn } from "@/lib/utils";
 
 const SKELETON_ROW_COUNT = 8;
@@ -23,12 +24,12 @@ type CollectionListProps = {
     isLoadingNextPage: boolean;
     hasNextPage: boolean;
     onLoadNextPage: () => void;
-    onSelect: (collection: MusicItem) => void;
     /**
-     * Start loading a collection's songs as a finger lands on it. For lists
-     * whose tap opens the collection, not ones that pick it for something.
+     * Picks a collection for something, like the playlist picker. Without it
+     * a tap opens the collection, and its songs start loading as the finger
+     * lands.
      */
-    prefetchSongs?: boolean;
+    onSelect?: (collection: MusicItem) => void;
     /** Shown when the list is loaded and empty. */
     emptyLabel: string;
 };
@@ -37,7 +38,7 @@ type CollectionListProps = {
  * A paged list of albums or playlists. Deliberately much simpler than
  * `MusicList`: sorting, multi-select, tagging, and the track menu all describe
  * songs, and none of them mean anything for a collection. Tapping a row opens
- * the collection rather than playing it.
+ * the collection rather than playing it, unless `onSelect` picks it instead.
  */
 export function CollectionList({
     collections: givenCollections,
@@ -46,7 +47,6 @@ export function CollectionList({
     hasNextPage,
     onLoadNextPage,
     onSelect,
-    prefetchSongs = false,
     emptyLabel,
 }: CollectionListProps) {
     const collections = useVisibleItems(givenCollections);
@@ -76,11 +76,7 @@ export function CollectionList({
                 data={collections}
                 keyExtractor={(collection) => collection.id}
                 renderItem={({ item }) => (
-                    <CollectionListItem
-                        collection={item}
-                        onPress={onSelect}
-                        prefetchSongs={prefetchSongs}
-                    />
+                    <CollectionListItem collection={item} onSelect={onSelect} />
                 )}
                 contentContainerStyle={[
                     { paddingBottom: listBottomInset },
@@ -108,15 +104,12 @@ export function CollectionList({
 
 function CollectionListItem({
     collection,
-    onPress,
-    prefetchSongs,
+    onSelect,
 }: {
     collection: MusicItem;
-    onPress: (collection: MusicItem) => void;
-    prefetchSongs: boolean;
+    onSelect?: (collection: MusicItem) => void;
 }) {
     const { colors } = useTheme();
-    const { ref: zoomRef, capture: captureZoom } = useZoomSource();
     const prefetch = usePrefetchCollectionSongs();
     const artworkUrl = collection.artworkUrl?.trim();
     const canRenderArtwork =
@@ -127,53 +120,44 @@ function CollectionListItem({
         (collection.resourceKind === "playlist" ? "Playlist" : "Album");
 
     return (
-        <Pressable
+        <ZoomTile
+            href={onSelect ? null : collectionRoute(collection)}
             accessibilityRole="button"
             accessibilityLabel={`Open ${collection.title}`}
             // the songs start loading as the finger lands, not after the open
             onPressIn={() => {
-                if (prefetchSongs) prefetch(collection);
+                if (!onSelect) prefetch(collection);
             }}
-            onPress={() => {
-                // The screen that opens minimizes back into this artwork, so
-                // the rect has to be measured before the push.
-                captureZoom();
-                onPress(collection);
-            }}
+            onPress={() => onSelect?.(collection)}
             className="relative flex-row items-center px-6 py-3 active:opacity-80"
+            artwork={
+                <View collapsable={false} className="mr-3 h-14 w-14 shrink-0">
+                    {canRenderArtwork ? (
+                        <Image
+                            source={{ uri: artworkUrl }}
+                            className="h-full w-full aspect-square rounded bg-muted"
+                        />
+                    ) : (
+                        <View
+                            className={cn(
+                                "h-full w-full aspect-square items-center justify-center rounded bg-muted",
+                            )}
+                        >
+                            <Ionicons
+                                name={
+                                    collection.resourceKind === "playlist"
+                                        ? "list"
+                                        : "disc"
+                                }
+                                size={22}
+                                color={colors.text}
+                            />
+                        </View>
+                    )}
+                </View>
+            }
         >
             <View className="absolute bottom-0 left-6 right-6 border-b border-border" />
-
-            {/* `collapsable={false}` keeps the view around on Android, which
-                is what `measureInWindow` needs to have something to measure. */}
-            <View
-                ref={zoomRef}
-                collapsable={false}
-                className="mr-3 h-14 w-14 shrink-0"
-            >
-                {canRenderArtwork ? (
-                    <Image
-                        source={{ uri: artworkUrl }}
-                        className="h-full w-full aspect-square rounded bg-muted"
-                    />
-                ) : (
-                    <View
-                        className={cn(
-                            "h-full w-full aspect-square items-center justify-center rounded bg-muted",
-                        )}
-                    >
-                        <Ionicons
-                            name={
-                                collection.resourceKind === "playlist"
-                                    ? "list"
-                                    : "disc"
-                            }
-                            size={22}
-                            color={colors.text}
-                        />
-                    </View>
-                )}
-            </View>
 
             <View className="flex-1 overflow-hidden">
                 <Text
@@ -191,6 +175,6 @@ function CollectionListItem({
             </View>
 
             <Ionicons name="chevron-forward" size={20} color={colors.text} />
-        </Pressable>
+        </ZoomTile>
     );
 }

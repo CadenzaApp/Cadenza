@@ -47,25 +47,3 @@ export function sheetScreenOptions(theme: Theme): StackScreenOptions {
         contentStyle: { backgroundColor: theme.colors.card },
     };
 }
-
-/**
- * Stack options for the pushed detail routes: album, artist, category, tag,
- * song discuss, the category picker, and the playlist picker.
- *
- * Presented over the screen that opened them rather than replacing it, with no
- * native animation at all. The zoom in `@/lib/zoom-dismiss` is the transition
- * in both directions, and it needs two things the default push does not give
- * it: the screen underneath still on screen to grow out of and shrink back
- * into, and a transparent background so the card's rounded corners show it.
- *
- * The cost is the native back swipe, which a transparent modal has no edge for.
- * The pull down at the top of the screen replaces it.
- */
-export function pushedScreenOptions(): StackScreenOptions {
-    return {
-        headerShown: false,
-        presentation: "transparentModal",
-        animation: "none",
-        contentStyle: { backgroundColor: "transparent" },
-    };
-}

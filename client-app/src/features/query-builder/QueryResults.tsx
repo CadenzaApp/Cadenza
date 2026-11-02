@@ -10,7 +10,7 @@ import type {
 import { TrackCollectionView } from "@/components/custom/track-collection-view";
 import { useCollectionArtworkTint } from "@/components/custom/use-collection-artwork-tint";
 import { ModalPopup } from "@/components/custom/modal-popup";
-import { FloatingCloseButton } from "@/components/ui/floating-close-button";
+import { FloatingBackButton } from "@/components/ui/floating-back-button";
 import { GlassButton } from "@/components/ui/glass-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -198,12 +198,7 @@ export default function QueryResults({
                     ) : null
                 }
                 respectTopSafeArea
-                closeControl={
-                    <FloatingCloseButton
-                        label="Close query results"
-                        size={HERO_BUTTON_SIZE}
-                    />
-                }
+                backControl={<FloatingBackButton size={HERO_BUTTON_SIZE} />}
                 multiSelect={{}}
                 showTags
                 mostRelevantTags={mostRelevantTags}
