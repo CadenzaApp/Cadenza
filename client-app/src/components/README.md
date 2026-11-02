@@ -280,9 +280,9 @@ since it needs the same reads.
 `TrackCollectionView` owns the standard header, play/shuffle row,
 caller-supplied simple glass options, and the `MusicList`. Routes can supply pagination, playback
 overrides, one background source color, close controls, and opt the standard header into the
-device's top safe area. One cover runs full bleed under the status bar with the title over its
-bottom, fading into the page at the bottom and sides (`FadedArtwork`, shared with the artist
-hero). Several covers or none stay a centered mosaic tile. The view turns that color into the shared Oklch gradient for the active
+device's top safe area. One cover runs full bleed with the title over its bottom: whole on the
+hero's bottom edge, flipped copies filling the room above and beside it, fading into a page
+tinted from the cover's bottom half (`FadedArtwork`, shared with the artist hero). Several covers or none stay a centered mosaic tile. The view turns that color into the shared Oklch gradient for the active
 color mode, including matching fixed overscroll endpoints. The gradient is
 `MusicList`'s `contentBackground`: drawn inside the scroll content behind the rows, filling it, so
 it spans the real content height with nothing measured, and is not a virtualized cell an offscreen
