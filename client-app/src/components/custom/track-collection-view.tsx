@@ -69,6 +69,11 @@ const ARTWORK_SCROLL_SCALE_DISTANCE = 120;
  * bar. Apple's album pages are about this.
  */
 const HERO_ASPECT = 1.2;
+/**
+ * The cover's width as a fraction of the window's, so a little of the flipped
+ * copies shows down each side.
+ */
+const HERO_COVER_SCALE = 0.88;
 /** Where a full-bleed cover starts fading into the page, as a height fraction. */
 const HERO_FADE_START = 0.6;
 /** Height of the title, metadata, and actions over a full-bleed cover's bottom. */
@@ -262,7 +267,11 @@ export function TrackCollectionView({
     const heroArtwork =
         hasDefaultHero && artworkUrls.length === 1 ? artworkUrls[0] : null;
     const heroHeight = windowWidth * HERO_ASPECT;
-    const heroCover = mirroredCoverFrame(windowWidth, heroHeight);
+    const heroCover = mirroredCoverFrame(
+        windowWidth,
+        heroHeight,
+        HERO_COVER_SCALE,
+    );
     // The page carries on from the cover's bottom half, where the fade meets
     // it, rather than from the whole cover's color. The small copy is enough
     // to average and usually cached already.
@@ -447,6 +456,7 @@ export function TrackCollectionView({
                 placeholderUri={artworkPlaceholderUrl}
                 fadeStart={HERO_FADE_START}
                 mirrored
+                coverScale={HERO_COVER_SCALE}
             />
             {/* what the native zoom grows out of the tile into: the real
                 cover, not its mirrors. Sized explicitly, since the target

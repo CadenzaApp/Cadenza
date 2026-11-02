@@ -17,6 +17,8 @@ type FadedArtworkProps = {
      * cover. See `mirroredCoverFrame`.
      */
     mirrored?: boolean;
+    /** With `mirrored`, the cover's size as a fraction of the most that fits. */
+    coverScale?: number;
     /** Drawn under the same mask when there is no `uri`. */
     fallback?: ReactNode;
 };
@@ -24,12 +26,16 @@ type FadedArtworkProps = {
 type Frame = { left: number; top: number; size: number };
 
 /**
- * Where a mirrored square cover sits in a `width` x `height` box: as large as
- * fits, centered across, and on the bottom edge. The room left above and to
- * each side is what the flipped copies fill.
+ * Where a mirrored square cover sits in a `width` x `height` box: `scale` of
+ * the most that fits, centered across, and on the bottom edge. The room left
+ * above and to each side is what the flipped copies fill.
  */
-export function mirroredCoverFrame(width: number, height: number): Frame {
-    const size = Math.min(width, height);
+export function mirroredCoverFrame(
+    width: number,
+    height: number,
+    scale = 1,
+): Frame {
+    const size = Math.min(width, height) * scale;
     return { left: (width - size) / 2, top: height - size, size };
 }
 
@@ -46,6 +52,7 @@ export function FadedArtwork({
     placeholderUri,
     fadeStart,
     mirrored = false,
+    coverScale = 1,
     fallback = null,
 }: FadedArtworkProps) {
     return (
@@ -66,7 +73,11 @@ export function FadedArtwork({
             {!uri ? (
                 fallback
             ) : mirrored ? (
-                <MirroredCover uri={uri} placeholderUri={placeholderUri} />
+                <MirroredCover
+                    uri={uri}
+                    placeholderUri={placeholderUri}
+                    scale={coverScale}
+                />
             ) : (
                 <Cover
                     uri={uri}
@@ -86,14 +97,16 @@ export function FadedArtwork({
 function MirroredCover({
     uri,
     placeholderUri,
+    scale,
 }: {
     uri: string;
     placeholderUri?: string | null;
+    scale: number;
 }) {
     const [box, setBox] = useState<{ width: number; height: number } | null>(
         null,
     );
-    const frame = box ? mirroredCoverFrame(box.width, box.height) : null;
+    const frame = box ? mirroredCoverFrame(box.width, box.height, scale) : null;
     const columns = frame && frame.left > 0 ? [-1, 0, 1] : [0];
     const rows = frame && frame.top > 0 ? [-1, 0] : [0];
 
