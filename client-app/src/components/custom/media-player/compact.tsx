@@ -1,98 +1,68 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
+import type { ReactNode } from "react";
 import type { MusicItem } from "@apple-musickit";
 import {
     ActivityIndicator,
-    Image,
     Pressable,
-    StyleSheet,
     View,
     type ColorValue,
 } from "react-native";
 
-import { GlassSurface } from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
-
-export type MediaPlayerPlacement = "regular" | "inline";
 
 type Props = {
     track: MusicItem;
-    placement: MediaPlayerPlacement;
-    standalone?: boolean;
-    artworkUrl?: string;
-    canRenderArtwork: boolean;
+    artwork?: ReactNode;
+    nativeAccessory?: boolean;
+    inline?: boolean;
+    height?: number;
     isPlaying: boolean;
     isLoading: boolean;
     canSkipToNext: boolean;
     textColor: ColorValue;
     onExpand: () => void;
-    onArtworkError: () => void;
+    onCollapse: () => void;
     onTogglePlayback: () => void;
     onSkipToNext: () => void;
 };
 
-/** The content rendered in either native bottom-accessory placement. */
+/** Compact controls; the parent owns glass and the animated artwork. */
 export function MediaPlayerCompact({
     track,
-    placement,
-    standalone = false,
-    artworkUrl,
-    canRenderArtwork,
+    artwork,
+    nativeAccessory = false,
+    inline = false,
+    height = 48,
     isPlaying,
     isLoading,
     canSkipToNext,
     textColor,
     onExpand,
-    onArtworkError,
+    onCollapse,
     onTogglePlayback,
     onSkipToNext,
 }: Props) {
-    const inline = placement === "inline";
-    const artworkSize = inline ? 32 : 44;
-
     return (
         <View
-            className={
-                standalone ? "overflow-hidden rounded-[22px]" : undefined
-            }
-            // UIKit owns the native accessory's height and can change it while
-            // transitioning between placements. Only the compatibility player
-            // needs a fixed height.
-            style={standalone ? styles.standalone : styles.nativeAccessory}
+            className={nativeAccessory ? "flex-1" : undefined}
+            style={nativeAccessory ? undefined : { height }}
         >
-            {standalone ? (
-                <GlassSurface
-                    style={[
-                        StyleSheet.absoluteFill,
-                        { borderRadius: 22, overflow: "hidden" },
-                    ]}
-                />
-            ) : null}
-
             <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Open now playing"
                 onPress={onExpand}
                 className="flex-1 flex-row items-center px-3 active:opacity-70"
             >
-                {canRenderArtwork ? (
-                    <Image
-                        source={{ uri: artworkUrl }}
-                        className="rounded-md bg-muted"
-                        style={{ width: artworkSize, height: artworkSize }}
-                        onError={onArtworkError}
-                    />
-                ) : (
-                    <View
-                        className="items-center justify-center rounded-md bg-muted"
-                        style={{ width: artworkSize, height: artworkSize }}
-                    >
-                        <Ionicons
-                            name="musical-notes"
-                            size={inline ? 16 : 18}
-                            color={textColor}
-                        />
-                    </View>
-                )}
+                <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Collapse media player"
+                    onPress={(event) => {
+                        event.stopPropagation();
+                        onCollapse();
+                    }}
+                >
+                    {artwork ?? <View className="h-8 w-8" />}
+                </Pressable>
 
                 <View className="mx-3 flex-1 overflow-hidden">
                     <Text
@@ -101,14 +71,14 @@ export function MediaPlayerCompact({
                     >
                         {track.title || "Unknown Title"}
                     </Text>
-                    {inline ? null : (
+                    {!inline ? (
                         <Text
-                            className="mt-0.5 text-xs text-muted-foreground"
+                            className="mt-0.5 text-xs text-foreground"
                             numberOfLines={1}
                         >
                             {track.artistName || "Unknown Artist"}
                         </Text>
-                    )}
+                    ) : null}
                 </View>
 
                 <Pressable
@@ -134,14 +104,14 @@ export function MediaPlayerCompact({
                     ) : (
                         <Ionicons
                             name={isPlaying ? "pause" : "play"}
-                            size={inline ? 22 : 26}
+                            size={26}
                             color={textColor}
                             style={{ marginLeft: isPlaying ? 0 : 2 }}
                         />
                     )}
                 </Pressable>
 
-                {inline ? null : (
+                {!inline ? (
                     <Pressable
                         accessibilityRole="button"
                         accessibilityLabel="Skip to next"
@@ -164,13 +134,8 @@ export function MediaPlayerCompact({
                             color={textColor}
                         />
                     </Pressable>
-                )}
+                ) : null}
             </Pressable>
         </View>
     );
 }
-
-const styles = StyleSheet.create({
-    nativeAccessory: { flex: 1 },
-    standalone: { height: 64 },
-});

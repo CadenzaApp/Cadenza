@@ -18,7 +18,7 @@ import {
     type ScrollViewProps,
     type ViewToken,
 } from "react-native";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import { usePinchGesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
     Easing,
     FadeIn,
@@ -603,17 +603,17 @@ export function MusicList({
             listOpacity,
         ],
     );
-    // Rebuilding this every render hands GestureDetector a new gesture ~1.3
-    // times a second, which can swap the handler out mid-pinch.
-    const pinchGesture = useMemo(
-        () =>
-            Gesture.Pinch().onEnd((event) => {
-                if (event.scale <= 0.92) runOnJS(beginDensityTransition)(true);
-                else if (event.scale >= 1.08)
-                    runOnJS(beginDensityTransition)(false);
-            }),
-        [beginDensityTransition],
-    );
+    // The hook preserves handler identity as playback updates the list.
+    const pinchGesture = usePinchGesture({
+        onDeactivate: (event) => {
+            "worklet";
+            if (event.canceled) return;
+
+            if (event.scale <= 0.92) runOnJS(beginDensityTransition)(true);
+            else if (event.scale >= 1.08)
+                runOnJS(beginDensityTransition)(false);
+        },
+    });
 
     useEffect(() => {
         if (densityTransitionRevision === 0) return;

@@ -84,13 +84,12 @@ npx tsc --noEmit   # typecheck
 
 ## Gotchas
 
-- Xcode 27.1 can reject a cached ExpoModulesJSI framework built against another SDK even
-  when the Swift compiler version is unchanged. The pinned `expo-modules-jsi` patch adds Xcode
-  and SDK build identifiers to its cache key and handles Swift 6.4's C++ namespace spelling
-  in interface cleanup. `npm install` applies it through `patch-package`; if install scripts
-  were skipped, run `npm run postinstall` before building. The next native build automatically
-  rebuilds the affected framework. When upgrading that package, recheck whether the patch is
-  still needed. Its shell regression tests run on macOS.
+- Use Node 26 (`nvm use` reads `.nvmrc`). SDK 58 / React Native 0.88 do not support Node 25.
+- Expo SDK 58 uses `expo-glass-effect` 58.0.5+, including fixes for missing glass after
+  opacity transitions and view recycling. Native dependency updates require a full dev-client
+  rebuild. The upstream JSI package includes our former cache and Swift-interface fixes.
+- `tsconfig.json` explicitly selects React Native's legacy type API while existing component
+  libraries migrate to the strict API. TypeScript 6 loads Node and React types explicitly.
 - **Two different base urls.** `src/lib/backend.ts` hardcodes `http://localhost:3000` and is what
   every SWR hook and the query builder use. `src/lib/tag-generation.ts` has its own resolver that
   reads `EXPO_PUBLIC_BACKEND_API_URL` and falls back to the Expo host. On a physical device
@@ -103,12 +102,12 @@ npx tsc --noEmit   # typecheck
   plugins, so a checkout that predates it needs a dev client rebuild rather than a metro
   restart.
 - `plugins/with-ios-build-fixes.js` is a local config plugin. It patches the generated iOS project
-  during prebuild, including the scene lifecycle support iOS 27 requires at launch.
-- The primary navigation uses Expo Router native tabs. SDK 57 exposes them from
-  `expo-router/unstable-native-tabs`; SDK 58 promotes the import to `expo-router/native-tabs`.
-- On iOS 26 the mini player is `NativeTabs.BottomAccessory`; UIKit moves it inline when native
-  scrolling minimizes the tab bar. There is no direct player swipe because UIKit exposes no
-  public imperative placement API. Older iOS, Android, and web use a floating fallback.
+  during prebuild for signing and script sandboxing. SDK 58 supplies scene lifecycle support.
+- The primary navigation uses Expo Router native tabs from `expo-router/native-tabs`.
+- The [media-player guide](src/components/custom/media-player/README.md) covers native scroll
+  docking, floating gestures, and bottom controls. The screens dependency patch requires
+  `npx pod-install` followed by an iOS rebuild. The patch only disables native accessory
+  insertion/removal animations; it adds no native props.
 - Routine client validation is `npm test`, `npm run lint`, and a lightweight TypeScript check.
   Do not run `expo export`, native builds, simulators, or emulators unless the user asks or the
   change specifically requires them.

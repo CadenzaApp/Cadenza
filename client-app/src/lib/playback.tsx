@@ -57,7 +57,7 @@ type PlaybackInfo = {
     repeatMode: RepeatMode;
     canSkipToNext: boolean;
     canSkipToPrevious: boolean;
-    isPlayerDismissed: boolean;
+    isPlayerCollapsed: boolean;
     playQueue: (queue: PlaybackQueue) => Promise<void>;
     addToQueue: (tracks: readonly MusicItem[]) => Promise<void>;
     playNext: (tracks: readonly MusicItem[]) => Promise<void>;
@@ -72,7 +72,7 @@ type PlaybackInfo = {
     seekTo: (time: number) => Promise<void>;
     skipToNext: () => Promise<void>;
     skipToPrevious: () => Promise<void>;
-    dismissPlayer: () => Promise<void>;
+    setPlayerCollapsed: (collapsed: boolean) => void;
 };
 
 const PlaybackContext = createContext<PlaybackInfo | null>(null);
@@ -84,7 +84,7 @@ export type PlaybackTrackState = Pick<
     | "isLoading"
     | "canSkipToNext"
     | "canSkipToPrevious"
-    | "isPlayerDismissed"
+    | "isPlayerCollapsed"
 >;
 const PlaybackTrackStateContext = createContext<PlaybackTrackState | null>(
     null,
@@ -103,7 +103,7 @@ type PlaybackCommands = Pick<
     | "seekTo"
     | "skipToNext"
     | "skipToPrevious"
-    | "dismissPlayer"
+    | "setPlayerCollapsed"
 >;
 const PlaybackCommandsContext = createContext<PlaybackCommands | null>(null);
 
@@ -134,10 +134,11 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     const [queue, setQueue] = useState<MusicItem[]>([]);
     const [queueIndex, setQueueIndex] = useState(-1);
     const [queueSource, setQueueSource] = useState<QueueSource | null>(null);
-    const [isPlayerDismissed, setIsPlayerDismissed] = useState(false);
-    const isPlayerDismissedRef = useRef(false);
-    const dismissalAwaitingPauseRef = useRef(false);
-    const commandImplementationsRef = useRef<PlaybackCommands | null>(null);
+    const [isPlayerCollapsed, setIsPlayerCollapsed] = useState(false);
+    const commandImplementationsRef = useRef<Omit<
+        PlaybackCommands,
+        "setPlayerCollapsed"
+    > | null>(null);
     const snapshotTrack = snapshot.currentTrack ?? null;
     // Search outward from the index we already believe in. A queue holding the
     // same song twice would otherwise always resolve to the first copy, and the
@@ -176,37 +177,19 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     // stores each opened song's metadata for the query builder's Metadata fields
     useReportOpenedSongs(activeTrack);
 
-    function showPlayer() {
-        isPlayerDismissedRef.current = false;
-        dismissalAwaitingPauseRef.current = false;
-        setIsPlayerDismissed(false);
-    }
-
     useEffect(() => {
         let active = true;
 
         const refreshPlaybackSnapshot = () => {
             if (!active || AppState.currentState !== "active") return;
 
-            void Playback.refreshPlaybackSnapshot()
-                .then((nextSnapshot) => {
-                    if (dismissalAwaitingPauseRef.current) {
-                        if (!nextSnapshot.isPlaying) {
-                            dismissalAwaitingPauseRef.current = false;
-                        }
-                        return;
-                    }
-
-                    if (
-                        isPlayerDismissedRef.current &&
-                        nextSnapshot.isPlaying
-                    ) {
-                        showPlayer();
-                    }
-                })
-                .catch((error) => {
+            void (async () => {
+                try {
+                    await Playback.refreshPlaybackSnapshot();
+                } catch (error) {
                     console.warn("Failed to refresh playback snapshot:", error);
-                });
+                }
+            })();
         };
 
         refreshPlaybackSnapshot();
@@ -260,7 +243,6 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
         const previousQueue = queue;
         const previousQueueIndex = queueIndex;
         const previousQueueSource = queueSource;
-        showPlayer();
         setQueue(playableTracks);
         setQueueIndex(boundedIndex);
         // a new queue replaces the old source, even with none of its own
@@ -295,10 +277,6 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
 
         try {
             if (!isNewTrack) {
-                if (isPlayerDismissed) {
-                    showPlayer();
-                    if (snapshot.isPlaying) return;
-                }
                 await abandonTopicPreview();
                 await Playback.togglePlayerState();
             } else {
@@ -524,25 +502,6 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
         }
     }
 
-    async function dismissPlayer() {
-        await abandonTopicPreview();
-        dismissalAwaitingPauseRef.current = true;
-        isPlayerDismissedRef.current = true;
-        setIsPlayerDismissed(true);
-
-        try {
-            await Playback.pause();
-            const nextSnapshot = await Playback.refreshPlaybackSnapshot();
-            dismissalAwaitingPauseRef.current = false;
-            if (nextSnapshot.isPlaying) showPlayer();
-        } catch (e) {
-            showPlayer();
-            console.error("Failed to dismiss the media player:", e);
-            Alert.alert("Playback Error", "Failed to stop playback.");
-            throw e;
-        }
-    }
-
     useEffect(() => {
         commandImplementationsRef.current = {
             playQueue,
@@ -557,7 +516,6 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
             seekTo,
             skipToNext,
             skipToPrevious,
-            dismissPlayer,
         };
     });
     const commands = useMemo<PlaybackCommands>(
@@ -590,8 +548,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
             skipToNext: () => commandImplementationsRef.current!.skipToNext(),
             skipToPrevious: () =>
                 commandImplementationsRef.current!.skipToPrevious(),
-            dismissPlayer: () =>
-                commandImplementationsRef.current!.dismissPlayer(),
+            setPlayerCollapsed: setIsPlayerCollapsed,
         }),
         [],
     );
@@ -604,14 +561,14 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
             // back and forward always do something once a song is loaded
             canSkipToNext: Boolean(activeTrack),
             canSkipToPrevious: Boolean(activeTrack),
-            isPlayerDismissed,
+            isPlayerCollapsed,
         }),
         [
             activeTrack,
             activeTrackId,
             snapshot.isLoading,
             snapshot.isPlaying,
-            isPlayerDismissed,
+            isPlayerCollapsed,
         ],
     );
 
@@ -635,7 +592,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
                         repeatMode: snapshot.repeatMode ?? RepeatMode.Off,
                         canSkipToNext: trackState.canSkipToNext,
                         canSkipToPrevious: trackState.canSkipToPrevious,
-                        isPlayerDismissed,
+                        isPlayerCollapsed,
                         ...commands,
                     }}
                 >

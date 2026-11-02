@@ -38,7 +38,7 @@ native module directly.
 | `account.tsx`                | `AccountProvider` / `useAccount`. Who is signed in (id, email, created at), and sign in / sign up / sign out. Sign up calls `create-profile.ts` so a missing auth trigger still gets a row.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `create-profile.ts`          | `createProfile(token)`, the post-signup `POST /profile`. Kept out of `routes/profile.ts` so account, the profile hooks, and the API wrappers do not import each other in a cycle.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `apple-music-auth.tsx`       | `AppleMusicProvider` / `useAppleMusic`. Apple Music tokens, persisted in secure store.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `playback.tsx`               | `PlaybackProvider`, broad `usePlayback`, lightweight `usePlaybackTrackState`, and stable `usePlaybackCommands`. Queue, native playback snapshot, and compact-player dismissal state.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `playback.tsx`               | `PlaybackProvider`, broad `usePlayback`, lightweight `usePlaybackTrackState`, and stable `usePlaybackCommands`. Queue, native playback snapshot, and compact-player collapse state.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `topic-preview.ts`           | One Apple Music preview clip for social topic cards. Playing UI is keyed per card, so two posts with the same song only light up the one you tapped. Pauses the shared player while the clip plays and resumes it after, unless a queue command takes over. The feed stops the clip when you leave that screen.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `play-tracker.ts`            | Pure: folds playback snapshots into listening events. What counts as a play (15 seconds, or the whole of a shorter song, once per listen), and the `play_start` / `play_counted` / `play_complete` / `skip` / `seek` each listen emits. Tested in `play-tracker.test.ts`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `play-recorder.ts`           | `usePlayRecorder`, called by `PlaybackProvider`. Feeds each snapshot to `play-tracker.ts` and hands the events to `listening-events.tsx`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
@@ -313,12 +313,9 @@ hooks, so a screen that renders either does not branch. Pass the collection's `l
 
 ## Native tab and overlay geometry
 
-Expo Router's `NativeTabs` owns the tab bar and the iOS 26 player accessory. Native scrolling
-content receives its tab/accessory inset from the navigator. `screen-overlay.ts` returns app
-spacing for scroll content and conservative clearance for absolute controls. On iOS with the
-native player accessory, UIKit has already shortened the usable overlay area, so floating actions
-add only the safe-area gap instead of counting the tab bar and player twice. Pushed screens and
-compatibility players still reserve their full explicit height.
+Expo Router's `NativeTabs` owns the tab bar and the expanded iOS 26+ player accessory. Other
+player states use an app-owned floating surface. `screen-overlay.ts` reserves the bar and compact player's height for scroll content
+and floating controls, including while the player is collapsed.
 
 On Android a tab's screen usually ends at the tab bar, which `floatingActionBottom` assumes, but a
 screen pushed inside a tab's stack, like Library Songs, can run on under the bar.
@@ -328,8 +325,7 @@ when it reaches the bottom of the window, clears the tab bar and the player itse
 
 Expo does not expose the native tab bar's measured height because the bar can move to another
 edge on other device classes. The absolute-control clearance uses the standard platform bar
-height and the player's maximum regular height. It stays conservative while UIKit transitions
-the accessory to its inline placement.
+height and the player's compact height. It keeps that footprint while the player collapses.
 
 Root detail screens are above the native tab controller rather than inside it. One app-level
 compact-player overlay is mounted above the root stack and shown for every pushed route, which is
@@ -384,16 +380,28 @@ one costs a megabyte to reach the same answer. `ArtworkSource.artworkUrlSmall` w
 `artworkUrl` for that reason, and `music-routes.ts` passes the small URL as `artworkUrl` and the
 hero-sized one separately as `artworkUrlLarge`, which the collection screen draws its cover from.
 
-## Screen scrolling and the player accessory
+`bottom-selection-overlay.tsx` registers the focused list's multiselect panel separately from
+bar visibility and sort actions. Player hosts render it above expanded playback or below the
+collapsed circle with fixed bottom anchors. `screen-overlay-geometry.ts` uses one progress value for the slide and lift, based
+on the panel's measured height. Container bounds stay fixed during animation. Keeping selection writes in a separate provider prevents
+selection props from feeding back through list layout subscriptions. Route availability is
+separate from temporary keyboard suppression so native modal state stays mounted.
 
-The primary `NativeTabs` uses `minimizeBehavior="onScrollDown"`. On iOS 26 UIKit minimizes the bar
-and moves its `BottomAccessory` between regular and inline placement. UIKit exposes no public
-imperative placement API, so the compact player does not add a separate vertical docking gesture.
-Its horizontal swipe-away gesture calls `dismissPlayer`, which pauses deterministically and hides
-all compact-player hosts. The iOS tab host maps that state to its animated
-`bottomAccessoryHidden` prop so UIKit removes the complete native accessory. The provider restores
-the player when a new queue starts or when a paused, dismissed track resumes through a system
-transport.
+## Screen scrolling and the floating player
+
+`player-presentation.tsx` owns one shared motion controller. Only foreground hosts register
+bounds or send gestures; stale host and gesture tokens cannot affect the active player.
+`screen-overlay.ts` coordinates native accessory eligibility, visibility, and right-side action
+registration. Selection content keeps a separate context to avoid list-layout feedback.
+
+Expanded iOS 26+ playback uses UIKit scroll minimization. Floating expansion must finish before
+native insertion. Native drag handoff keeps its gesture target mounted while the floating view
+tracks the finger; the versioned screens patch requires pod installation and an iOS rebuild.
+`screen-overlay-geometry.ts` contains the tested spacing, spring, capture, and release math.
+
+See [media-player](../components/custom/media-player/README.md) for gestures, stacking, and native handoff
+invariants. Route availability and temporary suppression remain separate:
+keyboard/search hiding must not create a local action fallback or unmount an open tag modal.
 
 Expo documents limited `FlatList` integration with native tabs. On iOS, every primary scroller is
 therefore placed directly inside `ScreenScrollMarker` from the underlying `react-native-screens`

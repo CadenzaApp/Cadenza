@@ -1,6 +1,11 @@
 import { useEffect, useId, useState } from "react";
 import { useWindowDimensions, View } from "react-native";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import {
+    usePanGesture,
+    useTapGesture,
+    useCompetingGestures,
+    GestureDetector,
+} from "react-native-gesture-handler";
 import Animated, {
     interpolate,
     useAnimatedStyle,
@@ -84,22 +89,29 @@ export function QuerySegmentedControl<T extends string>({
             /* Optional feedback. */
         }
     };
-    const slide = Gesture.Pan()
-        .activeOffsetX([-8, 8])
-        .failOffsetY([-10, 10])
-        .runOnJS(true)
-        .onUpdate((event) => setPreview(at(event.x)))
-        .onEnd((event) => {
+    const slide = usePanGesture({
+        activeOffsetX: [-8, 8],
+        failOffsetY: [-10, 10],
+        runOnJS: true,
+        onUpdate: (event) => setPreview(at(event.x)),
+        onDeactivate: (event) => {
+            if (event.canceled) return;
+
             void select(at(event.x));
-        })
-        .onFinalize(() => setPreview(null));
-    const tap = Gesture.Tap()
-        .runOnJS(true)
-        .onEnd((event, success) => {
-            if (success) void select(at(event.x));
-        });
+        },
+        onFinalize: () => setPreview(null),
+    });
+    const tap = useTapGesture({
+        runOnJS: true,
+        onDeactivate: (event) => {
+            if (event.canceled) return;
+
+            void select(at(event.x));
+        },
+    });
+    const gesture = useCompetingGestures(slide, tap);
     return (
-        <GestureDetector gesture={Gesture.Race(slide, tap)}>
+        <GestureDetector gesture={gesture}>
             <View
                 onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
                 accessibilityRole="radiogroup"

@@ -13,7 +13,7 @@ const { code } = babel.transformFileSync(
         plugins: ["@babel/plugin-transform-modules-commonjs"],
     },
 );
-const moduleContext = { exports: {}, global: { Error } };
+const moduleContext = { exports: {}, global: { Error }, require };
 vm.runInNewContext(code, moduleContext);
 
 // UI worklets run from serialized code, without the source module's globals.
@@ -55,4 +55,100 @@ test("sheet translation and action position track visible height with fixed shee
     assert.equal(clampPaletteHeight(0, 130), 130);
     assert.equal(clampPaletteHeight(1000, 130), 450);
     assert.equal(clampPaletteHeight(200, 600), 450);
+});
+
+test("tag holds and canceled releases use the hook API on the UI runtime", () => {
+    const { code: pillCode } = babel.transformFileSync(
+        path.join(appRoot, "src/features/query-builder/DraggablePill.tsx"),
+        {
+            cwd: appRoot,
+            plugins: ["@babel/plugin-transform-modules-commonjs"],
+        },
+    );
+    const gestures = [];
+    const holds = [];
+    const shared = (value) => ({
+        get: () => value,
+        set: (next) => {
+            value = next;
+        },
+    });
+    const gesture = (config) => {
+        holds.push(config.activateAfterLongPress);
+        gestures.push(
+            Object.fromEntries(
+                Object.entries(config).filter(
+                    ([, value]) => typeof value === "function",
+                ),
+            ),
+        );
+        return {};
+    };
+    const react = {
+        useCallback: (fn) => fn,
+        useLayoutEffect: () => {},
+        useMemo: (fn) => fn(),
+        useRef: (value) => ({ current: value }),
+    };
+    const calls = [];
+    const commands = {
+        dragX: shared(0),
+        dragY: shared(0),
+        beginDrag: () => calls.push("pickup"),
+        finishDrag: async () => calls.push("drop"),
+        cancelDrag: () => calls.push("cancel"),
+    };
+    const context = {
+        exports: {},
+        global: { Error },
+        require: (id) => {
+            if (id.startsWith("@babel/runtime/")) return require(id);
+            if (id === "react") return react;
+            if (id === "react/compiler-runtime")
+                return {
+                    c: (size) =>
+                        Array(size).fill(
+                            Symbol.for("react.memo_cache_sentinel"),
+                        ),
+                };
+            if (id.endsWith("/jsx-runtime")) return { jsx: () => null };
+            if (id === "expo-haptics")
+                return {
+                    ImpactFeedbackStyle: { Light: "light" },
+                    impactAsync: async () => calls.push("haptic"),
+                };
+            if (id === "react-native-gesture-handler")
+                return { usePanGesture: gesture };
+            if (id === "react-native-reanimated")
+                return {
+                    useSharedValue: shared,
+                    useAnimatedStyle: () => ({}),
+                    runOnJS: (fn) => fn,
+                    withTiming: (value) => value,
+                    ReduceMotion: { System: "system" },
+                };
+            if (id === "./DragContext")
+                return { useDragCommands: () => commands };
+            throw new Error(`Unexpected import ${id}`);
+        },
+    };
+    vm.runInNewContext(pillCode, context);
+    for (const source of ["palette", "query"])
+        context.exports.DraggablePill({ payload: { source }, children: null });
+    assert.equal(gestures.length, 2);
+    assert.deepEqual(holds, [155, 155]);
+    for (const callbacks of gestures) {
+        for (const [name, callback] of Object.entries(callbacks))
+            assert.ok(
+                callback.__initData?.code,
+                `${name} must execute on the UI runtime`,
+            );
+        calls.length = 0;
+        callbacks.onBegin({ x: 5, y: 5 });
+        callbacks.onActivate({ absoluteX: 20, absoluteY: 30 });
+        assert.deepEqual(calls, ["pickup", "haptic"]);
+        callbacks.onDeactivate({ canceled: true });
+        callbacks.onFinalize({ canceled: true });
+        assert.deepEqual(calls, ["pickup", "haptic", "cancel"]);
+    }
 });

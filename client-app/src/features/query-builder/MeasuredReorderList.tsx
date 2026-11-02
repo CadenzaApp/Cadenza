@@ -8,7 +8,11 @@ import {
     useRef,
     type ReactNode,
 } from "react";
-import { Gesture, type PanGesture } from "react-native-gesture-handler";
+import {
+    InterceptingGestureDetector,
+    usePanGesture,
+    type PanGesture,
+} from "react-native-gesture-handler";
 import Animated, {
     measure,
     ReduceMotion,
@@ -262,23 +266,25 @@ export function MeasuredReorderList<T>({
         },
     );
     return (
-        <Animated.View ref={listRef} collapsable={false}>
-            {data.map((item, index) => (
-                <ReorderRow
-                    key={keyFor(item)}
-                    rowKey={keyFor(item)}
-                    state={state}
-                    scrollY={scrollY}
-                    captureViewport={captureViewport}
-                    onStart={(x, y) => onStart(item, index, x, y)}
-                    onMove={onMove}
-                    onDrop={(to, x, y) => onDrop(item, index, to, x, y)}
-                    onCancel={onCancel}
-                >
-                    {renderItem(item, index)}
-                </ReorderRow>
-            ))}
-        </Animated.View>
+        <InterceptingGestureDetector>
+            <Animated.View ref={listRef} collapsable={false}>
+                {data.map((item, index) => (
+                    <ReorderRow
+                        key={keyFor(item)}
+                        rowKey={keyFor(item)}
+                        state={state}
+                        scrollY={scrollY}
+                        captureViewport={captureViewport}
+                        onStart={(x, y) => onStart(item, index, x, y)}
+                        onMove={onMove}
+                        onDrop={(to, x, y) => onDrop(item, index, to, x, y)}
+                        onCancel={onCancel}
+                    >
+                        {renderItem(item, index)}
+                    </ReorderRow>
+                ))}
+            </Animated.View>
+        </InterceptingGestureDetector>
     );
 }
 
@@ -392,126 +398,106 @@ function ReorderRow({
         [s, rowKey, y],
     );
     // These callbacks execute later on the UI runtime, never during render.
-    /* eslint-disable react-hooks/refs, react-hooks/purity */
-    const pan = useMemo(
-        () =>
-            Gesture.Pan()
-                .minDistance(3)
-                .maxPointers(1)
-                .onBegin(() => {
-                    accepted.set(false);
-                    released.set(false);
-                })
-                .onStart((event) => {
-                    if (
-                        s.phase.get() !== "idle" ||
-                        s.order.get().some((key) => !(s.heights.get()[key] > 0))
-                    )
-                        return;
-                    captureViewport();
-                    accepted.set(true);
-                    s.committed.set(false);
-                    s.settled.set(false);
-                    s.original.set([...s.order.get()]);
-                    s.originalCenters.set(s.layout.get().centers);
-                    s.active.set(rowKey);
-                    s.phase.set("dragging");
-                    s.startTop.set(naturalTop.get());
-                    s.top.set(naturalTop.get());
-                    s.startScroll.set(scrollY.get());
-                    s.translation.set(0);
-                    s.fingerY.set(event.absoluteY);
-                    runOnJS(start)(event.absoluteX, event.absoluteY);
-                })
-                .onUpdate((event) => {
-                    if (!accepted.get()) return;
-                    s.translation.set(event.translationY);
-                    s.fingerY.set(event.absoluteY);
-                    s.top.set(
-                        s.startTop.get() +
-                            event.translationY +
-                            scrollY.get() -
-                            s.startScroll.get(),
-                    );
-                    // Hover feedback is low-frequency JS work; position and scrolling
-                    // remain entirely on the UI thread even when JS is busy.
-                    const now = Date.now();
-                    if (now - lastHover.get() >= 80) {
-                        lastHover.set(now);
-                        runOnJS(move)(event.absoluteX, event.absoluteY);
-                    }
-                })
-                .onEnd((event) => {
-                    if (!accepted.get()) return;
-                    released.set(true);
-                    const releaseTop =
-                        s.startTop.get() +
-                        event.translationY +
-                        scrollY.get() -
-                        s.startScroll.get();
-                    s.top.set(releaseTop);
-                    const index = reorderIndexAtCenter(
-                        s.original.get(),
-                        s.originalCenters.get(),
-                        rowKey,
-                        releaseTop + s.heights.get()[rowKey] / 2,
-                    );
-                    const next = moveReorderKey(
-                        s.original.get(),
-                        rowKey,
-                        index,
-                    );
-                    s.order.set(next);
-                    s.phase.set("settling");
-                    const target = reorderLayout(next, s.heights.get()).tops[
-                        rowKey
-                    ];
-                    y.set(target);
-                    s.top.set(
-                        withSpring(target, SPRING, (finished) => {
-                            if (finished) s.settled.set(true);
-                        }),
-                    );
-                    runOnJS(drop)(
-                        next.indexOf(rowKey),
-                        event.absoluteX,
-                        event.absoluteY,
-                    );
-                })
-                .onFinalize(() => {
-                    if (!accepted.get() || released.get()) return;
-                    s.order.set(s.original.get());
-                    s.phase.set("settling");
-                    const target = reorderLayout(
-                        s.original.get(),
-                        s.heights.get(),
-                    ).tops[rowKey];
-                    y.set(target);
-                    s.top.set(
-                        withSpring(target, SPRING, (finished) => {
-                            if (finished) s.settled.set(true);
-                        }),
-                    );
-                    s.committed.set(true);
-                    runOnJS(cancel)();
+    const pan = usePanGesture({
+        minDistance: 3,
+        maxPointers: 1,
+        onBegin: () => {
+            "worklet";
+            accepted.set(false);
+            released.set(false);
+        },
+        onActivate: (event) => {
+            "worklet";
+            if (
+                s.phase.get() !== "idle" ||
+                s.order.get().some((key) => !(s.heights.get()[key] > 0))
+            )
+                return;
+            captureViewport();
+            accepted.set(true);
+            s.committed.set(false);
+            s.settled.set(false);
+            s.original.set([...s.order.get()]);
+            s.originalCenters.set(s.layout.get().centers);
+            s.active.set(rowKey);
+            s.phase.set("dragging");
+            s.startTop.set(naturalTop.get());
+            s.top.set(naturalTop.get());
+            s.startScroll.set(scrollY.get());
+            s.translation.set(0);
+            s.fingerY.set(event.absoluteY);
+            runOnJS(start)(event.absoluteX, event.absoluteY);
+        },
+        onUpdate: (event) => {
+            "worklet";
+            if (!accepted.get()) return;
+            s.translation.set(event.translationY);
+            s.fingerY.set(event.absoluteY);
+            s.top.set(
+                s.startTop.get() +
+                    event.translationY +
+                    scrollY.get() -
+                    s.startScroll.get(),
+            );
+            // Hover feedback is low-frequency JS work; position and scrolling
+            // remain entirely on the UI thread even when JS is busy.
+            const now = Date.now();
+            if (now - lastHover.get() >= 80) {
+                lastHover.set(now);
+                runOnJS(move)(event.absoluteX, event.absoluteY);
+            }
+        },
+        onDeactivate: (event) => {
+            "worklet";
+            if (event.canceled) return;
+
+            if (!accepted.get()) return;
+            released.set(true);
+            const releaseTop =
+                s.startTop.get() +
+                event.translationY +
+                scrollY.get() -
+                s.startScroll.get();
+            s.top.set(releaseTop);
+            const index = reorderIndexAtCenter(
+                s.original.get(),
+                s.originalCenters.get(),
+                rowKey,
+                releaseTop + s.heights.get()[rowKey] / 2,
+            );
+            const next = moveReorderKey(s.original.get(), rowKey, index);
+            s.order.set(next);
+            s.phase.set("settling");
+            const target = reorderLayout(next, s.heights.get()).tops[rowKey];
+            y.set(target);
+            s.top.set(
+                withSpring(target, SPRING, (finished) => {
+                    if (finished) s.settled.set(true);
                 }),
-        [
-            s,
-            rowKey,
-            y,
-            naturalTop,
-            captureViewport,
-            scrollY,
-            accepted,
-            released,
-            lastHover,
-            start,
-            move,
-            drop,
-            cancel,
-        ],
-    );
-    /* eslint-enable react-hooks/refs, react-hooks/purity */
+            );
+            runOnJS(drop)(
+                next.indexOf(rowKey),
+                event.absoluteX,
+                event.absoluteY,
+            );
+        },
+        onFinalize: () => {
+            "worklet";
+            if (!accepted.get() || released.get()) return;
+            s.order.set(s.original.get());
+            s.phase.set("settling");
+            const target = reorderLayout(s.original.get(), s.heights.get())
+                .tops[rowKey];
+            y.set(target);
+            s.top.set(
+                withSpring(target, SPRING, (finished) => {
+                    if (finished) s.settled.set(true);
+                }),
+            );
+            s.committed.set(true);
+            runOnJS(cancel)();
+        },
+    });
     const style = useAnimatedStyle(() => ({
         // In the settled state Yoga owns every gap. During a drag, translate
         // from each row's natural position to its projected position.

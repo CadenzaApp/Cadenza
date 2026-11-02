@@ -1,0 +1,15 @@
+diff --git a/node_modules/react-native-screens/ios/tabs/host/RNSTabsHostComponentView.mm b/node_modules/react-native-screens/ios/tabs/host/RNSTabsHostComponentView.mm
+--- a/node_modules/react-native-screens/ios/tabs/host/RNSTabsHostComponentView.mm
++++ b/node_modules/react-native-screens/ios/tabs/host/RNSTabsHostComponentView.mm
+@@ -451,9 +451,9 @@
+ {
+   if (_bottomAccessoryWrapperView != nil && !_bottomAccessoryHidden) {
+     [_controller setBottomAccessory:[[UITabAccessory alloc] initWithContentView:_bottomAccessoryWrapperView]
+-                           animated:YES];
++                           animated:NO];
+   } else {
+-    [_controller setBottomAccessory:nil animated:YES];
++    [_controller setBottomAccessory:nil animated:NO];
+   }
+ }
+ #endif // RNS_TABS_BOTTOM_ACCESSORY_AVAILABLE

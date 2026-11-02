@@ -1,17 +1,16 @@
 import { Redirect } from "expo-router";
-import { NativeTabs } from "expo-router/unstable-native-tabs";
+import { NativeTabs } from "expo-router/native-tabs";
 import { useTheme } from "expo-router/react-navigation";
 import { useState } from "react";
 import { DynamicColorIOS, Platform, View } from "react-native";
 
-import {
-    MediaPlayerAccessory,
-    MediaPlayerFallbackOverlay,
-    useMediaPlayerAccessoryDeclared,
-} from "@/components/custom/media-player";
+import { MediaPlayerFallbackOverlay } from "@/components/custom/media-player";
 import { useAccount } from "@/lib/account";
-import { usePlaybackTrackState } from "@/lib/playback";
-import { useBottomBarsHidden } from "@/lib/screen-overlay";
+import { NativePlayerAccessory } from "@/components/custom/media-player/native-player-accessory";
+import {
+    useNativePlayerAccessoryEnabled,
+    useBottomBarsHidden,
+} from "@/lib/screen-overlay";
 import { PALETTE } from "@/lib/theme";
 
 const IOS_TAB_COLOR =
@@ -40,15 +39,13 @@ const TRIGGER_PROPS = { disableAutomaticContentInsets: true } as const;
 
 /**
  * The five primary routes, rendered by the platform's native tab controller.
- * On iOS 26 the mini player is the controller's bottom accessory, so UIKit
- * moves it inline when the tab bar minimizes.
+ * Expanded playback uses the native accessory; circle and selection use the floating overlay.
  */
 export default function TabLayout() {
     const { account } = useAccount();
-    const { isPlayerDismissed } = usePlaybackTrackState();
     const { colors } = useTheme();
     const hidden = useBottomBarsHidden();
-    const accessoryDeclared = useMediaPlayerAccessoryDeclared();
+    const nativePlayer = useNativePlayerAccessoryEnabled();
     const [failedArtworkUrl, setFailedArtworkUrl] = useState<string | null>(
         null,
     );
@@ -63,11 +60,7 @@ export default function TabLayout() {
     return (
         <View className="flex-1">
             <NativeTabs
-                // Minimizing only buys something when there is a player to
-                // minimize around. With no accessory the shrunk bar is just
-                // the selected tab and Search with a hole between them, so
-                // the full bar stays put instead.
-                minimizeBehavior={accessoryDeclared ? "onScrollDown" : "never"}
+                minimizeBehavior={nativePlayer ? "onScrollDown" : "never"}
                 hidden={hidden}
                 tintColor={selectedColor}
                 iconColor={{
@@ -85,19 +78,18 @@ export default function TabLayout() {
                 tabBarRespectsIMEInsets
                 unstable_nativeProps={{
                     ios: {
-                        bottomAccessoryHidden: hidden || isPlayerDismissed,
+                        bottomAccessoryHidden: hidden || !nativePlayer,
                     },
                 }}
             >
-                {accessoryDeclared ? (
+                {nativePlayer ? (
                     <NativeTabs.BottomAccessory>
-                        <MediaPlayerAccessory
+                        <NativePlayerAccessory
                             failedArtworkUrl={failedArtworkUrl}
                             onArtworkError={setFailedArtworkUrl}
                         />
                     </NativeTabs.BottomAccessory>
                 ) : null}
-
                 <NativeTabs.Trigger name="social" {...TRIGGER_PROPS}>
                     <NativeTabs.Trigger.Icon
                         sf={{
@@ -159,6 +151,7 @@ export default function TabLayout() {
 
             <MediaPlayerFallbackOverlay
                 hidden={hidden}
+                nativeAccessoryActive={nativePlayer}
                 failedArtworkUrl={failedArtworkUrl}
                 onArtworkError={setFailedArtworkUrl}
             />

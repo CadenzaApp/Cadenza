@@ -24,10 +24,7 @@ import {
     clampPaletteHeight,
 } from "./palette-geometry";
 
-import {
-    supportsNativeTabBottomAccessory,
-    useScreenOverlayInsets,
-} from "@/lib/screen-overlay";
+import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { Text } from "@/components/ui/text";
 import { useScreenScroll } from "@/lib/screen-scroll";
 import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
@@ -103,13 +100,11 @@ export function QueryBuilder({
     outerConnector,
     onOuterConnectorChange,
 }: Props) {
-    const { compactPlayerVisible, playerBottomInset } =
+    const { compactPlayerVisible, playerBottomInset, nativePlayerAccessory } =
         useScreenOverlayInsets();
-    // UIKit already removes the native accessory's space from this screen.
-    // Growing the palette by the full bottom inset duplicates that footprint.
     const defaultPaletteHeight =
         DEFAULT_PALETTE_HEIGHT +
-        (compactPlayerVisible && !supportsNativeTabBottomAccessory()
+        (compactPlayerVisible && !nativePlayerAccessory
             ? playerBottomInset
             : 0);
     const paletteWasResized = useRef(false);

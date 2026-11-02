@@ -18,14 +18,18 @@ function compile(file, requireModule = require) {
 // UI worklets must also work without the source module's globals.
 function isolated(worklet) {
     assert.ok(worklet.__initData?.code, "expected a serialized UI worklet");
-    const closure = Object.fromEntries(
-        Object.entries(worklet.__closure).map(([key, value]) => [
-            key,
-            value?.__initData ? isolated(value) : value,
-        ]),
-    );
+    const captured = worklet.__closure;
+    const convert = (value) => (value?.__initData ? isolated(value) : value);
+    const closure = Array.isArray(captured)
+        ? captured.map(convert)
+        : Object.fromEntries(
+              Object.entries(captured ?? {}).map(([key, value]) => [
+                  key,
+                  convert(value),
+              ]),
+          );
     return vm
-        .runInNewContext(`(${worklet.__initData.code})`)
+        .runInNewContext(`(${worklet.__initData.code})`, { global: { Error } })
         .bind({ __closure: closure });
 }
 function shared(value) {
@@ -129,7 +133,15 @@ function animation() {
     const controller = env.hooks.ZoomDismissScreen({ children: "page" }).props
         .value;
     const worklet = controller.finishGestureClose;
-    return { ...env, close: isolated(worklet), state: worklet.__closure };
+    const names = worklet.__initData.code
+        .match(/const\[([^\]]+)\]=this\.__closure/)?.[1]
+        .split(",");
+    const state = Array.isArray(worklet.__closure)
+        ? Object.fromEntries(
+              names.map((name, i) => [name, worklet.__closure[i]]),
+          )
+        : worklet.__closure;
+    return { ...env, close: isolated(worklet), state };
 }
 function measured(rect) {
     return {

@@ -36,7 +36,7 @@ the controller lives in the `ZoomDismissScreen` that screen renders.
 `glass-surface.tsx` exports `GlassSurface`, the translucent background layer behind app-owned
 glass controls and compatibility surfaces. It renders liquid glass on iOS 26, an `expo-blur` `BlurView` on anything
 older, and a flat translucent card on web, all behind one component. It paints a background and
-nothing else; the caller supplies size, radius, and `overflow: "hidden"`. Its optional
+nothing else; the caller supplies size and radius. Android copies that radius onto its fill, so a visible overflow (how iOS lets the liquid-glass edge extend) does not leave a square. Its optional
 `tintColor` reaches native liquid glass and gets a translucent approximation on fallbacks.
 Glass does not stack: a `GlassSurface` under another one, or under a `GlassLayer`, paints a flat
 fill instead. A container whose glass is a sibling under its content (like `AnalyticsCard`) wraps
@@ -174,6 +174,10 @@ variables), `tailwind.config.js`, and `global.css`. Class merging goes through
 | `use-music-list-selection.ts`      | Selection state, haptics, and pruning. Tested in `use-music-list-selection.test.ts`.                                                |
 | `selection-utils.ts`               | `reduceMusicListSelection`, the pure reducer behind the hook.                                                                       |
 | `types.ts`                         | `MusicListProps`, `MusicListArrangement`, and the section types, so callers do not import from `index.tsx`.                         |
+
+Multiselect registers its panel in the shared bottom overlay. Sort and Library Tags' plus use
+`useBottomRowActionButton`; sources own their dialogs while the foreground host owns placement.
+See [media-player](custom/media-player/README.md) for stacking, visibility, and animation rules.
 
 The list never sorts anything itself. `arrangement` only draws the Sort by / Group by control;
 the caller has the backend order the whole list (`@/lib/arranged-track-list`) and hands back the
@@ -373,3 +377,8 @@ caches to warm artist details, portrait color, and artwork while the menu is ope
 
 Touching files in this directory? Update this README in the same change.
 See [../../../AGENT_GUIDE.md](../../../AGENT_GUIDE.md).
+
+Gesture handlers use the Gesture Handler 3 hook API (`usePanGesture`, `useTapGesture`, and
+composition hooks). Use `event.canceled` in deactivation/finalization callbacks; a canceled
+gesture must not commit a drop or seek. Reorderable rows use virtual detectors under a
+list-level intercepting detector to retain the handler when their native views move.

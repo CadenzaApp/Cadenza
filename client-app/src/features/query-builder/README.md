@@ -49,11 +49,18 @@ The sheet stays 450 points tall and moves with a UI-thread translation. Its init
 is 268 points plus any compatibility-player inset. The minimum includes the platform tab/player
 inset and 64 points for the handle/heading. Floating actions follow its top edge; query scroll
 clearance updates on release. A fixed bottom spacer lets the final tag row reach the top.
-Collapsing resets palette scroll and hides offscreen tag actions from accessibility.
+Palette scrolling stays enabled at every height, including the minimum. Palette tag pickup
+requires a 155ms hold, so ordinary vertical swipes scroll rather than start a tag drag.
+Query tags also activate after a 155ms hold, with a pickup haptic before movement. Short taps
+still remove basic tags or edit value tags. The
+whole visible palette accepts delete drops without the query-content bottom inset. Its delete
+prompt centers above the playback/navigation clearance and keeps the glass backdrop visible.
 
 ## Gesture and rendering contracts
 
-- Keep pan gestures stable during pickup. Replacing a gesture during drag can cancel it.
+- Gesture Handler 3 hooks preserve handler identity during pickup. Reorder handles use virtual
+  detectors under a list-level intercepting detector so row movement does not detach a handler.
+  Canceled deactivation rolls back instead of committing a drop.
   Handles reorder cards; other card controls and surfaces retain their own interactions.
 - Commands, presentation, and keyed hover subscriptions are separate. Only the old and new
   hover targets are notified. Coordinates and palette motion stay on the UI runtime.

@@ -11,7 +11,12 @@ import {
     useWindowDimensions,
     View,
 } from "react-native";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import {
+    usePanGesture,
+    useTapGesture,
+    useExclusiveGestures,
+    GestureDetector,
+} from "react-native-gesture-handler";
 import Animated, {
     cancelAnimation,
     Easing,
@@ -237,31 +242,40 @@ export function PlayerPage() {
         setScrubPosition(null);
     }
 
-    const seekPanGesture = Gesture.Pan()
-        // Keep the hit area tight and require an intentional horizontal drag,
-        // so a vertical pull still reaches the native sheet and dismisses it.
-        .activeOffsetX([-4, 4])
-        .failOffsetY([-10, 10])
-        .onBegin((event) => {
+    const seekPanGesture = usePanGesture({
+        activeOffsetX: [-4, 4],
+        failOffsetY: [-10, 10],
+        onBegin: (event) => {
+            "worklet";
             runOnJS(updateScrubPosition)(event.x);
-        })
-        .onUpdate((event) => {
+        },
+        onUpdate: (event) => {
+            "worklet";
             runOnJS(updateScrubPosition)(event.x);
-        })
-        .onEnd((event) => {
+        },
+        onDeactivate: (event) => {
+            "worklet";
+            if (event.canceled) return;
+
             runOnJS(finishSeek)(event.x);
-        })
-        .onFinalize((_, success) => {
-            if (!success) runOnJS(cancelSeek)();
-        });
+        },
+        onFinalize: (event) => {
+            "worklet";
+            if (event.canceled) runOnJS(cancelSeek)();
+        },
+    });
 
-    const seekTapGesture = Gesture.Tap()
-        .maxDistance(8)
-        .onEnd((event, success) => {
-            if (success) runOnJS(finishSeek)(event.x);
-        });
+    const seekTapGesture = useTapGesture({
+        maxDistance: 8,
+        onDeactivate: (event) => {
+            "worklet";
+            if (event.canceled) return;
 
-    const seekGesture = Gesture.Exclusive(seekPanGesture, seekTapGesture);
+            runOnJS(finishSeek)(event.x);
+        },
+    });
+
+    const seekGesture = useExclusiveGestures(seekPanGesture, seekTapGesture);
 
     if (!activeTrack) {
         return (

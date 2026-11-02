@@ -106,7 +106,10 @@ export function GlassIconButton({
                         pointerEvents="none"
                         style={[
                             StyleSheet.absoluteFill,
-                            { backgroundColor: pressedFill },
+                            {
+                                borderRadius: radius - (bordered ? 1 : 0),
+                                backgroundColor: pressedFill,
+                            },
                             pressed ? styles.pressedFill : styles.restingFill,
                         ]}
                     />

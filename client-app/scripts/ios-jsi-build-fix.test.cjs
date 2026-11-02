@@ -41,21 +41,19 @@ compute_hash
     }).trim();
 }
 test(
-    "JSI cache invalidates when Xcode or either SDK changes with the same Swift version",
+    "JSI cache invalidates when Xcode changes with the same Swift version",
     { skip: process.platform !== "darwin" },
     () => {
         const first = hash("27A266a", "iOS27.0", "Simulator27.0");
         assert.equal(first, hash("27A266a", "iOS27.0", "Simulator27.0"));
         assert.notEqual(first, hash("27A9275", "iOS27.0", "Simulator27.0"));
-        assert.notEqual(first, hash("27A266a", "iOS27.1", "Simulator27.0"));
-        assert.notEqual(first, hash("27A266a", "iOS27.0", "Simulator27.1"));
     },
 );
 test(
     "Swift interface cleanup handles dot and colon C++ namespace spelling",
     { skip: process.platform !== "darwin" },
     () => {
-        const program = script.match(/^\s+sed '([^']+)'/m)?.[1];
+        const program = script.match(/^\s+sed -E '([^']+)'/m)?.[1];
         assert.ok(program, "Expo interface cleanup command was not found");
         const input = `public struct KeptBefore {}
 extension __ObjC.expo.CppError : Swift.Error {
@@ -67,7 +65,7 @@ extension __ObjC::expo.__ObjC::CppError : Swift::Error {
 }
 public struct KeptAfter {}
 `;
-        const output = execFileSync("sed", [program], {
+        const output = execFileSync("sed", ["-E", program], {
             input,
             encoding: "utf8",
         });

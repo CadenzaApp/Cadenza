@@ -43,6 +43,7 @@ type MeasuredViewport = {
 };
 type Measurements = {
     root: DropRect | null;
+    bounds: DropRect | null;
     zones: Map<string, DropRect>;
     viewports: Map<DropViewportGeometry, MeasuredViewport>;
 };
@@ -127,7 +128,7 @@ export function DragProvider({
     const findZoneAt = useCallback(
         (payload: DragPayload, x: number, y: number) => {
             const sample = cached.current;
-            if (!sample?.root) return undefined;
+            if (!sample?.root || !sample.bounds) return undefined;
             // Read live offsets once per viewport, rather than once per target.
             const live = new Map<
                 DropViewportGeometry,
@@ -153,7 +154,7 @@ export function DragProvider({
                                 rect.height - viewport.topInset - bottom,
                             ),
                         },
-                        sample.root,
+                        sample.bounds,
                     ),
                 });
             }
@@ -161,11 +162,17 @@ export function DragProvider({
                 const zone = zones.current.get(key);
                 if (!zone) return [];
                 const region = zone.viewport ? live.get(zone.viewport) : null;
+                // The palette is itself an overlay. Applying content clearance
+                // to its delete target again leaves only a thin usable strip.
+                const rootClip =
+                    zone.target.kind === "delete" ? sample.bounds : sample.root;
                 const clip = region
-                    ? region.clip
+                    ? rootClip &&
+                      region.clip &&
+                      intersectDropRects(region.clip, rootClip)
                     : zone.viewport
                       ? null
-                      : sample.root;
+                      : rootClip;
                 const rect =
                     clip &&
                     intersectDropRects(
@@ -227,6 +234,7 @@ export function DragProvider({
             ),
         ]);
         return {
+            bounds: root,
             root: root
                 ? { ...root, height: Math.max(0, root.height - bottomInset) }
                 : null,

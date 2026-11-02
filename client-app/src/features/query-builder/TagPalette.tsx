@@ -1,13 +1,19 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Keyboard, Platform, Pressable, StyleSheet, View } from "react-native";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import {
+    Keyboard,
+    Platform,
+    Pressable,
+    StyleSheet,
+    TextInput,
+    View,
+} from "react-native";
+import { usePanGesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
     Easing,
     FadeIn,
     FadeOut,
     runOnJS,
-    runOnUI,
     scrollTo,
     useAnimatedRef,
     useAnimatedScrollHandler,
@@ -20,7 +26,6 @@ import Animated, {
 } from "react-native-reanimated";
 
 import { GlassSurface } from "@/components/ui/glass-surface";
-import { Input } from "@/components/ui/input";
 import { Text } from "@/components/ui/text";
 import { useOpenScreen } from "@/lib/open-screen";
 import { useDefaultTags } from "@/lib/routes/tags";
@@ -79,7 +84,6 @@ export function TagPalette({
     });
     const { dragState } = useDrag();
     const deleteHovered = useDropHover("delete");
-    const { colors: theme } = useAppTheme();
     const { playerBottomInset } = useScreenOverlayInsets();
     // The native tab bar floats over this screen on both platforms. Its
     // platform-specific inset (and the player, when present) sets the floor;
@@ -165,54 +169,41 @@ export function TagPalette({
     useEffect(() => {
         if (height < minimumHeight) onHeightChange(minimumHeight);
     }, [height, minimumHeight, onHeightChange]);
-    useEffect(() => {
-        if (!collapsed) return;
-        runOnUI(() => {
-            scrollTo(scrollRef, 0, 0, false);
-            scrollOffset.set(0);
-        })();
-    }, [collapsed, scrollRef, scrollOffset]);
     const raiseForSearch = useRaiseWhileKeyboardUp(height, onHeightChange);
     const commitHeight = useCallback(
         (nextHeight: number) => onHeightChange(nextHeight),
         [onHeightChange],
     );
-    // scrollRef is read by the UI-thread gesture, not while building it.
-    /* eslint-disable react-hooks/refs */
-    const resizeGesture = useMemo(() => {
-        return Gesture.Pan()
-            .minDistance(3)
-            .maxPointers(1)
-            .onStart((event) => {
-                scrollTo(scrollRef, 0, Math.max(0, scrollOffset.get()), false);
-                resizeStartY.set(event.absoluteY);
-                resizeStartHeight.set(paletteHeight.get());
-            })
-            .onUpdate((event) => {
-                const nextHeight = clampPaletteHeight(
-                    resizeStartHeight.get() +
-                        resizeStartY.get() -
-                        event.absoluteY,
-                    minimumHeight,
-                );
-                paletteHeight.set(nextHeight);
-            })
-            .onFinalize(() => {
-                runOnJS(commitHeight)(paletteHeight.get());
-            });
-    }, [
-        commitHeight,
-        minimumHeight,
-        paletteHeight,
-        resizeStartHeight,
-        resizeStartY,
-        scrollRef,
-        scrollOffset,
-    ]);
+    const resizeGesture = usePanGesture({
+        minDistance: 3,
+        maxPointers: 1,
+        onActivate: (event) => {
+            "worklet";
+            scrollTo(scrollRef, 0, Math.max(0, scrollOffset.get()), false);
+            resizeStartY.set(event.absoluteY);
+            resizeStartHeight.set(paletteHeight.get());
+        },
+        onUpdate: (event) => {
+            "worklet";
+            const nextHeight = clampPaletteHeight(
+                resizeStartHeight.get() + resizeStartY.get() - event.absoluteY,
+                minimumHeight,
+            );
+            paletteHeight.set(nextHeight);
+        },
+        onFinalize: () => {
+            "worklet";
+            runOnJS(commitHeight)(paletteHeight.get());
+        },
+    });
 
-    /* eslint-enable react-hooks/refs */
     const sheetStyle = useAnimatedStyle(() => ({
         transform: [{ translateY: translation.get() }],
+    }));
+
+    const { colors: theme } = useAppTheme();
+    const deletePromptStyle = useAnimatedStyle(() => ({
+        height: Math.max(0, visibleHeight.get() - playerBottomInset),
     }));
 
     return (
@@ -268,11 +259,11 @@ export function TagPalette({
                         scrollEventThrottle={16}
                         removeClippedSubviews={false}
                         className="flex-1 overflow-hidden"
+                        style={{ opacity: deleteHovered ? 0 : 1 }}
                         contentContainerClassName="px-5 pb-2"
                         contentContainerStyle={{ flexGrow: 0, flexShrink: 0 }}
                         keyboardShouldPersistTaps="handled"
-                        showsVerticalScrollIndicator={!collapsed}
-                        scrollEnabled={!collapsed}
+                        showsVerticalScrollIndicator
                     >
                         <>
                             <View className="mb-3 flex-row items-center gap-3">
@@ -305,13 +296,7 @@ export function TagPalette({
                                     />
                                 ) : null}
                             </View>
-                            <View
-                                className="shrink-0"
-                                accessibilityElementsHidden={collapsed}
-                                importantForAccessibility={
-                                    collapsed ? "no-hide-descendants" : "auto"
-                                }
-                            >
+                            <View className="shrink-0">
                                 {pendingTag ? (
                                     <View className="min-h-24 items-center justify-center">
                                         <Text className="w-3/4 text-center text-xl font-semibold">
@@ -375,31 +360,22 @@ export function TagPalette({
                         </>
                     </Animated.ScrollView>
                     {deleteHovered ? (
-                        <>
-                            <Animated.View
-                                pointerEvents="none"
-                                entering={FadeIn.duration(200)}
-                                exiting={FadeOut.duration(160)}
-                                className="absolute inset-0 z-10"
-                                style={{ backgroundColor: "#000000" }}
+                        <Animated.View
+                            pointerEvents="none"
+                            entering={FadeIn.duration(160)}
+                            exiting={FadeOut.duration(120)}
+                            className="absolute left-0 right-0 top-0 z-20 items-center justify-center gap-2"
+                            style={deletePromptStyle}
+                        >
+                            <Ionicons
+                                name="trash-outline"
+                                size={32}
+                                color={theme.foreground}
                             />
-                            <Animated.View
-                                pointerEvents="none"
-                                entering={FadeIn.delay(40).duration(180)}
-                                exiting={FadeOut.duration(120)}
-                                className="absolute inset-0 z-20 items-center justify-center"
-                            >
-                                <Ionicons
-                                    name="trash-outline"
-                                    size={32}
-                                    color={theme.destructive}
-                                />
-                                <Text className="mt-2 text-sm font-semibold text-destructive">
-                                    Drop to delete{" "}
-                                    {deletingGroup ? "group" : "tag"}
-                                </Text>
-                            </Animated.View>
-                        </>
+                            <Text className="w-3/4 text-center text-xl font-semibold">
+                                Drop to delete {deletingGroup ? "group" : "tag"}
+                            </Text>
+                        </Animated.View>
                     ) : null}
                 </DropSlot>
             </DropViewport>
@@ -460,18 +436,33 @@ function PaletteSearchField({
     onFocus: () => void;
     accessibilityLabel: string;
 }) {
-    const { colors } = useAppTheme();
+    const { colors, scheme } = useAppTheme();
     return (
         <View className="relative h-9 flex-1 justify-center overflow-hidden rounded-full">
-            <Input
+            <TextInput
                 value={value}
                 onChangeText={onChangeText}
                 onFocus={onFocus}
                 placeholder="Search"
                 placeholderTextColor={colors.mutedForeground}
                 accessibilityLabel={accessibilityLabel}
-                className="h-9 rounded-full border-input bg-transparent pl-9 text-sm font-semibold shadow-none"
-                style={{ backgroundColor: "transparent" }}
+                className="h-9 w-full rounded-full border bg-transparent pl-9 pr-3 text-sm font-semibold text-foreground"
+                style={{
+                    // Use native font metrics instead of Input's fixed line height.
+                    // A small bottom inset optically centers the iOS glyphs.
+                    paddingTop: 0,
+                    paddingBottom: Platform.OS === "ios" ? 4 : 0,
+                    includeFontPadding: false,
+                    textAlignVertical: "center",
+                    backgroundColor:
+                        scheme === "dark"
+                            ? "rgba(255,255,255,0.08)"
+                            : "rgba(0,0,0,0.05)",
+                    borderColor:
+                        scheme === "dark"
+                            ? "rgba(255,255,255,0.28)"
+                            : "rgba(0,0,0,0.24)",
+                }}
                 autoCapitalize="none"
                 autoCorrect={false}
             />

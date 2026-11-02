@@ -2,7 +2,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import * as Haptics from "expo-haptics";
 import { createContext, useContext, useEffect, useMemo } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
-import { GestureDetector } from "react-native-gesture-handler";
+import { VirtualGestureDetector } from "react-native-gesture-handler";
 import Animated, {
     Easing,
     FadeIn,
@@ -191,11 +191,11 @@ function DraggableCondition({
                 onToggleConditionNegation={onToggleConditionNegation}
             />
             {gesture ? (
-                <GestureDetector gesture={gesture}>
+                <VirtualGestureDetector gesture={gesture}>
                     <View className="absolute left-0 top-2 z-10">
                         <ConditionDragHandle condition={condition} />
                     </View>
-                </GestureDetector>
+                </VirtualGestureDetector>
             ) : null}
         </View>
     );

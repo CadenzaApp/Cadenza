@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Pressable, View } from "react-native";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import { usePanGesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
     FadeIn,
     FadeOut,
@@ -242,18 +242,28 @@ function DriftingRow({
         offset.set(wrap(offset.get() + speed * dt, width));
     });
 
-    const swipe = Gesture.Pan()
-        .enabled(loops)
-        // horizontal wins early, a clearly vertical drag scrolls the page
-        .activeOffsetX([-6, 6])
-        .failOffsetY([-24, 24])
-        // a finger down holds it still, so a tag can be tapped
-        .onBegin(() => dragging.set(true))
-        .onChange((event) => {
+    const swipe = usePanGesture({
+        enabled: loops,
+        activeOffsetX: [-6, 6],
+        failOffsetY: [-24, 24],
+        onBegin: () => {
+            "worklet";
+            dragging.set(true);
+        },
+        onUpdate: (event) => {
+            "worklet";
             offset.set(wrap(offset.get() + event.changeX, loopWidth.get()));
-        })
-        .onEnd((event) => velocity.set(event.velocityX))
-        .onFinalize(() => dragging.set(false));
+        },
+        onDeactivate: (event) => {
+            "worklet";
+            if (event.canceled) return;
+            velocity.set(event.velocityX);
+        },
+        onFinalize: () => {
+            "worklet";
+            dragging.set(false);
+        },
+    });
 
     const slide = useAnimatedStyle(() => ({
         transform: [{ translateX: offset.get() }],

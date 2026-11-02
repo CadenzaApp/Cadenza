@@ -115,9 +115,8 @@ export function AccountSettingsScreen() {
                     onPress={() => router.push("/appearance" as Href)}
                 />
             </View>
-            
+
             <SettingsGroup>
-            
                 <SettingsRow
                     icon="shield-checkmark-outline"
                     title="Privacy & data"
@@ -131,7 +130,7 @@ export function AccountSettingsScreen() {
                     chevron
                     onPress={() => router.push("/apple-music-limits" as Href)}
                 />
-            </SettingsGroup>          
+            </SettingsGroup>
         </SettingsSheet>
     );
 }
