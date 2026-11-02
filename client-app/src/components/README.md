@@ -277,10 +277,12 @@ hundreds at once. A song once read stays read for as long as the list is up. A t
 the rows whose tags changed, not the list. The selection toolbar renders inside `RowTagSource`,
 since it needs the same reads.
 
-`TrackCollectionView` owns the standard mosaic or single-artwork header, play/shuffle row,
+`TrackCollectionView` owns the standard header, play/shuffle row,
 caller-supplied simple glass options, and the `MusicList`. Routes can supply pagination, playback
 overrides, one background source color, close controls, and opt the standard header into the
-device's top safe area. The view turns that color into the shared Oklch gradient for the active
+device's top safe area. One cover runs full bleed under the status bar with the title over its
+bottom, fading into the page at the bottom and sides (`FadedArtwork`, shared with the artist
+hero). Several covers or none stay a centered mosaic tile. The view turns that color into the shared Oklch gradient for the active
 color mode, including matching fixed overscroll endpoints. The gradient is
 `MusicList`'s `contentBackground`: drawn inside the scroll content behind the rows, filling it, so
 it spans the real content height with nothing measured, and is not a virtualized cell an offscreen

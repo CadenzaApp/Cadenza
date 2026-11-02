@@ -220,6 +220,7 @@ export default function CollectionDetailScreen() {
                         firstTrack?.artworkUrl ??
                         "",
                 ].filter(Boolean)}
+                artworkPlaceholderUrl={artworkUrl ?? firstTrack?.artworkUrl}
                 isPlaying={isCollectionPlaying}
                 respectTopSafeArea
                 onPlay={play}

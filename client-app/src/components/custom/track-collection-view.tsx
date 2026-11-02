@@ -5,6 +5,7 @@ import type { ComponentProps, ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import {
     Image,
+    StyleSheet,
     View,
     useWindowDimensions,
     type ColorValue,
@@ -31,6 +32,7 @@ import {
     type MusicListSections,
     type MusicListTrackAction,
 } from "@/components/custom/music-list";
+import { FadedArtwork } from "@/components/custom/faded-artwork";
 import { ModalPopup } from "@/components/custom/modal-popup";
 import { Button } from "@/components/ui/button";
 import {
@@ -53,6 +55,17 @@ import { useAppTheme } from "@/lib/theme";
 
 const ARTWORK_SIZE = 224;
 const ARTWORK_SCROLL_SCALE_DISTANCE = 120;
+/**
+ * A full-bleed hero is this many window widths tall, so a square cover crops
+ * a little off each side. Apple's album pages are about this.
+ */
+const HERO_ASPECT = 1.2;
+/** Where a full-bleed cover starts fading into the page, as a height fraction. */
+const HERO_FADE_START = 0.6;
+/** How much of each side of a full-bleed cover fades out. */
+const HERO_EDGE_FADE = 0.06;
+/** Height of the title, metadata, and actions over a full-bleed cover's bottom. */
+const HERO_CONTENT_HEIGHT = 170;
 
 /** How far the hero artwork has shrunk, scrolled this far down. */
 function artworkScale(scrollY: number) {
@@ -112,6 +125,11 @@ type Props = {
     /** Activity tags to show on every row; see `MusicListProps`. */
     activityTagIds?: readonly number[];
     artworkUrls?: readonly string[];
+    /**
+     * A smaller copy of a single cover, shown in the full-bleed hero while the
+     * large one loads. Usually already cached from the tile that opened this.
+     */
+    artworkPlaceholderUrl?: string | null;
     subtitle?: string;
     summary?: string;
     header?: ReactNode;
@@ -166,6 +184,7 @@ export function TrackCollectionView({
     mostRelevantTags,
     activityTagIds,
     artworkUrls: artworkUrlsOverride,
+    artworkPlaceholderUrl,
     subtitle,
     summary: summaryOverride,
     header,
@@ -192,7 +211,7 @@ export function TrackCollectionView({
     const { colors } = useTheme();
     const { destructive } = useAppTheme().colors;
     const insets = useSafeAreaInsets();
-    const { height: windowHeight } = useWindowDimensions();
+    const { width: windowWidth, height: windowHeight } = useWindowDimensions();
     const [viewportHeight, setViewportHeight] = useState(windowHeight);
     const [contentHeight, setContentHeight] = useState(windowHeight);
     const { playQueue } = usePlaybackCommands();
@@ -231,6 +250,23 @@ export function TrackCollectionView({
         () => summaryOverride ?? formatTrackCollectionSummary(tracks),
         [summaryOverride, tracks],
     );
+    const hasDefaultHero = header == null;
+    // One cover runs edge to edge; a mosaic or a placeholder stays a tile.
+    const heroArtwork =
+        hasDefaultHero && artworkUrls.length === 1 ? artworkUrls[0] : null;
+    const heroHeight = windowWidth * HERO_ASPECT;
+    const heroSurface = useMemo<ArtworkSurface | undefined>(
+        () =>
+            heroArtwork && backgroundColor
+                ? {
+                      color: backgroundColor,
+                      height: heroHeight,
+                      fadeStart: HERO_FADE_START,
+                  }
+                : undefined,
+        [heroArtwork, backgroundColor, heroHeight],
+    );
+    const surface = artworkSurface ?? heroSurface;
     const defaultGradient = useTintGradient(backgroundColor, true);
     const gradient = backgroundGradient ?? defaultGradient;
     const gradientHeight = Math.max(
@@ -242,7 +278,6 @@ export function TrackCollectionView({
     const onScroll = useAnimatedScrollHandler((event) => {
         scrollY.set(Math.max(0, event.contentOffset.y));
     });
-    const hasDefaultHero = header == null;
     const artworkStyle = useAnimatedStyle(() =>
         hasDefaultHero
             ? {
@@ -289,7 +324,128 @@ export function TrackCollectionView({
         });
     }
 
-    const defaultHeader = (
+    const titleBlock = (
+        <>
+            {titleContent ? (
+                <View className="mt-4" style={TITLE_CONTENT_SHADOW}>
+                    {titleContent}
+                </View>
+            ) : (
+                <View className="mt-4 flex-row items-center justify-center gap-2">
+                    {titleIcon ? (
+                        <ContrastIcon
+                            name={titleIcon}
+                            size={24}
+                            color={colors.text}
+                            accessibilityElementsHidden
+                            importantForAccessibility="no"
+                        />
+                    ) : null}
+                    <Text className="text-center text-2xl font-bold">
+                        {title}
+                    </Text>
+                </View>
+            )}
+            {subtitle ? (
+                <Text className="mt-1 text-center text-base text-muted-foreground">
+                    {subtitle}
+                </Text>
+            ) : null}
+            <Text className="mt-1 text-sm text-muted-foreground">
+                {summary}
+            </Text>
+        </>
+    );
+    const actions = (
+        <View className="mt-4 flex-row items-center gap-2.5">
+            <Button
+                className="h-12 flex-1 rounded-xl"
+                disabled={actionsDisabled}
+                onPress={playAll}
+                accessibilityLabel={`Play ${title}`}
+            >
+                <Ionicons
+                    name={isPlaying ? "pause" : "play"}
+                    size={25}
+                    color={colors.background}
+                />
+                <Text tone="theme" className="font-semibold">
+                    {isPlaying ? "Pause" : "Play"}
+                </Text>
+            </Button>
+            <Button
+                variant="secondary"
+                className="h-12 flex-1 rounded-xl"
+                disabled={actionsDisabled}
+                onPress={shuffleAll}
+                accessibilityLabel={`Shuffle ${title}`}
+            >
+                <Ionicons name="shuffle" size={25} color={colors.text} />
+                <Text tone="theme" className="font-semibold">
+                    Shuffle
+                </Text>
+            </Button>
+            {options.length === 1 ? (
+                <GlassIconButton
+                    size={48}
+                    onPress={() => runOption(options[0])}
+                    accessibilityLabel={options[0].label}
+                >
+                    <ContrastIcon
+                        name={options[0].icon}
+                        size={25}
+                        color={colors.text}
+                    />
+                </GlassIconButton>
+            ) : options.length > 1 ? (
+                <GlassIconButton
+                    size={48}
+                    onPress={() => setOptionsOpen(true)}
+                    accessibilityLabel={`More options for ${title}`}
+                    accessibilityState={{ expanded: optionsOpen }}
+                >
+                    <ContrastIcon
+                        name="ellipsis-vertical"
+                        size={25}
+                        color={colors.text}
+                    />
+                </GlassIconButton>
+            ) : null}
+        </View>
+    );
+    const errorText = error ? (
+        <Text tone="theme" className="mt-3 text-center text-destructive">
+            Failed to load tracks.
+        </Text>
+    ) : null;
+
+    const defaultHeader = heroArtwork ? (
+        <View className="justify-end" style={{ minHeight: heroHeight }}>
+            <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+                {/* what the native zoom grows out of the tile into. Sized
+                    explicitly: the target wraps it in an unstyled native view,
+                    which an absolute fill would collapse to nothing. */}
+                <Link.AppleZoomTarget>
+                    <View
+                        collapsable={false}
+                        style={{ width: windowWidth, height: heroHeight }}
+                    >
+                        <FadedArtwork
+                            uri={heroArtwork}
+                            placeholderUri={artworkPlaceholderUrl}
+                            fadeStart={HERO_FADE_START}
+                            edgeFade={HERO_EDGE_FADE}
+                        />
+                    </View>
+                </Link.AppleZoomTarget>
+            </View>
+            <View className="px-4 pb-4">
+                <View className="items-center">{titleBlock}</View>
+                {actions}
+                {errorText}
+            </View>
+        </View>
+    ) : (
         <View
             className="relative px-4 pb-4"
             style={{
@@ -308,105 +464,19 @@ export function TrackCollectionView({
                         </View>
                     </Link.AppleZoomTarget>
                 </Animated.View>
-                {titleContent ? (
-                    <View className="mt-4" style={TITLE_CONTENT_SHADOW}>
-                        {titleContent}
-                    </View>
-                ) : (
-                    <View className="mt-4 flex-row items-center justify-center gap-2">
-                        {titleIcon ? (
-                            <ContrastIcon
-                                name={titleIcon}
-                                size={24}
-                                color={colors.text}
-                                accessibilityElementsHidden
-                                importantForAccessibility="no"
-                            />
-                        ) : null}
-                        <Text className="text-center text-2xl font-bold">
-                            {title}
-                        </Text>
-                    </View>
-                )}
-                {subtitle ? (
-                    <Text className="mt-1 text-center text-base text-muted-foreground">
-                        {subtitle}
-                    </Text>
-                ) : null}
-                <Text className="mt-1 text-sm text-muted-foreground">
-                    {summary}
-                </Text>
+                {titleBlock}
             </View>
-
-            <View className="mt-4 flex-row items-center gap-2.5">
-                <Button
-                    className="h-12 flex-1 rounded-xl"
-                    disabled={actionsDisabled}
-                    onPress={playAll}
-                    accessibilityLabel={`Play ${title}`}
-                >
-                    <Ionicons
-                        name={isPlaying ? "pause" : "play"}
-                        size={25}
-                        color={colors.background}
-                    />
-                    <Text tone="theme" className="font-semibold">
-                        {isPlaying ? "Pause" : "Play"}
-                    </Text>
-                </Button>
-                <Button
-                    variant="secondary"
-                    className="h-12 flex-1 rounded-xl"
-                    disabled={actionsDisabled}
-                    onPress={shuffleAll}
-                    accessibilityLabel={`Shuffle ${title}`}
-                >
-                    <Ionicons name="shuffle" size={25} color={colors.text} />
-                    <Text tone="theme" className="font-semibold">
-                        Shuffle
-                    </Text>
-                </Button>
-                {options.length === 1 ? (
-                    <GlassIconButton
-                        size={48}
-                        onPress={() => runOption(options[0])}
-                        accessibilityLabel={options[0].label}
-                    >
-                        <ContrastIcon
-                            name={options[0].icon}
-                            size={25}
-                            color={colors.text}
-                        />
-                    </GlassIconButton>
-                ) : options.length > 1 ? (
-                    <GlassIconButton
-                        size={48}
-                        onPress={() => setOptionsOpen(true)}
-                        accessibilityLabel={`More options for ${title}`}
-                        accessibilityState={{ expanded: optionsOpen }}
-                    >
-                        <ContrastIcon
-                            name="ellipsis-vertical"
-                            size={25}
-                            color={colors.text}
-                        />
-                    </GlassIconButton>
-                ) : null}
-            </View>
-
-            {error ? (
-                <Text
-                    tone="theme"
-                    className="mt-3 text-center text-destructive"
-                >
-                    Failed to load tracks.
-                </Text>
-            ) : null}
+            {actions}
+            {errorText}
         </View>
     );
     const listHeader = header ?? (
         <ContrastRegion
-            offset={ARTWORK_SIZE + 80 + (respectTopSafeArea ? insets.top : 0)}
+            offset={
+                heroArtwork
+                    ? heroHeight - HERO_CONTENT_HEIGHT
+                    : ARTWORK_SIZE + 80 + (respectTopSafeArea ? insets.top : 0)
+            }
         >
             {defaultHeader}
         </ContrastRegion>
@@ -419,7 +489,7 @@ export function TrackCollectionView({
             contentHeight={Math.max(viewportHeight, contentHeight)}
             viewportHeight={viewportHeight}
             scrollY={scrollY}
-            artwork={artworkSurface}
+            artwork={surface}
             style={containerStyle}
             onLayout={(event) =>
                 setViewportHeight(event.nativeEvent.layout.height)

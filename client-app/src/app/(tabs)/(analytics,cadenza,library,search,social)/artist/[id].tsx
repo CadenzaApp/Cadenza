@@ -1,21 +1,14 @@
-import MaskedView from "@react-native-masked-view/masked-view";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type { ArtistDetail, MusicItem } from "@apple-musickit";
 import { Image } from "expo-image";
-import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams } from "expo-router";
 import { useTheme } from "expo-router/react-navigation";
 import { useColorScheme } from "nativewind";
 import { memo, useCallback, useMemo, useState } from "react";
-import {
-    FlatList,
-    Pressable,
-    StyleSheet,
-    useWindowDimensions,
-    View,
-} from "react-native";
+import { FlatList, Pressable, useWindowDimensions, View } from "react-native";
 
 import { ErrorNotice } from "@/components/custom/error-notice";
+import { FadedArtwork } from "@/components/custom/faded-artwork";
 import { TrackCollectionView } from "@/components/custom/track-collection-view";
 import { FloatingBackButton } from "@/components/ui/floating-back-button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -176,11 +169,6 @@ export default function ArtistScreen() {
  * The artist image, run to every edge and under the status bar, with the name
  * and the play button over the bottom of it. The image fades into the page
  * color rather than ending on a hard line.
- *
- * `expo-image` rather than the React Native one: it caches to disk, decodes off
- * the JS thread, and can show the small artwork while the hero-sized one is
- * still coming down. A 1200px image over a slow connection is otherwise a blank
- * rectangle for a few seconds, with the tint already painted around it.
  */
 function ArtistHero({
     artist,
@@ -206,43 +194,24 @@ function ArtistHero({
 
     return (
         <View style={{ height }} className="justify-end">
-            <MaskedView
-                pointerEvents="none"
-                style={StyleSheet.absoluteFill}
-                // Cache this static image+mask composite while the parent scrolls.
-                shouldRasterizeIOS
-                renderToHardwareTextureAndroid
-                maskElement={
-                    <LinearGradient
-                        style={StyleSheet.absoluteFill}
-                        colors={["#000000", "#000000", "transparent"]}
-                        locations={[0, ARTIST_ARTWORK_FADE_START, 1]}
-                    />
+            <FadedArtwork
+                uri={artworkUrl}
+                placeholderUri={artist?.artworkUrlSmall}
+                fadeStart={ARTIST_ARTWORK_FADE_START}
+                fallback={
+                    artistLoading ? (
+                        <Skeleton className="absolute inset-0" />
+                    ) : (
+                        <View className="absolute inset-0 items-center justify-center bg-muted">
+                            <Ionicons
+                                name="person"
+                                size={72}
+                                color={colors.text}
+                            />
+                        </View>
+                    )
                 }
-            >
-                {artworkUrl ? (
-                    <Image
-                        source={{ uri: artworkUrl }}
-                        placeholder={
-                            artist?.artworkUrlSmall
-                                ? { uri: artist.artworkUrlSmall }
-                                : undefined
-                        }
-                        placeholderContentFit="cover"
-                        contentFit="cover"
-                        cachePolicy="memory-disk"
-                        priority="high"
-                        transition={0}
-                        style={{ position: "absolute", inset: 0 }}
-                    />
-                ) : artistLoading ? (
-                    <Skeleton className="absolute inset-0" />
-                ) : (
-                    <View className="absolute inset-0 items-center justify-center bg-muted">
-                        <Ionicons name="person" size={72} color={colors.text} />
-                    </View>
-                )}
-            </MaskedView>
+            />
 
             <ContrastRegion offset={height - 100}>
                 <View className="items-center px-6 pb-5">

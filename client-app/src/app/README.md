@@ -222,7 +222,7 @@ instead of navigating after a threshold. The custom glass selector follows the s
 `/artist/:id`, `/collection/:kind/:id`, `/tag/:tagId`, and `/query-results` use the
 shared `TrackCollectionView` instead of a `DetailScreen` header, and float a
 `FloatingBackButton` in the top left. The artist supplies its full-bleed image hero and albums rail as custom header and
-footer content. The collection uses the standard single-artwork layout with Play/Pause, Shuffle,
+footer content. The collection uses the standard full-bleed single-cover layout with Play/Pause, Shuffle,
 and a caller-supplied action that opens `CollectionOptionsMenu`. A tag uses the standard mosaic,
 uses its tag pill and song count as the title, and supplies its tag color as the page color,
 and offers rename, recolor, and delete actions. Query results use the standard
