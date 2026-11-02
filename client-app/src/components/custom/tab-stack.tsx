@@ -26,7 +26,10 @@ type Props = {
  */
 export function TabStack({ tab, title, pinnedRail }: Props) {
     return (
-        <TopRailProvider pinned={pinnedRail?.map((name) => `${tab}/${name}`)}>
+        <TopRailProvider
+            pinned={pinnedRail?.map((name) => `${tab}/${name}`)}
+            railless={DETAIL_ROUTE_NAMES}
+        >
             <Stack
                 screenOptions={{
                     header: ({ options, navigation, back, route }) => (
