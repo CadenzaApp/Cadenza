@@ -1,6 +1,7 @@
 /**
  * Keeps the pushed detail screens (artist, album, playlist, tag, song discuss,
- * query results) from piling up on the root stack.
+ * query results) from piling up on a tab's stack. Every tab's stack holds all
+ * of them, see `TabStack`.
  *
  * Opening a detail screen that is already on the stack goes back to it rather
  * than pushing a copy, so artist -> playlist -> the same artist lands on the
@@ -12,7 +13,7 @@
  */
 
 /**
- * The params that make two detail routes the same screen, by root route name.
+ * The params that make two detail routes the same screen, by route name.
  * Everything else a route carries (a title, an artwork color) is a hint for
  * drawing before the fetch lands, not part of what it is.
  */
@@ -23,6 +24,9 @@ const DETAIL_IDENTITY: Record<string, readonly string[]> = {
     "discuss/[songId]": ["songId"],
     "query-results": ["query", "suggested"],
 };
+
+/** The shared detail routes every tab's stack holds. */
+export const DETAIL_ROUTE_NAMES = Object.keys(DETAIL_IDENTITY);
 
 /** Detail screens kept on the stack at once. */
 export const MAX_DETAIL_DEPTH = 5;
@@ -40,7 +44,7 @@ type HrefObject = {
 };
 
 /**
- * The root route an href opens when it is a detail screen, or null for any
+ * The route an href opens when it is a detail screen, or null for any
  * other href. Takes a pattern pathname with params (`/artist/[id]`) or a
  * concrete path (`/tag/12`). A string with a query string is not resolved.
  *
@@ -73,7 +77,7 @@ export function detailIdentity(route: StackRoute): string | null {
 }
 
 /**
- * The root stack's routes after opening `target`.
+ * A tab stack's routes after opening `target`.
  *
  * Back to the last route with the same identity when there is one, dropping
  * everything above it; that is the same routes when it is already on top.
@@ -148,19 +152,4 @@ function stringParams(params: object): Record<string, string> {
         if (value !== undefined && value !== null) out[key] = String(value);
     }
     return out;
-}
-
-/** Keep the player and its history below a full-screen destination. */
-export function routesAfterOpeningFromPlayer<R extends StackRoute>(
-    routes: readonly R[],
-    target: StackRoute,
-): (R | StackRoute)[] {
-    const playerIndex = routes.findLastIndex(
-        (route) => route.name === "player",
-    );
-    if (playerIndex < 0) return routesAfterOpening(routes, target);
-    return [
-        ...routes.slice(0, playerIndex + 1),
-        ...routesAfterOpening(routes.slice(playerIndex + 1), target),
-    ];
 }

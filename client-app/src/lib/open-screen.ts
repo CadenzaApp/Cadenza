@@ -1,35 +1,30 @@
 import { useNavigationContainerRef, useRouter, type Href } from "expo-router";
 import {
     CommonActions,
+    StackActions,
     type NavigationState,
     type PartialState,
 } from "expo-router/react-navigation";
 import { useCallback } from "react";
 
-import {
-    detailRouteFor,
-    routesAfterOpening,
-    routesAfterOpeningFromPlayer,
-} from "./detail-stack";
+import { detailRouteFor, routesAfterOpening } from "./detail-stack";
 
 export type OpenScreenOptions = {
     /**
      * A root route to close on the way, by name, like the now playing sheet.
-     * Closed in the same step as the open, since a separate `router.back()`
-     * has not landed yet when the stack is read.
+     * The screen opens in the tab underneath it, in the same step.
      */
     closing?: string;
-    /** Keep the player underneath a full-screen destination for native back. */
-    fromPlayer?: boolean;
 };
 
 /**
  * Opens a screen. Use it in place of `router.push` for anything that can
  * open a detail screen.
  *
- * A detail href goes through `routesAfterOpening`, applied as one reset of the
- * root stack, so it never stacks a copy of a screen already open and never
- * piles up past the cap. Any other href is a plain push.
+ * Detail screens live in every tab's stack, so a detail href opens in the
+ * current tab. It goes through `routesAfterOpening`, applied as one reset of
+ * that tab's stack, so it never stacks a copy of a screen already open and
+ * never piles up past the cap. Any other href is a plain push.
  *
  * A hook rather than a router override because expo-router's `Stack` fixes
  * its own router and takes no other.
@@ -39,36 +34,43 @@ export function useOpenScreen() {
     const navigation = useNavigationContainerRef();
 
     return useCallback(
-        (href: Href, { closing, fromPlayer }: OpenScreenOptions = {}) => {
+        (href: Href, { closing }: OpenScreenOptions = {}) => {
             const target = detailRouteFor(href);
-            const state = navigation.isReady()
-                ? navigatorFor(navigation.getRootState(), target?.name)
-                : undefined;
-            if (!target || !state) {
+            const found =
+                target && navigation.isReady()
+                    ? navigatorFor(
+                          navigation.getRootState(),
+                          target.name,
+                          closing,
+                      )
+                    : undefined;
+            if (!target || !found) {
                 if (closing) router.back();
                 router.push(href);
                 return;
             }
 
-            const available = state.routes.filter(
-                (route) => route.name !== closing,
-            );
-            const routes = fromPlayer
-                ? routesAfterOpeningFromPlayer(available, target)
-                : routesAfterOpening(available, target);
+            const { state, closingIn } = found;
+            const routes = routesAfterOpening(state.routes, target);
             const unchanged =
                 routes.length === state.routes.length &&
                 routes.every((route, i) => route === state.routes[i]);
-            if (unchanged) return;
-
-            navigation.dispatch({
-                ...CommonActions.reset({
-                    ...state,
-                    routes: routes as typeof state.routes,
-                    index: routes.length - 1,
-                }),
-                target: state.key,
-            });
+            if (!unchanged) {
+                navigation.dispatch({
+                    ...CommonActions.reset({
+                        ...state,
+                        routes: routes as typeof state.routes,
+                        index: routes.length - 1,
+                    }),
+                    target: state.key,
+                });
+            }
+            if (closingIn) {
+                navigation.dispatch({
+                    ...StackActions.pop(),
+                    target: closingIn,
+                });
+            }
         },
         [navigation, router],
     );
@@ -80,20 +82,27 @@ type AnyState = NavigationState | PartialState<NavigationState>;
  * The navigator that owns `name`, walking down the focused routes from the
  * root. Not the root itself: expo-router wraps the app's root stack in a slot
  * navigator of its own.
+ *
+ * A focused route named `closing` is stepped over to the one beneath it, and
+ * the key of the stack it sat in comes back as `closingIn`.
  */
 function navigatorFor(
     root: AnyState,
-    name: string | undefined,
-): NavigationState | undefined {
-    if (!name) return undefined;
+    name: string,
+    closing: string | undefined,
+): { state: NavigationState; closingIn?: string } | undefined {
     let current: AnyState | undefined = root;
+    let closingIn: string | undefined;
     while (current) {
         if (current.stale === false && current.routeNames.includes(name)) {
-            return current;
+            return { state: current, closingIn };
         }
-        const focused: (typeof current.routes)[number] | undefined =
-            current.routes[current.index ?? current.routes.length - 1];
-        current = focused?.state;
+        let index: number = current.index ?? current.routes.length - 1;
+        if (closing && current.routes[index]?.name === closing && index > 0) {
+            closingIn = current.key;
+            index -= 1;
+        }
+        current = current.routes[index]?.state;
     }
     return undefined;
 }

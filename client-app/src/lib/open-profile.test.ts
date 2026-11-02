@@ -11,10 +11,10 @@ test("opening a profile closes covering screens and keeps the feed underneath", 
             pop: true,
             merge: true,
             params: {
-                screen: "social",
+                screen: "(social)",
                 initial: false,
                 params: {
-                    screen: "user/[userId]",
+                    screen: "social/user/[userId]",
                     initial: false,
                     params: { userId: "user-7" },
                 },
