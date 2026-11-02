@@ -1,3 +1,4 @@
+import { useRouter } from "expo-router";
 import { useTheme } from "expo-router/react-navigation";
 import { View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -7,29 +8,23 @@ import {
     AnimatedContrastIcon,
     useFloatingSurfaceContrast,
 } from "@/lib/surface-contrast-context";
-import { useCloseScreen } from "@/lib/zoom-dismiss";
 
 /** Gap between the safe area and the button. */
 const TOP_GAP = 8;
 
 /**
- * The X a screen that draws its own hero floats in the top right, where
- * `DetailScreen` puts its own. It closes through `useCloseScreen`, so it plays
- * the same minimize the pull does.
- *
- * It has to be a component rather than a call in the screen: the controller
- * lives in the `ZoomDismissScreen` the screen renders, so only something
- * underneath it can read one.
+ * The back button a pushed screen that draws its own hero floats in the top
+ * left, where a native header puts its own.
  */
-export function FloatingCloseButton({
-    label,
+export function FloatingBackButton({
+    label = "Back",
     size,
 }: {
-    label: string;
+    label?: string;
     size?: number;
 }) {
     const insets = useSafeAreaInsets();
-    const close = useCloseScreen();
+    const router = useRouter();
     const { colors } = useTheme();
     const { iconStyle, scheme } = useFloatingSurfaceContrast(
         insets.top + TOP_GAP + (size ?? 40) / 2,
@@ -37,7 +32,7 @@ export function FloatingCloseButton({
 
     return (
         <View
-            className="absolute right-5"
+            className="absolute left-5"
             style={{ top: insets.top + TOP_GAP }}
             pointerEvents="box-none"
         >
@@ -46,11 +41,11 @@ export function FloatingCloseButton({
                 bordered={false}
                 surfaceScheme={scheme}
                 accessibilityLabel={label}
-                onPress={close}
+                onPress={() => router.back()}
             >
                 <AnimatedContrastIcon
-                    name="close"
-                    size={22}
+                    name="chevron-back"
+                    size={24}
                     color={colors.text}
                     style={iconStyle}
                 />

@@ -1,4 +1,3 @@
-import type { Ref } from "react";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import {
     RepeatMode,
@@ -41,8 +40,6 @@ type MediaPlayerQueueProps = {
     onFavoriteToggle: () => void;
     onOpenMenu: () => void;
     onOpenArtist?: () => void;
-    artistNameRef?: Ref<View>;
-    artworkRef?: Ref<View>;
     onToggleShuffle: () => void;
     onCycleRepeat: () => void;
     /** Positions address the upcoming list, not the whole queue. */
@@ -75,8 +72,6 @@ export function MediaPlayerQueue({
     onFavoriteToggle,
     onOpenMenu,
     onOpenArtist,
-    artistNameRef,
-    artworkRef,
     onToggleShuffle,
     onCycleRepeat,
     onPlayUpcoming,
@@ -98,8 +93,6 @@ export function MediaPlayerQueue({
                 onFavoriteToggle={onFavoriteToggle}
                 onOpenMenu={onOpenMenu}
                 onOpenArtist={onOpenArtist}
-                artistNameRef={artistNameRef}
-                artworkRef={artworkRef}
             />
 
             <View className="mt-3 flex-row gap-2">

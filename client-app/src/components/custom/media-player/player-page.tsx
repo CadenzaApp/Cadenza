@@ -38,8 +38,6 @@ import {
     useSongArtists,
     useSongFavoriteStatus,
 } from "@/lib/musickit-hooks";
-import { detailRouteFor } from "@/lib/detail-stack";
-import { useZoomSource } from "@/lib/zoom-dismiss";
 import { useOpenScreen } from "@/lib/open-screen";
 import { SHEET_DETENT, useAppTheme } from "@/lib/theme";
 
@@ -98,10 +96,6 @@ export function PlayerPage() {
     const { brand } = useAppTheme().colors;
     const openScreen = useOpenScreen();
     const focused = useIsFocused();
-    const { ref: albumArtworkRef, capture: captureAlbumArtwork } =
-        useZoomSource();
-    const { ref: artistNameRef, capture: captureArtistName } =
-        useZoomSource("point");
     const insets = useSafeAreaInsets();
     const { width, height } = useWindowDimensions();
     const [view, setView] = useState<PlayerView>("artwork");
@@ -310,20 +304,9 @@ export function PlayerPage() {
         }
     }
 
-    /** Artist and album destinations retain this player for native back. */
+    /** Closes this sheet and opens `href` in the tab underneath. */
     function leaveFor(href: Href) {
-        const destination = detailRouteFor(href);
-        const isAlbum =
-            destination?.name === "collection/[kind]/[id]" &&
-            (destination.params as { kind?: string })?.kind === "album";
-        const isArtist = destination?.name === "artist/[id]";
-        if (isAlbum) captureAlbumArtwork();
-        if (isArtist) captureArtistName();
-        const preservesPlayer = isArtist || isAlbum;
-        openScreen(
-            href,
-            preservesPlayer ? { fromPlayer: true } : { closing: "player" },
-        );
+        openScreen(href, { closing: "player" });
     }
 
     function openArtist() {
@@ -376,8 +359,6 @@ export function PlayerPage() {
                     isUpdatingFavorite={isUpdatingFavorite}
                     textColor={colors.text}
                     onFavoriteToggle={() => void handleFavoriteToggle()}
-                    artworkRef={albumArtworkRef}
-                    artistNameRef={artistNameRef}
                     onOpenArtist={artistId ? openArtist : undefined}
                     onOpenMenu={() => setMenuOpen(true)}
                     onToggleShuffle={toggleShuffle}
@@ -400,8 +381,6 @@ export function PlayerPage() {
                     <View className="flex-1 items-center justify-center">
                         {canRenderFullArtwork ? (
                             <Pressable
-                                ref={albumArtworkRef}
-                                collapsable={false}
                                 accessibilityRole="button"
                                 accessibilityLabel="Artwork options"
                                 onPress={() => setArtworkView("menu")}
@@ -443,7 +422,6 @@ export function PlayerPage() {
                         isUpdatingFavorite={isUpdatingFavorite}
                         textColor={colors.text}
                         onFavoriteToggle={() => void handleFavoriteToggle()}
-                        artistNameRef={artistNameRef}
                         onOpenArtist={artistId ? openArtist : undefined}
                         onOpenMenu={() => setMenuOpen(true)}
                     />

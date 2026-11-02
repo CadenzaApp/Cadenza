@@ -1,4 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { useRouter } from "expo-router";
 import { useTheme } from "expo-router/react-navigation";
 import type { ReactNode } from "react";
 import { Platform, View, useWindowDimensions } from "react-native";
@@ -7,25 +8,23 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { GlassIconButton } from "@/components/ui/glass-icon-button";
 import { Text } from "@/components/ui/text";
 import { TintBackdrop } from "@/components/ui/tint-backdrop";
-import { MediaPlayerZoomOverlay } from "@/components/custom/media-player";
 import { InsideSheetContext } from "@/lib/screen-overlay";
 import { useTintGradient } from "@/lib/use-tint-gradient";
 import { contrastPalette, gradientColorAt } from "@/lib/artwork-color-utils";
-import { useCloseScreen, ZoomDismissScreen } from "@/lib/zoom-dismiss";
 
 /**
  * How the route this shell fills is presented. A sheet is a native surface over
- * the whole app; a screen is pushed in the root stack with the bottom bars
- * floating over it. The two differ in what they owe the top and bottom edges,
+ * the whole app; a screen is pushed inside a tab, under the tab bar and the
+ * player. The two differ in what they owe the top and bottom edges,
  * and in nothing else.
  */
 export type DetailPresentation = "screen" | "sheet";
 
 type DetailScreenProps = {
     title: string;
-    /** Defaults to closing the screen, which is what the X is for. */
+    /** Defaults to going back, for the X on a sheet or the back on a screen. */
     onClose?: () => void;
-    /** Extra controls placed left of the close button. */
+    /** Extra controls on the right of the header. */
     headerRight?: ReactNode;
     /**
      * Artwork color to wash the sheet with, from `useArtworkTint`. Null leaves
@@ -38,14 +37,13 @@ type DetailScreenProps = {
 };
 
 /**
- * The header and safe-area shell for a detail route: the title, a close button,
- * and the body below them. The caller decides whether the body scrolls and owns
+ * The header and safe-area shell for a detail route: the title, a back button
+ * on a pushed screen or a close button on a sheet, and the body below them. The caller decides whether the body scrolls and owns
  * its own bottom inset.
  *
- * Both presentations get the same header, so closing out of one reads the same
- * as closing out of the other. What changes is the top inset, since a sheet
- * already starts below the status bar, and whether the body counts the bottom
- * bars: a sheet covers them, a pushed screen has them floating over it.
+ * What changes between the two is the top inset, since a sheet already starts
+ * below the status bar, and whether the body counts the bottom bars: a sheet
+ * covers them, a pushed screen has them over it.
  *
  * The body sits in its own clipped flex box and the header is lifted above it.
  * Sibling order alone would let a body that mis-sizes itself paint over the
@@ -64,42 +62,24 @@ export function DetailScreen({
     const insets = useSafeAreaInsets();
     const { colors } = useTheme();
 
-    // A sheet already has a native dismiss, and wrapping it would minimize a
-    // card inside a card. Only a pushed screen gets the zoom.
-    if (isSheet) {
-        return (
-            <DetailScreenBody
-                title={title}
-                onClose={onClose}
-                headerRight={headerRight}
-                tint={tint}
-                isSheet
-                insetTop={Platform.OS === "ios" ? 12 : insets.top}
-                textColor={String(colors.text)}
-            >
-                {children}
-            </DetailScreenBody>
-        );
-    }
-
     return (
-        <ZoomDismissScreen overlay={<MediaPlayerZoomOverlay />}>
-            <DetailScreenBody
-                title={title}
-                onClose={onClose}
-                headerRight={headerRight}
-                tint={tint}
-                isSheet={false}
-                insetTop={insets.top}
-                textColor={String(colors.text)}
-            >
-                {children}
-            </DetailScreenBody>
-        </ZoomDismissScreen>
+        <DetailScreenBody
+            title={title}
+            onClose={onClose}
+            headerRight={headerRight}
+            tint={tint}
+            isSheet={isSheet}
+            // a sheet starts below the status bar, so on iOS that is just room
+            // for the native grabber
+            insetTop={isSheet && Platform.OS === "ios" ? 12 : insets.top}
+            textColor={String(colors.text)}
+        >
+            {children}
+        </DetailScreenBody>
     );
 }
 
-/** The header, the tint, and the body. Identical either side of the wrapper. */
+/** The header, the tint, and the body. */
 function DetailScreenBody({
     title,
     onClose,
@@ -119,7 +99,8 @@ function DetailScreenBody({
     textColor: string;
     children: ReactNode;
 }) {
-    const close = useCloseScreen();
+    const router = useRouter();
+    const close = onClose ?? (() => router.back());
     const gradient = useTintGradient(tint, !isSheet);
     const { height } = useWindowDimensions();
     const palette = gradient
@@ -152,7 +133,21 @@ function DetailScreenBody({
                     elevation: 1,
                 }}
             >
-                <View className="h-16 flex-row items-center justify-between px-5">
+                <View className="h-16 flex-row items-center justify-between gap-3 px-5">
+                    {isSheet ? null : (
+                        <GlassIconButton
+                            bordered={false}
+                            surfaceScheme={palette?.scheme}
+                            accessibilityLabel="Back"
+                            onPress={close}
+                        >
+                            <Ionicons
+                                name="chevron-back"
+                                size={22}
+                                color={foreground}
+                            />
+                        </GlassIconButton>
+                    )}
                     <Text
                         className="flex-1 text-3xl font-bold tracking-tight"
                         style={{ color: foreground }}
@@ -162,18 +157,20 @@ function DetailScreenBody({
                     </Text>
                     <View className="flex-row items-center gap-2">
                         {headerRight}
-                        <GlassIconButton
-                            bordered={false}
-                            surfaceScheme={palette?.scheme}
-                            accessibilityLabel={`Close ${title.toLowerCase()}`}
-                            onPress={onClose ?? close}
-                        >
-                            <Ionicons
-                                name="close"
-                                size={22}
-                                color={foreground}
-                            />
-                        </GlassIconButton>
+                        {isSheet ? (
+                            <GlassIconButton
+                                bordered={false}
+                                surfaceScheme={palette?.scheme}
+                                accessibilityLabel={`Close ${title.toLowerCase()}`}
+                                onPress={close}
+                            >
+                                <Ionicons
+                                    name="close"
+                                    size={22}
+                                    color={foreground}
+                                />
+                            </GlassIconButton>
+                        ) : null}
                     </View>
                 </View>
             </View>

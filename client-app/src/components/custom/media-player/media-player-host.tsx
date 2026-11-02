@@ -11,7 +11,6 @@ import Animated, {
     useSharedValue,
     withSpring,
 } from "react-native-reanimated";
-import { FullWindowOverlay } from "react-native-screens";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import {
@@ -32,7 +31,6 @@ import { useBottomSelectionOverlay } from "@/lib/bottom-selection-overlay";
 import {
     useBottomBarsHidden,
     usePlayerHostActive,
-    useShowsRootPlayerOverlay,
     useBottomRowAction,
 } from "@/lib/screen-overlay";
 
@@ -90,67 +88,6 @@ export function MediaPlayerFallbackOverlay({
                     kind="tabs"
                     failedArtworkUrl={failedArtworkUrl}
                     onArtworkError={onArtworkError}
-                />
-            </View>
-        </View>
-    );
-}
-
-/** Compact player owned by one zoom-dismiss card. */
-export function MediaPlayerZoomOverlay() {
-    const focused = usePlayerHostActive();
-    return focused ? <StandalonePlayerOverlay /> : null;
-}
-
-/** Compact player for pushed screens that do not own a zoom-dismiss card. */
-export function MediaPlayerPushedScreenOverlay() {
-    const visible = useShowsRootPlayerOverlay();
-
-    if (!visible) return null;
-
-    const player = <StandalonePlayerOverlay />;
-
-    // A native screen sits above ordinary React siblings on iOS, regardless
-    // of z-index. Query results do not own a zoom card, so their player stays
-    // at the root and moves to the window layer.
-    if (Platform.OS !== "ios") return player;
-
-    return (
-        <FullWindowOverlay unstable_accessibilityContainerViewIsModal={false}>
-            {player}
-        </FullWindowOverlay>
-    );
-}
-
-/** The shared standalone-player surface used by both kinds of host. */
-function StandalonePlayerOverlay() {
-    const hidden = useBottomBarsHidden();
-    const insets = useSafeAreaInsets();
-    const [failedArtworkUrl, setFailedArtworkUrl] = useState<string | null>(
-        null,
-    );
-
-    return (
-        <View
-            pointerEvents={hidden ? "none" : "box-none"}
-            style={[
-                StyleSheet.absoluteFill,
-                { zIndex: 20, opacity: hidden ? 0 : 1 },
-            ]}
-        >
-            <View
-                pointerEvents="box-none"
-                style={{
-                    position: "absolute",
-                    top: 0,
-                    left: PLAYER_SIDE_INSET,
-                    right: PLAYER_SIDE_INSET,
-                    bottom: insets.bottom + PLAYER_ROW_GAP,
-                }}
-            >
-                <MediaPlayerRow
-                    failedArtworkUrl={failedArtworkUrl}
-                    onArtworkError={setFailedArtworkUrl}
                 />
             </View>
         </View>
