@@ -8,7 +8,11 @@ import { memo, useCallback, useMemo, useState } from "react";
 import { FlatList, Pressable, useWindowDimensions, View } from "react-native";
 
 import { ErrorNotice } from "@/components/custom/error-notice";
-import { FadedArtwork } from "@/components/custom/faded-artwork";
+import {
+    CoverHero,
+    useCoverHeroLayout,
+    type CoverHeroLayout,
+} from "@/components/custom/cover-hero";
 import { TrackCollectionView } from "@/components/custom/track-collection-view";
 import { FloatingBackButton } from "@/components/ui/floating-back-button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -16,12 +20,8 @@ import {
     ContrastRegion,
     ContrastText as Text,
 } from "@/lib/surface-contrast-context";
-import { useArtworkTint } from "@/lib/artwork-color";
-import {
-    createArtistGradient,
-    ARTIST_ARTWORK_FADE_START,
-    ARTIST_GRADIENT_SCREEN_HEIGHTS,
-} from "@/lib/artwork-color-utils";
+import { useArtworkTint, useCoverPageColor } from "@/lib/artwork-color";
+import { flatGradient } from "@/lib/artwork-color-utils";
 import { collectionRoute } from "@/lib/music-routes";
 import { useArtist } from "@/lib/musickit-hooks";
 import { samePlayableItem } from "@/lib/playable-item";
@@ -43,12 +43,13 @@ const NO_PAGINATION = {
     isLoadingNextPage: false,
     onLoadNextPage: () => undefined,
 } as const;
-/** Height of the hero, as a fraction of the window height. Apple's is about this. */
-const HERO_HEIGHT_RATIO = 0.45;
+/** How far above the hero's bottom the name sits, for the contrast sample. */
+const HERO_NAME_INSET = 100;
 
 /**
  * One catalog artist: the artist image full bleed, their top songs, then their
- * albums. Apple's order, with a background sampled from the artist portrait.
+ * albums. Apple's order, on a flat page colored from the portrait's bottom
+ * half, the same hero as an album.
  *
  * The whole page is one `MusicList`. It owns a `FlatList`, so the hero goes in
  * as its header and the albums rail as its footer; stacking a `ScrollView`
@@ -61,7 +62,6 @@ const HERO_HEIGHT_RATIO = 0.45;
 export default function ArtistScreen() {
     const { id, name } = useLocalSearchParams<{ id: string; name?: string }>();
     const { colorScheme = "light" } = useColorScheme();
-    const { height: windowHeight } = useWindowDimensions();
     const { artist, artistLoading, artistErr } = useArtist(id);
     const { tint: portraitTint } = useArtworkTint(artist);
     const { activeTrack, isLoading, isPlaying } = usePlaybackTrackState();
@@ -69,30 +69,31 @@ export default function ArtistScreen() {
     const [playbackCommandPending, setPlaybackCommandPending] = useState(false);
     const albums = artist?.albums ?? EMPTY_ALBUMS;
     const topSongs = artist?.topSongs ?? EMPTY_TRACKS;
+    const heroLayout = useCoverHeroLayout();
+    const pageColor = useCoverPageColor(
+        artist?.artworkUrlSmall ?? artist?.artworkUrl,
+        portraitTint,
+    );
     const gradient = useMemo(
-        () =>
-            portraitTint
-                ? createArtistGradient(portraitTint, colorScheme)
-                : null,
-        [portraitTint, colorScheme],
+        () => (pageColor ? flatGradient(pageColor) : null),
+        [pageColor],
     );
     const isCurrentArtist =
         activeTrack != null &&
         (activeTrack.artistId === id ||
             topSongs.some((song) => samePlayableItem(song, activeTrack)));
     const isArtistPlaying = isCurrentArtist && isPlaying;
-    const heroHeight = windowHeight * HERO_HEIGHT_RATIO;
     const loadingColor = colorScheme === "dark" ? "#000000" : "#ffffff";
     const artworkSurface = useMemo(
         () =>
-            portraitTint
+            pageColor
                 ? {
-                      color: portraitTint,
-                      height: heroHeight,
-                      fadeStart: ARTIST_ARTWORK_FADE_START,
+                      color: pageColor,
+                      height: heroLayout.height,
+                      fadeStart: heroLayout.fadeStart,
                   }
                 : undefined,
-        [portraitTint, heroHeight],
+        [pageColor, heroLayout.height, heroLayout.fadeStart],
     );
 
     /** Replaces the queue with the top songs, in Apple's order. */
@@ -121,11 +122,8 @@ export default function ArtistScreen() {
                 error={artistErr}
                 pagination={NO_PAGINATION}
                 multiSelect={DEFAULT_MULTI_SELECT_CONFIG}
-                backgroundColor={portraitTint}
+                backgroundColor={pageColor}
                 backgroundGradient={gradient}
-                gradientMinHeight={
-                    windowHeight * ARTIST_GRADIENT_SCREEN_HEIGHTS
-                }
                 artworkSurface={artworkSurface}
                 header={
                     <>
@@ -133,13 +131,13 @@ export default function ArtistScreen() {
                             artist={artist}
                             artistLoading={artistLoading}
                             name={artist?.name ?? name ?? "Artist"}
-                            height={heroHeight}
+                            layout={heroLayout}
                             canPlay={topSongs.length > 0}
                             isPlaying={isArtistPlaying}
                             isLoading={isLoading || playbackCommandPending}
                             onPlay={() => void playTopSongs()}
                         />
-                        <ContrastRegion offset={heroHeight + 30}>
+                        <ContrastRegion offset={heroLayout.height + 30}>
                             <Text className="px-6 pb-1 pt-5 text-xl font-bold text-foreground">
                                 Top Songs
                             </Text>
@@ -166,15 +164,14 @@ export default function ArtistScreen() {
 }
 
 /**
- * The artist image, run to every edge and under the status bar, with the name
- * and the play button over the bottom of it. The image fades into the page
- * color rather than ending on a hard line.
+ * The artist image as a `CoverHero`, with the name and the play button over
+ * the bottom of it.
  */
 function ArtistHero({
     artist,
     artistLoading,
     name,
-    height,
+    layout,
     canPlay,
     isPlaying,
     isLoading,
@@ -183,7 +180,7 @@ function ArtistHero({
     artist?: ArtistDetail;
     artistLoading: boolean;
     name: string;
-    height: number;
+    layout: CoverHeroLayout;
     canPlay: boolean;
     isPlaying: boolean;
     isLoading: boolean;
@@ -193,27 +190,21 @@ function ArtistHero({
     const artworkUrl = artist?.artworkUrl;
 
     return (
-        <View style={{ height }} className="justify-end">
-            <FadedArtwork
-                uri={artworkUrl}
-                placeholderUri={artist?.artworkUrlSmall}
-                fadeStart={ARTIST_ARTWORK_FADE_START}
-                fallback={
-                    artistLoading ? (
-                        <Skeleton className="absolute inset-0" />
-                    ) : (
-                        <View className="absolute inset-0 items-center justify-center bg-muted">
-                            <Ionicons
-                                name="person"
-                                size={72}
-                                color={colors.text}
-                            />
-                        </View>
-                    )
-                }
-            />
-
-            <ContrastRegion offset={height - 100}>
+        <CoverHero
+            layout={layout}
+            uri={artworkUrl}
+            placeholderUri={artist?.artworkUrlSmall}
+            fallback={
+                artistLoading ? (
+                    <Skeleton className="absolute inset-0" />
+                ) : (
+                    <View className="absolute inset-0 items-center justify-center bg-muted">
+                        <Ionicons name="person" size={72} color={colors.text} />
+                    </View>
+                )
+            }
+        >
+            <ContrastRegion offset={layout.height - HERO_NAME_INSET}>
                 <View className="items-center px-6 pb-5">
                     <Text
                         className="pb-4 text-center text-4xl font-bold tracking-tight text-white"
@@ -228,7 +219,7 @@ function ArtistHero({
                     />
                 </View>
             </ContrastRegion>
-        </View>
+        </CoverHero>
     );
 }
 

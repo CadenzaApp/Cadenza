@@ -1,7 +1,10 @@
 import { ImageColor, type ImageRegion } from "@image-color";
+import { useColorScheme } from "nativewind";
+import { useMemo } from "react";
 import useSWRImmutable from "swr/immutable";
 
 import { readableTextColor } from "@/components/custom/tag-pill";
+import { coverPageColor } from "@/lib/artwork-color-utils";
 export { averageArtworkColors } from "@/lib/artwork-color-utils";
 
 /**
@@ -109,6 +112,24 @@ export function useArtworkRegionColor(
         () => ImageColor.getAverageColor(url, { x, y, width, height }),
     );
     return data ?? null;
+}
+
+/**
+ * The flat page color under a full-bleed cover at `url`: the average of the
+ * cover's bottom half, where the fade meets the page, set to the mode's cover
+ * page lightness (`coverPageColor`). `fallback`, usually the whole cover's
+ * tint, stands in until that lands. Null with neither.
+ */
+export function useCoverPageColor(
+    url: string | null | undefined,
+    fallback?: string | null,
+): string | null {
+    const { colorScheme = "light" } = useColorScheme();
+    const source = useArtworkRegionColor(url, BOTTOM_HALF) ?? fallback ?? null;
+    return useMemo(
+        () => (source ? coverPageColor(source, colorScheme) : null),
+        [source, colorScheme],
+    );
 }
 
 /**

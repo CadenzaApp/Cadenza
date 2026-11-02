@@ -280,9 +280,14 @@ since it needs the same reads.
 `TrackCollectionView` owns the standard header, play/shuffle row,
 caller-supplied simple glass options, and the `MusicList`. Routes can supply pagination, playback
 overrides, one background source color, close controls, and opt the standard header into the
-device's top safe area. One cover runs full bleed with the title over its bottom: whole on the
-hero's bottom edge, flipped copies filling the room above and beside it, fading into a page
-tinted from the cover's bottom half (`FadedArtwork`, shared with the artist hero). Several covers or none stay a centered mosaic tile. The view turns that color into the shared Oklch gradient for the active
+device's top safe area. One cover gets a `CoverHero` with the title over its bottom and the actions
+below it. Several covers or none stay a centered mosaic tile.
+
+`CoverHero` is Apple's album hero, measured: the cover at 1.05 screen widths, centered, its top 42pt
+under the status bar with a flipped copy above, fading out over the bottom 28%. The page under it
+is one flat color, `useCoverPageColor`: the cover's bottom-half average at a fixed Oklch lightness
+per mode (0.23 dark, Apple's, 0.93 light), so the fade lands on the page. The artist page uses the
+same hero. Without one, the view turns its color into the shared Oklch gradient for the active
 color mode, including matching fixed overscroll endpoints. The gradient is
 `MusicList`'s `contentBackground`: drawn inside the scroll content behind the rows, filling it, so
 it spans the real content height with nothing measured, and is not a virtualized cell an offscreen

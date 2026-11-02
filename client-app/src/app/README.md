@@ -221,15 +221,15 @@ instead of navigating after a threshold. The custom glass selector follows the s
 
 `/artist/:id`, `/collection/:kind/:id`, `/tag/:tagId`, and `/query-results` use the
 shared `TrackCollectionView` instead of a `DetailScreen` header, and float a
-`FloatingBackButton` in the top left. The artist supplies its full-bleed image hero and albums rail as custom header and
-footer content. The collection uses the standard full-bleed single-cover layout with Play/Pause, Shuffle,
+`FloatingBackButton` in the top left. The artist supplies a `CoverHero` of its portrait and an albums rail as custom header and
+footer content. The collection uses the standard `CoverHero` single-cover layout with Play/Pause, Shuffle,
 and a caller-supplied action that opens `CollectionOptionsMenu`. A tag uses the standard mosaic,
 uses its tag pill and song count as the title, and supplies its tag color as the page color,
 and offers rename, recolor, and delete actions. Query results use the standard
 weighted mosaic and an edge-to-edge tint. Each gradient-backed `TrackCollectionView` paints one continuous
 backdrop outside the list and clamps its scroll offset through elastic overscroll. It normally
-turns the route's source color into the shared mode-aware Oklch gradient; the artist supplies its
-own portrait gradient and a minimum gradient height.
+turns the route's source color into the shared mode-aware Oklch gradient. Under a `CoverHero`
+(album, playlist, artist) the page is instead one flat color from `useCoverPageColor`.
 Under the last row it prints the song count and running time, but only once every page is in,
 since a count off a half-loaded list is a wrong number. Everything the collection draws over its
 tint stays inside the same scroll surface. Either way the hero is the `MusicList` header inside

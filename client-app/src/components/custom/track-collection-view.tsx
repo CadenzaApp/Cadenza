@@ -1,7 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type { MusicItem } from "@apple-musickit";
 import { useIsFocused, useTheme } from "expo-router/react-navigation";
-import { useColorScheme } from "nativewind";
 import type { ComponentProps, ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -32,10 +31,7 @@ import {
     type MusicListSections,
     type MusicListTrackAction,
 } from "@/components/custom/music-list";
-import {
-    FadedArtwork,
-    mirroredCoverFrame,
-} from "@/components/custom/faded-artwork";
+import { CoverHero, useCoverHeroLayout } from "@/components/custom/cover-hero";
 import { ModalPopup } from "@/components/custom/modal-popup";
 import { Button } from "@/components/ui/button";
 import {
@@ -46,11 +42,11 @@ import {
     SurfaceContrastProvider,
 } from "@/lib/surface-contrast-context";
 import {
-    heroPageColor,
+    flatGradient,
     type ArtworkSurface,
     type TintGradient,
 } from "@/lib/artwork-color-utils";
-import { BOTTOM_HALF, useArtworkRegionColor } from "@/lib/artwork-color";
+import { useCoverPageColor } from "@/lib/artwork-color";
 import { TintOverscrollBackdrop } from "@/components/ui/tint-backdrop";
 import { usePlaybackCommands } from "@/lib/playback";
 import { useTintGradient } from "@/lib/use-tint-gradient";
@@ -63,21 +59,8 @@ import { useAppTheme } from "@/lib/theme";
 
 const ARTWORK_SIZE = 224;
 const ARTWORK_SCROLL_SCALE_DISTANCE = 120;
-/**
- * A full-bleed hero is this many window widths tall. The cover sits whole on
- * its bottom edge and a flipped copy fills the room above, under the status
- * bar. Apple's album pages are about this.
- */
-const HERO_ASPECT = 1.2;
-/**
- * The cover's width as a fraction of the window's, so a little of the flipped
- * copies shows down each side.
- */
-const HERO_COVER_SCALE = 0.88;
-/** Where a full-bleed cover starts fading into the page, as a height fraction. */
-const HERO_FADE_START = 0.6;
-/** Height of the title, metadata, and actions over a full-bleed cover's bottom. */
-const HERO_CONTENT_HEIGHT = 170;
+/** How far above the hero's bottom its title sits, for the contrast sample. */
+const HERO_TITLE_INSET = 80;
 
 /** How far the hero artwork has shrunk, scrolled this far down. */
 function artworkScale(scrollY: number) {
@@ -223,7 +206,7 @@ export function TrackCollectionView({
     const { colors } = useTheme();
     const { destructive } = useAppTheme().colors;
     const insets = useSafeAreaInsets();
-    const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+    const { height: windowHeight } = useWindowDimensions();
     const [viewportHeight, setViewportHeight] = useState(windowHeight);
     const [contentHeight, setContentHeight] = useState(windowHeight);
     const { playQueue } = usePlaybackCommands();
@@ -266,39 +249,33 @@ export function TrackCollectionView({
     // One cover runs edge to edge; a mosaic or a placeholder stays a tile.
     const heroArtwork =
         hasDefaultHero && artworkUrls.length === 1 ? artworkUrls[0] : null;
-    const heroHeight = windowWidth * HERO_ASPECT;
-    const heroCover = mirroredCoverFrame(
-        windowWidth,
-        heroHeight,
-        HERO_COVER_SCALE,
-    );
-    // The page carries on from the cover's bottom half, where the fade meets
-    // it, rather than from the whole cover's color. The small copy is enough
-    // to average and usually cached already.
-    const { colorScheme = "light" } = useColorScheme();
-    const coverBottomColor = useArtworkRegionColor(
+    const heroLayout = useCoverHeroLayout();
+    // A full-bleed cover's page is one flat color carried on from the cover's
+    // bottom half, where the fade meets it. The small copy is enough to average
+    // and usually cached already.
+    const pageColor = useCoverPageColor(
         heroArtwork ? (artworkPlaceholderUrl ?? heroArtwork) : null,
-        BOTTOM_HALF,
+        backgroundColor,
     );
-    const heroSource = coverBottomColor ?? backgroundColor;
-    const pageColor =
-        heroArtwork && heroSource
-            ? heroPageColor(heroSource, colorScheme)
-            : backgroundColor;
+    const heroColor = heroArtwork ? pageColor : null;
+    const heroGradient = useMemo(
+        () => (heroColor ? flatGradient(heroColor) : null),
+        [heroColor],
+    );
     const heroSurface = useMemo<ArtworkSurface | undefined>(
         () =>
-            heroArtwork && pageColor
+            heroColor
                 ? {
-                      color: pageColor,
-                      height: heroHeight,
-                      fadeStart: HERO_FADE_START,
+                      color: heroColor,
+                      height: heroLayout.height,
+                      fadeStart: heroLayout.fadeStart,
                   }
                 : undefined,
-        [heroArtwork, pageColor, heroHeight],
+        [heroColor, heroLayout.height, heroLayout.fadeStart],
     );
     const surface = artworkSurface ?? heroSurface;
-    const defaultGradient = useTintGradient(pageColor, true);
-    const gradient = backgroundGradient ?? defaultGradient;
+    const defaultGradient = useTintGradient(backgroundColor, true);
+    const gradient = backgroundGradient ?? heroGradient ?? defaultGradient;
     const gradientHeight = Math.max(
         viewportHeight,
         contentHeight,
@@ -450,38 +427,16 @@ export function TrackCollectionView({
     ) : null;
 
     const defaultHeader = heroArtwork ? (
-        <View className="justify-end" style={{ minHeight: heroHeight }}>
-            <FadedArtwork
+        <View>
+            <CoverHero
+                layout={heroLayout}
                 uri={heroArtwork}
                 placeholderUri={artworkPlaceholderUrl}
-                fadeStart={HERO_FADE_START}
-                mirrored
-                coverScale={HERO_COVER_SCALE}
-            />
-            {/* what the native zoom grows out of the tile into: the real
-                cover, not its mirrors. Sized explicitly, since the target
-                wraps it in an unstyled native view an absolute fill would
-                collapse to nothing. */}
-            <View
-                pointerEvents="none"
-                style={{
-                    position: "absolute",
-                    left: heroCover.left,
-                    top: heroCover.top,
-                }}
+                zoomTarget
             >
-                <Link.AppleZoomTarget>
-                    <View
-                        collapsable={false}
-                        style={{
-                            width: heroCover.size,
-                            height: heroCover.size,
-                        }}
-                    />
-                </Link.AppleZoomTarget>
-            </View>
+                <View className="items-center px-6 pb-6">{titleBlock}</View>
+            </CoverHero>
             <View className="px-4 pb-4">
-                <View className="items-center">{titleBlock}</View>
                 {actions}
                 {errorText}
             </View>
@@ -515,7 +470,7 @@ export function TrackCollectionView({
         <ContrastRegion
             offset={
                 heroArtwork
-                    ? heroHeight - HERO_CONTENT_HEIGHT
+                    ? heroLayout.height - HERO_TITLE_INSET
                     : ARTWORK_SIZE + 80 + (respectTopSafeArea ? insets.top : 0)
             }
         >

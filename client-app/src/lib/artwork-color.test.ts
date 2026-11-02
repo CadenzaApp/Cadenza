@@ -4,7 +4,7 @@ import test from "node:test";
 
 import {
     averageArtworkColors,
-    createArtistGradient,
+    coverPageColor,
     contrastPalette,
     gradientColorAt,
     oklabLightness,
@@ -99,36 +99,16 @@ test("loading gradients stay pure black in dark mode and pure white in light mod
 });
 
 const toOklch = converter("oklch");
-test("portrait gradients start at the exact sample and approach a mode-aware Oklch shade", () => {
-    for (const sample of [
-        "#bf7983",
-        "#658bab",
-        "#e9d9a0",
-        "#ffffff",
-        "#000000",
-    ]) {
+test("a cover page keeps the cover's hue at one lightness per mode", () => {
+    for (const sample of ["#bf7983", "#658bab", "#e9d9a0", "#2e0f26"]) {
         const original = toOklch(sample)!;
         for (const mode of ["dark", "light"] as const) {
-            const { colors } = createArtistGradient(sample, mode);
-            assert.equal(colors[0], sample);
-            assert.equal(colors.length, 9);
-            const target = toOklch(colors.at(-1)!)!;
-            assert.ok(target.c <= original.c * 0.12 + 0.005);
-            const expectedL =
-                mode === "dark"
-                    ? original.l * 0.15
-                    : original.l + (1 - original.l) * 0.92;
-            assert.ok(Math.abs(target.l - expectedL) < 0.01);
-            let previous = original.l;
-            for (const color of colors.slice(1)) {
-                const lightness = toOklch(color)!.l;
-                assert.ok(
-                    mode === "dark"
-                        ? lightness <= previous + 0.001
-                        : lightness >= previous - 0.001,
-                );
-                previous = lightness;
-            }
+            const page = toOklch(coverPageColor(sample, mode))!;
+            assert.ok(
+                Math.abs(page.l - (mode === "dark" ? 0.23 : 0.93)) < 0.01,
+            );
+            assert.ok(page.c <= (mode === "dark" ? 0.07 : 0.04) + 0.005);
+            assert.ok(Math.abs((page.h ?? 0) - (original.h ?? 0)) < 3);
         }
     }
 });

@@ -1,4 +1,4 @@
-import { converter, formatHex } from "culori";
+import { clampChroma, converter, formatHex } from "culori";
 
 const toOklch = converter("oklch");
 const toOklab = converter("oklab");
@@ -173,47 +173,36 @@ export function distinctColors(
     return picked.map((color) => color.hex);
 }
 
-/** Highest Oklch lightness of the page behind a full-bleed cover in dark mode. */
-const HERO_PAGE_MAX_LIGHTNESS = 0.3;
+/**
+ * Oklch lightness and the most chroma of the page under a full-bleed cover, by
+ * mode. Dark is Apple's album page, which measures about L 0.23, C 0.06.
+ */
+const COVER_PAGE = {
+    dark: { l: 0.23, maxC: 0.07 },
+    light: { l: 0.93, maxC: 0.04 },
+} as const;
 
 /**
- * The source color for the page behind a full-bleed cover. In dark mode a deep
- * shade of the cover, so the fade lands somewhere dark and the title over it
- * reads in white. Light mode keeps the cover color, since its tint already
- * lightens it.
+ * The page color under a full-bleed cover: the cover's own hue at one fixed
+ * lightness per mode, a deep shade in dark mode and a pale one in light. Fixed
+ * rather than relative, so every cover's page reads the same and the title
+ * over it always gets the same ink.
  */
-export function heroPageColor(hex: string, scheme: ColorScheme) {
-    if (scheme !== "dark") return hex;
+export function coverPageColor(hex: string, scheme: ColorScheme) {
     const color = toOklch(hex);
-    if (!color || color.l <= HERO_PAGE_MAX_LIGHTNESS) return hex;
-    return formatHex(toRgb({ ...color, l: HERO_PAGE_MAX_LIGHTNESS })) ?? hex;
+    if (!color) return hex;
+    const { l, maxC } = COVER_PAGE[scheme];
+    // a dark yellow at full chroma is outside sRGB; drop chroma, not hue
+    const page = clampChroma(
+        { ...color, l, c: Math.min(color.c ?? 0, maxC) },
+        "oklch",
+    );
+    return formatHex(page) ?? hex;
 }
 
-/** Fade the portrait over most of its height, independently of the page color. */
-export const ARTIST_ARTWORK_FADE_START = 0.2;
-export const ARTIST_GRADIENT_SCREEN_HEIGHTS = 3;
-
-/** Start at the portrait sample; approach a quieter mode-appropriate Oklch shade. */
-export function createArtistGradient(
-    hex: string,
-    scheme: "dark" | "light",
-): TintGradient {
-    const color = toOklch(hex);
-    if (!color) return { colors: [hex, hex] };
-    const endL =
-        scheme === "dark" ? color.l * 0.15 : color.l + (1 - color.l) * 0.92;
-    const endC = color.c * 0.12;
-    const stops = Array.from({ length: 8 }, (_, index) => {
-        const depth = (index + 1) / 8;
-        return (
-            formatHex({
-                ...color,
-                l: color.l + (endL - color.l) * depth,
-                c: color.c + (endC - color.c) * depth,
-            }) ?? hex
-        );
-    });
-    return { colors: [hex, stops[0], ...stops.slice(1)] };
+/** One color top to bottom, for a page that does not fade. */
+export function flatGradient(color: string): TintGradient {
+    return { colors: [color, color] };
 }
 
 /** Oklab lightness and surface sampling, also callable from scroll worklets. */

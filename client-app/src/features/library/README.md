@@ -54,7 +54,7 @@ native scrolling can minimize the tab bar and move its player accessory inline.
 
 Album and playlist details render through the shared `TrackCollectionView`. The route supplies
 pagination, an artwork-derived background color, current playback state, and its rich collection options menu. Artist details use
-the same track surface with a custom full-bleed hero and albums footer. Query results use the
+the same track surface with a `CoverHero` of the portrait and an albums footer. Query results use the
 standard mosaic header and add their Save action through the same options input. Tag details also
 use the mosaic, tag pill and song count as the title, and supply their tag color as the background
 source. The shared view builds every mode-aware Oklch gradient. Tag details also offer options to

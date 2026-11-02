@@ -9,10 +9,7 @@ export type ImageRegion = {
 };
 
 export interface ImageColorNativeModule {
-    getAverageColor(
-        url: string,
-        region: ImageRegion | null,
-    ): Promise<string | null>;
+    getAverageColor(url: string, region?: ImageRegion): Promise<string | null>;
 }
 
 const nativeModule =
@@ -42,9 +39,12 @@ export const ImageColor = {
         const target = url?.trim();
         if (!target || !nativeModule) return null;
         try {
-            return normalizeHex(
-                await nativeModule.getAverageColor(target, region ?? null),
-            );
+            // the region only when asked for, so a build from before regions
+            // existed still answers the whole-image call
+            const color = region
+                ? await nativeModule.getAverageColor(target, region)
+                : await nativeModule.getAverageColor(target);
+            return normalizeHex(color);
         } catch {
             return null;
         }
