@@ -4,7 +4,7 @@ The Analytics tab: what the user's listening looks like over one calendar period
 backend's event log.
 
 Six screens behind five routes: an overview, one dynamic `[dimension]` route serving every
-ranking, a playable songs list, tags, and the songs listened to in one heatmap hour. `src/app/(tabs)/analytics/` only re-exports them.
+ranking, a playable songs list, tags, and the songs listened to in one heatmap hour. `src/app/(tabs)/(analytics)/analytics/` only re-exports them.
 Everything here is presentation: no number on this tab is computed in the client, the backend
 aggregates in SQL and this formats and lays out what comes back.
 

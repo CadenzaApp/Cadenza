@@ -6,14 +6,14 @@ the user's choice.
 
 ## Files
 
-| file                          | role                                                                                                                                                    |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `categories.ts`               | `LibraryCategory`, the display order, labels, and icons. No React.                                                                                      |
-| `library-categories.tsx`      | `LibraryCategoriesProvider` / `useLibraryCategories`. Which rows show.                                                                                  |
-| `category-row.tsx`            | One row of the index. Pushes a normal view in the Library tab stack.                                                                                    |
-| `library-category-screen.tsx` | Shared body for all five categories, with tab-stack and compatibility detail hosts.                                                                     |
-| `recently-added.tsx`          | `RecentlyAddedGrid`, the paged artwork grid that owns the screen scroll and reports it with `useScreenScroll`. Tiles record themselves as zoom origins. |
-| `tags-view.tsx`               | Every tag as a pill, opening `/tag/:tagId`. The Tags category's body.                                                                                   |
+| file                          | role                                                                                                                                                                    |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `categories.ts`               | `LibraryCategory`, the display order, labels, and icons. No React.                                                                                                      |
+| `library-categories.tsx`      | `LibraryCategoriesProvider` / `useLibraryCategories`. Which rows show.                                                                                                  |
+| `category-row.tsx`            | One row of the index. Pushes a normal view in the Library tab stack.                                                                                                    |
+| `library-category-screen.tsx` | Shared body for all five categories, with tab-stack and compatibility detail hosts.                                                                                     |
+| `recently-added.tsx`          | `RecentlyAddedGrid`, the paged artwork grid that owns the screen scroll and reports it with `useScreenScroll`. Collection tiles open with the native zoom (`ZoomTile`). |
+| `tags-view.tsx`               | Every tag as a pill, opening `/tag/:tagId`. The Tags category's body.                                                                                                   |
 
 ## How it works
 
@@ -90,7 +90,7 @@ scrolling can minimize the native tab bar and move the player inline.
   `LEGACY_KNOWN_CATEGORIES`: it is a record of what already shipped, not a list to keep current.
 - Tags used to be a segmented view on the Cadenza tab. That switch is gone; Cadenza is only the
   query builder now.
-- Category views must remain under `(tabs)/library`; moving them back to the root stack hides the
+- Category views must remain under `(tabs)/(library)/library`; moving them back to the root stack hides the
   native tab controller that owns both the tab bar and iOS bottom player accessory.
 
 ---
