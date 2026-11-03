@@ -331,9 +331,9 @@ export function DiscussPage({
                 <View
                     pointerEvents="none"
                     accessibilityRole="alert"
-                    className="absolute left-5 right-5 top-3 rounded-2xl bg-destructive px-4 py-3"
+                    className="absolute left-5 right-5 top-3 rounded-2xl bg-foreground px-4 py-3"
                 >
-                    <Text className="text-center text-sm text-white">
+                    <Text className="text-center text-sm text-background">
                         {toast}
                     </Text>
                 </View>

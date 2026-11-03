@@ -47,6 +47,8 @@ const VIEWABILITY_CONFIG = {
 /** How often pending view marks are flushed to the API. */
 const MARK_VIEWED_FLUSH_MS = 3000;
 
+type Toast = { message: string; error: boolean };
+
 /**
  * The Social tab. Loads the ranked feed with full post payloads.
  * A post you just wrote stays at the top until the feed includes it.
@@ -114,12 +116,12 @@ export function SocialFeedScreen() {
     );
     const [refreshing, setRefreshing] = useState(false);
     const [composeOpen, setComposeOpen] = useState(false);
-    const [toast, setToast] = useState<string | null>(null);
+    const [toast, setToast] = useState<Toast | null>(null);
     const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    const showToast = useCallback((message: string) => {
+    const showToast = useCallback((message: string, error = false) => {
         if (toastTimer.current) clearTimeout(toastTimer.current);
-        setToast(message);
+        setToast({ message, error });
         toastTimer.current = setTimeout(() => setToast(null), 3000);
     }, []);
 
@@ -327,7 +329,7 @@ export function SocialFeedScreen() {
                     }));
                 }
             }
-            showToast("Couldn't delete your post.");
+            showToast("Couldn't delete your post.", true);
         },
         [showToast],
     );
@@ -426,10 +428,20 @@ export function SocialFeedScreen() {
                 <View
                     pointerEvents="none"
                     accessibilityRole="alert"
-                    className="absolute left-5 right-5 top-3 rounded-2xl bg-destructive px-4 py-3"
+                    className={
+                        toast.error
+                            ? "absolute left-5 right-5 top-3 rounded-2xl bg-destructive px-4 py-3"
+                            : "absolute left-5 right-5 top-3 rounded-2xl bg-foreground px-4 py-3"
+                    }
                 >
-                    <Text className="text-center text-sm text-white">
-                        {toast}
+                    <Text
+                        className={
+                            toast.error
+                                ? "text-center text-sm text-white"
+                                : "text-center text-sm text-background"
+                        }
+                    >
+                        {toast.message}
                     </Text>
                 </View>
             ) : null}
