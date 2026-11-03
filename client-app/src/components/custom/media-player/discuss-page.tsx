@@ -125,10 +125,25 @@ export function DiscussPage({
     }
     const [refreshing, setRefreshing] = useState(false);
     const [composeOpen, setComposeOpen] = useState(false);
+    const [toast, setToast] = useState<string | null>(null);
+    const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const focusedSongIdRef = useRef(focusedSong.id);
     useEffect(() => {
         focusedSongIdRef.current = focusedSong.id;
     }, [focusedSong.id]);
+
+    const showToast = useCallback((message: string) => {
+        if (toastTimer.current) clearTimeout(toastTimer.current);
+        setToast(message);
+        toastTimer.current = setTimeout(() => setToast(null), 3000);
+    }, []);
+
+    useEffect(
+        () => () => {
+            if (toastTimer.current) clearTimeout(toastTimer.current);
+        },
+        [],
+    );
 
     const handleDeleted = useCallback((postId: number) => {
         setCreated((current) =>
@@ -160,6 +175,7 @@ export function DiscussPage({
                 console.error("Creating a post failed");
                 throw new Error("Creating a post failed");
             }
+            showToast("Post published");
             // The song changed while this was in flight, so leave it off this page.
             if (focusedSongIdRef.current !== songId) return;
             const post: SocialPost = {
@@ -185,6 +201,7 @@ export function DiscussPage({
             profile?.uid,
             profile?.username,
             refreshTopicPosts,
+            showToast,
             topic,
         ],
     );
@@ -309,6 +326,18 @@ export function DiscussPage({
                 onCreate={handleCreate}
                 lockedTopic={topic}
             />
+
+            {toast ? (
+                <View
+                    pointerEvents="none"
+                    accessibilityRole="alert"
+                    className="absolute left-5 right-5 top-3 rounded-2xl bg-destructive px-4 py-3"
+                >
+                    <Text className="text-center text-sm text-white">
+                        {toast}
+                    </Text>
+                </View>
+            ) : null}
         </View>
     );
 }

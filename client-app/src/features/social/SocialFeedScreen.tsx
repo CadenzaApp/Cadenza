@@ -230,8 +230,9 @@ export function SocialFeedScreen() {
                     [publishedId]: topic,
                 }));
             }
+            showToast("Post published");
         },
-        [createPost, profile?.uid, profile?.username],
+        [createPost, profile?.uid, profile?.username, showToast],
     );
 
     const handleEdited = useCallback(
