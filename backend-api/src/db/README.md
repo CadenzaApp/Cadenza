@@ -76,13 +76,13 @@ Most of the tables below are keyed on song ids that come from Apple Music.
   See Listening events below.
 - `posts` - a social feed post. `post_id` (identity pk), `user_id` (uuid, references
   `auth.users`, cascades), `content`, `embedding` / `embedding_w_bday` (pgvector), `likes`,
-  `created_at`, nullable `edited_at` (set when the author edits the text; DDL in
+  `created_at`, nullable `edited_at` (`now()` when the author edits; a client timestamp older than it is ignored; DDL in
   `sql/social_edited_at.sql`), `hot_score`, `comments` (bigint, how many comments the post has, default 0,
   bumped when a comment is inserted), and nullable `topic_mk_id` (text), an Apple Music catalog
   id of the song or artist the post is about. Kind is not stored: the client asks MusicKit.
 - `comments` - a comment on a post. `comment_id` (identity pk), `user_id` (uuid, references
   `auth.users`, cascades), `post_id` (references `posts`, cascades), `content`, `likes`,
-  `created_at`, and nullable `edited_at`.
+  `created_at`, and nullable `edited_at` (`now()` when the author edits; a client timestamp older than it is ignored).
 - `comment_likes` - one row per user who liked a comment, composite pk of `(comment_id,
   user_id)`, plus `date`. Cascades from `comments`.
 - `friendships` - one row per pair. Composite pk `(user1, user2)`. `user1` is always the

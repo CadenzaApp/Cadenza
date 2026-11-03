@@ -160,26 +160,43 @@ pub async fn delete_post(
     Ok(())
 }
 
-/// The author's post `created_at`, used to keep the age component of
-/// `embedding_w_bday` when the text changes. `None` when the post is missing
-/// or owned by someone else.
-pub async fn author_post_created_at(
+/// The author's post clocks. `created_at` keeps the age component of
+/// `embedding_w_bday`. `edited_at` is the database time of the last edit, or
+/// `None` when the text has never changed. `None` for the whole value when
+/// the post is missing or owned by someone else.
+pub async fn author_post_clock(
     db: &DatabaseConnection,
     user_id: Uuid,
     post_id: i64,
-) -> Result<Option<DateTime<Utc>>, CadenzaError> {
-    let row = CreatedAtRow::find_by_statement(Statement::from_sql_and_values(
+) -> Result<Option<PostClock>, CadenzaError> {
+    let row = PostClockRow::find_by_statement(Statement::from_sql_and_values(
         DbBackend::Postgres,
-        "SELECT created_at FROM posts WHERE post_id = $1 AND user_id = $2",
+        "SELECT created_at, edited_at FROM posts WHERE post_id = $1 AND user_id = $2",
         vec![post_id.into(), user_id.into()],
     ))
     .one(db)
     .await?;
-    Ok(row.map(|row| row.created_at.with_timezone(&Utc)))
+    Ok(row.map(|row| PostClock {
+        created_at: row.created_at.with_timezone(&Utc),
+        edited_at: row.edited_at.map(|edited_at| edited_at.with_timezone(&Utc)),
+    }))
 }
 
-/// Replaces the author's post text and embedding and stamps `edited_at`.
-/// `NotFound` when no row matches, including a post owned by someone else.
+/// `created_at` and the database time of the last edit.
+pub struct PostClock {
+    pub created_at: DateTime<Utc>,
+    pub edited_at: Option<DateTime<Utc>>,
+}
+
+/// True when the client's `incoming` time is the same instant or later than
+/// the stored `edited_at`. A row that has never been edited takes the first one.
+pub fn edit_replaces(stored: Option<DateTime<Utc>>, incoming: DateTime<Utc>) -> bool {
+    stored.is_none_or(|stored| incoming >= stored)
+}
+
+/// Replaces the author's post text and embedding. `edited_at` is `now()`.
+/// `client_time` older than the stored `edited_at` leaves the row alone.
+/// `NotFound` when the post is missing or owned by someone else.
 pub async fn update_post_text(
     db: &DatabaseConnection,
     user_id: Uuid,
@@ -187,6 +204,7 @@ pub async fn update_post_text(
     content: &str,
     embedding: &[f64],
     embedding_w_bday: &[f64],
+    client_time: DateTime<Utc>,
 ) -> Result<(), CadenzaError> {
     let row = db
         .query_one_raw(Statement::from_sql_and_values(
@@ -194,23 +212,30 @@ pub async fn update_post_text(
             "UPDATE posts
              SET content = $3,
                  edited_at = now(),
-                 embedding = $4::vector,
-                 embedding_w_bday = $5::vector
+                 embedding = $5::vector,
+                 embedding_w_bday = $6::vector
              WHERE post_id = $1 AND user_id = $2
+               AND (edited_at IS NULL OR edited_at <= $4)
              RETURNING post_id",
             vec![
                 post_id.into(),
                 user_id.into(),
                 content.to_owned().into(),
+                client_time.into(),
                 vector_literal(embedding).into(),
                 vector_literal(embedding_w_bday).into(),
             ],
         ))
         .await?;
-    if row.is_none() {
-        return Err(CadenzaError::NotFound);
+    if row.is_some() {
+        return Ok(());
     }
-    Ok(())
+    finish_stale_edit(
+        db,
+        "SELECT post_id FROM posts WHERE post_id = $1 AND user_id = $2",
+        vec![post_id.into(), user_id.into()],
+    )
+    .await
 }
 
 /// Records a like and bumps `likes` / `hot_score` only when the row is new.
@@ -356,13 +381,15 @@ pub async fn delete_comment(
     Ok(())
 }
 
-/// Replaces the author's comment text and stamps `edited_at`. `NotFound` when
-/// no row matches, including a comment owned by someone else.
+/// Replaces the author's comment text. `edited_at` is `now()`. `client_time`
+/// older than the stored `edited_at` leaves the row alone. `NotFound` when
+/// the comment is missing or owned by someone else.
 pub async fn update_comment_text(
     db: &DatabaseConnection,
     user_id: Uuid,
     comment_id: i64,
     content: &str,
+    client_time: DateTime<Utc>,
 ) -> Result<(), CadenzaError> {
     let row = db
         .query_one_raw(Statement::from_sql_and_values(
@@ -371,8 +398,39 @@ pub async fn update_comment_text(
              SET content = $3,
                  edited_at = now()
              WHERE comment_id = $1 AND user_id = $2
+               AND (edited_at IS NULL OR edited_at <= $4)
              RETURNING comment_id",
-            vec![comment_id.into(), user_id.into(), content.to_owned().into()],
+            vec![
+                comment_id.into(),
+                user_id.into(),
+                content.to_owned().into(),
+                client_time.into(),
+            ],
+        ))
+        .await?;
+    if row.is_some() {
+        return Ok(());
+    }
+    finish_stale_edit(
+        db,
+        "SELECT comment_id FROM comments WHERE comment_id = $1 AND user_id = $2",
+        vec![comment_id.into(), user_id.into()],
+    )
+    .await
+}
+
+/// The update matched nothing. The row is still there when a newer edit won,
+/// which is success. A missing row is `NotFound`.
+async fn finish_stale_edit(
+    db: &DatabaseConnection,
+    sql: &str,
+    values: Vec<Value>,
+) -> Result<(), CadenzaError> {
+    let row = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            sql,
+            values,
         ))
         .await?;
     if row.is_none() {
@@ -1507,8 +1565,9 @@ impl CommentRow {
 }
 
 #[derive(Debug, FromQueryResult)]
-struct CreatedAtRow {
+struct PostClockRow {
     created_at: DateTime<chrono::FixedOffset>,
+    edited_at: Option<DateTime<chrono::FixedOffset>>,
 }
 
 #[derive(Debug, FromQueryResult)]
@@ -1552,6 +1611,16 @@ pub struct UpsertedInterest {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_older_edit_does_not_replace_a_newer_one() {
+        let older = Utc.with_ymd_and_hms(2026, 11, 2, 1, 0, 0).unwrap();
+        let newer = Utc.with_ymd_and_hms(2026, 11, 2, 2, 0, 0).unwrap();
+        assert!(edit_replaces(None, older));
+        assert!(edit_replaces(Some(older), newer));
+        assert!(edit_replaces(Some(older), older));
+        assert!(!edit_replaces(Some(newer), older));
+    }
 
     #[test]
     fn user_vector_weights_and_normalizes() {

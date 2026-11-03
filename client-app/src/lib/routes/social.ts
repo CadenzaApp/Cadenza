@@ -314,6 +314,8 @@ export function useDeletePost() {
 type EditPostPayload = {
     post_id: number;
     content: string;
+    /** Client time in milliseconds. Compared with the stored `edited_at`. */
+    timestamp: number;
 };
 
 function editPostPath({ post_id }: EditPostPayload) {
@@ -321,15 +323,18 @@ function editPostPath({ post_id }: EditPostPayload) {
 }
 
 /**
- * Replaces one of the signed-in user's posts. A missing post, or one they do
- * not own, is a 404. Cache updates are separate.
+ * Replaces one of the signed-in user's posts. `timestamp` is `Date.now()` when
+ * the edit was submitted. The server ignores one older than the stored
+ * `edited_at`. A missing post, or one they do not own, is a 404. Cache updates
+ * are separate.
  */
 export function useUpdatePost() {
     const x = useAPIMutation<EditPostPayload, void>("PATCH", editPostPath, [], {
         invalidation: "none",
     });
     const updatePost = useCallback(
-        (post_id: number, content: string) => x.trigger({ post_id, content }),
+        (post_id: number, content: string, timestamp: number) =>
+            x.trigger({ post_id, content, timestamp }),
         [x.trigger],
     );
     return {
@@ -592,9 +597,7 @@ export function useAcceptFriendRequest() {
         ({ user_id }) => [
             { path: "/social/friends" },
             { path: `/social/posts/user/${user_id}` },
-            ...(account
-                ? [{ path: `/social/posts/user/${account.id}` }]
-                : []),
+            ...(account ? [{ path: `/social/posts/user/${account.id}` }] : []),
         ],
     );
     return {
@@ -702,6 +705,8 @@ function deleteCommentPath({ comment_id }: DeleteCommentPayload) {
 type EditCommentPayload = {
     comment_id: number;
     content: string;
+    /** Client time in milliseconds. Compared with the stored `edited_at`. */
+    timestamp: number;
 };
 
 function editCommentPath({ comment_id }: EditCommentPayload) {
@@ -709,8 +714,10 @@ function editCommentPath({ comment_id }: EditCommentPayload) {
 }
 
 /**
- * Replaces one of the signed-in user's comments. A missing comment, or one
- * they do not own, is a 404. Cache updates are separate.
+ * Replaces one of the signed-in user's comments. `timestamp` is `Date.now()`
+ * when the edit was submitted. The server ignores one older than the stored
+ * `edited_at`. A missing comment, or one they do not own, is a 404. Cache
+ * updates are separate.
  */
 export function useUpdateComment() {
     const x = useAPIMutation<EditCommentPayload, void>(
@@ -720,8 +727,8 @@ export function useUpdateComment() {
         { invalidation: "none" },
     );
     const updateComment = useCallback(
-        (comment_id: number, content: string) =>
-            x.trigger({ comment_id, content }),
+        (comment_id: number, content: string, timestamp: number) =>
+            x.trigger({ comment_id, content, timestamp }),
         [x.trigger],
     );
     return {

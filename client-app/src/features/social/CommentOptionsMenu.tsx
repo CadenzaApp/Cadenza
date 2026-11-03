@@ -48,9 +48,7 @@ export function CommentOptionsMenu({
         labelColor: "destructive",
         iconColor: "destructive",
         onPress: async (target) => {
-            if (target.comment_id > 0) {
-                await deleteComment(target.comment_id);
-            }
+            await deleteComment(target.comment_id);
             await removeCachedComment(target.post_id, target.comment_id);
             await updateCommentCount(target.post_id, -1);
             onDeleted?.(target);

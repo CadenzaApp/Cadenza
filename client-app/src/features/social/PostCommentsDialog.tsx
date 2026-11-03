@@ -415,11 +415,11 @@ function CommentRow({
     const likes = comment.likes + (liked ? 1 : 0) - (comment.liked ? 1 : 0);
 
     async function saveEdit(content: string) {
-        if (comment.comment_id <= 0) return;
-        const editedAt = new Date().toISOString();
+        const editedAtMs = Date.now();
+        const editedAt = new Date(editedAtMs).toISOString();
         setSavingEdit(true);
         try {
-            await updateComment(comment.comment_id, content);
+            await updateComment(comment.comment_id, content, editedAtMs);
             await updateCachedCommentContent(
                 comment.post_id,
                 comment.comment_id,
@@ -438,7 +438,6 @@ function CommentRow({
         const nowLiked = !likedRef.current;
         likedRef.current = nowLiked;
         setLiked(nowLiked);
-        if (comment.comment_id < 0) return;
         void updateCachedCommentLike(
             comment.post_id,
             comment.comment_id,

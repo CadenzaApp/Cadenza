@@ -4,6 +4,7 @@ use axum::{
     routing::{delete, get, patch, post},
 };
 use axum_jwt_auth::Claims;
+use chrono::{DateTime, Utc};
 use sea_orm::DatabaseConnection;
 use sea_orm::prelude::Uuid;
 use serde::Deserialize;
@@ -169,11 +170,15 @@ async fn create_post(
 #[derive(Deserialize)]
 struct EditContentBody {
     content: String,
+    /// Client time in milliseconds, the same clock a like sends.
+    timestamp: i64,
 }
 
 /// Replaces the signed-in user's post text. `content` is trimmed and at most
-/// 500 characters. Stamps `edited_at` and re-embeds the stored text. 404 when
-/// the post is missing or belongs to someone else. Responds with `null`.
+/// 500 characters. `timestamp` is the client's edit time. One older than the
+/// stored `edited_at` is ignored. A kept edit sets `edited_at` to `now()` and
+/// re-embeds the stored text. 404 when the post is missing or belongs to
+/// someone else. Responds with `null`.
 async fn update_post(
     State(db): State<DatabaseConnection>,
     State(social): State<SocialFeedService>,
@@ -182,8 +187,9 @@ async fn update_post(
     Json(body): Json<EditContentBody>,
 ) -> Result<Json<Value>, CadenzaError> {
     let content = require_content(&body.content, POST_CONTENT_MAX)?;
+    let edited_at = edited_at_from_millis(body.timestamp)?;
     social
-        .update_post(&db, claims.user_id, post_id, content)
+        .update_post(&db, claims.user_id, post_id, content, edited_at)
         .await?;
     Ok(Json(Value::Null))
 }
@@ -446,8 +452,10 @@ async fn create_comment(
 }
 
 /// Replaces the signed-in user's comment text. `content` is trimmed and at
-/// most 500 characters. Stamps `edited_at`. 404 when the comment is missing or
-/// belongs to someone else. Responds with `null`.
+/// most 500 characters. `timestamp` is the client's edit time. One older than
+/// the stored `edited_at` is ignored. A kept edit sets `edited_at` to `now()`.
+/// 404 when the comment is missing or belongs to someone else. Responds with
+/// `null`.
 async fn update_comment(
     State(db): State<DatabaseConnection>,
     State(social): State<SocialFeedService>,
@@ -456,10 +464,17 @@ async fn update_comment(
     Json(body): Json<EditContentBody>,
 ) -> Result<Json<Value>, CadenzaError> {
     let content = require_content(&body.content, COMMENT_CONTENT_MAX)?;
+    let edited_at = edited_at_from_millis(body.timestamp)?;
     social
-        .update_comment(&db, claims.user_id, comment_id, content)
+        .update_comment(&db, claims.user_id, comment_id, content, edited_at)
         .await?;
     Ok(Json(Value::Null))
+}
+
+/// The client's edit time. Out of range for a `timestamptz` is a 422.
+fn edited_at_from_millis(timestamp: i64) -> Result<DateTime<Utc>, CadenzaError> {
+    DateTime::from_timestamp_millis(timestamp)
+        .ok_or_else(|| CadenzaError::InvalidRequestBody("timestamp is out of range".to_owned()))
 }
 
 /// Deletes the signed-in user's comment and drops the post's comment count.

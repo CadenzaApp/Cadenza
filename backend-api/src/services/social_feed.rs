@@ -175,22 +175,32 @@ impl SocialFeedService {
     /// Replaces the author's post text. Re-embeds the stored content without
     /// the topic-name prefix, because those names are not stored. The age
     /// component of `embedding_w_bday` stays the original `created_at`.
-    /// `NotFound` when the post is missing or owned by someone else.
+    /// `client_time` is compared with the stored `edited_at`; an older one is
+    /// ignored, before the embed and again in the write. A kept edit stamps
+    /// `edited_at` with the database clock. `NotFound` when the post is
+    /// missing or owned by someone else.
     pub async fn update_post(
         &self,
         db: &DatabaseConnection,
         user_id: Uuid,
         post_id: i64,
         content: &str,
+        client_time: DateTime<Utc>,
     ) -> Result<(), CadenzaError> {
-        let Some(created_at) = social::author_post_created_at(db, user_id, post_id).await? else {
+        let Some(clock) = social::author_post_clock(db, user_id, post_id).await? else {
             return Err(CadenzaError::NotFound);
         };
+        if !social::edit_replaces(clock.edited_at, client_time) {
+            return Ok(());
+        }
         let embedding = self.embed_post(content).await?;
         let mut with_bday = Vec::with_capacity(embedding.len() + 1);
-        with_bday.push(social::days_since_posts_epoch(created_at) as f64);
+        with_bday.push(social::days_since_posts_epoch(clock.created_at) as f64);
         with_bday.extend_from_slice(&embedding);
-        social::update_post_text(db, user_id, post_id, content, &embedding, &with_bday).await
+        social::update_post_text(
+            db, user_id, post_id, content, &embedding, &with_bday, client_time,
+        )
+        .await
     }
 
     /// Deletes the author's post. `NotFound` when it is missing or owned by
@@ -456,16 +466,19 @@ impl SocialFeedService {
         social::insert_comment(db, user_id, post_id, content).await
     }
 
-    /// Replaces the author's comment text and stamps `edited_at`. `NotFound`
-    /// when the comment is missing or owned by someone else.
+    /// Replaces the author's comment text. `client_time` is compared with the
+    /// stored `edited_at`; an older one leaves the comment alone. A kept edit
+    /// stamps `edited_at` with the database clock. `NotFound` when the comment
+    /// is missing or owned by someone else.
     pub async fn update_comment(
         &self,
         db: &DatabaseConnection,
         user_id: Uuid,
         comment_id: i64,
         content: &str,
+        client_time: DateTime<Utc>,
     ) -> Result<(), CadenzaError> {
-        social::update_comment_text(db, user_id, comment_id, content).await
+        social::update_comment_text(db, user_id, comment_id, content, client_time).await
     }
 
     /// Deletes the author's comment. `NotFound` when it is missing or owned by

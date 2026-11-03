@@ -172,13 +172,14 @@ export function PostCard({
             content: displayPost.content,
             edited_at: displayPost.edited_at ?? null,
         };
-        const editedAt = new Date().toISOString();
+        const editedAtMs = Date.now();
+        const editedAt = new Date(editedAtMs).toISOString();
         setSavedEdit({ content, edited_at: editedAt });
         setEditing(false);
         onEdited?.(post.post_id, content, editedAt);
         void updateCachedPostContent(post.post_id, content, editedAt);
         try {
-            await updatePost(post.post_id, content);
+            await updatePost(post.post_id, content, editedAtMs);
         } catch (error) {
             console.error("Editing a post failed", error);
             setSavedEdit(previous);

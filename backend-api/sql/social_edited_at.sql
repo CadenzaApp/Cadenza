@@ -1,4 +1,6 @@
--- When the author last edited a post or comment. Null means never edited.
+-- When the author last edited a post or comment, stamped with `now()`.
+-- Null means never edited. The client's timestamp decides whether a later
+-- edit is older than this value and should be ignored.
 --
 -- Additive and idempotent. Adds one nullable column to each table and touches
 -- nothing that already exists.
