@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 import {
-    Platform,
     Pressable,
     StyleSheet,
     View,
@@ -18,11 +17,6 @@ type GlassIconButtonProps = Omit<PressableProps, "children" | "style"> & {
     size?: number;
     surfaceScheme?: "light" | "dark";
     bordered?: boolean;
-    /**
-     * On iOS, leave the liquid-glass edge unclipped. Android always clips:
-     * its fill is a child view, and a visible overflow leaves a square.
-     */
-    clipGlass?: boolean;
     className?: string;
     style?: StyleProp<ViewStyle>;
     children: ReactNode;
@@ -43,22 +37,17 @@ type GlassIconButtonProps = Omit<PressableProps, "children" | "style"> & {
  * Sizing, clipping, and centering live on the wrapper below it. The glass
  * carries its own radius rather than leaning on the wrapper's clip, which is
  * what the other glass surfaces in the app do and what Android needs.
- * `clipGlass` only skips that clip on iOS.
  */
 export function GlassIconButton({
     size = 40,
     surfaceScheme,
     bordered = true,
-    clipGlass = true,
     className,
     style,
     children,
     ...rest
 }: GlassIconButtonProps) {
     const radius = size / 2;
-    // iOS can let the material edge extend. Android's fill stays square unless
-    // the circle clips it.
-    const clip = clipGlass || Platform.OS !== "ios";
 
     const pressedFill = usePressedFill(surfaceScheme);
 
@@ -84,7 +73,7 @@ export function GlassIconButton({
                             borderRadius: radius,
                             alignItems: "center",
                             justifyContent: "center",
-                            overflow: clip ? "hidden" : "visible",
+                            overflow: "hidden",
                         },
                         pressed && styles.pressed,
                     ]}
@@ -101,7 +90,7 @@ export function GlassIconButton({
                                 // Inset the glass only when the wrapper has a border.
                                 {
                                     borderRadius: radius - (bordered ? 1 : 0),
-                                    overflow: clip ? "hidden" : "visible",
+                                    overflow: "hidden",
                                 },
                             ]}
                         />

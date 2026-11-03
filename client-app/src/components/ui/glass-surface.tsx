@@ -109,13 +109,13 @@ const ANDROID_FILL_OPACITY: Record<GlassSurfaceVariant, number> = {
  * Inside another glass surface, or a `GlassLayer`, it paints a flat fill
  * instead, since liquid glass is not meant to stack on glass.
  *
- * It paints a background and nothing else. Give it a size and a radius.
- * iOS liquid glass uses that radius for its own shape, and the caller can
- * leave overflow visible so the material edge extends. Android's fill is a
- * child of this view, and a child ignores its parent's radius, so a visible
- * overflow paints a square. Android therefore copies the radius onto the fill
- * and clips. An opacity style drops that radius, so the fill's alpha is in
- * the color. Clipping kills an iOS shadow; keep the shadow on a parent.
+ * It paints a background and nothing else. Give it a size, a radius, and
+ * `overflow: "hidden"` from the caller. Unclipped iOS glass paints a dark fill
+ * over its whole rectangle whenever UIKit clips something above it, like the
+ * screen behind a sheet. Android's fill is a child of this view, and a child
+ * ignores its parent's radius, so Android copies the radius onto the fill and
+ * clips. An opacity style drops that radius, so the fill's alpha is in the
+ * color. Clipping kills an iOS shadow; keep the shadow on a parent.
  */
 export function GlassSurface({
     colorScheme: surfaceScheme,

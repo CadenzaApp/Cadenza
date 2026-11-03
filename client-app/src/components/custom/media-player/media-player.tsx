@@ -2,13 +2,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRouter } from "expo-router";
 import { useTheme } from "expo-router/react-navigation";
 import { useCallback, useId, useLayoutEffect, useRef } from "react";
-import {
-    Image,
-    Platform,
-    Pressable,
-    View,
-    type LayoutChangeEvent,
-} from "react-native";
+import { Image, Pressable, View, type LayoutChangeEvent } from "react-native";
 import { GestureDetector } from "react-native-gesture-handler";
 import Animated, {
     interpolate,
@@ -116,18 +110,15 @@ export function MediaPlayer({
         left: 0,
         ...geometry.get(),
     }));
-    const clipCorners = Platform.OS === "android";
     const cornerStyle = useAnimatedStyle(() => {
         const borderRadius = interpolate(
             progress.get(),
             [0, 1],
             [(source.get()?.height ?? height.get()) / 2, SIZE / 2],
         );
-        // The glass fill is a child. iOS glass draws its own rounded edge, so
-        // this view stays unclipped. Android needs the clip or the bar is square.
-        return clipCorners
-            ? { borderRadius, overflow: "hidden" as const }
-            : { borderRadius };
+        // Clipped on every platform. Unclipped glass goes square on Android,
+        // and dark under a sheet or zoom card on iOS.
+        return { borderRadius, overflow: "hidden" as const };
     });
     const controlsStyle = useAnimatedStyle(() => ({
         opacity: interpolate(progress.get(), [0, 0.5, 1], [1, 0, 0]),

@@ -400,7 +400,6 @@ function MediaPlayerRow({
                 }
             >
                 <GlassIconButton
-                    clipGlass={false}
                     size={PLAYER_CONTROL_SIZE}
                     bordered={false}
                     style={{
