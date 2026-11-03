@@ -18,7 +18,6 @@ import {
     useCreatePost,
     useTopicPosts,
     useUpdateCachedPostLike,
-    useUpdatePost,
 } from "@/lib/routes/social";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { useScreenScroll, type ScreenScrollBinding } from "@/lib/screen-scroll";
@@ -52,10 +51,6 @@ export function DiscussPage({
     const openSocialProfile = useOpenSocialProfile();
     const { profile } = useProfile(enabled);
     const { createPost } = useCreatePost();
-    const { updatePost } = useUpdatePost();
-    const pendingEdits = useRef(
-        new Map<number, { content: string; edited_at: string | null }>(),
-    );
     const updateCachedPostLike = useUpdateCachedPostLike();
     const pendingLikes = useRef(new Map<number, boolean>());
     const activeRef = useRef(active);
@@ -130,22 +125,10 @@ export function DiscussPage({
     }
     const [refreshing, setRefreshing] = useState(false);
     const [composeOpen, setComposeOpen] = useState(false);
-    const [toast, setToast] = useState<string | null>(null);
-    const nextTempId = useRef(0);
-    const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-    const showToast = useCallback((message: string) => {
-        if (toastTimer.current) clearTimeout(toastTimer.current);
-        setToast(message);
-        toastTimer.current = setTimeout(() => setToast(null), 3000);
-    }, []);
-
-    useEffect(
-        () => () => {
-            if (toastTimer.current) clearTimeout(toastTimer.current);
-        },
-        [],
-    );
+    const focusedSongIdRef = useRef(focusedSong.id);
+    useEffect(() => {
+        focusedSongIdRef.current = focusedSong.id;
+    }, [focusedSong.id]);
 
     const handleDeleted = useCallback((postId: number) => {
         setCreated((current) =>
@@ -160,12 +143,27 @@ export function DiscussPage({
     }, [created, posts]);
 
     const handleCreate = useCallback(
-        (content: string, attached?: PostTopic | null) => {
+        async (content: string, attached?: PostTopic | null) => {
             const postedTopic = attached ?? topic;
-            nextTempId.current -= 1;
-            const tempId = nextTempId.current;
+            const songId = focusedSong.id;
+            let postId: number | undefined;
+            try {
+                postId = await createPost({
+                    content,
+                    ...topicCreateFields(postedTopic),
+                });
+            } catch (error) {
+                console.error("Creating a post failed", error);
+                throw error;
+            }
+            if (postId == null) {
+                console.error("Creating a post failed");
+                throw new Error("Creating a post failed");
+            }
+            // The song changed while this was in flight, so leave it off this page.
+            if (focusedSongIdRef.current !== songId) return;
             const post: SocialPost = {
-                post_id: tempId,
+                post_id: postId,
                 content,
                 likes: 0,
                 liked: false,
@@ -178,80 +176,21 @@ export function DiscussPage({
                 topic_mk_id: topicMkId(postedTopic),
                 comment_count: 0,
             };
-            pendingEdits.current.set(tempId, {
-                content,
-                edited_at: null,
-            });
             setCreated((current) => [...current, post]);
-
-            function dropTemp() {
-                pendingEdits.current.delete(tempId);
-                setCreated((current) =>
-                    current.filter((item) => item.post_id !== tempId),
-                );
-            }
-
-            void createPost({
-                content,
-                ...topicCreateFields(postedTopic),
-            })
-                .then((post_id) => {
-                    if (post_id == null) {
-                        dropTemp();
-                        showToast("Couldn't publish your post.");
-                        return;
-                    }
-                    const pending = pendingEdits.current.get(tempId);
-                    pendingEdits.current.delete(tempId);
-                    setCreated((current) =>
-                        current.map((item) =>
-                            item.post_id === tempId
-                                ? { ...item, post_id }
-                                : item,
-                        ),
-                    );
-                    if (pending && pending.content !== content) {
-                        void updatePost(post_id, pending.content).catch(
-                            (error) => {
-                                console.error("Editing a post failed", error);
-                                setCreated((current) =>
-                                    current.map((item) =>
-                                        item.post_id === post_id
-                                            ? {
-                                                  ...item,
-                                                  content,
-                                                  edited_at: null,
-                                              }
-                                            : item,
-                                    ),
-                                );
-                            },
-                        );
-                    }
-                    void refreshTopicPosts();
-                })
-                .catch(() => {
-                    dropTemp();
-                    showToast("Couldn't publish your post.");
-                });
+            void refreshTopicPosts();
         },
         [
             createPost,
+            focusedSong.id,
             profile?.uid,
             profile?.username,
             refreshTopicPosts,
-            showToast,
             topic,
-            updatePost,
         ],
     );
 
     const handleEdited = useCallback(
         (postId: number, content: string, editedAt: string | null) => {
-            pendingEdits.current.set(postId, {
-                content,
-                edited_at: editedAt,
-            });
             setCreated((current) =>
                 current.map((item) =>
                     item.post_id === postId
@@ -370,18 +309,6 @@ export function DiscussPage({
                 onCreate={handleCreate}
                 lockedTopic={topic}
             />
-
-            {toast ? (
-                <View
-                    pointerEvents="none"
-                    accessibilityRole="alert"
-                    className="absolute left-5 right-5 top-3 rounded-2xl bg-destructive px-4 py-3"
-                >
-                    <Text className="text-center text-sm text-white">
-                        {toast}
-                    </Text>
-                </View>
-            ) : null}
         </View>
     );
 }

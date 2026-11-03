@@ -1,7 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type { ArtistItem, MusicItem } from "@apple-musickit";
 import { useTheme } from "expo-router/react-navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
     ActivityIndicator,
     Image,
@@ -41,7 +41,10 @@ const ARTIST_RESULT_LIMIT = 4;
 type Props = {
     open: boolean;
     onOpenChange: (open: boolean) => void;
-    /** Called with the trimmed body and the attached topic, if there is one. */
+    /**
+     * Called with the trimmed body and the attached topic, if there is one.
+     * Resolve once the post exists. Reject to leave the dialog open.
+     */
     onCreate: (
         content: string,
         topic?: PostTopic | null,
@@ -57,7 +60,7 @@ type Props = {
     lockedTopic?: PostTopic | null;
 };
 
-/** Compose dialog for a new post. Closes as soon as the user submits. */
+/** Compose dialog for a new post. The button spins until the post exists. */
 export function CreatePostDialog({
     open,
     onOpenChange,
@@ -66,7 +69,7 @@ export function CreatePostDialog({
     submitLabel = "Post",
     lockedTopic,
 }: Props) {
-    const { mutedForeground } = useAppTheme().colors;
+    const { mutedForeground, primaryForeground } = useAppTheme().colors;
     const { colors } = useTheme();
     const insets = useSafeAreaInsets();
     const { width: screenWidth, height: screenHeight } = useWindowDimensions();
@@ -79,6 +82,9 @@ export function CreatePostDialog({
     const [topic, setTopic] = useState<PostTopic | null>(null);
     const [topicQuery, setTopicQuery] = useState("");
     const [submittedTerm, setSubmittedTerm] = useState<string | undefined>();
+    const [posting, setPosting] = useState(false);
+    const [postError, setPostError] = useState<string | null>(null);
+    const postingRef = useRef(false);
 
     const topicLocked = lockedTopic != null;
     const selectedTopic = topicLocked ? lockedTopic : topic;
@@ -114,22 +120,44 @@ export function CreatePostDialog({
         setTopic(null);
         setTopicQuery("");
         setSubmittedTerm(undefined);
+        setPostError(null);
         catalogSongs.clearSearchCatalog();
     }
 
+    function setPostingState(value: boolean) {
+        postingRef.current = value;
+        setPosting(value);
+    }
+
     function setOpen(val: boolean) {
+        if (!val && postingRef.current) return;
         if (!val) resetForm();
         onOpenChange(val);
     }
 
-    function handlePost() {
+    async function handlePost() {
         const trimmed = content.trim();
-        if (!trimmed || trimmed.length > MAX_POST_LENGTH) return;
-        void onCreate(trimmed, topicLocked ? lockedTopic : topic);
-        setOpen(false);
+        if (
+            !trimmed ||
+            trimmed.length > MAX_POST_LENGTH ||
+            postingRef.current
+        ) {
+            return;
+        }
+        setPostError(null);
+        setPostingState(true);
+        try {
+            await onCreate(trimmed, topicLocked ? lockedTopic : topic);
+            setPostingState(false);
+            setOpen(false);
+        } catch {
+            setPostingState(false);
+            setPostError("Couldn't publish your post.");
+        }
     }
 
     function selectSong(song: MusicItem) {
+        if (postingRef.current) return;
         setTopic(topicFromSong(song));
         setTopicQuery("");
         setSubmittedTerm(undefined);
@@ -137,6 +165,7 @@ export function CreatePostDialog({
     }
 
     function selectArtist(artist: ArtistItem) {
+        if (postingRef.current) return;
         setTopic(topicFromArtist(artist));
         setTopicQuery("");
         setSubmittedTerm(undefined);
@@ -201,6 +230,7 @@ export function CreatePostDialog({
                             placeholderTextColor={mutedForeground}
                             multiline
                             autoFocus
+                            editable={!posting}
                             maxLength={MAX_POST_LENGTH}
                             textAlignVertical="top"
                             className="min-h-[120px] px-3 py-3 text-base text-foreground"
@@ -219,7 +249,7 @@ export function CreatePostDialog({
                             <PostTopicCard
                                 topic={selectedTopic}
                                 onRemove={
-                                    topicLocked
+                                    topicLocked || posting
                                         ? undefined
                                         : () => setTopic(null)
                                 }
@@ -240,6 +270,7 @@ export function CreatePostDialog({
                                         returnKeyType="search"
                                         autoCorrect={false}
                                         autoCapitalize="none"
+                                        editable={!posting}
                                         className="flex-1 py-3 text-base text-foreground"
                                     />
                                     {topicQuery.length > 0 ? (
@@ -312,13 +343,32 @@ export function CreatePostDialog({
                 </View>
             </ScrollView>
 
-            <View className="mt-4">
+            <View className="mt-4 gap-2">
+                {postError ? (
+                    <Text
+                        accessibilityRole="alert"
+                        className="text-center text-sm text-destructive"
+                    >
+                        {postError}
+                    </Text>
+                ) : null}
                 <Button
-                    accessibilityLabel={submitLabel}
-                    disabled={!canPost}
-                    onPress={handlePost}
+                    accessibilityLabel={posting ? "Posting" : submitLabel}
+                    accessibilityState={{
+                        disabled: !canPost || posting,
+                        busy: posting,
+                    }}
+                    disabled={!canPost || posting}
+                    onPress={() => void handlePost()}
                 >
-                    <Text>{submitLabel}</Text>
+                    {posting ? (
+                        <ActivityIndicator
+                            color={primaryForeground}
+                            size="small"
+                        />
+                    ) : (
+                        <Text>{submitLabel}</Text>
+                    )}
                 </Button>
             </View>
         </ModalPopup>

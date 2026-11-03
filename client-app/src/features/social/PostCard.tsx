@@ -155,7 +155,7 @@ export function PostCard({
     }
 
     function openComments() {
-        if (editing || post.post_id < 0) return;
+        if (editing) return;
         setCommentsOpen(true);
     }
 
@@ -176,7 +176,6 @@ export function PostCard({
         setSavedEdit({ content, edited_at: editedAt });
         setEditing(false);
         onEdited?.(post.post_id, content, editedAt);
-        if (post.post_id <= 0) return;
         void updateCachedPostContent(post.post_id, content, editedAt);
         try {
             await updatePost(post.post_id, content);
@@ -196,7 +195,6 @@ export function PostCard({
         const nowLiked = !likedRef.current;
         likedRef.current = nowLiked;
         setLiked(nowLiked);
-        if (post.post_id < 0) return;
         if (onLikedChange) onLikedChange(post.post_id, nowLiked);
         else void updateCachedPostLike(post.post_id, nowLiked);
         const request = nowLiked

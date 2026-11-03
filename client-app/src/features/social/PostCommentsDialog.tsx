@@ -109,7 +109,7 @@ export function PostCommentsDialog({
     async function submit() {
         const content = draft.trim();
         if (!content || content.length > MAX_COMMENT_LENGTH) return;
-        if (post.post_id < 0 || sending || postCommentsLoading) return;
+        if (sending || postCommentsLoading) return;
 
         setSending(true);
         try {
@@ -199,9 +199,7 @@ export function PostCommentsDialog({
                                 placeholderTextColor={mutedForeground}
                                 multiline
                                 maxLength={MAX_COMMENT_LENGTH}
-                                editable={
-                                    post.post_id > 0 && !postCommentsLoading
-                                }
+                                editable={!postCommentsLoading}
                                 textAlignVertical="top"
                                 className="max-h-[96px] px-3 py-2.5 text-base text-foreground"
                             />
@@ -210,18 +208,12 @@ export function PostCommentsDialog({
                             accessibilityRole="button"
                             accessibilityLabel="Send comment"
                             disabled={
-                                !canSend ||
-                                sending ||
-                                post.post_id < 0 ||
-                                postCommentsLoading
+                                !canSend || sending || postCommentsLoading
                             }
                             onPress={() => void submit()}
                             className={cn(
                                 "h-11 w-11 items-center justify-center rounded-full bg-primary shadow-sm shadow-black/5 active:bg-primary/90",
-                                (!canSend ||
-                                    sending ||
-                                    post.post_id < 0 ||
-                                    postCommentsLoading) &&
+                                (!canSend || sending || postCommentsLoading) &&
                                     "opacity-80",
                             )}
                         >
@@ -302,7 +294,6 @@ function PostSummary({
         const nowLiked = !likedRef.current;
         likedRef.current = nowLiked;
         setLiked(nowLiked);
-        if (post.post_id < 0) return;
         if (onLikedChange) onLikedChange(post.post_id, nowLiked);
         else void updateCachedPostLike(post.post_id, nowLiked);
         const request = nowLiked

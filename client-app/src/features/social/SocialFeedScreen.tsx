@@ -28,7 +28,6 @@ import {
     useCreatePost,
     useFeed,
     useMarkPostsViewed,
-    useUpdatePost,
 } from "@/lib/routes/social";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { useScreenScroll } from "@/lib/screen-scroll";
@@ -74,10 +73,6 @@ export function SocialFeedScreen() {
         feedErr,
     } = useFeed();
     const { createPost } = useCreatePost();
-    const { updatePost } = useUpdatePost();
-    const pendingEdits = useRef(
-        new Map<number, { content: string; edited_at: string | null }>(),
-    );
     const { markPostsViewed } = useMarkPostsViewed();
     const { profile } = useProfile();
     const markedViewedIds = useRef(new Set<number>());
@@ -120,7 +115,6 @@ export function SocialFeedScreen() {
     const [refreshing, setRefreshing] = useState(false);
     const [composeOpen, setComposeOpen] = useState(false);
     const [toast, setToast] = useState<string | null>(null);
-    const nextTempId = useRef(0);
     const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const showToast = useCallback((message: string) => {
@@ -199,11 +193,24 @@ export function SocialFeedScreen() {
     }, [navigation, colors.text, account?.id, router]);
 
     const handleCreate = useCallback(
-        (content: string, topic?: PostTopic | null) => {
-            nextTempId.current -= 1;
-            const tempId = nextTempId.current;
+        async (content: string, topic?: PostTopic | null) => {
+            let postId: number | undefined;
+            try {
+                postId = await createPost({
+                    content,
+                    ...(topic ? topicCreateFields(topic) : {}),
+                });
+            } catch (error) {
+                console.error("Creating a post failed", error);
+                throw error;
+            }
+            if (postId == null) {
+                console.error("Creating a post failed");
+                throw new Error("Creating a post failed");
+            }
+            const publishedId = postId;
             const post: SocialPost = {
-                post_id: tempId,
+                post_id: publishedId,
                 content,
                 likes: 0,
                 liked: false,
@@ -216,87 +223,19 @@ export function SocialFeedScreen() {
                 topic_mk_id: topic ? topicMkId(topic) : null,
                 comment_count: 0,
             };
-            pendingEdits.current.set(tempId, {
-                content,
-                edited_at: null,
-            });
             setCreated((current) => [post, ...current]);
             if (topic) {
-                setLocalTopics((current) => ({ ...current, [tempId]: topic }));
+                setLocalTopics((current) => ({
+                    ...current,
+                    [publishedId]: topic,
+                }));
             }
-
-            function dropTemp() {
-                pendingEdits.current.delete(tempId);
-                setCreated((current) =>
-                    current.filter((item) => item.post_id !== tempId),
-                );
-                setLocalTopics((current) => {
-                    const next = { ...current };
-                    delete next[tempId];
-                    return next;
-                });
-            }
-
-            void createPost({
-                content,
-                ...(topic ? topicCreateFields(topic) : {}),
-            })
-                .then((post_id) => {
-                    if (post_id == null) {
-                        dropTemp();
-                        showToast("Couldn't publish your post.");
-                        return;
-                    }
-                    const pending = pendingEdits.current.get(tempId);
-                    pendingEdits.current.delete(tempId);
-                    setCreated((current) =>
-                        current.map((item) =>
-                            item.post_id === tempId
-                                ? { ...item, post_id }
-                                : item,
-                        ),
-                    );
-                    if (pending && pending.content !== content) {
-                        void updatePost(post_id, pending.content).catch(
-                            (error) => {
-                                console.error("Editing a post failed", error);
-                                setCreated((current) =>
-                                    current.map((item) =>
-                                        item.post_id === post_id
-                                            ? {
-                                                  ...item,
-                                                  content,
-                                                  edited_at: null,
-                                              }
-                                            : item,
-                                    ),
-                                );
-                            },
-                        );
-                    }
-                    setLocalTopics((current) => {
-                        const attached = current[tempId];
-                        if (!attached) return current;
-                        const next = { ...current };
-                        delete next[tempId];
-                        next[post_id] = attached;
-                        return next;
-                    });
-                })
-                .catch(() => {
-                    dropTemp();
-                    showToast("Couldn't publish your post.");
-                });
         },
-        [createPost, profile?.uid, profile?.username, showToast, updatePost],
+        [createPost, profile?.uid, profile?.username],
     );
 
     const handleEdited = useCallback(
         (postId: number, content: string, editedAt: string | null) => {
-            pendingEdits.current.set(postId, {
-                content,
-                edited_at: editedAt,
-            });
             setCreated((current) =>
                 current.map((item) =>
                     item.post_id === postId
@@ -323,7 +262,7 @@ export function SocialFeedScreen() {
                 const row = token.item as FeedRow | undefined;
                 if (!token.isViewable || row?.kind !== "post") continue;
                 const id = row.post.post_id;
-                if (id <= 0 || markedViewedIds.current.has(id)) continue;
+                if (markedViewedIds.current.has(id)) continue;
                 markedViewedIds.current.add(id);
                 pendingViewedIds.current.add(id);
             }

@@ -48,7 +48,6 @@ export function PostOptionsMenu({
         onPress: (target) => {
             onDeleted?.(target.post_id);
             onClose();
-            if (target.post_id <= 0) return;
             void deletePost(target.post_id)
                 .then(() => removeCachedPost(target.post_id))
                 .catch((error) => {
