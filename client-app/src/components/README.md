@@ -278,8 +278,9 @@ song count.
 `BlendedCover` is a centered square cover that bleeds 56pt out past every edge into whatever is
 behind it. Each edge's last rows are flipped and stretched out across that room, in several layers,
 each blurrier one fading in farther out, so a column starts as the exact color beside it and mixes
-in its neighbors as it goes out; the room then fades to nothing. A hard-blurred copy behind the
-rooms, faded out radially, fills the corners between them. Each room runs 12pt under the cover,
+in its neighbors as it goes out. A hard-blurred copy fills the whole bleed under the rooms, so the
+corners carry the corners' colors, and each room's two ends fade onto it. All of it fades to nothing
+over the bleed's outer 48pt, across and down. Each room runs 12pt under the cover,
 which is drawn on top, so the strip's soft last row never shows as a dark seam. It takes only the
 cover's square in layout. It is memoized and rasterized on iOS: keep its props stable, since any
 update under the masks throws the cached bitmap away. Artist uses its custom hero and albums

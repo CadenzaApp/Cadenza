@@ -2,9 +2,8 @@ import MaskedView from "@react-native-masked-view/masked-view";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { Link } from "expo-router";
-import { memo, useId, type ComponentProps, type ReactNode } from "react";
+import { memo, type ComponentProps, type ReactNode } from "react";
 import { PixelRatio, StyleSheet, View } from "react-native";
-import Svg, { Defs, RadialGradient, Rect, Stop } from "react-native-svg";
 
 /** Points the cover bleeds out past each of its edges. */
 export const COVER_BLEED = 56;
@@ -41,12 +40,26 @@ const EDGE_OVERLAP = 12;
 const EDGE_INSET = 1;
 /** Blur of the copy behind the rooms that fills the corners between them. */
 const GLOW_BLUR = 40;
+/**
+ * Points the whole bleed takes to fade to nothing at its outer border, on
+ * every side, so neither the glow nor a room ever ends on a line.
+ */
+const OUTER_FADE = 48;
+/**
+ * Points each room fades in over at its two ends, where it meets the glow in
+ * the corners, so its sides are not a line either.
+ */
+const ROOM_END_FADE = 28;
+
+type Direction = {
+    start: { x: number; y: number };
+    end: { x: number; y: number };
+};
+const ACROSS: Direction = { start: { x: 0, y: 0 }, end: { x: 1, y: 0 } };
+const DOWN: Direction = { start: { x: 0, y: 0 }, end: { x: 0, y: 1 } };
 
 /** Gradient direction from the cover out, for a mask on each side. */
-const OUTWARD: Record<
-    Edge,
-    { start: { x: number; y: number }; end: { x: number; y: number } }
-> = {
+const OUTWARD: Record<Edge, Direction> = {
     top: { start: { x: 0, y: 1 }, end: { x: 0, y: 0 } },
     bottom: { start: { x: 0, y: 0 }, end: { x: 0, y: 1 } },
     left: { start: { x: 1, y: 0 }, end: { x: 0, y: 0 } },
@@ -69,8 +82,8 @@ type BlendedCoverProps = {
 /**
  * A square cover that bleeds `COVER_BLEED` points out past every edge into
  * whatever is behind it: each edge stretched out and blurring as it goes
- * (`EdgeRoom`), over a blurred copy that fills the corners (`Glow`), both
- * fading to nothing. Takes only the cover's square in layout; the bleed
+ * (`EdgeRoom`), over a blurred copy that fills the corners (`Glow`), all of it
+ * fading to nothing at the bleed's border. Takes only the cover's square in layout; the bleed
  * overflows it.
  *
  * Memoized and rasterized: the bleed is about 30 masked views, drawn once and
@@ -106,16 +119,22 @@ export const BlendedCover = memo(function BlendedCover({
                         height: size + 2 * COVER_BLEED,
                     }}
                 >
-                    <Glow uri={placeholderUri ?? uri} />
-                    {EDGES.map((edge) => (
-                        <EdgeRoom
-                            key={edge}
-                            uri={uri}
-                            placeholderUri={placeholderUri}
-                            size={size}
-                            edge={edge}
+                    <BorderFade box={size + 2 * COVER_BLEED}>
+                        <Cover
+                            uri={placeholderUri ?? uri}
+                            blurRadius={GLOW_BLUR}
+                            style={StyleSheet.absoluteFill}
                         />
-                    ))}
+                        {EDGES.map((edge) => (
+                            <EdgeRoom
+                                key={edge}
+                                uri={uri}
+                                placeholderUri={placeholderUri}
+                                size={size}
+                                edge={edge}
+                            />
+                        ))}
+                    </BorderFade>
                 </View>
             ) : null}
             {/* Last, over the part of each room that runs under it. */}
@@ -131,49 +150,42 @@ export const BlendedCover = memo(function BlendedCover({
 });
 
 /**
- * The cover blurred hard and filling the whole bleed, fading out from the
- * middle, so the corners between the rooms carry the corners' colors.
+ * `children` fading to nothing over `OUTER_FADE` points at every side of a
+ * `box` points square: one mask across, one down, so the corners fade both
+ * ways.
  */
-function Glow({ uri }: { uri: string }) {
-    // svg ids go in url(#id), which the characters useId makes can break
-    const id = `glow${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
+function BorderFade({ box, children }: { box: number; children: ReactNode }) {
+    const fade = OUTER_FADE / box;
+    const colors: [string, string, ...string[]] = [
+        "transparent",
+        "#000000",
+        "#000000",
+        "transparent",
+    ];
+    const locations: [number, number, ...number[]] = [0, fade, 1 - fade, 1];
     return (
-        <MaskedView
+        <Feathered
             style={StyleSheet.absoluteFill}
-            maskElement={
-                <Svg width="100%" height="100%">
-                    <Defs>
-                        <RadialGradient id={id} cx="50%" cy="50%" r="50%">
-                            <Stop
-                                offset="0.5"
-                                stopColor="#000"
-                                stopOpacity={1}
-                            />
-                            <Stop
-                                offset="0.8"
-                                stopColor="#000"
-                                stopOpacity={0.35}
-                            />
-                            <Stop offset="1" stopColor="#000" stopOpacity={0} />
-                        </RadialGradient>
-                    </Defs>
-                    <Rect width="100%" height="100%" fill={`url(#${id})`} />
-                </Svg>
-            }
+            direction={ACROSS}
+            colors={colors}
+            locations={locations}
         >
-            <Cover
-                uri={uri}
-                blurRadius={GLOW_BLUR}
+            <Feathered
                 style={StyleSheet.absoluteFill}
-            />
-        </MaskedView>
+                direction={DOWN}
+                colors={colors}
+                locations={locations}
+            >
+                {children}
+            </Feathered>
+        </Feathered>
     );
 }
 
 /**
  * The room past one `edge` of the cover, filled from that edge: one stretched
- * layer per `EDGE_BLURS` entry, each blurrier one fading in farther out, and
- * all of it fading to nothing at the far side.
+ * layer per `EDGE_BLURS` entry, each blurrier one fading in farther out. Its
+ * two ends fade in over `ROOM_END_FADE`, onto the glow in the corners.
  */
 function EdgeRoom({
     uri,
@@ -200,13 +212,14 @@ function EdgeRoom({
     const fromCover = (fraction: number) =>
         (EDGE_OVERLAP + fraction * COVER_BLEED) / depth;
     const step = 1 / EDGE_BLURS.length;
+    const endFade = ROOM_END_FADE / size;
 
     return (
         <Feathered
             style={frame}
-            edge={edge}
-            colors={["#000000", "#000000", "rgba(0,0,0,0.55)", "transparent"]}
-            locations={[0, fromCover(0), fromCover(0.45), 1]}
+            direction={vertical ? ACROSS : DOWN}
+            colors={["transparent", "#000000", "#000000", "transparent"]}
+            locations={[0, endFade, 1 - endFade, 1]}
         >
             {EDGE_BLURS.map((blurRadius, layer) => {
                 const stretched = (
@@ -232,7 +245,7 @@ function EdgeRoom({
                     <Feathered
                         key={layer}
                         style={StyleSheet.absoluteFill}
-                        edge={edge}
+                        direction={OUTWARD[edge]}
                         colors={[
                             "transparent",
                             "transparent",
@@ -316,19 +329,16 @@ function StretchedEdge({
     );
 }
 
-/**
- * `children` under an alpha mask of `colors` at `locations`, run from the
- * cover out on the `edge` side.
- */
+/** `children` under an alpha mask of `colors` at `locations`, run along `direction`. */
 function Feathered({
     style,
-    edge,
+    direction,
     colors,
     locations,
     children,
 }: {
     style: ComponentProps<typeof View>["style"];
-    edge: Edge;
+    direction: Direction;
     colors: [string, string, ...string[]];
     locations: [number, number, ...number[]];
     children: ReactNode;
@@ -339,8 +349,8 @@ function Feathered({
             maskElement={
                 <LinearGradient
                     style={StyleSheet.absoluteFill}
-                    start={OUTWARD[edge].start}
-                    end={OUTWARD[edge].end}
+                    start={direction.start}
+                    end={direction.end}
                     colors={colors}
                     locations={locations}
                 />
