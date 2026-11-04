@@ -16,7 +16,7 @@ The data access layer. Everything that touches postgres lives here, so handlers 
 | `tags.rs` | User tag CRUD and applied values, plus searching, reading, and applying default tags, and claiming, finishing, and dropping a song's default tag generation. User tag reads never copy or return defaults. |
 | `tag_activity.rs` | Not activity tags. Counts applies and removes of a tag name on a song in `default_tag_activity`, and promotes popular names to default tags. |
 | `queries.rs` | Compiles a tag query to SQL, runs it over every song Cadenza knows, and ranks, sorts, or groups the matches. Also sorts and groups a list of song ids the caller sends. Unit tested, plus integration tests against a real database (`--ignored`) that need `sql/metadata_tags.sql`, `sql/query_sort.sql` and `sql/sort_group.sql`. |
-| `social.rs` | Posts, likes, comments, view status, interest scores, and the feed's SQL and score math. `comments`, `post_likes`, and `comment_likes` use the generated entities. `hot_score` and embeddings stay raw SQL. Embeddings come from `services::social_feed`. `topic_mk_id` is an optional Apple Music catalog id; song vs artist is not stored. `get_topic_posts` returns the posts for one catalog id, most liked first. `get_post_comments` returns a post's comments, most liked first. A post's `comment_count` is `posts.comments`, bumped when a comment is inserted. Unit tested for the vector math and the comments select. |
+| `social.rs` | Posts, likes, comments, view status, interest scores, and the feed's SQL and score math. `comments`, `post_likes`, and `comment_likes` use the generated entities. `hot_score` and embeddings stay raw SQL. Embeddings come from `services::social_feed`. The feed candidate pool is similar posts, hot posts, and unseen posts by completed friends (`sent_by_friend`); merge keeps that flag when another source found the same post, and scoring adds a flat 10000 for it. `topic_mk_id` is an optional Apple Music catalog id; song vs artist is not stored. `get_topic_posts` returns the posts for one catalog id, most liked first. `get_post_comments` returns a post's comments, most liked first. A post's `comment_count` is `posts.comments`, bumped when a comment is inserted. `delete_post` removes the author's row and returns `NotFound` otherwise; comments, likes, and view rows cascade. `delete_comment` removes the author's comment, drops `posts.comments`, and returns `NotFound` otherwise; comment likes cascade. `update_post_text` and `update_comment_text` replace the author's text, stamp `edited_at`, and return `NotFound` otherwise. A post edit also replaces both embeddings. Friendships keep `user1` as the lexicographically smaller uuid. `request_friendship` inserts a pending request, or completes one that is already incoming. `accept_friendship` completes an incoming request. `delete_friendship` removes the row whatever its status is. Unit tested for the vector math, the comments select, friend-candidate merge, and which pending status names the recipient. |
 | `metadata_tags.rs` | The copy of Apple Music song metadata that queries and metadata tags read in `metadata_song_tags_applied`, and the album crawl queue in `metadata_albums`: storing songs, storing what a phone says about songs Apple's catalog has no entry for (`store_library_song_metadata`), finding ones with no row, reading the rows a sorted list draws (`get_song_rows`) and the ones still without artwork, and queueing, claiming, finishing, and releasing albums. Unit tested, plus integration tests against a real database (`--ignored`). |
 | `user_data.rs` | `user_data_counts`, the one list of per-user counts behind `GET /profile/data` (library, tags, listening, social), and `get_user_data`, which runs them in one statement. Listening reuses every analytics `Metric`. A new per-user table gets an entry here so Your data lists it. |
 | `user_songs.rs` | `edit_user_songs`: adds and removes the user's songs in one transaction. `get_recent_songs_without_generated_default_tags`: the newest songs nothing has generated default tags for, which the backfill job walks. |
@@ -76,16 +76,23 @@ Most of the tables below are keyed on song ids that come from Apple Music.
   See Listening events below.
 - `posts` - a social feed post. `post_id` (identity pk), `user_id` (uuid, references
   `auth.users`, cascades), `content`, `embedding` / `embedding_w_bday` (pgvector), `likes`,
-  `created_at`, `hot_score`, `comments` (bigint, how many comments the post has, default 0,
+  `created_at`, nullable `edited_at` (`now()` when the author edits; a client timestamp older than it is ignored; DDL in
+  `sql/social_edited_at.sql`), `hot_score`, `comments` (bigint, how many comments the post has, default 0,
   bumped when a comment is inserted), and nullable `topic_mk_id` (text), an Apple Music catalog
   id of the song or artist the post is about. Kind is not stored: the client asks MusicKit.
 - `comments` - a comment on a post. `comment_id` (identity pk), `user_id` (uuid, references
-  `auth.users`, cascades), `post_id` (references `posts`, cascades), `content`, `likes`, and
-  `created_at`.
+  `auth.users`, cascades), `post_id` (references `posts`, cascades), `content`, `likes`,
+  `created_at`, and nullable `edited_at` (`now()` when the author edits; a client timestamp older than it is ignored).
 - `comment_likes` - one row per user who liked a comment, composite pk of `(comment_id,
   user_id)`, plus `date`. Cascades from `comments`.
+- `friendships` - one row per pair. Composite pk `(user1, user2)`. `user1` is always the
+  lexicographically smaller uuid, so a lookup or insert has to order the two ids before writing
+  either column. `status` is `to_user1`, `to_user2`, or `complete`. A pending status names the
+  recipient: `to_user1` when the request is waiting on `user1`, `to_user2` when it is waiting on
+  `user2`. A friend count is completed rows where the person is `user1` or `user2`. Cancelling
+  deletes the row for that pair, whatever the status is.
 - `profile` - one public profile per auth user. `uid` (uuid pk, references `auth.users`, cascades),
-  `username` (text, unique), and `bio` (text, defaults to `''`). A trigger on `auth.users` insert
+  `username` (text, unique), `bio` (text, defaults to `''`), and `friends` (bigint, default 0). A trigger on `auth.users` insert
   creates the row with username equal to the email local part (everything before `@`), appending
   a number when that name is taken. `POST /profile` does the same for a missing row. See Profiles
   below.

@@ -1,11 +1,16 @@
 import { useNavigation, useRouter, type Href } from "expo-router";
-import { useCallback, useLayoutEffect } from "react";
+import { useCallback, useEffect, useLayoutEffect, useState } from "react";
 import { FlatList, Pressable, View, type ListRenderItem } from "react-native";
 import Animated from "react-native-reanimated";
 
+import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { useAccount } from "@/lib/account";
-import { useUserPosts } from "@/lib/routes/social";
+import {
+    useCancelFriendRequest,
+    useRequestFriend,
+    useUserPosts,
+} from "@/lib/routes/social";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { useScreenScroll } from "@/lib/screen-scroll";
 import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
@@ -22,8 +27,13 @@ type Props = {
  * One user's public profile: avatar, username, bio, then their posts newest
  * first. Opened by tapping an author on the feed, the feed's Me button,
  * account details, or from Discuss, which closes itself and lands here on the
- * Social tab. Read only: on your own page, Edit opens account
- * details, the one place a username and bio are edited.
+ * Social tab. On your own page, Edit opens account details, the one place
+ * a username and bio are edited. Under the avatar and username is how many
+ * friends they have. On someone else's page, Add friend sits on that same
+ * row. Already friends says Unfriend, and tapping it deletes that row. A
+ * request already sent says Friend request sent, and tapping it cancels.
+ * A request they already sent says Accept friend request, and tapping it
+ * accepts.
  */
 export function UserProfileScreen({ userId }: Props) {
     const { listBottomInset } = useScreenOverlayInsets();
@@ -33,6 +43,33 @@ export function UserProfileScreen({ userId }: Props) {
     const { account } = useAccount();
     const { profile, posts, userPostsLoading, userPostsErr } =
         useUserPosts(userId);
+    const { requestFriend, requestFriendLoading } = useRequestFriend();
+    const { cancelFriendRequest, cancelFriendRequestLoading } =
+        useCancelFriendRequest();
+    const [sentTo, setSentTo] = useState<string | null>(null);
+    const [clearedFor, setClearedFor] = useState<string | null>(null);
+    const [unfriendedFor, setUnfriendedFor] = useState<string | null>(null);
+    const [acceptedFor, setAcceptedFor] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (
+            unfriendedFor === userId &&
+            profile != null &&
+            profile.is_friend === false
+        ) {
+            setUnfriendedFor(null);
+        }
+    }, [profile, unfriendedFor, userId]);
+
+    useEffect(() => {
+        if (
+            acceptedFor === userId &&
+            profile != null &&
+            profile.is_friend === true
+        ) {
+            setAcceptedFor(null);
+        }
+    }, [acceptedFor, profile, userId]);
 
     const username = profile?.username;
     const bio = profile?.bio;
@@ -70,6 +107,81 @@ export function UserProfileScreen({ userId }: Props) {
                             bio={bio}
                             loading={userPostsLoading && !profile}
                             canEdit={account?.id === userId}
+                            friendCount={profile?.friend_count ?? 0}
+                            canAddFriend={
+                                account != null && account.id !== userId
+                            }
+                            isFriend={
+                                unfriendedFor !== userId &&
+                                (acceptedFor === userId ||
+                                    profile?.is_friend === true)
+                            }
+                            requestReceived={
+                                acceptedFor !== userId &&
+                                unfriendedFor !== userId &&
+                                profile?.friend_request_received === true
+                            }
+                            requestSent={
+                                clearedFor !== userId &&
+                                acceptedFor !== userId &&
+                                (sentTo === userId ||
+                                    (unfriendedFor !== userId &&
+                                        profile?.friend_request_sent === true))
+                            }
+                            requestBusy={
+                                requestFriendLoading ||
+                                cancelFriendRequestLoading
+                            }
+                            onAcceptRequest={() => {
+                                setAcceptedFor(userId);
+                                void requestFriend({ user_id: userId }).catch(
+                                    () =>
+                                        setAcceptedFor((current) =>
+                                            current === userId ? null : current,
+                                        ),
+                                );
+                            }}
+                            onAddFriend={() => {
+                                setClearedFor((current) =>
+                                    current === userId ? null : current,
+                                );
+                                setSentTo(userId);
+                                void requestFriend({ user_id: userId }).catch(
+                                    () =>
+                                        setSentTo((current) =>
+                                            current === userId ? null : current,
+                                        ),
+                                );
+                            }}
+                            onCancelFriend={() => {
+                                setSentTo((current) =>
+                                    current === userId ? null : current,
+                                );
+                                setClearedFor(userId);
+                                void cancelFriendRequest({
+                                    user_id: userId,
+                                }).catch(() =>
+                                    setClearedFor((current) =>
+                                        current === userId ? null : current,
+                                    ),
+                                );
+                            }}
+                            onUnfriend={() => {
+                                setSentTo((current) =>
+                                    current === userId ? null : current,
+                                );
+                                setAcceptedFor((current) =>
+                                    current === userId ? null : current,
+                                );
+                                setUnfriendedFor(userId);
+                                void cancelFriendRequest({
+                                    user_id: userId,
+                                }).catch(() =>
+                                    setUnfriendedFor((current) =>
+                                        current === userId ? null : current,
+                                    ),
+                                );
+                            }}
                             onEdit={() =>
                                 router.push("/account-details" as Href)
                             }
@@ -101,13 +213,33 @@ function ProfileHeader({
     username,
     bio,
     loading,
+    friendCount,
     canEdit,
+    canAddFriend,
+    isFriend,
+    requestReceived,
+    requestSent,
+    requestBusy,
+    onAddFriend,
+    onAcceptRequest,
+    onCancelFriend,
+    onUnfriend,
     onEdit,
 }: {
     username?: string;
     bio?: string;
     loading: boolean;
+    friendCount: number;
     canEdit: boolean;
+    canAddFriend: boolean;
+    isFriend: boolean;
+    requestReceived: boolean;
+    requestSent: boolean;
+    requestBusy: boolean;
+    onAddFriend: () => void;
+    onAcceptRequest: () => void;
+    onCancelFriend: () => void;
+    onUnfriend: () => void;
     onEdit: () => void;
 }) {
     if (loading) {
@@ -122,6 +254,20 @@ function ProfileHeader({
 
     const name = username ?? "unknown";
     const trimmedBio = bio?.trim() ?? "";
+    const friendLabel = isFriend
+        ? "Unfriend"
+        : requestSent
+          ? "Friend request sent"
+          : requestReceived
+            ? "Accept friend request"
+            : "Add friend";
+    const onFriendPress = isFriend
+        ? onUnfriend
+        : requestSent
+          ? onCancelFriend
+          : requestReceived
+            ? onAcceptRequest
+            : onAddFriend;
 
     return (
         <View className="mb-4 gap-3 border-b border-border pb-5 pt-2">
@@ -150,6 +296,23 @@ function ProfileHeader({
                         </Text>
                     </Pressable>
                 ) : null}
+            </View>
+            <View className="flex-row items-center gap-3">
+                {canAddFriend ? (
+                    <Button
+                        accessibilityLabel={friendLabel}
+                        className="self-start"
+                        size="sm"
+                        variant="outline"
+                        disabled={requestBusy}
+                        onPress={onFriendPress}
+                    >
+                        <Text>{friendLabel}</Text>
+                    </Button>
+                ) : null}
+                <Text className="text-sm text-muted-foreground">
+                    {friendCount === 1 ? "1 friend" : `${friendCount} friends`}
+                </Text>
             </View>
             {trimmedBio ? (
                 <Text className="text-base leading-6 text-foreground">

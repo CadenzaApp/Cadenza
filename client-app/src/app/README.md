@@ -14,6 +14,7 @@ logic out.
 | `(tabs)/_layout.tsx`                 |                           | Protected native tab group, its five triggers, and the media-player bottom accessory.                         |
 | `(tabs)/*/_layout.tsx`               |                           | One native `Stack` per tab, using `TabStack` for the shared top rail.                                         |
 | `(tabs)/social/index.tsx`            | `/social`                 | The ranked social feed.                                                                                       |
+| `(tabs)/social/friends.tsx`          | `/social/friends`         | Incoming requests, then outgoing requests, then friends. Opened from the feed header.                        |
 | `(tabs)/social/user/[userId].tsx`    | `/social/user/:userId`    | One user's public profile (username, bio) and their posts, newest first. Your own page edits both.            |
 | `(tabs)/analytics/index.tsx`         | `/analytics`              | The overview: header, #1 hero, stats, heatmap, tag rail, and one card for every ranking.                      |
 | `(tabs)/analytics/[dimension].tsx`   | `/analytics/[dimension]`  | One full ranking. `dimension` is a name from the client's dimension registry.                                 |
@@ -165,8 +166,8 @@ already.
 Every tab is a directory with a native `Stack` from `TabStack`. `TopRail` is that stack's
 header. The page title sits on the left, the account
 initials button sits on the right, and the button opens `/account`. The Social feed
-adds a "Me" button next to create post; that button pushes
-`/social/user/:userId` on the social stack.
+adds a friends button and a "Me" button next to create post. Friends opens
+`/social/friends`. Me pushes `/social/user/:userId` on the social stack.
 
 The rail floats over the page; it is not part of it. The screen's scroller pads its content's top
 by the rail's measured height plus `RAIL_CONTENT_GAP`, the same on every page, replacing the page's

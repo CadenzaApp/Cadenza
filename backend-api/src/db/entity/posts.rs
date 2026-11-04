@@ -25,6 +25,7 @@ pub struct Model {
     #[sea_orm(column_type = "Text", nullable)]
     pub topic_mk_id: Option<String>,
     pub comments: i64,
+    pub edited_at: Option<DateTimeWithTimeZone>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

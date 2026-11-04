@@ -11,11 +11,13 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ModalPopup } from "@/components/custom/modal-popup";
+import { Button } from "@/components/ui/button";
 import { DialogCloseButton } from "@/components/ui/dialog-close-button";
 import { Text } from "@/components/ui/text";
+import { useAccount } from "@/lib/account";
 import { pinComments } from "@/lib/post-comment";
-import { useAppTheme } from "@/lib/theme";
 import { useProfile } from "@/lib/routes/profile";
+import { useAppTheme } from "@/lib/theme";
 import {
     useCreateComment,
     useInsertCachedComment,
@@ -24,12 +26,16 @@ import {
     usePostComments,
     useUnlikeComment,
     useUnlikePost,
+    useUpdateCachedCommentContent,
     useUpdateCachedCommentLike,
     useUpdateCachedPostCommentCount,
     useUpdateCachedPostLike,
+    useUpdateComment,
 } from "@/lib/routes/social";
 import { cn } from "@/lib/utils";
 
+import { CommentOptionsMenu } from "./CommentOptionsMenu";
+import { EditContentDialog } from "./EditContentDialog";
 import { formatRelativeTime, initialsFromUsername } from "./format";
 import { PostTopicCard } from "./PostTopicCard";
 import { useResolvedTopic } from "./topic";
@@ -50,6 +56,8 @@ type Props = {
     onAuthorPress?: (userId: string) => void;
     /** A comment was stored. The card bumps its own count from this. */
     onCommentCreated?: () => void;
+    /** A comment was deleted. The card drops its own count from this. */
+    onCommentDeleted?: () => void;
 };
 
 /** Post plus its comments, most liked first, with a composer. */
@@ -62,6 +70,7 @@ export function PostCommentsDialog({
     onLikedChange,
     onAuthorPress,
     onCommentCreated,
+    onCommentDeleted,
 }: Props) {
     const { mutedForeground } = useAppTheme().colors;
     const sendColor = useAppTheme().colors.primaryForeground;
@@ -100,7 +109,7 @@ export function PostCommentsDialog({
     async function submit() {
         const content = draft.trim();
         if (!content || content.length > MAX_COMMENT_LENGTH) return;
-        if (post.post_id < 0 || sending || postCommentsLoading) return;
+        if (sending || postCommentsLoading) return;
 
         setSending(true);
         try {
@@ -116,6 +125,7 @@ export function PostCommentsDialog({
                 likes: 0,
                 liked: false,
                 created_at: new Date().toISOString(),
+                edited_at: null,
                 author: {
                     user_id: profile?.uid ?? "",
                     username: profile?.username ?? "unknown",
@@ -189,9 +199,7 @@ export function PostCommentsDialog({
                                 placeholderTextColor={mutedForeground}
                                 multiline
                                 maxLength={MAX_COMMENT_LENGTH}
-                                editable={
-                                    post.post_id > 0 && !postCommentsLoading
-                                }
+                                editable={!postCommentsLoading}
                                 textAlignVertical="top"
                                 className="max-h-[96px] px-3 py-2.5 text-base text-foreground"
                             />
@@ -200,18 +208,12 @@ export function PostCommentsDialog({
                             accessibilityRole="button"
                             accessibilityLabel="Send comment"
                             disabled={
-                                !canSend ||
-                                sending ||
-                                post.post_id < 0 ||
-                                postCommentsLoading
+                                !canSend || sending || postCommentsLoading
                             }
                             onPress={() => void submit()}
                             className={cn(
                                 "h-11 w-11 items-center justify-center rounded-full bg-primary shadow-sm shadow-black/5 active:bg-primary/90",
-                                (!canSend ||
-                                    sending ||
-                                    post.post_id < 0 ||
-                                    postCommentsLoading) &&
+                                (!canSend || sending || postCommentsLoading) &&
                                     "opacity-80",
                             )}
                         >
@@ -240,6 +242,14 @@ export function PostCommentsDialog({
                                 key={comment.comment_id}
                                 comment={comment}
                                 onAuthorPress={openAuthor}
+                                onDeleted={() => {
+                                    setPinnedIds((ids) =>
+                                        ids.filter(
+                                            (id) => id !== comment.comment_id,
+                                        ),
+                                    );
+                                    onCommentDeleted?.();
+                                }}
                             />
                         ))
                     )}
@@ -284,7 +294,6 @@ function PostSummary({
         const nowLiked = !likedRef.current;
         likedRef.current = nowLiked;
         setLiked(nowLiked);
-        if (post.post_id < 0) return;
         if (onLikedChange) onLikedChange(post.post_id, nowLiked);
         else void updateCachedPostLike(post.post_id, nowLiked);
         const request = nowLiked
@@ -305,7 +314,7 @@ function PostSummary({
     }
 
     return (
-        <View className="gap-3 overflow-hidden rounded-3xl border border-border p-4">
+        <View className="mt-8 gap-3 overflow-hidden rounded-3xl border border-border p-4">
             <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={`View ${post.author.username}'s profile`}
@@ -342,28 +351,35 @@ function PostSummary({
                 {post.content}
             </Text>
 
-            <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={liked ? "Unlike post" : "Like post"}
-                accessibilityState={{ selected: liked }}
-                onPress={toggleLike}
-                hitSlop={8}
-                className="flex-row items-center gap-1.5 self-start active:opacity-60"
-            >
-                <Ionicons
-                    name={liked ? "heart" : "heart-outline"}
-                    size={18}
-                    color={like}
-                />
-                <Text
-                    className={cn(
-                        "text-sm",
-                        liked ? "text-rose-600" : "text-muted-foreground",
-                    )}
+            <View className="flex-row items-center gap-4 self-start">
+                <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={liked ? "Unlike post" : "Like post"}
+                    accessibilityState={{ selected: liked }}
+                    onPress={toggleLike}
+                    hitSlop={8}
+                    className="flex-row items-center gap-1.5 active:opacity-60"
                 >
-                    {likes}
-                </Text>
-            </Pressable>
+                    <Ionicons
+                        name={liked ? "heart" : "heart-outline"}
+                        size={18}
+                        color={like}
+                    />
+                    <Text
+                        className={cn(
+                            "text-sm",
+                            liked ? "text-rose-600" : "text-muted-foreground",
+                        )}
+                    >
+                        {likes}
+                    </Text>
+                </Pressable>
+                {post.edited_at ? (
+                    <Text className="text-sm text-muted-foreground">
+                        (edited)
+                    </Text>
+                ) : null}
+            </View>
         </View>
     );
 }
@@ -371,11 +387,20 @@ function PostSummary({
 function CommentRow({
     comment,
     onAuthorPress,
+    onDeleted,
 }: {
     comment: SocialComment;
     onAuthorPress?: (userId: string) => void;
+    onDeleted?: () => void;
 }) {
-    const { like } = useAppTheme().colors;
+    const { account } = useAccount();
+    const { foreground, like } = useAppTheme().colors;
+    const isOwnComment = account?.id === comment.author.user_id;
+    const [menuOpen, setMenuOpen] = useState(false);
+    const [editing, setEditing] = useState(false);
+    const [savingEdit, setSavingEdit] = useState(false);
+    const { updateComment } = useUpdateComment();
+    const updateCachedCommentContent = useUpdateCachedCommentContent();
     const { likeComment } = useLikeComment();
     const { unlikeComment } = useUnlikeComment();
     const updateCachedCommentLike = useUpdateCachedCommentLike();
@@ -389,11 +414,30 @@ function CommentRow({
 
     const likes = comment.likes + (liked ? 1 : 0) - (comment.liked ? 1 : 0);
 
+    async function saveEdit(content: string) {
+        const editedAtMs = Date.now();
+        const editedAt = new Date(editedAtMs).toISOString();
+        setSavingEdit(true);
+        try {
+            await updateComment(comment.comment_id, content, editedAtMs);
+            await updateCachedCommentContent(
+                comment.post_id,
+                comment.comment_id,
+                content,
+                editedAt,
+            );
+            setEditing(false);
+        } catch (error) {
+            console.error("Editing a comment failed", error);
+        } finally {
+            setSavingEdit(false);
+        }
+    }
+
     function toggleLike() {
         const nowLiked = !likedRef.current;
         likedRef.current = nowLiked;
         setLiked(nowLiked);
-        if (comment.comment_id < 0) return;
         void updateCachedCommentLike(
             comment.post_id,
             comment.comment_id,
@@ -416,57 +460,100 @@ function CommentRow({
 
     return (
         <View className="gap-2 rounded-2xl px-3 py-3">
-            <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`View ${comment.author.username}'s profile`}
-                onPress={() => onAuthorPress?.(comment.author.user_id)}
-                disabled={!comment.author.user_id}
-                className="flex-row items-center gap-2.5 active:opacity-60"
-            >
-                <View className="h-8 w-8 items-center justify-center rounded-full bg-muted">
-                    <Text className="text-xs font-semibold text-foreground">
-                        {initialsFromUsername(comment.author.username)}
-                    </Text>
-                </View>
-                <View className="min-w-0 flex-1">
-                    <Text
-                        className="text-sm font-semibold text-foreground"
-                        numberOfLines={1}
+            <View className="flex-row items-center">
+                <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`View ${comment.author.username}'s profile`}
+                    onPress={() => onAuthorPress?.(comment.author.user_id)}
+                    disabled={!comment.author.user_id}
+                    className="min-w-0 flex-1 flex-row items-center gap-2.5 active:opacity-60"
+                >
+                    <View className="h-8 w-8 items-center justify-center rounded-full bg-muted">
+                        <Text className="text-xs font-semibold text-foreground">
+                            {initialsFromUsername(comment.author.username)}
+                        </Text>
+                    </View>
+                    <View className="min-w-0 flex-1">
+                        <Text
+                            className="text-sm font-semibold text-foreground"
+                            numberOfLines={1}
+                        >
+                            {comment.author.username}
+                        </Text>
+                        <Text className="text-xs text-muted-foreground">
+                            {formatRelativeTime(comment.created_at)}
+                        </Text>
+                    </View>
+                </Pressable>
+                {isOwnComment ? (
+                    <Button
+                        size="icon"
+                        variant="ghost"
+                        className="-mr-2 h-8 w-8 shrink-0 rounded-full"
+                        onPress={() => setMenuOpen(true)}
+                        accessibilityLabel="Comment options"
                     >
-                        {comment.author.username}
-                    </Text>
-                    <Text className="text-xs text-muted-foreground">
-                        {formatRelativeTime(comment.created_at)}
-                    </Text>
-                </View>
-            </Pressable>
+                        <Ionicons
+                            name="ellipsis-horizontal"
+                            size={20}
+                            color={foreground}
+                        />
+                    </Button>
+                ) : null}
+            </View>
 
             <Text className="text-sm leading-5 text-foreground">
                 {comment.content}
             </Text>
 
-            <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={liked ? "Unlike comment" : "Like comment"}
-                accessibilityState={{ selected: liked }}
-                onPress={toggleLike}
-                hitSlop={8}
-                className="flex-row items-center gap-1.5 self-start active:opacity-60"
-            >
-                <Ionicons
-                    name={liked ? "heart" : "heart-outline"}
-                    size={16}
-                    color={like}
-                />
-                <Text
-                    className={cn(
-                        "text-sm",
-                        liked ? "text-rose-600" : "text-muted-foreground",
-                    )}
+            <View className="flex-row items-center gap-4 self-start">
+                <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                        liked ? "Unlike comment" : "Like comment"
+                    }
+                    accessibilityState={{ selected: liked }}
+                    onPress={toggleLike}
+                    hitSlop={8}
+                    className="flex-row items-center gap-1.5 active:opacity-60"
                 >
-                    {likes}
-                </Text>
-            </Pressable>
+                    <Ionicons
+                        name={liked ? "heart" : "heart-outline"}
+                        size={16}
+                        color={like}
+                    />
+                    <Text
+                        className={cn(
+                            "text-sm",
+                            liked ? "text-rose-600" : "text-muted-foreground",
+                        )}
+                    >
+                        {likes}
+                    </Text>
+                </Pressable>
+                {comment.edited_at ? (
+                    <Text className="text-sm text-muted-foreground">
+                        (edited)
+                    </Text>
+                ) : null}
+            </View>
+
+            <CommentOptionsMenu
+                comment={menuOpen ? comment : null}
+                onClose={() => setMenuOpen(false)}
+                onDeleted={() => onDeleted?.()}
+                onEdit={() => setEditing(true)}
+            />
+
+            <EditContentDialog
+                open={editing}
+                title="Edit Comment"
+                initial={comment.content}
+                maxLength={MAX_COMMENT_LENGTH}
+                saving={savingEdit}
+                onSubmit={(content) => void saveEdit(content)}
+                onCancel={() => setEditing(false)}
+            />
         </View>
     );
 }

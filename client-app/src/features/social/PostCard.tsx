@@ -3,21 +3,27 @@ import { useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 
+import { Button } from "@/components/ui/button";
 import { GlassSurface } from "@/components/ui/glass-surface";
 import { Text } from "@/components/ui/text";
+import { useAccount } from "@/lib/account";
 import {
     useLikePost,
     useUnlikePost,
+    useUpdateCachedPostContent,
     useUpdateCachedPostLike,
+    useUpdatePost,
 } from "@/lib/routes/social";
+import { useAppTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 
+import { EditContentDialog } from "./EditContentDialog";
 import { formatRelativeTime, initialsFromUsername } from "./format";
 import { PostCommentsDialog } from "./PostCommentsDialog";
+import { PostOptionsMenu } from "./PostOptionsMenu";
 import { PostTopicCard } from "./PostTopicCard";
 import { useResolvedTopic } from "./topic";
 import type { PostTopic, SocialPost } from "./types";
-import { useAppTheme } from "@/lib/theme";
 
 type Props = {
     post: SocialPost;
@@ -36,7 +42,22 @@ type Props = {
      * closes itself first.
      */
     onAuthorPress?: (userId: string) => void;
+    /** The post left the screen. Fired before the delete request returns. */
+    onDeleted?: (postId: number) => void;
+    /** The delete request failed. The caller can show the post again. */
+    onDeleteFailed?: (postId: number) => void;
+    /**
+     * The text changed on a copy the cache does not own, such as one just
+     * written. `editedAt` is null when an edit is reverted.
+     */
+    onEdited?: (
+        postId: number,
+        content: string,
+        editedAt: string | null,
+    ) => void;
 };
+
+const MAX_POST_LENGTH = 500;
 
 /** One feed row: author, attached topic, body, likes, and comments. */
 export function PostCard({
@@ -45,12 +66,19 @@ export function PostCard({
     showTopic = true,
     onLikedChange,
     onAuthorPress,
+    onDeleted,
+    onDeleteFailed,
+    onEdited,
 }: Props) {
-    const { like, mutedForeground } = useAppTheme().colors;
+    const { foreground, like, mutedForeground } = useAppTheme().colors;
+    const { account } = useAccount();
     const router = useRouter();
     const { likePost } = useLikePost();
     const { unlikePost } = useUnlikePost();
     const updateCachedPostLike = useUpdateCachedPostLike();
+    const { updatePost } = useUpdatePost();
+    const updateCachedPostContent = useUpdateCachedPostContent();
+    const isOwnPost = account?.id === post.author.user_id;
     const topic = useResolvedTopic(
         showTopic ? post.topic_mk_id : null,
         showTopic ? topicHint : null,
@@ -58,12 +86,25 @@ export function PostCard({
     const [liked, setLiked] = useState(post.liked);
     const likedRef = useRef(liked);
     const [commentsOpen, setCommentsOpen] = useState(false);
+    const [menuOpen, setMenuOpen] = useState(false);
+    const [editing, setEditing] = useState(false);
+    // The card paints this as soon as Submit is pressed. The feed cache
+    // follows, but the embed request is slow, so the prop can lag.
+    const [savedEdit, setSavedEdit] = useState<{
+        content: string;
+        edited_at: string | null;
+    } | null>(null);
     // The card remounts from the cached post after a navigation. Follow that
     // post, or an unlike that already saved still paints as liked.
     useEffect(() => {
         likedRef.current = post.liked;
         setLiked(post.liked);
     }, [post.liked, post.post_id]);
+
+    useEffect(() => {
+        if (!savedEdit) return;
+        if (post.content === savedEdit.content) setSavedEdit(null);
+    }, [post.content, savedEdit]);
 
     const propCommentCount = post.comment_count ?? 0;
     // Posts the user just created sit outside SWR, so the cache write never
@@ -103,16 +144,58 @@ export function PostCard({
         });
     }
 
+    function noteCommentDeleted() {
+        setCommentBump((current) => {
+            const count = post.comment_count ?? 0;
+            if (current.postId !== post.post_id || current.count !== count) {
+                return { postId: post.post_id, count, extra: 0 };
+            }
+            return { ...current, extra: Math.max(0, current.extra - 1) };
+        });
+    }
+
     function openComments() {
-        if (post.post_id < 0) return;
+        if (editing) return;
         setCommentsOpen(true);
+    }
+
+    const displayPost: SocialPost = savedEdit
+        ? {
+              ...post,
+              content: savedEdit.content,
+              edited_at: savedEdit.edited_at,
+          }
+        : post;
+
+    async function saveEdit(content: string) {
+        const previous = {
+            content: displayPost.content,
+            edited_at: displayPost.edited_at ?? null,
+        };
+        const editedAtMs = Date.now();
+        const editedAt = new Date(editedAtMs).toISOString();
+        setSavedEdit({ content, edited_at: editedAt });
+        setEditing(false);
+        onEdited?.(post.post_id, content, editedAt);
+        void updateCachedPostContent(post.post_id, content, editedAt);
+        try {
+            await updatePost(post.post_id, content, editedAtMs);
+        } catch (error) {
+            console.error("Editing a post failed", error);
+            setSavedEdit(previous);
+            onEdited?.(post.post_id, previous.content, previous.edited_at);
+            void updateCachedPostContent(
+                post.post_id,
+                previous.content,
+                previous.edited_at,
+            );
+        }
     }
 
     function toggleLike() {
         const nowLiked = !likedRef.current;
         likedRef.current = nowLiked;
         setLiked(nowLiked);
-        if (post.post_id < 0) return;
         if (onLikedChange) onLikedChange(post.post_id, nowLiked);
         else void updateCachedPostLike(post.post_id, nowLiked);
         const request = nowLiked
@@ -175,17 +258,37 @@ export function PostCard({
                     />
                 </View>
 
-                <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={`View ${post.author.username}'s profile`}
-                    onPress={(event) => {
-                        event.stopPropagation();
-                        openAuthor();
-                    }}
-                    className="flex-row items-center gap-3 active:opacity-60"
-                >
-                    {authorRow}
-                </Pressable>
+                <View className="flex-row items-center">
+                    <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`View ${post.author.username}'s profile`}
+                        onPress={(event) => {
+                            event.stopPropagation();
+                            openAuthor();
+                        }}
+                        className="min-w-0 flex-1 flex-row items-center gap-3 active:opacity-60"
+                    >
+                        {authorRow}
+                    </Pressable>
+                    {isOwnPost ? (
+                        <Button
+                            size="icon"
+                            variant="ghost"
+                            className="-mr-2 h-10 w-10 shrink-0 rounded-full"
+                            onPress={(event) => {
+                                event.stopPropagation();
+                                setMenuOpen(true);
+                            }}
+                            accessibilityLabel="Post options"
+                        >
+                            <Ionicons
+                                name="ellipsis-horizontal"
+                                size={24}
+                                color={foreground}
+                            />
+                        </Button>
+                    ) : null}
+                </View>
 
                 {topic ? (
                     <PostTopicCard
@@ -195,7 +298,7 @@ export function PostCard({
                 ) : null}
 
                 <Text className="text-base leading-6 text-foreground">
-                    {post.content}
+                    {displayPost.content}
                 </Text>
 
                 <View className="flex-row items-center gap-4 self-start">
@@ -246,18 +349,42 @@ export function PostCard({
                             {commentCount}
                         </Text>
                     </Pressable>
+                    {displayPost.edited_at ? (
+                        <Text className="text-sm text-muted-foreground">
+                            (edited)
+                        </Text>
+                    ) : null}
                 </View>
             </Pressable>
+
+            <PostOptionsMenu
+                post={menuOpen ? displayPost : null}
+                onClose={() => setMenuOpen(false)}
+                onDeleted={onDeleted}
+                onDeleteFailed={onDeleteFailed}
+                onEdit={() => setEditing(true)}
+            />
+
+            <EditContentDialog
+                open={editing}
+                title="Edit Post"
+                initial={displayPost.content}
+                maxLength={MAX_POST_LENGTH}
+                saving={false}
+                onSubmit={(content) => void saveEdit(content)}
+                onCancel={() => setEditing(false)}
+            />
 
             <PostCommentsDialog
                 open={commentsOpen}
                 onOpenChange={setCommentsOpen}
-                post={post}
+                post={displayPost}
                 topicHint={topicHint}
                 showTopic={showTopic}
                 onLikedChange={onLikedChange}
                 onAuthorPress={openAuthor}
                 onCommentCreated={noteCommentCreated}
+                onCommentDeleted={noteCommentDeleted}
             />
         </>
     );

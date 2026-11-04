@@ -3,7 +3,7 @@
 //! The model never sees the database. This process loads the rows, sends the
 //! text the model needs, and writes the vectors it gets back.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStderr, ChildStdout, Command, Stdio};
@@ -172,6 +172,48 @@ impl SocialFeedService {
         social::insert_post(db, user_id, content, &embedding, &with_bday, topic_mk_id).await
     }
 
+    /// Replaces the author's post text. Re-embeds the stored content without
+    /// the topic-name prefix, because those names are not stored. The age
+    /// component of `embedding_w_bday` stays the original `created_at`.
+    /// `client_time` is compared with the stored `edited_at`; an older one is
+    /// ignored, before the embed and again in the write. A kept edit stamps
+    /// `edited_at` with the database clock. `NotFound` when the post is
+    /// missing or owned by someone else.
+    pub async fn update_post(
+        &self,
+        db: &DatabaseConnection,
+        user_id: Uuid,
+        post_id: i64,
+        content: &str,
+        client_time: DateTime<Utc>,
+    ) -> Result<(), CadenzaError> {
+        let Some(clock) = social::author_post_clock(db, user_id, post_id).await? else {
+            return Err(CadenzaError::NotFound);
+        };
+        if !social::edit_replaces(clock.edited_at, client_time) {
+            return Ok(());
+        }
+        let embedding = self.embed_post(content).await?;
+        let mut with_bday = Vec::with_capacity(embedding.len() + 1);
+        with_bday.push(social::days_since_posts_epoch(clock.created_at) as f64);
+        with_bday.extend_from_slice(&embedding);
+        social::update_post_text(
+            db, user_id, post_id, content, &embedding, &with_bday, client_time,
+        )
+        .await
+    }
+
+    /// Deletes the author's post. `NotFound` when it is missing or owned by
+    /// someone else. Related likes, comments, and view rows cascade.
+    pub async fn delete_post(
+        &self,
+        db: &DatabaseConnection,
+        user_id: Uuid,
+        post_id: i64,
+    ) -> Result<(), CadenzaError> {
+        social::delete_post(db, user_id, post_id).await
+    }
+
     /// Ranked posts for `user_id`. Marks the returned ids `loaded`.
     pub async fn get_feed(
         &self,
@@ -197,18 +239,14 @@ impl SocialFeedService {
             vector
         };
 
-        let (similar, hot) = tokio::try_join!(
+        let (similar, hot, friends) = tokio::try_join!(
             social::similar_and_recent_posts(db, user_id, exclude, vector.as_deref()),
             social::hot_posts(db, user_id, exclude),
+            social::friend_posts(db, user_id, exclude),
         )?;
 
-        let mut seen = HashSet::new();
-        let mut posts = Vec::new();
-        for post in similar.into_iter().chain(hot) {
-            if seen.insert(post.post_id) {
-                posts.push(post);
-            }
-        }
+        let mut posts =
+            social::merge_feed_candidates(similar.into_iter().chain(hot).chain(friends));
         if posts.is_empty() {
             return Ok(Vec::new());
         }
@@ -228,6 +266,7 @@ impl SocialFeedService {
                         post.likes,
                         social::age_days(post.created_at, now),
                         similarities.get(&post.post_id).copied().unwrap_or(0.0),
+                        post.sent_by_friend,
                     ),
                 )
             })
@@ -268,18 +307,28 @@ impl SocialFeedService {
         viewer_id: Uuid,
         author_id: Uuid,
     ) -> Result<(PublicProfile, Vec<SocialPost>), CadenzaError> {
-        let (posts, profile) = tokio::try_join!(
+        let (posts, profile, friend_request_sent, friend_request_received, is_friend) = tokio::try_join!(
             social::get_author_posts(db, viewer_id, author_id),
             social::find_public_profile(db, author_id),
+            social::friend_request_sent(db, viewer_id, author_id),
+            social::friend_request_sent(db, author_id, viewer_id),
+            social::is_friend(db, viewer_id, author_id),
         )?;
-        let profile = profile.unwrap_or_else(|| PublicProfile {
+        let mut profile = profile.unwrap_or_else(|| PublicProfile {
             user_id: author_id,
             username: posts
                 .first()
                 .map(|post| post.author_username.clone())
                 .unwrap_or_else(|| "unknown".to_owned()),
             bio: String::new(),
+            friend_count: 0,
+            friend_request_sent: false,
+            friend_request_received: false,
+            is_friend: false,
         });
+        profile.friend_request_sent = friend_request_sent;
+        profile.friend_request_received = friend_request_received;
+        profile.is_friend = is_friend;
         Ok((profile, posts))
     }
 
@@ -415,6 +464,32 @@ impl SocialFeedService {
         content: &str,
     ) -> Result<i64, CadenzaError> {
         social::insert_comment(db, user_id, post_id, content).await
+    }
+
+    /// Replaces the author's comment text. `client_time` is compared with the
+    /// stored `edited_at`; an older one leaves the comment alone. A kept edit
+    /// stamps `edited_at` with the database clock. `NotFound` when the comment
+    /// is missing or owned by someone else.
+    pub async fn update_comment(
+        &self,
+        db: &DatabaseConnection,
+        user_id: Uuid,
+        comment_id: i64,
+        content: &str,
+        client_time: DateTime<Utc>,
+    ) -> Result<(), CadenzaError> {
+        social::update_comment_text(db, user_id, comment_id, content, client_time).await
+    }
+
+    /// Deletes the author's comment. `NotFound` when it is missing or owned by
+    /// someone else. `posts.comments` drops in the same transaction.
+    pub async fn delete_comment(
+        &self,
+        db: &DatabaseConnection,
+        user_id: Uuid,
+        comment_id: i64,
+    ) -> Result<(), CadenzaError> {
+        social::delete_comment(db, user_id, comment_id).await
     }
 
     /// Likes `comment_id` unless `timestamp` is older than the last click this

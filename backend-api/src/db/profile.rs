@@ -1,6 +1,11 @@
 //! Public profiles: one row per auth user with a unique username and a bio.
 
-use sea_orm::{ActiveModelTrait, ActiveValue::Set, DatabaseConnection, EntityTrait, prelude::Uuid};
+use sea_orm::{
+    ActiveModelTrait,
+    ActiveValue::{NotSet, Set},
+    DatabaseConnection, EntityTrait,
+    prelude::Uuid,
+};
 
 use crate::db::entity::profile;
 use crate::err::CadenzaError;
@@ -45,6 +50,7 @@ pub async fn create_profile(
         uid: Set(user_id),
         username: Set(username),
         bio: Set(bio),
+        friends: NotSet,
     };
 
     Ok(row.insert(db).await?)

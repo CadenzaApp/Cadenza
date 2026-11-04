@@ -110,6 +110,49 @@ export function insertCachedComment(
     };
 }
 
+/** Replaces one comment's text and `edited_at` in a cached comments list. */
+export function applyCommentContent(
+    data: unknown,
+    commentId: number,
+    content: string,
+    editedAt: string | null,
+): unknown {
+    if (!data || typeof data !== "object") return data;
+    const record = data as CommentsEnvelope;
+    if (!Array.isArray(record.comments)) return data;
+
+    let changed = false;
+    const comments = record.comments.map((comment) => {
+        if (!comment || typeof comment !== "object") return comment;
+        const row = comment as SocialComment;
+        if (
+            row.comment_id !== commentId ||
+            (row.content === content && row.edited_at === editedAt)
+        ) {
+            return comment;
+        }
+        changed = true;
+        return { ...row, content, edited_at: editedAt };
+    });
+    if (!changed) return data;
+    return { ...record, comments };
+}
+
+/** Drops one comment from a cached comments list. */
+export function removeCachedComment(data: unknown, commentId: number): unknown {
+    if (!data || typeof data !== "object") return data;
+    const record = data as CommentsEnvelope;
+    if (!Array.isArray(record.comments)) return data;
+    const comments = record.comments.filter(
+        (row) =>
+            !row ||
+            typeof row !== "object" ||
+            (row as SocialComment).comment_id !== commentId,
+    );
+    if (comments.length === record.comments.length) return data;
+    return { ...record, comments };
+}
+
 /**
  * True when `data` is `useSWRInfinite` pages of social posts: a non-empty
  * array of objects that each hold a `feed` or `posts` array of posts.

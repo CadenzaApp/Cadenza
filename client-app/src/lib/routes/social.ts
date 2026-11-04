@@ -5,17 +5,25 @@ import useSWRInfinite from "swr/infinite";
 import { useAccount } from "../account";
 import { fetchAPIData, useAPIData, useAPIMutation } from "../api-actions";
 import {
+    applyCommentContent,
     applyCommentLike,
     applyPostCommentDelta,
     commentsPath,
     insertCachedComment,
     isPostCommentsKey,
+    removeCachedComment,
     isSocialPostPages,
 } from "../post-comment";
-import { applyPostLike, isSocialPostListKey } from "../post-like";
+import {
+    applyPostContent,
+    applyPostLike,
+    isSocialPostListKey,
+    removePost,
+} from "../post-like";
 import type {
     InterestScoreDelta,
     SocialComment,
+    Friendships,
     SocialPost,
     SocialUserProfile,
 } from "@/lib/types";
@@ -272,6 +280,121 @@ export function useCreatePost() {
     };
 }
 
+type DeletePostPayload = {
+    post_id: number;
+};
+
+function deletePostPath({ post_id }: DeletePostPayload) {
+    return `/social/posts/${post_id}`;
+}
+
+/**
+ * Deletes one of the signed-in user's posts. A missing post, or one they do
+ * not own, is a 404. Cache removal is separate: call `useRemoveCachedPost`.
+ */
+export function useDeletePost() {
+    const x = useAPIMutation<DeletePostPayload, void>(
+        "DELETE",
+        deletePostPath,
+        [],
+        { invalidation: "none" },
+    );
+    const deletePost = useCallback(
+        (post_id: number) => x.trigger({ post_id }),
+        [x.trigger],
+    );
+    return {
+        deletePostErr: x.error,
+        deletePostLoading: x.isMutating,
+        resetDeletePost: x.reset,
+        deletePost,
+    };
+}
+
+type EditPostPayload = {
+    post_id: number;
+    content: string;
+    /** Client time in milliseconds. Compared with the stored `edited_at`. */
+    timestamp: number;
+};
+
+function editPostPath({ post_id }: EditPostPayload) {
+    return `/social/posts/${post_id}`;
+}
+
+/**
+ * Replaces one of the signed-in user's posts. `timestamp` is `Date.now()` when
+ * the edit was submitted. The server ignores one older than the stored
+ * `edited_at`. A missing post, or one they do not own, is a 404. Cache updates
+ * are separate.
+ */
+export function useUpdatePost() {
+    const x = useAPIMutation<EditPostPayload, void>("PATCH", editPostPath, [], {
+        invalidation: "none",
+    });
+    const updatePost = useCallback(
+        (post_id: number, content: string, timestamp: number) =>
+            x.trigger({ post_id, content, timestamp }),
+        [x.trigger],
+    );
+    return {
+        updatePostErr: x.error,
+        updatePostLoading: x.isMutating,
+        resetUpdatePost: x.reset,
+        updatePost,
+    };
+}
+
+/**
+ * Writes new text and `edited_at` through every cached post list, including
+ * the infinite feed.
+ */
+export function useUpdateCachedPostContent() {
+    const { cache, mutate } = useSWRConfig();
+    return useCallback(
+        (postId: number, content: string, editedAt: string | null) => {
+            const apply = (current: unknown) =>
+                current == null
+                    ? current
+                    : applyPostContent(current, postId, content, editedAt);
+            const writes: Promise<unknown>[] = [
+                mutate(isSocialPostListKey, apply, { revalidate: false }),
+            ];
+            for (const key of cache.keys()) {
+                if (!key.startsWith("$inf$")) continue;
+                if (!isSocialPostPages(cache.get(key)?.data)) continue;
+                writes.push(mutate(key, apply, { revalidate: false }));
+            }
+            return Promise.all(writes);
+        },
+        [cache, mutate],
+    );
+}
+
+/**
+ * Drops one post from every cached post list, including the infinite feed.
+ * A filtered `mutate` skips `$inf$` keys, so those entries are written by key.
+ */
+export function useRemoveCachedPost() {
+    const { cache, mutate } = useSWRConfig();
+    return useCallback(
+        (postId: number) => {
+            const apply = (current: unknown) =>
+                current == null ? current : removePost(current, postId);
+            const writes: Promise<unknown>[] = [
+                mutate(isSocialPostListKey, apply, { revalidate: false }),
+            ];
+            for (const key of cache.keys()) {
+                if (!key.startsWith("$inf$")) continue;
+                if (!isSocialPostPages(cache.get(key)?.data)) continue;
+                writes.push(mutate(key, apply, { revalidate: false }));
+            }
+            return Promise.all(writes);
+        },
+        [cache, mutate],
+    );
+}
+
 type MarkPostsViewedPayload = {
     post_ids: number[];
 };
@@ -409,6 +532,94 @@ type UserPostsResponse = {
  *     useUserPosts(authorId);
  * ```
  */
+const EMPTY_PEOPLE: Friendships["friends"] = [];
+
+type FriendRequestPayload = {
+    user_id: string;
+};
+
+/**
+ * Sends a friend request to `user_id`. A request already sent is a no-op.
+ * An incoming request from them is accepted. Refreshes the profile and the
+ * friends list so the button and outgoing requests catch up.
+ */
+export function useRequestFriend() {
+    const { account } = useAccount();
+    const x = useAPIMutation<FriendRequestPayload, null>(
+        "POST",
+        ({ user_id }) => `/social/friends/${user_id}`,
+        ({ user_id }) => [
+            { path: "/social/friends" },
+            { path: `/social/posts/user/${user_id}` },
+            ...(account ? [{ path: `/social/posts/user/${account.id}` }] : []),
+        ],
+    );
+    return {
+        requestFriendErr: x.error,
+        requestFriendLoading: x.isMutating,
+        resetRequestFriend: x.reset,
+        requestFriend: x.trigger,
+    };
+}
+
+/**
+ * Deletes the friendship row with `user_id`, whatever its status is.
+ * Refreshes the friends list and both profiles so friend counts update.
+ */
+export function useCancelFriendRequest() {
+    const { account } = useAccount();
+    const x = useAPIMutation<FriendRequestPayload, null>(
+        "DELETE",
+        ({ user_id }) => `/social/friends/${user_id}`,
+        ({ user_id }) => [
+            { path: "/social/friends" },
+            { path: `/social/posts/user/${user_id}` },
+            ...(account ? [{ path: `/social/posts/user/${account.id}` }] : []),
+        ],
+    );
+    return {
+        cancelFriendRequestErr: x.error,
+        cancelFriendRequestLoading: x.isMutating,
+        resetCancelFriendRequest: x.reset,
+        cancelFriendRequest: x.trigger,
+    };
+}
+
+/**
+ * Accepts an incoming friend request from `user_id`, which completes that
+ * friendship. Refreshes the friends list and that person's profile.
+ */
+export function useAcceptFriendRequest() {
+    const { account } = useAccount();
+    const x = useAPIMutation<FriendRequestPayload, null>(
+        "POST",
+        ({ user_id }) => `/social/friends/${user_id}/accept`,
+        ({ user_id }) => [
+            { path: "/social/friends" },
+            { path: `/social/posts/user/${user_id}` },
+            ...(account ? [{ path: `/social/posts/user/${account.id}` }] : []),
+        ],
+    );
+    return {
+        acceptFriendRequestErr: x.error,
+        acceptFriendRequestLoading: x.isMutating,
+        resetAcceptFriendRequest: x.reset,
+        acceptFriendRequest: x.trigger,
+    };
+}
+
+/** The signed-in user's friends and pending requests. */
+export function useFriendships() {
+    const x = useAPIData<Friendships>("/social/friends");
+    return {
+        incoming: x.data?.incoming ?? EMPTY_PEOPLE,
+        outgoing: x.data?.outgoing ?? EMPTY_PEOPLE,
+        friends: x.data?.friends ?? EMPTY_PEOPLE,
+        friendshipsLoading: x.isLoading,
+        friendshipsErr: x.error,
+    };
+}
+
 export function useUserPosts(authorId?: string) {
     const x = useAPIData<UserPostsResponse>(
         `/social/posts/user/${authorId}`,
@@ -481,6 +692,118 @@ export function useCreateComment() {
         createComment: async (body: NewCommentPayload) =>
             (await x.trigger(body))?.comment_id,
     };
+}
+
+type DeleteCommentPayload = {
+    comment_id: number;
+};
+
+function deleteCommentPath({ comment_id }: DeleteCommentPayload) {
+    return `/social/comments/${comment_id}`;
+}
+
+type EditCommentPayload = {
+    comment_id: number;
+    content: string;
+    /** Client time in milliseconds. Compared with the stored `edited_at`. */
+    timestamp: number;
+};
+
+function editCommentPath({ comment_id }: EditCommentPayload) {
+    return `/social/comments/${comment_id}`;
+}
+
+/**
+ * Replaces one of the signed-in user's comments. `timestamp` is `Date.now()`
+ * when the edit was submitted. The server ignores one older than the stored
+ * `edited_at`. A missing comment, or one they do not own, is a 404. Cache
+ * updates are separate.
+ */
+export function useUpdateComment() {
+    const x = useAPIMutation<EditCommentPayload, void>(
+        "PATCH",
+        editCommentPath,
+        [],
+        { invalidation: "none" },
+    );
+    const updateComment = useCallback(
+        (comment_id: number, content: string, timestamp: number) =>
+            x.trigger({ comment_id, content, timestamp }),
+        [x.trigger],
+    );
+    return {
+        updateCommentErr: x.error,
+        updateCommentLoading: x.isMutating,
+        resetUpdateComment: x.reset,
+        updateComment,
+    };
+}
+
+/** Writes new text and `edited_at` through the cached comments list. */
+export function useUpdateCachedCommentContent() {
+    const { mutate } = useSWRConfig();
+    return useCallback(
+        (
+            postId: number,
+            commentId: number,
+            content: string,
+            editedAt: string | null,
+        ) =>
+            mutate(
+                (key) => isPostCommentsKey(key, postId),
+                (current: unknown) =>
+                    current == null
+                        ? current
+                        : applyCommentContent(
+                              current,
+                              commentId,
+                              content,
+                              editedAt,
+                          ),
+                { revalidate: false },
+            ),
+        [mutate],
+    );
+}
+
+/**
+ * Deletes one of the signed-in user's comments. A missing comment, or one
+ * they do not own, is a 404. The post's comment count drops with it.
+ */
+export function useDeleteComment() {
+    const x = useAPIMutation<DeleteCommentPayload, void>(
+        "DELETE",
+        deleteCommentPath,
+        [],
+        { invalidation: "none" },
+    );
+    const deleteComment = useCallback(
+        (comment_id: number) => x.trigger({ comment_id }),
+        [x.trigger],
+    );
+    return {
+        deleteCommentErr: x.error,
+        deleteCommentLoading: x.isMutating,
+        resetDeleteComment: x.reset,
+        deleteComment,
+    };
+}
+
+/** Drops one comment from the cached list for its post. */
+export function useRemoveCachedComment() {
+    const { mutate } = useSWRConfig();
+    return useCallback(
+        (postId: number, commentId: number) =>
+            mutate(
+                (key) => isPostCommentsKey(key, postId),
+                (current: unknown) =>
+                    current == null
+                        ? current
+                        : removeCachedComment(current, commentId),
+                { revalidate: false },
+            ),
+        [mutate],
+    );
 }
 
 type CommentLikePayload = {

@@ -23,6 +23,8 @@ pub enum CadenzaError {
     ProfileAlreadyExists,
     /// Another profile already uses this username.
     UsernameAlreadyTaken,
+    /// The pair is already friends.
+    FriendshipAlreadyExists,
     DatabaseError(String), // generic database error
     QueryFormatError(String),
     TagGenerationErr(String),
@@ -54,6 +56,7 @@ impl CadenzaError {
             Self::TagNameAlreadyTaken => 409,
             Self::ProfileAlreadyExists => 409,
             Self::UsernameAlreadyTaken => 409,
+            Self::FriendshipAlreadyExists => 409,
             Self::DatabaseError(_) => 500,
             Self::QueryFormatError(_) => 422,
             Self::TagGenerationErr(_) => 500,
@@ -91,6 +94,10 @@ impl CadenzaError {
             Self::UsernameAlreadyTaken => json!({
                 "error_type": "UsernameAlreadyTaken",
                 "message": "that username is already taken"
+            }),
+            Self::FriendshipAlreadyExists => json!({
+                "error_type": "FriendshipAlreadyExists",
+                "message": "you are already friends"
             }),
             Self::DatabaseError(msg) => json!({
                 "error_type": "DatabaseError",

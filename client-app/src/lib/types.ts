@@ -99,6 +99,8 @@ export type SocialPost = {
     liked: boolean;
     /** RFC 3339 in UTC */
     created_at: string;
+    /** RFC 3339 in UTC, or null when the author has not edited it. */
+    edited_at: string | null;
     author: {
         /** Auth user id; used to open their profile page. */
         user_id: string;
@@ -122,10 +124,25 @@ export type SocialComment = {
     liked: boolean;
     /** RFC 3339 in UTC */
     created_at: string;
+    /** RFC 3339 in UTC, or null when the author has not edited it. */
+    edited_at: string | null;
     author: {
         user_id: string;
         username: string;
     };
+};
+
+/** One person from `GET /social/friends`. */
+export type SocialPerson = {
+    user_id: string;
+    username: string;
+};
+
+/** Completed friends and pending requests in both directions. */
+export type Friendships = {
+    incoming: SocialPerson[];
+    outgoing: SocialPerson[];
+    friends: SocialPerson[];
 };
 
 /** Public profile header from `GET /social/posts/user/:author_id`. */
@@ -133,4 +150,12 @@ export type SocialUserProfile = {
     user_id: string;
     username: string;
     bio: string;
+    /** Completed rows in `friendships` for this user. */
+    friend_count: number;
+    /** The signed-in user already has a pending request to this user. */
+    friend_request_sent: boolean;
+    /** This user already has a pending request to the signed-in user. */
+    friend_request_received: boolean;
+    /** The signed-in user and this user have a completed friendship. */
+    is_friend: boolean;
 };

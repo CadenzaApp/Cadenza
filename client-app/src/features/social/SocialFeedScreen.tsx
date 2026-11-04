@@ -47,6 +47,8 @@ const VIEWABILITY_CONFIG = {
 /** How often pending view marks are flushed to the API. */
 const MARK_VIEWED_FLUSH_MS = 3000;
 
+type Toast = { message: string; error: boolean };
+
 /**
  * The Social tab. Loads the ranked feed with full post payloads.
  * A post you just wrote stays at the top until the feed includes it.
@@ -106,18 +108,20 @@ export function SocialFeedScreen() {
     );
 
     const [created, setCreated] = useState<SocialPost[]>([]);
+    const [hiddenIds, setHiddenIds] = useState<ReadonlySet<number>>(
+        () => new Set(),
+    );
     const [localTopics, setLocalTopics] = useState<Record<number, PostTopic>>(
         {},
     );
     const [refreshing, setRefreshing] = useState(false);
     const [composeOpen, setComposeOpen] = useState(false);
-    const [toast, setToast] = useState<string | null>(null);
-    const nextTempId = useRef(0);
+    const [toast, setToast] = useState<Toast | null>(null);
     const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    const showToast = useCallback((message: string) => {
+    const showToast = useCallback((message: string, error = false) => {
         if (toastTimer.current) clearTimeout(toastTimer.current);
-        setToast(message);
+        setToast({ message, error });
         toastTimer.current = setTimeout(() => setToast(null), 3000);
     }, []);
 
@@ -130,7 +134,9 @@ export function SocialFeedScreen() {
 
     const feed = useMemo((): FeedRow[] => {
         const loaded = new Set(posts.map((post) => post.post_id));
-        const pending = created.filter((post) => !loaded.has(post.post_id));
+        const pending = created.filter(
+            (post) => !loaded.has(post.post_id) && !hiddenIds.has(post.post_id),
+        );
         const rows: FeedRow[] = pending.map((post) => ({
             kind: "post",
             post,
@@ -138,6 +144,7 @@ export function SocialFeedScreen() {
         const unseenPosts = posts.slice(0, unseenCount);
         const seenPosts = posts.slice(unseenCount);
         for (const post of unseenPosts) {
+            if (hiddenIds.has(post.post_id)) continue;
             rows.push({ kind: "post", post });
         }
         // Never-loaded pages ran dry: separator, then exclude=none pages
@@ -145,15 +152,22 @@ export function SocialFeedScreen() {
             rows.push({ kind: "caught-up" });
         }
         for (const post of seenPosts) {
+            if (hiddenIds.has(post.post_id)) continue;
             rows.push({ kind: "post", post });
         }
         return rows;
-    }, [created, posts, showingSeen, unseenCount]);
+    }, [created, hiddenIds, posts, showingSeen, unseenCount]);
 
     useLayoutEffect(() => {
         navigation.setOptions({
             headerRight: () => (
                 <View className="flex-row items-center gap-2">
+                    <GlassIconButton
+                        accessibilityLabel="Friends"
+                        onPress={() => router.push("/social/friends")}
+                    >
+                        <Ionicons name="people" size={22} color={colors.text} />
+                    </GlassIconButton>
                     <GlassButton
                         className="h-10 rounded-full px-3"
                         accessibilityLabel="Me"
@@ -181,15 +195,29 @@ export function SocialFeedScreen() {
     }, [navigation, colors.text, account?.id, router]);
 
     const handleCreate = useCallback(
-        (content: string, topic?: PostTopic | null) => {
-            nextTempId.current -= 1;
-            const tempId = nextTempId.current;
+        async (content: string, topic?: PostTopic | null) => {
+            let postId: number | undefined;
+            try {
+                postId = await createPost({
+                    content,
+                    ...(topic ? topicCreateFields(topic) : {}),
+                });
+            } catch (error) {
+                console.error("Creating a post failed", error);
+                throw error;
+            }
+            if (postId == null) {
+                console.error("Creating a post failed");
+                throw new Error("Creating a post failed");
+            }
+            const publishedId = postId;
             const post: SocialPost = {
-                post_id: tempId,
+                post_id: publishedId,
                 content,
                 likes: 0,
                 liked: false,
                 created_at: new Date().toISOString(),
+                edited_at: null,
                 author: {
                     user_id: profile?.uid ?? "",
                     username: profile?.username ?? "unknown",
@@ -199,52 +227,27 @@ export function SocialFeedScreen() {
             };
             setCreated((current) => [post, ...current]);
             if (topic) {
-                setLocalTopics((current) => ({ ...current, [tempId]: topic }));
+                setLocalTopics((current) => ({
+                    ...current,
+                    [publishedId]: topic,
+                }));
             }
-
-            function dropTemp() {
-                setCreated((current) =>
-                    current.filter((item) => item.post_id !== tempId),
-                );
-                setLocalTopics((current) => {
-                    const next = { ...current };
-                    delete next[tempId];
-                    return next;
-                });
-            }
-
-            void createPost({
-                content,
-                ...(topic ? topicCreateFields(topic) : {}),
-            })
-                .then((post_id) => {
-                    if (post_id == null) {
-                        dropTemp();
-                        showToast("Couldn't publish your post.");
-                        return;
-                    }
-                    setCreated((current) =>
-                        current.map((item) =>
-                            item.post_id === tempId
-                                ? { ...item, post_id }
-                                : item,
-                        ),
-                    );
-                    setLocalTopics((current) => {
-                        const attached = current[tempId];
-                        if (!attached) return current;
-                        const next = { ...current };
-                        delete next[tempId];
-                        next[post_id] = attached;
-                        return next;
-                    });
-                })
-                .catch(() => {
-                    dropTemp();
-                    showToast("Couldn't publish your post.");
-                });
+            showToast("Post published");
         },
         [createPost, profile?.uid, profile?.username, showToast],
+    );
+
+    const handleEdited = useCallback(
+        (postId: number, content: string, editedAt: string | null) => {
+            setCreated((current) =>
+                current.map((item) =>
+                    item.post_id === postId
+                        ? { ...item, content, edited_at: editedAt }
+                        : item,
+                ),
+            );
+        },
+        [],
     );
 
     const reload = useCallback(async () => {
@@ -262,7 +265,7 @@ export function SocialFeedScreen() {
                 const row = token.item as FeedRow | undefined;
                 if (!token.isViewable || row?.kind !== "post") continue;
                 const id = row.post.post_id;
-                if (id <= 0 || markedViewedIds.current.has(id)) continue;
+                if (markedViewedIds.current.has(id)) continue;
                 markedViewedIds.current.add(id);
                 pendingViewedIds.current.add(id);
             }
@@ -275,6 +278,62 @@ export function SocialFeedScreen() {
             : `${item.post.post_id}-${index}`;
     }, []);
 
+    const removedCreated = useRef(
+        new Map<number, { post: SocialPost; topic?: PostTopic }>(),
+    );
+
+    const handleDeleted = useCallback((postId: number) => {
+        setHiddenIds((current) => {
+            if (current.has(postId)) return current;
+            const next = new Set(current);
+            next.add(postId);
+            return next;
+        });
+        setCreated((current) => {
+            const removed = current.find((item) => item.post_id === postId);
+            if (!removed) return current;
+            removedCreated.current.set(postId, { post: removed });
+            return current.filter((item) => item.post_id !== postId);
+        });
+        setLocalTopics((current) => {
+            if (!(postId in current)) return current;
+            const saved = removedCreated.current.get(postId);
+            if (saved) saved.topic = current[postId];
+            const next = { ...current };
+            delete next[postId];
+            return next;
+        });
+    }, []);
+
+    const handleDeleteFailed = useCallback(
+        (postId: number) => {
+            setHiddenIds((current) => {
+                if (!current.has(postId)) return current;
+                const next = new Set(current);
+                next.delete(postId);
+                return next;
+            });
+            const saved = removedCreated.current.get(postId);
+            removedCreated.current.delete(postId);
+            if (saved) {
+                setCreated((current) =>
+                    current.some((item) => item.post_id === postId)
+                        ? current
+                        : [saved.post, ...current],
+                );
+                if (saved.topic) {
+                    const topic = saved.topic;
+                    setLocalTopics((current) => ({
+                        ...current,
+                        [postId]: topic,
+                    }));
+                }
+            }
+            showToast("Couldn't delete your post.", true);
+        },
+        [showToast],
+    );
+
     const renderItem = useCallback<ListRenderItem<FeedRow>>(
         ({ item }) => {
             if (item.kind === "caught-up") {
@@ -284,10 +343,13 @@ export function SocialFeedScreen() {
                 <PostCard
                     post={item.post}
                     topicHint={localTopics[item.post.post_id]}
+                    onDeleted={handleDeleted}
+                    onDeleteFailed={handleDeleteFailed}
+                    onEdited={handleEdited}
                 />
             );
         },
-        [localTopics],
+        [handleDeleteFailed, handleDeleted, handleEdited, localTopics],
     );
 
     const onEndReached = useCallback(() => {
@@ -366,10 +428,20 @@ export function SocialFeedScreen() {
                 <View
                     pointerEvents="none"
                     accessibilityRole="alert"
-                    className="absolute left-5 right-5 top-3 rounded-2xl bg-destructive px-4 py-3"
+                    className={
+                        toast.error
+                            ? "absolute left-5 right-5 top-3 rounded-2xl bg-destructive px-4 py-3"
+                            : "absolute left-5 right-5 top-3 rounded-2xl bg-foreground px-4 py-3"
+                    }
                 >
-                    <Text className="text-center text-sm text-white">
-                        {toast}
+                    <Text
+                        className={
+                            toast.error
+                                ? "text-center text-sm text-white"
+                                : "text-center text-sm text-background"
+                        }
+                    >
+                        {toast.message}
                     </Text>
                 </View>
             ) : null}

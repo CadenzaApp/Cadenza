@@ -126,8 +126,11 @@ export function DiscussPage({
     const [refreshing, setRefreshing] = useState(false);
     const [composeOpen, setComposeOpen] = useState(false);
     const [toast, setToast] = useState<string | null>(null);
-    const nextTempId = useRef(0);
     const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const focusedSongIdRef = useRef(focusedSong.id);
+    useEffect(() => {
+        focusedSongIdRef.current = focusedSong.id;
+    }, [focusedSong.id]);
 
     const showToast = useCallback((message: string) => {
         if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -142,6 +145,12 @@ export function DiscussPage({
         [],
     );
 
+    const handleDeleted = useCallback((postId: number) => {
+        setCreated((current) =>
+            current.filter((item) => item.post_id !== postId),
+        );
+    }, []);
+
     const rankedPosts = useMemo(() => {
         const loaded = new Set(posts.map((post) => post.post_id));
         const pending = created.filter((post) => !loaded.has(post.post_id));
@@ -149,16 +158,33 @@ export function DiscussPage({
     }, [created, posts]);
 
     const handleCreate = useCallback(
-        (content: string, attached?: PostTopic | null) => {
+        async (content: string, attached?: PostTopic | null) => {
             const postedTopic = attached ?? topic;
-            nextTempId.current -= 1;
-            const tempId = nextTempId.current;
+            const songId = focusedSong.id;
+            let postId: number | undefined;
+            try {
+                postId = await createPost({
+                    content,
+                    ...topicCreateFields(postedTopic),
+                });
+            } catch (error) {
+                console.error("Creating a post failed", error);
+                throw error;
+            }
+            if (postId == null) {
+                console.error("Creating a post failed");
+                throw new Error("Creating a post failed");
+            }
+            showToast("Post published");
+            // The song changed while this was in flight, so leave it off this page.
+            if (focusedSongIdRef.current !== songId) return;
             const post: SocialPost = {
-                post_id: tempId,
+                post_id: postId,
                 content,
                 likes: 0,
                 liked: false,
                 created_at: new Date().toISOString(),
+                edited_at: null,
                 author: {
                     user_id: profile?.uid ?? "",
                     username: profile?.username ?? "unknown",
@@ -167,45 +193,30 @@ export function DiscussPage({
                 comment_count: 0,
             };
             setCreated((current) => [...current, post]);
-
-            function dropTemp() {
-                setCreated((current) =>
-                    current.filter((item) => item.post_id !== tempId),
-                );
-            }
-
-            void createPost({
-                content,
-                ...topicCreateFields(postedTopic),
-            })
-                .then((post_id) => {
-                    if (post_id == null) {
-                        dropTemp();
-                        showToast("Couldn't publish your post.");
-                        return;
-                    }
-                    setCreated((current) =>
-                        current.map((item) =>
-                            item.post_id === tempId
-                                ? { ...item, post_id }
-                                : item,
-                        ),
-                    );
-                    void refreshTopicPosts();
-                })
-                .catch(() => {
-                    dropTemp();
-                    showToast("Couldn't publish your post.");
-                });
+            void refreshTopicPosts();
         },
         [
             createPost,
+            focusedSong.id,
             profile?.uid,
             profile?.username,
             refreshTopicPosts,
             showToast,
             topic,
         ],
+    );
+
+    const handleEdited = useCallback(
+        (postId: number, content: string, editedAt: string | null) => {
+            setCreated((current) =>
+                current.map((item) =>
+                    item.post_id === postId
+                        ? { ...item, content, edited_at: editedAt }
+                        : item,
+                ),
+            );
+        },
+        [],
     );
 
     const reload = useCallback(async () => {
@@ -268,6 +279,8 @@ export function DiscussPage({
                             showTopic={false}
                             onLikedChange={rememberLike}
                             onAuthorPress={openSocialProfile}
+                            onDeleted={handleDeleted}
+                            onEdited={handleEdited}
                         />
                     ))}
                 </View>
@@ -318,9 +331,9 @@ export function DiscussPage({
                 <View
                     pointerEvents="none"
                     accessibilityRole="alert"
-                    className="absolute left-5 right-5 top-3 rounded-2xl bg-destructive px-4 py-3"
+                    className="absolute left-5 right-5 top-3 rounded-2xl bg-foreground px-4 py-3"
                 >
-                    <Text className="text-center text-sm text-white">
+                    <Text className="text-center text-sm text-background">
                         {toast}
                     </Text>
                 </View>

@@ -1,9 +1,10 @@
 use axum::{
     Json, Router,
     extract::{Path, Query, State},
-    routing::{get, patch, post},
+    routing::{delete, get, patch, post},
 };
 use axum_jwt_auth::Claims;
+use chrono::{DateTime, Utc};
 use sea_orm::DatabaseConnection;
 use sea_orm::prelude::Uuid;
 use serde::Deserialize;
@@ -12,11 +13,12 @@ use serde_json::Value;
 use crate::{
     AppState,
     auth::SupabaseClaims,
-    db::social::{FeedExclude, InterestDelta},
+    db::social::{self, FeedExclude, InterestDelta},
     err::CadenzaError,
     routes::json::social::{
-        CreateCommentResponse, CreatePostResponse, FeedResponse, PostCommentsResponse,
-        SocialComment, SocialPost, TopicPostsResponse, UserPostsResponse,
+        CreateCommentResponse, CreatePostResponse, FeedResponse, FriendshipsResponse,
+        PostCommentsResponse, SocialAuthor, SocialComment, SocialPost, TopicPostsResponse,
+        UserPostsResponse,
     },
     services::social_feed::SocialFeedService,
 };
@@ -32,7 +34,7 @@ const TOPIC_NAME_MAX: usize = 200;
 /// posts. Each returned id is marked `loaded`.
 ///
 /// ```json
-/// { "feed": [ { "post_id": 1, "content": "hi", "likes": 0, "liked": false, "created_at": "2026-10-16T18:00:00Z", "author": { "user_id": "...", "username": "ada" }, "topic_mk_id": null, "comment_count": 0 } ] }
+/// { "feed": [ { "post_id": 1, "content": "hi", "likes": 0, "liked": false, "created_at": "2026-10-16T18:00:00Z", "edited_at": null, "author": { "user_id": "...", "username": "ada" }, "topic_mk_id": null, "comment_count": 0 } ] }
 /// ```
 async fn get_feed(
     State(db): State<DatabaseConnection>,
@@ -165,6 +167,61 @@ async fn create_post(
     Ok(Json(CreatePostResponse { post_id }))
 }
 
+#[derive(Deserialize)]
+struct EditContentBody {
+    content: String,
+    /// Client time in milliseconds, the same clock a like sends.
+    timestamp: i64,
+}
+
+/// Replaces the signed-in user's post text. `content` is trimmed and at most
+/// 500 characters. `timestamp` is the client's edit time. One older than the
+/// stored `edited_at` is ignored. A kept edit sets `edited_at` to `now()` and
+/// re-embeds the stored text. 404 when the post is missing or belongs to
+/// someone else. Responds with `null`.
+async fn update_post(
+    State(db): State<DatabaseConnection>,
+    State(social): State<SocialFeedService>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Path(post_id): Path<i64>,
+    Json(body): Json<EditContentBody>,
+) -> Result<Json<Value>, CadenzaError> {
+    let content = require_content(&body.content, POST_CONTENT_MAX)?;
+    let edited_at = edited_at_from_millis(body.timestamp)?;
+    social
+        .update_post(&db, claims.user_id, post_id, content, edited_at)
+        .await?;
+    Ok(Json(Value::Null))
+}
+
+/// Deletes the signed-in user's post. Likes, comments, and view rows go with
+/// it. 404 when the post is missing or belongs to someone else. Responds with
+/// `null`.
+async fn delete_post(
+    State(db): State<DatabaseConnection>,
+    State(social): State<SocialFeedService>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Path(post_id): Path<i64>,
+) -> Result<Json<Value>, CadenzaError> {
+    social.delete_post(&db, claims.user_id, post_id).await?;
+    Ok(Json(Value::Null))
+}
+
+fn require_content(raw: &str, max_chars: usize) -> Result<&str, CadenzaError> {
+    let content = raw.trim();
+    if content.is_empty() {
+        return Err(CadenzaError::InvalidRequestBody(
+            "content is required".into(),
+        ));
+    }
+    if content.chars().count() > max_chars {
+        return Err(CadenzaError::InvalidRequestBody(format!(
+            "content is longer than {max_chars} characters"
+        )));
+    }
+    Ok(content)
+}
+
 fn parse_optional_text(
     raw: Option<String>,
     field: &str,
@@ -211,7 +268,7 @@ struct TopicPostsQuery {
 /// Posts whose topic is this Apple Music catalog id, most liked first.
 ///
 /// ```json
-/// { "posts": [ { "post_id": 1, "content": "hi", "likes": 3, "liked": false, "created_at": "2026-10-16T18:00:00Z", "author": { "user_id": "...", "username": "ada" }, "topic_mk_id": "1615585008", "comment_count": 0 } ] }
+/// { "posts": [ { "post_id": 1, "content": "hi", "likes": 3, "liked": false, "created_at": "2026-10-16T18:00:00Z", "edited_at": null, "author": { "user_id": "...", "username": "ada" }, "topic_mk_id": "1615585008", "comment_count": 0 } ] }
 /// ```
 async fn topic_posts(
     State(db): State<DatabaseConnection>,
@@ -229,11 +286,77 @@ async fn topic_posts(
     }))
 }
 
+/// Sends a friend request from the signed-in user to `user_id`.
+///
+/// `user1` is the lexicographically smaller uuid. Status is `to_user1` when
+/// that person is the recipient, and `to_user2` when the other person is.
+/// Sending the same request again responds with `null`. If they already
+/// requested the caller, the row becomes `complete`. 409
+/// `FriendshipAlreadyExists` when the pair is already friends. 422 when
+/// `user_id` is the caller.
+async fn request_friendship(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Path(user_id): Path<Uuid>,
+) -> Result<Json<Value>, CadenzaError> {
+    social::request_friendship(&db, claims.user_id, user_id).await?;
+    Ok(Json(Value::Null))
+}
+
+/// Removes the friendship row between the signed-in user and `user_id`.
+/// Status does not matter: a pending request and a completed friendship both
+/// go. A missing row responds with `null`. 422 when `user_id` is the caller.
+async fn delete_friendship(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Path(user_id): Path<Uuid>,
+) -> Result<Json<Value>, CadenzaError> {
+    social::delete_friendship(&db, claims.user_id, user_id).await?;
+    Ok(Json(Value::Null))
+}
+
+/// The signed-in user's friends and pending requests.
+///
+/// ```json
+/// { "incoming": [ { "user_id": "...", "username": "ada" } ], "outgoing": [], "friends": [] }
+/// ```
+async fn friendships(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+) -> Result<Json<FriendshipsResponse>, CadenzaError> {
+    let lists = social::list_friendships(&db, claims.user_id).await?;
+    let people = |list: Vec<social::FriendPerson>| {
+        list.into_iter()
+            .map(|person| SocialAuthor {
+                user_id: person.user_id.to_string(),
+                username: person.username,
+            })
+            .collect()
+    };
+    Ok(Json(FriendshipsResponse {
+        incoming: people(lists.incoming),
+        outgoing: people(lists.outgoing),
+        friends: people(lists.friends),
+    }))
+}
+
+/// Accepts an incoming friend request from `user_id`. Sets that row to
+/// `complete`. 404 when there is no request waiting on the caller. Responds
+/// with `null`.
+async fn accept_friendship(
+    State(db): State<DatabaseConnection>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Path(user_id): Path<Uuid>,
+) -> Result<Json<Value>, CadenzaError> {
+    social::accept_friendship(&db, claims.user_id, user_id).await?;
+    Ok(Json(Value::Null))
+}
+
 /// One user's public profile and their posts, newest first. `user` in the
 /// path is the author. The signed-in user is the viewer, for `liked`.
 ///
 /// ```json
-/// { "profile": { "user_id": "...", "username": "ada", "bio": "" }, "posts": [] }
+/// { "profile": { "user_id": "...", "username": "ada", "bio": "", "friend_count": 0, "friend_request_sent": false, "friend_request_received": false, "is_friend": false }, "posts": [] }
 /// ```
 async fn user_posts(
     State(db): State<DatabaseConnection>,
@@ -287,7 +410,7 @@ async fn unlike_post(
 /// Comments on this post, most liked first, then newest.
 ///
 /// ```json
-/// { "comments": [ { "comment_id": 1, "post_id": 4, "content": "this", "likes": 2, "liked": false, "created_at": "2026-10-16T18:00:00Z", "author": { "user_id": "...", "username": "ada" } } ] }
+/// { "comments": [ { "comment_id": 1, "post_id": 4, "content": "this", "likes": 2, "liked": false, "created_at": "2026-10-16T18:00:00Z", "edited_at": null, "author": { "user_id": "...", "username": "ada" } } ] }
 /// ```
 async fn get_comments(
     State(db): State<DatabaseConnection>,
@@ -321,21 +444,52 @@ async fn create_comment(
     Path(post_id): Path<i64>,
     Json(body): Json<CreateCommentBody>,
 ) -> Result<Json<CreateCommentResponse>, CadenzaError> {
-    let content = body.content.trim();
-    if content.is_empty() {
-        return Err(CadenzaError::InvalidRequestBody(
-            "content is required".into(),
-        ));
-    }
-    if content.chars().count() > COMMENT_CONTENT_MAX {
-        return Err(CadenzaError::InvalidRequestBody(
-            "content is longer than 500 characters".into(),
-        ));
-    }
+    let content = require_content(&body.content, COMMENT_CONTENT_MAX)?;
     let comment_id = social
         .create_comment(&db, claims.user_id, post_id, content)
         .await?;
     Ok(Json(CreateCommentResponse { comment_id }))
+}
+
+/// Replaces the signed-in user's comment text. `content` is trimmed and at
+/// most 500 characters. `timestamp` is the client's edit time. One older than
+/// the stored `edited_at` is ignored. A kept edit sets `edited_at` to `now()`.
+/// 404 when the comment is missing or belongs to someone else. Responds with
+/// `null`.
+async fn update_comment(
+    State(db): State<DatabaseConnection>,
+    State(social): State<SocialFeedService>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Path(comment_id): Path<i64>,
+    Json(body): Json<EditContentBody>,
+) -> Result<Json<Value>, CadenzaError> {
+    let content = require_content(&body.content, COMMENT_CONTENT_MAX)?;
+    let edited_at = edited_at_from_millis(body.timestamp)?;
+    social
+        .update_comment(&db, claims.user_id, comment_id, content, edited_at)
+        .await?;
+    Ok(Json(Value::Null))
+}
+
+/// The client's edit time. Out of range for a `timestamptz` is a 422.
+fn edited_at_from_millis(timestamp: i64) -> Result<DateTime<Utc>, CadenzaError> {
+    DateTime::from_timestamp_millis(timestamp)
+        .ok_or_else(|| CadenzaError::InvalidRequestBody("timestamp is out of range".to_owned()))
+}
+
+/// Deletes the signed-in user's comment and drops the post's comment count.
+/// Comment likes go with it. 404 when the comment is missing or belongs to
+/// someone else. Responds with `null`.
+async fn delete_comment(
+    State(db): State<DatabaseConnection>,
+    State(social): State<SocialFeedService>,
+    Claims { claims, .. }: Claims<SupabaseClaims>,
+    Path(comment_id): Path<i64>,
+) -> Result<Json<Value>, CadenzaError> {
+    social
+        .delete_comment(&db, claims.user_id, comment_id)
+        .await?;
+    Ok(Json(Value::Null))
 }
 
 /// Likes a comment. `timestamp` is the client's click time in milliseconds.
@@ -374,9 +528,16 @@ pub fn get_social_router() -> Router<AppState> {
         .route("/interests/update", patch(update_interests))
         .route("/interests/decay", patch(decay_interests))
         .route("/posts", post(create_post))
+        .route("/posts/{post_id}", delete(delete_post).patch(update_post))
         .route("/posts/views", post(mark_viewed))
         .route("/posts/topic", get(topic_posts))
         .route("/posts/user/{author_id}", get(user_posts))
+        .route("/friends", get(friendships))
+        .route("/friends/{user_id}/accept", post(accept_friendship))
+        .route(
+            "/friends/{user_id}",
+            post(request_friendship).delete(delete_friendship),
+        )
         .route(
             "/posts/{post_id}/likes",
             post(like_post).delete(unlike_post),
@@ -384,6 +545,10 @@ pub fn get_social_router() -> Router<AppState> {
         .route(
             "/posts/{post_id}/comments",
             get(get_comments).post(create_comment),
+        )
+        .route(
+            "/comments/{comment_id}",
+            delete(delete_comment).patch(update_comment),
         )
         .route(
             "/comments/{comment_id}/likes",

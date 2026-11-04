@@ -21,6 +21,9 @@ use sea_orm::{
 /// mode is exhausted.
 pub const FEED_SIZE: i64 = 10;
 
+/// Flat extra on [`score_post`] when the author is a completed friend.
+pub const FRIEND_SCORE_BOOST: f64 = 10_000.0;
+
 /// Prepended to the user vector so one day of age costs this much similarity
 /// in the nearest-post lookup. Matches the python feed this replaced.
 const AGE_MULTIPLIER: f64 = 0.02;
@@ -49,6 +52,8 @@ pub struct SocialPost {
     pub likes: i64,
     pub liked: bool,
     pub created_at: DateTime<Utc>,
+    /// `None` until the author edits the post.
+    pub edited_at: Option<DateTime<Utc>>,
     pub author_id: Uuid,
     pub author_username: String,
     /// Apple Music catalog id of the attached song or artist, when the author
@@ -66,6 +71,8 @@ pub struct SocialComment {
     pub likes: i64,
     pub liked: bool,
     pub created_at: DateTime<Utc>,
+    /// `None` until the author edits the comment.
+    pub edited_at: Option<DateTime<Utc>>,
     pub author_id: Uuid,
     pub author_username: String,
 }
@@ -76,6 +83,14 @@ pub struct PublicProfile {
     pub user_id: Uuid,
     pub username: String,
     pub bio: String,
+    /// Completed rows in `friendships` where this user is `user1` or `user2`.
+    pub friend_count: i64,
+    /// The viewer already has a pending request to this user.
+    pub friend_request_sent: bool,
+    /// This user already has a pending request to the viewer.
+    pub friend_request_received: bool,
+    /// The viewer and this user have a completed friendship.
+    pub is_friend: bool,
 }
 
 /// One named interest a score update wants to move.
@@ -86,13 +101,15 @@ pub struct InterestDelta {
     pub delta: f64,
 }
 
-/// A candidate from the similar or hot query, before it is rescored.
+/// A candidate from the similar, hot, or friend query, before it is rescored.
 #[derive(Clone, Debug)]
 pub struct FeedCandidate {
     pub post_id: i64,
     pub embedding: Vec<f64>,
     pub likes: i64,
     pub created_at: DateTime<Utc>,
+    /// Set by the friend source. Other sources leave it false; merge keeps true.
+    pub sent_by_friend: bool,
 }
 
 /// Inserts a post and returns its id. `embedding` is the model vector;
@@ -123,6 +140,102 @@ pub async fn insert_post(
         .await?
         .ok_or_else(|| CadenzaError::DatabaseError("inserting a post returned no id".into()))?;
     Ok(row.try_get_by_index(0)?)
+}
+
+/// Deletes the author's post. `NotFound` when no row matches, including a post
+/// owned by someone else. Comments, likes, and view status cascade from `posts`.
+pub async fn delete_post(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+    post_id: i64,
+) -> Result<(), CadenzaError> {
+    let deleted = posts::Entity::delete_many()
+        .filter(posts::Column::PostId.eq(post_id))
+        .filter(posts::Column::UserId.eq(user_id))
+        .exec(db)
+        .await?;
+    if deleted.rows_affected == 0 {
+        return Err(CadenzaError::NotFound);
+    }
+    Ok(())
+}
+
+/// The author's post clocks. `created_at` keeps the age component of
+/// `embedding_w_bday`. `edited_at` is the database time of the last edit, or
+/// `None` when the text has never changed. `None` for the whole value when
+/// the post is missing or owned by someone else.
+pub async fn author_post_clock(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+    post_id: i64,
+) -> Result<Option<PostClock>, CadenzaError> {
+    let row = PostClockRow::find_by_statement(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "SELECT created_at, edited_at FROM posts WHERE post_id = $1 AND user_id = $2",
+        vec![post_id.into(), user_id.into()],
+    ))
+    .one(db)
+    .await?;
+    Ok(row.map(|row| PostClock {
+        created_at: row.created_at.with_timezone(&Utc),
+        edited_at: row.edited_at.map(|edited_at| edited_at.with_timezone(&Utc)),
+    }))
+}
+
+/// `created_at` and the database time of the last edit.
+pub struct PostClock {
+    pub created_at: DateTime<Utc>,
+    pub edited_at: Option<DateTime<Utc>>,
+}
+
+/// True when the client's `incoming` time is the same instant or later than
+/// the stored `edited_at`. A row that has never been edited takes the first one.
+pub fn edit_replaces(stored: Option<DateTime<Utc>>, incoming: DateTime<Utc>) -> bool {
+    stored.is_none_or(|stored| incoming >= stored)
+}
+
+/// Replaces the author's post text and embedding. `edited_at` is `now()`.
+/// `client_time` older than the stored `edited_at` leaves the row alone.
+/// `NotFound` when the post is missing or owned by someone else.
+pub async fn update_post_text(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+    post_id: i64,
+    content: &str,
+    embedding: &[f64],
+    embedding_w_bday: &[f64],
+    client_time: DateTime<Utc>,
+) -> Result<(), CadenzaError> {
+    let row = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            "UPDATE posts
+             SET content = $3,
+                 edited_at = now(),
+                 embedding = $5::vector,
+                 embedding_w_bday = $6::vector
+             WHERE post_id = $1 AND user_id = $2
+               AND (edited_at IS NULL OR edited_at <= $4)
+             RETURNING post_id",
+            vec![
+                post_id.into(),
+                user_id.into(),
+                content.to_owned().into(),
+                client_time.into(),
+                vector_literal(embedding).into(),
+                vector_literal(embedding_w_bday).into(),
+            ],
+        ))
+        .await?;
+    if row.is_some() {
+        return Ok(());
+    }
+    finish_stale_edit(
+        db,
+        "SELECT post_id FROM posts WHERE post_id = $1 AND user_id = $2",
+        vec![post_id.into(), user_id.into()],
+    )
+    .await
 }
 
 /// Records a like and bumps `likes` / `hot_score` only when the row is new.
@@ -214,6 +327,7 @@ pub async fn insert_comment(
         likes: NotSet,
         created_at: NotSet,
         comment_id: NotSet,
+        edited_at: NotSet,
     })
     .exec(&txn)
     .await;
@@ -235,6 +349,94 @@ pub async fn insert_comment(
         .await?;
     txn.commit().await?;
     Ok(comment_id)
+}
+
+/// Deletes the author's comment and drops `posts.comments`. `NotFound` when
+/// no row matches, including a comment owned by someone else. Comment likes
+/// cascade from `comments`.
+pub async fn delete_comment(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+    comment_id: i64,
+) -> Result<(), CadenzaError> {
+    let txn = db.begin().await?;
+    let deleted = comments::Entity::delete_many()
+        .filter(comments::Column::CommentId.eq(comment_id))
+        .filter(comments::Column::UserId.eq(user_id))
+        .exec_with_returning(&txn)
+        .await?;
+    let Some(comment) = deleted.first() else {
+        txn.rollback().await?;
+        return Err(CadenzaError::NotFound);
+    };
+    txn.execute_raw(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "UPDATE posts
+         SET comments = GREATEST(comments - 1, 0)
+         WHERE post_id = $1",
+        vec![comment.post_id.into()],
+    ))
+    .await?;
+    txn.commit().await?;
+    Ok(())
+}
+
+/// Replaces the author's comment text. `edited_at` is `now()`. `client_time`
+/// older than the stored `edited_at` leaves the row alone. `NotFound` when
+/// the comment is missing or owned by someone else.
+pub async fn update_comment_text(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+    comment_id: i64,
+    content: &str,
+    client_time: DateTime<Utc>,
+) -> Result<(), CadenzaError> {
+    let row = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            "UPDATE comments
+             SET content = $3,
+                 edited_at = now()
+             WHERE comment_id = $1 AND user_id = $2
+               AND (edited_at IS NULL OR edited_at <= $4)
+             RETURNING comment_id",
+            vec![
+                comment_id.into(),
+                user_id.into(),
+                content.to_owned().into(),
+                client_time.into(),
+            ],
+        ))
+        .await?;
+    if row.is_some() {
+        return Ok(());
+    }
+    finish_stale_edit(
+        db,
+        "SELECT comment_id FROM comments WHERE comment_id = $1 AND user_id = $2",
+        vec![comment_id.into(), user_id.into()],
+    )
+    .await
+}
+
+/// The update matched nothing. The row is still there when a newer edit won,
+/// which is success. A missing row is `NotFound`.
+async fn finish_stale_edit(
+    db: &DatabaseConnection,
+    sql: &str,
+    values: Vec<Value>,
+) -> Result<(), CadenzaError> {
+    let row = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            sql,
+            values,
+        ))
+        .await?;
+    if row.is_none() {
+        return Err(CadenzaError::NotFound);
+    }
+    Ok(())
 }
 
 /// Comments on `post_id`, most liked first, then newest, then comment id.
@@ -271,6 +473,7 @@ fn comments_on_post(viewer_id: Uuid, post_id: i64) -> sea_orm::Select<comments::
         .column(comments::Column::Content)
         .column(comments::Column::Likes)
         .column(comments::Column::CreatedAt)
+        .column(comments::Column::EditedAt)
         .expr_as(
             Func::coalesce([
                 Expr::col((profile::Entity, profile::Column::Username)),
@@ -424,6 +627,7 @@ pub async fn get_posts(
              p.content,
              p.likes,
              p.created_at,
+             p.edited_at,
              p.topic_mk_id,
              COALESCE(pr.username, 'unknown') AS username,
              EXISTS (
@@ -451,13 +655,28 @@ pub async fn get_posts(
 }
 
 /// The author's profile row, when they have one.
+///
+/// `friend_count` is completed friendships only. In `friendships`, `user1` is
+/// always the lexicographically smaller uuid, so the same person can be stored
+/// in either column.
 pub async fn find_public_profile(
     db: &DatabaseConnection,
     author_id: Uuid,
 ) -> Result<Option<PublicProfile>, CadenzaError> {
     let row = ProfileRow::find_by_statement(Statement::from_sql_and_values(
         DbBackend::Postgres,
-        "SELECT uid, username, bio FROM profile WHERE uid = $1",
+        "SELECT
+             uid,
+             username,
+             bio,
+             (
+                 SELECT COUNT(*)::bigint
+                 FROM friendships
+                 WHERE status = 'complete'
+                   AND (user1 = profile.uid OR user2 = profile.uid)
+             ) AS friend_count
+         FROM profile
+         WHERE uid = $1",
         vec![author_id.into()],
     ))
     .one(db)
@@ -467,7 +686,256 @@ pub async fn find_public_profile(
         user_id: row.uid,
         username: row.username,
         bio: row.bio,
+        friend_count: row.friend_count,
+        friend_request_sent: false,
+        friend_request_received: false,
+        is_friend: false,
     }))
+}
+
+/// `user1` is the lexicographically smaller uuid.
+fn ordered_friend_users(a: Uuid, b: Uuid) -> (Uuid, Uuid) {
+    if a < b { (a, b) } else { (b, a) }
+}
+
+/// Pending status for a request whose recipient is `recipient_id`.
+/// `to_user1` and `to_user2` name the recipient. `user1` is the smaller uuid.
+fn friend_request_status(recipient_id: Uuid, user1: Uuid) -> &'static str {
+    if recipient_id == user1 {
+        "to_user1"
+    } else {
+        "to_user2"
+    }
+}
+
+/// Whether `sender_id` has a pending request to `recipient_id`.
+pub async fn friend_request_sent(
+    db: &DatabaseConnection,
+    sender_id: Uuid,
+    recipient_id: Uuid,
+) -> Result<bool, CadenzaError> {
+    if sender_id == recipient_id {
+        return Ok(false);
+    }
+    let (user1, user2) = ordered_friend_users(sender_id, recipient_id);
+    let status = friend_request_status(recipient_id, user1);
+    let row = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            "SELECT EXISTS (
+                 SELECT 1 FROM friendships
+                 WHERE user1 = $1 AND user2 = $2 AND status = $3::friendship_status
+             )",
+            vec![user1.into(), user2.into(), status.into()],
+        ))
+        .await?;
+    let Some(row) = row else {
+        return Ok(false);
+    };
+    Ok(row.try_get_by_index(0)?)
+}
+
+/// Whether `viewer_id` and `other_id` have a completed friendship.
+/// The same user is never their own friend.
+pub async fn is_friend(
+    db: &DatabaseConnection,
+    viewer_id: Uuid,
+    other_id: Uuid,
+) -> Result<bool, CadenzaError> {
+    if viewer_id == other_id {
+        return Ok(false);
+    }
+    let (user1, user2) = ordered_friend_users(viewer_id, other_id);
+    let row = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            "SELECT EXISTS (
+                 SELECT 1 FROM friendships
+                 WHERE user1 = $1 AND user2 = $2 AND status = 'complete'
+             )",
+            vec![user1.into(), user2.into()],
+        ))
+        .await?;
+    let Some(row) = row else {
+        return Ok(false);
+    };
+    Ok(row.try_get_by_index(0)?)
+}
+
+/// Inserts a pending request from `sender_id` to `recipient_id`.
+///
+/// `user1` is the lexicographically smaller uuid. Status is `to_user1` when
+/// the recipient is `user1`, and `to_user2` when they are `user2`. Sending the
+/// same request again is a no-op. If the other person already sent a request,
+/// this accepts it and the row becomes `complete`. A completed friendship is
+/// [`CadenzaError::FriendshipAlreadyExists`].
+pub async fn request_friendship(
+    db: &DatabaseConnection,
+    sender_id: Uuid,
+    recipient_id: Uuid,
+) -> Result<(), CadenzaError> {
+    if sender_id == recipient_id {
+        return Err(CadenzaError::InvalidRequestBody(
+            "you cannot send yourself a friend request".into(),
+        ));
+    }
+    let (user1, user2) = ordered_friend_users(sender_id, recipient_id);
+    let status = friend_request_status(recipient_id, user1);
+    let incoming = friend_request_status(sender_id, user1);
+    let inserted = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            "INSERT INTO friendships (created_at, user1, user2, status)
+             VALUES (NOW(), $1, $2, $3::friendship_status)
+             ON CONFLICT (user1, user2) DO NOTHING
+             RETURNING user1",
+            vec![user1.into(), user2.into(), status.into()],
+        ))
+        .await?;
+    if inserted.is_some() {
+        return Ok(());
+    }
+    let existing = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            "SELECT status::text FROM friendships WHERE user1 = $1 AND user2 = $2",
+            vec![user1.into(), user2.into()],
+        ))
+        .await?;
+    let Some(existing) = existing else {
+        return Err(CadenzaError::DatabaseError(
+            "friendship conflict left no row".into(),
+        ));
+    };
+    let current: String = existing.try_get_by_index(0)?;
+    if current == status {
+        Ok(())
+    } else if current == incoming {
+        accept_friendship(db, sender_id, recipient_id).await
+    } else {
+        Err(CadenzaError::FriendshipAlreadyExists)
+    }
+}
+
+/// Deletes the friendship row for this pair, whatever its status is.
+/// A missing row is a no-op. `user1` is the lexicographically smaller uuid.
+pub async fn delete_friendship(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+    other_id: Uuid,
+) -> Result<(), CadenzaError> {
+    if user_id == other_id {
+        return Err(CadenzaError::InvalidRequestBody(
+            "you cannot cancel a friend request with yourself".into(),
+        ));
+    }
+    let (user1, user2) = ordered_friend_users(user_id, other_id);
+    db.execute_raw(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "DELETE FROM friendships WHERE user1 = $1 AND user2 = $2",
+        vec![user1.into(), user2.into()],
+    ))
+    .await?;
+    Ok(())
+}
+
+/// Turns an incoming request into a completed friendship.
+///
+/// The caller has to be the recipient: `to_user1` when they are `user1`, or
+/// `to_user2` when they are `user2`. `user1` is the lexicographically smaller
+/// uuid. Anything else, including a missing row, is [`CadenzaError::NotFound`].
+pub async fn accept_friendship(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+    other_id: Uuid,
+) -> Result<(), CadenzaError> {
+    if user_id == other_id {
+        return Err(CadenzaError::InvalidRequestBody(
+            "you cannot accept a friend request from yourself".into(),
+        ));
+    }
+    let (user1, user2) = ordered_friend_users(user_id, other_id);
+    let status = friend_request_status(user_id, user1);
+    let updated = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            "UPDATE friendships
+             SET status = 'complete'
+             WHERE user1 = $1 AND user2 = $2 AND status = $3::friendship_status
+             RETURNING user1",
+            vec![user1.into(), user2.into(), status.into()],
+        ))
+        .await?;
+    if updated.is_none() {
+        return Err(CadenzaError::NotFound);
+    }
+    Ok(())
+}
+
+/// One other person on a friendship row.
+#[derive(Clone, Debug)]
+pub struct FriendPerson {
+    pub user_id: Uuid,
+    pub username: String,
+}
+
+/// The signed-in user's completed friends and both directions of pending
+/// requests.
+///
+/// `user1` is the lexicographically smaller uuid. `to_user2` on a row where
+/// the caller is `user1`, or `to_user1` where they are `user2`, is a request
+/// they sent. The other pending status is incoming. All three lists are
+/// username order.
+pub struct FriendLists {
+    pub incoming: Vec<FriendPerson>,
+    pub outgoing: Vec<FriendPerson>,
+    pub friends: Vec<FriendPerson>,
+}
+
+/// Completed friends and pending requests for `user_id`.
+pub async fn list_friendships(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+) -> Result<FriendLists, CadenzaError> {
+    let rows = FriendshipListRow::find_by_statement(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "SELECT
+             CASE WHEN f.user1 = $1 THEN f.user2 ELSE f.user1 END AS user_id,
+             COALESCE(pr.username, 'unknown') AS username,
+             CASE
+                 WHEN f.status = 'complete' THEN 'friend'
+                 WHEN (f.user1 = $1 AND f.status = 'to_user2')
+                   OR (f.user2 = $1 AND f.status = 'to_user1') THEN 'outgoing'
+                 ELSE 'incoming'
+             END AS kind
+         FROM friendships f
+         LEFT JOIN profile pr
+           ON pr.uid = CASE WHEN f.user1 = $1 THEN f.user2 ELSE f.user1 END
+         WHERE f.user1 = $1 OR f.user2 = $1
+         ORDER BY username, user_id",
+        vec![user_id.into()],
+    ))
+    .all(db)
+    .await?;
+
+    let mut lists = FriendLists {
+        incoming: Vec::new(),
+        outgoing: Vec::new(),
+        friends: Vec::new(),
+    };
+    for row in rows {
+        let person = FriendPerson {
+            user_id: row.user_id,
+            username: row.username,
+        };
+        match row.kind.as_str() {
+            "outgoing" => lists.outgoing.push(person),
+            "friend" => lists.friends.push(person),
+            "incoming" => lists.incoming.push(person),
+            _ => {}
+        }
+    }
+    Ok(lists)
 }
 
 /// Posts whose topic is this Apple Music catalog id, most liked first.
@@ -485,6 +953,7 @@ pub async fn get_topic_posts(
              p.content,
              p.likes,
              p.created_at,
+             p.edited_at,
              p.topic_mk_id,
              COALESCE(pr.username, 'unknown') AS username,
              EXISTS (
@@ -518,6 +987,7 @@ pub async fn get_author_posts(
              p.content,
              p.likes,
              p.created_at,
+             p.edited_at,
              p.topic_mk_id,
              COALESCE(pr.username, 'unknown') AS username,
              EXISTS (
@@ -610,6 +1080,83 @@ pub async fn hot_posts(
     exclude: FeedExclude,
 ) -> Result<Vec<FeedCandidate>, CadenzaError> {
     candidate_posts(db, user_id, exclude, "ORDER BY hot_score DESC", None).await
+}
+
+/// `FEED_SIZE` posts by completed friends, after `exclude`. Newest first.
+pub async fn friend_posts(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+    exclude: FeedExclude,
+) -> Result<Vec<FeedCandidate>, CadenzaError> {
+    let exclude_and = match exclude {
+        FeedExclude::None => "",
+        FeedExclude::Viewed => {
+            "AND NOT EXISTS (
+                 SELECT 1 FROM post_view_status
+                 WHERE post_view_status.post_id = posts.post_id
+                   AND post_view_status.user_id = $1
+                   AND post_view_status.status = 'viewed'
+             )"
+        }
+        FeedExclude::Loaded => {
+            "AND NOT EXISTS (
+                 SELECT 1 FROM post_view_status
+                 WHERE post_view_status.post_id = posts.post_id
+                   AND post_view_status.user_id = $1
+             )"
+        }
+    };
+    let sql = format!(
+        "SELECT post_id, embedding::text AS embedding, likes, created_at
+         FROM posts
+         WHERE user_id IN (
+             SELECT CASE WHEN f.user1 = $1 THEN f.user2 ELSE f.user1 END
+             FROM friendships f
+             WHERE f.status = 'complete'
+               AND (f.user1 = $1 OR f.user2 = $1)
+         )
+         {exclude_and}
+         ORDER BY created_at DESC
+         LIMIT $2"
+    );
+    let rows = CandidateRow::find_by_statement(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        sql,
+        vec![user_id.into(), FEED_SIZE.into()],
+    ))
+    .all(db)
+    .await?;
+    rows.into_iter()
+        .map(|row| {
+            Ok(FeedCandidate {
+                post_id: row.post_id,
+                embedding: parse_vector(&row.embedding)?,
+                likes: row.likes,
+                created_at: row.created_at.with_timezone(&Utc),
+                sent_by_friend: true,
+            })
+        })
+        .collect()
+}
+
+/// Dedupes by `post_id`. A friend-sourced copy keeps `sent_by_friend`.
+pub fn merge_feed_candidates(
+    sources: impl IntoIterator<Item = FeedCandidate>,
+) -> Vec<FeedCandidate> {
+    let mut by_id: HashMap<i64, FeedCandidate> = HashMap::new();
+    for post in sources {
+        match by_id.get_mut(&post.post_id) {
+            Some(existing) => {
+                if post.sent_by_friend {
+                    existing.sent_by_friend = true;
+                }
+            }
+            None => {
+                by_id.insert(post.post_id, post);
+            }
+        }
+    }
+    by_id.into_values().collect()
 }
 
 /// Ensures each interest exists. Returns whether it already had an embedding.
@@ -759,11 +1306,17 @@ pub fn age_days(created_at: DateTime<Utc>, now: DateTime<Utc>) -> i64 {
     (now - created_at).num_days()
 }
 
-/// `3 log2(likes+1) - log2(age_days+1) + 100 * similarity`.
-pub fn score_post(likes: i64, age_days: i64, similarity: f64) -> f64 {
+/// `3 log2(likes+1) - log2(age_days+1) + 100 * similarity`, plus
+/// [`FRIEND_SCORE_BOOST`] when `sent_by_friend`.
+pub fn score_post(likes: i64, age_days: i64, similarity: f64, sent_by_friend: bool) -> f64 {
     let likes_score = 3.0 * ((likes + 1) as f64).log2();
     let age_score = -((age_days + 1) as f64).log2();
-    likes_score + age_score + 100.0 * similarity
+    let friend_boost = if sent_by_friend {
+        FRIEND_SCORE_BOOST
+    } else {
+        0.0
+    };
+    likes_score + age_score + 100.0 * similarity + friend_boost
 }
 
 /// Normalized weighted sum of interest vectors. `None` when there is nothing
@@ -864,6 +1417,7 @@ async fn candidate_posts(
                 embedding: parse_vector(&row.embedding)?,
                 likes: row.likes,
                 created_at: row.created_at.with_timezone(&Utc),
+                sent_by_friend: false,
             })
         })
         .collect()
@@ -953,6 +1507,7 @@ struct PostRow {
     content: String,
     likes: i64,
     created_at: DateTime<chrono::FixedOffset>,
+    edited_at: Option<DateTime<chrono::FixedOffset>>,
     username: String,
     liked: bool,
     topic_mk_id: Option<String>,
@@ -967,6 +1522,9 @@ impl PostRow {
             likes: self.likes,
             liked: self.liked,
             created_at: self.created_at.with_timezone(&Utc),
+            edited_at: self
+                .edited_at
+                .map(|edited_at| edited_at.with_timezone(&Utc)),
             author_id: self.author_id,
             author_username: self.username.clone(),
             topic_mk_id: self.topic_mk_id.clone(),
@@ -983,6 +1541,7 @@ struct CommentRow {
     content: String,
     likes: i64,
     created_at: DateTime<chrono::FixedOffset>,
+    edited_at: Option<DateTime<chrono::FixedOffset>>,
     username: String,
     liked: bool,
 }
@@ -996,6 +1555,9 @@ impl CommentRow {
             likes: self.likes,
             liked: self.liked,
             created_at: self.created_at.with_timezone(&Utc),
+            edited_at: self
+                .edited_at
+                .map(|edited_at| edited_at.with_timezone(&Utc)),
             author_id: self.author_id,
             author_username: self.username.clone(),
         }
@@ -1003,10 +1565,24 @@ impl CommentRow {
 }
 
 #[derive(Debug, FromQueryResult)]
+struct PostClockRow {
+    created_at: DateTime<chrono::FixedOffset>,
+    edited_at: Option<DateTime<chrono::FixedOffset>>,
+}
+
+#[derive(Debug, FromQueryResult)]
+struct FriendshipListRow {
+    user_id: Uuid,
+    username: String,
+    kind: String,
+}
+
+#[derive(Debug, FromQueryResult)]
 struct ProfileRow {
     uid: Uuid,
     username: String,
     bio: String,
+    friend_count: i64,
 }
 
 #[derive(Debug, FromQueryResult)]
@@ -1037,6 +1613,16 @@ mod tests {
     use super::*;
 
     #[test]
+    fn an_older_edit_does_not_replace_a_newer_one() {
+        let older = Utc.with_ymd_and_hms(2026, 11, 2, 1, 0, 0).unwrap();
+        let newer = Utc.with_ymd_and_hms(2026, 11, 2, 2, 0, 0).unwrap();
+        assert!(edit_replaces(None, older));
+        assert!(edit_replaces(Some(older), newer));
+        assert!(edit_replaces(Some(older), older));
+        assert!(!edit_replaces(Some(newer), older));
+    }
+
+    #[test]
     fn user_vector_weights_and_normalizes() {
         let vector =
             combine_interest_vectors(&[(vec![1.0, 0.0], 1.0), (vec![0.0, 1.0], 1.0)]).unwrap();
@@ -1053,15 +1639,67 @@ mod tests {
 
     #[test]
     fn score_prefers_a_closer_newer_post() {
-        let fresh = score_post(0, 0, 1.0);
-        let old = score_post(0, 10, 0.0);
+        let fresh = score_post(0, 0, 1.0, false);
+        let old = score_post(0, 10, 0.0, false);
         assert!(fresh > old);
+    }
+
+    #[test]
+    fn score_boosts_a_friend_post() {
+        let other = score_post(100, 0, 1.0, false);
+        let friend = score_post(0, 100, 0.0, true);
+        assert!(friend > other);
+        assert!(
+            (score_post(0, 0, 0.0, true) - score_post(0, 0, 0.0, false) - FRIEND_SCORE_BOOST).abs()
+                < 1e-9
+        );
+    }
+
+    fn candidate(post_id: i64, sent_by_friend: bool) -> FeedCandidate {
+        FeedCandidate {
+            post_id,
+            embedding: Vec::new(),
+            likes: 0,
+            created_at: Utc::now(),
+            sent_by_friend,
+        }
+    }
+
+    #[test]
+    fn merge_keeps_sent_by_friend_across_sources() {
+        let posts = merge_feed_candidates([
+            candidate(1, false),
+            candidate(2, false),
+            candidate(1, true),
+            candidate(2, false),
+            candidate(3, true),
+        ]);
+        let by_id: HashMap<_, _> = posts
+            .into_iter()
+            .map(|post| (post.post_id, post.sent_by_friend))
+            .collect();
+        assert_eq!(by_id.get(&1), Some(&true));
+        assert_eq!(by_id.get(&2), Some(&false));
+        assert_eq!(by_id.get(&3), Some(&true));
+        assert_eq!(by_id.len(), 3);
     }
 
     #[test]
     fn vector_literal_round_trips() {
         let text = vector_literal(&[0.5, -1.0, 2.0]);
         assert_eq!(parse_vector(&text).unwrap(), vec![0.5, -1.0, 2.0]);
+    }
+
+    #[test]
+    fn friend_request_status_names_the_recipient() {
+        let smaller = Uuid::parse_str("00000000-0000-0000-0000-000000000001").unwrap();
+        let larger = Uuid::parse_str("ffffffff-ffff-ffff-ffff-ffffffffffff").unwrap();
+        let (user1, user2) = ordered_friend_users(smaller, larger);
+        assert_eq!((user1, user2), (smaller, larger));
+        let (user1, _) = ordered_friend_users(larger, smaller);
+        assert_eq!(user1, smaller);
+        assert_eq!(friend_request_status(smaller, user1), "to_user1");
+        assert_eq!(friend_request_status(larger, user1), "to_user2");
     }
 
     #[test]
@@ -1084,5 +1722,6 @@ mod tests {
             ),
             "{sql}"
         );
+        assert!(sql.contains(r#""comments"."edited_at""#), "{sql}");
     }
 }

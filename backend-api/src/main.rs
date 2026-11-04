@@ -66,7 +66,7 @@ fn db_connect_options(db_url: String) -> ConnectOptions {
 }
 
 /// Well under any Supabase pool so one run cannot exhaust it on its own.
-const MAX_DB_CONNECTIONS: u32 = 10;
+const MAX_DB_CONNECTIONS: u32 = 60;
 
 #[tokio::main]
 async fn main() {

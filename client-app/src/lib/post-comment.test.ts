@@ -2,10 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+    applyCommentContent,
     applyCommentLike,
     applyPostCommentDelta,
     commentsPath,
     insertCachedComment,
+    removeCachedComment,
     isPostCommentsKey,
     isSocialPostPages,
     pinComments,
@@ -19,6 +21,7 @@ const comment = {
     likes: 3,
     liked: false,
     created_at: "2026-10-16T18:00:00Z",
+    edited_at: null,
     author: { user_id: "u", username: "ada" },
 };
 
@@ -107,6 +110,7 @@ test("comment count delta updates feed and profile caches", () => {
         likes: 0,
         liked: false,
         created_at: "2026-10-16T18:00:00Z",
+        edited_at: null,
         author: { user_id: "u", username: "ada" },
         topic_mk_id: null,
         comment_count: 1,
@@ -119,4 +123,30 @@ test("comment count delta updates feed and profile caches", () => {
         posts: (typeof post)[];
     }[];
     assert.equal(pages[0].posts[0].comment_count, 0);
+});
+
+test("editing a cached comment replaces the text", () => {
+    const cached = { comments: [comment, { ...comment, comment_id: 9 }] };
+    const next = applyCommentContent(
+        cached,
+        2,
+        "edited",
+        "2026-10-17T18:00:00Z",
+    ) as typeof cached;
+    assert.equal(next.comments[0].content, "edited");
+    assert.equal(next.comments[0].edited_at, "2026-10-17T18:00:00Z");
+    assert.equal(next.comments[1], cached.comments[1]);
+    assert.equal(
+        applyCommentContent(next, 2, "edited", "2026-10-17T18:00:00Z"),
+        next,
+    );
+});
+
+test("removing a comment drops only that row", () => {
+    const other = { ...comment, comment_id: 9 };
+    const cached = { comments: [comment, other] };
+    const next = removeCachedComment(cached, 2) as typeof cached;
+    assert.deepEqual(next.comments, [other]);
+    assert.equal(next.comments[0], other);
+    assert.equal(removeCachedComment(cached, 99), cached);
 });
