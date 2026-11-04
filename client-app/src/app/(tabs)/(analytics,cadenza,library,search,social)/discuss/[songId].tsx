@@ -27,7 +27,11 @@ export default function SongDiscussScreen() {
     if (!songId) return null;
 
     return (
-        <DetailScreen title="Discuss" tint={tint}>
+        <DetailScreen
+            title="Discuss"
+            artworkUrl={focusedSong.artworkUrl}
+            tint={tint}
+        >
             <SongDiscussPage focusedSong={focusedSong} />
         </DetailScreen>
     );

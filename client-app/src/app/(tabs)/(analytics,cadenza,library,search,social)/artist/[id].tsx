@@ -3,25 +3,17 @@ import type { ArtistDetail, MusicItem } from "@apple-musickit";
 import { Image } from "expo-image";
 import { useLocalSearchParams } from "expo-router";
 import { useTheme } from "expo-router/react-navigation";
-import { useColorScheme } from "nativewind";
 import { memo, useCallback, useMemo, useState } from "react";
 import { FlatList, Pressable, useWindowDimensions, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { BlendedCover, COVER_BLEED } from "@/components/custom/blended-cover";
 import { ErrorNotice } from "@/components/custom/error-notice";
-import {
-    CoverHero,
-    useCoverHeroLayout,
-    type CoverHeroLayout,
-} from "@/components/custom/cover-hero";
 import { TrackCollectionView } from "@/components/custom/track-collection-view";
 import { FloatingBackButton } from "@/components/ui/floating-back-button";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-    ContrastRegion,
-    ContrastText as Text,
-} from "@/lib/surface-contrast-context";
-import { useArtworkTint, useCoverPageColor } from "@/lib/artwork-color";
-import { flatGradient } from "@/lib/artwork-color-utils";
+import { Text } from "@/components/ui/text";
+import { useArtworkNebulaColors, useArtworkTint } from "@/lib/artwork-color";
 import { collectionRoute } from "@/lib/music-routes";
 import { useArtist } from "@/lib/musickit-hooks";
 import { samePlayableItem } from "@/lib/playable-item";
@@ -43,13 +35,12 @@ const NO_PAGINATION = {
     isLoadingNextPage: false,
     onLoadNextPage: () => undefined,
 } as const;
-/** How far above the hero's bottom the name sits, for the contrast sample. */
-const HERO_NAME_INSET = 100;
+const PORTRAIT_SIZE = 240;
 
 /**
- * One catalog artist: the artist image full bleed, their top songs, then their
- * albums. Apple's order, on a flat page colored from the portrait's bottom
- * half, the same hero as an album.
+ * One catalog artist: the artist image bleeding into a nebula colored from
+ * it, their top songs, then their albums. Apple's order, and the same cover as
+ * an album.
  *
  * The whole page is one `MusicList`. It owns a `FlatList`, so the hero goes in
  * as its header and the albums rail as its footer; stacking a `ScrollView`
@@ -61,7 +52,6 @@ const HERO_NAME_INSET = 100;
  */
 export default function ArtistScreen() {
     const { id, name } = useLocalSearchParams<{ id: string; name?: string }>();
-    const { colorScheme = "light" } = useColorScheme();
     const { artist, artistLoading, artistErr } = useArtist(id);
     const { tint: portraitTint } = useArtworkTint(artist);
     const { activeTrack, isLoading, isPlaying } = usePlaybackTrackState();
@@ -69,33 +59,19 @@ export default function ArtistScreen() {
     const [playbackCommandPending, setPlaybackCommandPending] = useState(false);
     const albums = artist?.albums ?? EMPTY_ALBUMS;
     const topSongs = artist?.topSongs ?? EMPTY_TRACKS;
-    const heroLayout = useCoverHeroLayout();
-    const pageColor = useCoverPageColor(
-        artist?.artworkUrlSmall ?? artist?.artworkUrl,
+    const nebulaColors = useArtworkNebulaColors(
+        artist?.artworkUrlSmall
+            ? [artist.artworkUrlSmall]
+            : artist?.artworkUrl
+              ? [artist.artworkUrl]
+              : [],
         portraitTint,
-    );
-    const gradient = useMemo(
-        () => (pageColor ? flatGradient(pageColor) : null),
-        [pageColor],
     );
     const isCurrentArtist =
         activeTrack != null &&
         (activeTrack.artistId === id ||
             topSongs.some((song) => samePlayableItem(song, activeTrack)));
     const isArtistPlaying = isCurrentArtist && isPlaying;
-    const loadingColor = colorScheme === "dark" ? "#000000" : "#ffffff";
-    const artworkSurface = useMemo(
-        () =>
-            pageColor
-                ? {
-                      color: pageColor,
-                      height: heroLayout.artworkHeight,
-                      fadeStart: heroLayout.fadeStart,
-                  }
-                : undefined,
-        [pageColor, heroLayout.artworkHeight, heroLayout.fadeStart],
-    );
-
     /** Replaces the queue with the top songs, in Apple's order. */
     async function playTopSongs() {
         if (topSongs.length === 0 || playbackCommandPending) return;
@@ -112,7 +88,7 @@ export default function ArtistScreen() {
     }
 
     return (
-        <View className="flex-1" style={{ backgroundColor: loadingColor }}>
+        <View className="flex-1 bg-background">
             {artistErr ? <ErrorNotice error={artistErr} /> : null}
 
             <TrackCollectionView
@@ -122,26 +98,21 @@ export default function ArtistScreen() {
                 error={artistErr}
                 pagination={NO_PAGINATION}
                 multiSelect={DEFAULT_MULTI_SELECT_CONFIG}
-                backgroundColor={pageColor}
-                backgroundGradient={gradient}
-                artworkSurface={artworkSurface}
+                nebulaColors={nebulaColors}
                 header={
                     <>
                         <ArtistHero
                             artist={artist}
                             artistLoading={artistLoading}
                             name={artist?.name ?? name ?? "Artist"}
-                            layout={heroLayout}
                             canPlay={topSongs.length > 0}
                             isPlaying={isArtistPlaying}
                             isLoading={isLoading || playbackCommandPending}
                             onPlay={() => void playTopSongs()}
                         />
-                        <ContrastRegion offset={heroLayout.height + 30}>
-                            <Text className="px-6 pb-1 pt-5 text-xl font-bold text-foreground">
-                                Top Songs
-                            </Text>
-                        </ContrastRegion>
+                        <Text className="px-6 pb-1 pt-5 text-xl font-bold text-foreground">
+                            Top Songs
+                        </Text>
                     </>
                 }
                 footer={
@@ -164,14 +135,13 @@ export default function ArtistScreen() {
 }
 
 /**
- * The artist image as a `CoverHero`, with the name and the play button over
- * the bottom of it.
+ * The artist image as a `BlendedCover`, with the name and the play button
+ * under it.
  */
 function ArtistHero({
     artist,
     artistLoading,
     name,
-    layout,
     canPlay,
     isPlaying,
     isLoading,
@@ -180,46 +150,49 @@ function ArtistHero({
     artist?: ArtistDetail;
     artistLoading: boolean;
     name: string;
-    layout: CoverHeroLayout;
     canPlay: boolean;
     isPlaying: boolean;
     isLoading: boolean;
     onPlay: () => void;
 }) {
     const { colors } = useTheme();
-    const artworkUrl = artist?.artworkUrl;
+    const insets = useSafeAreaInsets();
+    // one element across renders, so the memoized cover does not redraw
+    const fallback = useMemo(
+        () =>
+            artistLoading ? (
+                <Skeleton className="absolute inset-0 rounded-2xl" />
+            ) : (
+                <View className="absolute inset-0 items-center justify-center rounded-2xl bg-muted">
+                    <Ionicons name="person" size={72} color={colors.text} />
+                </View>
+            ),
+        [artistLoading, colors.text],
+    );
 
     return (
-        <CoverHero
-            layout={layout}
-            uri={artworkUrl}
-            placeholderUri={artist?.artworkUrlSmall}
-            fallback={
-                artistLoading ? (
-                    <Skeleton className="absolute inset-0" />
-                ) : (
-                    <View className="absolute inset-0 items-center justify-center bg-muted">
-                        <Ionicons name="person" size={72} color={colors.text} />
-                    </View>
-                )
-            }
+        <View
+            className="items-center px-6 pb-5"
+            style={{ paddingTop: insets.top + 32 + COVER_BLEED / 2 }}
         >
-            <ContrastRegion offset={layout.height - HERO_NAME_INSET}>
-                <View className="items-center px-6 pb-5">
-                    <Text
-                        className="pb-4 text-center text-4xl font-bold tracking-tight text-white"
-                        numberOfLines={2}
-                    >
-                        {name}
-                    </Text>
-                    <PlayButton
-                        disabled={!canPlay || isLoading}
-                        isPlaying={isPlaying}
-                        onPress={onPlay}
-                    />
-                </View>
-            </ContrastRegion>
-        </CoverHero>
+            <BlendedCover
+                uri={artist?.artworkUrl}
+                placeholderUri={artist?.artworkUrlSmall}
+                size={PORTRAIT_SIZE}
+                fallback={fallback}
+            />
+            <Text
+                className="pb-4 pt-6 text-center text-4xl font-bold tracking-tight text-foreground"
+                numberOfLines={2}
+            >
+                {name}
+            </Text>
+            <PlayButton
+                disabled={!canPlay || isLoading}
+                isPlaying={isPlaying}
+                onPress={onPlay}
+            />
+        </View>
     );
 }
 

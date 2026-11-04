@@ -29,7 +29,12 @@ function PlayerSheet() {
     const { tint } = useArtworkTint(focusedSong);
 
     return (
-        <DetailScreen presentation="sheet" title="Now Playing" tint={tint}>
+        <DetailScreen
+            presentation="sheet"
+            title="Now Playing"
+            artworkUrl={focusedSong?.artworkUrl}
+            tint={tint}
+        >
             <Slot />
         </DetailScreen>
     );

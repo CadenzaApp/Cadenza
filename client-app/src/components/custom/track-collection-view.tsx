@@ -6,7 +6,6 @@ import { useEffect, useMemo, useState } from "react";
 import {
     Image,
     View,
-    useWindowDimensions,
     type ColorValue,
     type StyleProp,
     type ViewStyle,
@@ -31,25 +30,14 @@ import {
     type MusicListSections,
     type MusicListTrackAction,
 } from "@/components/custom/music-list";
-import { CoverHero, useCoverHeroLayout } from "@/components/custom/cover-hero";
+import { BlendedCover, COVER_BLEED } from "@/components/custom/blended-cover";
 import { ModalPopup } from "@/components/custom/modal-popup";
 import { Button } from "@/components/ui/button";
-import {
-    ContrastGlassIconButton as GlassIconButton,
-    ContrastRegion,
-    ContrastText as Text,
-    ContrastIcon,
-    SurfaceContrastProvider,
-} from "@/lib/surface-contrast-context";
-import {
-    flatGradient,
-    type ArtworkSurface,
-    type TintGradient,
-} from "@/lib/artwork-color-utils";
-import { useCoverPageColor } from "@/lib/artwork-color";
-import { TintOverscrollBackdrop } from "@/components/ui/tint-backdrop";
+import { GlassIconButton } from "@/components/ui/glass-icon-button";
+import { NebulaBackdrop } from "@/components/ui/nebula-backdrop";
+import { Text } from "@/components/ui/text";
+import { useArtworkNebulaColors } from "@/lib/artwork-color";
 import { usePlaybackCommands } from "@/lib/playback";
-import { useTintGradient } from "@/lib/use-tint-gradient";
 
 import {
     collectionArtworkGrid,
@@ -57,10 +45,8 @@ import {
 } from "./track-collection-utils";
 import { useAppTheme } from "@/lib/theme";
 
-const ARTWORK_SIZE = 224;
+const ARTWORK_SIZE = 240;
 const ARTWORK_SCROLL_SCALE_DISTANCE = 120;
-/** How far above the hero's bottom its title sits, for the contrast sample. */
-const HERO_TITLE_INSET = 80;
 
 /** How far the hero artwork has shrunk, scrolled this far down. */
 function artworkScale(scrollY: number) {
@@ -121,19 +107,22 @@ type Props = {
     activityTagIds?: readonly number[];
     artworkUrls?: readonly string[];
     /**
-     * A smaller copy of a single cover, shown in the full-bleed hero while the
-     * large one loads. Usually already cached from the tile that opened this.
+     * A smaller copy of a single cover, shown while the large one loads and
+     * what its bleed and the nebula are read from. Usually already cached from
+     * the tile that opened this.
      */
     artworkPlaceholderUrl?: string | null;
     subtitle?: string;
     summary?: string;
     header?: ReactNode;
     footer?: ReactNode;
-    /** Source color for the mode-aware Oklch background gradient. */
+    /**
+     * The nebula's color when there is no artwork to read one from, and while
+     * the artwork's own colors load.
+     */
     backgroundColor?: string | null;
-    artworkSurface?: ArtworkSurface;
-    backgroundGradient?: TintGradient | null;
-    gradientMinHeight?: number;
+    /** The nebula's colors, in place of the ones read from the artwork. */
+    nebulaColors?: readonly string[];
     containerStyle?: StyleProp<ViewStyle>;
     pagination?: MusicListPagination | null;
     /**
@@ -185,9 +174,7 @@ export function TrackCollectionView({
     header,
     footer,
     backgroundColor = null,
-    artworkSurface,
-    backgroundGradient,
-    gradientMinHeight = 0,
+    nebulaColors: nebulaColorsOverride,
     containerStyle,
     pagination = null,
     loadAllPages = false,
@@ -206,9 +193,6 @@ export function TrackCollectionView({
     const { colors } = useTheme();
     const { destructive } = useAppTheme().colors;
     const insets = useSafeAreaInsets();
-    const { height: windowHeight } = useWindowDimensions();
-    const [viewportHeight, setViewportHeight] = useState(windowHeight);
-    const [contentHeight, setContentHeight] = useState(windowHeight);
     const { playQueue } = usePlaybackCommands();
     const [optionsOpen, setOptionsOpen] = useState(false);
     const isFocused = useIsFocused();
@@ -246,41 +230,15 @@ export function TrackCollectionView({
         [summaryOverride, tracks],
     );
     const hasDefaultHero = header == null;
-    // One cover runs edge to edge; a mosaic or a placeholder stays a tile.
-    const heroArtwork =
+    // One cover bleeds into the nebula; a mosaic or a placeholder stays a tile.
+    const singleCover =
         hasDefaultHero && artworkUrls.length === 1 ? artworkUrls[0] : null;
-    const heroLayout = useCoverHeroLayout();
-    // A full-bleed cover's page is one flat color carried on from the cover's
-    // bottom half, where the fade meets it. The small copy is enough to average
-    // and usually cached already.
-    const pageColor = useCoverPageColor(
-        heroArtwork ? (artworkPlaceholderUrl ?? heroArtwork) : null,
+    // Small copies where there is one; averaging only needs a thumbnail.
+    const sampledColors = useArtworkNebulaColors(
+        singleCover ? [artworkPlaceholderUrl ?? singleCover] : artworkUrls,
         backgroundColor,
     );
-    const heroColor = heroArtwork ? pageColor : null;
-    const heroGradient = useMemo(
-        () => (heroColor ? flatGradient(heroColor) : null),
-        [heroColor],
-    );
-    const heroSurface = useMemo<ArtworkSurface | undefined>(
-        () =>
-            heroColor
-                ? {
-                      color: heroColor,
-                      height: heroLayout.artworkHeight,
-                      fadeStart: heroLayout.fadeStart,
-                  }
-                : undefined,
-        [heroColor, heroLayout.artworkHeight, heroLayout.fadeStart],
-    );
-    const surface = artworkSurface ?? heroSurface;
-    const defaultGradient = useTintGradient(backgroundColor, true);
-    const gradient = backgroundGradient ?? heroGradient ?? defaultGradient;
-    const gradientHeight = Math.max(
-        viewportHeight,
-        contentHeight,
-        gradientMinHeight,
-    );
+    const nebulaColors = nebulaColorsOverride ?? sampledColors;
     const actionsDisabled = tracks.length === 0 || isLoading;
     const onScroll = useAnimatedScrollHandler((event) => {
         scrollY.set(Math.max(0, event.contentOffset.y));
@@ -340,7 +298,7 @@ export function TrackCollectionView({
             ) : (
                 <View className="mt-4 flex-row items-center justify-center gap-2">
                     {titleIcon ? (
-                        <ContrastIcon
+                        <Ionicons
                             name={titleIcon}
                             size={24}
                             color={colors.text}
@@ -376,7 +334,7 @@ export function TrackCollectionView({
                     size={25}
                     color={colors.background}
                 />
-                <Text tone="theme" className="font-semibold">
+                <Text className="font-semibold">
                     {isPlaying ? "Pause" : "Play"}
                 </Text>
             </Button>
@@ -388,9 +346,7 @@ export function TrackCollectionView({
                 accessibilityLabel={`Shuffle ${title}`}
             >
                 <Ionicons name="shuffle" size={25} color={colors.text} />
-                <Text tone="theme" className="font-semibold">
-                    Shuffle
-                </Text>
+                <Text className="font-semibold">Shuffle</Text>
             </Button>
             {options.length === 1 ? (
                 <GlassIconButton
@@ -398,7 +354,7 @@ export function TrackCollectionView({
                     onPress={() => runOption(options[0])}
                     accessibilityLabel={options[0].label}
                 >
-                    <ContrastIcon
+                    <Ionicons
                         name={options[0].icon}
                         size={25}
                         color={colors.text}
@@ -411,7 +367,7 @@ export function TrackCollectionView({
                     accessibilityLabel={`More options for ${title}`}
                     accessibilityState={{ expanded: optionsOpen }}
                 >
-                    <ContrastIcon
+                    <Ionicons
                         name="ellipsis-vertical"
                         size={25}
                         color={colors.text}
@@ -421,83 +377,56 @@ export function TrackCollectionView({
         </View>
     );
     const errorText = error ? (
-        <Text tone="theme" className="mt-3 text-center text-destructive">
+        <Text className="mt-3 text-center text-destructive">
             Failed to load tracks.
         </Text>
     ) : null;
 
-    const defaultHeader = heroArtwork ? (
-        <View>
-            <CoverHero
-                layout={heroLayout}
-                uri={heroArtwork}
-                placeholderUri={artworkPlaceholderUrl}
-                zoomTarget
-            >
-                <View className="items-center px-6 pb-6">{titleBlock}</View>
-            </CoverHero>
-            <View className="px-4 pb-4">
-                {actions}
-                {errorText}
-            </View>
-        </View>
-    ) : (
+    const defaultHeader = (
         <View
             className="relative px-4 pb-4"
             style={{
-                paddingTop: 32 + (respectTopSafeArea ? insets.top : 0),
+                paddingTop:
+                    32 +
+                    (respectTopSafeArea ? insets.top : 0) +
+                    // room for the bleed above the cover
+                    (singleCover ? COVER_BLEED / 2 : 0),
             }}
         >
             <View className="items-center">
-                <Animated.View style={[artworkStyle, ARTWORK_SHADOW]}>
-                    {/* what the native zoom grows out of the tile into */}
-                    <Link.AppleZoomTarget>
-                        <View collapsable={false}>
-                            <ArtworkMosaic
-                                artworkUrls={artworkUrls}
-                                placeholderColor={colors.text}
-                            />
-                        </View>
-                    </Link.AppleZoomTarget>
-                </Animated.View>
+                {singleCover ? (
+                    <Animated.View style={artworkStyle}>
+                        <BlendedCover
+                            uri={singleCover}
+                            placeholderUri={artworkPlaceholderUrl}
+                            size={ARTWORK_SIZE}
+                            zoomTarget
+                        />
+                    </Animated.View>
+                ) : (
+                    <Animated.View style={[artworkStyle, ARTWORK_SHADOW]}>
+                        {/* what the native zoom grows out of the tile into */}
+                        <Link.AppleZoomTarget>
+                            <View collapsable={false}>
+                                <ArtworkMosaic
+                                    artworkUrls={artworkUrls}
+                                    placeholderColor={colors.text}
+                                />
+                            </View>
+                        </Link.AppleZoomTarget>
+                    </Animated.View>
+                )}
                 {titleBlock}
             </View>
             {actions}
             {errorText}
         </View>
     );
-    const listHeader = header ?? (
-        <ContrastRegion
-            offset={
-                heroArtwork
-                    ? heroLayout.height - HERO_TITLE_INSET
-                    : ARTWORK_SIZE + 80 + (respectTopSafeArea ? insets.top : 0)
-            }
-        >
-            {defaultHeader}
-        </ContrastRegion>
-    );
+    const listHeader = header ?? defaultHeader;
 
     return (
-        <SurfaceContrastProvider
-            colors={gradient?.colors}
-            height={gradientHeight}
-            contentHeight={Math.max(viewportHeight, contentHeight)}
-            viewportHeight={viewportHeight}
-            scrollY={scrollY}
-            artwork={surface}
-            style={containerStyle}
-            onLayout={(event) =>
-                setViewportHeight(event.nativeEvent.layout.height)
-            }
-        >
-            <TintOverscrollBackdrop
-                gradient={gradient}
-                scrollY={scrollY}
-                contentHeight={contentHeight}
-                gradientMinHeight={gradientMinHeight}
-                viewportHeight={viewportHeight}
-            />
+        <View className="flex-1 bg-background" style={containerStyle}>
+            <NebulaBackdrop colors={nebulaColors} layout="full" />
             <MusicList
                 // held back until the open animation ends; the rows
                 // are ready by then, so they appear as it lands
@@ -511,10 +440,7 @@ export function TrackCollectionView({
                 anticipatedTrackCount={anticipatedTrackCount}
                 header={listHeader}
                 footer={footer}
-                onContentSizeChange={(width, height) => {
-                    setContentHeight(height);
-                    onContentSizeChange?.(width, height);
-                }}
+                onContentSizeChange={onContentSizeChange}
                 removeClippedSubviews={removeClippedSubviews}
                 onScroll={onScroll}
                 multiSelect={multiSelect}
@@ -548,7 +474,6 @@ export function TrackCollectionView({
                             }
                         />
                         <Text
-                            tone="theme"
                             className={
                                 option.destructive
                                     ? "text-destructive"
@@ -560,7 +485,7 @@ export function TrackCollectionView({
                     </Button>
                 ))}
             </ModalPopup>
-        </SurfaceContrastProvider>
+        </View>
     );
 }
 
