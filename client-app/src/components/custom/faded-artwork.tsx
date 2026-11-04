@@ -27,8 +27,16 @@ type Edge = "top" | "bottom";
  * in more of its neighbors the farther it goes.
  */
 const EDGE_STRIP = 0.012;
-/** Blur of each stretched layer, from the cover out, in points. The first is sharp. */
-const EDGE_BLURS = [0, 4, 10, 20, 36];
+/**
+ * Blur of each stretched layer, from the cover out, in points. The first is
+ * nearly sharp, so the row at the cover is its own color without streaking.
+ */
+const EDGE_BLURS = [2, 6, 12, 22, 36, 56];
+/**
+ * Steps each layer takes to fade in, so it overlaps the next one out and no
+ * layer starts on a visible line.
+ */
+const EDGE_FADE_STEPS = 2.5;
 /**
  * Points each room runs on under the cover. The strip's outermost row is
  * partly see through, and stretched 20 times it would show as a dark band at
@@ -204,14 +212,16 @@ function EdgeExtension({
                         </View>
                     );
                 }
-                // opaque from `layer` steps out, gone a step nearer the cover
+                // gone a step nearer the cover, whole `EDGE_FADE_STEPS` later
                 return (
                     <Feathered
                         key={layer}
                         style={room}
                         edge={edge}
                         near={fromCover((layer - 1) * step)}
-                        far={fromCover(layer * step)}
+                        far={fromCover(
+                            Math.min(1, (layer - 1 + EDGE_FADE_STEPS) * step),
+                        )}
                     >
                         {stretched}
                     </Feathered>
