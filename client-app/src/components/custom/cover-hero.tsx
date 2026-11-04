@@ -1,5 +1,5 @@
 import { Link } from "expo-router";
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import { View, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -60,11 +60,14 @@ export function coverHeroLayout(
     };
 }
 
-/** `coverHeroLayout` for this window and its safe area. */
+/**
+ * `coverHeroLayout` for this window and its safe area. The same object until
+ * either changes, so the memoized artwork does not re-render with the page.
+ */
 export function useCoverHeroLayout() {
     const { width } = useWindowDimensions();
     const { top } = useSafeAreaInsets();
-    return coverHeroLayout(width, top);
+    return useMemo(() => coverHeroLayout(width, top), [width, top]);
 }
 
 type CoverHeroProps = {
@@ -113,7 +116,9 @@ export function CoverHero({
                     placeholderUri={placeholderUri}
                     fadeStart={layout.fadeStart}
                     cover={cover}
-                    fallback={fallback}
+                    // only drawn without a uri, and a new element each render
+                    // would re-render the artwork for nothing
+                    fallback={uri ? null : fallback}
                 />
             </View>
             {zoomTarget ? (

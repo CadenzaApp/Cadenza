@@ -1,8 +1,8 @@
 import MaskedView from "@react-native-masked-view/masked-view";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
-import { useMemo, type ComponentProps, type ReactNode } from "react";
-import { StyleSheet, View } from "react-native";
+import { memo, type ComponentProps, type ReactNode } from "react";
+import { PixelRatio, StyleSheet, View } from "react-native";
 
 /**
  * Where a square cover sits in its box, in points, and how much room its box
@@ -30,12 +30,13 @@ const EDGE_STRIP = 0.012;
 /** Blur of each stretched layer, from the cover out, in points. The first is sharp. */
 const EDGE_BLURS = [0, 4, 10, 20, 36];
 /**
- * How far each layer's start wanders across the width, as a fraction of the
- * room's height, so no blur starts on one flat line. Drawn as this many
- * columns, each its own gradient.
+ * Points each room runs on under the cover. The strip's outermost row is
+ * partly see through, and stretched 20 times it would show as a dark band at
+ * the seam, so it is kept under the cover, which is drawn on top.
  */
-const EDGE_JITTER = 0.08;
-const EDGE_COLUMNS = 48;
+const EDGE_OVERLAP = 12;
+/** Points the strip is taken from inside the image edge, past its soft last row. */
+const EDGE_INSET = 1;
 
 type FadedArtworkProps = {
     /** Null shows `fallback` instead. */
@@ -61,8 +62,12 @@ type FadedArtworkProps = {
  *
  * `expo-image` rather than the React Native one: it caches to disk, decodes off
  * the JS thread, and shows `placeholderUri` while the large image comes down.
+ *
+ * Memoized: any update to a view under the rasterized mask throws its cached
+ * bitmap away, and the page re-renders while it scrolls (content size, paging,
+ * playback). Keep `cover` and `fallback` stable so it renders once.
  */
-export function FadedArtwork({
+export const FadedArtwork = memo(function FadedArtwork({
     uri,
     placeholderUri,
     fadeStart,
@@ -101,11 +106,12 @@ export function FadedArtwork({
             )}
         </MaskedView>
     );
-}
+});
 
 /**
  * The cover at `frame`, sharp edge to edge, with its top and bottom edges
- * stretched out through the room on each side (`EdgeExtension`).
+ * stretched out through the room on each side (`EdgeExtension`). The cover is
+ * drawn last, over the part of each room that runs under it.
  */
 function BlendedCover({
     uri,
@@ -161,20 +167,20 @@ function EdgeExtension({
     frame: CoverFrame;
     edge: Edge;
 }) {
-    const jitter = useMemo(
-        () => smoothJitter(`${edge}:${uri}`, EDGE_COLUMNS, EDGE_JITTER),
-        [edge, uri],
-    );
-    const height = edge === "top" ? frame.top : frame.below;
-    if (height <= 0) return null;
+    const visible = edge === "top" ? frame.top : frame.below;
+    if (visible <= 0) return null;
 
+    const height = visible + EDGE_OVERLAP;
     const room = {
         position: "absolute",
         left: frame.left,
-        top: edge === "top" ? 0 : frame.top + frame.size,
+        top: edge === "top" ? 0 : frame.top + frame.size - EDGE_OVERLAP,
         width: frame.size,
         height,
     } as const;
+    // a fraction of the visible room, from the cover out, as one of the room
+    const fromCover = (fraction: number) =>
+        (EDGE_OVERLAP + fraction * visible) / height;
     const step = 1 / EDGE_BLURS.length;
 
     return (
@@ -199,34 +205,13 @@ function EdgeExtension({
                     );
                 }
                 // opaque from `layer` steps out, gone a step nearer the cover
-                const near = (layer - 1) * step;
-                const far = layer * step;
                 return (
                     <Feathered
                         key={layer}
                         style={room}
-                        width={frame.size}
-                        colors={
-                            edge === "top"
-                                ? [
-                                      "#000000",
-                                      "#000000",
-                                      "transparent",
-                                      "transparent",
-                                  ]
-                                : [
-                                      "transparent",
-                                      "transparent",
-                                      "#000000",
-                                      "#000000",
-                                  ]
-                        }
-                        locations={
-                            edge === "top"
-                                ? [0, 1 - far, 1 - near, 1]
-                                : [0, near, far, 1]
-                        }
-                        shifts={jitter}
+                        edge={edge}
+                        near={fromCover((layer - 1) * step)}
+                        far={fromCover(layer * step)}
                     >
                         {stretched}
                     </Feathered>
@@ -239,6 +224,7 @@ function EdgeExtension({
 /**
  * `EDGE_STRIP` of the cover at `edge`, flipped and stretched to fill `height`
  * points past it, so the row that touches the cover is the cover's own.
+ * Offsets are whole pixels so the strip's rows are not resampled across one.
  */
 function StretchedEdge({
     uri,
@@ -253,7 +239,7 @@ function StretchedEdge({
     height: number;
     edge: Edge;
 }) {
-    const strip = size * EDGE_STRIP;
+    const strip = PixelRatio.roundToNearestPixel(size * EDGE_STRIP);
     return (
         <View
             style={{
@@ -273,7 +259,11 @@ function StretchedEdge({
                 style={{
                     position: "absolute",
                     left: 0,
-                    top: edge === "top" ? 0 : strip - size,
+                    top: PixelRatio.roundToNearestPixel(
+                        edge === "top"
+                            ? -EDGE_INSET
+                            : strip - size + EDGE_INSET,
+                    ),
                     width: size,
                     height: size,
                 }}
@@ -283,84 +273,39 @@ function StretchedEdge({
 }
 
 /**
- * `count` offsets within `amount` of zero that drift smoothly from one to the
- * next. Seeded by `seed`, so one cover always gets the same edge.
- */
-function smoothJitter(seed: string, count: number, amount: number) {
-    let hash = 0;
-    for (let index = 0; index < seed.length; index++) {
-        hash = (hash * 31 + seed.charCodeAt(index)) | 0;
-    }
-    const phase = (shift: number) =>
-        (((hash >>> shift) & 0xff) / 0xff) * 2 * Math.PI;
-    const first = phase(0);
-    const second = phase(8);
-    return Array.from({ length: count }, (_, index) => {
-        const x = index / count;
-        // two slow waves, so it reads as uneven rather than as a pattern
-        const wave =
-            0.6 * Math.sin(2 * Math.PI * 1.3 * x + first) +
-            0.4 * Math.sin(2 * Math.PI * 2.9 * x + second);
-        return amount * wave;
-    });
-}
-
-/**
- * `children` under a top to bottom alpha mask of `colors` at `locations`.
- * With `shifts`, the mask is that many columns, each with every inner stop
- * moved down by its shift, so the feather's edge is uneven across the width.
- * The first and last stops stay put. Columns overlap by a point so no seam
- * shows between them.
+ * `children` gone up to `near` and whole from `far`, fading between, both
+ * fractions of the view from the edge that touches the cover.
  */
 function Feathered({
     style,
-    width,
-    colors,
-    locations,
-    shifts = [0],
+    edge,
+    near,
+    far,
     children,
 }: {
     style: ComponentProps<typeof View>["style"];
-    /** The masked view's width, to lay the columns out by. */
-    width: number;
-    colors: [string, string, ...string[]];
-    locations: [number, number, ...number[]];
-    shifts?: readonly number[];
+    edge: Edge;
+    near: number;
+    far: number;
     children: ReactNode;
 }) {
-    const last = locations.length - 1;
-    const columnWidth = width / shifts.length;
     return (
         <MaskedView
             style={style}
             maskElement={
-                <View style={StyleSheet.absoluteFill}>
-                    {shifts.map((shift, column) => (
-                        <LinearGradient
-                            key={column}
-                            style={{
-                                position: "absolute",
-                                top: 0,
-                                bottom: 0,
-                                left: column * columnWidth,
-                                width:
-                                    columnWidth +
-                                    (column < shifts.length - 1 ? 1 : 0),
-                            }}
-                            colors={colors}
-                            locations={
-                                locations.map((location, index) =>
-                                    index === 0 || index === last
-                                        ? location
-                                        : Math.min(
-                                              Math.max(location + shift, 0),
-                                              1,
-                                          ),
-                                ) as [number, number, ...number[]]
-                            }
-                        />
-                    ))}
-                </View>
+                <LinearGradient
+                    style={StyleSheet.absoluteFill}
+                    // the top room touches the cover at its bottom
+                    start={{ x: 0, y: edge === "top" ? 1 : 0 }}
+                    end={{ x: 0, y: edge === "top" ? 0 : 1 }}
+                    colors={[
+                        "transparent",
+                        "transparent",
+                        "#000000",
+                        "#000000",
+                    ]}
+                    locations={[0, near, far, 1]}
+                />
             }
         >
             {children}
