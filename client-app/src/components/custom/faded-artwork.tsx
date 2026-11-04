@@ -8,21 +8,27 @@ import { StyleSheet, View } from "react-native";
 export type CoverFrame = { left: number; top: number; size: number };
 
 /**
- * How the cover blends into the room above it, as fractions of its size. The
- * blurred copy fades in first, then the sharp one over it, so the edge goes
- * color, blur, image. The sharp one also gives way to the blur at the bottom,
- * before the whole box fades out.
+ * The room above the cover is its own top edge, stretched up and flipped so it
+ * meets the cover on the same row: `EDGE_STRIP` of the cover, as a fraction of
+ * its size. Each layer up is blurred more than the one under it, so a column
+ * starts as exactly the color above it on the cover and mixes in more of its
+ * neighbors the higher it goes.
  */
-const BLUR_TOP_FEATHER = 0.06;
-const SHARP_TOP_FEATHER = 0.16;
-const SHARP_BOTTOM_FEATHER = 0.25;
+const EDGE_STRIP = 0.012;
+/** Blur of each stretched layer, bottom up, in points. The first is sharp. */
+const EDGE_BLURS = [0, 4, 10, 20, 36];
 /**
- * The sharp cover's top feather wanders up and down this much across its
- * width, as a fraction of its size, so the blur does not start on one flat
- * line. Drawn as this many columns, each its own gradient.
+ * How far each layer's start wanders up and down across the width, as a
+ * fraction of the room's height, so no blur starts on one flat line. Drawn as
+ * this many columns, each its own gradient.
  */
-const FEATHER_JITTER = 0.03;
-const FEATHER_COLUMNS = 48;
+const EDGE_JITTER = 0.08;
+const EDGE_COLUMNS = 48;
+/**
+ * The sharp cover gives way to a blurred copy over this much of its bottom,
+ * as a fraction of its size, before the whole box fades out.
+ */
+const SHARP_BOTTOM_FEATHER = 0.12;
 /** Points. Run on the small copy, so it is cheap and already soft. */
 const BLUR_RADIUS = 24;
 
@@ -35,16 +41,10 @@ type FadedArtworkProps = {
     fadeStart: number;
     /**
      * Draw the cover whole at this frame, at least as wide as the box, and
-     * fill the room above it from `edgeColors`. Left out, the image is cropped
-     * to cover the box.
+     * fill the room above it from its own top edge. Left out, the image is
+     * cropped to cover the box.
      */
     cover?: CoverFrame;
-    /**
-     * Colors of the cover's top edge, left to right, painted across the room
-     * above `cover` so each part of the edge blends into its own color. Empty
-     * leaves that room clear.
-     */
-    edgeColors?: readonly string[];
     /** Drawn under the same mask when there is no `uri`. */
     fallback?: ReactNode;
 };
@@ -62,7 +62,6 @@ export function FadedArtwork({
     placeholderUri,
     fadeStart,
     cover,
-    edgeColors = [],
     fallback = null,
 }: FadedArtworkProps) {
     return (
@@ -87,7 +86,6 @@ export function FadedArtwork({
                     uri={uri}
                     placeholderUri={placeholderUri}
                     frame={cover}
-                    edgeColors={edgeColors}
                 />
             ) : (
                 <Cover
@@ -101,26 +99,19 @@ export function FadedArtwork({
 }
 
 /**
- * The cover at `frame` in three layers, bottom up: its edge colors across the
- * room above it, a blurred copy, and the sharp cover. Each fades in at the top
- * a little lower than the one under it, so the image dissolves into its own
- * colors instead of stopping on a line.
+ * The cover at `frame` over a blurred copy it fades into at the bottom, with
+ * its top edge stretched up through the room above it (`EdgeExtension`). The
+ * cover itself is never blurred at the top, so all of it shows.
  */
 function BlendedCover({
     uri,
     placeholderUri,
     frame,
-    edgeColors,
 }: {
     uri: string;
     placeholderUri?: string | null;
     frame: CoverFrame;
-    edgeColors: readonly string[];
 }) {
-    const jitter = useMemo(
-        () => smoothJitter(uri, FEATHER_COLUMNS, FEATHER_JITTER),
-        [uri],
-    );
     const square = {
         position: "absolute",
         left: frame.left,
@@ -131,31 +122,21 @@ function BlendedCover({
 
     return (
         <View style={[StyleSheet.absoluteFill, { overflow: "hidden" }]}>
-            <EdgeBand
-                colors={edgeColors}
-                height={frame.top + frame.size * SHARP_TOP_FEATHER}
+            <EdgeExtension
+                uri={uri}
+                placeholderUri={placeholderUri}
+                frame={frame}
+            />
+            <Cover
+                uri={placeholderUri ?? uri}
+                blurRadius={BLUR_RADIUS}
+                style={square}
             />
             <Feathered
                 style={square}
-                colors={["transparent", "#000000"]}
-                locations={[0, BLUR_TOP_FEATHER]}
-            >
-                <Cover
-                    uri={placeholderUri ?? uri}
-                    blurRadius={BLUR_RADIUS}
-                    style={StyleSheet.absoluteFill}
-                />
-            </Feathered>
-            <Feathered
-                style={square}
-                colors={["transparent", "#000000", "#000000", "transparent"]}
-                locations={[
-                    BLUR_TOP_FEATHER,
-                    SHARP_TOP_FEATHER,
-                    1 - SHARP_BOTTOM_FEATHER,
-                    1,
-                ]}
-                shifts={jitter}
+                width={frame.size}
+                colors={["#000000", "#000000", "transparent"]}
+                locations={[0, 1 - SHARP_BOTTOM_FEATHER, 1]}
             >
                 <Cover
                     uri={uri}
@@ -168,36 +149,116 @@ function BlendedCover({
 }
 
 /**
- * `colors` side by side across the top `height` of the box, each centered on
- * its own strip and blended into its neighbors.
+ * The room above the cover, filled from the cover's top edge: one stretched
+ * layer per `EDGE_BLURS` entry, each blurrier one fading in higher up. Nothing
+ * when the cover starts at the top.
  */
-function EdgeBand({
-    colors,
-    height,
+function EdgeExtension({
+    uri,
+    placeholderUri,
+    frame,
 }: {
-    colors: readonly string[];
-    height: number;
+    uri: string;
+    placeholderUri?: string | null;
+    frame: CoverFrame;
 }) {
-    if (colors.length === 0) return null;
-    // a gradient needs two stops, so one color runs flat
-    const stops = (colors.length === 1 ? [colors[0], colors[0]] : colors) as [
-        string,
-        string,
-        ...string[],
-    ];
-    const locations = stops.map((_, index) => (index + 0.5) / stops.length) as [
-        number,
-        number,
-        ...number[],
-    ];
+    const jitter = useMemo(
+        () => smoothJitter(uri, EDGE_COLUMNS, EDGE_JITTER),
+        [uri],
+    );
+    if (frame.top <= 0) return null;
+
+    const room = {
+        position: "absolute",
+        left: frame.left,
+        top: 0,
+        width: frame.size,
+        height: frame.top,
+    } as const;
+    const step = 1 / EDGE_BLURS.length;
+
     return (
-        <LinearGradient
-            style={{ position: "absolute", left: 0, right: 0, top: 0, height }}
-            colors={stops}
-            locations={locations}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-        />
+        <>
+            {EDGE_BLURS.map((blurRadius, layer) => {
+                const edge = (
+                    <StretchedEdge
+                        // the sharp layer is the exact edge, the blurred ones
+                        // are cheaper and no worse from the small copy
+                        uri={layer === 0 ? uri : (placeholderUri ?? uri)}
+                        blurRadius={blurRadius}
+                        frame={frame}
+                    />
+                );
+                if (layer === 0) {
+                    return (
+                        <View key={layer} style={room}>
+                            {edge}
+                        </View>
+                    );
+                }
+                // opaque above its start, gone a step below it
+                const start = 1 - layer * step;
+                return (
+                    <Feathered
+                        key={layer}
+                        style={room}
+                        width={frame.size}
+                        colors={[
+                            "#000000",
+                            "#000000",
+                            "transparent",
+                            "transparent",
+                        ]}
+                        locations={[0, start, start + step, 1]}
+                        shifts={jitter}
+                    >
+                        {edge}
+                    </Feathered>
+                );
+            })}
+        </>
+    );
+}
+
+/**
+ * The top `EDGE_STRIP` of the cover, flipped and stretched to fill the
+ * `frame.top` points above it, so its bottom row is the cover's top row.
+ */
+function StretchedEdge({
+    uri,
+    blurRadius,
+    frame,
+}: {
+    uri: string;
+    blurRadius: number;
+    frame: CoverFrame;
+}) {
+    const strip = frame.size * EDGE_STRIP;
+    return (
+        <View
+            style={{
+                position: "absolute",
+                left: 0,
+                // centered, since the scale is about the view's center
+                top: (frame.top - strip) / 2,
+                width: frame.size,
+                height: strip,
+                overflow: "hidden",
+                transform: [{ scaleY: -frame.top / strip }],
+            }}
+        >
+            <Cover
+                uri={uri}
+                blurRadius={blurRadius}
+                style={{
+                    position: "absolute",
+                    left: 0,
+                    top: 0,
+                    width: frame.size,
+                    height: frame.size,
+                }}
+            />
+        </View>
     );
 }
 
@@ -228,33 +289,44 @@ function smoothJitter(seed: string, count: number, amount: number) {
  * `children` under a top to bottom alpha mask of `colors` at `locations`.
  * With `shifts`, the mask is that many columns, each with every inner stop
  * moved down by its shift, so the feather's edge is uneven across the width.
- * The first and last stops stay put.
+ * The first and last stops stay put. Columns overlap by a point so no seam
+ * shows between them.
  */
 function Feathered({
     style,
+    width,
     colors,
     locations,
     shifts = [0],
     children,
 }: {
     style: ComponentProps<typeof View>["style"];
+    /** The masked view's width, to lay the columns out by. */
+    width: number;
     colors: [string, string, ...string[]];
     locations: [number, number, ...number[]];
     shifts?: readonly number[];
     children: ReactNode;
 }) {
     const last = locations.length - 1;
+    const columnWidth = width / shifts.length;
     return (
         <MaskedView
             style={style}
             maskElement={
-                <View
-                    style={[StyleSheet.absoluteFill, { flexDirection: "row" }]}
-                >
+                <View style={StyleSheet.absoluteFill}>
                     {shifts.map((shift, column) => (
                         <LinearGradient
                             key={column}
-                            style={{ flex: 1 }}
+                            style={{
+                                position: "absolute",
+                                top: 0,
+                                bottom: 0,
+                                left: column * columnWidth,
+                                width:
+                                    columnWidth +
+                                    (column < shifts.length - 1 ? 1 : 0),
+                            }}
                             colors={colors}
                             locations={
                                 locations.map((location, index) =>

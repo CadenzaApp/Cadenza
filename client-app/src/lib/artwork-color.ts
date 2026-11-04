@@ -98,57 +98,20 @@ export function useArtworkTint(source?: ArtworkSource | null): ArtworkTint {
 export const BOTTOM_HALF: ImageRegion = { x: 0, y: 0.5, width: 1, height: 0.5 };
 
 /**
- * The top edge of an image cut into `count` side by side strips, left to
- * right, each `depth` of the image tall. What a full-bleed cover's room above
- * it is colored from, a strip at a time.
+ * Average color of one region of the image at `url`, null until it lands or
+ * when there is none. Always the averaged pixels, never Apple's color, since
+ * Apple's describes the whole image.
  */
-export function topEdgeSections(count: number, depth: number): ImageRegion[] {
-    return Array.from({ length: count }, (_, index) => ({
-        x: index / count,
-        y: 0,
-        width: 1 / count,
-        height: depth,
-    }));
-}
-
-/**
- * Average color of each region of the image at `url`, in order, null for one
- * with none. Null as a whole until they land. Always the averaged pixels,
- * never Apple's color, since Apple's describes the whole image.
- */
-export function useArtworkRegionColors(
-    url: string | null | undefined,
-    regions: readonly ImageRegion[],
-): (string | null)[] | null {
-    const { data } = useSWRImmutable<(string | null)[]>(
-        url
-            ? [
-                  "ImageColor.getAverageColors",
-                  url,
-                  ...regions.flatMap(({ x, y, width, height }) => [
-                      x,
-                      y,
-                      width,
-                      height,
-                  ]),
-              ]
-            : null,
-        () =>
-            Promise.all(
-                regions.map((region) =>
-                    ImageColor.getAverageColor(url, region),
-                ),
-            ),
-    );
-    return data ?? null;
-}
-
-/** `useArtworkRegionColors` for one region. */
 export function useArtworkRegionColor(
     url: string | null | undefined,
     region: ImageRegion,
 ): string | null {
-    return useArtworkRegionColors(url, [region])?.[0] ?? null;
+    const { x, y, width, height } = region;
+    const { data } = useSWRImmutable<string | null>(
+        url ? ["ImageColor.getAverageColor", url, x, y, width, height] : null,
+        () => ImageColor.getAverageColor(url, { x, y, width, height }),
+    );
+    return data ?? null;
 }
 
 /**
