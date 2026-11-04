@@ -11,20 +11,27 @@ import {
 /**
  * Apple's album page, measured on a 393pt phone: the cover is 1.05 screen
  * widths and centered, so a few points crop off each side. Its top sits 32pt
- * under the status bar, its top edge stretched up to fill the room, and it
- * fades out over the bottom 18% of the artwork, with the title dropped 40pt
- * below it.
+ * under the status bar, its top edge stretched up to fill the room, and its
+ * bottom edge stretched down past it, fading out from the cover's bottom into
+ * the page. The title ends 40pt below the cover.
  */
 const COVER_SCALE = 1.05;
 const COVER_TOP_GAP = 32;
-const COVER_FADE_START = 0.82;
 /** How far below the cover's bottom the title block ends. */
 const TITLE_DROP = 40;
+/**
+ * How far the cover's bottom edge runs past it before it is gone, about where
+ * the actions row under the title ends.
+ */
+const COVER_BOTTOM_ROOM = 110;
 
 export type CoverHeroLayout = {
     /** Where the cover itself sits inside the hero. */
     cover: CoverFrame;
-    /** The artwork's height: the room above the cover plus the cover. */
+    /**
+     * The artwork's height: the room above the cover, the cover, and the room
+     * below it. Taller than `height`, so it runs on under what follows.
+     */
     artworkHeight: number;
     /** Fraction of `artworkHeight` where the fade starts. */
     fadeStart: number;
@@ -40,9 +47,15 @@ export function coverHeroLayout(
     const size = width * COVER_SCALE;
     const top = safeTop + COVER_TOP_GAP;
     return {
-        cover: { left: (width - size) / 2, top, size },
-        artworkHeight: top + size,
-        fadeStart: COVER_FADE_START,
+        cover: {
+            left: (width - size) / 2,
+            top,
+            size,
+            below: COVER_BOTTOM_ROOM,
+        },
+        artworkHeight: top + size + COVER_BOTTOM_ROOM,
+        // all of the cover shows; only what is stretched past it fades
+        fadeStart: (top + size) / (top + size + COVER_BOTTOM_ROOM),
         height: top + size + TITLE_DROP,
     };
 }

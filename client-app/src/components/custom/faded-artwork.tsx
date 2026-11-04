@@ -4,33 +4,38 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useMemo, type ComponentProps, type ReactNode } from "react";
 import { StyleSheet, View } from "react-native";
 
-/** Where a square cover sits in its box, in points. */
-export type CoverFrame = { left: number; top: number; size: number };
+/**
+ * Where a square cover sits in its box, in points, and how much room its box
+ * leaves below it.
+ */
+export type CoverFrame = {
+    left: number;
+    top: number;
+    size: number;
+    /** Points below the cover, filled from its bottom edge. */
+    below: number;
+};
+
+/** Which edge of the cover an `EdgeExtension` stretches, and so where. */
+type Edge = "top" | "bottom";
 
 /**
- * The room above the cover is its own top edge, stretched up and flipped so it
- * meets the cover on the same row: `EDGE_STRIP` of the cover, as a fraction of
- * its size. Each layer up is blurred more than the one under it, so a column
- * starts as exactly the color above it on the cover and mixes in more of its
- * neighbors the higher it goes.
+ * The room above and below the cover is its own edge, stretched out and
+ * flipped so it meets the cover on the same row: `EDGE_STRIP` of the cover, as
+ * a fraction of its size. Each layer out is blurred more than the one before
+ * it, so a column starts as exactly the color beside it on the cover and mixes
+ * in more of its neighbors the farther it goes.
  */
 const EDGE_STRIP = 0.012;
-/** Blur of each stretched layer, bottom up, in points. The first is sharp. */
+/** Blur of each stretched layer, from the cover out, in points. The first is sharp. */
 const EDGE_BLURS = [0, 4, 10, 20, 36];
 /**
- * How far each layer's start wanders up and down across the width, as a
- * fraction of the room's height, so no blur starts on one flat line. Drawn as
- * this many columns, each its own gradient.
+ * How far each layer's start wanders across the width, as a fraction of the
+ * room's height, so no blur starts on one flat line. Drawn as this many
+ * columns, each its own gradient.
  */
 const EDGE_JITTER = 0.08;
 const EDGE_COLUMNS = 48;
-/**
- * The sharp cover gives way to a blurred copy over this much of its bottom,
- * as a fraction of its size, before the whole box fades out.
- */
-const SHARP_BOTTOM_FEATHER = 0.12;
-/** Points. Run on the small copy, so it is cheap and already soft. */
-const BLUR_RADIUS = 24;
 
 type FadedArtworkProps = {
     /** Null shows `fallback` instead. */
@@ -41,7 +46,7 @@ type FadedArtworkProps = {
     fadeStart: number;
     /**
      * Draw the cover whole at this frame, at least as wide as the box, and
-     * fill the room above it from its own top edge. Left out, the image is
+     * fill the room above and below it from its own edges. Left out, the image is
      * cropped to cover the box.
      */
     cover?: CoverFrame;
@@ -99,9 +104,8 @@ export function FadedArtwork({
 }
 
 /**
- * The cover at `frame` over a blurred copy it fades into at the bottom, with
- * its top edge stretched up through the room above it (`EdgeExtension`). The
- * cover itself is never blurred at the top, so all of it shows.
+ * The cover at `frame`, sharp edge to edge, with its top and bottom edges
+ * stretched out through the room on each side (`EdgeExtension`).
  */
 function BlendedCover({
     uri,
@@ -112,107 +116,119 @@ function BlendedCover({
     placeholderUri?: string | null;
     frame: CoverFrame;
 }) {
-    const square = {
-        position: "absolute",
-        left: frame.left,
-        top: frame.top,
-        width: frame.size,
-        height: frame.size,
-    } as const;
-
     return (
         <View style={[StyleSheet.absoluteFill, { overflow: "hidden" }]}>
             <EdgeExtension
                 uri={uri}
                 placeholderUri={placeholderUri}
                 frame={frame}
+                edge="top"
+            />
+            <EdgeExtension
+                uri={uri}
+                placeholderUri={placeholderUri}
+                frame={frame}
+                edge="bottom"
             />
             <Cover
-                uri={placeholderUri ?? uri}
-                blurRadius={BLUR_RADIUS}
-                style={square}
+                uri={uri}
+                placeholderUri={placeholderUri}
+                style={{
+                    position: "absolute",
+                    left: frame.left,
+                    top: frame.top,
+                    width: frame.size,
+                    height: frame.size,
+                }}
             />
-            <Feathered
-                style={square}
-                width={frame.size}
-                colors={["#000000", "#000000", "transparent"]}
-                locations={[0, 1 - SHARP_BOTTOM_FEATHER, 1]}
-            >
-                <Cover
-                    uri={uri}
-                    placeholderUri={placeholderUri}
-                    style={StyleSheet.absoluteFill}
-                />
-            </Feathered>
         </View>
     );
 }
 
 /**
- * The room above the cover, filled from the cover's top edge: one stretched
- * layer per `EDGE_BLURS` entry, each blurrier one fading in higher up. Nothing
- * when the cover starts at the top.
+ * The room past one `edge` of the cover, filled from that edge: one stretched
+ * layer per `EDGE_BLURS` entry, each blurrier one fading in farther out.
+ * Nothing when there is no room on that side.
  */
 function EdgeExtension({
     uri,
     placeholderUri,
     frame,
+    edge,
 }: {
     uri: string;
     placeholderUri?: string | null;
     frame: CoverFrame;
+    edge: Edge;
 }) {
     const jitter = useMemo(
-        () => smoothJitter(uri, EDGE_COLUMNS, EDGE_JITTER),
-        [uri],
+        () => smoothJitter(`${edge}:${uri}`, EDGE_COLUMNS, EDGE_JITTER),
+        [edge, uri],
     );
-    if (frame.top <= 0) return null;
+    const height = edge === "top" ? frame.top : frame.below;
+    if (height <= 0) return null;
 
     const room = {
         position: "absolute",
         left: frame.left,
-        top: 0,
+        top: edge === "top" ? 0 : frame.top + frame.size,
         width: frame.size,
-        height: frame.top,
+        height,
     } as const;
     const step = 1 / EDGE_BLURS.length;
 
     return (
         <>
             {EDGE_BLURS.map((blurRadius, layer) => {
-                const edge = (
+                const stretched = (
                     <StretchedEdge
                         // the sharp layer is the exact edge, the blurred ones
                         // are cheaper and no worse from the small copy
                         uri={layer === 0 ? uri : (placeholderUri ?? uri)}
                         blurRadius={blurRadius}
-                        frame={frame}
+                        size={frame.size}
+                        height={height}
+                        edge={edge}
                     />
                 );
                 if (layer === 0) {
                     return (
                         <View key={layer} style={room}>
-                            {edge}
+                            {stretched}
                         </View>
                     );
                 }
-                // opaque above its start, gone a step below it
-                const start = 1 - layer * step;
+                // opaque from `layer` steps out, gone a step nearer the cover
+                const near = (layer - 1) * step;
+                const far = layer * step;
                 return (
                     <Feathered
                         key={layer}
                         style={room}
                         width={frame.size}
-                        colors={[
-                            "#000000",
-                            "#000000",
-                            "transparent",
-                            "transparent",
-                        ]}
-                        locations={[0, start, start + step, 1]}
+                        colors={
+                            edge === "top"
+                                ? [
+                                      "#000000",
+                                      "#000000",
+                                      "transparent",
+                                      "transparent",
+                                  ]
+                                : [
+                                      "transparent",
+                                      "transparent",
+                                      "#000000",
+                                      "#000000",
+                                  ]
+                        }
+                        locations={
+                            edge === "top"
+                                ? [0, 1 - far, 1 - near, 1]
+                                : [0, near, far, 1]
+                        }
                         shifts={jitter}
                     >
-                        {edge}
+                        {stretched}
                     </Feathered>
                 );
             })}
@@ -221,30 +237,34 @@ function EdgeExtension({
 }
 
 /**
- * The top `EDGE_STRIP` of the cover, flipped and stretched to fill the
- * `frame.top` points above it, so its bottom row is the cover's top row.
+ * `EDGE_STRIP` of the cover at `edge`, flipped and stretched to fill `height`
+ * points past it, so the row that touches the cover is the cover's own.
  */
 function StretchedEdge({
     uri,
     blurRadius,
-    frame,
+    size,
+    height,
+    edge,
 }: {
     uri: string;
     blurRadius: number;
-    frame: CoverFrame;
+    size: number;
+    height: number;
+    edge: Edge;
 }) {
-    const strip = frame.size * EDGE_STRIP;
+    const strip = size * EDGE_STRIP;
     return (
         <View
             style={{
                 position: "absolute",
                 left: 0,
                 // centered, since the scale is about the view's center
-                top: (frame.top - strip) / 2,
-                width: frame.size,
+                top: (height - strip) / 2,
+                width: size,
                 height: strip,
                 overflow: "hidden",
-                transform: [{ scaleY: -frame.top / strip }],
+                transform: [{ scaleY: -height / strip }],
             }}
         >
             <Cover
@@ -253,9 +273,9 @@ function StretchedEdge({
                 style={{
                     position: "absolute",
                     left: 0,
-                    top: 0,
-                    width: frame.size,
-                    height: frame.size,
+                    top: edge === "top" ? 0 : strip - size,
+                    width: size,
+                    height: size,
                 }}
             />
         </View>

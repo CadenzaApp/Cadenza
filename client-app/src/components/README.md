@@ -284,11 +284,12 @@ device's top safe area. One cover gets a `CoverHero` with the title over its bot
 below it. Several covers or none stay a centered mosaic tile.
 
 `CoverHero` is Apple's album hero: the cover at 1.05 screen widths, centered, its top 32pt under the
-status bar, fading out over the bottom 18%, with the title 40pt below the cover. Apple fills the room
-above with a tall asset labels deliver, which the public API does not return, so ours stretches the
-cover's top edge up into it, flipped so it meets the cover on the same row. That is several layers,
-each blurrier one fading in higher, so a column starts as the exact color above it and mixes in its
-neighbors as it rises. Where each layer starts wanders up and down across the width, seeded by the
+status bar, with the title 40pt below the cover. Apple fills the room above with a tall asset labels deliver,
+which the public API does not return, so ours stretches the cover's top edge up into it and its
+bottom edge 110pt down past it, each flipped so it meets the cover on the same row. Only the bottom
+stretch fades into the page. That is several layers,
+each blurrier one fading in higher, so a column starts as the exact color beside it and mixes in its
+neighbors as it goes out. Where each layer starts wanders up and down across the width, seeded by the
 URL, so no blur starts on a flat line. The page under it
 is one flat color, `useCoverPageColor`: the cover's bottom-half average at a fixed Oklch lightness
 per mode (0.23 dark, Apple's, 0.93 light), so the fade lands on the page. The artist page uses the
