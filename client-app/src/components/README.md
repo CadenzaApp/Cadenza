@@ -25,7 +25,7 @@ and a backend rejection is a bare `{ error_type }`. The cause still reaches the 
 `badge`, `button`, `card`, `dialog`, `glass-surface`, `glass-button`, `glass-confirm-dialog`,
 `glass-icon-button`, `glass-panel`, `glass-pill`, `glass-toggle`, `segmented-control`, `input`,
 `label`, `separator`, `skeleton`, `tabs`, `text`, `native-only-animated-view`, `detail-screen`,
-`tint-backdrop`, `nebula-backdrop`, `crossfade`, `floating-back-button`, `dialog-close-button`,
+`nebula-backdrop`, `crossfade`, `floating-back-button`, `dialog-close-button`,
 `pressed-fill`, plus `sign-in-form` and `sign-up-form`.
 
 `floating-back-button.tsx` exports `FloatingBackButton`, the back button a pushed screen that
@@ -68,29 +68,15 @@ itself while pressed; the popups built on `ModalPopup` use it.
 `glass-toggle.tsx` exports `GlassToggle`, the on/off switch. The track is glass and tints with the
 nav theme's notification color while on. Account settings and the query builder both use it.
 
-`tint-backdrop.tsx` exports `TintBackdrop`, the colored wash behind a page. It requires the single
-gradient object, normally returned by `useTintGradient`, which reduces the source chroma and interpolates the
-light/dark-mode endpoints in Oklch before the native RGB renderer sees them. Dropped into a
-scroller's content it fills and scrolls with it, and every page runs it the full length. The color
-at a point depends on how far down the page it is: the top color keeps a 1/x share with x going 1
-to 2 down the page (`tintFadeAt`), so a long page never bottoms out in the end color. It renders
-nothing for a null gradient, so callers mount it unconditionally. On iOS expo-linear-gradient redraws a
-bitmap the size of the view on every resize, so the gradient is drawn at a fixed 256pt and scaled
-to the page. Do not swap in a page-tall `LinearGradient`: the redraw stalls the tab bar's glass.
-New colors apply immediately, with black/white collection loading backgrounds per mode.
-`TintOverscrollBackdrop` paints one continuous gradient outside the list, clamped through rubber
-banding. Its sizing depends on layout; scrolling only moves a transform. Do not split it into
-endpoint fills: their boundary becomes visible during dismissal.
-
-`SurfaceContrastProvider` owns the tinted container and shares its measured viewport with the
-backdrop and Oklab contrast sampling. Text regions sample their content position; close icons
-and glass update only when contrast polarity changes. Solid buttons retain their theme colors.
-The artist portrait uses a raster-cached alpha mask; its album rail virtualizes cached covers.
+Text and glass use the theme's colors everywhere. Nothing samples the background to pick black or
+white ink, so a page behind them has to stay readable in both modes, which the nebula does.
 Heavy rows and auto-pagination wait until the push transition settles; pagination also requires
 focus.
 
-`nebula-backdrop.tsx` exports `NebulaBackdrop`, soft SVG blobs of up to five colors glowing up
-from the bottom, used only by the Analytics overview. Unlike `TintBackdrop` it is fixed to the
+`nebula-backdrop.tsx` exports `NebulaBackdrop`, soft SVG blobs of up to five colors behind a page.
+`layout="bottom"` (the default) glows up from the lower half, for Analytics and Cadenza.
+`layout="full"` spreads the blobs over the whole screen, for `TrackCollectionView` and
+`DetailScreen`, which color it from their artwork (`useArtworkNebulaColors`). It is fixed to the
 screen: mount it behind the scroller. Each blob slowly changes size, brightness and position on the
 UI thread. Every so often a blob fades out, hands its color to the back of a shared queue
 (`src/lib/color-queue.ts`) and fades back in with the one at the front, so colors move around.
@@ -119,8 +105,9 @@ height (`flex-1` on the scrolling child), because a content-sized list in a shee
 its box while the sheet animates. The header paints and hit-tests above the body, so a body
 that gets this wrong can no longer cover the close button. It also wraps the body in `InsideSheetContext`, so
 overlay insets inside it stop counting the tab bar and the compact player. Every sheet route
-uses it, which is what keeps them identical. An optional `tint` washes the whole sheet in an
-artwork color through the shared mode-aware Oklch `TintBackdrop`; the now-playing sheet passes one.
+uses it, which is what keeps them identical. An optional `artworkUrl` (and `tint` as its fallback)
+puts a full nebula behind the whole screen, colored from random spots on the artwork; the
+now-playing sheet and Discuss pass one.
 
 There is no `icon` primitive. Icons come straight from `@expo/vector-icons/Ionicons`.
 
@@ -278,33 +265,24 @@ the rows whose tags changed, not the list. The selection toolbar renders inside 
 since it needs the same reads.
 
 `TrackCollectionView` owns the standard header, play/shuffle row,
-caller-supplied simple glass options, and the `MusicList`. Routes can supply pagination, playback
-overrides, one background source color, close controls, and opt the standard header into the
-device's top safe area. One cover gets a `CoverHero` with the title over its bottom and the actions
-below it. Several covers or none stay a centered mosaic tile.
+caller-supplied simple glass options, and the `MusicList`, over a full `NebulaBackdrop`. Routes can
+supply pagination, playback overrides, one fallback color for the nebula (or its colors outright),
+close controls, and opt the standard header into the device's top safe area. One cover gets a
+`BlendedCover`; several covers or none stay a centered mosaic tile. The nebula is colored from
+random spots on the cover, or on the mosaic's covers. `useCollectionArtworkTint` selects one
+representative four-cell sample for the mosaic and its Oklab-averaged fallback color. Routes can also
+append actions to each track's shared options menu; the tag detail uses that to preserve Remove this
+tag. A caller can replace the standard title row, which the tag detail does with `TagPill` and its
+song count.
 
-`CoverHero` is Apple's album hero: the cover at 1.05 screen widths, centered, its top 32pt under the
-status bar, with the title 40pt below the cover. Apple fills the room above with a tall asset labels deliver,
-which the public API does not return, so ours stretches the cover's top edge up into it and its
-bottom edge 110pt down past it, each flipped so it meets the cover on the same row. Only the bottom
-stretch fades into the page. That is several layers, each blurrier one fading in farther out, so a
-column starts as the exact color beside it and mixes in its neighbors as it goes out. Each room runs
-12pt under the cover, which is drawn on top, so the strip's soft last row never shows as a dark seam.
-The artwork is memoized and rasterized on iOS: keep its props stable, since any update under the
-mask throws the cached bitmap away and the page re-renders while it scrolls. The page under it
-is one flat color, `useCoverPageColor`: the cover's bottom-half average at a fixed Oklch lightness
-per mode (0.23 dark, Apple's, 0.93 light), so the fade lands on the page. The artist page uses the
-same hero. Without one, the view turns its color into the shared Oklch gradient for the active
-color mode, including matching fixed overscroll endpoints. The gradient is
-`MusicList`'s `contentBackground`: drawn inside the scroll content behind the rows, filling it, so
-it spans the real content height with nothing measured, and is not a virtualized cell an offscreen
-header could take with it. Sized from a measured content height it ended early whenever the list's
-estimate of unmeasured rows came in short, leaving a hard edge over the fixed end color. `useCollectionArtworkTint` selects one representative four-cell sample
-for both the mosaic and its Oklab-averaged source color. Routes can also append actions to each track's
-shared options menu; the tag detail uses that to preserve Remove this tag. A caller can replace
-the standard title row, which the tag detail does with `TagPill` and its song count. Gradient-backed routes pair scrolling content
-with the fixed endpoint underlay, so elastic scrolling reveals the exact top or bottom color
-without placing a second gradient seam at the bounce boundary. Artist uses its custom hero and albums
+`BlendedCover` is a centered square cover that bleeds 56pt out past every edge into whatever is
+behind it. Each edge's last rows are flipped and stretched out across that room, in several layers,
+each blurrier one fading in farther out, so a column starts as the exact color beside it and mixes
+in its neighbors as it goes out; the room then fades to nothing. A hard-blurred copy behind the
+rooms, faded out radially, fills the corners between them. Each room runs 12pt under the cover,
+which is drawn on top, so the strip's soft last row never shows as a dark seam. It takes only the
+cover's square in layout. It is memoized and rasterized on iOS: keep its props stable, since any
+update under the masks throws the cached bitmap away. Artist uses its custom hero and albums
 rail through the header/footer inputs, while album and playlist details use the standard layout
 and open `CollectionOptionsMenu` from a supplied option.
 
