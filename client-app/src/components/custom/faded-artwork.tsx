@@ -1,7 +1,7 @@
 import MaskedView from "@react-native-masked-view/masked-view";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
-import type { ComponentProps, ReactNode } from "react";
+import { useMemo, type ComponentProps, type ReactNode } from "react";
 import { StyleSheet, View } from "react-native";
 
 /** Where a square cover sits in its box, in points. */
@@ -13,9 +13,16 @@ export type CoverFrame = { left: number; top: number; size: number };
  * color, blur, image. The sharp one also gives way to the blur at the bottom,
  * before the whole box fades out.
  */
-const BLUR_TOP_FEATHER = 0.12;
-const SHARP_TOP_FEATHER = 0.3;
+const BLUR_TOP_FEATHER = 0.06;
+const SHARP_TOP_FEATHER = 0.16;
 const SHARP_BOTTOM_FEATHER = 0.25;
+/**
+ * The sharp cover's top feather wanders up and down this much across its
+ * width, as a fraction of its size, so the blur does not start on one flat
+ * line. Drawn as this many columns, each its own gradient.
+ */
+const FEATHER_JITTER = 0.03;
+const FEATHER_COLUMNS = 48;
 /** Points. Run on the small copy, so it is cheap and already soft. */
 const BLUR_RADIUS = 24;
 
@@ -110,6 +117,10 @@ function BlendedCover({
     frame: CoverFrame;
     edgeColors: readonly string[];
 }) {
+    const jitter = useMemo(
+        () => smoothJitter(uri, FEATHER_COLUMNS, FEATHER_JITTER),
+        [uri],
+    );
     const square = {
         position: "absolute",
         left: frame.left,
@@ -144,6 +155,7 @@ function BlendedCover({
                     1 - SHARP_BOTTOM_FEATHER,
                     1,
                 ]}
+                shifts={jitter}
             >
                 <Cover
                     uri={uri}
@@ -189,27 +201,74 @@ function EdgeBand({
     );
 }
 
-/** `children` under a top to bottom alpha mask of `colors` at `locations`. */
+/**
+ * `count` offsets within `amount` of zero that drift smoothly from one to the
+ * next. Seeded by `seed`, so one cover always gets the same edge.
+ */
+function smoothJitter(seed: string, count: number, amount: number) {
+    let hash = 0;
+    for (let index = 0; index < seed.length; index++) {
+        hash = (hash * 31 + seed.charCodeAt(index)) | 0;
+    }
+    const phase = (shift: number) =>
+        (((hash >>> shift) & 0xff) / 0xff) * 2 * Math.PI;
+    const first = phase(0);
+    const second = phase(8);
+    return Array.from({ length: count }, (_, index) => {
+        const x = index / count;
+        // two slow waves, so it reads as uneven rather than as a pattern
+        const wave =
+            0.6 * Math.sin(2 * Math.PI * 1.3 * x + first) +
+            0.4 * Math.sin(2 * Math.PI * 2.9 * x + second);
+        return amount * wave;
+    });
+}
+
+/**
+ * `children` under a top to bottom alpha mask of `colors` at `locations`.
+ * With `shifts`, the mask is that many columns, each with every inner stop
+ * moved down by its shift, so the feather's edge is uneven across the width.
+ * The first and last stops stay put.
+ */
 function Feathered({
     style,
     colors,
     locations,
+    shifts = [0],
     children,
 }: {
     style: ComponentProps<typeof View>["style"];
     colors: [string, string, ...string[]];
     locations: [number, number, ...number[]];
+    shifts?: readonly number[];
     children: ReactNode;
 }) {
+    const last = locations.length - 1;
     return (
         <MaskedView
             style={style}
             maskElement={
-                <LinearGradient
-                    style={StyleSheet.absoluteFill}
-                    colors={colors}
-                    locations={locations}
-                />
+                <View
+                    style={[StyleSheet.absoluteFill, { flexDirection: "row" }]}
+                >
+                    {shifts.map((shift, column) => (
+                        <LinearGradient
+                            key={column}
+                            style={{ flex: 1 }}
+                            colors={colors}
+                            locations={
+                                locations.map((location, index) =>
+                                    index === 0 || index === last
+                                        ? location
+                                        : Math.min(
+                                              Math.max(location + shift, 0),
+                                              1,
+                                          ),
+                                ) as [number, number, ...number[]]
+                            }
+                        />
+                    ))}
+                </View>
             }
         >
             {children}

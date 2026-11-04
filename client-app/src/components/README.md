@@ -287,7 +287,8 @@ below it. Several covers or none stay a centered mosaic tile.
 under the status bar, fading out over the bottom 28%. Apple fills the room above with a tall asset
 labels deliver, which the public API does not return, so ours blends up instead: the cover's top
 edge averaged in three strips paints that room left to right, then a blurred copy, then the sharp
-cover, each fading in a little lower than the last. The page under it
+cover, each fading in a little lower than the last. The sharp cover's feather wanders a few points
+up and down across the width, seeded by the URL, so the blur never starts on a flat line. The page under it
 is one flat color, `useCoverPageColor`: the cover's bottom-half average at a fixed Oklch lightness
 per mode (0.23 dark, Apple's, 0.93 light), so the fade lands on the page. The artist page uses the
 same hero. Without one, the view turns its color into the shared Oklch gradient for the active
