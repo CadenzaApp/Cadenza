@@ -26,24 +26,43 @@ import { CROSSFADE_MS, Crossfade } from "@/components/ui/crossfade";
 import { nebulaColor } from "@/lib/artwork-color-utils";
 import { tradeColor, type ColorQueue } from "@/lib/color-queue";
 
+/**
+ * Where the blobs gather. `bottom` glows up from the lower half, under a page
+ * whose top is its own content. `full` spreads them over the whole screen, so
+ * no band of it is left without color.
+ */
+export type NebulaLayout = "bottom" | "full";
+
 type NebulaBackdropProps = {
     /** Up to five colors, the most important first. None fades it out. */
     colors: readonly string[];
+    /** Defaults to `bottom`. */
+    layout?: NebulaLayout;
 };
 
 /**
  * Where each blob sits and how big it is, as fractions of the screen. Fixed,
  * whatever the colors, so a new set recolors the blobs in place. Ellipses run
- * wider than the screen so no edge shows.
+ * wider than the screen so no edge shows. Five per layout, one per period.
  */
 type Slot = { x: number; y: number; w: number; h: number };
-const SLOTS: readonly Slot[] = [
-    { x: 0.15, y: 0.72, w: 1.3, h: 0.5 },
-    { x: 0.85, y: 0.6, w: 1.2, h: 0.45 },
-    { x: 0.3, y: 0.97, w: 1.4, h: 0.5 },
-    { x: 0.8, y: 0.9, w: 1.3, h: 0.5 },
-    { x: 0.45, y: 0.5, w: 1.1, h: 0.4 },
-];
+const SLOTS: Record<NebulaLayout, readonly Slot[]> = {
+    bottom: [
+        { x: 0.15, y: 0.72, w: 1.3, h: 0.5 },
+        { x: 0.85, y: 0.6, w: 1.2, h: 0.45 },
+        { x: 0.3, y: 0.97, w: 1.4, h: 0.5 },
+        { x: 0.8, y: 0.9, w: 1.3, h: 0.5 },
+        { x: 0.45, y: 0.5, w: 1.1, h: 0.4 },
+    ],
+    full: [
+        { x: 0.2, y: 0.1, w: 1.3, h: 0.4 },
+        { x: 0.85, y: 0.32, w: 1.2, h: 0.4 },
+        { x: 0.15, y: 0.55, w: 1.3, h: 0.42 },
+        { x: 0.8, y: 0.77, w: 1.3, h: 0.42 },
+        { x: 0.35, y: 0.98, w: 1.4, h: 0.45 },
+    ],
+};
+const BLOB_COUNT = 5;
 
 /**
  * Seconds per half cycle of each blob's size, brightness and drift. Different
@@ -71,8 +90,8 @@ const FIRST_HOLD_MS = [2_000, 14_000] as const;
 type Palette = { key: string; colors: readonly string[]; byBlob: string[] };
 
 /**
- * Soft blobs of color glowing up from the bottom of a page, in the style of
- * Apple Music's playlist backdrop. Fixed to the screen: mount it behind the
+ * Soft blobs of color glowing behind a page, from its bottom or over all of it
+ * (`layout`), in the style of Apple Music's playlist backdrop. Fixed to the screen: mount it behind the
  * scroller, and the page slides over it.
  *
  * Always five blobs in fixed places. Fewer colors repeat around them. Each
@@ -85,17 +104,24 @@ type Palette = { key: string; colors: readonly string[]; byBlob: string[] };
  * one to its new color over a second. No colors fades the whole nebula out.
  * Holds still and keeps its colors under reduced motion.
  */
-export function NebulaBackdrop({ colors }: NebulaBackdropProps) {
+export function NebulaBackdrop({
+    colors,
+    layout = "bottom",
+}: NebulaBackdropProps) {
+    const slots = SLOTS[layout];
     const { colorScheme = "light" } = useColorScheme();
     const palette = useMemo<Palette | null>(() => {
         if (colors.length === 0) return null;
         const shown = colors
-            .slice(0, SLOTS.length)
+            .slice(0, BLOB_COUNT)
             .map((color) => nebulaColor(color, colorScheme));
         return {
             key: shown.join(","),
             colors: shown,
-            byBlob: SLOTS.map((_, index) => shown[index % shown.length]),
+            byBlob: Array.from(
+                { length: BLOB_COUNT },
+                (_, index) => shown[index % shown.length],
+            ),
         };
     }, [colorScheme, colors]);
 
@@ -126,7 +152,7 @@ export function NebulaBackdrop({ colors }: NebulaBackdropProps) {
             style={fade}
         >
             {kept
-                ? SLOTS.map((slot, index) => (
+                ? slots.map((slot, index) => (
                       <Blob
                           key={index}
                           paletteKey={kept.key}
