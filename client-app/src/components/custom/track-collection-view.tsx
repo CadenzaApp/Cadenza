@@ -267,11 +267,11 @@ export function TrackCollectionView({
             heroColor
                 ? {
                       color: heroColor,
-                      height: heroLayout.height,
+                      height: heroLayout.artworkHeight,
                       fadeStart: heroLayout.fadeStart,
                   }
                 : undefined,
-        [heroColor, heroLayout.height, heroLayout.fadeStart],
+        [heroColor, heroLayout.artworkHeight, heroLayout.fadeStart],
     );
     const surface = artworkSurface ?? heroSurface;
     const defaultGradient = useTintGradient(backgroundColor, true);

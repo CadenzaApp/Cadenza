@@ -89,11 +89,11 @@ export default function ArtistScreen() {
             pageColor
                 ? {
                       color: pageColor,
-                      height: heroLayout.height,
+                      height: heroLayout.artworkHeight,
                       fadeStart: heroLayout.fadeStart,
                   }
                 : undefined,
-        [pageColor, heroLayout.height, heroLayout.fadeStart],
+        [pageColor, heroLayout.artworkHeight, heroLayout.fadeStart],
     );
 
     /** Replaces the queue with the top songs, in Apple's order. */

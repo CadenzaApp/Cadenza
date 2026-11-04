@@ -13,11 +13,14 @@ import { topEdgeSections, useArtworkRegionColors } from "@/lib/artwork-color";
  * Apple's album page, measured on a 393pt phone: the cover is 1.05 screen
  * widths and centered, so a few points crop off each side. Its top sits 32pt
  * under the status bar, blending up into its own top edge colors, and it
- * fades out over the bottom 28% of the hero.
+ * fades out over the bottom 28% of the artwork, with the title dropped 40pt
+ * below it.
  */
 const COVER_SCALE = 1.05;
 const COVER_TOP_GAP = 32;
 const COVER_FADE_START = 0.72;
+/** How far below the cover's bottom the title block ends. */
+const TITLE_DROP = 40;
 
 /**
  * The cover's top 10% in three strips, left to right, so a white corner and a
@@ -28,10 +31,12 @@ const TOP_EDGE = topEdgeSections(3, 0.1);
 export type CoverHeroLayout = {
     /** Where the cover itself sits inside the hero. */
     cover: CoverFrame;
-    /** The hero's full height: the room above the cover plus the cover. */
-    height: number;
-    /** Fraction of `height` where the fade starts. */
+    /** The artwork's height: the room above the cover plus the cover. */
+    artworkHeight: number;
+    /** Fraction of `artworkHeight` where the fade starts. */
     fadeStart: number;
+    /** The hero's full height: the artwork plus the title's drop below it. */
+    height: number;
 };
 
 /** The hero's geometry for a screen `width` wide under a `safeTop` inset. */
@@ -43,8 +48,9 @@ export function coverHeroLayout(
     const top = safeTop + COVER_TOP_GAP;
     return {
         cover: { left: (width - size) / 2, top, size },
-        height: top + size,
+        artworkHeight: top + size,
         fadeStart: COVER_FADE_START,
+        height: top + size + TITLE_DROP,
     };
 }
 
@@ -92,14 +98,25 @@ export function CoverHero({
 
     return (
         <View className="justify-end" style={{ height: layout.height }}>
-            <FadedArtwork
-                uri={uri}
-                placeholderUri={placeholderUri}
-                fadeStart={layout.fadeStart}
-                cover={cover}
-                edgeColors={knownEdgeColors}
-                fallback={fallback}
-            />
+            <View
+                pointerEvents="none"
+                style={{
+                    position: "absolute",
+                    left: 0,
+                    right: 0,
+                    top: 0,
+                    height: layout.artworkHeight,
+                }}
+            >
+                <FadedArtwork
+                    uri={uri}
+                    placeholderUri={placeholderUri}
+                    fadeStart={layout.fadeStart}
+                    cover={cover}
+                    edgeColors={knownEdgeColors}
+                    fallback={fallback}
+                />
+            </View>
             {zoomTarget ? (
                 // The real cover, not its blurred copy. Sized explicitly, since the
                 // target wraps it in an unstyled native view that an absolute
