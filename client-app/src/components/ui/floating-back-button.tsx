@@ -3,11 +3,9 @@ import { useTheme } from "expo-router/react-navigation";
 import { View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import Ionicons from "@expo/vector-icons/Ionicons";
+
 import { GlassIconButton } from "@/components/ui/glass-icon-button";
-import {
-    AnimatedContrastIcon,
-    useFloatingSurfaceContrast,
-} from "@/lib/surface-contrast-context";
 
 /** Gap between the safe area and the button. */
 const TOP_GAP = 8;
@@ -26,9 +24,6 @@ export function FloatingBackButton({
     const insets = useSafeAreaInsets();
     const router = useRouter();
     const { colors } = useTheme();
-    const { iconStyle, scheme } = useFloatingSurfaceContrast(
-        insets.top + TOP_GAP + (size ?? 40) / 2,
-    );
 
     return (
         <View
@@ -39,16 +34,10 @@ export function FloatingBackButton({
             <GlassIconButton
                 size={size}
                 bordered={false}
-                surfaceScheme={scheme}
                 accessibilityLabel={label}
                 onPress={() => router.back()}
             >
-                <AnimatedContrastIcon
-                    name="chevron-back"
-                    size={24}
-                    color={colors.text}
-                    style={iconStyle}
-                />
+                <Ionicons name="chevron-back" size={24} color={colors.text} />
             </GlassIconButton>
         </View>
     );

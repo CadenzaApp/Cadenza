@@ -29,10 +29,6 @@ import Animated, {
     withTiming,
 } from "react-native-reanimated";
 
-import {
-    ContrastRegion,
-    useSurfacePalette,
-} from "@/lib/surface-contrast-context";
 import { Text } from "@/components/ui/text";
 import { SongOptionsMenu } from "@/components/custom/options-menu/song-options-menu";
 import { usePlaybackCommands } from "@/lib/playback";
@@ -64,10 +60,7 @@ import {
     tagIdsToRead,
     type MusicListRowItem,
 } from "./list-windows";
-import {
-    MUSIC_LIST_SECTION_HEADER_HEIGHT,
-    MusicListSectionHeader,
-} from "./music-list-section-header";
+import { MusicListSectionHeader } from "./music-list-section-header";
 import type { RailLead } from "./sort-tags";
 import { useMusicListSelection } from "./use-music-list-selection";
 import type { MusicListProps, MusicListTrackAction } from "./types";
@@ -95,16 +88,6 @@ const MUSIC_LIST_BOTTOM_SPACER_ROWS = 2;
 const AnimatedFlashList = Animated.createAnimatedComponent(
     FlashList<MusicListRowItem>,
 );
-
-/** How tall a row is, for where it sits on a tinted page's gradient. */
-function rowHeightOf(row: MusicListRowItem, trackRowHeight: number) {
-    switch (row.type) {
-        case "header":
-            return MUSIC_LIST_SECTION_HEADER_HEIGHT;
-        default:
-            return trackRowHeight;
-    }
-}
 
 function rowKey(row: MusicListRowItem) {
     if (row.type !== "track") return `${row.type}:${row.section.key}`;
@@ -212,13 +195,10 @@ export function MusicList({
 }: MusicListProps) {
     const header = headerProp ?? listHeader;
     const tracks = useVisibleItems(givenTracks);
-    const tinted = useSurfacePalette() != null;
-    const [headerHeight, setHeaderHeight] = useState(0);
     const { togglePlayback } = usePlaybackCommands();
     const { showSuggestedTags } = useMusicListPreferences();
     const [internalCompact, setInternalCompact] = useState(false);
     const isCompact = compact ?? internalCompact;
-    const rowHeight = MUSIC_LIST_ITEM_HEIGHT[isCompact ? "compact" : "regular"];
     const [densityTransitionRevision, setDensityTransitionRevision] =
         useState(0);
     const [densityTransitioning, setDensityTransitioning] = useState(false);
@@ -331,19 +311,6 @@ export function MusicList({
                 : tracks,
         [rows, sections, tracks],
     );
-    // where each row's middle sits below the header, and where the rows end,
-    // so a tinted page can pick each row's text color off its gradient. rows
-    // differ in height once a list is grouped
-    const { rowCenters, rowsHeight } = useMemo(() => {
-        const centers: number[] = [];
-        let top = 0;
-        for (const row of rows) {
-            const height = rowHeightOf(row, rowHeight);
-            centers.push(top + height / 2);
-            top += height;
-        }
-        return { rowCenters: centers, rowsHeight: top };
-    }, [rowHeight, rows]);
     const selection = useMusicListSelection(displayedTracks, multiSelect);
     const { isSelecting, toggleSelection } = selection;
     const selectionCanApplyTags =
@@ -701,12 +668,9 @@ export function MusicList({
                             keyExtractor={rowKey}
                             getItemType={(row) => row.type}
                             renderItem={({ item: row, index }) => {
-                                const surfaceOffset =
-                                    headerHeight + (rowCenters[index] ?? 0);
                                 if (row.type === "header") {
                                     return (
                                         <MusicListSectionHeader
-                                            surfaceOffset={surfaceOffset}
                                             section={row.section}
                                             fullBleed={fullBleedRows}
                                             fullBleedHorizontalPadding={
@@ -718,15 +682,13 @@ export function MusicList({
                                 }
                                 if (row.type === "loading") {
                                     return (
-                                        <ContrastRegion offset={surfaceOffset}>
-                                            <MusicListItemSkeleton
-                                                fullBleed={fullBleedRows}
-                                                fullBleedHorizontalPadding={
-                                                    fullBleedRowHorizontalPadding
-                                                }
-                                                compact={isCompact}
-                                            />
-                                        </ContrastRegion>
+                                        <MusicListItemSkeleton
+                                            fullBleed={fullBleedRows}
+                                            fullBleedHorizontalPadding={
+                                                fullBleedRowHorizontalPadding
+                                            }
+                                            compact={isCompact}
+                                        />
                                     );
                                 }
                                 const item = row.track;
@@ -749,7 +711,6 @@ export function MusicList({
                                         }
                                     >
                                         <MusicListRow
-                                            surfaceOffset={surfaceOffset}
                                             store={rowTagStore}
                                             songId={item.catalogId ?? item.id}
                                             item={item}
@@ -805,21 +766,7 @@ export function MusicList({
                                 },
                                 scroll.contentContainerStyle,
                             ]}
-                            ListHeaderComponent={
-                                header && tinted ? (
-                                    <View
-                                        onLayout={(event) =>
-                                            setHeaderHeight(
-                                                event.nativeEvent.layout.height,
-                                            )
-                                        }
-                                    >
-                                        {header}
-                                    </View>
-                                ) : header ? (
-                                    <>{header}</>
-                                ) : null
-                            }
+                            ListHeaderComponent={header ? <>{header}</> : null}
                             ListEmptyComponent={
                                 isLoading ? (
                                     <View>
@@ -840,9 +787,7 @@ export function MusicList({
                                         ))}
                                     </View>
                                 ) : emptyContent !== undefined ? (
-                                    <ContrastRegion offset={headerHeight}>
-                                        {emptyContent}
-                                    </ContrastRegion>
+                                    <>{emptyContent}</>
                                 ) : (
                                     <Text className="text-muted-foreground text-center mt-10">
                                         Search for Artists, Songs, Lyrics, and
@@ -861,11 +806,7 @@ export function MusicList({
                                             compact={isCompact}
                                         />
                                     ) : null}
-                                    <ContrastRegion
-                                        offset={headerHeight + rowsHeight}
-                                    >
-                                        {footer}
-                                    </ContrastRegion>
+                                    {footer}
                                 </>
                             }
                             onContentSizeChange={onContentSizeChange}
@@ -960,7 +901,6 @@ export type {
 const MusicListRow = memo(function MusicListRow({
     store,
     songId,
-    surfaceOffset,
     lead,
     leadValue,
     ...props
@@ -970,7 +910,6 @@ const MusicListRow = memo(function MusicListRow({
 > & {
     store: RowTagStore;
     songId: string;
-    surfaceOffset: number;
     /** The tag the list is sorted by. */
     lead: SortLeadTag | null;
     /** This song's value of it, for a metadata tag. */
@@ -984,11 +923,7 @@ const MusicListRow = memo(function MusicListRow({
             ? { kind: "pill", tag: lead.tag, value: leadValue }
             : undefined;
     }, [lead, leadValue]);
-    return (
-        <ContrastRegion offset={surfaceOffset}>
-            <MusicListItem {...props} {...rowTags} lead={railLead} />
-        </ContrastRegion>
-    );
+    return <MusicListItem {...props} {...rowTags} lead={railLead} />;
 });
 
 /** A song's value in `values`, under whichever of its ids the list used. */
