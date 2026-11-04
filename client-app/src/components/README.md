@@ -283,8 +283,11 @@ overrides, one background source color, close controls, and opt the standard hea
 device's top safe area. One cover gets a `CoverHero` with the title over its bottom and the actions
 below it. Several covers or none stay a centered mosaic tile.
 
-`CoverHero` is Apple's album hero, measured: the cover at 1.05 screen widths, centered, its top 42pt
-under the status bar with a flipped copy above, fading out over the bottom 28%. The page under it
+`CoverHero` is Apple's album hero, measured: the cover at 1.05 screen widths, centered, its top 32pt
+under the status bar, fading out over the bottom 28%. Apple fills the room above with a tall asset
+labels deliver, which the public API does not return, so ours blends up instead: the cover's top
+edge averaged in three strips paints that room left to right, then a blurred copy, then the sharp
+cover, each fading in a little lower than the last. The page under it
 is one flat color, `useCoverPageColor`: the cover's bottom-half average at a fixed Oklch lightness
 per mode (0.23 dark, Apple's, 0.93 light), so the fade lands on the page. The artist page uses the
 same hero. Without one, the view turns its color into the shared Oklch gradient for the active

@@ -1,5 +1,5 @@
 import { Link } from "expo-router";
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import { View, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -7,16 +7,23 @@ import {
     FadedArtwork,
     type CoverFrame,
 } from "@/components/custom/faded-artwork";
+import { topEdgeSections, useArtworkRegionColors } from "@/lib/artwork-color";
 
 /**
  * Apple's album page, measured on a 393pt phone: the cover is 1.05 screen
- * widths and centered, so a few points crop off each side. Its top sits 42pt
- * under the status bar, with a flipped copy above it, and it fades out over
- * the bottom 28% of the hero.
+ * widths and centered, so a few points crop off each side. Its top sits 32pt
+ * under the status bar, blending up into its own top edge colors, and it
+ * fades out over the bottom 28% of the hero.
  */
 const COVER_SCALE = 1.05;
-const COVER_TOP_GAP = 42;
+const COVER_TOP_GAP = 32;
 const COVER_FADE_START = 0.72;
+
+/**
+ * The cover's top 10% in three strips, left to right, so a white corner and a
+ * blue middle each blend up into their own color.
+ */
+const TOP_EDGE = topEdgeSections(3, 0.1);
 
 export type CoverHeroLayout = {
     /** Where the cover itself sits inside the hero. */
@@ -61,8 +68,9 @@ type CoverHeroProps = {
 };
 
 /**
- * A square cover run past both edges and up under the status bar, fading into
- * the page at the bottom, with `children` over the fade. For the album,
+ * A square cover run past both edges, blending up under the status bar into
+ * the colors along its own top edge and fading into the page at the bottom,
+ * with `children` over the fade. For the album,
  * playlist, and artist pages. The page under it should be one flat color
  * (`useCoverPageColor`) so the fade lands on what the rest of the page is.
  */
@@ -75,6 +83,12 @@ export function CoverHero({
     children,
 }: CoverHeroProps) {
     const { cover } = layout;
+    // The small copy is enough to average and usually cached already.
+    const edgeColors = useArtworkRegionColors(placeholderUri ?? uri, TOP_EDGE);
+    const knownEdgeColors = useMemo(
+        () => (edgeColors ?? []).filter((color): color is string => !!color),
+        [edgeColors],
+    );
 
     return (
         <View className="justify-end" style={{ height: layout.height }}>
@@ -83,10 +97,11 @@ export function CoverHero({
                 placeholderUri={placeholderUri}
                 fadeStart={layout.fadeStart}
                 cover={cover}
+                edgeColors={knownEdgeColors}
                 fallback={fallback}
             />
             {zoomTarget ? (
-                // The real cover, not its mirror. Sized explicitly, since the
+                // The real cover, not its blurred copy. Sized explicitly, since the
                 // target wraps it in an unstyled native view that an absolute
                 // fill would collapse to nothing.
                 <View
