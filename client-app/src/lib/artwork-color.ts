@@ -1,14 +1,9 @@
-import { ImageColor, type ImageRegion } from "@image-color";
-import { useColorScheme } from "nativewind";
+import { ImageColor } from "@image-color";
 import { useMemo } from "react";
 import useSWRImmutable from "swr/immutable";
 
 import { readableTextColor } from "@/components/custom/tag-pill";
-import {
-    coverPageColor,
-    distinctColors,
-    randomImageRegions,
-} from "@/lib/artwork-color-utils";
+import { distinctColors, randomImageRegions } from "@/lib/artwork-color-utils";
 export { averageArtworkColors } from "@/lib/artwork-color-utils";
 
 /**
@@ -96,44 +91,6 @@ export function useArtworkTint(source?: ArtworkSource | null): ArtworkTint {
         textColor: readableTextColor(tint),
         isLoading: false,
     };
-}
-
-/** The bottom half of an image, where a full-bleed cover meets its page. */
-export const BOTTOM_HALF: ImageRegion = { x: 0, y: 0.5, width: 1, height: 0.5 };
-
-/**
- * Average color of one region of the image at `url`, null until it lands or
- * when there is none. Always the averaged pixels, never Apple's color, since
- * Apple's describes the whole image.
- */
-export function useArtworkRegionColor(
-    url: string | null | undefined,
-    region: ImageRegion,
-): string | null {
-    const { x, y, width, height } = region;
-    const { data } = useSWRImmutable<string | null>(
-        url ? ["ImageColor.getAverageColor", url, x, y, width, height] : null,
-        () => ImageColor.getAverageColor(url, { x, y, width, height }),
-    );
-    return data ?? null;
-}
-
-/**
- * The flat page color under a full-bleed cover at `url`: the average of the
- * cover's bottom half, where the fade meets the page, set to the mode's cover
- * page lightness (`coverPageColor`). `fallback`, usually the whole cover's
- * tint, stands in until that lands. Null with neither.
- */
-export function useCoverPageColor(
-    url: string | null | undefined,
-    fallback?: string | null,
-): string | null {
-    const { colorScheme = "light" } = useColorScheme();
-    const source = useArtworkRegionColor(url, BOTTOM_HALF) ?? fallback ?? null;
-    return useMemo(
-        () => (source ? coverPageColor(source, colorScheme) : null),
-        [source, colorScheme],
-    );
 }
 
 /**
