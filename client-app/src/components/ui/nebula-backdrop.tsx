@@ -206,6 +206,10 @@ function Blob({
     return (
         <Animated.View
             className="absolute"
+            // the blob moves and fades every frame but its gradient only
+            // changes on a trade: composite a cached bitmap, not the subtree
+            shouldRasterizeIOS
+            renderToHardwareTextureAndroid
             style={[
                 {
                     left: `${(slot.x - slot.w / 2) * 100}%`,
