@@ -198,7 +198,13 @@ impl SocialFeedService {
         with_bday.push(social::days_since_posts_epoch(clock.created_at) as f64);
         with_bday.extend_from_slice(&embedding);
         social::update_post_text(
-            db, user_id, post_id, content, &embedding, &with_bday, client_time,
+            db,
+            user_id,
+            post_id,
+            content,
+            &embedding,
+            &with_bday,
+            client_time,
         )
         .await
     }
