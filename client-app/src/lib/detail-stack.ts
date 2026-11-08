@@ -22,7 +22,7 @@ const DETAIL_IDENTITY: Record<string, readonly string[]> = {
     "collection/[kind]/[id]": ["kind", "id"],
     "tag/[tagId]": ["tagId"],
     "discuss/[songId]": ["songId"],
-    "query-results": ["query", "suggested"],
+    "query-results": ["query", "suggested", "saved"],
 };
 
 /** The shared detail routes every tab's stack holds. */

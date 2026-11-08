@@ -43,7 +43,7 @@ export const SearchField = forwardRef<TextInput, Props>(function SearchField(
         onSubmit,
         onFocus,
         onClear,
-        placeholder = "Artists, Songs, Lyrics, and More",
+        placeholder = "Artists and Songs",
         editable = true,
         autoFocus = false,
     },

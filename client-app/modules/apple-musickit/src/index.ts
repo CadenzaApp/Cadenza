@@ -7,6 +7,7 @@ import type {
     CatalogSearchType,
     CollectionFavoriteKind,
     FavoriteStatus,
+    LibraryCollectionKind,
     LibraryResult,
     LibrarySongOptions,
     MusicItem,
@@ -52,6 +53,11 @@ export interface AppleMusicKitNativeModule {
     ): Promise<LibraryResult>;
     getPlaylistSongs(
         playlistId: string,
+        options?: MusicKitOptions,
+    ): Promise<LibraryResult>;
+    searchLibraryCollections(
+        term: string,
+        kind: LibraryCollectionKind,
         options?: MusicKitOptions,
     ): Promise<LibraryResult>;
     getLibraryAlbums(options?: MusicKitOptions): Promise<LibraryResult>;

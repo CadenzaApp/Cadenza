@@ -77,6 +77,13 @@ pub fn user_data_counts() -> Vec<DataCount> {
             "user_songs where user_id = $1",
         ),
         rows(
+            "saved_queries",
+            Library,
+            "Saved queries",
+            "count(*)",
+            "saved_queries where user_id = $1",
+        ),
+        rows(
             "tags",
             Tags,
             "Tags you made",

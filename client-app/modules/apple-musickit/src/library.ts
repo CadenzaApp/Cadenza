@@ -4,6 +4,7 @@ import type {
     CatalogSearchType,
     CollectionFavoriteKind,
     FavoriteStatus,
+    LibraryCollectionKind,
     LibraryResult,
     LibrarySongOptions,
     MusicItem,
@@ -128,6 +129,31 @@ export const MusicKit = {
         const searchLibrarySongs = requireNativeMethod("searchLibrarySongs");
         return normalizeLibraryResult(
             await searchLibrarySongs(normalizedTerm, normalizeOptions(options)),
+        );
+    },
+
+    /**
+     * Searches the user's own library for albums or playlists matching a
+     * term. The collection counterpart to `searchLibrarySongs`.
+     */
+    searchLibraryCollections: async (
+        term: string,
+        kind: LibraryCollectionKind,
+        options?: MusicKitOptions,
+    ): Promise<LibraryResult> => {
+        const normalizedTerm = term.trim();
+        if (!normalizedTerm) {
+            return { items: [], hasNextPage: false };
+        }
+        const searchLibraryCollections = requireNativeMethod(
+            "searchLibraryCollections",
+        );
+        return normalizeLibraryResult(
+            await searchLibraryCollections(
+                normalizedTerm,
+                kind,
+                normalizeOptions(options),
+            ),
         );
     },
 
@@ -360,6 +386,11 @@ interface LibraryNativeModule {
     ): Promise<LibraryResult>;
     getPlaylistSongs(
         playlistId: string,
+        options: MusicKitOptions,
+    ): Promise<LibraryResult>;
+    searchLibraryCollections(
+        term: string,
+        kind: LibraryCollectionKind,
         options: MusicKitOptions,
     ): Promise<LibraryResult>;
     getLibraryAlbums(options: MusicKitOptions): Promise<LibraryResult>;

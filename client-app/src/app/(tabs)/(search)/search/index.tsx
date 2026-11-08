@@ -13,7 +13,8 @@ import { GlassIconButton } from "@/components/ui/glass-icon-button";
 import type { RecentSearch } from "@/features/search/recent-searches";
 import { useRecentSearches } from "@/features/search/recent-searches";
 import { SearchArtists } from "@/features/search/search-artists";
-import { SearchField } from "@/features/search/search-field";
+import { SearchField } from "@/components/custom/search-field";
+import { Text } from "@/components/ui/text";
 import { SearchLanding } from "@/features/search/search-landing";
 import { SearchRecents } from "@/features/search/search-recents";
 import type { SearchScope } from "@/features/search/search-scope";
@@ -204,6 +205,11 @@ export default function SearchScreen() {
                 <MusicList
                     tracks={results}
                     isLoading={resultsLoading}
+                    emptyContent={
+                        <Text className="mt-10 text-center text-muted-foreground">
+                            No results.
+                        </Text>
+                    }
                     header={
                         <SearchArtists
                             artists={artists}

@@ -1,6 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type { ArtistItem } from "@apple-musickit";
 import { useTheme } from "expo-router/react-navigation";
+import type { ReactNode } from "react";
 import { FlatList, Image, ScrollView, View } from "react-native";
 import Animated from "react-native-reanimated";
 
@@ -10,7 +11,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { useScreenScroll } from "@/lib/screen-scroll";
-import { useTopRailInset } from "@/lib/top-rail";
 import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
 import { artistRoute } from "@/lib/music-routes";
 import { cn } from "@/lib/utils";
@@ -29,6 +29,8 @@ type ArtistListProps = {
     onOpen?: (artist: ArtistItem) => void;
     /** Shown when the list is loaded and empty. */
     emptyLabel: string;
+    /** Scrolls with the rows, above the first one. */
+    header?: ReactNode;
 };
 
 /**
@@ -44,24 +46,10 @@ export function ArtistList({
     onLoadNextPage,
     onOpen,
     emptyLabel,
+    header,
 }: ArtistListProps) {
     const { listBottomInset } = useScreenOverlayInsets();
     const scroll = useScreenScroll<FlatList<ArtistItem>>();
-    // the skeleton is not in the scroller, so the scroller's inset misses it
-    const railInset = useTopRailInset();
-
-    if (isLoading && artists.length === 0) {
-        return (
-            <View
-                className="flex-1"
-                style={{ paddingTop: railInset ?? undefined }}
-            >
-                {Array.from({ length: SKELETON_ROW_COUNT }, (_, index) => (
-                    <MusicListItemSkeleton key={index} fullBleed />
-                ))}
-            </View>
-        );
-    }
 
     return (
         <ScreenScrollMarker>
@@ -77,11 +65,30 @@ export function ArtistList({
                     { paddingBottom: listBottomInset },
                     scroll.contentContainerStyle,
                 ]}
+                ListHeaderComponent={header ? <>{header}</> : null}
+                // in the list rather than in place of it, so the header and
+                // its search field stay mounted while a new page loads
                 ListEmptyComponent={
-                    <Text className="px-6 py-10 text-center text-muted-foreground">
-                        {emptyLabel}
-                    </Text>
+                    isLoading ? (
+                        <View>
+                            {Array.from(
+                                { length: SKELETON_ROW_COUNT },
+                                (_, index) => (
+                                    <MusicListItemSkeleton
+                                        key={index}
+                                        fullBleed
+                                    />
+                                ),
+                            )}
+                        </View>
+                    ) : (
+                        <Text className="px-6 py-10 text-center text-muted-foreground">
+                            {emptyLabel}
+                        </Text>
+                    )
                 }
+                keyboardDismissMode="on-drag"
+                keyboardShouldPersistTaps="handled"
                 ListFooterComponent={
                     isLoadingNextPage ? (
                         <MusicListItemSkeleton fullBleed />

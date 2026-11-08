@@ -790,8 +790,7 @@ export function MusicList({
                                     <>{emptyContent}</>
                                 ) : (
                                     <Text className="text-muted-foreground text-center mt-10">
-                                        Search for Artists, Songs, Lyrics, and
-                                        More.
+                                        No songs.
                                     </Text>
                                 )
                             }

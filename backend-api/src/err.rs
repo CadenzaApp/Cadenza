@@ -19,6 +19,8 @@ pub enum CadenzaError {
     SongAlreadyInLibrary,
     TagAlreadyApplied,
     TagNameAlreadyTaken,
+    /// The user already saved a query by this name.
+    QueryNameAlreadyTaken,
     /// The signed-in user already has a profile row.
     ProfileAlreadyExists,
     /// Another profile already uses this username.
@@ -54,6 +56,7 @@ impl CadenzaError {
             Self::SongAlreadyInLibrary => 409,
             Self::TagAlreadyApplied => 409,
             Self::TagNameAlreadyTaken => 409,
+            Self::QueryNameAlreadyTaken => 409,
             Self::ProfileAlreadyExists => 409,
             Self::UsernameAlreadyTaken => 409,
             Self::FriendshipAlreadyExists => 409,
@@ -86,6 +89,10 @@ impl CadenzaError {
             Self::TagNameAlreadyTaken => json!({
                 "error_type": "TagNameAlreadyTaken",
                 "message": "you already have a tag with that name"
+            }),
+            Self::QueryNameAlreadyTaken => json!({
+                "error_type": "QueryNameAlreadyTaken",
+                "message": "you already have a saved query with that name"
             }),
             Self::ProfileAlreadyExists => json!({
                 "error_type": "ProfileAlreadyExists",
@@ -202,6 +209,7 @@ impl From<DbErr> for CadenzaError {
                 "23505" => match db_err.table() {
                     Some("applied_tags") => return Self::TagAlreadyApplied,
                     Some("songs") => return Self::SongAlreadyInLibrary,
+                    Some("saved_queries") => return Self::QueryNameAlreadyTaken,
                     Some("profile") => {
                         return match db_err.constraint() {
                             Some("profile_pkey") => Self::ProfileAlreadyExists,

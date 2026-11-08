@@ -1029,6 +1029,24 @@ public class AppleMusicKitModule: Module {
             return self.collectionResult(response)
         }
 
+        // Albums or playlists in the user's library matching a term. One
+        // function for both, since only the library search type differs.
+        AsyncFunction("searchLibraryCollections") {
+            (term: String, kind: String, options: PageOptions) async throws -> [String: Any] in
+            guard let type = self.librarySearchCollectionType(kind) else {
+                throw MusicKitException(
+                    name: "ERR_INVALID_KIND", reason: "Unknown collection kind: \(kind)")
+            }
+            let encodedTerm = term.addingPercentEncoding(
+                withAllowedCharacters: .urlQueryAllowed) ?? term
+            let response = try await self.makeAPIRequest(
+                path: "/v1/me/library/search?term=\(encodedTerm)&types=\(type)"
+                    + "&\(self.pageQuery(options))")
+            let results = response["results"] as? [String: Any] ?? [:]
+            let collections = results[type] as? [String: Any] ?? [:]
+            return self.collectionResult(collections)
+        }
+
         AsyncFunction("getLibraryArtists") {
             (options: PageOptions) async throws -> [String: Any] in
             // include=catalog so a library artist arrives already carrying the
@@ -1409,6 +1427,15 @@ public class AppleMusicKitModule: Module {
                 }
             }
             return result
+        }
+    }
+
+    /// The library search type for a collection kind, or nil for anything else.
+    private func librarySearchCollectionType(_ kind: String) -> String? {
+        switch kind {
+        case "album": return "library-albums"
+        case "playlist": return "library-playlists"
+        default: return nil
         }
     }
 

@@ -8,7 +8,6 @@ no catalog for, so ours is the user's own tags.
 
 | file                          | role                                                                    |
 | ----------------------------- | ----------------------------------------------------------------------- |
-| `search-field.tsx`            | `SearchField`, the glass search pill.                                   |
 | `search-scope.tsx`            | `SearchScopeToggle` and the `SearchScope` type. Apple Music vs Library. |
 | `search-landing.tsx`          | `SearchLanding`, the unfocused body. Tag shelf.                         |
 | `search-recents.tsx`          | `SearchRecents`, the focused body before a search runs.                 |

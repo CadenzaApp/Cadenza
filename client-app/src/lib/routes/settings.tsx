@@ -33,6 +33,8 @@ export type UserSettings = {
     hide_explicit: boolean;
     /** Suggested tag pills under songs in music lists. */
     show_suggested_tags: boolean;
+    /** Tagging a song adds it to the saved queries it now matches. */
+    auto_update_queries: boolean;
 };
 
 /**
@@ -54,6 +56,7 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
     background_swatches: null,
     hide_explicit: false,
     show_suggested_tags: true,
+    auto_update_queries: false,
 };
 
 /** How long a cold start waits for settings before drawing the defaults. */

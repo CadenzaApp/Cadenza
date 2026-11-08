@@ -17,6 +17,8 @@ pub use super::post_likes::Entity as PostLikes;
 pub use super::post_view_status::Entity as PostViewStatus;
 pub use super::posts::Entity as Posts;
 pub use super::profile::Entity as Profile;
+pub use super::saved_queries::Entity as SavedQueries;
+pub use super::saved_query_songs::Entity as SavedQuerySongs;
 pub use super::tags::Entity as Tags;
 pub use super::user_settings::Entity as UserSettings;
 pub use super::user_songs::Entity as UserSongs;

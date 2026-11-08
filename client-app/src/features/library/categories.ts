@@ -1,7 +1,13 @@
 import type Ionicons from "@expo/vector-icons/Ionicons";
 
 /** A section of the library that the user can browse into. */
-export type LibraryCategory = "playlist" | "artist" | "album" | "song" | "tag";
+export type LibraryCategory =
+    | "playlist"
+    | "artist"
+    | "album"
+    | "song"
+    | "query"
+    | "tag";
 
 /** Display order on the library screen. Not the enabled/disabled state. */
 export const LIBRARY_CATEGORY_ORDER = [
@@ -9,6 +15,7 @@ export const LIBRARY_CATEGORY_ORDER = [
     "artist",
     "album",
     "song",
+    "query",
     "tag",
 ] as const satisfies readonly LibraryCategory[];
 
@@ -22,6 +29,7 @@ export const LIBRARY_CATEGORY_META: Record<LibraryCategory, CategoryMeta> = {
     artist: { label: "Artists", icon: "person" },
     album: { label: "Albums", icon: "disc" },
     song: { label: "Songs", icon: "musical-note" },
+    query: { label: "Queries", icon: "funnel" },
     tag: { label: "Tags", icon: "pricetags" },
 };
 

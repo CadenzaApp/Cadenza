@@ -689,6 +689,25 @@ fn check_size(root: &QueryNode) -> Result<(), CadenzaError> {
     walk(root, 1, &mut 0)
 }
 
+/// Whether changing `tag_ids` on a song can change if `query` matches it: the query names
+/// one of them, or reads tags by name, value, or type, which any tag can change.
+pub fn query_reads_tags(query: &Query, tag_ids: &HashSet<i64>) -> bool {
+    fn reads(node: &QueryNode, tag_ids: &HashSet<i64>) -> bool {
+        match node {
+            QueryNode::And(children) | QueryNode::Or(children) => {
+                children.iter().any(|child| reads(child, tag_ids))
+            }
+            QueryNode::Not(child) => reads(child, tag_ids),
+            QueryNode::Filter(Filter::Tag { tag_id, .. }) => tag_ids.contains(tag_id),
+            QueryNode::Filter(Filter::Metadata { .. }) => false,
+            QueryNode::Filter(
+                Filter::TagName { .. } | Filter::TagValue { .. } | Filter::TagType { .. },
+            ) => true,
+        }
+    }
+    reads(&query.root, tag_ids)
+}
+
 fn collect_tag_ids(node: &QueryNode, out: &mut HashSet<i64>) {
     match node {
         QueryNode::And(children) | QueryNode::Or(children) => {
@@ -2169,6 +2188,24 @@ mod tests {
 
     fn is_format_err(result: Result<(String, Vec<sea_query::Value>), CadenzaError>) -> bool {
         matches!(result, Err(CadenzaError::QueryFormatError(_)))
+    }
+
+    #[test]
+    fn a_tag_change_reaches_queries_that_read_it() {
+        let changed: HashSet<i64> = [4].into_iter().collect();
+        let names_it =
+            parse(r#"{"where":{"not":{"filter":{"field":"tag","tag_id":4,"op":"is_applied"}}}}"#);
+        let other_tag =
+            parse(r#"{"where":{"filter":{"field":"tag","tag_id":7,"op":"is_applied"}}}"#);
+        let by_name =
+            parse(r#"{"where":{"filter":{"field":"tag_name","op":"contains","value":"gym"}}}"#);
+        let metadata = parse(
+            r#"{"where":{"filter":{"field":"metadata","key":"artist","op":"is","value":"ado"}}}"#,
+        );
+        assert!(query_reads_tags(&names_it, &changed));
+        assert!(!query_reads_tags(&other_tag, &changed));
+        assert!(query_reads_tags(&by_name, &changed));
+        assert!(!query_reads_tags(&metadata, &changed));
     }
 
     #[test]

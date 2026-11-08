@@ -3,13 +3,7 @@ import type { MusicItem } from "@apple-musickit";
 import { useIsFocused, useTheme } from "expo-router/react-navigation";
 import type { ComponentProps, ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
-import {
-    Image,
-    View,
-    type ColorValue,
-    type StyleProp,
-    type ViewStyle,
-} from "react-native";
+import { View, type StyleProp, type ViewStyle } from "react-native";
 import Animated, {
     Extrapolation,
     interpolate,
@@ -30,6 +24,7 @@ import {
     type MusicListSections,
     type MusicListTrackAction,
 } from "@/components/custom/music-list";
+import { ArtworkMosaic } from "@/components/custom/artwork-mosaic";
 import { BlendedCover, COVER_BLEED } from "@/components/custom/blended-cover";
 import { ModalPopup } from "@/components/custom/modal-popup";
 import { Button } from "@/components/ui/button";
@@ -410,6 +405,7 @@ export function TrackCollectionView({
                             <View collapsable={false}>
                                 <ArtworkMosaic
                                     artworkUrls={artworkUrls}
+                                    size={ARTWORK_SIZE}
                                     placeholderColor={colors.text}
                                 />
                             </View>
@@ -485,64 +481,6 @@ export function TrackCollectionView({
                     </Button>
                 ))}
             </ModalPopup>
-        </View>
-    );
-}
-
-function ArtworkMosaic({
-    artworkUrls,
-    placeholderColor,
-}: {
-    artworkUrls: readonly string[];
-    placeholderColor: ColorValue;
-}) {
-    const oneArtwork = artworkUrls.length === 1 ? artworkUrls[0] : null;
-
-    if (oneArtwork) {
-        return (
-            <Image
-                source={{ uri: oneArtwork }}
-                className="rounded-2xl bg-muted"
-                style={{ width: ARTWORK_SIZE, height: ARTWORK_SIZE }}
-            />
-        );
-    }
-
-    return (
-        <View
-            className="flex-row flex-wrap overflow-hidden rounded-2xl bg-muted"
-            style={{ width: ARTWORK_SIZE, height: ARTWORK_SIZE }}
-        >
-            {Array.from({ length: 4 }, (_, index) => {
-                const url = artworkUrls[index];
-                return url ? (
-                    <Image
-                        key={`${url}:${index}`}
-                        source={{ uri: url }}
-                        className="bg-muted"
-                        style={{
-                            width: ARTWORK_SIZE / 2,
-                            height: ARTWORK_SIZE / 2,
-                        }}
-                    />
-                ) : (
-                    <View
-                        key={index}
-                        className="items-center justify-center bg-muted"
-                        style={{
-                            width: ARTWORK_SIZE / 2,
-                            height: ARTWORK_SIZE / 2,
-                        }}
-                    >
-                        <Ionicons
-                            name="musical-notes"
-                            size={30}
-                            color={placeholderColor}
-                            style={{ opacity: 0.45 }}
-                        />
-                    </View>
-                );
-            })}
         </View>
     );
 }

@@ -1,6 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type { MusicItem } from "@apple-musickit";
 import { useTheme } from "expo-router/react-navigation";
+import type { ReactNode } from "react";
 import { FlatList, Image, View } from "react-native";
 import Animated from "react-native-reanimated";
 import { usePrefetchCollectionSongs } from "@/lib/musickit-hooks";
@@ -10,7 +11,6 @@ import { ZoomTile } from "@/components/custom/zoom-tile";
 import { Text } from "@/components/ui/text";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { useScreenScroll } from "@/lib/screen-scroll";
-import { useTopRailInset } from "@/lib/top-rail";
 import { useVisibleItems } from "@/lib/use-visible-items";
 import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
 import { collectionRoute } from "@/lib/music-routes";
@@ -32,6 +32,8 @@ type CollectionListProps = {
     onSelect?: (collection: MusicItem) => void;
     /** Shown when the list is loaded and empty. */
     emptyLabel: string;
+    /** Scrolls with the rows, above the first one. */
+    header?: ReactNode;
 };
 
 /**
@@ -48,25 +50,11 @@ export function CollectionList({
     onLoadNextPage,
     onSelect,
     emptyLabel,
+    header,
 }: CollectionListProps) {
     const collections = useVisibleItems(givenCollections);
     const { listBottomInset } = useScreenOverlayInsets();
     const scroll = useScreenScroll<FlatList<MusicItem>>();
-    // the skeleton is not in the scroller, so the scroller's inset misses it
-    const railInset = useTopRailInset();
-
-    if (isLoading && collections.length === 0) {
-        return (
-            <View
-                className="flex-1"
-                style={{ paddingTop: railInset ?? undefined }}
-            >
-                {Array.from({ length: SKELETON_ROW_COUNT }, (_, index) => (
-                    <MusicListItemSkeleton key={index} fullBleed />
-                ))}
-            </View>
-        );
-    }
 
     return (
         <ScreenScrollMarker>
@@ -82,11 +70,30 @@ export function CollectionList({
                     { paddingBottom: listBottomInset },
                     scroll.contentContainerStyle,
                 ]}
+                ListHeaderComponent={header ? <>{header}</> : null}
+                // in the list rather than in place of it, so the header and
+                // its search field stay mounted while a new page loads
                 ListEmptyComponent={
-                    <Text className="px-6 py-10 text-center text-muted-foreground">
-                        {emptyLabel}
-                    </Text>
+                    isLoading ? (
+                        <View>
+                            {Array.from(
+                                { length: SKELETON_ROW_COUNT },
+                                (_, index) => (
+                                    <MusicListItemSkeleton
+                                        key={index}
+                                        fullBleed
+                                    />
+                                ),
+                            )}
+                        </View>
+                    ) : (
+                        <Text className="px-6 py-10 text-center text-muted-foreground">
+                            {emptyLabel}
+                        </Text>
+                    )
                 }
+                keyboardDismissMode="on-drag"
+                keyboardShouldPersistTaps="handled"
                 ListFooterComponent={
                     isLoadingNextPage ? (
                         <MusicListItemSkeleton fullBleed />

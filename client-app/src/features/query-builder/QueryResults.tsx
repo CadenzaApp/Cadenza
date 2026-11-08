@@ -1,6 +1,6 @@
-import { ShuffleMode, type MusicItem } from "@apple-musickit";
-import { useCallback, useRef, useState } from "react";
-import { useWindowDimensions, View } from "react-native";
+import type { MusicItem } from "@apple-musickit";
+import { useCallback, useState } from "react";
+import { Alert, useWindowDimensions, View } from "react-native";
 
 import type {
     MusicListArrangement,
@@ -8,7 +8,7 @@ import type {
     MusicListSections,
 } from "@/components/custom/music-list";
 import { TrackCollectionView } from "@/components/custom/track-collection-view";
-import { useCollectionArtworkTint } from "@/components/custom/use-collection-artwork-tint";
+import { QueryOptionsMenu } from "@/components/custom/options-menu/query-options-menu";
 import { ModalPopup } from "@/components/custom/modal-popup";
 import { FloatingBackButton } from "@/components/ui/floating-back-button";
 import { GlassButton } from "@/components/ui/glass-button";
@@ -16,7 +16,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Text } from "@/components/ui/text";
 import { useListeningEvents } from "@/lib/listening-events";
+import { usePlayAll } from "@/lib/play-all";
 import type { PlaySource } from "@/lib/play-source";
+import { saveQueryErrorMessage } from "@/lib/routes/saved-queries";
 import { usePlaybackCommands, usePlaybackTrackState } from "@/lib/playback";
 
 import { matchCountLabel } from "./QueryUtils";
@@ -29,11 +31,10 @@ type Props = {
      * as `sections` open.
      */
     songs: MusicItem[];
-    /**
-     * The songs the cover mosaic and page color come from. Defaults to
-     * `songs`, which in a grouped list change as groups open and close.
-     */
-    coverSongs?: MusicItem[];
+    /** The cover mosaic, up to 4 urls. */
+    artworkUrls: readonly string[];
+    /** The page color behind the cover. */
+    tint: string | null;
     isLoading: boolean;
     error?: unknown;
     /** Every song the query matched, loaded or not. */
@@ -59,11 +60,26 @@ type Props = {
     activityTagIds?: readonly number[];
     /** What a play from here is credited to in the analytics rankings. */
     playSource?: PlaySource;
+    /** What the "..." menu does. Without it there is no menu. */
+    actions?: QueryResultsActions;
+};
+
+/** The query menu's writes. Each rejects with the backend's error. */
+export type QueryResultsActions = {
+    /** Null until the query is saved. */
+    saved: { favorite: boolean } | null;
+    /** Saves the query under a name, favorited or not. */
+    save: (name: string, favorite: boolean) => Promise<void>;
+    /** Only called once saved. */
+    setFavorite: (favorite: boolean) => Promise<void>;
+    /** Only called once saved. Replaces its songs with what it matches now. */
+    rerun: () => Promise<void>;
 };
 
 export default function QueryResults({
     songs,
-    coverSongs,
+    artworkUrls,
+    tint,
     isLoading,
     error,
     matchCount,
@@ -76,15 +92,20 @@ export default function QueryResults({
     mostRelevantTags,
     activityTagIds,
     playSource,
+    actions,
 }: Props) {
     const { width: screenWidth } = useWindowDimensions();
+    const [menuOpen, setMenuOpen] = useState(false);
     const [saveOpen, setSaveOpen] = useState(false);
+    // favorite on an unsaved query saves it first, favorited
+    const [saveAsFavorite, setSaveAsFavorite] = useState(false);
+    const [favoriteBusy, setFavoriteBusy] = useState(false);
+    const [rerunning, setRerunning] = useState(false);
     const [saveName, setSaveName] = useState("");
-    // a ref rather than state, so two taps in one frame cannot both start
-    const playbackCommandPending = useRef(false);
-    const { tint, artworkUrls } = useCollectionArtworkTint(coverSongs ?? songs);
+    const [saving, setSaving] = useState(false);
+    const [saveError, setSaveError] = useState<string | null>(null);
     const { recordEvent } = useListeningEvents();
-    const { playQueue, setShuffleMode, togglePlayback } = usePlaybackCommands();
+    const { togglePlayback } = usePlaybackCommands();
     const { activeTrackId, isPlaying } = usePlaybackTrackState();
     const saveDialogWidth = Math.round(screenWidth * 0.75);
     const allLoaded =
@@ -115,40 +136,11 @@ export default function QueryResults({
         [matchCount, recordEvent],
     );
 
-    /**
-     * Plays the query's queue from the top, or shuffled from somewhere in it.
-     * The queue can reach past the loaded rows, so it is resolved first, and a
-     * second tap while that runs is ignored.
-     */
-    const playResults = useCallback(
-        async (shuffle: boolean) => {
-            if (playbackCommandPending.current) return;
-            playbackCommandPending.current = true;
-            try {
-                const tracks = await resolvePlayQueue();
-                if (tracks.length === 0) return;
-                const startIndex = shuffle
-                    ? Math.floor(Math.random() * tracks.length)
-                    : 0;
-                recordQueryPlay(tracks[startIndex]);
-                await setShuffleMode(
-                    shuffle ? ShuffleMode.Songs : ShuffleMode.Off,
-                );
-                await playQueue({ tracks, startIndex, source: playSource });
-            } finally {
-                playbackCommandPending.current = false;
-            }
-        },
-        [
-            playQueue,
-            playSource,
-            recordQueryPlay,
-            resolvePlayQueue,
-            setShuffleMode,
-        ],
-    );
-    const playFromTop = useCallback(() => playResults(false), [playResults]);
-    const shuffleAll = useCallback(() => playResults(true), [playResults]);
+    const { play: playFromTop, shuffle: shuffleAll } = usePlayAll({
+        resolveQueue: resolvePlayQueue,
+        source: playSource,
+        onStart: recordQueryPlay,
+    });
 
     const playOneSong = useCallback(
         async (track: MusicItem) => {
@@ -160,16 +152,61 @@ export default function QueryResults({
         },
         [activeTrackId, isPlaying, playSource, recordQueryPlay, togglePlayback],
     );
+    function openSaveDialog(favorite: boolean) {
+        setSaveAsFavorite(favorite);
+        setSaveOpen(true);
+    }
+
     function closeSaveDialog() {
         setSaveOpen(false);
         setSaveName("");
+        setSaveError(null);
     }
 
-    function submitSave() {
+    async function toggleFavorite() {
+        if (!actions || favoriteBusy) return;
+        if (!actions.saved) {
+            setMenuOpen(false);
+            openSaveDialog(true);
+            return;
+        }
+        setFavoriteBusy(true);
+        try {
+            await actions.setFavorite(!actions.saved.favorite);
+        } catch (favoriteErr) {
+            console.error("Unable to update the query favorite.", favoriteErr);
+            Alert.alert("Couldn't Update Favorite", "Please try again.");
+        } finally {
+            setFavoriteBusy(false);
+        }
+    }
+
+    async function rerun() {
+        if (!actions?.saved || rerunning) return;
+        setRerunning(true);
+        try {
+            await actions.rerun();
+        } catch (rerunErr) {
+            console.error("Unable to rerun the query.", rerunErr);
+            Alert.alert("Couldn't Rerun Query", "Please try again.");
+        } finally {
+            setRerunning(false);
+        }
+    }
+
+    async function submitSave() {
         const name = saveName.trim();
-        if (!name) return;
-        console.info(`[QueryResults] Save query requested: "${name}".`);
-        closeSaveDialog();
+        if (!name || !actions || saving) return;
+        setSaving(true);
+        setSaveError(null);
+        try {
+            await actions.save(name, saveAsFavorite);
+            closeSaveDialog();
+        } catch (saveErr) {
+            setSaveError(saveQueryErrorMessage(saveErr));
+        } finally {
+            setSaving(false);
+        }
     }
 
     return (
@@ -180,20 +217,26 @@ export default function QueryResults({
                 isLoading={isLoading}
                 error={error}
                 anticipatedTrackCount={matchCount}
-                summary={matchCountLabel(matchCount, capped)}
+                summary={
+                    rerunning
+                        ? "Rerunning..."
+                        : matchCountLabel(matchCount, capped)
+                }
                 pagination={pagination}
                 sections={sections}
                 arrangement={arrangement}
                 footer={
                     allLoaded ? (
                         <Text className="px-6 py-4 text-center text-sm text-muted-foreground">
-                            {capped && arranged
-                                ? "These are the first 1,000 matching songs in this order. Narrow the query to see more."
-                                : capped
-                                  ? "These are your matching songs and the first 1,000 others Cadenza knows. Narrow the query to see more."
-                                  : libraryOrTagged
-                                    ? "These are all the songs in your library or tagged by you that match."
-                                    : "These are all the songs Cadenza knows that match."}
+                            {actions?.saved
+                                ? "These are the songs saved with this query. Rerun it from the menu to pick up songs tagged since."
+                                : capped && arranged
+                                  ? "These are the first 1,000 matching songs in this order. Narrow the query to see more."
+                                  : capped
+                                    ? "These are your matching songs and the first 1,000 others Cadenza knows. Narrow the query to see more."
+                                    : libraryOrTagged
+                                      ? "These are all the songs in your library or tagged by you that match."
+                                      : "These are all the songs Cadenza knows that match."}
                         </Text>
                     ) : null
                 }
@@ -208,15 +251,32 @@ export default function QueryResults({
                 onPlay={playFromTop}
                 onShuffle={shuffleAll}
                 onTrackPressOverride={playOneSong}
-                options={[
-                    {
-                        id: "save-query",
-                        label: "Save query",
-                        icon: "bookmark-outline",
-                        onPress: () => setSaveOpen(true),
-                    },
-                ]}
+                options={
+                    actions
+                        ? [
+                              {
+                                  id: "query-options",
+                                  label: "More options",
+                                  icon: "ellipsis-horizontal",
+                                  onPress: () => setMenuOpen(true),
+                              },
+                          ]
+                        : []
+                }
             />
+
+            {menuOpen && actions ? (
+                <QueryOptionsMenu
+                    saved={actions.saved !== null}
+                    favorite={actions.saved?.favorite ?? false}
+                    favoriteBusy={favoriteBusy}
+                    resolveTracks={resolvePlayQueue}
+                    onToggleFavorite={() => void toggleFavorite()}
+                    onSave={() => openSaveDialog(false)}
+                    onRerun={() => void rerun()}
+                    onClose={() => setMenuOpen(false)}
+                />
+            ) : null}
 
             <ModalPopup
                 visible={saveOpen}
@@ -230,18 +290,28 @@ export default function QueryResults({
                 }}
             >
                 <Text className="text-sm text-muted-foreground">
-                    Give this query a name.
+                    {saveAsFavorite
+                        ? "Give this query a name to save it as a favorite."
+                        : "Give this query a name."}
                 </Text>
                 <View className="gap-1.5">
                     <Label>Query name</Label>
                     <Input
                         value={saveName}
-                        onChangeText={setSaveName}
+                        onChangeText={(name) => {
+                            setSaveName(name);
+                            setSaveError(null);
+                        }}
                         placeholder="e.g. Late night favorites"
                         autoFocus
                         returnKeyType="done"
-                        onSubmitEditing={submitSave}
+                        onSubmitEditing={() => void submitSave()}
                     />
+                    {saveError ? (
+                        <Text className="text-sm text-destructive">
+                            {saveError}
+                        </Text>
+                    ) : null}
                 </View>
                 <View className="mt-1 flex-row gap-2.5">
                     <View className="flex-1">
@@ -255,10 +325,10 @@ export default function QueryResults({
                     <View className="flex-1">
                         <GlassButton
                             className="w-full"
-                            disabled={!saveName.trim()}
-                            onPress={submitSave}
+                            disabled={!saveName.trim() || saving}
+                            onPress={() => void submitSave()}
                         >
-                            <Text>Save</Text>
+                            <Text>{saving ? "Saving..." : "Save"}</Text>
                         </GlassButton>
                     </View>
                 </View>
