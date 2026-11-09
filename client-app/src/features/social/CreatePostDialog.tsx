@@ -77,7 +77,9 @@ export function CreatePostDialog({
         screenWidth - SCREEN_MARGIN * 2,
         MAX_DIALOG_WIDTH,
     );
-    const { isConnected } = useAppleMusic();
+    // attaching a song or artist searches the catalog, which works without
+    // Apple Music connected
+    const { canReadCatalog } = useAppleMusic();
     const [content, setContent] = useState("");
     const [topic, setTopic] = useState<PostTopic | null>(null);
     const [topicQuery, setTopicQuery] = useState("");
@@ -89,11 +91,11 @@ export function CreatePostDialog({
     const topicLocked = lockedTopic != null;
     const selectedTopic = topicLocked ? lockedTopic : topic;
     const catalogSongs = useCatalogSongSearch(
-        open && isConnected && !topicLocked,
+        open && canReadCatalog && !topicLocked,
     );
     const catalogArtists = useCatalogArtistSearch(
         submittedTerm,
-        open && isConnected && Boolean(submittedTerm) && !topicLocked,
+        open && canReadCatalog && Boolean(submittedTerm) && !topicLocked,
     );
 
     useEffect(() => {
@@ -296,12 +298,6 @@ export function CreatePostDialog({
                             </View>
                         )}
                     </View>
-
-                    {!selectedTopic && !isConnected ? (
-                        <Text className="text-xs text-muted-foreground">
-                            Connect Apple Music to attach a song or artist.
-                        </Text>
-                    ) : null}
 
                     {showResults ? (
                         <View className="overflow-hidden rounded-2xl border border-border">

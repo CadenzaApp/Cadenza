@@ -28,11 +28,37 @@ import { ONBOARDING_HREF } from "./onboarding-step";
 import { useOnboarding } from "./use-onboarding";
 
 /**
- * `onboarding` is step two after login: back signs out, skipping finishes the
- * step. `reconnect` is the same page as a modal after Apple drops the
- * connection: close and "Not now" both just dismiss it.
+ * - `onboarding`: step two after login. Back signs out, skipping finishes the
+ *   step and the app runs on previews.
+ * - `connect`: a modal from a gated screen, like Library without Apple Music.
+ * - `reconnect`: a modal after Apple drops the connection.
+ *
+ * In both modals, close and "Not now" just dismiss it.
  */
-export type ConnectMode = "onboarding" | "reconnect";
+export type ConnectMode = "onboarding" | "connect" | "reconnect";
+
+type ModeCopy = { title: string; body: string; skip: string; modal: boolean };
+
+const COPY: Record<ConnectMode, ModeCopy> = {
+    onboarding: {
+        title: "Connect Apple Music",
+        body: "Cadenza reads your library and plays through Apple Music. Without it you can still search, tag, and hear 30 second previews.",
+        skip: "Try Cadenza with previews",
+        modal: false,
+    },
+    connect: {
+        title: "Connect Apple Music",
+        body: "Bring in your library and playlists, and play full songs with a subscription.",
+        skip: "Not now",
+        modal: true,
+    },
+    reconnect: {
+        title: "Reconnect Apple Music",
+        body: "Apple ended the saved sign in. Until you reconnect, Cadenza plays previews and your library is hidden.",
+        skip: "Keep using previews",
+        modal: true,
+    },
+};
 
 const WHAT_IT_UNLOCKS: SettingsPoint[] = [
     {
@@ -72,17 +98,17 @@ export function ConnectAppleMusicScreen({ mode }: { mode: ConnectMode }) {
         return <Redirect href={ONBOARDING_HREF[step]} />;
     }
 
-    const reconnect = mode === "reconnect";
+    const copy = COPY[mode];
 
     async function connect() {
         const result = await connectAppleMusic();
         const connected =
             result?.status === AuthStatus.Authorized && result.userToken;
-        if (connected && reconnect) router.back();
+        if (connected && copy.modal) router.back();
     }
 
     async function skip() {
-        if (reconnect) {
+        if (copy.modal) {
             router.back();
             return;
         }
@@ -95,7 +121,7 @@ export function ConnectAppleMusicScreen({ mode }: { mode: ConnectMode }) {
     }
 
     async function back() {
-        if (reconnect) {
+        if (copy.modal) {
             router.back();
             return;
         }
@@ -114,12 +140,12 @@ export function ConnectAppleMusicScreen({ mode }: { mode: ConnectMode }) {
         <OnboardingBackdrop colors={APPLE_MUSIC_NEBULA}>
             <View className="flex-row px-4 pt-2">
                 <GlassIconButton
-                    accessibilityLabel={reconnect ? "Close" : "Back to login"}
+                    accessibilityLabel={copy.modal ? "Close" : "Back to login"}
                     onPress={() => void back()}
                     disabled={busy}
                 >
                     <Ionicons
-                        name={reconnect ? "close" : "chevron-back"}
+                        name={copy.modal ? "close" : "chevron-back"}
                         size={22}
                         color={colors.foreground}
                     />
@@ -130,14 +156,10 @@ export function ConnectAppleMusicScreen({ mode }: { mode: ConnectMode }) {
                 <View className="items-center gap-3">
                     <AppleMusicLogo size={96} />
                     <Text className="mt-2 text-center text-3xl font-bold tracking-tight">
-                        {reconnect
-                            ? "Reconnect Apple Music"
-                            : "Connect Apple Music"}
+                        {copy.title}
                     </Text>
                     <Text className="text-center text-base leading-6 text-muted-foreground">
-                        {reconnect
-                            ? "Apple ended the saved sign in. Reconnect to keep using your library."
-                            : "Cadenza reads your library and plays through Apple Music. You can skip this and connect later from Account."}
+                        {copy.body}
                     </Text>
                 </View>
 
@@ -175,9 +197,7 @@ export function ConnectAppleMusicScreen({ mode }: { mode: ConnectMode }) {
                             <ActivityIndicator />
                         ) : (
                             <Text className="text-base font-semibold">
-                                {reconnect
-                                    ? "Reconnect Apple Music"
-                                    : "Connect Apple Music"}
+                                {copy.title}
                             </Text>
                         )}
                     </GlassButton>
@@ -191,7 +211,7 @@ export function ConnectAppleMusicScreen({ mode }: { mode: ConnectMode }) {
                         className="h-11 items-center justify-center active:opacity-60"
                     >
                         <Text className="text-sm font-semibold text-muted-foreground">
-                            {reconnect ? "Not now" : "Skip for now"}
+                            {copy.skip}
                         </Text>
                     </Pressable>
                 </View>

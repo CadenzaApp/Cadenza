@@ -118,6 +118,10 @@ function RootStack() {
                 options={{ headerShown: false, presentation: "modal" }}
             />
             <Stack.Screen
+                name="connect-apple-music"
+                options={{ headerShown: false, presentation: "modal" }}
+            />
+            <Stack.Screen
                 name="library-categories"
                 options={sheetScreenOptions(theme)}
             />
