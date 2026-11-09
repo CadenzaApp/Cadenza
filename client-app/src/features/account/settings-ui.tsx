@@ -24,16 +24,21 @@ export type { IoniconName };
 
 /**
  * Every settings screen: a `DetailScreen` sheet with a padded scroll body.
- * `overlay` renders outside the scroll, for dialogs.
+ * `overlay` renders outside the scroll, for dialogs. A sheet adds what it
+ * needs on top of this base, like `nebulaColors` for a backdrop of its own;
+ * without one it is the flat card color.
  */
 export function SettingsSheet({
     title,
     overlay,
+    nebulaColors,
     className,
     children,
 }: {
     title: string;
     overlay?: ReactNode;
+    /** Colors for a nebula behind the sheet. See `DetailScreen`. */
+    nebulaColors?: readonly string[];
     /** Classes for the scroll content, like a wider `gap-5`. */
     className?: string;
     children: ReactNode;
@@ -41,7 +46,11 @@ export function SettingsSheet({
     const insets = useSafeAreaInsets();
 
     return (
-        <DetailScreen presentation="sheet" title={title}>
+        <DetailScreen
+            presentation="sheet"
+            title={title}
+            nebulaColors={nebulaColors}
+        >
             <ScrollView
                 className="flex-1"
                 contentContainerClassName={cn("gap-4 px-5 pt-2", className)}

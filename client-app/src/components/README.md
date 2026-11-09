@@ -100,7 +100,8 @@ a long press, which leaves short drags to the scroll view. Do **not** reuse the 
 drag code for a list: it caches drop-zone rects once at drag start, so it breaks under scroll.
 
 `detail-screen.tsx` exports `DetailScreen`, the header and safe-area shell for most routes that
-are not a tab. `/artist/:id` and `/collection/:kind/:id` opt out: both draw a hero of their own
+are not a tab. Its nebula comes from `artworkUrl` or `tint`, or from set `nebulaColors` for a
+screen with a color of its own; with none it is the flat card color. `/artist/:id` and `/collection/:kind/:id` opt out: both draw a hero of their own
 and float a `FloatingBackButton`. It draws the title, an optional `headerRight`, and a back button
 (screen) or X (sheet), then renders its children in a clipped flex body below them. One
 `presentation` prop (`"screen"` by default, `"sheet"` for the settings sheets, the two pickers,

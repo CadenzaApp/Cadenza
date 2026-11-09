@@ -27,6 +27,10 @@ glass, color slots, explicit filter, tag suggestions) go through `useUserSetting
 Every screen here is a `SettingsSheet` (a `DetailScreen` sheet with a padded scroll body) from
 `settings-ui.tsx`, and saves through `useSaveSettings` with `SaveError` for the failure line. Each tile and row on `/account` pushes its own sheet.
 
+`SettingsSheet` is the base for every sheet page. A sheet adds to it through props (`overlay`,
+`nebulaColors`, `className`) rather than drawing its own shell. Account is the plain card; the
+Apple Music connect sheet in `@/features/onboarding` adds a red nebula.
+
 The display name is `profile.username` from `useProfile`, with the email local part while it
 loads. Username and bio are edited only in account details. Your public page is read only; its
 Edit button (reached from the Social tab's Me button or View public profile) opens account details.

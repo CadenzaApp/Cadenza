@@ -32,6 +32,11 @@ type DetailScreenProps = {
     artworkUrl?: string | null;
     /** The nebula's color without artwork, and while its colors load. */
     tint?: string | null;
+    /**
+     * Set colors for the nebula, for a screen with no artwork that still has
+     * a color of its own, like the Apple Music sheets. Wins over the other two.
+     */
+    nebulaColors?: readonly string[];
     /** Defaults to a pushed screen. Account, Appearance, and Player are sheets. */
     presentation?: DetailPresentation;
     children: ReactNode;
@@ -57,6 +62,7 @@ export function DetailScreen({
     headerRight,
     artworkUrl = null,
     tint = null,
+    nebulaColors,
     presentation = "screen",
     children,
 }: DetailScreenProps) {
@@ -71,6 +77,7 @@ export function DetailScreen({
             headerRight={headerRight}
             artworkUrl={artworkUrl}
             tint={tint}
+            nebulaColors={nebulaColors}
             isSheet={isSheet}
             // a sheet starts below the status bar, so on iOS that is just room
             // for the native grabber
@@ -89,6 +96,7 @@ function DetailScreenBody({
     headerRight,
     artworkUrl,
     tint,
+    nebulaColors,
     isSheet,
     insetTop,
     textColor,
@@ -99,6 +107,7 @@ function DetailScreenBody({
     headerRight?: ReactNode;
     artworkUrl: string | null;
     tint: string | null;
+    nebulaColors?: readonly string[];
     isSheet: boolean;
     insetTop: number;
     textColor: string;
@@ -110,7 +119,8 @@ function DetailScreenBody({
         () => (artworkUrl ? [artworkUrl] : []),
         [artworkUrl],
     );
-    const nebula = useArtworkNebulaColors(nebulaUrls, tint);
+    const artworkNebula = useArtworkNebulaColors(nebulaUrls, tint);
+    const nebula = nebulaColors ?? artworkNebula;
     const foreground = textColor;
 
     return (

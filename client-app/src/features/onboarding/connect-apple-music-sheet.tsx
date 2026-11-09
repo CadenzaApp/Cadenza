@@ -10,6 +10,7 @@ import { useConnectAppleMusic } from "@/features/account/apple-music-connection"
 import { SettingsPoints, SettingsSheet } from "@/features/account/settings-ui";
 
 import { WHAT_IT_UNLOCKS, WHICH_ACCOUNT } from "./connect-copy";
+import { APPLE_MUSIC_NEBULA } from "./onboarding-backdrop";
 
 /**
  * - `connect`: opened from a gated screen, like Library without Apple Music.
@@ -46,7 +47,7 @@ export function ConnectAppleMusicSheet({ mode }: { mode: ConnectSheetMode }) {
     }
 
     return (
-        <SettingsSheet title={copy.title}>
+        <SettingsSheet title={copy.title} nebulaColors={APPLE_MUSIC_NEBULA}>
             <GlassPanel>
                 <View className="items-center gap-2 px-5 py-6">
                     <AppleMusicLogo size={64} />
