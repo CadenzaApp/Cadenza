@@ -137,8 +137,12 @@ export function ConnectAppleMusicScreen({ mode }: { mode: ConnectMode }) {
     const busy = isConnecting || leaving;
 
     return (
-        <OnboardingBackdrop colors={APPLE_MUSIC_NEBULA}>
-            <View className="flex-row px-4 pt-2">
+        <OnboardingBackdrop colors={APPLE_MUSIC_NEBULA} sheet={copy.modal}>
+            <View
+                className={
+                    copy.modal ? "flex-row px-4 pt-4" : "flex-row px-4 pt-2"
+                }
+            >
                 <GlassIconButton
                     accessibilityLabel={copy.modal ? "Close" : "Back to login"}
                     onPress={() => void back()}
@@ -152,9 +156,14 @@ export function ConnectAppleMusicScreen({ mode }: { mode: ConnectMode }) {
                 </GlassIconButton>
             </View>
 
-            <ScrollView contentContainerClassName="flex-grow justify-center gap-8 px-6 py-6">
+            {/* the explainer scrolls; the actions below it are pinned, so a
+                short sheet never pushes the button out of view */}
+            <ScrollView
+                className="flex-1"
+                contentContainerClassName="flex-grow justify-center gap-6 px-6 py-4"
+            >
                 <View className="items-center gap-3">
-                    <AppleMusicLogo size={96} />
+                    <AppleMusicLogo size={copy.modal ? 64 : 96} />
                     <Text className="mt-2 text-center text-3xl font-bold tracking-tight">
                         {copy.title}
                     </Text>
@@ -166,56 +175,56 @@ export function ConnectAppleMusicScreen({ mode }: { mode: ConnectMode }) {
                 <View className="gap-3">
                     <SettingsPoints points={WHAT_IT_UNLOCKS} />
                 </View>
+            </ScrollView>
 
-                <View className="gap-3">
-                    {message ? (
-                        <Text
-                            accessibilityRole="alert"
-                            className="text-center text-sm leading-5 text-muted-foreground"
-                        >
-                            {message}
-                        </Text>
-                    ) : null}
-                    {lastStatus === AuthStatus.Denied ? (
-                        <Pressable
-                            accessibilityRole="link"
-                            onPress={() => void Linking.openSettings()}
-                            className="active:opacity-60"
-                        >
-                            <Text className="text-center text-sm font-semibold underline">
-                                Allow access in Settings
-                            </Text>
-                        </Pressable>
-                    ) : null}
-
-                    <GlassButton
-                        glassTintColor={APPLE_MUSIC_GRADIENT[0]}
-                        onPress={() => void connect()}
-                        disabled={busy}
+            <View className="gap-3 px-6 pb-2 pt-3">
+                {message ? (
+                    <Text
+                        accessibilityRole="alert"
+                        className="text-center text-sm leading-5 text-muted-foreground"
                     >
-                        {isConnecting ? (
-                            <ActivityIndicator />
-                        ) : (
-                            <Text className="text-base font-semibold">
-                                {copy.title}
-                            </Text>
-                        )}
-                    </GlassButton>
-                    <Text className="px-2 text-center text-xs leading-4 text-muted-foreground">
-                        {WHICH_ACCOUNT}
+                        {message}
                     </Text>
+                ) : null}
+                {lastStatus === AuthStatus.Denied ? (
                     <Pressable
-                        accessibilityRole="button"
-                        onPress={() => void skip()}
-                        disabled={busy}
-                        className="h-11 items-center justify-center active:opacity-60"
+                        accessibilityRole="link"
+                        onPress={() => void Linking.openSettings()}
+                        className="active:opacity-60"
                     >
-                        <Text className="text-sm font-semibold text-muted-foreground">
-                            {copy.skip}
+                        <Text className="text-center text-sm font-semibold underline">
+                            Allow access in Settings
                         </Text>
                     </Pressable>
-                </View>
-            </ScrollView>
+                ) : null}
+
+                <GlassButton
+                    glassTintColor={APPLE_MUSIC_GRADIENT[0]}
+                    onPress={() => void connect()}
+                    disabled={busy}
+                >
+                    {isConnecting ? (
+                        <ActivityIndicator />
+                    ) : (
+                        <Text className="text-base font-semibold">
+                            {copy.title}
+                        </Text>
+                    )}
+                </GlassButton>
+                <Text className="px-2 text-center text-xs leading-4 text-muted-foreground">
+                    {WHICH_ACCOUNT}
+                </Text>
+                <Pressable
+                    accessibilityRole="button"
+                    onPress={() => void skip()}
+                    disabled={busy}
+                    className="h-10 items-center justify-center active:opacity-60"
+                >
+                    <Text className="text-sm font-semibold text-muted-foreground">
+                        {copy.skip}
+                    </Text>
+                </Pressable>
+            </View>
         </OnboardingBackdrop>
     );
 }

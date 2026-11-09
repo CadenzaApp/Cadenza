@@ -12,12 +12,17 @@ export const CADENZA_NEBULA = ["#6466b8", "#257a83", "#ff6467"] as const;
 /** Apple's red, for the connect step. */
 export const APPLE_MUSIC_NEBULA = [...APPLE_MUSIC_GRADIENT, "#6466b8"] as const;
 
-/** A full screen nebula page inside the safe area. Every onboarding screen sits on one. */
+/**
+ * A nebula page inside the safe area. Every onboarding screen sits on one.
+ * `sheet` drops the top inset: a sheet already starts below the status bar.
+ */
 export function OnboardingBackdrop({
     colors,
+    sheet = false,
     children,
 }: {
     colors: readonly string[];
+    sheet?: boolean;
     children: ReactNode;
 }) {
     const insets = useSafeAreaInsets();
@@ -30,7 +35,7 @@ export function OnboardingBackdrop({
             <View
                 className="flex-1"
                 style={{
-                    paddingTop: insets.top,
+                    paddingTop: sheet ? 0 : insets.top,
                     paddingBottom: insets.bottom,
                 }}
             >
