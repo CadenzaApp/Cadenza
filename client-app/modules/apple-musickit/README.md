@@ -19,7 +19,18 @@ Import `Auth`, `MusicKit`, `Playback`, and their public types from
   reads or changes favorite state for songs, albums, and playlists, writes to
   library playlists, and reads catalog and library artists.
 - `Playback` exposes native commands plus React hooks for the shared playback
-  snapshot.
+  snapshot. `setPlaybackEngine(engine)` routes every command to a JS player with
+  the same surface (`PlaybackEngine`), like the app's preview player; null goes
+  back to native.
+- `Auth.getSubscription()` says whether the connected account can play full
+  songs (`canPlayCatalogContent`). iOS reads `MusicSubscription`; Android cannot
+  tell and resolves `{}`.
+
+Catalog reads (`/v1/catalog/...`) need only the developer token, so they work
+with no user signed in: the user token is sent when there is one. With no user
+token the storefront is the device's region, and on iOS catalog search and song
+info go through REST instead of MusicKit's own requests. Everything under
+`/v1/me` still throws `ERR_MISSING_USER_TOKEN` without one.
 
 Returned `MusicItem` values identify their `resourceKind`, `source`, canonical
 `id`, optional `catalogId` and `libraryId`, and required `playbackType`. Catalog

@@ -20,6 +20,11 @@ heading, one sentence, and whatever way out exists (reconnect Apple Music, sign 
 error text never goes on screen: a native MusicKit rejection stringifies to a Swift stack trace
 and a backend rejection is a bare `{ error_type }`. The cause still reaches the console.
 
+`gated-feature.tsx` exports `GatedFeature`. It renders its children when the music tier allows a
+feature (`@/lib/music-access`), and otherwise a Connect Apple Music prompt that opens
+`/connect-apple-music`. Wrap a screen that needs the library or playlists in it rather than
+checking the connection by hand.
+
 ### ui/
 
 `badge`, `button`, `card`, `dialog`, `glass-surface`, `glass-button`, `glass-confirm-dialog`,
