@@ -12,6 +12,7 @@ import {
 } from "@/lib/musickit-hooks";
 import { usePlaybackCommands } from "@/lib/playback";
 import { shareCollection } from "@/lib/share-track";
+import { logHandledError } from "@/lib/log";
 
 import { FavoriteShareRow } from "./favorite-share-row";
 
@@ -56,7 +57,7 @@ export function CollectionOptionsMenu({
         try {
             await setCollectionFavoriteStatus(!favoriteStatus.isFavorite);
         } catch (error) {
-            console.error("Unable to update Apple Music favorite.", error);
+            logHandledError("Unable to update Apple Music favorite", error);
             Alert.alert(
                 "Couldn’t Update Favorite",
                 "Please check your Apple Music connection and try again.",
@@ -116,7 +117,7 @@ export function CollectionOptionsMenu({
                         onClose();
                         void Promise.resolve(action.onPress(tracks)).catch(
                             (error) => {
-                                console.error(
+                                logHandledError(
                                     `Collection action failed: ${action.id}`,
                                     error,
                                 );

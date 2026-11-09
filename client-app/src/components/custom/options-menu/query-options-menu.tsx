@@ -6,6 +6,7 @@ import { MusicListActionButton } from "@/components/custom/music-list/music-list
 import type { MusicListAction } from "@/components/custom/music-list/types";
 import { Separator } from "@/components/ui/separator";
 import { usePlaybackCommands } from "@/lib/playback";
+import { logHandledError } from "@/lib/log";
 
 type QueryOptionsMenuProps = {
     /** The query is saved, so it can be rerun rather than saved. */
@@ -96,7 +97,7 @@ export function QueryOptionsMenu({
                         onClose();
                         void Promise.resolve(action.onPress(null)).catch(
                             (error) => {
-                                console.error(
+                                logHandledError(
                                     `Query action failed: ${action.id}`,
                                     error,
                                 );

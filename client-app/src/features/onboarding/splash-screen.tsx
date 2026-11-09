@@ -4,6 +4,7 @@ import { ActivityIndicator, View } from "react-native";
 
 import { useAccount } from "@/lib/account";
 import { useUserSettings } from "@/lib/routes/settings";
+import { logHandledError } from "@/lib/log";
 
 import {
     CADENZA_NEBULA,
@@ -32,7 +33,7 @@ export function SplashScreen() {
                 await tryRestoreSession();
             } catch (error) {
                 // no session to restore lands on login, same as signed out
-                console.error("Error restoring session:", error);
+                logHandledError("Error restoring session", error);
             } finally {
                 setRestored(true);
             }

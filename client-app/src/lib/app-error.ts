@@ -177,3 +177,32 @@ export function classifyError(error: unknown): AppError {
 export function isAppleMusicAuthError(error: unknown): boolean {
     return classifyError(error).kind === "apple-music-auth";
 }
+
+/** The HTTP status in a native Apple Music error, like the 500 in "(500)". */
+export function appleMusicStatus(error: unknown): number | null {
+    if (typeof error !== "object" || error === null) return null;
+    const message = (error as { message?: unknown }).message;
+    if (typeof message !== "string") return null;
+    const match = message.match(/\((\d{3})\)/);
+    return match ? Number(match[1]) : null;
+}
+
+/** What iOS and Android say when a request never got an answer. */
+const DROPPED_CONNECTION =
+    /network request failed|network connection was lost|internet connection appears to be offline|timed out|NSURLErrorDomain|SocketTimeoutException|UnknownHostException/i;
+
+/**
+ * Whether trying the same Apple Music read again could work: Apple failing on
+ * its side (5xx), asking us to slow down (429), or the request never getting
+ * there. Anything else, like a 404 or a bad token, fails the same way twice.
+ */
+export function isTransientAppleMusicError(error: unknown): boolean {
+    if (typeof error !== "object" || error === null) return false;
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === "string" && DROPPED_CONNECTION.test(message)) {
+        return true;
+    }
+    if (nativeErrorName(error) !== "ERR_APPLE_MUSIC_API") return false;
+    const status = appleMusicStatus(error);
+    return status === null || status >= 500 || status === 429;
+}

@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { classifyError, isAppleMusicAuthError } from "./app-error.ts";
+import {
+    classifyError,
+    isAppleMusicAuthError,
+    isTransientAppleMusicError,
+} from "./app-error.ts";
 
 /** What a chained native rejection actually looks like by the time it hits JS. */
 function nativeError(name: string) {
@@ -80,4 +84,36 @@ test("a rejected developer token is not a reconnect", () => {
     const appError = classifyError(error);
     assert.equal(appError.kind, "apple-music-unavailable");
     assert.equal(appError.action, undefined);
+});
+
+function apiError(status: number) {
+    return Object.assign(
+        new Error(
+            `Calling the 'getRecentlyAdded' function has failed\n→ Caused by: ERR_APPLE_MUSIC_API: Apple Music API error (${status}): {}`,
+        ),
+        { code: "ERR_APPLE_MUSIC_API" },
+    );
+}
+
+test("apple failing on its side or throttling is worth a retry", () => {
+    assert.equal(isTransientAppleMusicError(apiError(500)), true);
+    assert.equal(isTransientAppleMusicError(apiError(503)), true);
+    assert.equal(isTransientAppleMusicError(apiError(429)), true);
+});
+
+test("a dropped connection is worth a retry", () => {
+    assert.equal(
+        isTransientAppleMusicError(
+            new Error("The network connection was lost."),
+        ),
+        true,
+    );
+});
+
+test("a missing resource or a dead token is not", () => {
+    assert.equal(isTransientAppleMusicError(apiError(404)), false);
+    assert.equal(
+        isTransientAppleMusicError(nativeError("ERR_APPLE_MUSIC_AUTH")),
+        false,
+    );
 });

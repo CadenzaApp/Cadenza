@@ -40,6 +40,7 @@ import {
 } from "@/lib/musickit-hooks";
 import { useOpenScreen } from "@/lib/open-screen";
 import { SHEET_DETENT, useAppTheme } from "@/lib/theme";
+import { logHandledError } from "@/lib/log";
 
 import {
     MediaPlayerProgress,
@@ -293,7 +294,7 @@ export function PlayerPage() {
         try {
             await setSongFavoriteStatus(!isFavorite);
         } catch (error) {
-            console.error("Unable to update Apple Music favorite.", error);
+            logHandledError("Unable to update Apple Music favorite", error);
             Alert.alert(
                 "Couldn't Update Favorite",
                 "Please check your Apple Music connection and try again.",

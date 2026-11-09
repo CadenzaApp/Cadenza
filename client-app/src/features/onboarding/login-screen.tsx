@@ -14,6 +14,7 @@ import { GlassInput } from "@/components/ui/glass-input";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { Text } from "@/components/ui/text";
 import { useAccount } from "@/lib/account";
+import { logHandledError } from "@/lib/log";
 
 import { authErrorMessage } from "./auth-error-message";
 import {
@@ -78,7 +79,7 @@ export function LoginScreen({ initialMode }: { initialMode?: LoginMode }) {
                 }
             }
         } catch (err) {
-            console.error("Sign in failed:", err);
+            logHandledError("Sign in failed", err);
             setError(authErrorMessage(err));
         } finally {
             setSubmitting(false);

@@ -24,12 +24,8 @@ import {
 import useSWR, { unstable_serialize, useSWRConfig } from "swr";
 import useSWRImmutable from "swr/immutable";
 import useSWRInfinite from "swr/infinite";
-import { isAppleMusicAuthError } from "./app-error";
-import {
-    getAppleMusicAuthGeneration,
-    reportAppleMusicAuthFailure,
-    useAppleMusic,
-} from "./apple-music-auth";
+import { useAppleMusic } from "./apple-music-auth";
+import { readAppleMusic as read } from "./apple-music-read";
 import { useListeningEvents } from "./listening-events";
 import { collectionRoute, isLibraryId } from "./music-routes";
 import {
@@ -38,6 +34,7 @@ import {
     resolvedTracks,
     uniqueBy,
 } from "./paged-tracks";
+import { logHandledError } from "./log";
 
 const MUSIC_LIST_PAGE_SIZE = 25;
 /**
@@ -73,46 +70,6 @@ function readableIds(
 /** One id's version of `readableIds`. */
 function isReadable(isConnected: boolean, id: string): boolean {
     return isConnected || !isLibraryId(id);
-}
-
-/** How long to wait before the one retry a rejected credential gets. */
-const AUTH_RETRY_DELAY_MS = 400;
-
-/**
- * Runs one Apple Music read, with a single retry if Apple rejects the
- * credentials.
- *
- * The retry is there for the races a plain failure cannot tell apart from a
- * dead token: a read that fired before `restoreNativeTokens` finished pushing
- * the stored token into the native module, or a token Apple was briefly
- * unhappy about. A genuinely expired token fails the same way twice, and that
- * second failure is what retires it, so nothing keeps replaying a credential
- * that cannot work.
- *
- * Every SWR fetcher in this file goes through here. A new read that skips it
- * will hang on a dead token instead of prompting a reconnect. Exported as
- * `readAppleMusic` for reads outside this file, like the library sync.
- */
-async function read<T>(fetchOnce: () => Promise<T>): Promise<T> {
-    const readGeneration = getAppleMusicAuthGeneration();
-    try {
-        return await fetchOnce();
-    } catch (error) {
-        if (!isAppleMusicAuthError(error)) throw error;
-
-        await new Promise((resolve) =>
-            setTimeout(resolve, AUTH_RETRY_DELAY_MS),
-        );
-
-        try {
-            return await fetchOnce();
-        } catch (retryError) {
-            if (isAppleMusicAuthError(retryError)) {
-                reportAppleMusicAuthFailure(readGeneration);
-            }
-            throw retryError;
-        }
-    }
 }
 
 /** A library collection that contains songs. */
@@ -871,7 +828,7 @@ export function usePagedTracksForSongIds(
                     );
                 } catch (error) {
                     // the tracks already resolved are still worth playing
-                    console.error("Could not resolve songs to play:", error);
+                    logHandledError("Could not resolve songs to play", error);
                 }
             }
             return uniqueBy(
@@ -1117,8 +1074,8 @@ export function useGroupedTrackLoader({
                                 await readSongInfo(isConnected, toFetch),
                             );
                         } catch (error) {
-                            console.error(
-                                "Could not load songs for a grouped list:",
+                            logHandledError(
+                                "Could not load songs for a grouped list",
                                 error,
                             );
                             failed = true;
@@ -1595,7 +1552,7 @@ export function useSongFavoriteStatus(songId?: string) {
             );
         } catch (error) {
             // the favorite itself went through; only the activity tag misses it
-            console.error("Recording a favorite change failed:", error);
+            logHandledError("Recording a favorite change failed", error);
         }
         return nextStatus;
     }
@@ -1830,5 +1787,3 @@ function appendWithoutDuplicates<Item extends { id: string }>(items: Item[]) {
         return true;
     });
 }
-
-export { read as readAppleMusic };

@@ -454,17 +454,23 @@ react-navigation `useScrollToTop` subscription remains as a cross-platform fallb
 
 - `AppleMusicProvider` exposes `sessionExpired`, set when Apple rejects a request with the
   current credentials. It does not prove the music-user token itself expired. Every Apple
-  Music read in `musickit-hooks.ts` goes through a local
-  `read()` wrapper that retries once on `ERR_APPLE_MUSIC_AUTH` and, if that fails too, calls
-  `reportAppleMusicAuthFailure()`. For a session that was connected, that first asks for a new
+  Music read goes through `readAppleMusic()` (`apple-music-read.ts`). It retries Apple failing
+  on its side (5xx), throttling (429), and dropped connections up to three times with backoff
+  and jitter (`retry.ts`), retries `ERR_APPLE_MUSIC_AUTH` once, and if that fails too calls
+  `reportAppleMusicAuthFailure()`. Writes do not go through it: sent twice, they could happen
+  twice. For a session that was connected, that first asks for a new
   token with `Auth.refreshUserToken`, which on iOS needs no prompt; success swaps it in and bumps
   `sessionRevision` so the failed reads run again. At most one silent refresh a minute, so a
   token rejected again right away does not loop. If the refresh cannot work (Android, access
   revoked, cooldown), it clears the rejected credentials and flips `sessionExpired`, which
   `AppleMusicSessionGuard` turns into the reconnect page. Reads capture
   an auth generation, so a failure from before reconnect cannot clear a newer session;
-  reconnect waits for any pending credential reset. A new musickit read that skips `read()`
-  will keep replaying rejected credentials instead of prompting a reconnect.
+  reconnect waits for any pending credential reset. A new Apple Music read that skips
+  `readAppleMusic()` gets no retry, and keeps replaying rejected credentials instead of
+  prompting a reconnect.
+- Handled errors log through `logHandledError` (`log.ts`), which uses `console.log`. A dev build
+  turns every `console.error` into a red overlay, so `console.error` is for bugs, not for a
+  failure the screen already shows cleanly.
 - `AccountProvider` owns who is signed in, id and email only. `signIn`, `signUp`, `signOut`, and
   `tryRestoreSession`. `signUp` resolves `needsEmailConfirmation` and signs no one in when
   Supabase has no session yet. Every account change calls `clearCache()`, so switching users cannot leak

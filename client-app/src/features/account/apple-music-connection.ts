@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useAppleMusic } from "@/lib/apple-music-auth";
 import { formatSyncedAgo } from "@/lib/last-synced";
 import { useAppleMusicSync } from "@/lib/song-init";
+import { logHandledError } from "@/lib/log";
 
 import type { StatusTone } from "./settings-ui";
 
@@ -91,7 +92,7 @@ export function useConnectAppleMusic() {
             );
             return result;
         } catch (error) {
-            console.error("Apple Music connection error:", error);
+            logHandledError("Apple Music connection error", error);
             setMessage("Could not connect Apple Music. Please try again.");
             return null;
         } finally {

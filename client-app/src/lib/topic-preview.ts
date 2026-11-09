@@ -6,6 +6,8 @@ import {
 } from "expo-audio";
 import { useSyncExternalStore } from "react";
 import { MusicKit, Playback } from "@apple-musickit";
+import { readAppleMusic } from "./apple-music-read";
+import { logHandledError } from "./log";
 
 /**
  * One Apple Music preview clip playing from a social topic card. Pausing the
@@ -55,7 +57,7 @@ function getPlayer(): AudioPlayer | null {
         player.addListener("playbackStatusUpdate", onStatus);
         return player;
     } catch (error) {
-        console.error("Failed to create the topic preview player:", error);
+        logHandledError("Failed to create the topic preview player", error);
         return null;
     }
 }
@@ -69,7 +71,7 @@ async function pauseMusicKitForPreview() {
         await Playback.pause();
     } catch (error) {
         resumeMusicKit = false;
-        console.error("Failed to pause Apple Music for a preview:", error);
+        logHandledError("Failed to pause Apple Music for a preview", error);
     }
 }
 
@@ -83,7 +85,7 @@ async function ensureAudioMode() {
         });
         audioModeReady = true;
     } catch (error) {
-        console.error("Failed to set audio mode for topic preview:", error);
+        logHandledError("Failed to set audio mode for topic preview", error);
     }
 }
 
@@ -118,8 +120,8 @@ async function stopPreview({ resume }: { resume: boolean }) {
         try {
             await Playback.play();
         } catch (error) {
-            console.error(
-                "Failed to resume Apple Music after a preview:",
+            logHandledError(
+                "Failed to resume Apple Music after a preview",
                 error,
             );
         }
@@ -181,10 +183,12 @@ export async function toggleTopicPreview(
             progress: 0,
         });
         try {
-            const [song] = await MusicKit.getSongInfo([songId]);
+            const [song] = await readAppleMusic(() =>
+                MusicKit.getSongInfo([songId]),
+            );
             url = song?.previewUrl?.trim();
         } catch (error) {
-            console.error("Failed to load a song preview URL:", error);
+            logHandledError("Failed to load a song preview URL", error);
         }
         if (gen !== generation) return;
         if (!url) {

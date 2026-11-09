@@ -9,6 +9,7 @@ import { Text } from "@/components/ui/text";
 import { useAccount } from "@/lib/account";
 import { useAppleMusic } from "@/lib/apple-music-auth";
 import { useAppleMusicSync } from "@/lib/song-init";
+import { logHandledError } from "@/lib/log";
 
 import {
     appleMusicStatus,
@@ -62,7 +63,7 @@ export function AppleMusicSettingsScreen() {
             setConfirmOpen(false);
             setMessage("Apple Music signed out.");
         } catch (error) {
-            console.error("Apple Music sign-out error:", error);
+            logHandledError("Apple Music sign-out error", error);
             setDisconnectError("Could not sign out. Please try again.");
         } finally {
             setDisconnecting(false);

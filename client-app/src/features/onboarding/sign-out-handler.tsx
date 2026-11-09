@@ -3,6 +3,7 @@ import { useRouter, useSegments } from "expo-router";
 import { useEffect, useRef } from "react";
 
 import { useAccount } from "@/lib/account";
+import { logHandledError } from "@/lib/log";
 
 import { clearConnectStepDone } from "./connect-step-store";
 
@@ -38,7 +39,7 @@ export function SignOutHandler() {
 
         void clearConnectStepDone(signedOutId);
         Playback.pause().catch((error: unknown) =>
-            console.error("Could not pause playback on sign out:", error),
+            logHandledError("Could not pause playback on sign out", error),
         );
         if (onSignedOutRoute) return;
         if (router.canDismiss()) router.dismissAll();

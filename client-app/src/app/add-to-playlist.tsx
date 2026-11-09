@@ -13,6 +13,7 @@ import { DetailScreen } from "@/components/ui/detail-screen";
 import { Text } from "@/components/ui/text";
 import { usePlaylistMutations, useUserPlaylists } from "@/lib/musickit-hooks";
 import type { MusicItem } from "@apple-musickit";
+import { logHandledError } from "@/lib/log";
 
 /**
  * Picks a library playlist to add the song to, or makes a new one. Opened from
@@ -51,7 +52,7 @@ export default function AddToPlaylistScreen() {
             ]);
             router.back();
         } catch (error) {
-            console.error("Failed to add the song to a playlist:", error);
+            logHandledError("Failed to add the song to a playlist", error);
             const { title, detail } = classifyError(error);
             Alert.alert(title, detail);
         } finally {
@@ -68,7 +69,7 @@ export default function AddToPlaylistScreen() {
             await createPlaylist(name, [songId]);
             router.back();
         } catch (error) {
-            console.error("Failed to create the playlist:", error);
+            logHandledError("Failed to create the playlist", error);
             const { title, detail } = classifyError(error);
             Alert.alert(title, detail);
         } finally {

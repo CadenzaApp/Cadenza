@@ -15,6 +15,8 @@ import {
 } from "expo-audio";
 
 import { firstPlayableFrom, nextPreviewIndex } from "./preview-queue";
+import { readAppleMusic } from "./apple-music-read";
+import { logHandledError } from "./log";
 
 /**
  * A player that plays each song's ~30 second Apple Music preview, for someone
@@ -60,7 +62,7 @@ export function createPreviewPlayer(): PlaybackEngine {
             });
             audioModeReady = true;
         } catch (error) {
-            console.error("Failed to set the preview audio mode:", error);
+            logHandledError("Failed to set the preview audio mode", error);
         }
     }
 
@@ -108,7 +110,7 @@ export function createPreviewPlayer(): PlaybackEngine {
         );
         const found = new Map(
             (songIds.length
-                ? await MusicKit.getSongInfo([...songIds])
+                ? await readAppleMusic(() => MusicKit.getSongInfo([...songIds]))
                 : []
             ).map((song) => [song.catalogId ?? song.id, song]),
         );
@@ -217,7 +219,9 @@ export function createPreviewPlayer(): PlaybackEngine {
                 return;
             }
             if (type === "album") {
-                const { items } = await MusicKit.getAlbumSongs(id);
+                const { items } = await readAppleMusic(() =>
+                    MusicKit.getAlbumSongs(id),
+                );
                 await replaceQueue(items, 0);
                 return;
             }

@@ -20,6 +20,7 @@ import { SearchRecents } from "@/features/search/search-recents";
 import type { SearchScope } from "@/features/search/search-scope";
 import { SearchScopeToggle } from "@/features/search/search-scope";
 import { useAppleMusic } from "@/lib/apple-music-auth";
+import { readAppleMusic } from "@/lib/apple-music-read";
 import { useMusicAccess } from "@/lib/use-music-access";
 import {
     useCatalogArtistSearch,
@@ -139,7 +140,9 @@ export default function SearchScreen() {
     async function playRecentSong(
         entry: Extract<RecentSearch, { kind: "song" }>,
     ) {
-        const [song] = await MusicKit.getSongInfo([entry.songId]);
+        const [song] = await readAppleMusic(() =>
+            MusicKit.getSongInfo([entry.songId]),
+        );
         if (song) await togglePlayback(song);
     }
 

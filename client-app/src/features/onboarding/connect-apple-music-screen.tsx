@@ -20,6 +20,7 @@ import { useConnectAppleMusic } from "@/features/account/apple-music-connection"
 import { SettingsPoints } from "@/features/account/settings-ui";
 import { useAccount } from "@/lib/account";
 import { APPLE_MUSIC_GRADIENT, useAppTheme } from "@/lib/theme";
+import { logHandledError } from "@/lib/log";
 
 import { WHAT_IT_UNLOCKS, WHICH_ACCOUNT } from "./connect-copy";
 import { APPLE_MUSIC_NEBULA, OnboardingBackdrop } from "./onboarding-backdrop";
@@ -69,7 +70,7 @@ export function ConnectAppleMusicScreen() {
         try {
             await signOut();
         } catch (error) {
-            console.error("Sign out failed:", error);
+            logHandledError("Sign out failed", error);
             setLeaving(false);
         }
     }

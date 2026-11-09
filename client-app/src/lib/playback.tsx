@@ -35,6 +35,7 @@ import { abandonTopicPreview } from "./topic-preview";
 import { createPreviewPlayer } from "./preview-player";
 import { useMusicAccess } from "./use-music-access";
 import { nextAction, previousAction } from "./transport";
+import { logHandledError } from "./log";
 
 export type PlaybackQueue = {
     tracks: MusicItem[];
@@ -292,7 +293,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
         try {
             await startQueue(nextQueue);
         } catch (e) {
-            console.error("Failed to start playback queue:", e);
+            logHandledError("Failed to start playback queue", e);
             Alert.alert("Playback Error", "Failed to start playback.");
             throw e;
         }
@@ -315,7 +316,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
                 await playQueue({ tracks: [track], chosenStart: true, source });
             }
         } catch (e) {
-            console.error("Failed to toggle playback:", e);
+            logHandledError("Failed to toggle playback", e);
             // playQueue already alerted on the new-track path.
             if (!isNewTrack) {
                 Alert.alert(
@@ -357,7 +358,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
             });
             if (queueIndex < 0 && activeTrack) setQueueIndex(0);
         } catch (e) {
-            console.error("Failed to add tracks to playback queue:", e);
+            logHandledError("Failed to add tracks to playback queue", e);
             Alert.alert("Playback Error", "Failed to add songs to the queue.");
             throw e;
         }
@@ -386,7 +387,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
         try {
             await apply();
         } catch (e) {
-            console.error(`Failed to ${describe}:`, e);
+            logHandledError(`Failed to ${describe}`, e);
             setQueue(current.items);
             setQueueIndex(current.index);
             Alert.alert("Playback Error", `Failed to ${describe}.`);
@@ -445,7 +446,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
         try {
             await Playback.setShuffleMode(mode);
         } catch (e) {
-            console.error("Failed to set the shuffle mode:", e);
+            logHandledError("Failed to set the shuffle mode", e);
         }
     }
 
@@ -453,7 +454,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
         try {
             await Playback.setRepeatMode(mode);
         } catch (e) {
-            console.error("Failed to set the repeat mode:", e);
+            logHandledError("Failed to set the repeat mode", e);
         }
     }
 
@@ -465,7 +466,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
         try {
             await Playback.seekToTime(boundedTime);
         } catch (e) {
-            console.error("Failed to seek playback:", e);
+            logHandledError("Failed to seek playback", e);
         }
     }
 
@@ -501,7 +502,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
                     break;
             }
         } catch (e) {
-            console.error("Failed to skip to the next track:", e);
+            logHandledError("Failed to skip to the next track", e);
         }
     }
 
@@ -520,7 +521,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
             await Playback.skipToPreviousEntry();
             setQueueIndex(resolvedQueueIndex - 1);
         } catch (e) {
-            console.error("Failed to skip to the previous track:", e);
+            logHandledError("Failed to skip to the previous track", e);
         }
     }
 

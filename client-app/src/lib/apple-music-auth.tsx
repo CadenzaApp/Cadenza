@@ -15,6 +15,7 @@ import {
     shouldTrySilentRefresh,
     AppleMusicAuthGeneration,
 } from "./apple-music-auth-state";
+import { logHandledError } from "./log";
 
 type AppleMusicContextType = {
     authResult: AuthResult | null;
@@ -142,7 +143,7 @@ export function AppleMusicProvider({ children }: { children: ReactNode }) {
                     setAuthResult(null);
                 }
             } catch (e) {
-                console.error("Failed to restore Apple Music tokens:", e);
+                logHandledError("Failed to restore Apple Music tokens", e);
                 await clearStoredAuth();
                 setAuthResult(null);
             } finally {
@@ -178,7 +179,7 @@ export function AppleMusicProvider({ children }: { children: ReactNode }) {
             );
             return result;
         } catch (error) {
-            console.error("Apple Music authorization error:", error);
+            logHandledError("Apple Music authorization error", error);
             throw error;
         } finally {
             authGeneration.endTransition();
@@ -232,11 +233,11 @@ export function AppleMusicProvider({ children }: { children: ReactNode }) {
             setAuthResult(null);
             setSessionRevision((revision) => revision + 1);
             const clearStored = clearStoredAuth().catch((error) =>
-                console.error("Failed to clear Apple Music auth:", error),
+                logHandledError("Failed to clear Apple Music auth", error),
             );
             const clearNative = restoreNativeTokens(null).catch((error) =>
-                console.error(
-                    "Failed to clear native Apple Music token:",
+                logHandledError(
+                    "Failed to clear native Apple Music token",
                     error,
                 ),
             );
@@ -266,7 +267,7 @@ export function AppleMusicProvider({ children }: { children: ReactNode }) {
                 setSessionRevision((revision) => revision + 1);
                 return true;
             } catch (error) {
-                console.error("Silent Apple Music refresh failed:", error);
+                logHandledError("Silent Apple Music refresh failed", error);
                 return false;
             } finally {
                 authGeneration.endTransition();

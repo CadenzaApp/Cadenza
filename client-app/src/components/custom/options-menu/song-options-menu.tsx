@@ -20,6 +20,7 @@ import { useOpenScreen } from "@/lib/open-screen";
 import { usePlaybackCommands } from "@/lib/playback";
 import { shareTrack } from "@/lib/share-track";
 import { classifyError } from "@/lib/app-error";
+import { logHandledError } from "@/lib/log";
 
 import { FavoriteShareRow } from "./favorite-share-row";
 
@@ -77,7 +78,7 @@ export const SongOptionsMenu = memo(function SongOptionsMenu({
         try {
             await setSongFavoriteStatus(!favoriteStatus.isFavorite);
         } catch (error) {
-            console.error("Unable to update Apple Music favorite.", error);
+            logHandledError("Unable to update Apple Music favorite", error);
             Alert.alert(
                 "Couldn’t Update Favorite",
                 "Please check your Apple Music connection and try again.",
@@ -234,8 +235,8 @@ export const SongOptionsMenu = memo(function SongOptionsMenu({
                             void Promise.resolve(
                                 action.onPress(selectedTrack),
                             ).catch((error) => {
-                                console.error(
-                                    `Song option ${action.id} failed:`,
+                                logHandledError(
+                                    `Song option ${action.id} failed`,
                                     error,
                                 );
                                 const appError = classifyError(error);

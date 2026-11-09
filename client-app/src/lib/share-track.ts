@@ -1,5 +1,7 @@
 import { MusicKit, type MusicItem } from "@apple-musickit";
 import { Share } from "react-native";
+import { readAppleMusic } from "./apple-music-read";
+import { logHandledError } from "./log";
 
 /**
  * Shares a song's canonical Apple Music link. Falls back to a fresh catalog
@@ -10,7 +12,9 @@ export async function shareTrack(track: MusicItem): Promise<void> {
     try {
         let appleMusicUrl = track.shareUrl;
         if (!appleMusicUrl) {
-            const [resolvedTrack] = await MusicKit.getSongInfo([track.id]);
+            const [resolvedTrack] = await readAppleMusic(() =>
+                MusicKit.getSongInfo([track.id]),
+            );
             appleMusicUrl = resolvedTrack?.shareUrl;
         }
         if (!appleMusicUrl) {
@@ -25,7 +29,7 @@ export async function shareTrack(track: MusicItem): Promise<void> {
             url: appleMusicUrl,
         });
     } catch (error) {
-        console.error("Failed to share the track:", error);
+        logHandledError("Failed to share the track", error);
     }
 }
 
@@ -33,7 +37,10 @@ export async function shareTrack(track: MusicItem): Promise<void> {
 export async function shareCollection(collection: MusicItem): Promise<void> {
     const appleMusicUrl = collection.shareUrl;
     if (!appleMusicUrl) {
-        console.error("No canonical Apple Music URL is available to share.");
+        logHandledError(
+            "No canonical Apple Music URL is available to share",
+            null,
+        );
         return;
     }
 
@@ -44,6 +51,6 @@ export async function shareCollection(collection: MusicItem): Promise<void> {
             url: appleMusicUrl,
         });
     } catch (error) {
-        console.error("Failed to share the collection:", error);
+        logHandledError("Failed to share the collection", error);
     }
 }

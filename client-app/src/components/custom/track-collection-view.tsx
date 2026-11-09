@@ -33,6 +33,7 @@ import { NebulaBackdrop } from "@/components/ui/nebula-backdrop";
 import { Text } from "@/components/ui/text";
 import { useArtworkNebulaColors } from "@/lib/artwork-color";
 import { usePlaybackCommands } from "@/lib/playback";
+import { logHandledError } from "@/lib/log";
 
 import {
     collectionArtworkGrid,
@@ -277,8 +278,8 @@ export function TrackCollectionView({
     function runOption(option: TrackCollectionOption) {
         setOptionsOpen(false);
         void Promise.resolve(option.onPress()).catch((optionError) => {
-            console.error(
-                `Collection option ${option.id} failed:`,
+            logHandledError(
+                `Collection option ${option.id} failed`,
                 optionError,
             );
         });
