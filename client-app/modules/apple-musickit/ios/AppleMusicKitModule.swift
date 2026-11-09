@@ -113,6 +113,19 @@ public class AppleMusicKitModule: Module {
         return object
     }
 
+    /// What `.urlQueryAllowed` keeps but one query value must not: `&` and `=`
+    /// split it, and `+` reads as a space.
+    private static let queryValueAllowed: CharacterSet = {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&+=?#")
+        return allowed
+    }()
+
+    /// `value` escaped for one query parameter, like a search term.
+    private func queryValue(_ value: String) -> String {
+        value.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? value
+    }
+
     private func resolveCatalogSongID(_ id: String) async throws -> String {
         guard id.hasPrefix("i.") else { return id }
 
@@ -498,7 +511,7 @@ public class AppleMusicKitModule: Module {
         if !libraryIDs.isEmpty {
             let encodedIDs = libraryIDs
                 .map {
-                    $0.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? $0
+                    self.queryValue($0)
                 }
                 .joined(separator: ",")
 
@@ -591,7 +604,23 @@ public class AppleMusicKitModule: Module {
     }
 
     private static func isCatalogPath(_ path: String) -> Bool {
-        path.hasPrefix("/v1/catalog/")
+        path.hasPrefix("/v1/catalog/") || path.hasPrefix("/v1/storefronts/")
+    }
+
+    /// The store used when the device region has none.
+    private static let fallbackStorefront = "us"
+
+    /// The device region's storefront if Apple has one, else the US store. A
+    /// region that is not two letters (like "419") or that Apple answers 404
+    /// for falls back; any other failure throws, so it is not cached.
+    private func regionStorefrontID() async throws -> String {
+        guard let region = Locale.current.region?.identifier.lowercased(),
+              region.count == 2,
+              region.allSatisfy({ $0.isASCII && $0.isLetter })
+        else { return Self.fallbackStorefront }
+        let response = try await makeAPIRequest(
+            path: "/v1/storefronts/\(region)", allowNotFound: true)
+        return response.isEmpty ? Self.fallbackStorefront : region
     }
 
     /// Whether there is a music-user token, so MusicKit's own requests work.
@@ -604,7 +633,7 @@ public class AppleMusicKitModule: Module {
     private func currentStorefrontID() async throws -> String {
         if let storefrontID { return storefrontID }
         guard hasUserToken else {
-            let region = Locale.current.region?.identifier.lowercased() ?? "us"
+            let region = try await regionStorefrontID()
             storefrontID = region
             return region
         }
@@ -635,7 +664,7 @@ public class AppleMusicKitModule: Module {
         query: String, types: Set<String>, limit: Int, offset: Int
     ) async throws -> [String: Any] {
         let storefront = try await currentStorefrontID()
-        let term = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
+        let term = self.queryValue(query)
         let kinds = ["songs", "albums", "artists"].filter { types.contains($0) }
         let response = try await makeAPIRequest(
             path: "/v1/catalog/\(storefront)/search?term=\(term)&types=\(kinds.joined(separator: ","))&limit=\(limit)&offset=\(offset)")
@@ -663,7 +692,7 @@ public class AppleMusicKitModule: Module {
     private func catalogSongsREST(_ ids: [String]) async throws -> [[String: Any]] {
         let storefront = try await currentStorefrontID()
         let encodedIds = ids
-            .map { $0.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? $0 }
+            .map { self.queryValue($0) }
             .joined(separator: ",")
         let response = try await makeAPIRequest(
             path: "/v1/catalog/\(storefront)/songs?ids=\(encodedIds)&include=albums")
@@ -863,6 +892,13 @@ public class AppleMusicKitModule: Module {
         AsyncFunction("pause") { () -> Void in
             guard #available(iOS 15.0, *) else { return }
             ApplicationMusicPlayer.shared.pause()
+        }
+
+        // stops and empties the queue, so the snapshot has no current track
+        AsyncFunction("stop") { () -> Void in
+            guard #available(iOS 15.0, *) else { return }
+            ApplicationMusicPlayer.shared.stop()
+            ApplicationMusicPlayer.shared.queue = []
         }
 
 
@@ -1084,7 +1120,7 @@ public class AppleMusicKitModule: Module {
 
             if !libraryIds.isEmpty {
                 let encodedIds = libraryIds
-                    .map { $0.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? $0 }
+                    .map { self.queryValue($0) }
                     .joined(separator: ",")
                 let response = try await self.makeAPIRequest(
                     path: "/v1/me/library/\(kind)?ids=\(encodedIds)")
@@ -1096,7 +1132,7 @@ public class AppleMusicKitModule: Module {
             if !catalogIds.isEmpty {
                 let storefrontID = try await self.currentStorefrontID()
                 let encodedIds = catalogIds
-                    .map { $0.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? $0 }
+                    .map { self.queryValue($0) }
                     .joined(separator: ",")
                 let response = try await self.makeAPIRequest(
                     path: "/v1/catalog/\(storefrontID)/\(kind)?ids=\(encodedIds)")
@@ -1138,8 +1174,7 @@ public class AppleMusicKitModule: Module {
                 throw MusicKitException(
                     name: "ERR_INVALID_KIND", reason: "Unknown collection kind: \(kind)")
             }
-            let encodedTerm = term.addingPercentEncoding(
-                withAllowedCharacters: .urlQueryAllowed) ?? term
+            let encodedTerm = self.queryValue(term)
             let response = try await self.makeAPIRequest(
                 path: "/v1/me/library/search?term=\(encodedTerm)&types=\(type)"
                     + "&\(self.pageQuery(options))")
@@ -1160,8 +1195,7 @@ public class AppleMusicKitModule: Module {
 
         AsyncFunction("searchLibraryArtists") {
             (term: String, options: PageOptions) async throws -> [String: Any] in
-            let encodedTerm = term.addingPercentEncoding(
-                withAllowedCharacters: .urlQueryAllowed) ?? term
+            let encodedTerm = self.queryValue(term)
             // include[library-artists]=catalog for the same reason
             // getLibraryArtists asks for it: without the catalog relationship a
             // searched library artist arrives with no catalog ID and no
@@ -1240,8 +1274,7 @@ public class AppleMusicKitModule: Module {
         // call Android makes, so both platforms return the same shape.
         AsyncFunction("searchLibrarySongs") {
             (term: String, options: PageOptions) async throws -> [String: Any] in
-            let encodedTerm = term.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)
-                ?? term
+            let encodedTerm = self.queryValue(term)
             let response = try await self.makeAPIRequest(
                 path: "/v1/me/library/search?term=\(encodedTerm)&types=library-songs&\(self.pageQuery(options))")
             let results = response["results"] as? [String: Any] ?? [:]

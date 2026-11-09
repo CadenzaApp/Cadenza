@@ -1,9 +1,7 @@
-import { Playback } from "@apple-musickit";
 import { useRouter, useSegments } from "expo-router";
 import { useEffect, useRef } from "react";
 
 import { useAccount } from "@/lib/account";
-import { logHandledError } from "@/lib/log";
 
 import { clearConnectStepDone } from "./connect-step-store";
 
@@ -20,9 +18,9 @@ const SIGNED_OUT_ROUTES = new Set(["(splashscreen)", "auth"]);
  * Here `dismissAll` closes every sheet and pushed screen first, then `replace`
  * swaps the tabs for login, so nothing is left under it.
  *
- * Also pauses the music, since the queue belonged to the old account, and
- * forgets the connect step: the next sign in skips it only if Apple Music is
- * still connected.
+ * Also forgets the connect step: the next sign in skips it only if Apple
+ * Music is still connected. `PlaybackProvider` stops the music, since the
+ * queue belonged to the old account.
  */
 export function SignOutHandler() {
     const { account } = useAccount();
@@ -38,9 +36,6 @@ export function SignOutHandler() {
         if (!signedOutId) return;
 
         void clearConnectStepDone(signedOutId);
-        Playback.pause().catch((error: unknown) =>
-            logHandledError("Could not pause playback on sign out", error),
-        );
         if (onSignedOutRoute) return;
         if (router.canDismiss()) router.dismissAll();
         router.replace("/auth?initialMode=signin");

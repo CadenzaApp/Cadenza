@@ -36,6 +36,8 @@ export interface AppleMusicKitNativeModule {
     setTokens(developerToken: string, userToken: string | null): Promise<void>;
     play(): Promise<void>;
     pause(): Promise<void>;
+    /** Stops and empties the queue. */
+    stop(): Promise<void>;
     togglePlayerState(): Promise<void>;
     getPlaybackSnapshot(): Promise<PlaybackSnapshot>;
     skipToNextEntry(): Promise<void>;

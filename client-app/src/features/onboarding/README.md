@@ -4,18 +4,18 @@ Getting into the app: splash, Cadenza login, then the Apple Music connect step.
 
 ## Files
 
-| file                              | role                                                                                                                                             |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `onboarding-step.ts`              | `onboardingStep()`, pure: `login`, `connect`, `app`, or `pending`. `ONBOARDING_HREF` per step.                                                   |
-| `use-onboarding.ts`               | `useOnboarding()`: the step for the current account, and `finishConnectStep()`.                                                                  |
-| `connect-step-store.ts`           | Per account, per device flag in AsyncStorage: got past the connect step.                                                                         |
-| `splash-screen.tsx`               | `/`. Restores the session, waits for settings and Apple Music, then replaces to the step.                                                        |
-| `login-screen.tsx`                | `/auth`. Email and password, sign in or sign up.                                                                                                 |
-| `connect-apple-music-screen.tsx`  | `/auth/apple-music`, the full screen onboarding step. Back signs out, skip runs on previews.                                                     |
-| `reconnect-apple-music-sheet.tsx` | `/reconnect-apple-music`, opened when Apple drops the connection: the onboarding step's content on the shared sheet with the Apple Music nebula. |
-| `auth-error-message.ts`           | Supabase auth error to one plain sentence.                                                                                                       |
-| `sign-out-handler.tsx`            | `SignOutHandler`, mounted at the root: on sign out, closes every screen, replaces with login, pauses playback.                                   |
-| `onboarding-backdrop.tsx`         | Full screen nebula page, the wordmark, and the nebula colors.                                                                                    |
+| file                              | role                                                                                                                                                      |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `onboarding-step.ts`              | `onboardingStep()`, pure: `login`, `connect`, `app`, or `pending`. `ONBOARDING_HREF` per step.                                                            |
+| `use-onboarding.ts`               | `useOnboarding()`: the step for the current account, and `finishConnectStep()`.                                                                           |
+| `connect-step-store.ts`           | Per account, per device flag in AsyncStorage: got past the connect step.                                                                                  |
+| `splash-screen.tsx`               | `/`. Restores the session, waits for settings and Apple Music, then replaces to the step.                                                                 |
+| `login-screen.tsx`                | `/auth`. Email and password, sign in or sign up.                                                                                                          |
+| `connect-apple-music-screen.tsx`  | `/auth/apple-music`, the full screen onboarding step. Back signs out, skip runs on previews.                                                              |
+| `reconnect-apple-music-sheet.tsx` | `/reconnect-apple-music`, opened when Apple drops the connection: the onboarding step's content on the shared sheet with the Apple Music nebula.          |
+| `auth-error-message.ts`           | Supabase auth error to one plain sentence.                                                                                                                |
+| `sign-out-handler.tsx`            | `SignOutHandler`, mounted at the root: on sign out, closes every screen and replaces with login. `PlaybackProvider` stops playback on the account change. |
+| `onboarding-backdrop.tsx`         | Full screen nebula page, the wordmark, and the nebula colors.                                                                                             |
 
 ## How it works
 

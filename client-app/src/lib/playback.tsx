@@ -16,6 +16,7 @@ import {
     setPlaybackEngine,
 } from "@apple-musickit";
 
+import { useAccount } from "./account";
 import { useAppleMusic } from "./apple-music-auth";
 import { withoutExplicit } from "./explicit-filter";
 import { useHideExplicit } from "./use-visible-items";
@@ -197,11 +198,15 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     // stored Apple Music session is restored, so startup does not flip
     // players on its way to the real answer
     const engine = isInitializing ? null : fullPlayback ? "native" : "preview";
-    // a swap starts from an empty queue, since the old player's went with it.
-    // reset while rendering, not in an effect, so no frame shows the old queue
-    const [queueEngine, setQueueEngine] = useState(engine);
-    if (queueEngine !== engine) {
-        setQueueEngine(engine);
+    // the queue belongs to one engine and one account. a swap stops and
+    // empties the old engine, and a new account (or none) gets a stopped
+    // player. both start from an empty queue, reset while rendering, not in an
+    // effect, so no frame shows the old one
+    const accountId = useAccount().account?.id ?? null;
+    const queueOwner = `${engine}:${accountId}`;
+    const [currentQueueOwner, setCurrentQueueOwner] = useState(queueOwner);
+    if (currentQueueOwner !== queueOwner) {
+        setCurrentQueueOwner(queueOwner);
         setQueue([]);
         setQueueIndex(-1);
         setQueueSource(null);
@@ -211,6 +216,19 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
         previewPlayer ??= createPreviewPlayer();
         setPlaybackEngine(engine === "native" ? null : previewPlayer);
     }, [engine]);
+    const previousAccountId = useRef(accountId);
+    useEffect(() => {
+        const previous = previousAccountId.current;
+        previousAccountId.current = accountId;
+        // restoring the session on launch is not a change of account
+        if (previous === null || previous === accountId) return;
+        Playback.stop().catch((error: unknown) =>
+            logHandledError(
+                "Could not stop playback for the new account",
+                error,
+            ),
+        );
+    }, [accountId]);
     // counts plays for the activity tags, off the snapshot polled below. a
     // preview is not a listen, so it is not counted
     usePlayRecorder(snapshot, fullPlayback ? activeTrack : null, activeSource);

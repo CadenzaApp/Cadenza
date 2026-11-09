@@ -163,9 +163,17 @@ export function createPreviewPlayer(): PlaybackEngine {
         audio().pause();
     }
 
+    async function stop() {
+        await pause();
+        loadedUrl = null;
+        queue = [];
+        index = 0;
+    }
+
     return {
         play,
         pause,
+        stop,
 
         togglePlayerState: () => (wantsPlay ? pause() : play()),
 

@@ -21,14 +21,20 @@ Import `Auth`, `MusicKit`, `Playback`, and their public types from
 - `Playback` exposes native commands plus React hooks for the shared playback
   snapshot. `setPlaybackEngine(engine)` routes every command to a JS player with
   the same surface (`PlaybackEngine`), like the app's preview player; null goes
-  back to native.
+  back to native. The old engine is stopped and emptied (`stop()`, queued behind
+  commands already sent), so nothing it held plays or comes back later.
+  `Playback.stop()` does the same to the current engine. Android cannot empty
+  its queue, so after `stop` its snapshot hides the kept item until the next
+  queue is prepared.
 - `Auth.getSubscription()` says whether the connected account can play full
   songs (`canPlayCatalogContent`). iOS reads `MusicSubscription`; Android cannot
   tell and resolves `{}`.
 
-Catalog reads (`/v1/catalog/...`) need only the developer token, so they work
-with no user signed in: the user token is sent when there is one. With no user
-token the storefront is the device's region, and on iOS catalog search and song
+Catalog reads (`/v1/catalog/...`, and `/v1/storefronts/...`) need only the
+developer token, so they work with no user signed in: the user token is sent
+when there is one. With no user token the storefront is the device's region if
+Apple has a store for it (checked once against `/v1/storefronts`), else `us`.
+On iOS catalog search and song
 info go through REST instead of MusicKit's own requests. Everything under
 `/v1/me` still throws `ERR_MISSING_USER_TOKEN` without one.
 

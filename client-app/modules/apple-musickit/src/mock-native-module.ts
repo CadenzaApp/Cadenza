@@ -745,6 +745,14 @@ export function createMockNativeModule(): AppleMusicKitNativeModule {
             return respond(undefined, COMMAND_LATENCY_MS);
         },
 
+        stop: () => {
+            stopPlaybackClock();
+            isPlaying = false;
+            queue = [];
+            queueIndex = 0;
+            return respond(undefined, COMMAND_LATENCY_MS);
+        },
+
         togglePlayerState: () => {
             if (isPlaying) {
                 stopPlaybackClock();
