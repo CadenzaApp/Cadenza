@@ -105,7 +105,10 @@ its own scrolling and bottom inset, and owes the body a definite
 height (`flex-1` on the scrolling child), because a content-sized list in a sheet grows past
 its box while the sheet animates. The header paints and hit-tests above the body, so a body
 that gets this wrong can no longer cover the close button. It also wraps the body in `InsideSheetContext`, so
-overlay insets inside it stop counting the tab bar and the compact player. Every sheet route
+overlay insets inside it stop counting the tab bar and the compact player. With `scrollsUnderHeader` the body runs to the top edge and the
+header floats over it, with a `ScrollEdgeBlur` that fades in once content scrolls under it (a
+background fade on Android). The body's scroll view calls `useDetailHeaderScroll(ref)` and pads its
+top by the inset it returns. `SettingsSheet` and the Library sheet use it. Every sheet route
 uses it, which is what keeps them identical. An optional `artworkUrl` (and `tint` as its fallback)
 puts a full nebula behind the whole screen, colored from random spots on the artwork; the
 now-playing sheet and Discuss pass one.

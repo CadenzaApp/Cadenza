@@ -2,13 +2,17 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { Children, Fragment, type ReactNode } from "react";
 import {
     Pressable,
-    ScrollView,
     View,
     type ColorValue,
     type PressableProps,
 } from "react-native";
 
-import { DetailScreen } from "@/components/ui/detail-screen";
+import Animated, { useAnimatedRef } from "react-native-reanimated";
+
+import {
+    DetailScreen,
+    useDetailHeaderScroll,
+} from "@/components/ui/detail-screen";
 import { GlassPanel } from "@/components/ui/glass-panel";
 import { Text } from "@/components/ui/text";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -43,26 +47,45 @@ export function SettingsSheet({
     className?: string;
     children: ReactNode;
 }) {
-    const insets = useSafeAreaInsets();
-
     return (
         <DetailScreen
             presentation="sheet"
             title={title}
             nebulaColors={nebulaColors}
+            scrollsUnderHeader
         >
-            <ScrollView
-                className="flex-1"
-                contentContainerClassName={cn("gap-4 px-5 pt-2", className)}
-                contentContainerStyle={{
-                    paddingBottom: Math.max(insets.bottom, 16) + 16,
-                }}
-                showsVerticalScrollIndicator={false}
-            >
-                {children}
-            </ScrollView>
+            <SettingsScroll className={className}>{children}</SettingsScroll>
             {overlay}
         </DetailScreen>
+    );
+}
+
+/** The sheet's scroll body, under its header. */
+function SettingsScroll({
+    className,
+    children,
+}: {
+    className?: string;
+    children: ReactNode;
+}) {
+    const insets = useSafeAreaInsets();
+    const ref = useAnimatedRef<Animated.ScrollView>();
+    const headerInset = useDetailHeaderScroll(ref);
+
+    return (
+        <Animated.ScrollView
+            ref={ref}
+            scrollEventThrottle={16}
+            className="flex-1"
+            contentContainerClassName={cn("gap-4 px-5", className)}
+            contentContainerStyle={{
+                paddingTop: headerInset + 8,
+                paddingBottom: Math.max(insets.bottom, 16) + 16,
+            }}
+            showsVerticalScrollIndicator={false}
+        >
+            {children}
+        </Animated.ScrollView>
     );
 }
 
