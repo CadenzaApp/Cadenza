@@ -8,6 +8,7 @@ import { ListeningEventProvider } from "@/lib/listening-events";
 import { PlaybackProvider } from "@/lib/playback";
 import { TasksHost, TasksProvider } from "@/components/custom/tasks";
 import { AppleMusicSessionGuard } from "@/features/account/apple-music-session-guard";
+import { SignOutHandler } from "@/features/onboarding/sign-out-handler";
 import { LibraryCategoriesProvider } from "@/features/library/library-categories";
 import { BottomBarVisibilityProvider } from "@/lib/screen-overlay";
 import { PortalHost } from "@rn-primitives/portal";
@@ -34,6 +35,7 @@ export default function RootLayout() {
                                                 <BottomBarVisibilityProvider>
                                                     <LibraryCategoriesProvider>
                                                         <RootStack />
+                                                        <SignOutHandler />
                                                         <AppleMusicSessionGuard />
                                                         <InterestPlayTracker />
                                                         <InterestDecay />
@@ -101,7 +103,11 @@ function RootStack() {
             <Stack.Screen name="player" options={sheetScreenOptions(theme)} />
             <Stack.Screen
                 name="auth/index"
-                options={{ headerShown: false, animation: "fade" }}
+                options={{
+                    headerShown: false,
+                    animation: "fade",
+                    gestureEnabled: false,
+                }}
             />
             <Stack.Screen
                 name="auth/apple-music"

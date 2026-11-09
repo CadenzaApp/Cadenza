@@ -57,7 +57,8 @@ export default function TabLayout() {
         Platform.OS === "ios" ? IOS_UNSELECTED_TAB_COLOR : colors.text;
 
     if (!account) {
-        return <Redirect href="/auth?initialMode=signin" />;
+        // SignOutHandler is already taking them to login
+        return null;
     }
     if (step === "connect") {
         return <Redirect href={ONBOARDING_HREF.connect} />;

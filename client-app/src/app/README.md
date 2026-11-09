@@ -99,7 +99,7 @@ still lives above navigation in `PlaybackProvider`.
 Auth gating for the five primary screens is centralized in `(tabs)/_layout.tsx`:
 
 ```tsx
-if (!account) return <Redirect href="/auth?initialMode=signin" />;
+if (!account) return null; // SignOutHandler navigates to login
 if (step === "connect") return <Redirect href={ONBOARDING_HREF.connect} />;
 ```
 

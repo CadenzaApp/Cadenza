@@ -1,4 +1,3 @@
-import { Redirect } from "expo-router";
 import { useState } from "react";
 import { View } from "react-native";
 
@@ -42,7 +41,8 @@ export function AppleMusicSettingsScreen() {
     const [disconnectError, setDisconnectError] = useState<string | null>(null);
 
     if (!account) {
-        return <Redirect href="/auth?initialMode=signin" />;
+        // SignOutHandler is already taking them to login
+        return null;
     }
 
     const status = appleMusicStatus(authResult, isInitializing, sessionExpired);
