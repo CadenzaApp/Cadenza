@@ -725,6 +725,9 @@ export function createMockNativeModule(): AppleMusicKitNativeModule {
     return {
         authorize: (_developerToken: string) => respond(MOCK_AUTH_RESULT),
 
+        refreshUserToken: (_developerToken: string) =>
+            respond(MOCK_AUTH_RESULT),
+
         setTokens: (_developerToken: string, _userToken: string | null) =>
             respond(undefined, COMMAND_LATENCY_MS),
 

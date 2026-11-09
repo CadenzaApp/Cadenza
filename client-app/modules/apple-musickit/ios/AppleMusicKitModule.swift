@@ -83,14 +83,18 @@ public class AppleMusicKitModule: Module {
             // failed read.
             if allowNotFound, statusCode == 404 { return [:] }
             let body = String(data: data, encoding: .utf8) ?? "Unknown error"
-            // 401 means the developer token is bad, 403 means the music-user
-            // token is. Either way the credentials are dead and no retry fixes
-            // it, so name it apart from a transient API failure and let the app
-            // decide how to re-authorize.
-            if statusCode == 401 || statusCode == 403 {
+            // 401 means the developer token is bad, which only a new build
+            // fixes. 403 means the music-user token is, which a new user token
+            // fixes. Neither is a transient API failure, so each gets a name.
+            if statusCode == 401 {
+                throw MusicKitException(
+                    name: "ERR_APPLE_MUSIC_DEVELOPER_TOKEN",
+                    reason: "Apple Music rejected the developer token (401): \(body)")
+            }
+            if statusCode == 403 {
                 throw MusicKitException(
                     name: "ERR_APPLE_MUSIC_AUTH",
-                    reason: "Apple Music rejected the credentials (\(statusCode)): \(body)")
+                    reason: "Apple Music rejected the credentials (403): \(body)")
             }
             throw MusicKitException(
                 name: "ERR_APPLE_MUSIC_API",
@@ -547,6 +551,39 @@ public class AppleMusicKitModule: Module {
         return "limit=\(page.limit)&offset=\(page.offset)"
     }
 
+    /// A fresh music-user token for access already granted, as an auth result.
+    private func fetchUserToken(developerToken: String) async -> [String: String] {
+        guard !developerToken.isEmpty else { return ["status": "authorized"] }
+        do {
+            // MusicKit owns user-token acquisition on Apple platforms.
+            // StoreKit's requestUserToken API is deprecated and was
+            // returning SKError.clientInvalid after token renewal.
+            let provider = StaticDeveloperTokenProvider(token: developerToken)
+            MusicDataRequest.tokenProvider = provider
+            let userToken = try await provider.userToken(
+                for: developerToken,
+                options: [.ignoreCache]
+            )
+            self.userToken = userToken
+            return ["status": "authorized", "userToken": userToken]
+        } catch {
+            return [
+                "status": "failed",
+                "error": "Apple Music couldn't connect. Check your connection and try again."
+            ]
+        }
+    }
+
+    private static func statusName(_ status: MusicAuthorization.Status) -> String {
+        switch status {
+        case .authorized: return "authorized"
+        case .denied: return "denied"
+        case .restricted: return "restricted"
+        case .notDetermined: return "notDetermined"
+        @unknown default: return "unknown"
+        }
+    }
+
     private func currentStorefrontID() async throws -> String {
         if let storefrontID { return storefrontID }
         let response = try await makeAPIRequest(path: "/v1/me/storefront")
@@ -718,33 +755,18 @@ public class AppleMusicKitModule: Module {
 
             self.developerToken = developerToken
             let status = await MusicAuthorization.request()
+            guard status == .authorized else { return ["status": Self.statusName(status)] }
+            return await self.fetchUserToken(developerToken: developerToken)
+        }
 
-            switch status {
-            case .authorized:
-                guard !developerToken.isEmpty else { return ["status": "authorized"] }
-                do {
-                    // MusicKit owns user-token acquisition on Apple platforms.
-                    // StoreKit's requestUserToken API is deprecated and was
-                    // returning SKError.clientInvalid after token renewal.
-                    let provider = StaticDeveloperTokenProvider(token: developerToken)
-                    MusicDataRequest.tokenProvider = provider
-                    let userToken = try await provider.userToken(
-                        for: developerToken,
-                        options: [.ignoreCache]
-                    )
-                    self.userToken = userToken
-                    return ["status": "authorized", "userToken": userToken]
-                } catch {
-                    return [
-                        "status": "failed",
-                        "error": "Apple Music couldn't connect. Check your connection and try again."
-                    ]
-                }
-            case .denied: return ["status": "denied"]
-            case .restricted: return ["status": "restricted"]
-            case .notDetermined: return ["status": "notDetermined"]
-            @unknown default: return ["status": "unknown"]
-            }
+        // A new music-user token without any UI. Only when access is already
+        // granted: asking MusicAuthorization while it is undetermined would
+        // pop the system prompt in the middle of whatever the user is doing.
+        AsyncFunction("refreshUserToken") { (developerToken: String) async -> [String: String] in
+            let status = MusicAuthorization.currentStatus
+            guard status == .authorized else { return ["status": Self.statusName(status)] }
+            self.developerToken = developerToken
+            return await self.fetchUserToken(developerToken: developerToken)
         }
 
         AsyncFunction("setTokens") { (developerToken: String, userToken: String?) -> Void in

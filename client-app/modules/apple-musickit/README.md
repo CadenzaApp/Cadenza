@@ -88,10 +88,18 @@ tokens with platform-backed secure storage.
 
 ## Errors
 
-A 401 or 403 from Apple throws `ERR_APPLE_MUSIC_AUTH`, apart from the generic
-`ERR_APPLE_MUSIC_API`. 401 means the developer token is dead and 403 means the
-music-user token is; neither is fixed by retrying, so the app can tell a dead
-credential from a bad day at Apple and re-authorize instead of replaying it.
+A 403 from Apple throws `ERR_APPLE_MUSIC_AUTH`: the music-user token is dead,
+and a new one fixes it. A 401 throws `ERR_APPLE_MUSIC_DEVELOPER_TOKEN`: the
+developer token is dead, which only a new build fixes, so the app does not ask
+the user to reconnect for it. Both are apart from the generic
+`ERR_APPLE_MUSIC_API`, so the app can tell a dead credential from a bad day at
+Apple.
+
+`Auth.refreshUserToken(developerToken)` gets a new music-user token with no
+prompt when access is already granted (iOS reads `MusicAuthorization.currentStatus`
+and never calls `request()`). Otherwise it resolves the current status. Android
+always resolves `unknown`, since a token there needs the Apple Music app's own
+screen.
 
 iOS throws `MusicKitException(name:reason:)`, never `Exception(name:description:)`.
 ExpoModulesCore renders a thrown exception to JavaScript as `"<name>: <reason>"`,

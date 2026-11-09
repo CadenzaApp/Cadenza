@@ -29,6 +29,7 @@ export * from "./AppleMusicKit.types";
 
 export interface AppleMusicKitNativeModule {
     authorize(developerToken: string): Promise<AuthResult>;
+    refreshUserToken(developerToken: string): Promise<AuthResult>;
     setTokens(developerToken: string, userToken: string | null): Promise<void>;
     play(): Promise<void>;
     pause(): Promise<void>;

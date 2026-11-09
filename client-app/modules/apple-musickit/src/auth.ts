@@ -17,6 +17,19 @@ export const Auth = {
         return normalizeAuthResult(await native.authorize(developerToken));
     },
 
+    /**
+     * A new music-user token without any prompt, for access the user already
+     * granted. Resolves a non-authorized status instead when that is not
+     * possible: access not granted, or Android, where a token always needs the
+     * Apple Music app's own screen.
+     */
+    refreshUserToken: async (developerToken: string): Promise<AuthResult> => {
+        if (!native) return { status: AuthStatus.Unknown };
+        return normalizeAuthResult(
+            await native.refreshUserToken(developerToken),
+        );
+    },
+
     /** Sets the tokens used by native Apple Music requests, or clears the user token. */
     setTokens: async (
         developerToken: string,
@@ -36,6 +49,7 @@ export function configureAuthNative(
 
 interface AuthNativeModule {
     authorize(developerToken: string): Promise<AuthResult>;
+    refreshUserToken(developerToken: string): Promise<AuthResult>;
     setTokens(developerToken: string, userToken: string | null): Promise<void>;
 }
 

@@ -222,6 +222,12 @@ class AppleMusicKitModule : Module() {
             }
         }
 
+        // Getting a token on Android always opens the Apple Music app's own
+        // screen, so there is no silent refresh. JS falls back to reconnect.
+        AsyncFunction("refreshUserToken") { _: String ->
+            mapOf("status" to "unknown", "error" to "Android cannot refresh the Apple Music token silently.")
+        }
+
         AsyncFunction("setTokens") { devToken: String, usrToken: String? ->
             developerToken = devToken
             userToken = usrToken
@@ -1097,13 +1103,19 @@ class AppleMusicKitModule : Module() {
                 if (allowNotFound && responseCode == 404) return emptyMap()
                 val errorMsg = connection.errorStream?.bufferedReader()?.use { it.readText() } ?: "Unknown Error"
                 Log.e(TAG, "API Error: $responseCode - $errorMsg")
-                // 401 is a bad developer token, 403 a bad music-user token.
-                // either way no retry fixes it, so it gets the code JS reads
-                // as "reconnect", same as iOS
-                if (responseCode == 401 || responseCode == 403) {
+                // 401 is a bad developer token, which only a new build fixes.
+                // 403 is a bad music-user token, which JS reads as "reconnect".
+                // same codes as iOS
+                if (responseCode == 401) {
+                    throw MusicKitException(
+                        "ERR_APPLE_MUSIC_DEVELOPER_TOKEN",
+                        "Apple Music rejected the developer token (401): $errorMsg"
+                    )
+                }
+                if (responseCode == 403) {
                     throw MusicKitException(
                         "ERR_APPLE_MUSIC_AUTH",
-                        "Apple Music rejected the credentials ($responseCode): $errorMsg"
+                        "Apple Music rejected the credentials (403): $errorMsg"
                     )
                 }
                 throw MusicKitException("ERR_APPLE_MUSIC_API", "Apple Music API error ($responseCode): $errorMsg")
