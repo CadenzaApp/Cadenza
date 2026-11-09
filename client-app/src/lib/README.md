@@ -106,7 +106,9 @@ auth layer is plain text, so is anything a proxy injects) is thrown as
 `APIRequestError`: `{ error_type: "Unauthorized" | "HttpError" | "MalformedResponse", status, message }`.
 
 The `accountId` in every key means a cached read can never be served to a different user, on
-top of the `clearCache()` that already runs on every account change.
+top of the `clearCache()` that already runs on every account change. `clearCache()` skips keys built with
+`deviceKey()`, which hold data about the phone's Apple Music session (its subscription), since
+that does not change with the Cadenza account.
 
 `useAPIData` disables itself (passes a `null` key) if there is no account, or if **any** param
 value is null or undefined. That is how `useTag(undefined)` and `useTagsOnSong(undefined)` stay

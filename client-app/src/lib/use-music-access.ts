@@ -8,6 +8,7 @@ import {
     type MusicFeature,
     type MusicTier,
 } from "./music-access";
+import { deviceKey } from "./swr-utils";
 
 /**
  * The current music tier, and `can(feature)` for gates. The subscription is
@@ -18,9 +19,13 @@ export function useMusicAccess(): {
     can: (feature: MusicFeature) => boolean;
 } {
     const { isConnected, sessionRevision } = useAppleMusic();
+    // the last answer stands while a new session's loads: unknown reads as
+    // full, and flipping a non-subscriber to full for that moment swaps the
+    // player engine and drops their queue
     const { data: subscription } = useSWR(
-        isConnected ? ["Auth.getSubscription", sessionRevision] : null,
+        isConnected ? deviceKey("Auth.getSubscription", sessionRevision) : null,
         () => Auth.getSubscription(),
+        { keepPreviousData: true },
     );
     const tier = musicTier({
         isConnected,
