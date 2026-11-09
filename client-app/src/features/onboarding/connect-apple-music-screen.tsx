@@ -5,6 +5,7 @@ import { useState } from "react";
 import {
     ActivityIndicator,
     Linking,
+    Platform,
     Pressable,
     ScrollView,
     View,
@@ -50,6 +51,12 @@ const WHAT_IT_UNLOCKS: SettingsPoint[] = [
         body: "Save any query back to Apple Music as a playlist.",
     },
 ];
+
+/** Apple never says which account it is, so say where it comes from. */
+const WHICH_ACCOUNT =
+    Platform.OS === "android"
+        ? "Uses the account signed in to the Apple Music app. To use a different one, switch it there."
+        : "Uses the Apple Music account on this iPhone. To use a different one, switch it in Settings > Media & Purchases.";
 
 export function ConnectAppleMusicScreen({ mode }: { mode: ConnectMode }) {
     const router = useRouter();
@@ -174,6 +181,9 @@ export function ConnectAppleMusicScreen({ mode }: { mode: ConnectMode }) {
                             </Text>
                         )}
                     </GlassButton>
+                    <Text className="px-2 text-center text-xs leading-4 text-muted-foreground">
+                        {WHICH_ACCOUNT}
+                    </Text>
                     <Pressable
                         accessibilityRole="button"
                         onPress={() => void skip()}
