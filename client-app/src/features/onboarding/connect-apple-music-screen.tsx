@@ -10,6 +10,8 @@ import {
     View,
 } from "react-native";
 
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+
 import { AppleMusicLogo } from "@/components/custom/apple-music-logo";
 import { GlassButton } from "@/components/ui/glass-button";
 import { GlassIconButton } from "@/components/ui/glass-icon-button";
@@ -23,6 +25,9 @@ import { WHAT_IT_UNLOCKS, WHICH_ACCOUNT } from "./connect-copy";
 import { APPLE_MUSIC_NEBULA, OnboardingBackdrop } from "./onboarding-backdrop";
 import { ONBOARDING_HREF } from "./onboarding-step";
 import { useOnboarding } from "./use-onboarding";
+
+/** Room at the top for the floating back button, below the status bar. */
+const HEADER_ROOM = 64;
 
 const COPY = {
     title: "Connect Apple Music",
@@ -42,6 +47,8 @@ export function ConnectAppleMusicScreen() {
     const { connectAppleMusic, isConnecting, message, lastStatus } =
         useConnectAppleMusic();
     const [leaving, setLeaving] = useState(false);
+    const [footerHeight, setFooterHeight] = useState(0);
+    const insets = useSafeAreaInsets();
 
     // the page follows the step: signing out or connecting moves it on
     if (step !== "connect" && step !== "pending") {
@@ -70,26 +77,18 @@ export function ConnectAppleMusicScreen() {
     const busy = isConnecting || leaving;
 
     return (
-        <OnboardingBackdrop colors={APPLE_MUSIC_NEBULA}>
-            <View className="flex-row px-4 pt-2">
-                <GlassIconButton
-                    accessibilityLabel="Back to login"
-                    onPress={() => void back()}
-                    disabled={busy}
-                >
-                    <Ionicons
-                        name="chevron-back"
-                        size={22}
-                        color={colors.foreground}
-                    />
-                </GlassIconButton>
-            </View>
-
-            {/* the explainer scrolls; the actions below it are pinned, so a
-                short sheet never pushes the button out of view */}
+        <OnboardingBackdrop colors={APPLE_MUSIC_NEBULA} edgeToEdge>
+            {/* the page scrolls edge to edge, under the floating back button
+                and actions, so there is no band where it gets cut off. the
+                padding keeps it clear of both at rest */}
             <ScrollView
                 className="flex-1"
-                contentContainerClassName="flex-grow justify-center gap-6 px-6 py-4"
+                contentContainerClassName="flex-grow justify-center gap-6 px-6"
+                contentContainerStyle={{
+                    paddingTop: insets.top + HEADER_ROOM,
+                    paddingBottom: insets.bottom + footerHeight + 16,
+                }}
+                showsVerticalScrollIndicator={false}
             >
                 <View className="items-center gap-3">
                     <AppleMusicLogo size={96} />
@@ -104,9 +103,33 @@ export function ConnectAppleMusicScreen() {
                 <View className="gap-3">
                     <SettingsPoints points={WHAT_IT_UNLOCKS} />
                 </View>
+
+                <Text className="px-2 text-center text-xs leading-4 text-muted-foreground">
+                    {WHICH_ACCOUNT}
+                </Text>
             </ScrollView>
 
-            <View className="gap-3 px-6 pb-2 pt-3">
+            <View className="absolute left-4" style={{ top: insets.top + 8 }}>
+                <GlassIconButton
+                    accessibilityLabel="Back to login"
+                    onPress={() => void back()}
+                    disabled={busy}
+                >
+                    <Ionicons
+                        name="chevron-back"
+                        size={22}
+                        color={colors.foreground}
+                    />
+                </GlassIconButton>
+            </View>
+
+            <View
+                className="absolute inset-x-0 bottom-0 gap-2 px-6"
+                style={{ paddingBottom: insets.bottom + 8 }}
+                onLayout={(event) =>
+                    setFooterHeight(event.nativeEvent.layout.height)
+                }
+            >
                 {message ? (
                     <Text
                         accessibilityRole="alert"
@@ -140,9 +163,6 @@ export function ConnectAppleMusicScreen() {
                         </Text>
                     )}
                 </GlassButton>
-                <Text className="px-2 text-center text-xs leading-4 text-muted-foreground">
-                    {WHICH_ACCOUNT}
-                </Text>
                 <Pressable
                     accessibilityRole="button"
                     onPress={() => void skip()}

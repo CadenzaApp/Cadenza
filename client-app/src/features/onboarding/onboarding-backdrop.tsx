@@ -12,12 +12,19 @@ export const CADENZA_NEBULA = ["#6466b8", "#257a83", "#ff6467"] as const;
 /** Apple's red, for the connect step. */
 export const APPLE_MUSIC_NEBULA = [...APPLE_MUSIC_GRADIENT, "#6466b8"] as const;
 
-/** A full screen nebula page inside the safe area. Every onboarding screen sits on one. */
+/**
+ * A full screen nebula page. Every onboarding screen sits on one. Its children
+ * sit inside the safe area, unless `edgeToEdge`: then a screen that scrolls
+ * under floating controls places itself, so the scroll is not clipped short of
+ * the screen edges.
+ */
 export function OnboardingBackdrop({
     colors,
+    edgeToEdge = false,
     children,
 }: {
     colors: readonly string[];
+    edgeToEdge?: boolean;
     children: ReactNode;
 }) {
     const insets = useSafeAreaInsets();
@@ -30,8 +37,8 @@ export function OnboardingBackdrop({
             <View
                 className="flex-1"
                 style={{
-                    paddingTop: insets.top,
-                    paddingBottom: insets.bottom,
+                    paddingTop: edgeToEdge ? 0 : insets.top,
+                    paddingBottom: edgeToEdge ? 0 : insets.bottom,
                 }}
             >
                 {children}
