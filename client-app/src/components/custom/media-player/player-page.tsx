@@ -91,6 +91,8 @@ export function PlayerPage() {
         setRepeatMode,
         canSkipToNext,
         canSkipToPrevious,
+        duration,
+        isPreview,
     } = usePlayback();
     const { colors } = useTheme();
     const { brand } = useAppTheme().colors;
@@ -134,7 +136,6 @@ export function PlayerPage() {
         typeof fullArtworkUrl === "string" &&
         fullArtworkUrl !== failedArtworkUrl &&
         /^https?:\/\//i.test(fullArtworkUrl);
-    const duration = activeTrack?.songDuration ?? 0;
     const isUpdatingFavorite = favoriteUpdateSongId === favoriteSongId;
     const displayedProgress = scrubPosition ?? progress;
     // The sheet is shorter than the window, so size against the measured body.
@@ -431,6 +432,7 @@ export function PlayerPage() {
             <MediaPlayerProgress
                 progress={displayedProgress}
                 duration={duration}
+                isPreview={isPreview}
                 progressControl={
                     <GestureDetector gesture={seekGesture}>
                         <View

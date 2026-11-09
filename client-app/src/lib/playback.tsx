@@ -57,6 +57,13 @@ type PlaybackInfo = {
     isPlaying: boolean;
     isLoading: boolean;
     progress: number;
+    /**
+     * Seconds of what is playing: the song, or with previews its ~30 second
+     * clip. Progress runs against this, not the song's own length.
+     */
+    duration: number;
+    /** Playing Apple Music's preview clips, for want of a subscription. */
+    isPreview: boolean;
     queue: MusicItem[];
     queueIndex: number;
     /** Everything queued after the entry that is playing, in order. */
@@ -597,6 +604,10 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
                         isPlaying: snapshot.isPlaying,
                         isLoading: snapshot.isLoading,
                         progress: snapshot.progress,
+                        duration: fullPlayback
+                            ? (activeTrack?.songDuration ?? 0)
+                            : (snapshot.duration ?? 0),
+                        isPreview: !fullPlayback,
                         queue,
                         queueIndex: resolvedQueueIndex,
                         upcoming:
