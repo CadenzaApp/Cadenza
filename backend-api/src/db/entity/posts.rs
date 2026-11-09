@@ -10,18 +10,11 @@ pub struct Model {
     pub user_id: Uuid,
     #[sea_orm(column_type = "Text")]
     pub content: String,
-    #[sea_orm(ignore, column_type = "custom(\"vector\")", select_as = "text")]
-    pub embedding: String,
+    pub embedding: PgVector,
     pub likes: i64,
     pub created_at: DateTimeWithTimeZone,
     pub hot_score: i64,
-    #[sea_orm(
-        ignore,
-        column_type = "custom(\"vector\")",
-        select_as = "text",
-        nullable
-    )]
-    pub embedding_w_bday: Option<String>,
+    pub embedding_w_bday: Option<PgVector>,
     #[sea_orm(column_type = "Text", nullable)]
     pub topic_mk_id: Option<String>,
     pub comments: i64,

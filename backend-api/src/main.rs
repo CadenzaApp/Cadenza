@@ -80,12 +80,13 @@ async fn main() {
 
     // Creates tables, columns, unique keys, and foreign keys the entity
     // modules declare that this database does not have yet. Additive: a
-    // column or table already there is left as it is. Columns marked
-    // `ignore`, including the vector embeddings, are not part of the sync.
+    // column or table already there is left as it is.
+    println!("syncing");
     db.get_schema_registry("cadenza_backend_api::db::entity::*")
         .sync(&db)
         .await
         .expect("error syncing database schema");
+    println!("synced");
 
     // builds a decoder used for parsing JSON Web Tokens into SupabaseClaims structs, which contain auth info like user id and token expiration time.
     let jwt_decoder = new_jwt_decoder().await;
