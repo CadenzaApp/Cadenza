@@ -20,6 +20,12 @@ type AppleMusicContextType = {
     authResult: AuthResult | null;
     isInitializing: boolean;
     isConnected: boolean;
+    /**
+     * Catalog reads (search, song info, artists, catalog albums) work: they
+     * need only Cadenza's developer token, so this is true once the stored
+     * tokens are restored, connected or not.
+     */
+    canReadCatalog: boolean;
     hasUserToken: boolean;
     /** Non-secret cache namespace that changes whenever MusicKit auth changes. */
     sessionRevision: number;
@@ -269,6 +275,9 @@ export function AppleMusicProvider({ children }: { children: ReactNode }) {
 
         authFailureHandler = () => {
             const wasConnected = Boolean(authResultRef.current?.userToken);
+            // nothing to reconnect: a read that needed the user's token ran
+            // without one. it fails on its own, no prompt
+            if (!wasConnected) return;
             const refresh = shouldTrySilentRefresh(
                 wasConnected,
                 lastSilentRefreshAt,
@@ -290,6 +299,7 @@ export function AppleMusicProvider({ children }: { children: ReactNode }) {
                 authResult,
                 isInitializing,
                 isConnected,
+                canReadCatalog: !isInitializing,
                 hasUserToken,
                 sessionRevision,
                 libraryRevision,
