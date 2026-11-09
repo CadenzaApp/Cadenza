@@ -145,6 +145,20 @@ pub fn user_data_counts() -> Vec<DataCount> {
         rows("comment_likes", Social, "Comments you liked", "count(*)", "comment_likes where user_id = $1"),
         rows("posts_seen", Social, "Posts you have seen", "count(*)", "post_view_status where user_id = $1"),
         rows("interests", Social, "Topic interest scores", "count(*)", "interest_scores where user_id = $1"),
+        rows(
+            "friends",
+            Social,
+            "Friends",
+            "count(*)",
+            "friendships where $1 in (user1, user2) and status = 'complete'",
+        ),
+        rows(
+            "friend_requests",
+            Social,
+            "Open friend requests",
+            "count(*)",
+            "friendships where $1 in (user1, user2) and status <> 'complete'",
+        ),
     ]);
     counts
 }
