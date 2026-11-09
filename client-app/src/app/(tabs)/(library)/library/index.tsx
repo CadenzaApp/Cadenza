@@ -5,7 +5,7 @@ import { useLayoutEffect } from "react";
 import { View } from "react-native";
 
 import { ErrorNotice } from "@/components/custom/error-notice";
-import { GatedFeature } from "@/components/custom/gated-feature";
+import { GatedFeature } from "@/features/account/gated-feature";
 import { GlassIconButton } from "@/components/ui/glass-icon-button";
 import type { LibraryCategory } from "@/features/library/categories";
 import { CategoryRow } from "@/features/library/category-row";

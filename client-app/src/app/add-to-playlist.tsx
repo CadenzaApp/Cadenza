@@ -5,7 +5,7 @@ import { useState } from "react";
 import { ActivityIndicator, Alert, Pressable, View } from "react-native";
 
 import { ErrorNotice } from "@/components/custom/error-notice";
-import { GatedFeature } from "@/components/custom/gated-feature";
+import { GatedFeature } from "@/features/account/gated-feature";
 import { classifyError } from "@/lib/app-error";
 import { CollectionList } from "@/components/custom/collection-list";
 import { Input } from "@/components/ui/input";

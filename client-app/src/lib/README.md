@@ -450,7 +450,7 @@ react-navigation `useScrollToTop` subscription remains as a cross-platform fallb
   connection without a subscription (`Auth.getSubscription`) keeps the library but still plays
   previews. `PlaybackProvider` swaps the preview player in and out with the tier, clears its
   queue on the swap, exposes `isPreview` and the clip's `duration`, and does not record preview
-  plays. Screens gate with `GatedFeature` (`@/components/custom/gated-feature`).
+  plays. Screens gate with `GatedFeature` (`@/features/account/gated-feature`).
 
 - `AppleMusicProvider` exposes `sessionExpired`, set when Apple rejects a request with the
   current credentials. It does not prove the music-user token itself expired. Every Apple
