@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { CadenzaLogo } from "@/components/custom/cadenza-logo";
 import { NebulaBackdrop } from "@/components/ui/nebula-backdrop";
 import { Text } from "@/components/ui/text";
 
@@ -43,11 +44,14 @@ export function OnboardingBackdrop({
     );
 }
 
-/** The Cadenza name as a heading, with an optional line under it. */
+/** The Cadenza note over the name, with an optional line under it. */
 export function Wordmark({ tagline }: { tagline?: string }) {
     return (
         <View className="items-center gap-2">
-            <Text className="text-5xl font-bold tracking-tight">cadenza</Text>
+            <CadenzaLogo size={96} />
+            <Text className="mt-2 text-5xl font-bold tracking-tight">
+                cadenza
+            </Text>
             {tagline ? (
                 <Text className="text-center text-base text-muted-foreground">
                     {tagline}
