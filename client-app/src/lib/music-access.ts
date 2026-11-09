@@ -50,8 +50,3 @@ export function musicTier({
 export function canUse(tier: MusicTier, feature: MusicFeature): boolean {
     return TIER_RANK[tier] >= TIER_RANK[MINIMUM_TIER[feature]];
 }
-
-/** What the next tier up needs, for a gate to say. */
-export function unlockAction(feature: MusicFeature): "connect" | "subscribe" {
-    return MINIMUM_TIER[feature] === "full" ? "subscribe" : "connect";
-}

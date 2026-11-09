@@ -21,6 +21,7 @@ import { usePlaybackCommands } from "@/lib/playback";
 import { shareTrack } from "@/lib/share-track";
 import { classifyError } from "@/lib/app-error";
 import { logHandledError } from "@/lib/log";
+import { useMusicAccess } from "@/lib/use-music-access";
 
 import { FavoriteShareRow } from "./favorite-share-row";
 
@@ -63,6 +64,7 @@ export const SongOptionsMenu = memo(function SongOptionsMenu({
     const [isUpdatingFavorite, setIsUpdatingFavorite] = useState(false);
     const [editingTags, setEditingTags] = useState(false);
     const { addToQueue, playNext } = usePlaybackCommands();
+    const canFavorite = useMusicAccess().can("favorites");
 
     const artistId = artistIds?.[0] ?? track?.artistId;
     useArtistPreview(artistId);
@@ -201,6 +203,8 @@ export const SongOptionsMenu = memo(function SongOptionsMenu({
                         favoriteBusy={
                             favoriteStatusLoading || isUpdatingFavorite
                         }
+                        // favorites live in the Apple Music library
+                        favoriteDisabled={!canFavorite}
                         onShare={() => void shareTrack(selectedTrack)}
                     />
                 )}

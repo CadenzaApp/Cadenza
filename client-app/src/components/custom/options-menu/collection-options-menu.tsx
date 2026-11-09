@@ -13,6 +13,7 @@ import {
 import { usePlaybackCommands } from "@/lib/playback";
 import { shareCollection } from "@/lib/share-track";
 import { logHandledError } from "@/lib/log";
+import { useMusicAccess } from "@/lib/use-music-access";
 
 import { FavoriteShareRow } from "./favorite-share-row";
 
@@ -48,6 +49,7 @@ export function CollectionOptionsMenu({
     const { addToQueue, playNext } = usePlaybackCommands();
 
     const isFavorite = favoriteStatus?.isFavorite ?? false;
+    const canFavorite = useMusicAccess().can("favorites");
     const title = kind === "playlist" ? "Playlist options" : "Album options";
 
     async function handleFavoriteToggle() {
@@ -101,6 +103,8 @@ export function CollectionOptionsMenu({
                     isFavorite={isFavorite}
                     onToggleFavorite={() => void handleFavoriteToggle()}
                     favoriteBusy={favoriteStatusLoading || isUpdatingFavorite}
+                    // favorites live in the Apple Music library
+                    favoriteDisabled={!canFavorite}
                     onShare={() =>
                         collection && void shareCollection(collection)
                     }

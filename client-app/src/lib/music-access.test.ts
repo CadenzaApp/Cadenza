@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { canUse, musicTier, unlockAction } from "./music-access.ts";
+import { canUse, musicTier } from "./music-access.ts";
 
 test("no apple music is previews, whatever the subscription says", () => {
     assert.equal(
@@ -31,9 +31,4 @@ test("previews still get the catalog and nothing that needs an account", () => {
     assert.equal(canUse("preview", "catalog"), true);
     assert.equal(canUse("preview", "library"), false);
     assert.equal(canUse("preview", "playlists"), false);
-});
-
-test("a gate says connect or subscribe by what the feature needs", () => {
-    assert.equal(unlockAction("library"), "connect");
-    assert.equal(unlockAction("fullPlayback"), "subscribe");
 });

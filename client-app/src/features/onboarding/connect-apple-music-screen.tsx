@@ -27,7 +27,7 @@ const HEADER_ROOM = 64;
 /**
  * Step two of onboarding, after login. Back signs out; skipping finishes the
  * step and the app runs on previews. Inside the app, connecting happens on
- * `ConnectAppleMusicSheet`, built from the same parts.
+ * `GatedFeature` and `ReconnectAppleMusicSheet`, built from the same parts.
  */
 export function ConnectAppleMusicScreen() {
     const { colors } = useAppTheme();
