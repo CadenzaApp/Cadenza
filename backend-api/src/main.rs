@@ -45,15 +45,13 @@ struct AppState {
 /// The pool we are allowed to open against Supabase's pooler.
 ///
 /// Sea-ORM defaults to 100 connections, which no Supabase pool can serve.
-/// Point `DATABASE_URL` at the transaction-mode port (6543) so the pooler
-/// multiplexes these across far fewer server connections; the session-mode
-/// port (5432) pins one server connection per client for its whole life and
-/// runs out at `pool_size`, and a backend killed mid-run leaves those pinned
-/// until the pooler reaps them.
+/// `DATABASE_URL` is the session-mode port (5432). That mode pins one server
+/// connection per client and refuses anything past `pool_size` (15 on this
+/// project) with `EMAXCONNSESSION`. Stay under that so one run leaves room
+/// for psql and for a restart whose old sessions the pooler has not reaped.
 ///
-/// `max_lifetime` and `idle_timeout` are what keep a crash from stranding
-/// connections for long: the pool hands them back on its own rather than
-/// waiting to be asked.
+/// `max_lifetime` and `idle_timeout` are what keep a running backend from
+/// hoarding connections. Neither helps a process killed before it disconnects.
 fn db_connect_options(db_url: String) -> ConnectOptions {
     let mut options = ConnectOptions::new(db_url);
     options
@@ -66,8 +64,8 @@ fn db_connect_options(db_url: String) -> ConnectOptions {
     options
 }
 
-/// Well under any Supabase pool so one run cannot exhaust it on its own.
-const MAX_DB_CONNECTIONS: u32 = 60;
+/// Under the session-mode `pool_size` (15) so one run cannot exhaust it.
+const MAX_DB_CONNECTIONS: u32 = 10;
 
 #[tokio::main]
 async fn main() {
@@ -79,6 +77,15 @@ async fn main() {
     let db = Database::connect(db_connect_options(db_url))
         .await
         .expect("error connecting to db");
+
+    // Creates tables, columns, unique keys, and foreign keys the entity
+    // modules declare that this database does not have yet. Additive: a
+    // column or table already there is left as it is. Columns marked
+    // `ignore`, including the vector embeddings, are not part of the sync.
+    db.get_schema_registry("cadenza_backend_api::db::entity::*")
+        .sync(&db)
+        .await
+        .expect("error syncing database schema");
 
     // builds a decoder used for parsing JSON Web Tokens into SupabaseClaims structs, which contain auth info like user id and token expiration time.
     let jwt_decoder = new_jwt_decoder().await;
