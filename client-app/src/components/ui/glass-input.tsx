@@ -50,13 +50,17 @@ export const GlassInput = forwardRef<TextInput, GlassInputProps>(
                     ref={ref}
                     editable={editable}
                     placeholderTextColor={colors.mutedForeground}
-                    className={cn(
-                        "h-full flex-1 text-base text-foreground",
-                        className,
-                    )}
+                    className={cn("h-full flex-1 text-foreground", className)}
+                    // font size only: a line height on a single line iOS
+                    // field draws the text off center (secure fields hide it)
+                    style={styles.text}
                     {...props}
                 />
             </View>
         );
     },
 );
+
+const styles = StyleSheet.create({
+    text: { fontSize: 16, paddingVertical: 0, textAlignVertical: "center" },
+});
