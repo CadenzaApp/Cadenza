@@ -174,9 +174,12 @@ export function AppleMusicProvider({ children }: { children: ReactNode }) {
             }
             setAuthResult(result);
             setSessionRevision((revision) => revision + 1);
-            setSessionExpired(
-                !(result.status === AuthStatus.Authorized && result.userToken),
-            );
+            // only Apple rejecting a saved token expires a session. a cancel
+            // or a denial leaves it as it was: a new user is not "expired",
+            // and an expired one still is
+            if (result.status === AuthStatus.Authorized && result.userToken) {
+                setSessionExpired(false);
+            }
             return result;
         } catch (error) {
             logHandledError("Apple Music authorization error", error);
