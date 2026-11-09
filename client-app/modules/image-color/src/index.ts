@@ -1,7 +1,15 @@
 import { requireOptionalNativeModule } from "expo";
 
+/** Part of an image, in fractions of its size from the top left. */
+export type ImageRegion = {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+};
+
 export interface ImageColorNativeModule {
-    getAverageColor(url: string): Promise<string | null>;
+    getAverageColor(url: string, region?: ImageRegion): Promise<string | null>;
 }
 
 const nativeModule =
@@ -16,18 +24,27 @@ function normalizeHex(value: unknown): string | null {
 
 export const ImageColor = {
     /**
-     * Average color of the image at `url`, as `#rrggbb`.
+     * Average color of the image at `url`, as `#rrggbb`. With `region`, only
+     * that part of it, like the bottom half.
      *
      * Null rather than a throw for everything that does not produce one: a
      * blank URL, a fetch that fails, an undecodable image, or no native module
      * at all, which is what Expo Go has. Callers render untinted in that case
      * rather than branching on a platform.
      */
-    getAverageColor: async (url?: string | null): Promise<string | null> => {
+    getAverageColor: async (
+        url?: string | null,
+        region?: ImageRegion | null,
+    ): Promise<string | null> => {
         const target = url?.trim();
         if (!target || !nativeModule) return null;
         try {
-            return normalizeHex(await nativeModule.getAverageColor(target));
+            // the region only when asked for, so a build from before regions
+            // existed still answers the whole-image call
+            const color = region
+                ? await nativeModule.getAverageColor(target, region)
+                : await nativeModule.getAverageColor(target);
+            return normalizeHex(color);
         } catch {
             return null;
         }

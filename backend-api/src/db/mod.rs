@@ -5,6 +5,7 @@ pub mod events;
 pub mod metadata_tags;
 pub mod profile;
 pub mod queries;
+pub mod saved_queries;
 pub mod settings;
 pub mod social;
 pub mod tag_activity;

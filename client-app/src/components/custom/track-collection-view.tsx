@@ -2,27 +2,19 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import type { MusicItem } from "@apple-musickit";
 import { useIsFocused, useTheme } from "expo-router/react-navigation";
 import type { ComponentProps, ReactNode } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
-import {
-    Image,
-    View,
-    useWindowDimensions,
-    type ColorValue,
-    type StyleProp,
-    type ViewStyle,
-} from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import { View, type StyleProp, type ViewStyle } from "react-native";
 import Animated, {
     Extrapolation,
     interpolate,
-    useAnimatedReaction,
     useAnimatedScrollHandler,
     useAnimatedStyle,
     useSharedValue,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useIsPushedDetailScreen } from "@/lib/screen-overlay";
+import { Link } from "expo-router";
+import { useIsPushedScreen } from "@/lib/screen-overlay";
 import { useOpenTransitionSettled } from "@/lib/use-open-transition-settled";
-import { useZoomDismiss } from "@/lib/zoom-dismiss";
 
 import {
     MusicList,
@@ -32,19 +24,15 @@ import {
     type MusicListSections,
     type MusicListTrackAction,
 } from "@/components/custom/music-list";
+import { ArtworkMosaic } from "@/components/custom/artwork-mosaic";
+import { BlendedCover, COVER_BLEED } from "@/components/custom/blended-cover";
 import { ModalPopup } from "@/components/custom/modal-popup";
 import { Button } from "@/components/ui/button";
-import {
-    ContrastGlassIconButton as GlassIconButton,
-    ContrastRegion,
-    ContrastText as Text,
-    ContrastIcon,
-    SurfaceContrastProvider,
-} from "@/lib/surface-contrast-context";
-import type { ArtworkSurface, TintGradient } from "@/lib/artwork-color-utils";
-import { TintOverscrollBackdrop } from "@/components/ui/tint-backdrop";
+import { GlassIconButton } from "@/components/ui/glass-icon-button";
+import { NebulaBackdrop } from "@/components/ui/nebula-backdrop";
+import { Text } from "@/components/ui/text";
+import { useArtworkNebulaColors } from "@/lib/artwork-color";
 import { usePlaybackCommands } from "@/lib/playback";
-import { useTintGradient } from "@/lib/use-tint-gradient";
 
 import {
     collectionArtworkGrid,
@@ -52,7 +40,7 @@ import {
 } from "./track-collection-utils";
 import { useAppTheme } from "@/lib/theme";
 
-const ARTWORK_SIZE = 224;
+const ARTWORK_SIZE = 240;
 const ARTWORK_SCROLL_SCALE_DISTANCE = 120;
 
 /** How far the hero artwork has shrunk, scrolled this far down. */
@@ -66,17 +54,6 @@ function artworkScale(scrollY: number) {
     );
 }
 
-/**
- * The hero artwork as measured once at full size: its unshrunk size, the
- * point it shrinks toward, and the scroll it was measured at.
- */
-type ArtworkBase = {
-    centerX: number;
-    bottom: number;
-    width: number;
-    height: number;
-    scrollY: number;
-};
 const ARTWORK_SHADOW: ViewStyle = {
     shadowColor: "#000",
     shadowOpacity: 0.16,
@@ -114,8 +91,8 @@ type Props = {
     highlightTrackId?: string;
     error?: unknown;
     anticipatedTrackCount?: number;
-    onBackPress?: () => void;
-    closeControl?: ReactNode;
+    /** Floats over the hero, like `FloatingBackButton`. */
+    backControl?: ReactNode;
     options?: readonly TrackCollectionOption[];
     multiSelect?: MusicListMultiSelectConfig | null;
     trackMenuActions?: readonly MusicListTrackAction[];
@@ -124,15 +101,23 @@ type Props = {
     /** Activity tags to show on every row; see `MusicListProps`. */
     activityTagIds?: readonly number[];
     artworkUrls?: readonly string[];
+    /**
+     * A smaller copy of a single cover, shown while the large one loads and
+     * what its bleed and the nebula are read from. Usually already cached from
+     * the tile that opened this.
+     */
+    artworkPlaceholderUrl?: string | null;
     subtitle?: string;
     summary?: string;
     header?: ReactNode;
     footer?: ReactNode;
-    /** Source color for the mode-aware Oklch background gradient. */
+    /**
+     * The nebula's color when there is no artwork to read one from, and while
+     * the artwork's own colors load.
+     */
     backgroundColor?: string | null;
-    artworkSurface?: ArtworkSurface;
-    backgroundGradient?: TintGradient | null;
-    gradientMinHeight?: number;
+    /** The nebula's colors, in place of the ones read from the artwork. */
+    nebulaColors?: readonly string[];
     containerStyle?: StyleProp<ViewStyle>;
     pagination?: MusicListPagination | null;
     /**
@@ -171,7 +156,6 @@ export function TrackCollectionView({
     highlightTrackId,
     error,
     anticipatedTrackCount,
-    onBackPress,
     options = [],
     multiSelect = null,
     trackMenuActions,
@@ -179,14 +163,13 @@ export function TrackCollectionView({
     mostRelevantTags,
     activityTagIds,
     artworkUrls: artworkUrlsOverride,
+    artworkPlaceholderUrl,
     subtitle,
     summary: summaryOverride,
     header,
     footer,
     backgroundColor = null,
-    artworkSurface,
-    backgroundGradient,
-    gradientMinHeight = 0,
+    nebulaColors: nebulaColorsOverride,
     containerStyle,
     pagination = null,
     loadAllPages = false,
@@ -199,19 +182,16 @@ export function TrackCollectionView({
     onShuffle,
     onTrackPressOverride,
     isPlaying = false,
-    closeControl,
+    backControl,
     respectTopSafeArea = false,
 }: Props) {
     const { colors } = useTheme();
     const { destructive } = useAppTheme().colors;
     const insets = useSafeAreaInsets();
-    const { height: windowHeight } = useWindowDimensions();
-    const [viewportHeight, setViewportHeight] = useState(windowHeight);
-    const [contentHeight, setContentHeight] = useState(windowHeight);
     const { playQueue } = usePlaybackCommands();
     const [optionsOpen, setOptionsOpen] = useState(false);
     const isFocused = useIsFocused();
-    const settled = useOpenTransitionSettled(useIsPushedDetailScreen());
+    const settled = useOpenTransitionSettled(useIsPushedScreen());
     const scrollY = useSharedValue(0);
     const hasNextPage = pagination?.hasNextPage ?? false;
     const loadingNextPage = pagination?.isLoadingNextPage ?? false;
@@ -244,81 +224,20 @@ export function TrackCollectionView({
         () => summaryOverride ?? formatTrackCollectionSummary(tracks),
         [summaryOverride, tracks],
     );
-    const defaultGradient = useTintGradient(backgroundColor, true);
-    const gradient = backgroundGradient ?? defaultGradient;
-    const gradientHeight = Math.max(
-        viewportHeight,
-        contentHeight,
-        gradientMinHeight,
+    const hasDefaultHero = header == null;
+    // One cover bleeds into the nebula; a mosaic or a placeholder stays a tile.
+    const singleCover =
+        hasDefaultHero && artworkUrls.length === 1 ? artworkUrls[0] : null;
+    // Small copies where there is one; averaging only needs a thumbnail.
+    const sampledColors = useArtworkNebulaColors(
+        singleCover ? [artworkPlaceholderUrl ?? singleCover] : artworkUrls,
+        backgroundColor,
     );
+    const nebulaColors = nebulaColorsOverride ?? sampledColors;
     const actionsDisabled = tracks.length === 0 || isLoading;
     const onScroll = useAnimatedScrollHandler((event) => {
         scrollY.set(Math.max(0, event.contentOffset.y));
     });
-    // where the hero artwork is, for the close to land it on its tile
-    const zoom = useZoomDismiss();
-    const zoomFocus = zoom?.focus;
-    const setZoomArtwork = zoom?.setArtwork;
-    const zoomPageRef = zoom?.pageRef;
-    const artworkRef = useRef<View>(null);
-    const artworkBase = useSharedValue<ArtworkBase | null>(null);
-    // measured against the page by layout, which ignores the card's
-    // transforms, so it is right before the open has even run. layout knows
-    // nothing of scrolling either, so this is the artwork at the top
-    function measureArtwork() {
-        const page = zoomPageRef?.current;
-        if (!page || header) return;
-        artworkRef.current?.measureLayout(page, (left, top, width, height) => {
-            if (width <= 0 || height <= 0) return;
-            artworkBase.set({
-                centerX: left + width / 2,
-                bottom: top + height,
-                width,
-                height,
-                scrollY: 0,
-            });
-        });
-    }
-    // the copy the card shows as the page fades, so the close reads as this
-    // artwork shrinking into its tile
-    useEffect(() => {
-        if (!settled || !setZoomArtwork || header) return;
-        setZoomArtwork({
-            node: (
-                <View style={ARTWORK_SHADOW}>
-                    <ArtworkMosaic
-                        artworkUrls={artworkUrls}
-                        placeholderColor={colors.text}
-                    />
-                </View>
-            ),
-            width: ARTWORK_SIZE,
-            height: ARTWORK_SIZE,
-        });
-        return () => setZoomArtwork(null);
-    }, [artworkUrls, colors.text, header, setZoomArtwork, settled]);
-    useAnimatedReaction(
-        () => {
-            const base = artworkBase.get();
-            if (!base) return null;
-            const scrolled = scrollY.get();
-            const scale = artworkScale(scrolled);
-            const width = base.width * scale;
-            const height = base.height * scale;
-            const bottom = base.bottom - (scrolled - base.scrollY);
-            return {
-                x: base.centerX - width / 2,
-                y: bottom - height,
-                width,
-                height,
-            };
-        },
-        (rect) => {
-            zoomFocus?.set(rect);
-        },
-    );
-
-    const hasDefaultHero = header == null;
     const artworkStyle = useAnimatedStyle(() =>
         hasDefaultHero
             ? {
@@ -365,150 +284,145 @@ export function TrackCollectionView({
         });
     }
 
+    const titleBlock = (
+        <>
+            {titleContent ? (
+                <View className="mt-4" style={TITLE_CONTENT_SHADOW}>
+                    {titleContent}
+                </View>
+            ) : (
+                <View className="mt-4 flex-row items-center justify-center gap-2">
+                    {titleIcon ? (
+                        <Ionicons
+                            name={titleIcon}
+                            size={24}
+                            color={colors.text}
+                            accessibilityElementsHidden
+                            importantForAccessibility="no"
+                        />
+                    ) : null}
+                    <Text className="text-center text-2xl font-bold">
+                        {title}
+                    </Text>
+                </View>
+            )}
+            {subtitle ? (
+                <Text className="mt-1 text-center text-base text-muted-foreground">
+                    {subtitle}
+                </Text>
+            ) : null}
+            <Text className="mt-1 text-sm text-muted-foreground">
+                {summary}
+            </Text>
+        </>
+    );
+    const actions = (
+        <View className="mt-4 flex-row items-center gap-2.5">
+            <Button
+                className="h-12 flex-1 rounded-xl"
+                disabled={actionsDisabled}
+                onPress={playAll}
+                accessibilityLabel={`Play ${title}`}
+            >
+                <Ionicons
+                    name={isPlaying ? "pause" : "play"}
+                    size={25}
+                    color={colors.background}
+                />
+                <Text className="font-semibold">
+                    {isPlaying ? "Pause" : "Play"}
+                </Text>
+            </Button>
+            <Button
+                variant="secondary"
+                className="h-12 flex-1 rounded-xl"
+                disabled={actionsDisabled}
+                onPress={shuffleAll}
+                accessibilityLabel={`Shuffle ${title}`}
+            >
+                <Ionicons name="shuffle" size={25} color={colors.text} />
+                <Text className="font-semibold">Shuffle</Text>
+            </Button>
+            {options.length === 1 ? (
+                <GlassIconButton
+                    size={48}
+                    onPress={() => runOption(options[0])}
+                    accessibilityLabel={options[0].label}
+                >
+                    <Ionicons
+                        name={options[0].icon}
+                        size={25}
+                        color={colors.text}
+                    />
+                </GlassIconButton>
+            ) : options.length > 1 ? (
+                <GlassIconButton
+                    size={48}
+                    onPress={() => setOptionsOpen(true)}
+                    accessibilityLabel={`More options for ${title}`}
+                    accessibilityState={{ expanded: optionsOpen }}
+                >
+                    <Ionicons
+                        name="ellipsis-vertical"
+                        size={25}
+                        color={colors.text}
+                    />
+                </GlassIconButton>
+            ) : null}
+        </View>
+    );
+    const errorText = error ? (
+        <Text className="mt-3 text-center text-destructive">
+            Failed to load tracks.
+        </Text>
+    ) : null;
+
     const defaultHeader = (
         <View
             className="relative px-4 pb-4"
             style={{
-                paddingTop: 32 + (respectTopSafeArea ? insets.top : 0),
+                paddingTop:
+                    32 +
+                    (respectTopSafeArea ? insets.top : 0) +
+                    // room for the bleed above the cover
+                    (singleCover ? COVER_BLEED / 2 : 0),
             }}
         >
             <View className="items-center">
-                <Animated.View style={[artworkStyle, ARTWORK_SHADOW]}>
-                    <View
-                        ref={artworkRef}
-                        collapsable={false}
-                        onLayout={measureArtwork}
-                    >
-                        <ArtworkMosaic
-                            artworkUrls={artworkUrls}
-                            placeholderColor={colors.text}
+                {singleCover ? (
+                    <Animated.View style={artworkStyle}>
+                        <BlendedCover
+                            uri={singleCover}
+                            placeholderUri={artworkPlaceholderUrl}
+                            size={ARTWORK_SIZE}
+                            zoomTarget
                         />
-                    </View>
-                </Animated.View>
-                {titleContent ? (
-                    <View className="mt-4" style={TITLE_CONTENT_SHADOW}>
-                        {titleContent}
-                    </View>
+                    </Animated.View>
                 ) : (
-                    <View className="mt-4 flex-row items-center justify-center gap-2">
-                        {titleIcon ? (
-                            <ContrastIcon
-                                name={titleIcon}
-                                size={24}
-                                color={colors.text}
-                                accessibilityElementsHidden
-                                importantForAccessibility="no"
-                            />
-                        ) : null}
-                        <Text className="text-center text-2xl font-bold">
-                            {title}
-                        </Text>
-                    </View>
+                    <Animated.View style={[artworkStyle, ARTWORK_SHADOW]}>
+                        {/* what the native zoom grows out of the tile into */}
+                        <Link.AppleZoomTarget>
+                            <View collapsable={false}>
+                                <ArtworkMosaic
+                                    artworkUrls={artworkUrls}
+                                    size={ARTWORK_SIZE}
+                                    placeholderColor={colors.text}
+                                />
+                            </View>
+                        </Link.AppleZoomTarget>
+                    </Animated.View>
                 )}
-                {subtitle ? (
-                    <Text className="mt-1 text-center text-base text-muted-foreground">
-                        {subtitle}
-                    </Text>
-                ) : null}
-                <Text className="mt-1 text-sm text-muted-foreground">
-                    {summary}
-                </Text>
+                {titleBlock}
             </View>
-
-            <View className="mt-4 flex-row items-center gap-2.5">
-                <Button
-                    className="h-12 flex-1 rounded-xl"
-                    disabled={actionsDisabled}
-                    onPress={playAll}
-                    accessibilityLabel={`Play ${title}`}
-                >
-                    <Ionicons
-                        name={isPlaying ? "pause" : "play"}
-                        size={25}
-                        color={colors.background}
-                    />
-                    <Text tone="theme" className="font-semibold">
-                        {isPlaying ? "Pause" : "Play"}
-                    </Text>
-                </Button>
-                <Button
-                    variant="secondary"
-                    className="h-12 flex-1 rounded-xl"
-                    disabled={actionsDisabled}
-                    onPress={shuffleAll}
-                    accessibilityLabel={`Shuffle ${title}`}
-                >
-                    <Ionicons name="shuffle" size={25} color={colors.text} />
-                    <Text tone="theme" className="font-semibold">
-                        Shuffle
-                    </Text>
-                </Button>
-                {options.length === 1 ? (
-                    <GlassIconButton
-                        size={48}
-                        onPress={() => runOption(options[0])}
-                        accessibilityLabel={options[0].label}
-                    >
-                        <ContrastIcon
-                            name={options[0].icon}
-                            size={25}
-                            color={colors.text}
-                        />
-                    </GlassIconButton>
-                ) : options.length > 1 ? (
-                    <GlassIconButton
-                        size={48}
-                        onPress={() => setOptionsOpen(true)}
-                        accessibilityLabel={`More options for ${title}`}
-                        accessibilityState={{ expanded: optionsOpen }}
-                    >
-                        <ContrastIcon
-                            name="ellipsis-vertical"
-                            size={25}
-                            color={colors.text}
-                        />
-                    </GlassIconButton>
-                ) : null}
-            </View>
-
-            {error ? (
-                <Text
-                    tone="theme"
-                    className="mt-3 text-center text-destructive"
-                >
-                    Failed to load tracks.
-                </Text>
-            ) : null}
+            {actions}
+            {errorText}
         </View>
     );
-    const listHeader = header ?? (
-        <ContrastRegion
-            offset={ARTWORK_SIZE + 80 + (respectTopSafeArea ? insets.top : 0)}
-        >
-            {defaultHeader}
-        </ContrastRegion>
-    );
+    const listHeader = header ?? defaultHeader;
 
     return (
-        <SurfaceContrastProvider
-            colors={gradient?.colors}
-            height={gradientHeight}
-            contentHeight={Math.max(viewportHeight, contentHeight)}
-            viewportHeight={viewportHeight}
-            scrollY={scrollY}
-            artwork={artworkSurface}
-            style={containerStyle}
-            onLayout={(event) =>
-                setViewportHeight(event.nativeEvent.layout.height)
-            }
-        >
-            <TintOverscrollBackdrop
-                gradient={gradient}
-                scrollY={scrollY}
-                contentHeight={contentHeight}
-                gradientMinHeight={gradientMinHeight}
-                viewportHeight={viewportHeight}
-            />
+        <View className="flex-1 bg-background" style={containerStyle}>
+            <NebulaBackdrop colors={nebulaColors} layout="full" />
             <MusicList
                 // held back until the open animation ends; the rows
                 // are ready by then, so they appear as it lands
@@ -522,10 +436,7 @@ export function TrackCollectionView({
                 anticipatedTrackCount={anticipatedTrackCount}
                 header={listHeader}
                 footer={footer}
-                onContentSizeChange={(width, height) => {
-                    setContentHeight(height);
-                    onContentSizeChange?.(width, height);
-                }}
+                onContentSizeChange={onContentSizeChange}
                 removeClippedSubviews={removeClippedSubviews}
                 onScroll={onScroll}
                 multiSelect={multiSelect}
@@ -537,29 +448,7 @@ export function TrackCollectionView({
                 fullBleedRows
             />
 
-            {closeControl ??
-                (onBackPress ? (
-                    <View className="absolute left-4 top-3 z-20">
-                        <GlassIconButton
-                            size={48}
-                            onPress={onBackPress}
-                            accessibilityLabel="Back"
-                            style={{
-                                shadowColor: "#000",
-                                shadowOpacity: 0.18,
-                                shadowRadius: 9,
-                                shadowOffset: { width: 0, height: 3 },
-                                elevation: 8,
-                            }}
-                        >
-                            <Ionicons
-                                name="chevron-back"
-                                size={28}
-                                color={colors.text}
-                            />
-                        </GlassIconButton>
-                    </View>
-                ) : null)}
+            {backControl}
 
             <ModalPopup
                 visible={optionsOpen}
@@ -581,7 +470,6 @@ export function TrackCollectionView({
                             }
                         />
                         <Text
-                            tone="theme"
                             className={
                                 option.destructive
                                     ? "text-destructive"
@@ -593,64 +481,6 @@ export function TrackCollectionView({
                     </Button>
                 ))}
             </ModalPopup>
-        </SurfaceContrastProvider>
-    );
-}
-
-function ArtworkMosaic({
-    artworkUrls,
-    placeholderColor,
-}: {
-    artworkUrls: readonly string[];
-    placeholderColor: ColorValue;
-}) {
-    const oneArtwork = artworkUrls.length === 1 ? artworkUrls[0] : null;
-
-    if (oneArtwork) {
-        return (
-            <Image
-                source={{ uri: oneArtwork }}
-                className="rounded-2xl bg-muted"
-                style={{ width: ARTWORK_SIZE, height: ARTWORK_SIZE }}
-            />
-        );
-    }
-
-    return (
-        <View
-            className="flex-row flex-wrap overflow-hidden rounded-2xl bg-muted"
-            style={{ width: ARTWORK_SIZE, height: ARTWORK_SIZE }}
-        >
-            {Array.from({ length: 4 }, (_, index) => {
-                const url = artworkUrls[index];
-                return url ? (
-                    <Image
-                        key={`${url}:${index}`}
-                        source={{ uri: url }}
-                        className="bg-muted"
-                        style={{
-                            width: ARTWORK_SIZE / 2,
-                            height: ARTWORK_SIZE / 2,
-                        }}
-                    />
-                ) : (
-                    <View
-                        key={index}
-                        className="items-center justify-center bg-muted"
-                        style={{
-                            width: ARTWORK_SIZE / 2,
-                            height: ARTWORK_SIZE / 2,
-                        }}
-                    >
-                        <Ionicons
-                            name="musical-notes"
-                            size={30}
-                            color={placeholderColor}
-                            style={{ opacity: 0.45 }}
-                        />
-                    </View>
-                );
-            })}
         </View>
     );
 }

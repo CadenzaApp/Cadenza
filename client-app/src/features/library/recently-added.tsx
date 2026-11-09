@@ -2,17 +2,18 @@ import type { MusicItem } from "@apple-musickit";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTheme } from "expo-router/react-navigation";
 import type { ReactNode } from "react";
-import { FlatList, Image, Pressable, View } from "react-native";
+import { FlatList, Image, View } from "react-native";
 import Animated from "react-native-reanimated";
 import { usePrefetchCollectionSongs } from "@/lib/musickit-hooks";
 
+import { ZoomTile } from "@/components/custom/zoom-tile";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { useScreenScroll } from "@/lib/screen-scroll";
 import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
 import { usePlaybackCommands } from "@/lib/playback";
-import { useZoomSource } from "@/lib/zoom-dismiss";
+import { collectionRoute } from "@/lib/music-routes";
 
 const SKELETON_TILE_COUNT = 6;
 const COLUMN_COUNT = 2;
@@ -23,8 +24,6 @@ type RecentlyAddedGridProps = {
     isLoadingNextPage: boolean;
     hasNextPage: boolean;
     onLoadNextPage: () => void;
-    /** Called for an album or a playlist. Songs play instead of opening. */
-    onOpenCollection: (item: MusicItem) => void;
     /** Rendered above the section title. The library index puts its rows here. */
     header?: ReactNode;
 };
@@ -44,7 +43,6 @@ export function RecentlyAddedGrid({
     isLoadingNextPage,
     hasNextPage,
     onLoadNextPage,
-    onOpenCollection,
     header,
 }: RecentlyAddedGridProps) {
     const { listBottomInset } = useScreenOverlayInsets();
@@ -63,13 +61,7 @@ export function RecentlyAddedGrid({
                 renderItem={({ item }) => (
                     <RecentlyAddedTile
                         item={item}
-                        onPress={() => {
-                            if (item.resourceKind === "song") {
-                                void togglePlayback(item);
-                                return;
-                            }
-                            onOpenCollection(item);
-                        }}
+                        onPlay={() => void togglePlayback(item)}
                     />
                 )}
                 columnWrapperStyle={{
@@ -130,14 +122,15 @@ function TileSkeletons() {
 
 function RecentlyAddedTile({
     item,
-    onPress,
+    onPlay,
 }: {
     item: MusicItem;
-    onPress: () => void;
+    /** For a song, which plays rather than opening. */
+    onPlay: () => void;
 }) {
     const { colors } = useTheme();
-    const { ref: zoomRef, capture: captureZoom } = useZoomSource();
     const prefetch = usePrefetchCollectionSongs();
+    const isSong = item.resourceKind === "song";
     const artworkUrl = item.artworkUrlLarge?.trim() ?? item.artworkUrl?.trim();
     const canRenderArtwork =
         typeof artworkUrl === "string" && /^https?:\/\//i.test(artworkUrl);
@@ -145,44 +138,37 @@ function RecentlyAddedTile({
     const subtitle = item.artistName ?? KIND_LABEL[item.resourceKind];
 
     return (
-        <Pressable
+        <ZoomTile
+            href={isSong ? null : collectionRoute(item)}
             accessibilityRole="button"
             accessibilityLabel={
-                item.resourceKind === "song"
-                    ? `Play ${item.title}`
-                    : `Open ${item.title}`
+                isSong ? `Play ${item.title}` : `Open ${item.title}`
             }
             // an album or playlist's songs start loading as the finger lands
             onPressIn={() => {
-                if (item.resourceKind !== "song") prefetch(item);
+                if (!isSong) prefetch(item);
             }}
-            onPress={() => {
-                // What the collection screen minimizes back into.
-                captureZoom();
-                onPress();
-            }}
+            onPress={isSong ? onPlay : undefined}
             className="mb-5 w-[48%] active:opacity-80"
-        >
-            <View
-                ref={zoomRef}
-                collapsable={false}
-                className="aspect-square w-full"
-            >
-                {canRenderArtwork ? (
-                    <Image
-                        source={{ uri: artworkUrl }}
-                        className="h-full w-full rounded-lg bg-muted"
-                    />
-                ) : (
-                    <View className="h-full w-full items-center justify-center rounded-lg bg-muted">
-                        <Ionicons
-                            name={KIND_ICON[item.resourceKind]}
-                            size={28}
-                            color={colors.text}
+            artwork={
+                <View collapsable={false} className="aspect-square w-full">
+                    {canRenderArtwork ? (
+                        <Image
+                            source={{ uri: artworkUrl }}
+                            className="h-full w-full rounded-lg bg-muted"
                         />
-                    </View>
-                )}
-            </View>
+                    ) : (
+                        <View className="h-full w-full items-center justify-center rounded-lg bg-muted">
+                            <Ionicons
+                                name={KIND_ICON[item.resourceKind]}
+                                size={28}
+                                color={colors.text}
+                            />
+                        </View>
+                    )}
+                </View>
+            }
+        >
             <Text
                 className="mt-2 font-semibold leading-tight"
                 numberOfLines={1}
@@ -195,7 +181,7 @@ function RecentlyAddedTile({
             >
                 {subtitle}
             </Text>
-        </Pressable>
+        </ZoomTile>
     );
 }
 

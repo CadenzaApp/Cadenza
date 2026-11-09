@@ -41,7 +41,10 @@ A query runs over every song Cadenza knows, not just the library, so the count r
 from 1000 matches up, and whenever the backend capped the songs from outside the user's own at 1000.
 Empty/incomplete queries do not submit; failed requests offer SWR retry. Opening `/query-results`
 passes the query, matching scope, relevant tags, and analytics description while preserving drafts.
-That route resolves playable tracks and records query playback. Save Query logs the name only.
+That route resolves playable tracks and records query playback. Its "..." menu has Favorite, Play
+next, Add to queue, and Save query, which stores the query, its flags, its cover, and the songs it
+matches now; it then shows under Queries in the Library tab. Opened from there (`saved` param), the
+screen shows the stored songs, and the menu offers Rerun query in place of Save.
 
 Clear sits beside the heading. Undo/Redo share a capsule on iOS and remain separate on Android;
 unavailable actions dim. Simple's floating actions follow the palette. Advanced's sit above

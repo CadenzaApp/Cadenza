@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use crate::services::saved_queries::spawn_add_retagged_songs;
 use crate::{
     AppState,
     auth::SupabaseClaims,
@@ -201,13 +202,20 @@ async fn apply_user_tag_handler(
     Json(payload): Json<ApplyTagPayload>,
 ) -> Result<(), CadenzaError> {
     db::tags::apply_user_tag(
-        db,
+        db.clone(),
         claims.user_id,
-        payload.song_id,
+        payload.song_id.clone(),
         payload.tag_id,
         payload.value,
     )
-    .await
+    .await?;
+    spawn_add_retagged_songs(
+        db,
+        claims.user_id,
+        vec![payload.song_id],
+        vec![payload.tag_id],
+    );
+    Ok(())
 }
 
 #[derive(Deserialize)]
@@ -225,13 +233,20 @@ async fn set_user_tag_value_handler(
     Json(payload): Json<SetTagValuePayload>,
 ) -> Result<(), CadenzaError> {
     db::tags::set_user_tag_value(
-        db,
+        db.clone(),
         claims.user_id,
-        payload.song_id,
+        payload.song_id.clone(),
         payload.tag_id,
         payload.value,
     )
-    .await
+    .await?;
+    spawn_add_retagged_songs(
+        db,
+        claims.user_id,
+        vec![payload.song_id],
+        vec![payload.tag_id],
+    );
+    Ok(())
 }
 
 #[derive(Deserialize)]
@@ -362,7 +377,21 @@ async fn unapply_user_tag_handler(
     Claims { claims, .. }: Claims<SupabaseClaims>,
     Json(payload): Json<UnapplyTagPayload>,
 ) -> Result<(), CadenzaError> {
-    db::tags::unapply_user_tag(db, claims.user_id, payload.song_id, payload.tag_id).await
+    db::tags::unapply_user_tag(
+        db.clone(),
+        claims.user_id,
+        payload.song_id.clone(),
+        payload.tag_id,
+    )
+    .await?;
+    // a query that reads "not" this tag can match the song now
+    spawn_add_retagged_songs(
+        db,
+        claims.user_id,
+        vec![payload.song_id],
+        vec![payload.tag_id],
+    );
+    Ok(())
 }
 
 /// Applies every requested tag to every requested song. Existing applications
@@ -373,7 +402,9 @@ async fn apply_user_tags_to_songs_handler(
     Json(payload): Json<BatchEditTagsPayload>,
 ) -> Result<(), CadenzaError> {
     check_tag_edit_batch_size(&payload)?;
-    apply_user_tags_to_songs(&db, claims.user_id, &payload.song_ids, &payload.tag_ids).await
+    apply_user_tags_to_songs(&db, claims.user_id, &payload.song_ids, &payload.tag_ids).await?;
+    spawn_add_retagged_songs(db, claims.user_id, payload.song_ids, payload.tag_ids);
+    Ok(())
 }
 
 /// Removes every requested tag from every requested song. Missing applications
@@ -384,7 +415,9 @@ async fn unapply_user_tags_from_songs_handler(
     Json(payload): Json<BatchEditTagsPayload>,
 ) -> Result<(), CadenzaError> {
     check_tag_edit_batch_size(&payload)?;
-    unapply_user_tags_from_songs(&db, claims.user_id, &payload.song_ids, &payload.tag_ids).await
+    unapply_user_tags_from_songs(&db, claims.user_id, &payload.song_ids, &payload.tag_ids).await?;
+    spawn_add_retagged_songs(db, claims.user_id, payload.song_ids, payload.tag_ids);
+    Ok(())
 }
 
 #[derive(Deserialize)]

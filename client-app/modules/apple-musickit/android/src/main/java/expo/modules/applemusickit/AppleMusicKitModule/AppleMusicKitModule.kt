@@ -616,6 +616,20 @@ class AppleMusicKitModule : Module() {
                 librarySearchPage(response, "library-artists")
             )
         }
+        // Albums or playlists in the user's library matching a term. One
+        // function for both, since only the library search type differs.
+        AsyncFunction("searchLibraryCollections") {
+            term: String, kind: String, options: Map<String, Int> ->
+            val type = when (kind) {
+                "album" -> "library-albums"
+                "playlist" -> "library-playlists"
+                else -> throw Exception("Unknown collection kind: $kind")
+            }
+            val response = makeApiRequest(
+                "/v1/me/library/search?term=${encode(term)}&types=$type&${pageQuery(options)}"
+            )
+            return@AsyncFunction collectionResult(librarySearchPage(response, type))
+        }
         AsyncFunction("getRecentlyAdded") { options: Map<String, Int> ->
             // Apple's own recently added feed: albums, playlists, and loose
             // songs in one list, already grouped the way Music groups them.

@@ -44,6 +44,9 @@ export type MusicResourceKind = "song" | "album" | "playlist";
 /** Whether an item originated in the Apple Music catalog or the user's library. */
 export type MusicResourceSource = "catalog" | "library";
 
+/** Library collections that can be searched by term. */
+export type LibraryCollectionKind = "album" | "playlist";
+
 /** Catalog resource types supported by search. */
 export type CatalogSearchType = "songs" | "albums" | "artists";
 

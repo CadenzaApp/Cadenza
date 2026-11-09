@@ -6,15 +6,15 @@ player sheet at `/player` has Player, Discuss, and Tags pages.
 
 ## Entry points
 
-- `media-player-host.tsx` mounts the foreground tab, zoom-card, or root-screen host.
-  Tab and zoom-card hosts remain mounted under native sheets to avoid a dismissal flash.
+- `media-player-host.tsx` mounts the tab host. It stays mounted under native sheets to avoid a
+  dismissal flash.
 - `media-player.tsx` renders the floating surface; it does not own motion state.
 - `native-player-accessory.tsx` renders UIKit's regular/inline content.
 - `@/lib/player-presentation.tsx` owns one UI-thread motion controller, foreground geometry,
   native layout, and handoff readiness. Host and gesture tokens reject stale callbacks.
   Its derived geometry is a direct mapper input for the floating surface; do not hide shared
   geometry dependencies inside a helper worklet called by `useAnimatedStyle`. Floating width
-  uses untransformed layout dimensions, so opening zoom cards cannot leave it narrowed.
+  uses untransformed layout dimensions.
 - `@/lib/screen-overlay-geometry.ts` owns bottom spacing, spring settings, and gesture math.
 
 ## Behavior and invariants
@@ -46,7 +46,7 @@ the patch. Scroll minimization remains UIKit-owned.
 Sort and Library Tags' plus action share `useBottomRowActionButton`. Their sources own their
 sheets; the host owns placement. Floating bottom glass always clips to its radius. Unclipped, it
 goes square on Android, and on iOS it paints dark rectangles whenever UIKit clips something above
-it: the screen behind any sheet, a zoom card, or the Query results window overlay. Artwork and
+it, like the screen behind any sheet. Artwork and
 transport content have separate clipping.
 The control sits above expanded playback, follows native tuck,
 and centers above Search when tucked. In circle mode it shares the bottom row. Temporary chrome
@@ -104,19 +104,10 @@ covers them, which lets both appear on the first frame of dismissal instead of w
 route transition to finish. Focused Search still suppresses them explicitly, and so does a raised
 keyboard, which `BottomBarVisibilityProvider` watches for every screen at once.
 
-Pushed detail screens sit above the native tab controller, so the tab-level player cannot be
-raised over them. One app-level `MediaPlayerPushedScreenOverlay`, mounted above the root stack,
-renders the same regular compact content over **every** pushed route whenever playback has an
-active track and the bars are not suppressed. Its route predicate
-(`useShowsPushedPlayerOverlay`) is also the source of truth for descendant insets.
+Detail screens push inside the current tab's stack, so the tab bar and the tab-level player stay
+over them like any tab screen. No separate player host is needed.
 
-The native tab bar itself does **not** survive a pushed screen, and no overlay restores it.
-`pushedScreenOptions` presents those routes as a root-level `transparentModal` so `zoom-dismiss`
-has the previous screen to grow out of, and the detail card then paints over the whole screen,
-tab bar included. Giving the bar back means either reimplementing it as a JS overlay or moving
-these routes into the per-tab stacks and giving up the zoom transition.
-
-Playback state is unaffected either way, because it lives in `PlaybackProvider`, not here.
+Playback state lives in `PlaybackProvider`, not here.
 
 The two halves are split by what they render into. `media-player.tsx` owns playback commands and
 the tap that pushes `/player`. `player-scope.tsx` owns the song shared by the sheet routes.
@@ -129,12 +120,9 @@ transport. The top block is artwork or, once the queue button is on, `queue-view
 opens **in place** rather than as a second page or a second sheet, so playback stays reachable
 while you reorder. `player-page.tsx` holds that as one `view` state and nothing else changes.
 
-The artist name opens an artist card around the measured label center; artwork opens View artwork
-and Go to album actions. The image viewer supports close/native back. Artist and album cards keep
-the player underneath, and albums return to the measured cover in either artwork or queue layout.
-`ZoomSheetSourceScope` includes the physical sheet position and Now Playing header in that target.
-The provider key follows player routes only, so covering the player preserves its mounted layout.
-Artist lookup/prefetch and album resolution pause while covered. The song menu shares these caches.
+The artist name opens the artist; artwork opens View artwork and Go to album actions. The image
+viewer supports close/native back. Opening an artist or album closes this sheet and pushes the page
+in the tab underneath, through `useOpenScreen`'s `closing: "player"`. The song menu shares these caches.
 
 Queue positions are converted in exactly one place. `queue-view.tsx` works in upcoming-list
 positions, because the playing song is its heading rather than a row; `usePlayback()` works in
@@ -163,8 +151,7 @@ smoothly between the 750ms native snapshot polls, and scrubbing overrides it wit
 - `@/components/custom/reorderable-list::ReorderableList` for the up-next list.
 - `@/components/custom/options-menu::SongOptionsMenu` for the `...` menu, documented in
   [../../README.md](../../README.md). `player-page.tsx` passes it a `navigate` that dismisses the
-  sheet before opening other destinations. Artist and album links use transparent full-screen
-  presentation so the player remains visible throughout opening and dismissal. Discuss opens `/discuss/:songId` for that song, dismissing the sheet when
+  sheet and opens the destination in the tab underneath. Discuss opens `/discuss/:songId` for that song, dismissing the sheet when
   it is already up, and does not change playback. Modify Tags opens the menu's selector popup
   without navigating.
 - Mounted by `src/app/(tabs)/_layout.tsx`; the sheet navigator is declared by

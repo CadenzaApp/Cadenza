@@ -1,4 +1,4 @@
-import type { MusicItem } from "@apple-musickit";
+import type { ArtistItem, MusicItem } from "@apple-musickit";
 
 /**
  * Hrefs into the resource screens, built in one place.
@@ -74,6 +74,23 @@ export function albumRouteForTrack(
             // the library copy, for when the full album will not load
             fallbackId: albumId !== track.albumID ? track.albumID : undefined,
         },
+    };
+}
+
+type ArtistRoute = {
+    pathname: "/artist/[id]";
+    params: { id: string; name: string };
+};
+
+/**
+ * The artist screen, or null for an artist with no catalog id. The screen
+ * reads the catalog, so a library-only artist has nowhere to go.
+ */
+export function artistRoute(artist: ArtistItem): ArtistRoute | null {
+    if (!artist.catalogId) return null;
+    return {
+        pathname: "/artist/[id]",
+        params: { id: artist.catalogId, name: artist.name },
     };
 }
 

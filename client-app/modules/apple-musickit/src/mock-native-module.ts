@@ -14,6 +14,7 @@ import {
     ArtistResult,
     CollectionFavoriteKind,
     FavoriteStatus,
+    LibraryCollectionKind,
     LibraryResult,
     LibrarySongOptions,
     MusicItem,
@@ -872,6 +873,23 @@ export function createMockNativeModule(): AppleMusicKitNativeModule {
             respond(
                 paginatedResult(
                     MOCK_PLAYLIST_TRACKS[playlistId] ?? [],
+                    options,
+                ),
+            ),
+
+        searchLibraryCollections: (
+            term: string,
+            kind: LibraryCollectionKind,
+            options?: MusicKitOptions,
+        ) =>
+            respond(
+                paginatedResult(
+                    (kind === "album"
+                        ? MOCK_LIBRARY_ALBUMS
+                        : MOCK_PLAYLISTS
+                    ).filter((collection) =>
+                        matchesQuery(collection, term.trim().toLowerCase()),
+                    ),
                     options,
                 ),
             ),

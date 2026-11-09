@@ -1,6 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type { MusicItem, SongFavoriteStatus } from "@apple-musickit";
-import type { ReactNode, Ref } from "react";
+import type { ReactNode } from "react";
 import {
     ActivityIndicator,
     Image,
@@ -38,8 +38,6 @@ export function MediaPlayerTrackHeading({
     onFavoriteToggle,
     onOpenMenu,
     onOpenArtist,
-    artistNameRef,
-    artworkRef,
 }: {
     track: MusicItem;
     favoriteStatus: SongFavoriteStatus | null | undefined;
@@ -50,8 +48,6 @@ export function MediaPlayerTrackHeading({
     onFavoriteToggle: () => void;
     onOpenMenu: () => void;
     onOpenArtist?: () => void;
-    artistNameRef?: Ref<View>;
-    artworkRef?: Ref<View>;
 }) {
     const artworkUrl = track.artworkUrl?.trim();
     const canRenderArtwork =
@@ -62,16 +58,14 @@ export function MediaPlayerTrackHeading({
     return (
         <View className="flex-row items-center gap-3">
             {canRenderArtwork ? (
-                <View ref={artworkRef} collapsable={false}>
-                    <Image
-                        source={{ uri: artworkUrl }}
-                        style={{
-                            width: COMPACT_ARTWORK_SIZE,
-                            height: COMPACT_ARTWORK_SIZE,
-                        }}
-                        className="rounded-lg bg-muted"
-                    />
-                </View>
+                <Image
+                    source={{ uri: artworkUrl }}
+                    style={{
+                        width: COMPACT_ARTWORK_SIZE,
+                        height: COMPACT_ARTWORK_SIZE,
+                    }}
+                    className="rounded-lg bg-muted"
+                />
             ) : null}
 
             <View className="flex-1">
@@ -86,8 +80,6 @@ export function MediaPlayerTrackHeading({
                     {track.title || "Unknown Title"}
                 </Text>
                 <Pressable
-                    ref={artistNameRef}
-                    collapsable={false}
                     accessibilityRole="link"
                     accessibilityLabel={`View ${track.artistName || "artist"}`}
                     accessibilityState={{ disabled: !onOpenArtist }}

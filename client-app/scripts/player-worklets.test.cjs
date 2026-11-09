@@ -469,14 +469,13 @@ test("React Compiler keeps shared-value reads out of every player render", () =>
         );
     }
 });
-test("covered tab and detail hosts mount no player", () => {
+test("a covered tab host mounts no player", () => {
     const r = fixture();
     r.focused = false;
     assert.equal(
         r.render(hostFile, "MediaPlayerFallbackOverlay", [{ hidden: false }]),
         null,
     );
-    assert.equal(r.render(hostFile, "MediaPlayerZoomOverlay"), null);
     assert.equal(r.timers.size, 0);
 });
 test("stale tab gestures cannot move or re-lock an active detail drag", () => {
@@ -929,7 +928,7 @@ test("detail player keeps full layout width when its card is measured during a z
     assert.equal(r.api.motion.geometry.get().width, 353);
 });
 
-test("full-player sheet keeps tab and detail mini-player hosts mounted while unfocused", () => {
+test("full-player sheet keeps the tab mini-player host mounted while unfocused", () => {
     const r = fixture(false);
     r.focused = false;
     r.hostActive = true;
@@ -937,7 +936,6 @@ test("full-player sheet keeps tab and detail mini-player hosts mounted while unf
         r.render(hostFile, "MediaPlayerFallbackOverlay", [{ hidden: false }]),
         null,
     );
-    assert.notEqual(r.render(hostFile, "MediaPlayerZoomOverlay"), null);
 });
 
 test("first playback fades a centered circle in before expanding and native handoff", () => {

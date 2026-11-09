@@ -1,31 +1,23 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type { ArtistItem } from "@apple-musickit";
 import { useTheme } from "expo-router/react-navigation";
-import { FlatList, Image, Pressable, ScrollView, View } from "react-native";
+import type { ReactNode } from "react";
+import { FlatList, Image, ScrollView, View } from "react-native";
 import Animated from "react-native-reanimated";
 
 import { MusicListItemSkeleton } from "@/components/custom/music-list/music-list-item";
+import { ZoomTile } from "@/components/custom/zoom-tile";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
 import { useScreenOverlayInsets } from "@/lib/screen-overlay";
 import { useScreenScroll } from "@/lib/screen-scroll";
-import { useTopRailInset } from "@/lib/top-rail";
 import { ScreenScrollMarker } from "@/lib/screen-scroll-marker";
-import { useZoomSource } from "@/lib/zoom-dismiss";
+import { artistRoute } from "@/lib/music-routes";
 import { cn } from "@/lib/utils";
 
 const SKELETON_ROW_COUNT = 8;
 const RAIL_TILE_WIDTH = 96;
 const RAIL_PLACEHOLDER_COUNT = 4;
-
-/**
- * Whether this artist can open the artist screen. `/artist/[id]` reads the
- * catalog, so a library artist Apple knows no catalog equivalent for has
- * nowhere to go and renders inert rather than opening an empty screen.
- */
-export function canOpenArtist(artist: ArtistItem): boolean {
-    return Boolean(artist.catalogId);
-}
 
 type ArtistListProps = {
     artists: ArtistItem[];
@@ -33,9 +25,12 @@ type ArtistListProps = {
     isLoadingNextPage: boolean;
     hasNextPage: boolean;
     onLoadNextPage: () => void;
-    onSelect: (artist: ArtistItem) => void;
+    /** Runs as an artist opens, before the push. */
+    onOpen?: (artist: ArtistItem) => void;
     /** Shown when the list is loaded and empty. */
     emptyLabel: string;
+    /** Scrolls with the rows, above the first one. */
+    header?: ReactNode;
 };
 
 /**
@@ -49,26 +44,12 @@ export function ArtistList({
     isLoadingNextPage,
     hasNextPage,
     onLoadNextPage,
-    onSelect,
+    onOpen,
     emptyLabel,
+    header,
 }: ArtistListProps) {
     const { listBottomInset } = useScreenOverlayInsets();
     const scroll = useScreenScroll<FlatList<ArtistItem>>();
-    // the skeleton is not in the scroller, so the scroller's inset misses it
-    const railInset = useTopRailInset();
-
-    if (isLoading && artists.length === 0) {
-        return (
-            <View
-                className="flex-1"
-                style={{ paddingTop: railInset ?? undefined }}
-            >
-                {Array.from({ length: SKELETON_ROW_COUNT }, (_, index) => (
-                    <MusicListItemSkeleton key={index} fullBleed />
-                ))}
-            </View>
-        );
-    }
 
     return (
         <ScreenScrollMarker>
@@ -78,17 +59,36 @@ export function ArtistList({
                 data={artists}
                 keyExtractor={(artist) => artist.id}
                 renderItem={({ item }) => (
-                    <ArtistRow artist={item} onPress={onSelect} />
+                    <ArtistRow artist={item} onOpen={onOpen} />
                 )}
                 contentContainerStyle={[
                     { paddingBottom: listBottomInset },
                     scroll.contentContainerStyle,
                 ]}
+                ListHeaderComponent={header ? <>{header}</> : null}
+                // in the list rather than in place of it, so the header and
+                // its search field stay mounted while a new page loads
                 ListEmptyComponent={
-                    <Text className="px-6 py-10 text-center text-muted-foreground">
-                        {emptyLabel}
-                    </Text>
+                    isLoading ? (
+                        <View>
+                            {Array.from(
+                                { length: SKELETON_ROW_COUNT },
+                                (_, index) => (
+                                    <MusicListItemSkeleton
+                                        key={index}
+                                        fullBleed
+                                    />
+                                ),
+                            )}
+                        </View>
+                    ) : (
+                        <Text className="px-6 py-10 text-center text-muted-foreground">
+                            {emptyLabel}
+                        </Text>
+                    )
                 }
+                keyboardDismissMode="on-drag"
+                keyboardShouldPersistTaps="handled"
                 ListFooterComponent={
                     isLoadingNextPage ? (
                         <MusicListItemSkeleton fullBleed />
@@ -107,7 +107,8 @@ export function ArtistList({
 type ArtistRailProps = {
     artists: ArtistItem[];
     isLoading: boolean;
-    onSelect: (artist: ArtistItem) => void;
+    /** Runs as an artist opens, before the push. */
+    onOpen?: (artist: ArtistItem) => void;
 };
 
 /**
@@ -115,7 +116,7 @@ type ArtistRailProps = {
  * scrolls horizontally on purpose: the surfaces that use it already own a
  * vertical scroll container, and nesting two would break both.
  */
-export function ArtistRail({ artists, isLoading, onSelect }: ArtistRailProps) {
+export function ArtistRail({ artists, isLoading, onOpen }: ArtistRailProps) {
     return (
         <ScrollView
             horizontal
@@ -133,89 +134,90 @@ export function ArtistRail({ artists, isLoading, onSelect }: ArtistRailProps) {
                       <ArtistTile
                           key={artist.id}
                           artist={artist}
-                          onPress={onSelect}
+                          onOpen={onOpen}
                       />
                   ))}
         </ScrollView>
     );
 }
 
+/**
+ * An artist with no catalog id has nowhere to go: the artist screen reads the
+ * catalog. Its tile renders inert rather than opening an empty screen.
+ */
 function ArtistTile({
     artist,
-    onPress,
+    onOpen,
 }: {
     artist: ArtistItem;
-    onPress: (artist: ArtistItem) => void;
+    onOpen?: (artist: ArtistItem) => void;
 }) {
-    const openable = canOpenArtist(artist);
-    const { ref: zoomRef, capture: captureZoom } = useZoomSource();
+    const href = artistRoute(artist);
 
     return (
-        <Pressable
+        <ZoomTile
+            href={href}
             accessibilityRole="button"
             accessibilityLabel={`Open ${artist.name}`}
-            disabled={!openable}
-            onPress={() => {
-                captureZoom();
-                onPress(artist);
-            }}
+            disabled={!href}
+            onPress={() => onOpen?.(artist)}
             style={{ width: RAIL_TILE_WIDTH }}
             className="active:opacity-80"
+            artwork={
+                <View collapsable={false} className="h-24 w-24">
+                    <ArtistArtwork
+                        artist={artist}
+                        className="h-full w-full"
+                        iconSize={32}
+                    />
+                </View>
+            }
         >
-            <View ref={zoomRef} collapsable={false} className="h-24 w-24">
-                <ArtistArtwork
-                    artist={artist}
-                    className="h-full w-full"
-                    iconSize={32}
-                />
-            </View>
             <Text
                 numberOfLines={1}
                 className="mt-2 text-center text-sm text-foreground"
             >
                 {artist.name}
             </Text>
-        </Pressable>
+        </ZoomTile>
     );
 }
 
 function ArtistRow({
     artist,
-    onPress,
+    onOpen,
 }: {
     artist: ArtistItem;
-    onPress: (artist: ArtistItem) => void;
+    onOpen?: (artist: ArtistItem) => void;
 }) {
-    const openable = canOpenArtist(artist);
-    const { ref: zoomRef, capture: captureZoom } = useZoomSource();
+    const href = artistRoute(artist);
 
     return (
-        <Pressable
+        <ZoomTile
+            href={href}
             accessibilityRole="button"
             accessibilityLabel={`Open ${artist.name}`}
-            disabled={!openable}
-            onPress={() => {
-                captureZoom();
-                onPress(artist);
-            }}
+            disabled={!href}
+            onPress={() => onOpen?.(artist)}
             className="relative flex-row items-center px-6 py-3 active:opacity-80"
+            artwork={
+                <View collapsable={false} className="mr-3 h-14 w-14">
+                    <ArtistArtwork
+                        artist={artist}
+                        className="h-full w-full"
+                        iconSize={22}
+                    />
+                </View>
+            }
         >
             <View className="absolute bottom-0 left-6 right-6 border-b border-border" />
-
-            <View ref={zoomRef} collapsable={false} className="mr-3 h-14 w-14">
-                <ArtistArtwork
-                    artist={artist}
-                    className="h-full w-full"
-                    iconSize={22}
-                />
-            </View>
             <Text
                 numberOfLines={1}
                 className="flex-1 text-base text-foreground"
             >
                 {artist.name}
             </Text>
-        </Pressable>
+        </ZoomTile>
     );
 }
 

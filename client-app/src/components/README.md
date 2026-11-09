@@ -25,18 +25,18 @@ and a backend rejection is a bare `{ error_type }`. The cause still reaches the 
 `badge`, `button`, `card`, `dialog`, `glass-surface`, `glass-button`, `glass-confirm-dialog`,
 `glass-icon-button`, `glass-panel`, `glass-pill`, `glass-toggle`, `segmented-control`, `input`,
 `label`, `separator`, `skeleton`, `tabs`, `text`, `native-only-animated-view`, `detail-screen`,
-`tint-backdrop`, `nebula-backdrop`, `crossfade`, `floating-close-button`, `dialog-close-button`,
+`nebula-backdrop`, `crossfade`, `floating-back-button`, `dialog-close-button`,
 `pressed-fill`, plus `sign-in-form` and `sign-up-form`.
 
-`floating-close-button.tsx` exports `FloatingCloseButton`, the X a screen that draws its own hero
-floats in the top right. It closes through `@/lib/zoom-dismiss::useCloseScreen`, so it plays the
-same minimize the pull does. It has to be a component rather than a call in the screen, because
-the controller lives in the `ZoomDismissScreen` that screen renders.
+`floating-back-button.tsx` exports `FloatingBackButton`, the back button a pushed screen that
+draws its own hero floats in the top left.
 
 `glass-surface.tsx` exports `GlassSurface`, the translucent background layer behind app-owned
 glass controls and compatibility surfaces. It renders liquid glass on iOS 26, an `expo-blur` `BlurView` on anything
 older, and a flat translucent card on web, all behind one component. It paints a background and
-nothing else; the caller supplies size and radius. Android copies that radius onto its fill, so a visible overflow (how iOS lets the liquid-glass edge extend) does not leave a square. Its optional
+nothing else; the caller supplies size, radius, and `overflow: "hidden"`. Unclipped iOS glass paints a dark
+rectangle whenever UIKit clips something above it, like the screen behind a sheet. Android copies
+the radius onto its fill. Its optional
 `tintColor` reaches native liquid glass and gets a translucent approximation on fallbacks.
 Glass does not stack: a `GlassSurface` under another one, or under a `GlassLayer`, paints a flat
 fill instead. A container whose glass is a sibling under its content (like `AnalyticsCard`) wraps
@@ -68,30 +68,15 @@ itself while pressed; the popups built on `ModalPopup` use it.
 `glass-toggle.tsx` exports `GlassToggle`, the on/off switch. The track is glass and tints with the
 nav theme's notification color while on. Account settings and the query builder both use it.
 
-`tint-backdrop.tsx` exports `TintBackdrop`, the colored wash behind a page. It requires the single
-gradient object, normally returned by `useTintGradient`, which reduces the source chroma and interpolates the
-light/dark-mode endpoints in Oklch before the native RGB renderer sees them. Dropped into a
-scroller's content it fills and scrolls with it, and every page runs it the full length. The color
-at a point depends on how far down the page it is: the top color keeps a 1/x share with x going 1
-to 2 down the page (`tintFadeAt`), so a long page never bottoms out in the end color. It renders
-nothing for a null gradient, so callers mount it unconditionally. On iOS expo-linear-gradient redraws a
-bitmap the size of the view on every resize, so the gradient is drawn at a fixed 256pt and scaled
-to the page. Do not swap in a page-tall `LinearGradient`: the redraw stalls the tab bar's glass.
-New colors apply immediately, with black/white collection loading backgrounds per mode.
-`TintOverscrollBackdrop` paints one continuous gradient outside the list, clamped through rubber
-banding. Its sizing depends on layout; scrolling only moves a transform. Do not split it into
-endpoint fills: their boundary becomes visible during dismissal.
+Text and glass use the theme's colors everywhere. Nothing samples the background to pick black or
+white ink, so a page behind them has to stay readable in both modes, which the nebula does.
+Heavy rows and auto-pagination wait until the push transition settles; pagination also requires
+focus.
 
-`SurfaceContrastProvider` owns the tinted container and shares its measured viewport with the
-backdrop and Oklab contrast sampling. Text regions sample their content position; close icons
-and glass update only when contrast polarity changes. Solid buttons retain their theme colors.
-The artist portrait uses a raster-cached alpha mask; its album rail virtualizes cached covers.
-Zoom opens pause skeletons with `animate-none`, avoiding NativeWind remounts when pulsing resumes.
-Heavy rows, duplicate closing artwork, and auto-pagination wait until the zoom settles; pagination
-also requires focus.
-
-`nebula-backdrop.tsx` exports `NebulaBackdrop`, soft SVG blobs of up to five colors glowing up
-from the bottom, used only by the Analytics overview. Unlike `TintBackdrop` it is fixed to the
+`nebula-backdrop.tsx` exports `NebulaBackdrop`, soft SVG blobs of up to five colors behind a page.
+`layout="bottom"` (the default) glows up from the lower half, for Analytics and Cadenza.
+`layout="full"` spreads the blobs over the whole screen, for `TrackCollectionView` and
+`DetailScreen`, which color it from their artwork (`useArtworkNebulaColors`). It is fixed to the
 screen: mount it behind the scroller. Each blob slowly changes size, brightness and position on the
 UI thread. Every so often a blob fades out, hands its color to the back of a shared queue
 (`src/lib/color-queue.ts`) and fades back in with the one at the front, so colors move around.
@@ -110,19 +95,19 @@ a long press, which leaves short drags to the scroll view. Do **not** reuse the 
 drag code for a list: it caches drop-zone rects once at drag start, so it breaks under scroll.
 
 `detail-screen.tsx` exports `DetailScreen`, the header and safe-area shell for most routes that
-are not a tab. A pushed one wraps its body in `ZoomDismissScreen`, so it minimizes on the way out;
-a sheet does not, since it already has a native dismiss. `/artist/:id` and `/collection/:kind/:id` opt out: both draw a hero of their own
-and float their own X. It draws the title, an optional
-`headerRight`, and the X, then renders its children in a clipped flex body below them. One
-`presentation` prop (`"screen"` by default, `"sheet"` for the settings sheets and
-`/player`) decides the top inset and whether the body counts the bottom bars. The caller keeps
+are not a tab. `/artist/:id` and `/collection/:kind/:id` opt out: both draw a hero of their own
+and float a `FloatingBackButton`. It draws the title, an optional `headerRight`, and a back button
+(screen) or X (sheet), then renders its children in a clipped flex body below them. One
+`presentation` prop (`"screen"` by default, `"sheet"` for the settings sheets, the two pickers,
+and `/player`) decides the top inset and whether the body counts the bottom bars. The caller keeps
 its own scrolling and bottom inset, and owes the body a definite
 height (`flex-1` on the scrolling child), because a content-sized list in a sheet grows past
 its box while the sheet animates. The header paints and hit-tests above the body, so a body
 that gets this wrong can no longer cover the close button. It also wraps the body in `InsideSheetContext`, so
 overlay insets inside it stop counting the tab bar and the compact player. Every sheet route
-uses it, which is what keeps them identical. An optional `tint` washes the whole sheet in an
-artwork color through the shared mode-aware Oklch `TintBackdrop`; the now-playing sheet passes one.
+uses it, which is what keeps them identical. An optional `artworkUrl` (and `tint` as its fallback)
+puts a full nebula behind the whole screen, colored from random spots on the artwork; the
+now-playing sheet and Discuss pass one.
 
 There is no `icon` primitive. Icons come straight from `@expo/vector-icons/Ionicons`.
 
@@ -136,7 +121,7 @@ variables), `tailwind.config.js`, and `global.css`. Class merging goes through
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `music-list/`               | Scrollable list of `MusicItem`s, with skeletons, paging, Sort by and Group by, collapsible groups, selection, and tags. See below.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `floating-bubble.tsx`       | The liquid-glass round floating action button the list and tag screens sit under.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| `options-menu/`             | The song, album, and playlist "..." menus, on liquid glass. See below.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `options-menu/`             | The song, album, playlist, and query "..." menus, on liquid glass. See below.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `song-tag-editor.tsx`       | Tag editing for one song: applied state, values, adopting or removing a default tag, mutations, and dialog state.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `tag-pill.tsx`              | The app tag chip. `appearance` selects solid chosen styling or a transparent outline, and `suggested` italicizes shared suggestions. Dark colors are adjusted for readable outlines in dark mode. Attribute tags keep their type icon through query negation and can show formatted values. Exports `useTagScreenColor` for surfaces built by hand, and `readableTextColor`.                                                                                                                                                                                                                                                                                                                                                                     |
 | `tag-selector/`             | Reusable glass selector and its single-song and bulk popups. The primary heading defaults to Your Tags but can be retitled for an action. Its tags toggle solid/outline chosen state, paginate by 20, scroll inside a box of about six rows unless `scrollableGrid` is false (the song's Tags page and popup, which scroll as one page), and switch between relevance and alphabetical order from the small funnel control. When creation is enabled, its compact + control sits beside the funnel. A selector for one song adds a separate Suggested card, while selectors for several songs omit it. Callers may include right-aligned liquid-glass footer actions. Its pure sorter supports stable single-song and multi-song priority rules. |
@@ -147,13 +132,15 @@ variables), `tailwind.config.js`, and `global.css`. Class merging goes through
 | `tag-value-dialog.tsx`      | Liquid-glass per-type editor opened when an attribute tag is applied or edited.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `option-picker.tsx`         | Liquid-glass popup list with optional sections and search, sized for a long list. Picks fields, operators and values in the advanced query builder, and what a song list sorts and groups by.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `modal-popup.tsx`           | Small popup used by options, sorting, and selection actions. Liquid glass is the default.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `tab-stack.tsx`             | The native stack each bottom tab nests for the shared `TopRail` header.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `tab-stack.tsx`             | The native stack each bottom tab nests for the shared `TopRail` header. Also registers the shared detail routes, so they push inside the tab.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `top-rail.tsx`              | Shared tab header with optional glass back button, page title, actions, and account initials.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `account-initials.ts`       | Pure email-to-initials helper, tested in `account-initials.test.ts`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `coming-soon-screen.tsx`    | Data-driven preview surface used by stubbed product areas.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `tasks.tsx`                 | Root task provider and floating status rows used by default-tag generation.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `collection-list.tsx`       | Paged album or playlist rows. Owns screen scrolling and records artwork zoom origins.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `artist-list.tsx`           | Paged artist rows and the sideways artist rail. Both record a zoom origin.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `artwork-mosaic.tsx`        | `ArtworkMosaic`, one cover or a 2x2 grid of up to four. Query results and saved query rows.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `search-field.tsx`          | `SearchField`, the glass search pill. Used by the Search tab and the Library category lists.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `collection-list.tsx`       | Paged album or playlist rows. Owns screen scrolling. Rows open the collection with the zoom, or call `onSelect` when picking.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `artist-list.tsx`           | Paged artist rows and the sideways artist rail. Rows open the artist with the zoom.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `track-collection-view.tsx` | Shared artwork, actions, metadata, and track-list surface for query results, collections, and artist top songs.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `reorderable-list.tsx`      | Generic fixed-row-height drag-to-reorder list.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `media-player/`             | The mini player and now-playing sheet body. See [custom/media-player/README.md](custom/media-player/README.md).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
@@ -247,13 +234,13 @@ list is its own small component rather than `MusicList` with five features switc
 reuse `MusicListItemSkeleton` for its loading rows.
 
 `artist-list.tsx` is the same idea for artists, which are `ArtistItem`s and not `MusicItem`s at
-all. It draws round artwork, since that is how every music app draws a person, and exports
-`canOpenArtist`: `/artist/[id]` reads the catalog, so an artist without a `catalogId` renders
-inert instead of opening an empty screen. `ArtistRail` is the horizontal form, for a section
+all. It draws round artwork, since that is how every music app draws a person. `/artist/[id]`
+reads the catalog, so an artist without a `catalogId` (no `artistRoute`) renders inert instead of
+opening an empty screen. `ArtistRail` is the horizontal form, for a section
 sitting above a list that owns the scroll.
 
-`MusicList` hides its scroll indicator. Overscrolling at the top is how a detail screen closes,
-and an indicator flicking in over the shrinking card is noise.
+`zoom-tile.tsx` exports `ZoomTile`, a pressable that opens an href with the iOS 18 zoom growing
+out of its `artwork`, through `Link.AppleZoom`. With no href it is a plain pressable.
 
 Overflowing tag rails use `MaskedView` with a fixed-width opaque-to-transparent trailing mask.
 Rails that fit skip it: a mask makes iOS draw the row offscreen on every frame it moves, which on
@@ -279,20 +266,22 @@ hundreds at once. A song once read stays read for as long as the list is up. A t
 the rows whose tags changed, not the list. The selection toolbar renders inside `RowTagSource`,
 since it needs the same reads.
 
-`TrackCollectionView` owns the standard mosaic or single-artwork header, play/shuffle row,
-caller-supplied simple glass options, and the `MusicList`. Routes can supply pagination, playback
-overrides, one background source color, close controls, and opt the standard header into the
-device's top safe area. The view turns that color into the shared Oklch gradient for the active
-color mode, including matching fixed overscroll endpoints. The gradient is
-`MusicList`'s `contentBackground`: drawn inside the scroll content behind the rows, filling it, so
-it spans the real content height with nothing measured, and is not a virtualized cell an offscreen
-header could take with it. Sized from a measured content height it ended early whenever the list's
-estimate of unmeasured rows came in short, leaving a hard edge over the fixed end color. `useCollectionArtworkTint` selects one representative four-cell sample
-for both the mosaic and its Oklab-averaged source color. Routes can also append actions to each track's
-shared options menu; the tag detail uses that to preserve Remove this tag. A caller can replace
-the standard title row, which the tag detail does with `TagPill` and its song count. Gradient-backed routes pair scrolling content
-with the fixed endpoint underlay, so elastic scrolling reveals the exact top or bottom color
-without placing a second gradient seam at the bounce boundary. Artist uses its custom hero and albums
+`TrackCollectionView` owns the standard header, play/shuffle row,
+caller-supplied simple glass options, and the `MusicList`, over a full `NebulaBackdrop`. Routes can
+supply pagination, playback overrides, one fallback color for the nebula (or its colors outright),
+close controls, and opt the standard header into the device's top safe area. One cover gets a
+`BlendedCover`; several covers or none stay a centered mosaic tile. The nebula is colored from
+random spots on the cover, or on the mosaic's covers. `useCollectionArtworkTint` selects one
+representative four-cell sample for the mosaic and its Oklab-averaged fallback color. Routes can also
+append actions to each track's shared options menu; the tag detail uses that to preserve Remove this
+tag. A caller can replace the standard title row, which the tag detail does with `TagPill` and its
+song count.
+
+`BlendedCover` is a centered squircle cover (continuous corners) over a blurred, enlarged copy of itself that bleeds 56pt
+out past every edge. One SVG mask fades the copy with distance from the cover (a linear ramp per
+side, a radial ramp per corner, same eased stops), so the bleed is a soft rounded square with no
+lines at its border. It takes only the cover's square in layout. It is memoized and rasterized: keep its props
+stable. Artist uses its custom hero and albums
 rail through the header/footer inputs, while album and playlist details use the standard layout
 and open `CollectionOptionsMenu` from a supplied option.
 
@@ -327,6 +316,7 @@ scroll view for inset, scroll-to-top, and tab-bar/accessory minimization.
 | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `song-options-menu.tsx`       | `SongOptionsMenu`. Favorite + Share, then Modify Tags, Add to Playlist, Play Next, Add to Queue, Go to Album, Go to Artist, and Discuss. Discuss opens `/discuss/:songId` for that song and does not change playback. Modify Tags swaps the menu for an inline selector popup. Self-contained from just a `track`; used by list rows and the now-playing sheet. |
 | `collection-options-menu.tsx` | `CollectionOptionsMenu`. Favorite + Share for the album/playlist itself, then Play Next / Add to Queue against its songs. Used by `/collection/[kind]/[id]`.                                                                                                                                                                                                    |
+| `query-options-menu.tsx`      | `QueryOptionsMenu`. Favorite, then Play Next / Add to Queue against the results, then Save query or, once saved, Rerun query.                                                                                                                                                                                                                                   |
 | `favorite-share-row.tsx`      | `FavoriteShareRow`, the icon row + divider both menus lead with. Generic over the target type.                                                                                                                                                                                                                                                                  |
 
 Both menus render through the liquid-glass default in `ModalPopup`. `SongOptionsMenu` takes an

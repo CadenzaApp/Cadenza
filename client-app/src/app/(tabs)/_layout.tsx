@@ -90,7 +90,7 @@ export default function TabLayout() {
                         />
                     </NativeTabs.BottomAccessory>
                 ) : null}
-                <NativeTabs.Trigger name="social" {...TRIGGER_PROPS}>
+                <NativeTabs.Trigger name="(social)" {...TRIGGER_PROPS}>
                     <NativeTabs.Trigger.Icon
                         sf={{
                             default: "person.2",
@@ -101,7 +101,7 @@ export default function TabLayout() {
                     <NativeTabs.Trigger.Label>Social</NativeTabs.Trigger.Label>
                 </NativeTabs.Trigger>
 
-                <NativeTabs.Trigger name="analytics" {...TRIGGER_PROPS}>
+                <NativeTabs.Trigger name="(analytics)" {...TRIGGER_PROPS}>
                     <NativeTabs.Trigger.Icon
                         sf={{
                             default: "chart.bar",
@@ -114,7 +114,7 @@ export default function TabLayout() {
                     </NativeTabs.Trigger.Label>
                 </NativeTabs.Trigger>
 
-                <NativeTabs.Trigger name="cadenza" {...TRIGGER_PROPS}>
+                <NativeTabs.Trigger name="(cadenza)" {...TRIGGER_PROPS}>
                     <NativeTabs.Trigger.Icon
                         sf="music.note.list"
                         md={{
@@ -125,7 +125,7 @@ export default function TabLayout() {
                     <NativeTabs.Trigger.Label>Cadenza</NativeTabs.Trigger.Label>
                 </NativeTabs.Trigger>
 
-                <NativeTabs.Trigger name="library" {...TRIGGER_PROPS}>
+                <NativeTabs.Trigger name="(library)" {...TRIGGER_PROPS}>
                     <NativeTabs.Trigger.Icon
                         sf={{
                             default: "rectangle.stack",
@@ -140,7 +140,7 @@ export default function TabLayout() {
                 </NativeTabs.Trigger>
 
                 <NativeTabs.Trigger
-                    name="search"
+                    name="(search)"
                     role="search"
                     {...TRIGGER_PROPS}
                 >

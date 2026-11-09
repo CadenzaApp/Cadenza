@@ -1,6 +1,7 @@
 pub mod analytics;
 pub mod default_tags;
 pub mod metadata_tags;
+pub mod saved_queries;
 pub mod social_feed;
 pub mod song_metadata;
 pub mod tag_generation;

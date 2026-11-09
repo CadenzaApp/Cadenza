@@ -23,6 +23,8 @@ pub struct UserSettings {
     pub background_swatches: Option<Swatches>,
     pub hide_explicit: bool,
     pub show_suggested_tags: bool,
+    /// Tagging a song adds it to the saved queries it now matches.
+    pub auto_update_queries: bool,
 }
 
 impl From<user_settings::Model> for UserSettings {
@@ -39,6 +41,7 @@ impl From<user_settings::Model> for UserSettings {
             background_swatches: read_swatches(model.background_swatches.as_ref()),
             hide_explicit: model.hide_explicit,
             show_suggested_tags: model.show_suggested_tags,
+            auto_update_queries: model.auto_update_queries,
         }
     }
 }
@@ -69,6 +72,8 @@ pub struct PatchUserSettings {
     pub hide_explicit: Option<bool>,
     #[serde(default, deserialize_with = "not_null")]
     pub show_suggested_tags: Option<bool>,
+    #[serde(default, deserialize_with = "not_null")]
+    pub auto_update_queries: Option<bool>,
 }
 
 /// A present key must hold a value: null fails rather than being read as
@@ -105,6 +110,7 @@ impl From<PatchUserSettings> for SettingsPatch {
             background_swatches: body.background_swatches,
             hide_explicit: body.hide_explicit,
             show_suggested_tags: body.show_suggested_tags,
+            auto_update_queries: body.auto_update_queries,
         }
     }
 }

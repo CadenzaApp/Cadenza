@@ -10,7 +10,7 @@ glass, color slots, explicit filter, tag suggestions) go through `useUserSetting
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `account-settings.tsx`          | `/account`. Avatar, username, and email (the header opens `/account-details`), Apple Music card, the Listening and Appearance tiles, Privacy and Apple Music limits rows. |
 | `apple-music-settings.tsx`      | `/apple-music`. Connection status, connect or reconnect, library sync, and disconnect.                                                                                    |
-| `listening-preferences.tsx`     | `/listening-preferences`. Tag suggestions and Hide explicit content toggles.                                                                                              |
+| `listening-preferences.tsx`     | `/listening-preferences`. Tag suggestions, Hide explicit content, and Update saved queries toggles.                                                                       |
 | `appearance-settings.tsx`       | `/appearance`. Mode (System, Light, Dark, Custom), background, accent, glass tint, Clear or Tinted glass, a live preview, and reset.                                      |
 | `privacy-settings.tsx`          | `/privacy`. What Cadenza keeps and what it does not, and the way into Your data.                                                                                          |
 | `account-details.tsx`           | `/account-details`. Name and member since, the username and bio form, view public profile, Your data, Cadenza sign out.                                                   |

@@ -4,6 +4,7 @@ import {
     type ArtistResult,
     type CollectionFavoriteKind,
     type FavoriteStatus,
+    type LibraryCollectionKind,
     type LibrarySongOptions,
     MusicKit,
     type MusicItem,
@@ -98,7 +99,7 @@ async function read<T>(fetchOnce: () => Promise<T>): Promise<T> {
 }
 
 /** A library collection that contains songs. */
-export type LibraryCollectionKind = "album" | "playlist";
+export type { LibraryCollectionKind };
 
 /**
  * The shape every paginated Apple Music read comes back in. `LibraryResult`
@@ -161,13 +162,7 @@ type SearchPageKey = readonly [
     number,
     number,
 ];
-type LibrarySearchPageKey = readonly [
-    "MusicKit.searchLibrarySongs",
-    number,
-    string,
-    number,
-    number,
-];
+type LibrarySearchPageKey = readonly [string, number, string, number, number];
 type SongInfoPageKey = readonly [
     "MusicKit.getSongInfo",
     number,
@@ -375,24 +370,9 @@ export function useCatalogSongSearch(enabled = true) {
  * one, so a screen can swap between the two scopes without changing shape.
  */
 export function useLibrarySongSearch(enabled = true) {
-    const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
+    const { isInitializing } = useAppleMusic();
     const [term, setTerm] = useState<string | null>(null);
-    const page = usePagedLibraryResult(
-        (offset, limit) =>
-            enabled && isConnected && term
-                ? ([
-                      "MusicKit.searchLibrarySongs",
-                      sessionRevision,
-                      term,
-                      limit,
-                      offset,
-                  ] as const)
-                : null,
-        (key: LibrarySearchPageKey) => {
-            const [, , searchTerm, limit, offset] = key;
-            return MusicKit.searchLibrarySongs(searchTerm, { limit, offset });
-        },
-    );
+    const page = useLibrarySongSearchPages(term, enabled);
 
     function searchLibrary(nextTerm: string) {
         setTerm(nextTerm.trim() || null);
@@ -411,6 +391,88 @@ export function useLibrarySongSearch(enabled = true) {
         librarySearchLoading: page.isLoading || isInitializing,
         isLoadingNextLibrarySearchPage: page.isLoadingNextPage,
         librarySearchErr: page.error,
+    };
+}
+
+/**
+ * Pages of library songs matching `term`, which the caller owns (and should
+ * debounce). Nothing is read for a blank term.
+ */
+export function useLibrarySongSearchPages(term: string | null, enabled = true) {
+    return useLibrarySearchPages(
+        "MusicKit.searchLibrarySongs",
+        term,
+        enabled,
+        (searchTerm, options) =>
+            MusicKit.searchLibrarySongs(searchTerm, options),
+    );
+}
+
+/** Pages of library albums or playlists matching `term`. */
+export function useLibraryCollectionSearchPages(
+    kind: LibraryCollectionKind,
+    term: string | null,
+    enabled = true,
+) {
+    return useLibrarySearchPages(
+        `MusicKit.searchLibraryCollections.${kind}`,
+        term,
+        enabled,
+        (searchTerm, options) =>
+            MusicKit.searchLibraryCollections(searchTerm, kind, options),
+    );
+}
+
+/**
+ * Pages of library artists matching `term`. The paged form of
+ * `useLibraryArtistSearch`, for a full list rather than a rail.
+ */
+export function useLibraryArtistSearchPages(
+    term: string | null,
+    enabled = true,
+) {
+    return useLibrarySearchPages<ArtistItem>(
+        "MusicKit.searchLibraryArtists",
+        term,
+        enabled,
+        (searchTerm, options) =>
+            MusicKit.searchLibraryArtists(searchTerm, options),
+    );
+}
+
+/**
+ * The one shape every library search shares: a term, paged like any other
+ * library read. `name` keeps each search's cache keys apart.
+ */
+function useLibrarySearchPages<Item extends { id: string } = MusicItem>(
+    name: string,
+    term: string | null,
+    enabled: boolean,
+    search: (
+        term: string,
+        options: { limit: number; offset: number },
+    ) => Promise<PagedResult<Item>>,
+) {
+    const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
+    const normalizedTerm = term?.trim() || null;
+    const page = usePagedLibraryResult<LibrarySearchPageKey, Item>(
+        (offset, limit) =>
+            enabled && isConnected && normalizedTerm
+                ? ([
+                      name,
+                      sessionRevision,
+                      normalizedTerm,
+                      limit,
+                      offset,
+                  ] as const)
+                : null,
+        ([, , searchTerm, limit, offset]: LibrarySearchPageKey) =>
+            search(searchTerm, { limit, offset }),
+    );
+    return {
+        ...page,
+        isLoading:
+            page.isLoading || (normalizedTerm !== null && isInitializing),
     };
 }
 
@@ -540,6 +602,66 @@ export function useTracksFromLibrary({
     };
 }
 
+/**
+ * Every song in the library, page by page, in `sort` order where the platform
+ * sorts (iOS). Uncached: `useAllTracksFromLibrary` is the cached read, and this
+ * is for one-off work like queueing the whole library in a chosen order.
+ */
+export async function readAllLibrarySongs(
+    sort?: LibrarySongSort,
+): Promise<MusicItem[]> {
+    const pages: MusicItem[] = [];
+    let offset = 0;
+
+    while (true) {
+        const page = await read(() =>
+            MusicKit.getLibrarySongs({
+                limit: ALL_LIBRARY_PAGE_SIZE,
+                offset,
+                sort,
+            }),
+        );
+        pages.push(...page.items);
+        if (!hasNextLibraryPage(page)) break;
+
+        const nextOffset = page.nextOffset ?? offset + page.items.length;
+        if (nextOffset <= offset) {
+            throw new Error(
+                "Apple Music returned an invalid library page offset.",
+            );
+        }
+        offset = nextOffset;
+    }
+
+    return appendWithoutDuplicates(pages);
+}
+
+/**
+ * Every song in one album or playlist, page by page. Uncached, for one-off
+ * work like queueing several collections at once.
+ */
+export async function readAllCollectionSongs(
+    kind: LibraryCollectionKind,
+    collectionId: string,
+): Promise<MusicItem[]> {
+    const pages: MusicItem[] = [];
+    let offset = 0;
+
+    while (true) {
+        const page = await read(() =>
+            collectionSongsPage(kind, collectionId, NEXT_PAGE_SIZE, offset),
+        );
+        pages.push(...page.items);
+        if (!hasNextLibraryPage(page)) break;
+
+        const nextOffset = page.nextOffset ?? offset + page.items.length;
+        if (nextOffset <= offset) break;
+        offset = nextOffset;
+    }
+
+    return appendWithoutDuplicates(pages);
+}
+
 /** Returns every song in the current Apple Music library as one cached read. */
 export function useAllTracksFromLibrary(enabled = true) {
     const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
@@ -547,32 +669,7 @@ export function useAllTracksFromLibrary(enabled = true) {
         enabled && isConnected
             ? (["MusicKit.getAllLibrarySongs", sessionRevision] as const)
             : null,
-        async () => {
-            const pages: MusicItem[] = [];
-            let offset = 0;
-
-            while (true) {
-                const page = await read(() =>
-                    MusicKit.getLibrarySongs({
-                        limit: ALL_LIBRARY_PAGE_SIZE,
-                        offset,
-                    }),
-                );
-                pages.push(...page.items);
-                if (!hasNextLibraryPage(page)) break;
-
-                const nextOffset =
-                    page.nextOffset ?? offset + page.items.length;
-                if (nextOffset <= offset) {
-                    throw new Error(
-                        "Apple Music returned an invalid library page offset.",
-                    );
-                }
-                offset = nextOffset;
-            }
-
-            return appendWithoutDuplicates(pages);
-        },
+        () => readAllLibrarySongs(),
         {
             // the whole library is one page per hundred songs, plus a request
             // each to fill them in. SWR's default refetches it whenever a new
@@ -1335,6 +1432,15 @@ function fetchCollectionSongs([
     limit,
     offset,
 ]: CollectionSongsPageKey) {
+    return collectionSongsPage(kind, id, limit, offset);
+}
+
+function collectionSongsPage(
+    kind: LibraryCollectionKind,
+    id: string,
+    limit: number,
+    offset: number,
+) {
     return kind === "album"
         ? MusicKit.getAlbumSongs(id, { limit, offset })
         : MusicKit.getPlaylistSongs(id, { limit, offset });

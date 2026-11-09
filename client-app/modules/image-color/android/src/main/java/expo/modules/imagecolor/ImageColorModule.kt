@@ -4,12 +4,25 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
+import expo.modules.kotlin.records.Field
+import expo.modules.kotlin.records.Record
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Collections
 
+/** Part of an image to average, in fractions of its size from the top left. */
+class ImageRegion : Record {
+    @Field val x: Double = 0.0
+    @Field val y: Double = 0.0
+    @Field val width: Double = 1.0
+    @Field val height: Double = 1.0
+
+    val cacheKey: String
+        get() = "$x,$y,$width,$height"
+}
+
 /**
- * Average color of a remote image, as `#rrggbb`.
+ * Average color of a remote image, or of one region of it, as `#rrggbb`.
  *
  * Deliberately knows nothing about Apple Music, or about what the color is for.
  * It takes a URL and returns a color.
@@ -24,21 +37,22 @@ class ImageColorModule : Module() {
     override fun definition() = ModuleDefinition {
         Name("ImageColorModule")
 
-        AsyncFunction("getAverageColor") { url: String ->
-            return@AsyncFunction averageColor(url)
+        AsyncFunction("getAverageColor") { url: String, region: ImageRegion? ->
+            return@AsyncFunction averageColor(url, region ?: ImageRegion())
         }
     }
 
-    private fun averageColor(url: String): String? {
-        cache[url]?.let { return it }
+    private fun averageColor(url: String, region: ImageRegion): String? {
+        val key = "$url#${region.cacheKey}"
+        cache[key]?.let { return it }
 
         val bitmap = decodeScaled(url) ?: return null
         val hex = try {
-            averageHex(bitmap)
+            averageHex(bitmap, region)
         } finally {
             bitmap.recycle()
         }
-        if (hex != null) cache[url] = hex
+        if (hex != null) cache[key] = hex
         return hex
     }
 
@@ -81,13 +95,17 @@ class ImageColorModule : Module() {
         }
     }
 
-    private fun averageHex(bitmap: Bitmap): String? {
-        val width = bitmap.width
-        val height = bitmap.height
+    private fun averageHex(bitmap: Bitmap, region: ImageRegion): String? {
+        val left = (region.x * bitmap.width).toInt().coerceIn(0, bitmap.width)
+        val top = (region.y * bitmap.height).toInt().coerceIn(0, bitmap.height)
+        val right = ((region.x + region.width) * bitmap.width).toInt().coerceIn(left, bitmap.width)
+        val bottom = ((region.y + region.height) * bitmap.height).toInt().coerceIn(top, bitmap.height)
+        val width = right - left
+        val height = bottom - top
         if (width <= 0 || height <= 0) return null
 
         val pixels = IntArray(width * height)
-        bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
+        bitmap.getPixels(pixels, 0, width, left, top, width, height)
 
         var red = 0L
         var green = 0L

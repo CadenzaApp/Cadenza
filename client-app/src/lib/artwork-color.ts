@@ -1,7 +1,9 @@
 import { ImageColor } from "@image-color";
+import { useMemo } from "react";
 import useSWRImmutable from "swr/immutable";
 
 import { readableTextColor } from "@/components/custom/tag-pill";
+import { distinctColors, randomImageRegions } from "@/lib/artwork-color-utils";
 export { averageArtworkColors } from "@/lib/artwork-color-utils";
 
 /**
@@ -116,4 +118,42 @@ export function useArtworkColors(
         if (toAverage[index] === null) return null;
         return averaged.data?.[next++] ?? null;
     });
+}
+
+/** Random spots read per image for a nebula, and how big each one is. */
+const NEBULA_SAMPLES = 8;
+const NEBULA_SAMPLE_SIZE = 0.2;
+/** Most colors a nebula glows in. */
+const NEBULA_COLORS = 5;
+
+/**
+ * Up to five colors for a nebula behind `urls`, no two alike: the averages of
+ * random spots on each image, seeded by its URL so the same artwork always
+ * glows the same. `fallback` alone until they land, or when there are no
+ * images. Empty with neither.
+ *
+ * Hand this the small artwork, like every average.
+ */
+export function useArtworkNebulaColors(
+    urls: readonly string[],
+    fallback?: string | null,
+): string[] {
+    const { data } = useSWRImmutable<(string | null)[]>(
+        urls.length > 0 ? ["ImageColor.nebula", ...urls] : null,
+        () =>
+            Promise.all(
+                urls.flatMap((url) =>
+                    randomImageRegions(
+                        url,
+                        Math.ceil(NEBULA_SAMPLES / urls.length),
+                        NEBULA_SAMPLE_SIZE,
+                    ).map((region) => ImageColor.getAverageColor(url, region)),
+                ),
+            ),
+    );
+    return useMemo(() => {
+        const sampled = distinctColors(data ?? [], NEBULA_COLORS);
+        if (sampled.length > 0) return sampled;
+        return fallback ? [fallback] : [];
+    }, [data, fallback]);
 }

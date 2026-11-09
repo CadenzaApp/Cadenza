@@ -17,10 +17,6 @@ import type { MusicItem } from "@apple-musickit";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Text } from "@/components/ui/text";
-import {
-    ContrastText,
-    useSurfacePalette,
-} from "@/lib/surface-contrast-context";
 import { useAppTheme, type ThemeColorToken } from "@/lib/theme";
 import type { AppliedTag, Tag, TagMetadata } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -97,8 +93,7 @@ export const MusicListItem = memo(function MusicListItem({
     accessory,
 }: MusicListItemProps) {
     const { colors } = useTheme();
-    const palette = useSurfacePalette();
-    const foreground = palette?.foreground ?? colors.text;
+    const foreground = colors.text;
     const { colors: theme } = useAppTheme();
     const [rowPressed, setRowPressed] = useState(false);
     const longPressConsumedRef = useRef(false);
@@ -108,10 +103,7 @@ export const MusicListItem = memo(function MusicListItem({
         () => pickActivityTags(activityTags, activityTagIds),
         [activityTags, activityTagIds],
     );
-    const selectionColor = hexWithAlpha(
-        palette?.foreground ?? theme.foreground,
-        0.12,
-    );
+    const selectionColor = hexWithAlpha(theme.foreground, 0.12);
     const animatedRowStyle = useAnimatedStyle(
         () => ({
             backgroundColor: withTiming(
@@ -439,19 +431,19 @@ const TrackTitle = memo(function TrackTitle({
 }) {
     return (
         <View pointerEvents="none">
-            <ContrastText
+            <Text
                 className="text-base font-bold leading-tight text-foreground"
                 numberOfLines={1}
             >
                 {title}
-            </ContrastText>
-            <ContrastText
+            </Text>
+            <Text
                 className="text-sm leading-tight text-muted-foreground"
                 style={ARTIST_STYLE}
                 numberOfLines={1}
             >
                 {artistName}
-            </ContrastText>
+            </Text>
         </View>
     );
 });

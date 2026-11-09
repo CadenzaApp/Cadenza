@@ -39,6 +39,8 @@ export type RailReveal = {
 type TopRailState = {
     revealFor: (routeKey: string) => RailReveal;
     isPinned: (routeName: string) => boolean;
+    /** Whether the route draws its own header and takes no rail at all. */
+    isRailless: (routeName: string) => boolean;
     /** The floating rail's measured height, null until it has laid out. */
     railHeight: number | null;
     setRailHeight: (height: number) => void;
@@ -49,11 +51,13 @@ const TopRailContext = createContext<TopRailState | null>(null);
 type ProviderProps = {
     /** Route names in the stack whose rail is pinned rather than floating. */
     pinned?: readonly string[];
+    /** Route names in the stack with no rail, like the shared detail routes. */
+    railless?: readonly string[];
     children: ReactNode;
 };
 
 /** Wraps a tab's stack, so its rails and screens can find each other. */
-export function TopRailProvider({ pinned, children }: ProviderProps) {
+export function TopRailProvider({ pinned, railless, children }: ProviderProps) {
     // a cache filled lazily as rails and screens ask, never read for rendering
     const [reveals] = useState(() => new Map<string, RailReveal>());
 
@@ -78,12 +82,18 @@ export function TopRailProvider({ pinned, children }: ProviderProps) {
         [pinnedNames],
     );
 
+    const raillessNames = railless?.join("\n") ?? "";
+    const isRailless = useCallback(
+        (routeName: string) => raillessNames.split("\n").includes(routeName),
+        [raillessNames],
+    );
+
     // every rail in the stack is the same bar, so one measurement serves all
     const [railHeight, setRailHeight] = useState<number | null>(null);
 
     const value = useMemo(
-        () => ({ revealFor, isPinned, railHeight, setRailHeight }),
-        [revealFor, isPinned, railHeight],
+        () => ({ revealFor, isPinned, isRailless, railHeight, setRailHeight }),
+        [revealFor, isPinned, isRailless, railHeight],
     );
 
     return (
@@ -107,7 +117,13 @@ type RouteRef = { key: string; name: string };
 export function useFloatingRail(route?: RouteRef) {
     const rail = useContext(TopRailContext);
     const insets = useSafeAreaInsets();
-    if (!rail || !route || rail.isPinned(route.name)) return null;
+    if (
+        !rail ||
+        !route ||
+        rail.isRailless(route.name) ||
+        rail.isPinned(route.name)
+    )
+        return null;
     return {
         reveal: rail.revealFor(route.key),
         height: rail.railHeight ?? insets.top + TOP_RAIL_HEIGHT,

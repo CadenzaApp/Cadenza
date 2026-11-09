@@ -1,4 +1,4 @@
-import { useIsFocused } from "expo-router/react-navigation";
+import { useIsFocused, useNavigationState } from "expo-router/react-navigation";
 import { useRootNavigationState, useSegments, useRoute } from "expo-router";
 import {
     createContext,
@@ -45,41 +45,18 @@ const NATIVE_TAB_BAR_HEIGHT = Platform.select({
 }) as number;
 
 /**
- * Root segments presented as a sheet rather than as a screen of their own. A
- * sheet is a native surface over the whole app. The bars stay mounted under
- * it so they are ready as dismissal begins. Appearance stacks from Account and
- * keeps that same modal context.
+ * Root segments presented as a sheet over the tabs rather than as a screen of
+ * their own. A sheet is a native surface over the whole app. The bars stay
+ * mounted under it so they are ready as dismissal begins. Appearance stacks
+ * from Account and keeps that same modal context.
  */
-const SHEET_SEGMENTS = new Set(["account", "appearance", "player"]);
-
-/**
- * Root segments pushed as a full screen with the custom pull-to-close gesture.
- */
-const PUSHED_DETAIL_SEGMENTS = new Set([
-    "artist",
-    "collection",
-    "category",
-    "discuss",
-    "tag",
+const SHEET_SEGMENTS = new Set([
+    "account",
+    "appearance",
+    "player",
     "library-categories",
     "add-to-playlist",
 ]);
-
-/**
- * Root segments the app-level compact player renders over.
- *
- * Every pushed screen, not a chosen few. The player belongs everywhere except
- * a sheet that covers it, a raised keyboard, and the expanded player itself.
- * `query-results` is pushed with its own options rather than
- * `pushedScreenOptions`, so it is not in the set above.
- */
-const PLAYER_OVERLAY_SEGMENTS = new Set([
-    ...PUSHED_DETAIL_SEGMENTS,
-    "query-results",
-]);
-
-/** Routes whose player is still hosted outside their screen content. */
-const ROOT_PLAYER_OVERLAY_SEGMENTS = new Set(["query-results"]);
 
 export type BottomRowAction = {
     expanded: boolean;
@@ -277,21 +254,12 @@ export function useBaseRouteSegment() {
 }
 
 /**
- * Whether the screen on top is one of the pushed detail routes.
- *
- * Those are the ones with no native dismiss of their own: a sheet drags down
- * because iOS makes it, and a tab has nowhere to go. Only these need the pull
- * at the top wired up by hand.
+ * Whether this screen was pushed onto its stack, rather than being the stack's
+ * first screen. A pushed screen has an open transition to wait for.
  */
-export function useIsPushedDetailScreen() {
-    const segments = useSegments();
-    const rootSegment: string | undefined = segments[0];
-    const insideSheet = useContext(InsideSheetContext);
-    return (
-        !insideSheet &&
-        rootSegment !== undefined &&
-        PUSHED_DETAIL_SEGMENTS.has(rootSegment)
-    );
+export function useIsPushedScreen() {
+    const route = useRoute();
+    return useNavigationState((state) => state.routes[0]?.key !== route.key);
 }
 
 /** Keep foreground chrome alive underneath native sheets during dismissal. */
@@ -304,30 +272,6 @@ export function usePlayerHostActive() {
         route.key,
         state?.routes ?? [],
         state?.index,
-    );
-}
-
-/** Root screens over which the app-level compact player is visible. */
-export function useShowsPushedPlayerOverlay() {
-    const segments = useSegments();
-    const rootSegment: string | undefined = segments[0];
-    const insideSheet = useContext(InsideSheetContext);
-    return (
-        !insideSheet &&
-        rootSegment !== undefined &&
-        PLAYER_OVERLAY_SEGMENTS.has(rootSegment)
-    );
-}
-
-/** Root screens that need the app-level player instead of card-owned chrome. */
-export function useShowsRootPlayerOverlay() {
-    const segments = useSegments();
-    const rootSegment: string | undefined = segments[0];
-    const insideSheet = useContext(InsideSheetContext);
-    return (
-        !insideSheet &&
-        rootSegment !== undefined &&
-        ROOT_PLAYER_OVERLAY_SEGMENTS.has(rootSegment)
     );
 }
 
@@ -375,10 +319,9 @@ export function useScreenOverlayInsets() {
     const rootSegment = useBaseRouteSegment();
     const insideSheet = useContext(InsideSheetContext);
     const hidden = useBottomBarsHidden();
-    const showsPushedPlayerOverlay = useShowsPushedPlayerOverlay();
     const inNativeTabs = !insideSheet && rootSegment === "(tabs)";
     const bottomBarsVisible = inNativeTabs && !hidden;
-    const bottomControlRowAvailable = inNativeTabs || showsPushedPlayerOverlay;
+    const bottomControlRowAvailable = inNativeTabs;
     const bottomControlRowVisible = !hidden && bottomControlRowAvailable;
     const compactPlayerVisible = activeTrack != null && bottomControlRowVisible;
     const nativePlayerAccessory =

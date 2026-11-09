@@ -1,7 +1,17 @@
 import ExpoModulesCore
 import UIKit
 
-/// Average color of a remote image, as `#rrggbb`.
+/// Part of an image to average, in fractions of its size from the top left.
+struct ImageRegion: Record {
+    @Field var x: Double = 0
+    @Field var y: Double = 0
+    @Field var width: Double = 1
+    @Field var height: Double = 1
+
+    var cacheKey: String { "\(x),\(y),\(width),\(height)" }
+}
+
+/// Average color of a remote image, or of one region of it, as `#rrggbb`.
 ///
 /// Deliberately knows nothing about Apple Music, or about what the color is
 /// for. It takes a URL and returns a color.
@@ -21,31 +31,46 @@ public class ImageColorModule: Module {
     public func definition() -> ModuleDefinition {
         Name("ImageColorModule")
 
-        AsyncFunction("getAverageColor") { (url: String) async throws -> String? in
-            try await self.averageColor(of: url)
+        AsyncFunction("getAverageColor") { (url: String, region: ImageRegion?) async throws -> String? in
+            try await self.averageColor(of: url, region: region ?? ImageRegion())
         }
     }
 
-    private func averageColor(of urlString: String) async throws -> String? {
-        let key = urlString as NSString
+    private func averageColor(of urlString: String, region: ImageRegion) async throws -> String? {
+        let key = "\(urlString)#\(region.cacheKey)" as NSString
         if let cached = self.cache.object(forKey: key) {
             return cached as String
         }
         guard let url = URL(string: urlString) else { return nil }
 
         let (data, _) = try await session.data(from: url)
-        guard let image = UIImage(data: data), let hex = Self.averageHex(of: image) else {
+        guard let image = UIImage(data: data), let cgImage = image.cgImage,
+            let cropped = Self.crop(cgImage, to: region),
+            let hex = Self.averageHex(of: cropped)
+        else {
             return nil
         }
         self.cache.setObject(hex as NSString, forKey: key)
         return hex
     }
 
+    /// The part of `image` inside `region`, or nil when that is empty.
+    private static func crop(_ image: CGImage, to region: ImageRegion) -> CGImage? {
+        let width = Double(image.width)
+        let height = Double(image.height)
+        let rect = CGRect(
+            x: region.x * width,
+            y: region.y * height,
+            width: region.width * width,
+            height: region.height * height
+        ).integral.intersection(CGRect(x: 0, y: 0, width: width, height: height))
+        guard !rect.isEmpty else { return nil }
+        return image.cropping(to: rect)
+    }
+
     /// Draws the whole image into a single pixel and reads it back. The
     /// downsample is the average, so there is no loop over pixels to write.
-    private static func averageHex(of image: UIImage) -> String? {
-        guard let cgImage = image.cgImage else { return nil }
-
+    private static func averageHex(of cgImage: CGImage) -> String? {
         var pixel = [UInt8](repeating: 0, count: 4)
         guard let context = CGContext(
             data: &pixel,

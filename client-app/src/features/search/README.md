@@ -8,7 +8,6 @@ no catalog for, so ours is the user's own tags.
 
 | file                          | role                                                                    |
 | ----------------------------- | ----------------------------------------------------------------------- |
-| `search-field.tsx`            | `SearchField`, the glass search pill.                                   |
 | `search-scope.tsx`            | `SearchScopeToggle` and the `SearchScope` type. Apple Music vs Library. |
 | `search-landing.tsx`          | `SearchLanding`, the unfocused body. Tag shelf.                         |
 | `search-recents.tsx`          | `SearchRecents`, the focused body before a search runs.                 |
@@ -19,7 +18,7 @@ no catalog for, so ours is the user's own tags.
 
 ## How it works
 
-`src/app/(tabs)/search/index.tsx` owns the state: the term, the scope, and one `focused` boolean.
+`src/app/(tabs)/(search)/search/index.tsx` owns the state: the term, the scope, and one `focused` boolean.
 
 ```
 unfocused   top rail, an inert field, SearchLanding (tag tiles -> /tag/:tagId)

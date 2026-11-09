@@ -28,6 +28,7 @@ pub struct Model {
     pub background_color: Option<String>,
     #[sea_orm(column_type = "JsonBinary", nullable)]
     pub background_swatches: Option<Json>,
+    pub auto_update_queries: bool,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

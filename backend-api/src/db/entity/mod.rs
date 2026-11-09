@@ -19,6 +19,8 @@ pub mod post_likes;
 pub mod post_view_status;
 pub mod posts;
 pub mod profile;
+pub mod saved_queries;
+pub mod saved_query_songs;
 pub mod sea_orm_active_enums;
 pub mod tags;
 pub mod user_settings;

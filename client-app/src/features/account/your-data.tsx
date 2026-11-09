@@ -65,6 +65,7 @@ const SETTING_ROWS: {
     tag_color_swatches: { label: "Saved tag colors", show: swatches },
     hide_explicit: { label: "Hide explicit content", show: onOff },
     show_suggested_tags: { label: "Tag suggestions", show: onOff },
+    auto_update_queries: { label: "Update saved queries", show: onOff },
 };
 
 /**

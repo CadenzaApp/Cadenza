@@ -91,6 +91,7 @@ pub struct SettingsPatch {
     pub background_swatches: Option<Option<Swatches>>,
     pub hide_explicit: Option<bool>,
     pub show_suggested_tags: Option<bool>,
+    pub auto_update_queries: Option<bool>,
 }
 
 /// The settings a user with no row gets. Matches the column defaults in
@@ -109,6 +110,7 @@ fn default_settings(user_id: Uuid) -> user_settings::Model {
         background_swatches: None,
         hide_explicit: false,
         show_suggested_tags: true,
+        auto_update_queries: false,
         updated_at: Utc::now().fixed_offset(),
     }
 }
@@ -171,6 +173,9 @@ pub async fn update_settings(
     }
     if let Some(show) = patch.show_suggested_tags {
         row.show_suggested_tags = Set(show);
+    }
+    if let Some(auto) = patch.auto_update_queries {
+        row.auto_update_queries = Set(auto);
     }
 
     // updated_at is always set, so it alone means the patch named nothing

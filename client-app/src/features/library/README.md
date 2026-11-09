@@ -6,18 +6,24 @@ the user's choice.
 
 ## Files
 
-| file                          | role                                                                                                                                                    |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `categories.ts`               | `LibraryCategory`, the display order, labels, and icons. No React.                                                                                      |
-| `library-categories.tsx`      | `LibraryCategoriesProvider` / `useLibraryCategories`. Which rows show.                                                                                  |
-| `category-row.tsx`            | One row of the index. Pushes a normal view in the Library tab stack.                                                                                    |
-| `library-category-screen.tsx` | Shared body for all five categories, with tab-stack and compatibility detail hosts.                                                                     |
-| `recently-added.tsx`          | `RecentlyAddedGrid`, the paged artwork grid that owns the screen scroll and reports it with `useScreenScroll`. Tiles record themselves as zoom origins. |
-| `tags-view.tsx`               | Every tag as a pill, opening `/tag/:tagId`. The Tags category's body.                                                                                   |
+| file                          | role                                                                                                                                                                    |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `categories.ts`               | `LibraryCategory`, the display order, labels, and icons. No React.                                                                                                      |
+| `library-categories.tsx`      | `LibraryCategoriesProvider` / `useLibraryCategories`. Which rows show.                                                                                                  |
+| `category-row.tsx`            | One row of the index. Pushes a normal view in the Library tab stack.                                                                                                    |
+| `library-category-screen.tsx` | Picks the body for a category and sets the title.                                                                                                                       |
+| `library-list-header.tsx`     | `LibraryListHeader` (search field, then Play and Shuffle) and `useLibraryListSearch`, the debounced term.                                                               |
+| `library-songs.tsx`           | Songs: Apple's paged library, the backend's sorted copy, or library search results.                                                                                     |
+| `library-collections.tsx`     | Albums or Playlists, or the ones matching search. Albums can be played whole.                                                                                           |
+| `library-artists.tsx`         | Artists, or the ones matching search.                                                                                                                                   |
+| `saved-queries-view.tsx`      | Queries: the user's saved queries, favorites first, each with its saved cover. A row opens its stored songs on `/query-results`; the trash icon deletes it.             |
+| `play-queue.ts`               | `mapInOrder` and `concatUnique`, for one queue built from several lists. Tested.                                                                                        |
+| `recently-added.tsx`          | `RecentlyAddedGrid`, the paged artwork grid that owns the screen scroll and reports it with `useScreenScroll`. Collection tiles open with the native zoom (`ZoomTile`). |
+| `tags-view.tsx`               | Every tag as a pill, opening `/tag/:tagId`. The Tags category's body.                                                                                                   |
 
 ## How it works
 
-Five categories: `playlist`, `artist`, `album`, `song`, `tag`. `LIBRARY_CATEGORY_ORDER` is the
+Six categories: `playlist`, `artist`, `album`, `song`, `query`, `tag`. `LIBRARY_CATEGORY_ORDER` is the
 display order and is the only place that order is written down.
 
 ```
@@ -25,11 +31,12 @@ display order and is the only place that order is written down.
   -> /library-categories          toggles which categories are enabled
   -> /library/category/:kind      normal tab-stack category view
        -> /collection/:kind/:id   one album's or playlist's songs
-       -> /artist/:id             one catalog artist, image full bleed
+       -> /artist/:id             one catalog artist, image on a nebula
        -> /tag/:tagId             one tag's songs
+       -> /query-results          one saved query's stored songs
 ```
 
-The five category destinations stay inside the Library tab's native stack. They use the shared top
+The category destinations stay inside the Library tab's native stack. They use the shared top
 rail with a back arrow, keep the native tab bar mounted, and therefore keep its bottom player
 accessory visible when playback starts. Album, playlist, artist, and tag details remain separate
 resource routes when a row inside a category opens one.
@@ -44,20 +51,36 @@ A category the user was never offered cannot have been deliberately turned off, 
 enabled instead of silently missing for everyone who saved a selection before it shipped. The
 legacy shape was a bare array, and `LEGACY_KNOWN_CATEGORIES` is what it was choosing among.
 
-`/library/category/:kind` is one screen for all five categories. Songs render through `MusicList` (with
-Sort by / Group by and paging). Unarranged they page from Apple Music in its own order; sorted
-or grouped they are the backend's "every song in the library" query run library-only, so the
-whole library sorts at once on Android too, albums and playlists through `CollectionList`, artists through
-`ArtistList`, and tags through `TagsView`. Only the requested category's hook is enabled, so
-opening Albums does not fetch songs. Each list fills a `ScreenScrollMarker`, including Songs, so
-native scrolling can minimize the tab bar and move its player accessory inline.
+`/library/category/:kind` is one screen for every category, and each category is its own body
+component, so only the open one reads anything. Every list but Tags starts with
+`LibraryListHeader`, inside the list so it scrolls with the rows, the way Apple Music lays it out:
+
+| category  | search                | Play / Shuffle queue                                                                          |
+| --------- | --------------------- | --------------------------------------------------------------------------------------------- |
+| Songs     | Apple library search  | search results loaded, else what a sorted list shows, else the whole library in Apple's order |
+| Albums    | Apple library search  | every song of every album loaded or matched, in list order                                    |
+| Playlists | Apple library search  | none                                                                                          |
+| Artists   | Apple library search  | none                                                                                          |
+| Queries   | by name, on the phone | each query shown rerun, the user's own songs first, at most 500                               |
+
+Songs render through `MusicList` (with Sort by / Group by and paging). Unarranged they page from
+Apple Music in its own order; sorted or grouped they are the backend's "every song in the library"
+query run library-only, so the whole library sorts at once on Android too. Sort by and Group by
+hide during a search, since Apple ranks those results. Each list fills a `ScreenScrollMarker`, so
+native scrolling can minimize the tab bar and move its player accessory inline. A list's loading
+skeleton is inside the list, so the search field never unmounts while a new page loads.
+
+Queries come from `GET /saved-queries`, saved from the "..." menu on a results screen. A saved query
+holds the songs it matched when saved, not a live result. Rerun query in the same menu replaces
+them. With Update saved queries on (Account, Listening), tagging a song adds it to any saved query
+it now matches. Play and Shuffle on the list queue the stored songs.
 
 Album and playlist details render through the shared `TrackCollectionView`. The route supplies
-pagination, an artwork-derived background color, current playback state, and its rich collection options menu. Artist details use
-the same track surface with a custom full-bleed hero and albums footer. Query results use the
-standard mosaic header and add their Save action through the same options input. Tag details also
-use the mosaic, tag pill and song count as the title, and supply their tag color as the background
-source. The shared view builds every mode-aware Oklch gradient. Tag details also offer options to
+pagination, an artwork-derived fallback color for the nebula, current playback state, and its rich
+collection options menu. Artist details use the same track surface with a `BlendedCover` of the
+portrait and an albums footer. Query results use the standard mosaic header and add their Save
+action through the same options input. Tag details also use the mosaic, tag pill and song count as
+the title, and supply their tag color as the nebula's fallback. Tag details also offer options to
 rename, recolor, or delete the tag.
 
 An artist row opens `/artist/:catalogId`, the same catalog artist screen the player's `...` menu
@@ -75,8 +98,10 @@ scrolling can minimize the native tab bar and move the player inline.
 
 ## Connects to
 
-- `@/lib/musickit-hooks` for `useTracksFromLibrary`, `useLibraryAlbums`, `useUserPlaylists`,
-  `useLibraryArtists`.
+- `@/lib/musickit-hooks` for the library reads, their `*SearchPages` searches, and
+  `readAllLibrarySongs` / `readAllCollectionSongs` for Play.
+- `@/lib/play-all::usePlayAll` for Play and Shuffle.
+- `@/lib/routes/saved-queries` for Queries.
 - `@/components/custom/artist-list::ArtistList` for the Artists category body.
 - `@/lib/routes/tags::useUserTags` from `tags-view.tsx`, which fetches its own tags.
 - `@/components/custom/collection-list`, `track-collection-view`, and `music-list` for the bodies.
@@ -85,12 +110,12 @@ scrolling can minimize the native tab bar and move the player inline.
 ## Gotchas
 
 - A new category means a variant in `LibraryCategory`, an entry in `LIBRARY_CATEGORY_META`, a
-  place in `LIBRARY_CATEGORY_ORDER`, and a branch in `library-category-screen.tsx`. The type makes
-  the first three fail loudly if you miss one; the branch does not. Do not touch
+  place in `LIBRARY_CATEGORY_ORDER`, and a case in `CategoryBody` in `library-category-screen.tsx`.
+  The type makes all four fail loudly if you miss one. Do not touch
   `LEGACY_KNOWN_CATEGORIES`: it is a record of what already shipped, not a list to keep current.
 - Tags used to be a segmented view on the Cadenza tab. That switch is gone; Cadenza is only the
   query builder now.
-- Category views must remain under `(tabs)/library`; moving them back to the root stack hides the
+- Category views must remain under `(tabs)/(library)/library`; moving them back to the root stack hides the
   native tab controller that owns both the tab bar and iOS bottom player accessory.
 
 ---

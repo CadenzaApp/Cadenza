@@ -135,18 +135,19 @@ Compile native targets with the `AppleMusicKitModule` Xcode scheme and Gradle's
 of them pages the same way: pass `{ limit, offset }`, read `nextOffset` off the
 result, stop when `hasNextPage` is false.
 
-| call                                    | returns                                                                                                                                        |
-| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `getLibrarySongs(options)`              | Library songs. The only one that accepts `sort`, which is iOS only.                                                                            |
-| `getLibraryAlbums(options)`             | Library albums.                                                                                                                                |
-| `getUserPlaylists(options)`             | Library playlists.                                                                                                                             |
-| `getAlbumSongs(albumId, options)`       | The songs on one library album.                                                                                                                |
-| `getPlaylistSongs(playlistId, options)` | The songs in one library playlist. Apple answers 404 for a playlist holding no tracks, which comes back as an empty page rather than an error. |
-| `getRecentlyAdded(options)`             | Recently added library items, newest first. Mixed albums, playlists, and loose songs. Apple caps `limit` at 25.                                |
-| `searchLibrarySongs(term, options)`     | Library songs matching a text term. Added after the first dev builds shipped, so a stale binary throws "rebuild the app" rather than crashing. |
-| `getLibraryArtists(options)`            | Library artists. Same stale-binary guard as `searchLibrarySongs`.                                                                              |
-| `searchLibraryArtists(term, options)`   | Library artists matching a text term. Same guard.                                                                                              |
-| `getSongInfo(ids)`                      | Full metadata for song ids, in the order given. Not paged: it takes the ids it is given.                                                       |
+| call                                            | returns                                                                                                                                        |
+| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `getLibrarySongs(options)`                      | Library songs. The only one that accepts `sort`, which is iOS only.                                                                            |
+| `getLibraryAlbums(options)`                     | Library albums.                                                                                                                                |
+| `getUserPlaylists(options)`                     | Library playlists.                                                                                                                             |
+| `getAlbumSongs(albumId, options)`               | The songs on one library album.                                                                                                                |
+| `getPlaylistSongs(playlistId, options)`         | The songs in one library playlist. Apple answers 404 for a playlist holding no tracks, which comes back as an empty page rather than an error. |
+| `getRecentlyAdded(options)`                     | Recently added library items, newest first. Mixed albums, playlists, and loose songs. Apple caps `limit` at 25.                                |
+| `searchLibrarySongs(term, options)`             | Library songs matching a text term. Added after the first dev builds shipped, so a stale binary throws "rebuild the app" rather than crashing. |
+| `getLibraryArtists(options)`                    | Library artists. Same stale-binary guard as `searchLibrarySongs`.                                                                              |
+| `searchLibraryArtists(term, options)`           | Library artists matching a text term. Same guard.                                                                                              |
+| `searchLibraryCollections(term, kind, options)` | Library albums (`kind: "album"`) or playlists (`"playlist"`) matching a text term. Same guard.                                                 |
+| `getSongInfo(ids)`                              | Full metadata for song ids, in the order given. Not paged: it takes the ids it is given.                                                       |
 
 Albums and playlists come back as `MusicItem`s with `resourceKind` set to
 `"album"` or `"playlist"`, so the same item type describes all three. Pass the

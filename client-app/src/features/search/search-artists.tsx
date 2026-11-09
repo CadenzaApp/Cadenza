@@ -7,7 +7,8 @@ import { Text } from "@/components/ui/text";
 type Props = {
     artists: ArtistItem[];
     isLoading: boolean;
-    onSelect: (artist: ArtistItem) => void;
+    /** Runs as an artist opens, before the push. */
+    onOpen?: (artist: ArtistItem) => void;
 };
 
 /**
@@ -15,7 +16,7 @@ type Props = {
  * the term matched no artists, so a songs-only result set looks exactly as it
  * did before artists existed.
  */
-export function SearchArtists({ artists, isLoading, onSelect }: Props) {
+export function SearchArtists({ artists, isLoading, onOpen }: Props) {
     if (!isLoading && artists.length === 0) return null;
 
     return (
@@ -26,7 +27,7 @@ export function SearchArtists({ artists, isLoading, onSelect }: Props) {
             <ArtistRail
                 artists={artists}
                 isLoading={isLoading}
-                onSelect={onSelect}
+                onOpen={onOpen}
             />
         </View>
     );
