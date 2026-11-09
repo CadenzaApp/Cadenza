@@ -57,7 +57,11 @@ public class AppleMusicKitModule: Module {
         guard let developerToken, !developerToken.isEmpty else {
             throw MusicKitException(name: "ERR_MISSING_TOKEN", reason: "Missing Apple Music developer token.")
         }
-        guard let userToken, !userToken.isEmpty else {
+        // the catalog answers to the developer token alone, which is what lets
+        // someone without Apple Music search and hear previews. everything
+        // under /v1/me is theirs and needs the user token
+        let userToken = self.userToken.flatMap { $0.isEmpty ? nil : $0 }
+        if userToken == nil, !Self.isCatalogPath(path) {
             throw MusicKitException(name: "ERR_MISSING_USER_TOKEN", reason: "Missing Apple Music user token.")
         }
         guard let url = URL(string: "https://api.music.apple.com\(path)") else {
@@ -71,7 +75,9 @@ public class AppleMusicKitModule: Module {
         if body != nil {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
-        request.setValue(userToken, forHTTPHeaderField: "Music-User-Token")
+        if let userToken {
+            request.setValue(userToken, forHTTPHeaderField: "Music-User-Token")
+        }
 
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse,
@@ -584,8 +590,24 @@ public class AppleMusicKitModule: Module {
         }
     }
 
+    private static func isCatalogPath(_ path: String) -> Bool {
+        path.hasPrefix("/v1/catalog/")
+    }
+
+    /// Whether there is a music-user token, so MusicKit's own requests work.
+    /// Without one, catalog reads go through REST on the developer token.
+    private var hasUserToken: Bool {
+        !(userToken ?? "").isEmpty
+    }
+
+    /// The user's storefront, or with no user token, the device's region.
     private func currentStorefrontID() async throws -> String {
         if let storefrontID { return storefrontID }
+        guard hasUserToken else {
+            let region = Locale.current.region?.identifier.lowercased() ?? "us"
+            storefrontID = region
+            return region
+        }
         let response = try await makeAPIRequest(path: "/v1/me/storefront")
         guard let id = (response["data"] as? [[String: Any]])?.first?["id"] as? String,
               !id.isEmpty
@@ -608,6 +630,46 @@ public class AppleMusicKitModule: Module {
     }()
 
     @available(iOS 15.0, *)
+    /// Catalog search over REST, in the same shape as the MusicKit path.
+    private func catalogSearchREST(
+        query: String, types: Set<String>, limit: Int, offset: Int
+    ) async throws -> [String: Any] {
+        let storefront = try await currentStorefrontID()
+        let term = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
+        let kinds = ["songs", "albums", "artists"].filter { types.contains($0) }
+        let response = try await makeAPIRequest(
+            path: "/v1/catalog/\(storefront)/search?term=\(term)&types=\(kinds.joined(separator: ","))&limit=\(limit)&offset=\(offset)")
+        let results = response["results"] as? [String: Any] ?? [:]
+
+        var result: [String: Any] = [
+            "songs": [], "albums": [], "artists": [],
+            "hasNextSongs": false, "hasNextAlbums": false, "hasNextArtists": false,
+        ]
+        for kind in kinds {
+            let group = results[kind] as? [String: Any] ?? [:]
+            let data = group["data"] as? [[String: Any]] ?? []
+            let hasNext = group["next"] != nil
+            let suffix = kind.prefix(1).uppercased() + kind.dropFirst()
+            result[kind] = kind == "artists" ? data.map(formatAPIArtist) : data.map(formatAPIResource)
+            result["hasNext\(suffix)"] = hasNext
+            if kind == "songs", hasNext {
+                result["nextSongsOffset"] = offset + data.count
+            }
+        }
+        return result
+    }
+
+    /// Catalog songs by id over REST, in the same shape as the MusicKit path.
+    private func catalogSongsREST(_ ids: [String]) async throws -> [[String: Any]] {
+        let storefront = try await currentStorefrontID()
+        let encodedIds = ids
+            .map { $0.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? $0 }
+            .joined(separator: ",")
+        let response = try await makeAPIRequest(
+            path: "/v1/catalog/\(storefront)/songs?ids=\(encodedIds)&include=albums")
+        return (response["data"] as? [[String: Any]] ?? []).map(formatAPIResource)
+    }
+
     private func playbackSnapshot() -> [String: Any] {
         let player = ApplicationMusicPlayer.shared
         let rawProgress = player.playbackTime
@@ -769,6 +831,16 @@ public class AppleMusicKitModule: Module {
             return await self.fetchUserToken(developerToken: developerToken)
         }
 
+        // Whether this Apple Music account can play full songs. Without a
+        // subscription Apple only allows previews. Needs access granted.
+        AsyncFunction("getSubscription") { () async throws -> [String: Bool] in
+            guard MusicAuthorization.currentStatus == .authorized else {
+                return ["canPlayCatalogContent": false]
+            }
+            let subscription = try await MusicSubscription.current
+            return ["canPlayCatalogContent": subscription.canPlayCatalogContent]
+        }
+
         AsyncFunction("setTokens") { (developerToken: String, userToken: String?) -> Void in
             // The default provider only works when the MusicKit App Service is
             // enabled for this bundle ID. Supplying the app's already-configured
@@ -863,6 +935,11 @@ public class AppleMusicKitModule: Module {
             ]
             guard !searchTypes.isEmpty else { return result }
 
+            guard self.hasUserToken else {
+                return try await self.catalogSearchREST(
+                    query: query, types: requestedTypes, limit: limit, offset: offset)
+            }
+
             var request = MusicCatalogSearchRequest(term: query, types: searchTypes)
             request.limit = limit
             request.offset = offset
@@ -909,7 +986,9 @@ public class AppleMusicKitModule: Module {
             }
 
             // Fetch Catalog Songs
-            if !catalogIds.isEmpty {
+            if !catalogIds.isEmpty, !self.hasUserToken {
+                fetchedResults.append(contentsOf: try await self.catalogSongsREST(catalogIds))
+            } else if !catalogIds.isEmpty {
                 let musicItemIds = catalogIds.map { MusicItemID($0) }
                 var request = MusicCatalogResourceRequest<Song>(matching: \.id, memberOf: musicItemIds)
                 // albums are not loaded by default, and albumID is read off them

@@ -1,4 +1,8 @@
-import { AuthStatus, type AuthResult } from "./AppleMusicKit.types";
+import {
+    AuthStatus,
+    type AppleMusicSubscription,
+    type AuthResult,
+} from "./AppleMusicKit.types";
 
 /** Apple Music authorization and token-management operations. */
 export const Auth = {
@@ -30,6 +34,15 @@ export const Auth = {
         );
     },
 
+    /**
+     * Whether the connected account can play full songs. `undefined` when the
+     * platform cannot say (Android, Expo Go).
+     */
+    getSubscription: async (): Promise<AppleMusicSubscription> => {
+        if (!native) return {};
+        return native.getSubscription();
+    },
+
     /** Sets the tokens used by native Apple Music requests, or clears the user token. */
     setTokens: async (
         developerToken: string,
@@ -50,6 +63,7 @@ export function configureAuthNative(
 interface AuthNativeModule {
     authorize(developerToken: string): Promise<AuthResult>;
     refreshUserToken(developerToken: string): Promise<AuthResult>;
+    getSubscription(): Promise<AppleMusicSubscription>;
     setTokens(developerToken: string, userToken: string | null): Promise<void>;
 }
 

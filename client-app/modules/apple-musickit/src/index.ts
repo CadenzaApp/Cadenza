@@ -3,6 +3,7 @@ import { requireOptionalNativeModule } from "expo";
 import type {
     ArtistDetail,
     ArtistResult,
+    AppleMusicSubscription,
     AuthResult,
     CatalogSearchType,
     CollectionFavoriteKind,
@@ -30,6 +31,7 @@ export * from "./AppleMusicKit.types";
 export interface AppleMusicKitNativeModule {
     authorize(developerToken: string): Promise<AuthResult>;
     refreshUserToken(developerToken: string): Promise<AuthResult>;
+    getSubscription(): Promise<AppleMusicSubscription>;
     setTokens(developerToken: string, userToken: string | null): Promise<void>;
     play(): Promise<void>;
     pause(): Promise<void>;

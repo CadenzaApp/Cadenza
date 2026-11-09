@@ -728,6 +728,8 @@ export function createMockNativeModule(): AppleMusicKitNativeModule {
         refreshUserToken: (_developerToken: string) =>
             respond(MOCK_AUTH_RESULT),
 
+        getSubscription: () => respond({ canPlayCatalogContent: true }),
+
         setTokens: (_developerToken: string, _userToken: string | null) =>
             respond(undefined, COMMAND_LATENCY_MS),
 

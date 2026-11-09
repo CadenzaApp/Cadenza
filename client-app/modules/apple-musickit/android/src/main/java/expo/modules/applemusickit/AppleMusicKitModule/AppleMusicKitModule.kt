@@ -228,6 +228,12 @@ class AppleMusicKitModule : Module() {
             mapOf("status" to "unknown", "error" to "Android cannot refresh the Apple Music token silently.")
         }
 
+        // the Android SDK has no subscription check. an empty map is "unknown",
+        // which JS treats as able to play once connected
+        AsyncFunction("getSubscription") {
+            emptyMap<String, Boolean>()
+        }
+
         AsyncFunction("setTokens") { devToken: String, usrToken: String? ->
             developerToken = devToken
             userToken = usrToken
@@ -939,8 +945,14 @@ class AppleMusicKitModule : Module() {
         return mapOf("isFavorite" to (attributes?.get("inFavorites") as? Boolean ?: false))
     }
 
+    /** The user's storefront, or with no user token, the device's region. */
     private fun currentStorefrontId(): String {
         storefrontId?.let { return it }
+        if (userToken.isNullOrBlank()) {
+            val region = java.util.Locale.getDefault().country.lowercase().ifBlank { "us" }
+            storefrontId = region
+            return region
+        }
         val response = makeApiRequest("/v1/me/storefront")
         val storefront = (response["data"] as? List<*>)
             ?.firstOrNull()
@@ -1074,15 +1086,22 @@ class AppleMusicKitModule : Module() {
     ): Map<String, Any> {
         val devToken = developerToken?.takeIf { it.isNotBlank() }
             ?: throw MusicKitException("ERR_MISSING_TOKEN", "Missing Apple Music developer token.")
+        // the catalog answers to the developer token alone, which is what lets
+        // someone without Apple Music search and hear previews. everything
+        // under /v1/me is theirs and needs the user token
         val musicUserToken = userToken?.takeIf { it.isNotBlank() }
-            ?: throw MusicKitException("ERR_MISSING_USER_TOKEN", "Missing Apple Music user token.")
+        if (musicUserToken == null && !path.startsWith("/v1/catalog/")) {
+            throw MusicKitException("ERR_MISSING_USER_TOKEN", "Missing Apple Music user token.")
+        }
         val url = URL("https://api.music.apple.com$path")
         val connection = url.openConnection() as HttpURLConnection
         connection.requestMethod = method
         connection.connectTimeout = 15_000
         connection.readTimeout = 15_000
         connection.setRequestProperty("Authorization", "Bearer $devToken")
-        connection.setRequestProperty("Music-User-Token", musicUserToken)
+        if (musicUserToken != null) {
+            connection.setRequestProperty("Music-User-Token", musicUserToken)
+        }
 
         try {
             if (body != null) {
