@@ -316,6 +316,19 @@ pub async fn clear_default_tag_generation(
     Ok(())
 }
 
+/// Deletes every `in_flight` claim, so songs a stopped server claimed and never settled are
+/// generated again. Run once at startup. Assumes one server generates; a second one starting
+/// would drop the first one's live claims, which costs a duplicate generation and nothing else.
+pub async fn clear_in_flight_default_tag_generation(
+    db: &DatabaseConnection,
+) -> Result<u64, CadenzaError> {
+    let res = default_tags_generation::Entity::delete_many()
+        .filter(default_tags_generation::Column::Status.eq(TagGenStatus::InFlight))
+        .exec(db)
+        .await?;
+    Ok(res.rows_affected)
+}
+
 pub async fn get_songs_with_user_tag(
     db: &DatabaseConnection,
     user_id: Uuid,

@@ -50,6 +50,10 @@ const RATE_LIMIT_BACKOFF: Duration = Duration::from_secs(300);
 /// call and the tag writes both went through, deleted when either failed, so a failure is
 /// retried on the next read rather than leaving the song permanently tagless.
 ///
+/// Claim to settle runs on its own task. A request handler is dropped when its client hangs
+/// up, and a generator call is slow enough that the app often does, so run inline the claim
+/// would outlive the attempt and the song would be skipped forever.
+///
 /// `song_ids` must hold at most 300 entries, the cap `SongMetadataService` panics past.
 /// Both callers go through `routes::songs::check_batch_size` first, which caps at 200.
 pub async fn ensure_default_tags_generated(
@@ -83,20 +87,40 @@ pub async fn ensure_default_tags_generated(
         eprintln!("could not store song metadata read for default tags: {err}");
     }
 
+    tokio::spawn(claim_and_generate(
+        db.clone(),
+        tag_gen_service.clone(),
+        ungenerated,
+        describable_song_ids,
+        descriptions,
+    ))
+    .await
+    .map_err(|err| CadenzaError::TagGenerationErr(format!("default tag task failed: {err}")))?
+}
+
+/// Claims `ungenerated`, generates for the describable ones, and settles the claim. Owns
+/// its arguments so it can run on a task that outlives the request.
+async fn claim_and_generate(
+    db: DatabaseConnection,
+    tag_gen_service: TagGenerationService,
+    ungenerated: Vec<String>,
+    describable_song_ids: Vec<String>,
+    descriptions: Vec<String>,
+) -> Result<(), CadenzaError> {
     // claimed before the generator call, not after, so anything else reading these songs
     // while it runs sees the row and leaves them alone
-    start_default_tag_generation(db, &ungenerated).await?;
+    start_default_tag_generation(&db, &ungenerated).await?;
 
     let attempt =
-        generate_and_store_default_tags(db, tag_gen_service, describable_song_ids, descriptions)
+        generate_and_store_default_tags(&db, &tag_gen_service, describable_song_ids, descriptions)
             .await;
 
     match attempt {
-        Ok(()) => finish_default_tag_generation(db, &ungenerated).await?,
+        Ok(()) => finish_default_tag_generation(&db, &ungenerated).await?,
         Err(err) => {
             // the claim goes away so the next read retries. reported rather than
             // returned, so the caller still sees what actually failed
-            if let Err(clear_err) = clear_default_tag_generation(db, &ungenerated).await {
+            if let Err(clear_err) = clear_default_tag_generation(&db, &ungenerated).await {
                 eprintln!("could not clear a failed default tag generation: {clear_err}");
             }
             return Err(err);

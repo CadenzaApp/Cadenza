@@ -537,9 +537,10 @@ routes::json::tag::AppliedTag`.
   `user_tags_applied`, so re-adding the song brings its tags back.
 - A `done` row is never deleted, and there is no way to ask for a song to be generated again.
   Clearing the row by hand is the only retry.
-- Nothing recovers a stuck `in_flight` row. The process that claimed it deletes it on failure,
-  but a crash or a kill between the claim and the settle leaves the row behind, and every later
-  read then skips that song. Nothing sweeps them, so clearing by hand is the only way out.
+- A stuck `in_flight` row hides its song from generation. Claim to settle runs on its own task,
+  so a client that hangs up mid request no longer strands one, but a crash or a kill still can.
+  `clear_in_flight_default_tag_generation` deletes them all when the server starts, which assumes
+  one server generates.
 - The claim narrows the race but does not close it. Two reads can both pass
   `get_songs_without_generated_default_tags` before either inserts, and then both generate; the
   second `set_default_tags_on_songs` replaces the first one's tags. Wasted tokens, not corruption.
