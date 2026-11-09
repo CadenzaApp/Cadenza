@@ -25,7 +25,8 @@ import { Playback, configurePlaybackNative } from "./playback";
 import { createMockNativeModule } from "./mock-native-module";
 
 export { Auth, MusicKit, Playback };
-export type { PlaybackApi } from "./playback";
+export { setPlaybackEngine } from "./playback";
+export type { PlaybackApi, PlaybackEngine } from "./playback";
 export * from "./AppleMusicKit.types";
 
 export interface AppleMusicKitNativeModule {

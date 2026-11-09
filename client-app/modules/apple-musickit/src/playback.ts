@@ -105,7 +105,35 @@ export const Playback: PlaybackApi = {
 export function configurePlaybackNative(
     nativeModule: PlaybackNativeModule | null,
 ): void {
+    nativeEngine = nativeModule;
     playbackImplementation.configureNative(nativeModule);
+}
+
+/**
+ * The player commands `Playback` sends: the native Apple Music player by
+ * default, or a JS player with the same surface, like the preview player for
+ * someone without a subscription.
+ */
+export type PlaybackEngine = PlaybackNativeModule;
+
+/**
+ * Routes every `Playback` command to `engine`, or back to native with null.
+ * The old engine is paused and the shared state cleared, so nothing plays on
+ * from a player no command reaches any more.
+ */
+export function setPlaybackEngine(engine: PlaybackEngine | null): void {
+    const next = engine ?? nativeEngine;
+    if (next === native) return;
+    const previous = native;
+    playbackImplementation.configureNative(next);
+    previous?.pause().catch((error: unknown) => {
+        console.warn("Failed to pause the previous playback engine:", error);
+    });
+    playbackImplementation.updatePlaybackSnapshot({
+        isPlaying: false,
+        isLoading: false,
+        progress: 0,
+    });
 }
 
 interface PlaybackExpectation {
@@ -113,7 +141,7 @@ interface PlaybackExpectation {
     previousSnapshot: PlaybackSnapshot;
 }
 
-interface PlaybackNativeModule {
+export interface PlaybackNativeModule {
     play(): Promise<void>;
     pause(): Promise<void>;
     togglePlayerState(): Promise<void>;
@@ -146,6 +174,8 @@ interface PlaybackNativeModule {
 type NativeSongQueueItem = { id: string; type: string };
 
 let native: PlaybackNativeModule | null = null;
+/** The native module, kept so `setPlaybackEngine(null)` can go back to it. */
+let nativeEngine: PlaybackNativeModule | null = null;
 
 const PLAYBACK_STATE_SETTLE_DELAY_MS = 400;
 const PLAYBACK_LOAD_TIMEOUT_MS = 15_000;
