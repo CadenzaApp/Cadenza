@@ -87,13 +87,23 @@ pub async fn ensure_default_tags_generated(
         eprintln!("could not store song metadata read for default tags: {err}");
     }
 
-    tokio::spawn(claim_and_generate(
-        db.clone(),
-        tag_gen_service.clone(),
-        ungenerated,
-        describable_song_ids,
-        descriptions,
-    ))
+    let db = db.clone();
+    let tag_gen_service = tag_gen_service.clone();
+    tokio::spawn(async move {
+        let attempt = claim_and_generate(
+            db,
+            tag_gen_service,
+            ungenerated,
+            describable_song_ids,
+            descriptions,
+        )
+        .await;
+        // logged here because a caller that hung up never sees the error
+        if let Err(err) = &attempt {
+            eprintln!("[default-tags] generating default tags failed: {err}");
+        }
+        attempt
+    })
     .await
     .map_err(|err| CadenzaError::TagGenerationErr(format!("default tag task failed: {err}")))?
 }
