@@ -24,20 +24,17 @@ import {
 import useSWR, { unstable_serialize, useSWRConfig } from "swr";
 import useSWRImmutable from "swr/immutable";
 import useSWRInfinite from "swr/infinite";
-import { isAppleMusicAuthError } from "./app-error";
-import {
-    getAppleMusicAuthGeneration,
-    reportAppleMusicAuthFailure,
-    useAppleMusic,
-} from "./apple-music-auth";
+import { useAppleMusic } from "./apple-music-auth";
+import { readAppleMusic as read } from "./apple-music-read";
 import { useListeningEvents } from "./listening-events";
-import { collectionRoute } from "./music-routes";
+import { collectionRoute, isLibraryId } from "./music-routes";
 import {
     catalogIdsToFetch,
     nextGroupedChunk,
     resolvedTracks,
     uniqueBy,
 } from "./paged-tracks";
+import { logHandledError } from "./log";
 
 const MUSIC_LIST_PAGE_SIZE = 25;
 /**
@@ -58,44 +55,21 @@ const ARTIST_SEARCH_LIMIT = 12;
 /** Even number so the recently added grid never ends on a half row. */
 const RECENTLY_ADDED_PAGE_SIZE = 24;
 
-/** How long to wait before the one retry a rejected credential gets. */
-const AUTH_RETRY_DELAY_MS = 400;
-
 /**
- * Runs one Apple Music read, with a single retry if Apple rejects the
- * credentials.
- *
- * The retry is there for the races a plain failure cannot tell apart from a
- * dead token: a read that fired before `restoreNativeTokens` finished pushing
- * the stored token into the native module, or a token Apple was briefly
- * unhappy about. A genuinely expired token fails the same way twice, and that
- * second failure is what retires it, so nothing keeps replaying a credential
- * that cannot work.
- *
- * Every SWR fetcher in this file goes through here. A new read that skips it
- * will hang on a dead token instead of prompting a reconnect. Exported as
- * `readAppleMusic` for reads outside this file, like the library sync.
+ * The ids a read can ask for right now. The catalog answers to Cadenza's own
+ * developer token, so it works without Apple Music connected; library ids need
+ * the user's token and are dropped until they connect.
  */
-async function read<T>(fetchOnce: () => Promise<T>): Promise<T> {
-    const readGeneration = getAppleMusicAuthGeneration();
-    try {
-        return await fetchOnce();
-    } catch (error) {
-        if (!isAppleMusicAuthError(error)) throw error;
+function readableIds(
+    isConnected: boolean,
+    ids: readonly string[],
+): readonly string[] {
+    return isConnected ? ids : ids.filter((id) => !isLibraryId(id));
+}
 
-        await new Promise((resolve) =>
-            setTimeout(resolve, AUTH_RETRY_DELAY_MS),
-        );
-
-        try {
-            return await fetchOnce();
-        } catch (retryError) {
-            if (isAppleMusicAuthError(retryError)) {
-                reportAppleMusicAuthFailure(readGeneration);
-            }
-            throw retryError;
-        }
-    }
+/** One id's version of `readableIds`. */
+function isReadable(isConnected: boolean, id: string): boolean {
+    return isConnected || !isLibraryId(id);
 }
 
 /** A library collection that contains songs. */
@@ -197,9 +171,10 @@ export function useSongInfo(songIds?: readonly string[] | null) {
  * a new first page key is what tells `useSWRInfinite` the chunks changed.
  */
 function useSongInfoChunks(idChunks: readonly (readonly string[])[]) {
-    const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
+    const { isConnected, canReadCatalog, isInitializing, sessionRevision } =
+        useAppleMusic();
     const reader = useId();
-    const active = isConnected && idChunks.length > 0;
+    const active = canReadCatalog && idChunks.length > 0;
     const chunkIds = useMemo(
         () => idChunks.map((ids) => ids.join(",")).join("|"),
         [idChunks],
@@ -218,7 +193,7 @@ function useSongInfoChunks(idChunks: readonly (readonly string[])[]) {
         (key: SongInfoPageKey | SongInfoReaderKey) =>
             key[0] === SONG_INFO_READER
                 ? Promise.resolve(EMPTY_SONGS)
-                : read(() => MusicKit.getSongInfo([...key[2]])),
+                : readSongInfo(isConnected, key[2]),
         {
             // the chunks are independent, so ask for them all at once. one
             // after another, a 100 song list waited on four round trips
@@ -268,13 +243,23 @@ function useSongInfoChunks(idChunks: readonly (readonly string[])[]) {
         songInfo: idChunks.length > 0 ? songInfo : EMPTY_SONGS,
         songInfoLoading:
             isInitializing ||
-            (isConnected &&
+            (canReadCatalog &&
                 chunksLoaded.some((loaded) => !loaded) &&
                 error == null),
         songInfoErr: error,
         /** Whether each chunk has its answer, in the order given. */
         chunksLoaded,
     };
+}
+
+/** `MusicKit.getSongInfo` for the ids that can be read right now. */
+async function readSongInfo(
+    isConnected: boolean,
+    ids: readonly string[],
+): Promise<MusicItem[]> {
+    const readable = readableIds(isConnected, ids);
+    if (readable.length === 0) return [];
+    return read(() => MusicKit.getSongInfo([...readable]));
 }
 
 /** Marks a `useSongInfoChunks` reader's own first page. */
@@ -294,11 +279,11 @@ function chunkValues<T>(values: readonly T[], size: number): T[][] {
  * incremental pages. The query and all request parameters form the cache key.
  */
 export function useCatalogSongSearch(enabled = true) {
-    const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
+    const { canReadCatalog, isInitializing, sessionRevision } = useAppleMusic();
     const [query, setQuery] = useState<string | null>(null);
     const x = useSWRInfinite<SearchResult>(
         (pageIndex, previousPage) => {
-            if (!enabled || !isConnected || !query) return null;
+            if (!enabled || !canReadCatalog || !query) return null;
             if (pageIndex > 0 && !hasNextSearchPage(previousPage)) {
                 return null;
             }
@@ -766,7 +751,7 @@ export function usePagedTracksForSongIds(
     /** False reads nothing, not even the library, for a caller with no list. */
     enabled = true,
 ) {
-    const { isConnected } = useAppleMusic();
+    const { isConnected, canReadCatalog } = useAppleMusic();
     const {
         allLibraryTracks,
         allLibraryTracksLoading,
@@ -836,14 +821,14 @@ export function usePagedTracksForSongIds(
                 libraryTracksById.get(songId) ?? fetchedTracksById.get(songId);
             const missing = ids.filter((songId) => !known(songId));
             let fetched = new Map<string, MusicItem>();
-            if (missing.length > 0 && isConnected) {
+            if (missing.length > 0 && canReadCatalog) {
                 try {
                     fetched = indexTracksById(
-                        await read(() => MusicKit.getSongInfo(missing)),
+                        await readSongInfo(isConnected, missing),
                     );
                 } catch (error) {
                     // the tracks already resolved are still worth playing
-                    console.error("Could not resolve songs to play:", error);
+                    logHandledError("Could not resolve songs to play", error);
                 }
             }
             return uniqueBy(
@@ -854,7 +839,7 @@ export function usePagedTracksForSongIds(
                 (track) => track.id,
             );
         },
-        [fetchedTracksById, isConnected, libraryTracksById],
+        [fetchedTracksById, isConnected, canReadCatalog, libraryTracksById],
     );
 
     return {
@@ -877,7 +862,7 @@ export function usePagedTracksForSongIds(
  * what the backend is missing, not for a list that renders as it scrolls.
  */
 export function useTrackLookup(enabled = true) {
-    const { isConnected } = useAppleMusic();
+    const { isConnected, canReadCatalog } = useAppleMusic();
     const { allLibraryTracks } = useAllTracksFromLibrary(enabled);
     const libraryTracksById = useMemo(
         () => indexTracksById(allLibraryTracks),
@@ -892,10 +877,10 @@ export function useTrackLookup(enabled = true) {
                 if (track) found.set(songId, track);
                 else missing.push(songId);
             }
-            if (missing.length === 0 || !isConnected) return found;
+            if (missing.length === 0 || !canReadCatalog) return found;
             for (const chunk of chunkValues(missing, MUSIC_LIST_PAGE_SIZE)) {
                 const fetched = indexTracksById(
-                    await read(() => MusicKit.getSongInfo(chunk)),
+                    await readSongInfo(isConnected, chunk),
                 );
                 for (const songId of chunk) {
                     const track = fetched.get(songId);
@@ -904,7 +889,7 @@ export function useTrackLookup(enabled = true) {
             }
             return found;
         },
-        [isConnected, libraryTracksById],
+        [isConnected, canReadCatalog, libraryTracksById],
     );
 }
 
@@ -962,7 +947,7 @@ export function useGroupedTrackLoader({
      */
     known?: (songId: string) => boolean;
 }) {
-    const { isConnected, sessionRevision } = useAppleMusic();
+    const { isConnected, canReadCatalog, sessionRevision } = useAppleMusic();
     const { allLibraryTracks, allLibraryTracksLoading, allLibraryTracksErr } =
         useAllTracksFromLibrary(enabled);
     const libraryTracksById = useMemo(
@@ -1050,7 +1035,7 @@ export function useGroupedTrackLoader({
     );
 
     useEffect(() => {
-        if (!enabled || !groups || !isConnected || allLibraryTracksLoading) {
+        if (!enabled || !groups || !canReadCatalog || allLibraryTracksLoading) {
             return;
         }
         if (settledNow.current.revision !== sessionRevision) {
@@ -1086,11 +1071,11 @@ export function useGroupedTrackLoader({
                     if (toFetch.length > 0) {
                         try {
                             fetched = indexTracksById(
-                                await read(() => MusicKit.getSongInfo(toFetch)),
+                                await readSongInfo(isConnected, toFetch),
                             );
                         } catch (error) {
-                            console.error(
-                                "Could not load songs for a grouped list:",
+                            logHandledError(
+                                "Could not load songs for a grouped list",
                                 error,
                             );
                             failed = true;
@@ -1151,6 +1136,7 @@ export function useGroupedTrackLoader({
         allLibraryTracksLoading,
         enabled,
         groups,
+        canReadCatalog,
         isConnected,
         known,
         libraryTracksById,
@@ -1259,10 +1245,10 @@ export function useLibraryArtists(enabled = true) {
  * sync. One page only, because the results render as a rail.
  */
 export function useCatalogArtistSearch(term?: string, enabled = true) {
-    const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
+    const { canReadCatalog, isInitializing, sessionRevision } = useAppleMusic();
     const normalizedTerm = term?.trim();
     const key =
-        enabled && isConnected && normalizedTerm
+        enabled && canReadCatalog && normalizedTerm
             ? ([
                   "MusicKit.catalogArtistSearch",
                   sessionRevision,
@@ -1379,10 +1365,13 @@ export function useCollectionSongs(
     kind: LibraryCollectionKind,
     collectionId?: string,
 ) {
-    const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
+    const { isConnected, canReadCatalog, isInitializing, sessionRevision } =
+        useAppleMusic();
     const page = usePagedLibraryResult(
         (offset, limit) =>
-            isConnected && collectionId
+            canReadCatalog &&
+            collectionId &&
+            isReadable(isConnected, collectionId)
                 ? collectionSongsKey(
                       sessionRevision,
                       kind,
@@ -1457,13 +1446,15 @@ const prefetching = new Map<string, Promise<PagedResult<MusicItem>>>();
  * sending its own.
  */
 export function usePrefetchCollectionSongs() {
-    const { isConnected, sessionRevision } = useAppleMusic();
+    const { isConnected, canReadCatalog, sessionRevision } = useAppleMusic();
     const { cache, mutate } = useSWRConfig();
     return useCallback(
         (collection: MusicItem) => {
             // the same kind and id the screen will open with
             const { kind, id } = collectionRoute(collection).params;
-            if (!isConnected || !id) return;
+            if (!canReadCatalog || !id || !isReadable(isConnected, id)) {
+                return;
+            }
             if (kind !== "album" && kind !== "playlist") return;
             const key = collectionSongsKey(
                 sessionRevision,
@@ -1491,7 +1482,7 @@ export function usePrefetchCollectionSongs() {
                 }
             })();
         },
-        [cache, isConnected, mutate, sessionRevision],
+        [cache, canReadCatalog, isConnected, mutate, sessionRevision],
     );
 }
 
@@ -1561,7 +1552,7 @@ export function useSongFavoriteStatus(songId?: string) {
             );
         } catch (error) {
             // the favorite itself went through; only the activity tag misses it
-            console.error("Recording a favorite change failed:", error);
+            logHandledError("Recording a favorite change failed", error);
         }
         return nextStatus;
     }
@@ -1659,19 +1650,21 @@ export function useCollectionsInfo(
     kind: LibraryCollectionKind,
     collectionIds: readonly string[],
 ) {
-    const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
+    const { isConnected, canReadCatalog, isInitializing, sessionRevision } =
+        useAppleMusic();
     const apiKind = collectionFavoriteKind(kind);
+    const ids = readableIds(isConnected, collectionIds);
     const key =
-        isConnected && collectionIds.length > 0
+        canReadCatalog && ids.length > 0
             ? ([
                   "MusicKit.getCollectionInfo",
                   sessionRevision,
                   apiKind,
-                  ...collectionIds,
+                  ...ids,
               ] as const)
             : null;
     const x = useSWR<MusicItem[]>(key, () =>
-        read(() => MusicKit.getCollectionInfo(apiKind, [...collectionIds])),
+        read(() => MusicKit.getCollectionInfo(apiKind, [...ids])),
     );
 
     return {
@@ -1690,9 +1683,10 @@ const EMPTY_COLLECTIONS: MusicItem[] = [];
  * an artist to open before it has to load one.
  */
 export function useSongArtists(songId?: string) {
-    const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
+    const { isConnected, canReadCatalog, isInitializing, sessionRevision } =
+        useAppleMusic();
     const key =
-        isConnected && songId
+        canReadCatalog && songId && isReadable(isConnected, songId)
             ? (["MusicKit.getSongArtists", sessionRevision, songId] as const)
             : null;
     const x = useSWRImmutable<string[]>(key, () =>
@@ -1708,9 +1702,9 @@ export function useSongArtists(songId?: string) {
 
 /** Returns one catalog artist with their top songs and albums. */
 export function useArtist(artistId?: string) {
-    const { isConnected, isInitializing, sessionRevision } = useAppleMusic();
+    const { canReadCatalog, isInitializing, sessionRevision } = useAppleMusic();
     const key =
-        isConnected && artistId
+        canReadCatalog && artistId
             ? (["MusicKit.getArtist", sessionRevision, artistId] as const)
             : null;
     const x = useSWRImmutable<ArtistDetail>(key, () =>
@@ -1793,5 +1787,3 @@ function appendWithoutDuplicates<Item extends { id: string }>(items: Item[]) {
         return true;
     });
 }
-
-export { read as readAppleMusic };

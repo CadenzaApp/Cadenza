@@ -3,16 +3,22 @@ import { useEffect, useRef } from "react";
 
 import { useAppleMusic } from "@/lib/apple-music-auth";
 
-/** Routes that must not be interrupted by the settings sheet. */
-const UNINTERRUPTIBLE = new Set(["(splashscreen)", "auth"]);
+/**
+ * Routes it must not open over: onboarding, which has its own connect step,
+ * and the reconnect page itself.
+ */
+const UNINTERRUPTIBLE = new Set([
+    "(splashscreen)",
+    "auth",
+    "reconnect-apple-music",
+]);
 
 /**
- * Opens Account settings once when Apple rejects the stored music-user token.
+ * Opens the reconnect page once when Apple rejects the stored music-user token.
  *
- * Renders nothing. A reconnect needs the settings sheet, and a person who hit
- * this is looking at a library that cannot load, so the sheet is the useful
- * thing to show them. It opens once per expiry, not once per failed read, so a
- * screen firing several reads at once cannot stack sheets or fight navigation.
+ * Renders nothing. The app keeps working on previews meanwhile, so the page
+ * can be dismissed. It opens once per expiry, not once per failed read, so a
+ * screen firing several reads at once cannot stack modals or fight navigation.
  */
 export function AppleMusicSessionGuard() {
     const { sessionExpired } = useAppleMusic();
@@ -31,7 +37,7 @@ export function AppleMusicSessionGuard() {
         if (alreadyOpened.current || onUninterruptibleScreen) return;
 
         alreadyOpened.current = true;
-        router.push("/account");
+        router.push("/reconnect-apple-music");
     }, [sessionExpired, onUninterruptibleScreen, router]);
 
     return null;

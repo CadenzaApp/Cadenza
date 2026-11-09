@@ -20,6 +20,8 @@ import { useOpenScreen } from "@/lib/open-screen";
 import { usePlaybackCommands } from "@/lib/playback";
 import { shareTrack } from "@/lib/share-track";
 import { classifyError } from "@/lib/app-error";
+import { logHandledError } from "@/lib/log";
+import { useMusicAccess } from "@/lib/use-music-access";
 
 import { FavoriteShareRow } from "./favorite-share-row";
 
@@ -62,6 +64,7 @@ export const SongOptionsMenu = memo(function SongOptionsMenu({
     const [isUpdatingFavorite, setIsUpdatingFavorite] = useState(false);
     const [editingTags, setEditingTags] = useState(false);
     const { addToQueue, playNext } = usePlaybackCommands();
+    const canFavorite = useMusicAccess().can("favorites");
 
     const artistId = artistIds?.[0] ?? track?.artistId;
     useArtistPreview(artistId);
@@ -77,7 +80,7 @@ export const SongOptionsMenu = memo(function SongOptionsMenu({
         try {
             await setSongFavoriteStatus(!favoriteStatus.isFavorite);
         } catch (error) {
-            console.error("Unable to update Apple Music favorite.", error);
+            logHandledError("Unable to update Apple Music favorite", error);
             Alert.alert(
                 "Couldn’t Update Favorite",
                 "Please check your Apple Music connection and try again.",
@@ -200,6 +203,8 @@ export const SongOptionsMenu = memo(function SongOptionsMenu({
                         favoriteBusy={
                             favoriteStatusLoading || isUpdatingFavorite
                         }
+                        // favorites live in the Apple Music library
+                        favoriteDisabled={!canFavorite}
                         onShare={() => void shareTrack(selectedTrack)}
                     />
                 )}
@@ -234,8 +239,8 @@ export const SongOptionsMenu = memo(function SongOptionsMenu({
                             void Promise.resolve(
                                 action.onPress(selectedTrack),
                             ).catch((error) => {
-                                console.error(
-                                    `Song option ${action.id} failed:`,
+                                logHandledError(
+                                    `Song option ${action.id} failed`,
                                     error,
                                 );
                                 const appError = classifyError(error);

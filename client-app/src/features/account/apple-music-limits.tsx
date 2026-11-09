@@ -42,7 +42,7 @@ const LIMITS: SettingsPoint[] = [
     {
         icon: "person-circle-outline",
         title: "Your Apple account",
-        body: "Apple does not tell apps your Apple ID name or email, which is why Cadenza has its own username.",
+        body: "Apple does not tell apps your Apple ID name or email, which is why Cadenza has its own username. Cadenza uses the Apple Music account on this device; switch it in Settings > Media & Purchases on iPhone, or in the Apple Music app on Android.",
     },
     {
         icon: "logo-android",

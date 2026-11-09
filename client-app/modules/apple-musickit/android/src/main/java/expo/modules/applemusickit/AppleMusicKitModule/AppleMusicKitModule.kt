@@ -1,6 +1,7 @@
 package expo.modules.applemusickit.AppleMusicKitModule
 
 import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -19,6 +20,7 @@ import com.apple.android.music.playback.model.PlaybackShuffleMode
 import com.apple.android.music.playback.model.PlaybackState
 import com.apple.android.music.playback.model.PlayerMediaItem
 import expo.modules.kotlin.Promise
+import expo.modules.kotlin.exception.CodedException
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import org.json.JSONArray
@@ -45,6 +47,10 @@ class AppleMusicKitModule : Module() {
     private var storefrontId: String? = null
 
     private var playerController: MediaPlayerController? = null
+
+    // the controller cannot empty its queue, so after `stop` the snapshot
+    // hides the item it keeps until a new queue is prepared
+    private var stopped = false
     private var isNativeLoaded = false
 
     private fun getOrCreatePlayerController(): MediaPlayerController? {
@@ -151,8 +157,10 @@ class AppleMusicKitModule : Module() {
         )
 
         if (durationMs > 0) snapshot["duration"] = durationMs / 1000.0
-        controller.currentItem?.item?.let {
-            snapshot["currentTrack"] = formatPlayerMediaItem(it)
+        if (!stopped) {
+            controller.currentItem?.item?.let {
+                snapshot["currentTrack"] = formatPlayerMediaItem(it)
+            }
         }
         snapshot["shuffleMode"] = when (controller.shuffleMode) {
             PlaybackShuffleMode.SHUFFLE_MODE_SONGS -> "songs"
@@ -199,11 +207,37 @@ class AppleMusicKitModule : Module() {
                     .setHideStartScreen(true)
                     .build()
                 activity.startActivityForResult(intent, APPLE_MUSIC_REQUEST_CODE)
+            } catch (e: ActivityNotFoundException) {
+                // the sign in screen belongs to the Apple Music app, so there
+                // is nothing to open without it. a status, not a rejection,
+                // so JS shows the reason the same way iOS does
+                pendingPromise = null
+                authManager = null
+                promise.resolve(
+                    mapOf(
+                        "status" to "failed",
+                        "error" to "Install the Apple Music app to connect your account."
+                    )
+                )
             } catch (e: Exception) {
                 pendingPromise = null
                 authManager = null
-                promise.reject("ERR_AUTH_LAUNCH", e.message ?: "Failed to launch Apple Music auth", e)
+                promise.resolve(
+                    mapOf("status" to "failed", "error" to (e.message ?: "Could not open Apple Music sign in."))
+                )
             }
+        }
+
+        // Getting a token on Android always opens the Apple Music app's own
+        // screen, so there is no silent refresh. JS falls back to reconnect.
+        AsyncFunction("refreshUserToken") { _: String ->
+            mapOf("status" to "unknown", "error" to "Android cannot refresh the Apple Music token silently.")
+        }
+
+        // the Android SDK has no subscription check. an empty map is "unknown",
+        // which JS treats as able to play once connected
+        AsyncFunction("getSubscription") {
+            emptyMap<String, Boolean>()
         }
 
         AsyncFunction("setTokens") { devToken: String, usrToken: String? ->
@@ -242,7 +276,10 @@ class AppleMusicKitModule : Module() {
                     promise.resolve(mapOf("status" to "authorized", "userToken" to result.musicUserToken))
                 }
             } catch (e: Exception) {
-                promise.reject("ERR_AUTH_RESULT", e.message ?: "Failed to process auth result", e)
+                Log.e(TAG, "Failed to process Apple Music auth result", e)
+                promise.resolve(
+                    mapOf("status" to "failed", "error" to "Apple Music couldn't connect. Please try again.")
+                )
             }
         }
 
@@ -267,6 +304,16 @@ class AppleMusicKitModule : Module() {
                     controller.pause()
                     promise.resolve(null)
                 }
+            }
+        }
+
+        // stops, and hides the kept item from the snapshot. nothing to stop
+        // on a player that was never created
+        AsyncFunction("stop") { promise: Promise ->
+            Handler(Looper.getMainLooper()).post {
+                playerController?.stop()
+                stopped = true
+                promise.resolve(null)
             }
         }
 
@@ -359,6 +406,7 @@ class AppleMusicKitModule : Module() {
                         return@post
                     }
                     Log.i(TAG, "Preparing provider on Main Thread...")
+                    stopped = false
                     controller.prepare(provider, true)
                     promise.resolve(null)
                 } catch (e: Exception) {
@@ -387,6 +435,7 @@ class AppleMusicKitModule : Module() {
                     if (controller == null) {
                         promise.reject("ERR_PLAYER_UNAVAILABLE", "Apple Music player is unavailable", null)
                     } else {
+                        stopped = false
                         controller.prepare(provider, true)
                         promise.resolve(null)
                     }
@@ -914,8 +963,14 @@ class AppleMusicKitModule : Module() {
         return mapOf("isFavorite" to (attributes?.get("inFavorites") as? Boolean ?: false))
     }
 
+    /** The user's storefront, or with no user token, the device's region. */
     private fun currentStorefrontId(): String {
         storefrontId?.let { return it }
+        if (userToken.isNullOrBlank()) {
+            val region = regionStorefrontId()
+            storefrontId = region
+            return region
+        }
         val response = makeApiRequest("/v1/me/storefront")
         val storefront = (response["data"] as? List<*>)
             ?.firstOrNull()
@@ -926,6 +981,18 @@ class AppleMusicKitModule : Module() {
             ?: throw Exception("Apple Music did not return a storefront for the current user.")
         storefrontId = storefront
         return storefront
+    }
+
+    /**
+     * The device region's storefront if Apple has one, else the US store. A
+     * region that is not two letters (like "419") or that Apple answers 404
+     * for falls back; any other failure throws, so it is not cached.
+     */
+    private fun regionStorefrontId(): String {
+        val region = java.util.Locale.getDefault().country.lowercase()
+        if (region.length != 2 || !region.all { it in 'a'..'z' }) return FALLBACK_STOREFRONT
+        val response = makeApiRequest("/v1/storefronts/$region", allowNotFound = true)
+        return if (response.isEmpty()) FALLBACK_STOREFRONT else region
     }
 
     private fun pageQuery(options: Map<String, Int>): String {
@@ -1048,16 +1115,23 @@ class AppleMusicKitModule : Module() {
         allowNotFound: Boolean = false
     ): Map<String, Any> {
         val devToken = developerToken?.takeIf { it.isNotBlank() }
-            ?: throw Exception("Missing developerToken. Call authorize first.")
+            ?: throw MusicKitException("ERR_MISSING_TOKEN", "Missing Apple Music developer token.")
+        // the catalog answers to the developer token alone, which is what lets
+        // someone without Apple Music search and hear previews. everything
+        // under /v1/me is theirs and needs the user token
         val musicUserToken = userToken?.takeIf { it.isNotBlank() }
-            ?: throw Exception("Missing Music User Token. Authorize Apple Music first.")
+        if (musicUserToken == null && !isDeveloperTokenPath(path)) {
+            throw MusicKitException("ERR_MISSING_USER_TOKEN", "Missing Apple Music user token.")
+        }
         val url = URL("https://api.music.apple.com$path")
         val connection = url.openConnection() as HttpURLConnection
         connection.requestMethod = method
         connection.connectTimeout = 15_000
         connection.readTimeout = 15_000
         connection.setRequestProperty("Authorization", "Bearer $devToken")
-        connection.setRequestProperty("Music-User-Token", musicUserToken)
+        if (musicUserToken != null) {
+            connection.setRequestProperty("Music-User-Token", musicUserToken)
+        }
 
         try {
             if (body != null) {
@@ -1078,7 +1152,22 @@ class AppleMusicKitModule : Module() {
                 if (allowNotFound && responseCode == 404) return emptyMap()
                 val errorMsg = connection.errorStream?.bufferedReader()?.use { it.readText() } ?: "Unknown Error"
                 Log.e(TAG, "API Error: $responseCode - $errorMsg")
-                throw Exception("Apple Music API Error ($responseCode): $errorMsg")
+                // 401 is a bad developer token, which only a new build fixes.
+                // 403 is a bad music-user token, which JS reads as "reconnect".
+                // same codes as iOS
+                if (responseCode == 401) {
+                    throw MusicKitException(
+                        "ERR_APPLE_MUSIC_DEVELOPER_TOKEN",
+                        "Apple Music rejected the developer token (401): $errorMsg"
+                    )
+                }
+                if (responseCode == 403) {
+                    throw MusicKitException(
+                        "ERR_APPLE_MUSIC_AUTH",
+                        "Apple Music rejected the credentials (403): $errorMsg"
+                    )
+                }
+                throw MusicKitException("ERR_APPLE_MUSIC_API", "Apple Music API error ($responseCode): $errorMsg")
             }
         } finally {
             connection.disconnect()
@@ -1208,5 +1297,15 @@ class AppleMusicKitModule : Module() {
 
     companion object {
         private const val APPLE_MUSIC_REQUEST_CODE = 0xA550
+
+        /** The store used when the device region has none. */
+        private const val FALLBACK_STOREFRONT = "us"
+
+        /** Paths that need only the developer token, same rule as iOS. */
+        private fun isDeveloperTokenPath(path: String) =
+            path.startsWith("/v1/catalog/") || path.startsWith("/v1/storefronts/")
     }
 }
+
+/** An error JS can branch on: `code` is one of the `ERR_` names iOS throws too. */
+private class MusicKitException(code: String, message: String) : CodedException(code, message, null)

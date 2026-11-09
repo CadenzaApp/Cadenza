@@ -1,5 +1,3 @@
-import { Redirect } from "expo-router";
-
 import { GlassToggle } from "@/components/ui/glass-toggle";
 import { useAccount } from "@/lib/account";
 import { useSaveSettings } from "@/lib/routes/settings";
@@ -20,7 +18,8 @@ export function ListeningPreferencesScreen() {
     const { settings, save, saveErr } = useSaveSettings("listening preference");
 
     if (!account) {
-        return <Redirect href="/auth?initialMode=signin" />;
+        // SignOutHandler is already taking them to login
+        return null;
     }
 
     return (

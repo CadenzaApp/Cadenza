@@ -20,7 +20,14 @@ type AccountInfo = {
     account: Account | null;
     tryRestoreSession: () => Promise<boolean>;
     signIn: (email: string, password: string) => Promise<void>;
-    signUp: (email: string, password: string) => Promise<void>;
+    /**
+     * Resolves `needsEmailConfirmation: true` when the project makes new
+     * accounts confirm their email first. No one is signed in until they do.
+     */
+    signUp: (
+        email: string,
+        password: string,
+    ) => Promise<{ needsEmailConfirmation: boolean }>;
     signOut: () => Promise<void>;
 };
 
@@ -87,6 +94,10 @@ export default function AccountProvider({ children }: Props) {
         });
         if (error) throw error;
 
+        // no session means supabase is waiting on the confirmation email, and
+        // a signed in account without a token would 401 on every request
+        if (!data.session) return { needsEmailConfirmation: true };
+
         setAccount({
             id: data.user!.id,
             email: data.user!.email!,
@@ -95,17 +106,15 @@ export default function AccountProvider({ children }: Props) {
 
         // auth.users trigger usually already wrote the row; this covers a
         // missing trigger and ignores ProfileAlreadyExists either way
-        const token = data.session?.access_token;
-        if (token) {
-            try {
-                await createProfile(token);
-            } catch (profileError) {
-                console.warn(
-                    "Could not create profile after signup:",
-                    profileError,
-                );
-            }
+        try {
+            await createProfile(data.session.access_token);
+        } catch (profileError) {
+            console.warn(
+                "Could not create profile after signup:",
+                profileError,
+            );
         }
+        return { needsEmailConfirmation: false };
     }
 
     async function signOut() {

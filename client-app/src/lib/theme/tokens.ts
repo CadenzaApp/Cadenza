@@ -133,6 +133,12 @@ export const PALETTE: Record<ColorScheme, Palette> = {
  */
 export const APPLE_MUSIC_GRADIENT = ["#fa233b", "#fb5c74"] as const;
 
+/** The Cadenza note's two colors. Brand colors, the same in both schemes. */
+export const CADENZA_LOGO = { note: "#c4a7e7", flag: "#f6c177" } as const;
+
+/** The nebula behind every Apple Music connect and settings page: its reds, and a blue. */
+export const APPLE_MUSIC_NEBULA = [...APPLE_MUSIC_GRADIENT, "#6466b8"] as const;
+
 /**
  * The accent colors a new user starts with, after the fixed default. Apple's
  * system hues, which read well on both schemes.

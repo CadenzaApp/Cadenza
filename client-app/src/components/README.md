@@ -23,10 +23,10 @@ and a backend rejection is a bare `{ error_type }`. The cause still reaches the 
 ### ui/
 
 `badge`, `button`, `card`, `dialog`, `glass-surface`, `glass-button`, `glass-confirm-dialog`,
-`glass-icon-button`, `glass-panel`, `glass-pill`, `glass-toggle`, `segmented-control`, `input`,
+`glass-icon-button`, `glass-input`, `glass-panel`, `glass-pill`, `glass-toggle`, `segmented-control`, `input`,
 `label`, `separator`, `skeleton`, `tabs`, `text`, `native-only-animated-view`, `detail-screen`,
 `nebula-backdrop`, `crossfade`, `floating-back-button`, `dialog-close-button`,
-`pressed-fill`, plus `sign-in-form` and `sign-up-form`.
+`pressed-fill`.
 
 `floating-back-button.tsx` exports `FloatingBackButton`, the back button a pushed screen that
 draws its own hero floats in the top left.
@@ -95,7 +95,8 @@ a long press, which leaves short drags to the scroll view. Do **not** reuse the 
 drag code for a list: it caches drop-zone rects once at drag start, so it breaks under scroll.
 
 `detail-screen.tsx` exports `DetailScreen`, the header and safe-area shell for most routes that
-are not a tab. `/artist/:id` and `/collection/:kind/:id` opt out: both draw a hero of their own
+are not a tab. Its nebula comes from `artworkUrl` or `tint`, or from set `nebulaColors` for a
+screen with a color of its own; with none it is the flat card color. `/artist/:id` and `/collection/:kind/:id` opt out: both draw a hero of their own
 and float a `FloatingBackButton`. It draws the title, an optional `headerRight`, and a back button
 (screen) or X (sheet), then renders its children in a clipped flex body below them. One
 `presentation` prop (`"screen"` by default, `"sheet"` for the settings sheets, the two pickers,
@@ -104,7 +105,10 @@ its own scrolling and bottom inset, and owes the body a definite
 height (`flex-1` on the scrolling child), because a content-sized list in a sheet grows past
 its box while the sheet animates. The header paints and hit-tests above the body, so a body
 that gets this wrong can no longer cover the close button. It also wraps the body in `InsideSheetContext`, so
-overlay insets inside it stop counting the tab bar and the compact player. Every sheet route
+overlay insets inside it stop counting the tab bar and the compact player. With `scrollsUnderHeader` the body runs to the top edge and the
+header floats over it, with a `ScrollEdgeBlur` that fades in once content scrolls under it (a
+background fade on Android). The body's scroll view calls `useDetailHeaderScroll(ref)` and pads its
+top by the inset it returns. `SettingsSheet` and the Library sheet use it. Every sheet route
 uses it, which is what keeps them identical. An optional `artworkUrl` (and `tint` as its fallback)
 puts a full nebula behind the whole screen, colored from random spots on the artwork; the
 now-playing sheet and Discuss pass one.
@@ -341,8 +345,6 @@ caches to warm artist details, portrait color, and artwork while the menu is ope
 
 ## Gotchas
 
-- `sign-in-form.tsx` and `sign-up-form.tsx` sit in `ui/` but call `useAccount()`, so they break
-  the rule above. Do not use them as the pattern for new work.
 - Styling is mixed. Newer files use nativewind `className`, some older ones use `StyleSheet`.
   Use `className` for anything new.
 - Anything portal-based (dialogs) needs `PortalHost` mounted, which happens in the root layout.

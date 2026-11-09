@@ -26,6 +26,9 @@ native module directly.
 | `post-comment.ts`            | Pure cache helpers for comments: sort by likes, pin comments just added, like, insert, remove, edit, and comment-count deltas. Tested in `post-comment.test.ts`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `musickit-hooks.ts`          | SWR over the native module: song info, catalog search, paged and complete-library songs, albums, artists, playlists, collection metadata, favorites, artist search, playlist writes, and turning backend song ids into tracks, all at once or a page at a time.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `paged-tracks.ts`            | The rules `usePagedTracksForSongIds` pages by, and `queryQueueIds`, which songs of a query result Play and Shuffle queue. Import-free, tested in `paged-tracks.test.ts`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `music-access.ts`            | Pure: the music tiers (`preview`, `connected`, `full`), `musicTier`, and `canUse(tier, feature)`, the one table every gate reads. Tested in `music-access.test.ts`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `use-music-access.ts`        | `useMusicAccess()`: the tier now and `can(feature)`. Reads the subscription with `Auth.getSubscription` once per Apple Music session.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `preview-player.ts`          | `createPreviewPlayer`, a `PlaybackEngine` that plays each song's ~30 second clip with `expo-audio`. `PlaybackProvider` swaps it in with `setPlaybackEngine` without full playback. One clip plays at a time; it stops when the clip ends. `preview-queue.ts` is its pure skip rule, tested.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `song-init.tsx`              | `SongInitProvider`, which runs the library sync job after account and Apple Music authorization, and `useAppleMusicSync` (`syncNow`, `isSyncing`, `lastSyncedAt`) for running it by hand.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `last-synced.ts`             | `formatSyncedAgo`, the "2 min ago" label. Import-free, tested in `last-synced.test.ts`. `last-synced-store.ts` keeps the stamp in AsyncStorage per account.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `routes/settings.tsx`        | `UserSettingsProvider` reads `GET /settings` once for the app; `useUserSettings` reads it. Defaults stand in until `settingsLoaded`. `settingsReady` gates first paints (splash, queries). Saved on the device; `PATCH` is optimistic and rolls back.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
@@ -103,7 +106,9 @@ auth layer is plain text, so is anything a proxy injects) is thrown as
 `APIRequestError`: `{ error_type: "Unauthorized" | "HttpError" | "MalformedResponse", status, message }`.
 
 The `accountId` in every key means a cached read can never be served to a different user, on
-top of the `clearCache()` that already runs on every account change.
+top of the `clearCache()` that already runs on every account change. `clearCache()` skips keys built with
+`deviceKey()`, which hold data about the phone's Apple Music session (its subscription), since
+that does not change with the Cadenza account.
 
 `useAPIData` disables itself (passes a `null` key) if there is no account, or if **any** param
 value is null or undefined. That is how `useTag(undefined)` and `useTagsOnSong(undefined)` stay
@@ -440,17 +445,37 @@ react-navigation `useScrollToTop` subscription remains as a cross-platform fallb
 
 ## The providers
 
+- Music tiers. Without Apple Music, the app runs on the catalog, which needs only Cadenza's
+  developer token: search, artists, catalog albums, tagging, and previews. `canReadCatalog` on
+  `useAppleMusic()` gates those reads; library reads still gate on `isConnected`, and
+  `musickit-hooks.ts` drops library ids (`i.`, `l.`, `p.`) until there is a connection. A
+  connection without a subscription (`Auth.getSubscription`) keeps the library but still plays
+  previews. `PlaybackProvider` swaps the preview player in and out with the tier, clears its
+  queue on the swap, exposes `isPreview` and the clip's `duration`, and does not record preview
+  plays. Screens gate with `GatedFeature` (`@/features/account/gated-feature`).
+
 - `AppleMusicProvider` exposes `sessionExpired`, set when Apple rejects a request with the
   current credentials. It does not prove the music-user token itself expired. Every Apple
-  Music read in `musickit-hooks.ts` goes through a local
-  `read()` wrapper that retries once on `ERR_APPLE_MUSIC_AUTH` and, if that fails too, calls
-  `reportAppleMusicAuthFailure()`. That clears the rejected credentials and flips
-  `sessionExpired`, which `AppleMusicSessionGuard` turns into the Account sheet. Reads capture
+  Music read goes through `readAppleMusic()` (`apple-music-read.ts`). It retries Apple failing
+  on its side (5xx), throttling (429), and dropped connections up to three times with backoff
+  and jitter (`retry.ts`), retries `ERR_APPLE_MUSIC_AUTH` once, and if that fails too calls
+  `reportAppleMusicAuthFailure()`. Writes do not go through it: sent twice, they could happen
+  twice. For a session that was connected, that first asks for a new
+  token with `Auth.refreshUserToken`, which on iOS needs no prompt; success swaps it in and bumps
+  `sessionRevision` so the failed reads run again. At most one silent refresh a minute, so a
+  token rejected again right away does not loop. If the refresh cannot work (Android, access
+  revoked, cooldown), it clears the rejected credentials and flips `sessionExpired`, which
+  `AppleMusicSessionGuard` turns into the reconnect page. Reads capture
   an auth generation, so a failure from before reconnect cannot clear a newer session;
-  reconnect waits for any pending credential reset. A new musickit read that skips `read()`
-  will keep replaying rejected credentials instead of prompting a reconnect.
+  reconnect waits for any pending credential reset. A new Apple Music read that skips
+  `readAppleMusic()` gets no retry, and keeps replaying rejected credentials instead of
+  prompting a reconnect.
+- Handled errors log through `logHandledError` (`log.ts`), which uses `console.log`. A dev build
+  turns every `console.error` into a red overlay, so `console.error` is for bugs, not for a
+  failure the screen already shows cleanly.
 - `AccountProvider` owns who is signed in, id and email only. `signIn`, `signUp`, `signOut`, and
-  `tryRestoreSession`. Every account change calls `clearCache()`, so switching users cannot leak
+  `tryRestoreSession`. `signUp` resolves `needsEmailConfirmation` and signs no one in when
+  Supabase has no session yet. Every account change calls `clearCache()`, so switching users cannot leak
   cached data. It does not log session tokens or account details. It has no loading state on
   purpose: the splash screen calls `tryRestoreSession` before anything else renders. It also
   subscribes to `supabase.auth.onAuthStateChange`, so a session supabase ends on its own (a

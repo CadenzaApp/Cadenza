@@ -3,6 +3,7 @@ import { requireOptionalNativeModule } from "expo";
 import type {
     ArtistDetail,
     ArtistResult,
+    AppleMusicSubscription,
     AuthResult,
     CatalogSearchType,
     CollectionFavoriteKind,
@@ -24,14 +25,19 @@ import { Playback, configurePlaybackNative } from "./playback";
 import { createMockNativeModule } from "./mock-native-module";
 
 export { Auth, MusicKit, Playback };
-export type { PlaybackApi } from "./playback";
+export { setPlaybackEngine } from "./playback";
+export type { PlaybackApi, PlaybackEngine } from "./playback";
 export * from "./AppleMusicKit.types";
 
 export interface AppleMusicKitNativeModule {
     authorize(developerToken: string): Promise<AuthResult>;
+    refreshUserToken(developerToken: string): Promise<AuthResult>;
+    getSubscription(): Promise<AppleMusicSubscription>;
     setTokens(developerToken: string, userToken: string | null): Promise<void>;
     play(): Promise<void>;
     pause(): Promise<void>;
+    /** Stops and empties the queue. */
+    stop(): Promise<void>;
     togglePlayerState(): Promise<void>;
     getPlaybackSnapshot(): Promise<PlaybackSnapshot>;
     skipToNextEntry(): Promise<void>;

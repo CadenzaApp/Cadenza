@@ -1,4 +1,3 @@
-import { Redirect } from "expo-router";
 import type { ReactNode } from "react";
 import { View } from "react-native";
 
@@ -61,7 +60,8 @@ export function AppearanceSettingsScreen() {
     const { scheme } = useAppTheme();
 
     if (!account) {
-        return <Redirect href="/auth?initialMode=signin" />;
+        // SignOutHandler is already taking them to login
+        return null;
     }
 
     const background = customBackground(settings);

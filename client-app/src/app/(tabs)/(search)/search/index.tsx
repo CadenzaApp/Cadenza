@@ -4,7 +4,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useNavigation } from "expo-router";
 import { useIsFocused, useTheme } from "expo-router/react-navigation";
 import { useLayoutEffect, useState } from "react";
-import { Alert, Keyboard, Pressable, View } from "react-native";
+import { Keyboard, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ErrorNotice } from "@/components/custom/error-notice";
@@ -20,13 +20,15 @@ import { SearchRecents } from "@/features/search/search-recents";
 import type { SearchScope } from "@/features/search/search-scope";
 import { SearchScopeToggle } from "@/features/search/search-scope";
 import { useAppleMusic } from "@/lib/apple-music-auth";
+import { readAppleMusic } from "@/lib/apple-music-read";
+import { useMusicAccess } from "@/lib/use-music-access";
 import {
     useCatalogArtistSearch,
     useCatalogSongSearch,
     useLibraryArtistSearch,
     useLibrarySongSearch,
 } from "@/lib/musickit-hooks";
-import { usePlaybackCommands } from "@/lib/playback";
+import { usePlaybackCommands, usePlaybackTrackState } from "@/lib/playback";
 import { useSuppressBottomBars } from "@/lib/screen-overlay";
 import { useOpenScreen } from "@/lib/open-screen";
 
@@ -40,31 +42,39 @@ const DEFAULT_MULTI_SELECT_CONFIG = {} as const;
 export default function SearchScreen() {
     const [term, setTerm] = useState("");
     const [focused, setFocused] = useState(false);
-    const [scope, setScope] = useState<SearchScope>("catalog");
+    const [chosenScope, setScope] = useState<SearchScope>("catalog");
     const [hasSearched, setHasSearched] = useState(false);
     // The term the last submit ran with. `term` tracks the field and changes on
     // every keystroke; the artist hooks key off this one so they do not refetch
     // while the user is still typing.
     const [submittedTerm, setSubmittedTerm] = useState("");
     const isFocused = useIsFocused();
-    useSuppressBottomBars(focused && isFocused);
+    const { activeTrack } = usePlaybackTrackState();
+    // focused search hides the tab bar, but never the player once something
+    // plays: without Apple Music this is where songs get played, and the
+    // player is the only way to pause them. the keyboard still hides both
+    useSuppressBottomBars(focused && isFocused && !activeTrack);
     const navigation = useNavigation();
     const openScreen = useOpenScreen();
     const insets = useSafeAreaInsets();
     const { colors } = useTheme();
-    const { isConnected, ensureConnected } = useAppleMusic();
+    const { canReadCatalog } = useAppleMusic();
+    // the catalog works without Apple Music; the library scope needs it, so
+    // without it the switch goes away and every search is a catalog search
+    const libraryAllowed = useMusicAccess().can("library");
+    const scope: SearchScope = libraryAllowed ? chosenScope : "catalog";
     const { togglePlayback } = usePlaybackCommands();
     const { recents, recordQuery, recordSong, removeRecent, clearRecents } =
         useRecentSearches();
-    const catalog = useCatalogSongSearch(isConnected);
-    const library = useLibrarySongSearch(isConnected);
+    const catalog = useCatalogSongSearch(canReadCatalog);
+    const library = useLibrarySongSearch(libraryAllowed);
     const catalogArtists = useCatalogArtistSearch(
         submittedTerm,
-        isConnected && scope === "catalog",
+        canReadCatalog && scope === "catalog",
     );
     const libraryArtists = useLibraryArtistSearch(
         submittedTerm,
-        isConnected && scope === "library",
+        libraryAllowed && scope === "library",
     );
 
     // The rail is the navigator's header, so the screen turns it off rather
@@ -97,15 +107,6 @@ export default function SearchScreen() {
         const query = text.trim();
         if (!query) return;
 
-        if (!isConnected) {
-            Alert.alert(
-                "Apple Music Not Connected",
-                "Connect Apple Music from Account before searching.",
-            );
-            return;
-        }
-
-        await ensureConnected();
         setTerm(query);
         setSubmittedTerm(query);
         setHasSearched(true);
@@ -139,9 +140,9 @@ export default function SearchScreen() {
     async function playRecentSong(
         entry: Extract<RecentSearch, { kind: "song" }>,
     ) {
-        if (!isConnected) return;
-        await ensureConnected();
-        const [song] = await MusicKit.getSongInfo([entry.songId]);
+        const [song] = await readAppleMusic(() =>
+            MusicKit.getSongInfo([entry.songId]),
+        );
         if (song) await togglePlayback(song);
     }
 
@@ -196,7 +197,9 @@ export default function SearchScreen() {
             </View>
 
             <View className="mb-2">
-                <SearchScopeToggle scope={scope} onChange={changeScope} />
+                {libraryAllowed ? (
+                    <SearchScopeToggle scope={scope} onChange={changeScope} />
+                ) : null}
             </View>
 
             {resultsErr ? <ErrorNotice error={resultsErr} /> : null}

@@ -19,7 +19,24 @@ Import `Auth`, `MusicKit`, `Playback`, and their public types from
   reads or changes favorite state for songs, albums, and playlists, writes to
   library playlists, and reads catalog and library artists.
 - `Playback` exposes native commands plus React hooks for the shared playback
-  snapshot.
+  snapshot. `setPlaybackEngine(engine)` routes every command to a JS player with
+  the same surface (`PlaybackEngine`), like the app's preview player; null goes
+  back to native. The old engine is stopped and emptied (`stop()`, queued behind
+  commands already sent), so nothing it held plays or comes back later.
+  `Playback.stop()` does the same to the current engine. Android cannot empty
+  its queue, so after `stop` its snapshot hides the kept item until the next
+  queue is prepared.
+- `Auth.getSubscription()` says whether the connected account can play full
+  songs (`canPlayCatalogContent`). iOS reads `MusicSubscription`; Android cannot
+  tell and resolves `{}`.
+
+Catalog reads (`/v1/catalog/...`, and `/v1/storefronts/...`) need only the
+developer token, so they work with no user signed in: the user token is sent
+when there is one. With no user token the storefront is the device's region if
+Apple has a store for it (checked once against `/v1/storefronts`), else `us`.
+On iOS catalog search and song
+info go through REST instead of MusicKit's own requests. Everything under
+`/v1/me` still throws `ERR_MISSING_USER_TOKEN` without one.
 
 Returned `MusicItem` values identify their `resourceKind`, `source`, canonical
 `id`, optional `catalogId` and `libraryId`, and required `playbackType`. Catalog
@@ -88,18 +105,27 @@ tokens with platform-backed secure storage.
 
 ## Errors
 
-A 401 or 403 from Apple throws `ERR_APPLE_MUSIC_AUTH`, apart from the generic
-`ERR_APPLE_MUSIC_API`. 401 means the developer token is dead and 403 means the
-music-user token is; neither is fixed by retrying, so the app can tell a dead
-credential from a bad day at Apple and re-authorize instead of replaying it.
+A 403 from Apple throws `ERR_APPLE_MUSIC_AUTH`: the music-user token is dead,
+and a new one fixes it. A 401 throws `ERR_APPLE_MUSIC_DEVELOPER_TOKEN`: the
+developer token is dead, which only a new build fixes, so the app does not ask
+the user to reconnect for it. Both are apart from the generic
+`ERR_APPLE_MUSIC_API`, so the app can tell a dead credential from a bad day at
+Apple.
+
+`Auth.refreshUserToken(developerToken)` gets a new music-user token with no
+prompt when access is already granted (iOS reads `MusicAuthorization.currentStatus`
+and never calls `request()`). Otherwise it resolves the current status. Android
+always resolves `unknown`, since a token there needs the Apple Music app's own
+screen.
 
 iOS throws `MusicKitException(name:reason:)`, never `Exception(name:description:)`.
 ExpoModulesCore renders a thrown exception to JavaScript as `"<name>: <reason>"`,
 and the base initializer sets only `description`, leaving `reason` at its
 `"undefined reason"` default. Using it swallows the message: every Apple Music
 failure arrived in JS as `ERR_APPLE_MUSIC_API: undefined reason` with the status
-code and Apple's response body dropped. Android throws plain `Exception(message)`,
-whose message does reach JS already.
+code and Apple's response body dropped. Android throws its own `MusicKitException(code, message)`,
+a `CodedException`, with the same `ERR_` names as iOS. Android `authorize` resolves `failed` with
+a reason (for example, no Apple Music app installed) instead of rejecting.
 
 ## Validation
 

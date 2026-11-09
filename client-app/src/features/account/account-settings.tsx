@@ -1,4 +1,4 @@
-import { Redirect, useRouter, type Href } from "expo-router";
+import { useRouter, type Href } from "expo-router";
 import { Pressable, View } from "react-native";
 
 import { AppleMusicLogo } from "@/components/custom/apple-music-logo";
@@ -53,7 +53,8 @@ export function AccountSettingsScreen() {
     const { displayName, initial } = useAccountIdentity();
 
     if (!account) {
-        return <Redirect href="/auth?initialMode=signin" />;
+        // SignOutHandler is already taking them to login
+        return null;
     }
 
     return (

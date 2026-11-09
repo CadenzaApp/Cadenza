@@ -1,5 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { Redirect, useRouter, type Href } from "expo-router";
+import { useRouter, type Href } from "expo-router";
 import { useState } from "react";
 import { Pressable, View } from "react-native";
 
@@ -39,7 +39,8 @@ export function AccountDetailsScreen() {
     const [signOutError, setSignOutError] = useState<string | null>(null);
 
     if (!account) {
-        return <Redirect href="/auth?initialMode=signin" />;
+        // SignOutHandler is already taking them to login
+        return null;
     }
 
     function setConfirmation(open: boolean) {
@@ -53,9 +54,8 @@ export function AccountDetailsScreen() {
         setSigningOut(true);
         setSignOutError(null);
         try {
+            // SignOutHandler takes it from here: login, with nothing under it
             await signOut();
-            setConfirmOpen(false);
-            router.replace("/auth?initialMode=signin");
         } catch (error) {
             console.error("Account sign-out error:", error);
             setSignOutError("Could not sign out. Please try again.");

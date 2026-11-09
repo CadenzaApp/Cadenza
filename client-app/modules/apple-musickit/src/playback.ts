@@ -45,6 +45,8 @@ export interface PlaybackApi {
     play(): Promise<void>;
     /** Pauses playback of the current queue entry. */
     pause(): Promise<void>;
+    /** Stops playback and empties the queue, so nothing is current. */
+    stop(): Promise<void>;
     /** Toggles playback and returns the reconciled playing state. */
     togglePlayerState(): Promise<boolean>;
     /** Returns the current playing state without subscribing. */
@@ -93,6 +95,7 @@ export const Playback: PlaybackApi = {
     setRepeatMode: (mode) => playbackImplementation.setRepeatMode(mode),
     play: () => playbackImplementation.play(),
     pause: () => playbackImplementation.pause(),
+    stop: () => playbackImplementation.stop(),
     togglePlayerState: () => playbackImplementation.togglePlayerState(),
     isPlaying: () => playbackImplementation.isPlaying(),
     skipToNextEntry: () => playbackImplementation.skipToNextEntry(),
@@ -105,17 +108,61 @@ export const Playback: PlaybackApi = {
 export function configurePlaybackNative(
     nativeModule: PlaybackNativeModule | null,
 ): void {
+    nativeEngine = nativeModule;
     playbackImplementation.configureNative(nativeModule);
 }
+
+/**
+ * The player commands `Playback` sends: the native Apple Music player by
+ * default, or a JS player with the same surface, like the preview player for
+ * someone without a subscription.
+ */
+export type PlaybackEngine = PlaybackNativeModule;
+
+/**
+ * Routes every `Playback` command to `engine`, or back to native with null.
+ * The old engine is stopped and emptied and the shared state cleared, so
+ * nothing plays on from a player no command reaches any more, and nothing it
+ * held comes back on a later swap.
+ *
+ * The stop waits behind commands already sent, so one still running for the
+ * old engine, like a queue that starts playing, cannot sound after it.
+ */
+export function setPlaybackEngine(engine: PlaybackEngine | null): void {
+    const next = engine ?? nativeEngine;
+    if (next === native) return;
+    const previous = native;
+    playbackImplementation.configureNative(next);
+    if (previous) {
+        playbackImplementation
+            .enqueuePlaybackCommand(() => previous.stop())
+            .catch((error: unknown) => {
+                console.warn(
+                    "Failed to stop the previous playback engine:",
+                    error,
+                );
+            });
+    }
+    playbackImplementation.updatePlaybackSnapshot(EMPTY_SNAPSHOT);
+}
+
+/** Nothing loaded and nothing playing. */
+const EMPTY_SNAPSHOT: PlaybackSnapshot = {
+    isPlaying: false,
+    isLoading: false,
+    progress: 0,
+};
 
 interface PlaybackExpectation {
     revision: number;
     previousSnapshot: PlaybackSnapshot;
 }
 
-interface PlaybackNativeModule {
+export interface PlaybackNativeModule {
     play(): Promise<void>;
     pause(): Promise<void>;
+    /** Stops and empties the queue, so the snapshot has no current track. */
+    stop(): Promise<void>;
     togglePlayerState(): Promise<void>;
     getPlaybackSnapshot(): Promise<PlaybackSnapshot>;
     skipToNextEntry(): Promise<void>;
@@ -146,6 +193,8 @@ interface PlaybackNativeModule {
 type NativeSongQueueItem = { id: string; type: string };
 
 let native: PlaybackNativeModule | null = null;
+/** The native module, kept so `setPlaybackEngine(null)` can go back to it. */
+let nativeEngine: PlaybackNativeModule | null = null;
 
 const PLAYBACK_STATE_SETTLE_DELAY_MS = 400;
 const PLAYBACK_LOAD_TIMEOUT_MS = 15_000;
@@ -238,6 +287,8 @@ interface PlaybackImplementationApi {
     play(): Promise<void>;
     /** Pauses playback of the current queue entry. */
     pause(): Promise<void>;
+    /** Stops playback and empties the queue, so nothing is current. */
+    stop(): Promise<void>;
     /** Toggles playback and returns the reconciled playing state. */
     togglePlayerState(): Promise<boolean>;
     /** Returns the current playing state without subscribing. */
@@ -733,6 +784,17 @@ const playbackImplementation: PlaybackImplementationApi = {
                 commandRevision,
             );
         }
+    },
+
+    /** Stops the player and empties its queue. */
+    stop: async (): Promise<void> => {
+        const nativeModule = requirePlaybackNative();
+        playbackImplementation.clearPlaybackLoadDeadline();
+        playbackImplementation.beginPlaybackCommand();
+        playbackImplementation.updatePlaybackSnapshot(EMPTY_SNAPSHOT);
+        await playbackImplementation.enqueuePlaybackCommand(() =>
+            nativeModule.stop(),
+        );
     },
 
     /** Toggles the current entry and resolves with its reconciled playing state. */

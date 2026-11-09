@@ -1,12 +1,19 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRouter } from "expo-router";
 import { useTheme } from "expo-router/react-navigation";
-import { useMemo, type ReactNode } from "react";
+import { createContext, useContext, useMemo, type ReactNode } from "react";
 import { Platform, View } from "react-native";
+import Animated, {
+    useScrollOffset,
+    useSharedValue,
+    type AnimatedRef,
+    type SharedValue,
+} from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { GlassIconButton } from "@/components/ui/glass-icon-button";
 import { NebulaBackdrop } from "@/components/ui/nebula-backdrop";
+import { ScrollEdgeBlur } from "@/components/ui/scroll-edge-blur";
 import { Text } from "@/components/ui/text";
 import { useArtworkNebulaColors } from "@/lib/artwork-color";
 import { InsideSheetContext } from "@/lib/screen-overlay";
@@ -18,6 +25,30 @@ import { InsideSheetContext } from "@/lib/screen-overlay";
  * and in nothing else.
  */
 export type DetailPresentation = "screen" | "sheet";
+
+/** The header row under the top inset. Matches its `h-16`. */
+const HEADER_ROW_HEIGHT = 64;
+
+/**
+ * What a body that scrolls under the header needs: the room to leave at the
+ * top, and the offset the header's blur follows.
+ */
+type HeaderScroll = { inset: number; scrollOffset: SharedValue<number> };
+
+const HeaderScrollContext = createContext<HeaderScroll | null>(null);
+
+/**
+ * Wires a scroll view into a `DetailScreen` with `scrollsUnderHeader`. Pass
+ * the scroll view's animated ref and pad its content top by the returned
+ * inset. Outside one, the inset is 0 and nothing is wired.
+ */
+export function useDetailHeaderScroll(
+    ref: AnimatedRef<Animated.ScrollView>,
+): number {
+    const header = useContext(HeaderScrollContext);
+    useScrollOffset(ref, header?.scrollOffset);
+    return header?.inset ?? 0;
+}
 
 type DetailScreenProps = {
     title: string;
@@ -32,8 +63,19 @@ type DetailScreenProps = {
     artworkUrl?: string | null;
     /** The nebula's color without artwork, and while its colors load. */
     tint?: string | null;
+    /**
+     * Set colors for the nebula, for a screen with no artwork that still has
+     * a color of its own, like the Apple Music sheets. Wins over the other two.
+     */
+    nebulaColors?: readonly string[];
     /** Defaults to a pushed screen. Account, Appearance, and Player are sheets. */
     presentation?: DetailPresentation;
+    /**
+     * The body runs to the top edge and scrolls under the header, which blurs
+     * what passes beneath it. The body's scroll view uses
+     * `useDetailHeaderScroll`. Off, the body starts below the header.
+     */
+    scrollsUnderHeader?: boolean;
     children: ReactNode;
 };
 
@@ -57,7 +99,9 @@ export function DetailScreen({
     headerRight,
     artworkUrl = null,
     tint = null,
+    nebulaColors,
     presentation = "screen",
+    scrollsUnderHeader = false,
     children,
 }: DetailScreenProps) {
     const isSheet = presentation === "sheet";
@@ -71,7 +115,9 @@ export function DetailScreen({
             headerRight={headerRight}
             artworkUrl={artworkUrl}
             tint={tint}
+            nebulaColors={nebulaColors}
             isSheet={isSheet}
+            scrollsUnderHeader={scrollsUnderHeader}
             // a sheet starts below the status bar, so on iOS that is just room
             // for the native grabber
             insetTop={isSheet && Platform.OS === "ios" ? 12 : insets.top}
@@ -89,7 +135,9 @@ function DetailScreenBody({
     headerRight,
     artworkUrl,
     tint,
+    nebulaColors,
     isSheet,
+    scrollsUnderHeader,
     insetTop,
     textColor,
     children,
@@ -99,7 +147,9 @@ function DetailScreenBody({
     headerRight?: ReactNode;
     artworkUrl: string | null;
     tint: string | null;
+    nebulaColors?: readonly string[];
     isSheet: boolean;
+    scrollsUnderHeader: boolean;
     insetTop: number;
     textColor: string;
     children: ReactNode;
@@ -110,8 +160,15 @@ function DetailScreenBody({
         () => (artworkUrl ? [artworkUrl] : []),
         [artworkUrl],
     );
-    const nebula = useArtworkNebulaColors(nebulaUrls, tint);
+    const artworkNebula = useArtworkNebulaColors(nebulaUrls, tint);
+    const nebula = nebulaColors ?? artworkNebula;
     const foreground = textColor;
+    const headerHeight = insetTop + HEADER_ROW_HEIGHT;
+    const scrollOffset = useSharedValue(0);
+    const headerScroll = useMemo(
+        () => ({ inset: headerHeight, scrollOffset }),
+        [headerHeight, scrollOffset],
+    );
 
     return (
         <View
@@ -125,6 +182,10 @@ function DetailScreenBody({
 
             <View
                 style={{
+                    // over the body when it scrolls underneath
+                    ...(scrollsUnderHeader
+                        ? { position: "absolute", top: 0, left: 0, right: 0 }
+                        : null),
                     // A sheet already starts below the status bar, so on iOS
                     // that is just room for the native grabber. A pushed screen
                     // pays the whole inset, because it starts at the top edge.
@@ -135,6 +196,12 @@ function DetailScreenBody({
                     elevation: 1,
                 }}
             >
+                {scrollsUnderHeader ? (
+                    <ScrollEdgeBlur
+                        height={headerHeight}
+                        scrollOffset={scrollOffset}
+                    />
+                ) : null}
                 <View className="h-16 flex-row items-center justify-between gap-3 px-5">
                     {isSheet ? null : (
                         <GlassIconButton
@@ -179,7 +246,11 @@ function DetailScreenBody({
                 the compact player: neither renders over it. A pushed screen
                 has them over its content and pads for them. */}
             <InsideSheetContext.Provider value={isSheet}>
-                <View className="flex-1 overflow-hidden">{children}</View>
+                <HeaderScrollContext.Provider
+                    value={scrollsUnderHeader ? headerScroll : null}
+                >
+                    <View className="flex-1 overflow-hidden">{children}</View>
+                </HeaderScrollContext.Provider>
             </InsideSheetContext.Provider>
         </View>
     );

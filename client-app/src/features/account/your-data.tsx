@@ -1,5 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { Redirect } from "expo-router";
+
 import { useState } from "react";
 import { Pressable, View } from "react-native";
 
@@ -81,7 +81,8 @@ export function YourDataScreen() {
     const [confirmOpen, setConfirmOpen] = useState(false);
 
     if (!account) {
-        return <Redirect href="/auth?initialMode=signin" />;
+        // SignOutHandler is already taking them to login
+        return null;
     }
 
     const profileRows: [string, DataValue][] = [
