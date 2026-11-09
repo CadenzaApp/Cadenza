@@ -1,16 +1,16 @@
 import { AuthStatus } from "@apple-musickit";
 import { useRouter } from "expo-router";
-import { Linking, Pressable, View } from "react-native";
 
-import { AppleMusicLogo } from "@/components/custom/apple-music-logo";
-import { GlassPanel } from "@/components/ui/glass-panel";
-import { GlassPill } from "@/components/ui/glass-pill";
-import { Text } from "@/components/ui/text";
+import {
+    AppleMusicBlurb,
+    AppleMusicHero,
+    AppleMusicUnlocks,
+    ConnectAppleMusicActions,
+    WhichAccountNote,
+} from "@/features/account/apple-music-connect-ui";
 import { useConnectAppleMusic } from "@/features/account/apple-music-connection";
-import { SettingsPoints, SettingsSheet } from "@/features/account/settings-ui";
-
-import { WHAT_IT_UNLOCKS, WHICH_ACCOUNT } from "./connect-copy";
-import { APPLE_MUSIC_NEBULA } from "./onboarding-backdrop";
+import { SettingsSheet } from "@/features/account/settings-ui";
+import { APPLE_MUSIC_NEBULA } from "@/lib/theme";
 
 /**
  * - `connect`: opened from a gated screen, like Library without Apple Music.
@@ -21,7 +21,7 @@ export type ConnectSheetMode = "connect" | "reconnect";
 const COPY: Record<ConnectSheetMode, { title: string; body: string }> = {
     connect: {
         title: "Connect Apple Music",
-        body: "Bring in your library and playlists, and play full songs with a subscription.",
+        body: "Bring in your library and playlists, and play full songs with a subscription. Without it you can still search, tag, and hear 30 second previews.",
     },
     reconnect: {
         title: "Reconnect Apple Music",
@@ -30,8 +30,9 @@ const COPY: Record<ConnectSheetMode, { title: string; body: string }> = {
 };
 
 /**
- * Connecting Apple Music from inside the app, on the same sheet as the
- * Account screens. Closes itself once connected; dragging it down is "not now".
+ * Connecting Apple Music from inside the app: the onboarding step's page, on
+ * the shared sheet with the Apple Music nebula. Closes itself once connected.
+ * The hero carries the title, so the sheet's own header is left blank.
  */
 export function ConnectAppleMusicSheet({ mode }: { mode: ConnectSheetMode }) {
     const router = useRouter();
@@ -47,49 +48,27 @@ export function ConnectAppleMusicSheet({ mode }: { mode: ConnectSheetMode }) {
     }
 
     return (
-        <SettingsSheet title={copy.title} nebulaColors={APPLE_MUSIC_NEBULA}>
-            <GlassPanel>
-                <View className="items-center gap-2 px-5 py-6">
-                    <AppleMusicLogo size={64} />
-                    <Text className="mt-1 text-center text-sm leading-5 text-muted-foreground">
-                        {copy.body}
-                    </Text>
-                    {message ? (
-                        <Text
-                            accessibilityRole="alert"
-                            className="text-center text-sm leading-5 text-muted-foreground"
-                        >
-                            {message}
-                        </Text>
-                    ) : null}
-                    {lastStatus === AuthStatus.Denied ? (
-                        <Pressable
-                            accessibilityRole="link"
-                            onPress={() => void Linking.openSettings()}
-                            className="active:opacity-60"
-                        >
-                            <Text className="text-center text-sm font-semibold underline">
-                                Allow access in Settings
-                            </Text>
-                        </Pressable>
-                    ) : null}
-                    <View className="mt-2">
-                        <GlassPill
-                            size="md"
-                            icon="link-outline"
-                            label={copy.title}
-                            loading={isConnecting}
-                            onPress={() => void connect()}
-                        />
-                    </View>
-                </View>
-            </GlassPanel>
-
-            <SettingsPoints points={WHAT_IT_UNLOCKS} />
-
-            <Text className="px-2 text-sm leading-5 text-muted-foreground">
-                {WHICH_ACCOUNT}
-            </Text>
+        <SettingsSheet
+            title=""
+            nebulaColors={APPLE_MUSIC_NEBULA}
+            className="gap-6"
+        >
+            <AppleMusicHero title={copy.title}>
+                <AppleMusicBlurb>{copy.body}</AppleMusicBlurb>
+            </AppleMusicHero>
+            <AppleMusicUnlocks />
+            <ConnectAppleMusicActions
+                label={copy.title}
+                onConnect={() => void connect()}
+                isConnecting={isConnecting}
+                message={message}
+                lastStatus={lastStatus}
+                secondary={{
+                    label: "Continue with previews",
+                    onPress: () => router.back(),
+                }}
+            />
+            <WhichAccountNote />
         </SettingsSheet>
     );
 }

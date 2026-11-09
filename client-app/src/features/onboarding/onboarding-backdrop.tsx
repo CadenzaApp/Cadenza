@@ -4,13 +4,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { NebulaBackdrop } from "@/components/ui/nebula-backdrop";
 import { Text } from "@/components/ui/text";
-import { APPLE_MUSIC_GRADIENT } from "@/lib/theme";
 
 /** Cadenza's own colors, for the splash and login before any theme is saved. */
 export const CADENZA_NEBULA = ["#6466b8", "#257a83", "#ff6467"] as const;
-
-/** Apple's red, for the connect step. */
-export const APPLE_MUSIC_NEBULA = [...APPLE_MUSIC_GRADIENT, "#6466b8"] as const;
 
 /**
  * A full screen nebula page. Every onboarding screen sits on one. Its children

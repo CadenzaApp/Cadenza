@@ -13,7 +13,6 @@ Getting into the app: splash, Cadenza login, then the Apple Music connect step.
 | `login-screen.tsx`               | `/auth`. Email and password, sign in or sign up.                                                                          |
 | `connect-apple-music-screen.tsx` | `/auth/apple-music`, the full screen onboarding step. Back signs out, skip runs on previews.                              |
 | `connect-apple-music-sheet.tsx`  | `/connect-apple-music` (from a gate) and `/reconnect-apple-music` (after Apple drops it), on the Account `SettingsSheet`. |
-| `connect-copy.ts`                | The "what it unlocks" cards and the which-account line both share.                                                        |
 | `auth-error-message.ts`          | Supabase auth error to one plain sentence.                                                                                |
 | `sign-out-handler.tsx`           | `SignOutHandler`, mounted at the root: on sign out, closes every screen, replaces with login, pauses playback.            |
 | `onboarding-backdrop.tsx`        | Full screen nebula page, the wordmark, and the nebula colors.                                                             |
