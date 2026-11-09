@@ -157,7 +157,9 @@ async function findSongsToAdd(deps: SongSyncDeps, startedAt: number) {
         );
     } catch (error) {
         complete = false;
-        console.error(
+        // console.log, not console.error, the same as `logHandledError`:
+        // this file stays import-free so node can test it directly
+        console.log(
             `${LOG_TAG} reading library songs from Apple Music failed:`,
             error,
         );
@@ -222,7 +224,7 @@ async function sendInBatches(
             added += batch.length;
         }
     } catch (error) {
-        console.error(
+        console.log(
             `${LOG_TAG} sending a batch to the backend failed:`,
             error,
         );

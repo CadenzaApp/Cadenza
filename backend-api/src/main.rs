@@ -91,6 +91,13 @@ async fn main() {
     let _ml_service = social_feed::spawn_ml_service();
     let social_feed_service = SocialFeedService::new();
 
+    // a claim a stopped server never settled would hide its song from generation forever
+    match db::tags::clear_in_flight_default_tag_generation(&db).await {
+        Ok(0) => {}
+        Ok(count) => println!("default tags: cleared {count} claims left in flight"),
+        Err(err) => eprintln!("default tags: could not clear claims left in flight: {err}"),
+    }
+
     // fills in default tags for songs nothing has read yet. off unless the
     // environment turns it on, since every pass can spend Apple Music and
     // OpenAI calls that no request asked for

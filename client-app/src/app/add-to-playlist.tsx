@@ -5,6 +5,7 @@ import { useState } from "react";
 import { ActivityIndicator, Alert, Pressable, View } from "react-native";
 
 import { ErrorNotice } from "@/components/custom/error-notice";
+import { GatedFeature } from "@/features/account/gated-feature";
 import { classifyError } from "@/lib/app-error";
 import { CollectionList } from "@/components/custom/collection-list";
 import { Input } from "@/components/ui/input";
@@ -12,6 +13,7 @@ import { DetailScreen } from "@/components/ui/detail-screen";
 import { Text } from "@/components/ui/text";
 import { usePlaylistMutations, useUserPlaylists } from "@/lib/musickit-hooks";
 import type { MusicItem } from "@apple-musickit";
+import { logHandledError } from "@/lib/log";
 
 /**
  * Picks a library playlist to add the song to, or makes a new one. Opened from
@@ -50,7 +52,7 @@ export default function AddToPlaylistScreen() {
             ]);
             router.back();
         } catch (error) {
-            console.error("Failed to add the song to a playlist:", error);
+            logHandledError("Failed to add the song to a playlist", error);
             const { title, detail } = classifyError(error);
             Alert.alert(title, detail);
         } finally {
@@ -67,7 +69,7 @@ export default function AddToPlaylistScreen() {
             await createPlaylist(name, [songId]);
             router.back();
         } catch (error) {
-            console.error("Failed to create the playlist:", error);
+            logHandledError("Failed to create the playlist", error);
             const { title, detail } = classifyError(error);
             Alert.alert(title, detail);
         } finally {
@@ -77,56 +79,65 @@ export default function AddToPlaylistScreen() {
 
     return (
         <DetailScreen title="Add to Playlist" presentation="sheet">
-            {title ? (
-                <Text
-                    className="px-6 pb-2 text-base text-muted-foreground"
-                    numberOfLines={1}
-                >
-                    {title}
-                </Text>
-            ) : null}
+            <GatedFeature feature="playlists">
+                {title ? (
+                    <Text
+                        className="px-6 pb-2 text-base text-muted-foreground"
+                        numberOfLines={1}
+                    >
+                        {title}
+                    </Text>
+                ) : null}
 
-            {playlistsErr ? <ErrorNotice error={playlistsErr} /> : null}
+                {playlistsErr ? <ErrorNotice error={playlistsErr} /> : null}
 
-            <View className="flex-row items-center gap-2 px-6 pb-3">
-                <Input
-                    className="flex-1"
-                    placeholder="New playlist"
-                    value={newPlaylistName}
-                    onChangeText={setNewPlaylistName}
-                    onSubmitEditing={() => void createAndAdd()}
-                    returnKeyType="done"
-                />
-                <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="Create playlist and add this song"
-                    accessibilityState={{
-                        busy: isCreating,
-                        disabled: !newPlaylistName.trim(),
-                    }}
-                    disabled={isCreating || !newPlaylistName.trim()}
-                    onPress={() => void createAndAdd()}
-                    className={`h-11 w-11 items-center justify-center rounded-full bg-secondary active:opacity-70 ${newPlaylistName.trim() ? "" : "opacity-40"}`}
-                >
-                    {isCreating ? (
-                        <ActivityIndicator size="small" color={colors.text} />
-                    ) : (
-                        <Ionicons name="add" size={24} color={colors.text} />
-                    )}
-                </Pressable>
-            </View>
+                <View className="flex-row items-center gap-2 px-6 pb-3">
+                    <Input
+                        className="flex-1"
+                        placeholder="New playlist"
+                        value={newPlaylistName}
+                        onChangeText={setNewPlaylistName}
+                        onSubmitEditing={() => void createAndAdd()}
+                        returnKeyType="done"
+                    />
+                    <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="Create playlist and add this song"
+                        accessibilityState={{
+                            busy: isCreating,
+                            disabled: !newPlaylistName.trim(),
+                        }}
+                        disabled={isCreating || !newPlaylistName.trim()}
+                        onPress={() => void createAndAdd()}
+                        className={`h-11 w-11 items-center justify-center rounded-full bg-secondary active:opacity-70 ${newPlaylistName.trim() ? "" : "opacity-40"}`}
+                    >
+                        {isCreating ? (
+                            <ActivityIndicator
+                                size="small"
+                                color={colors.text}
+                            />
+                        ) : (
+                            <Ionicons
+                                name="add"
+                                size={24}
+                                color={colors.text}
+                            />
+                        )}
+                    </Pressable>
+                </View>
 
-            <View className="flex-1">
-                <CollectionList
-                    collections={playlists}
-                    isLoading={playlistsLoading}
-                    isLoadingNextPage={playlistsLoadingNextPage}
-                    hasNextPage={hasNextPlaylistPage}
-                    onLoadNextPage={loadNextPlaylistPage}
-                    onSelect={(playlist) => void addToExisting(playlist)}
-                    emptyLabel="No playlists in your library yet."
-                />
-            </View>
+                <View className="flex-1">
+                    <CollectionList
+                        collections={playlists}
+                        isLoading={playlistsLoading}
+                        isLoadingNextPage={playlistsLoadingNextPage}
+                        hasNextPage={hasNextPlaylistPage}
+                        onLoadNextPage={loadNextPlaylistPage}
+                        onSelect={(playlist) => void addToExisting(playlist)}
+                        emptyLabel="No playlists in your library yet."
+                    />
+                </View>
+            </GatedFeature>
         </DetailScreen>
     );
 }

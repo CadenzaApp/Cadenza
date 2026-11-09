@@ -7,6 +7,7 @@ import { View } from "react-native";
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { classifyError, type AppErrorKind } from "@/lib/app-error";
+import { logHandledError } from "@/lib/log";
 import { cn } from "@/lib/utils";
 import type { IoniconName } from "@/components/ui/ionicon-name";
 
@@ -43,7 +44,7 @@ export function ErrorNotice({ error, onRetry, className }: Props) {
 
     // the raw cause still belongs in the log, just not on screen
     useEffect(() => {
-        console.error(`[${appError.kind}]`, appError.cause);
+        logHandledError(appError.kind, appError.cause);
     }, [appError.kind, appError.cause]);
 
     return (

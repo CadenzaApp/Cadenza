@@ -21,9 +21,11 @@ import {
     openInitializedSongsDb,
 } from "./initialized-songs-db";
 import { loadLastSyncedAt, saveLastSyncedAt } from "./last-synced-store";
-import { readAppleMusic } from "./musickit-hooks";
+import { readAppleMusic } from "./apple-music-read";
 import { useEditUserSongs } from "./routes/songs";
 import { LOG_TAG, syncLibrary } from "./song-init-job";
+import { logHandledError } from "./log";
+import { useMusicAccess } from "./use-music-access";
 
 const SYNC_LABEL = "Syncing with Apple Music";
 const SYNC_FAILURE = "Could not sync with Apple Music";
@@ -87,7 +89,7 @@ type SyncRun = {
  */
 export function SongInitProvider({ children }: { children: ReactNode }) {
     const { account } = useAccount();
-    const { isConnected, sessionRevision, refreshLibrary } = useAppleMusic();
+    const { sessionRevision, refreshLibrary } = useAppleMusic();
     const { editUserSongs } = useEditUserSongs();
     const { addTask, endTaskSuccess, endTaskFail } = useTasks();
     const accountId = account?.id;
@@ -103,7 +105,8 @@ export function SongInitProvider({ children }: { children: ReactNode }) {
         synced && synced.accountId === accountId ? synced.at : null;
     const currentRun = useRef<SyncRun | null>(null);
 
-    const canSync = Boolean(accountId && isConnected && MusicKit.isAvailable());
+    const syncAllowed = useMusicAccess().can("sync");
+    const canSync = Boolean(accountId && syncAllowed && MusicKit.isAvailable());
     const owner = `${accountId}:${sessionRevision}`;
 
     useEffect(() => {
@@ -190,7 +193,7 @@ export function SongInitProvider({ children }: { children: ReactNode }) {
                 void saveLastSyncedAt(accountId, finishedAt);
                 endTask();
             } catch (runError) {
-                console.error(`${LOG_TAG} the run failed:`, runError);
+                logHandledError(`${LOG_TAG} the run failed`, runError);
                 if (run.cancelled) return;
                 setError(SYNC_FAILURE);
                 endTask(SYNC_FAILURE);

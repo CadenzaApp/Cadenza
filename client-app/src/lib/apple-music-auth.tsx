@@ -6,18 +6,27 @@ import {
     useState,
     useEffect,
     useCallback,
+    useRef,
     type ReactNode,
 } from "react";
 import {
     parseStoredAppleMusicAuth,
     serializeAppleMusicAuth,
+    shouldTrySilentRefresh,
     AppleMusicAuthGeneration,
 } from "./apple-music-auth-state";
+import { logHandledError } from "./log";
 
 type AppleMusicContextType = {
     authResult: AuthResult | null;
     isInitializing: boolean;
     isConnected: boolean;
+    /**
+     * Catalog reads (search, song info, artists, catalog albums) work: they
+     * need only Cadenza's developer token, so this is true once the stored
+     * tokens are restored, connected or not.
+     */
+    canReadCatalog: boolean;
     hasUserToken: boolean;
     /** Non-secret cache namespace that changes whenever MusicKit auth changes. */
     sessionRevision: number;
@@ -49,6 +58,8 @@ const AppleMusicContext = createContext<AppleMusicContextType | null>(null);
 let authFailureHandler: (() => void) | null = null;
 const authGeneration = new AppleMusicAuthGeneration();
 let pendingAuthReset: Promise<void> = Promise.resolve();
+/** When the last silent token refresh ran, for its cooldown. */
+let lastSilentRefreshAt: number | null = null;
 
 /** Capture this before an Apple Music read so a later failure cannot clear a new session. */
 export function getAppleMusicAuthGeneration(): number {
@@ -57,7 +68,8 @@ export function getAppleMusicAuthGeneration(): number {
 
 /**
  * Called when Apple has rejected a request with the current credentials and a
- * retry did not help. Clears those credentials and offers a reconnect.
+ * retry did not help. Tries a new token silently first; if that cannot work,
+ * clears the credentials and offers a reconnect.
  */
 export function reportAppleMusicAuthFailure(readGeneration: number) {
     if (
@@ -131,7 +143,7 @@ export function AppleMusicProvider({ children }: { children: ReactNode }) {
                     setAuthResult(null);
                 }
             } catch (e) {
-                console.error("Failed to restore Apple Music tokens:", e);
+                logHandledError("Failed to restore Apple Music tokens", e);
                 await clearStoredAuth();
                 setAuthResult(null);
             } finally {
@@ -162,12 +174,15 @@ export function AppleMusicProvider({ children }: { children: ReactNode }) {
             }
             setAuthResult(result);
             setSessionRevision((revision) => revision + 1);
-            setSessionExpired(
-                !(result.status === AuthStatus.Authorized && result.userToken),
-            );
+            // only Apple rejecting a saved token expires a session. a cancel
+            // or a denial leaves it as it was: a new user is not "expired",
+            // and an expired one still is
+            if (result.status === AuthStatus.Authorized && result.userToken) {
+                setSessionExpired(false);
+            }
             return result;
         } catch (error) {
-            console.error("Apple Music authorization error:", error);
+            logHandledError("Apple Music authorization error", error);
             throw error;
         } finally {
             authGeneration.endTransition();
@@ -204,26 +219,78 @@ export function AppleMusicProvider({ children }: { children: ReactNode }) {
         }
     }
 
-    // Drop a token Apple has rejected. Keeping it would mean every later read
-    // replays a credential already known to be dead, which is what left the
-    // library showing a raw 403 until the app was reinstalled.
+    // the failure handler outlives renders, so it reads the session from here
+    const authResultRef = useRef(authResult);
     useEffect(() => {
-        authFailureHandler = () => {
+        authResultRef.current = authResult;
+    }, [authResult]);
+
+    // A token Apple has rejected is first replaced silently, which on iOS
+    // needs no prompt once access is granted. Only when that cannot work is it
+    // dropped. Keeping a dead token would mean every later read replays a
+    // credential already known to be dead, which is what left the library
+    // showing a raw 403 until the app was reinstalled.
+    useEffect(() => {
+        function expire() {
             setSessionExpired(true);
             setAuthResult(null);
             setSessionRevision((revision) => revision + 1);
             const clearStored = clearStoredAuth().catch((error) =>
-                console.error("Failed to clear Apple Music auth:", error),
+                logHandledError("Failed to clear Apple Music auth", error),
             );
             const clearNative = restoreNativeTokens(null).catch((error) =>
-                console.error(
-                    "Failed to clear native Apple Music token:",
+                logHandledError(
+                    "Failed to clear native Apple Music token",
                     error,
                 ),
             );
-            pendingAuthReset = Promise.all([clearStored, clearNative]).then(
+            return Promise.all([clearStored, clearNative]).then(
                 () => undefined,
             );
+        }
+
+        /** Resolves whether a new token is now in place. */
+        async function refreshSilently(): Promise<boolean> {
+            lastSilentRefreshAt = Date.now();
+            // reads failing while this runs cannot retire the session again
+            authGeneration.beginTransition();
+            try {
+                const result = await Auth.refreshUserToken(getDeveloperToken());
+                if (
+                    result.status !== AuthStatus.Authorized ||
+                    !result.userToken
+                ) {
+                    return false;
+                }
+                await writeStoredAuth(result);
+                await restoreNativeTokens(result);
+                setAuthResult(result);
+                setSessionExpired(false);
+                // new cache keys, so every read that failed runs again
+                setSessionRevision((revision) => revision + 1);
+                return true;
+            } catch (error) {
+                logHandledError("Silent Apple Music refresh failed", error);
+                return false;
+            } finally {
+                authGeneration.endTransition();
+            }
+        }
+
+        authFailureHandler = () => {
+            const wasConnected = Boolean(authResultRef.current?.userToken);
+            // nothing to reconnect: a read that needed the user's token ran
+            // without one. it fails on its own, no prompt
+            if (!wasConnected) return;
+            const refresh = shouldTrySilentRefresh(
+                wasConnected,
+                lastSilentRefreshAt,
+                Date.now(),
+            );
+            pendingAuthReset = (async () => {
+                if (refresh && (await refreshSilently())) return;
+                await expire();
+            })();
         };
         return () => {
             authFailureHandler = null;
@@ -236,6 +303,7 @@ export function AppleMusicProvider({ children }: { children: ReactNode }) {
                 authResult,
                 isInitializing,
                 isConnected,
+                canReadCatalog: !isInitializing,
                 hasUserToken,
                 sessionRevision,
                 libraryRevision,

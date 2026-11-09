@@ -5,6 +5,7 @@ import { useLayoutEffect } from "react";
 import { View } from "react-native";
 
 import { ErrorNotice } from "@/components/custom/error-notice";
+import { GatedFeature } from "@/features/account/gated-feature";
 import { GlassIconButton } from "@/components/ui/glass-icon-button";
 import type { LibraryCategory } from "@/features/library/categories";
 import { CategoryRow } from "@/features/library/category-row";
@@ -60,29 +61,31 @@ export default function LibraryScreen() {
     }
 
     return (
-        <RecentlyAddedGrid
-            items={recentlyAdded}
-            isLoading={recentlyAddedLoading}
-            isLoadingNextPage={recentlyAddedLoadingNextPage}
-            hasNextPage={hasNextRecentlyAddedPage}
-            onLoadNextPage={loadNextRecentlyAddedPage}
-            header={
-                <View>
-                    {recentlyAddedErr ? (
-                        <ErrorNotice error={recentlyAddedErr} />
-                    ) : null}
+        <GatedFeature feature="library">
+            <RecentlyAddedGrid
+                items={recentlyAdded}
+                isLoading={recentlyAddedLoading}
+                isLoadingNextPage={recentlyAddedLoadingNextPage}
+                hasNextPage={hasNextRecentlyAddedPage}
+                onLoadNextPage={loadNextRecentlyAddedPage}
+                header={
+                    <View>
+                        {recentlyAddedErr ? (
+                            <ErrorNotice error={recentlyAddedErr} />
+                        ) : null}
 
-                    <View className="px-6">
-                        {enabled.map((category) => (
-                            <CategoryRow
-                                key={category}
-                                category={category}
-                                onPress={openCategory}
-                            />
-                        ))}
+                        <View className="px-6">
+                            {enabled.map((category) => (
+                                <CategoryRow
+                                    key={category}
+                                    category={category}
+                                    onPress={openCategory}
+                                />
+                            ))}
+                        </View>
                     </View>
-                </View>
-            }
-        />
+                }
+            />
+        </GatedFeature>
     );
 }

@@ -153,10 +153,13 @@ export function MediaPlayerTrackHeading({
 export function MediaPlayerProgress({
     progress,
     duration,
+    isPreview = false,
     progressControl,
 }: {
     progress: number;
     duration: number;
+    /** Says so between the times, since the clip ends long before the song. */
+    isPreview?: boolean;
     progressControl: ReactNode;
 }) {
     const remaining = Math.max(0, duration - progress);
@@ -164,10 +167,15 @@ export function MediaPlayerProgress({
     return (
         <View>
             {progressControl}
-            <View className="flex-row justify-between">
+            <View className="flex-row items-center justify-between">
                 <Text className="text-xs text-muted-foreground">
                     {formatTime(progress)}
                 </Text>
+                {isPreview ? (
+                    <Text className="text-xs font-semibold text-muted-foreground">
+                        Preview
+                    </Text>
+                ) : null}
                 <Text className="text-xs text-muted-foreground">
                     -{formatTime(remaining)}
                 </Text>

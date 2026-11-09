@@ -25,7 +25,7 @@ activity tags, or both, and filter `is_activity` to match.
 Listening itself is logged separately, in `listening_events`: one append only row per play, skip,
 replay, query run, or tag change. That log is what the Analytics tab is computed from, and activity
 tags are a derived view of it, written in the same transaction that stores the event. A question
-about *when* or *how often* is answered from the log, never from a tag value. See the Listening
+about _when_ or _how often_ is answered from the log, never from a tag value. See the Listening
 events sections of [backend-api/src/db/README.md](backend-api/src/db/README.md) and
 [client-app/src/lib/README.md](client-app/src/lib/README.md).
 
@@ -89,27 +89,28 @@ mentions them, they are aspirational.
 Medium and large systems have short READMEs. Read one when it is relevant to the work; small
 directories with only a few straightforward files do not need documentation.
 
-| README                                                                                                             | Covers                                                           |
-| ------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------- |
-| [backend-api/README.md](backend-api/README.md)                                                                     | Backend setup, env vars, `main.rs` wiring, auth, errors         |
-| [backend-api/src/routes/README.md](backend-api/src/routes/README.md)                                               | Every HTTP endpoint and its request/response shape              |
-| [backend-api/src/db/README.md](backend-api/src/db/README.md)                                                       | Query layer, the tag schema, and the query compiler             |
-| [backend-api/src/services/README.md](backend-api/src/services/README.md)                                           | LLM tag generation, the `TagGenerator` trait, tag normalization |
-| [backend-api/ml-service/README.md](backend-api/ml-service/README.md)                                               | The python embedding service started by the api: post vectors and feed similarity |
-| [client-app/README.md](client-app/README.md)                                                                       | Client setup, env vars, path aliases, scripts                   |
-| [client-app/src/app/README.md](client-app/src/app/README.md)                                                       | expo-router layout, provider nesting, the five tabs             |
-| [client-app/src/lib/README.md](client-app/src/lib/README.md)                                                       | SWR wrappers, endpoint hooks, the four providers                |
-| [client-app/src/components/README.md](client-app/src/components/README.md)                                         | `ui/` vs `custom/`, and which one gets new code                 |
-| [client-app/src/components/custom/media-player/README.md](client-app/src/components/custom/media-player/README.md) | The global player surface                                       |
-| [client-app/src/features/cadenza/README.md](client-app/src/features/cadenza/README.md)                             | Combined tag management and query workspace                     |
-| [client-app/src/features/account/README.md](client-app/src/features/account/README.md)                             | Account, Apple Music, and Appearance settings                    |
-| [client-app/src/features/analytics/README.md](client-app/src/features/analytics/README.md)                         | The Analytics tab, its charts, and how it reads                  |
-| [client-app/src/features/library/README.md](client-app/src/features/library/README.md)                             | The library type filter in the top rail                         |
-| [client-app/src/features/query-builder/README.md](client-app/src/features/query-builder/README.md)                 | The drag and drop boolean query tree                            |
-| [client-app/src/features/advanced-query-builder/README.md](client-app/src/features/advanced-query-builder/README.md) | The Obsidian-style filter builder for attribute tag queries   |
-| [client-app/src/features/search/README.md](client-app/src/features/search/README.md)                               | Search tab recents and the tag shelf                            |
-| [client-app/modules/apple-musickit/README.md](client-app/modules/apple-musickit/README.md)                         | Native Apple Music auth, catalog, library, playback, mock mode  |
-| [client-app/modules/image-color/README.md](client-app/modules/image-color/README.md)                               | Native average color of a remote image                          |
+| README                                                                                                               | Covers                                                                            |
+| -------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| [backend-api/README.md](backend-api/README.md)                                                                       | Backend setup, env vars, `main.rs` wiring, auth, errors                           |
+| [backend-api/src/routes/README.md](backend-api/src/routes/README.md)                                                 | Every HTTP endpoint and its request/response shape                                |
+| [backend-api/src/db/README.md](backend-api/src/db/README.md)                                                         | Query layer, the tag schema, and the query compiler                               |
+| [backend-api/src/services/README.md](backend-api/src/services/README.md)                                             | LLM tag generation, the `TagGenerator` trait, tag normalization                   |
+| [backend-api/ml-service/README.md](backend-api/ml-service/README.md)                                                 | The python embedding service started by the api: post vectors and feed similarity |
+| [client-app/README.md](client-app/README.md)                                                                         | Client setup, env vars, path aliases, scripts                                     |
+| [client-app/src/app/README.md](client-app/src/app/README.md)                                                         | expo-router layout, provider nesting, the five tabs                               |
+| [client-app/src/lib/README.md](client-app/src/lib/README.md)                                                         | SWR wrappers, endpoint hooks, the four providers                                  |
+| [client-app/src/components/README.md](client-app/src/components/README.md)                                           | `ui/` vs `custom/`, and which one gets new code                                   |
+| [client-app/src/components/custom/media-player/README.md](client-app/src/components/custom/media-player/README.md)   | The global player surface                                                         |
+| [client-app/src/features/cadenza/README.md](client-app/src/features/cadenza/README.md)                               | Combined tag management and query workspace                                       |
+| [client-app/src/features/account/README.md](client-app/src/features/account/README.md)                               | Account, Apple Music, and Appearance settings                                     |
+| [client-app/src/features/analytics/README.md](client-app/src/features/analytics/README.md)                           | The Analytics tab, its charts, and how it reads                                   |
+| [client-app/src/features/library/README.md](client-app/src/features/library/README.md)                               | The library type filter in the top rail                                           |
+| [client-app/src/features/onboarding/README.md](client-app/src/features/onboarding/README.md)                         | Splash, login, and the Apple Music connect step                                   |
+| [client-app/src/features/query-builder/README.md](client-app/src/features/query-builder/README.md)                   | The drag and drop boolean query tree                                              |
+| [client-app/src/features/advanced-query-builder/README.md](client-app/src/features/advanced-query-builder/README.md) | The Obsidian-style filter builder for attribute tag queries                       |
+| [client-app/src/features/search/README.md](client-app/src/features/search/README.md)                                 | Search tab recents and the tag shelf                                              |
+| [client-app/modules/apple-musickit/README.md](client-app/modules/apple-musickit/README.md)                           | Native Apple Music auth, catalog, library, playback, mock mode                    |
+| [client-app/modules/image-color/README.md](client-app/modules/image-color/README.md)                                 | Native average color of a remote image                                            |
 
 ## Documentation policy
 
@@ -153,8 +154,7 @@ contracts, or gotchas. Do not create documentation that merely repeats the code.
   both; do not spread that.
 - Screens go in `src/app/`. Anything with real logic belongs in `src/features/` or `src/lib/`,
   and the screen just wires it up.
-  
-  
+
 Prefer async/await + try/catch over .then()/.catch() whenever possible.
 
 ### Visual verification

@@ -6,26 +6,33 @@ glass, color slots, explicit filter, tag suggestions) go through `useUserSetting
 
 ## Files
 
-| file                            | role                                                                                                                                                                      |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `account-settings.tsx`          | `/account`. Avatar, username, and email (the header opens `/account-details`), Apple Music card, the Listening and Appearance tiles, Privacy and Apple Music limits rows. |
-| `apple-music-settings.tsx`      | `/apple-music`. Connection status, connect or reconnect, library sync, and disconnect.                                                                                    |
-| `listening-preferences.tsx`     | `/listening-preferences`. Tag suggestions, Hide explicit content, and Update saved queries toggles.                                                                       |
-| `appearance-settings.tsx`       | `/appearance`. Mode (System, Light, Dark, Custom), background, accent, glass tint, Clear or Tinted glass, a live preview, and reset.                                      |
-| `privacy-settings.tsx`          | `/privacy`. What Cadenza keeps and what it does not, and the way into Your data.                                                                                          |
-| `account-details.tsx`           | `/account-details`. Name and member since, the username and bio form, view public profile, Your data, Cadenza sign out.                                                   |
-| `your-data.tsx`                 | `/your-data`. Profile, the counts from `GET /profile/data`, and every saved setting, as tables. Delete account opens a confirm that does nothing yet, and says so.        |
-| `apple-music-limits.tsx`        | `/apple-music-limits`. What MusicKit and the Apple Music API do not allow.                                                                                                |
-| `profile-form.tsx`              | `ProfileForm`, the only username and bio editor. `PATCH /profile`.                                                                                                        |
-| `account-avatar.tsx`            | `AccountAvatar`, `useAccountIdentity` (display name and initial), and `memberSince`.                                                                                      |
-| `apple-music-connection.ts`     | Shared by the card and the sheet: `appleMusicStatus`, `useConnectAppleMusic`, `useLastSyncedLabel`.                                                                       |
-| `settings-ui.tsx`               | `SettingsSheet`, sections, rows, groups, tiles, explainer cards (`SettingsPoints`), plain accent icons, status dots, `SaveError`.                                         |
-| `apple-music-session-guard.tsx` | `AppleMusicSessionGuard`: renders nothing, opens `/account` once when Apple rejects the stored music-user token. Mounted in `src/app/_layout.tsx`.                        |
+| file                            | role                                                                                                                                                                                                                                  |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `account-settings.tsx`          | `/account`. Avatar, username, and email (the header opens `/account-details`), Apple Music card, the Listening and Appearance tiles, Privacy and Apple Music limits rows.                                                             |
+| `apple-music-settings.tsx`      | `/apple-music`. On the Apple Music nebula: the hero with the status, then connect or reconnect, or library sync and disconnect.                                                                                                       |
+| `listening-preferences.tsx`     | `/listening-preferences`. Tag suggestions, Hide explicit content, and Update saved queries toggles.                                                                                                                                   |
+| `appearance-settings.tsx`       | `/appearance`. Mode (System, Light, Dark, Custom), background, accent, glass tint, Clear or Tinted glass, a live preview, and reset.                                                                                                  |
+| `privacy-settings.tsx`          | `/privacy`. What Cadenza keeps and what it does not, and the way into Your data.                                                                                                                                                      |
+| `account-details.tsx`           | `/account-details`. Name and member since, the username and bio form, view public profile, Your data, Cadenza sign out.                                                                                                               |
+| `your-data.tsx`                 | `/your-data`. Profile, the counts from `GET /profile/data`, and every saved setting, as tables. Delete account opens a confirm that does nothing yet, and says so.                                                                    |
+| `apple-music-limits.tsx`        | `/apple-music-limits`. What MusicKit and the Apple Music API do not allow.                                                                                                                                                            |
+| `profile-form.tsx`              | `ProfileForm`, the only username and bio editor. `PATCH /profile`.                                                                                                                                                                    |
+| `account-avatar.tsx`            | `AccountAvatar`, `useAccountIdentity` (display name and initial), and `memberSince`.                                                                                                                                                  |
+| `apple-music-connection.ts`     | Shared by the card and the sheet: `appleMusicStatus`, `useConnectAppleMusic`, `useLastSyncedLabel`.                                                                                                                                   |
+| `apple-music-connect-ui.tsx`    | The parts every Apple Music page is built from: hero, blurb, unlocks cards, which-account note, and the red connect button. Used by `/apple-music`, the connect sheets, and the onboarding step, so they stay one design.             |
+| `apple-music-copy.ts`           | The unlocks cards and the which-account line.                                                                                                                                                                                         |
+| `gated-feature.tsx`             | `GatedFeature`: its children when the music tier allows a feature, else the connect page in their place, connecting right there. Wrap a screen that needs the library or playlists in it rather than checking the connection by hand. |
+| `settings-ui.tsx`               | `SettingsSheet`, sections, rows, groups, tiles, explainer cards (`SettingsPoints`), plain accent icons, status dots, `SaveError`.                                                                                                     |
+| `apple-music-session-guard.tsx` | `AppleMusicSessionGuard`: renders nothing, opens `/reconnect-apple-music` once when Apple rejects the stored music-user token. Mounted in `src/app/_layout.tsx`.                                                                                    |
 
 ## How it works
 
 Every screen here is a `SettingsSheet` (a `DetailScreen` sheet with a padded scroll body) from
 `settings-ui.tsx`, and saves through `useSaveSettings` with `SaveError` for the failure line. Each tile and row on `/account` pushes its own sheet.
+
+`SettingsSheet` is the base for every sheet page. A sheet adds to it through props (`overlay`,
+`nebulaColors`, `className`) rather than drawing its own shell. Account is the plain card; the
+Apple Music connect sheet in `@/features/onboarding` adds a red nebula.
 
 The display name is `profile.username` from `useProfile`, with the email local part while it
 loads. Username and bio are edited only in account details. Your public page is read only; its

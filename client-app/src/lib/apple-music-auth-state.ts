@@ -67,3 +67,27 @@ export class AppleMusicAuthGeneration {
         return true;
     }
 }
+
+/**
+ * At most one silent refresh this often. A token that is rejected again right
+ * after a refresh means something a new token cannot fix, like a lapsed
+ * subscription, and refreshing again would loop.
+ */
+export const SILENT_REFRESH_COOLDOWN_MS = 60_000;
+
+/**
+ * Whether a rejected music-user token should be replaced silently before
+ * asking the user to reconnect. Only for a session that was connected, so a
+ * disconnect the user chose is never undone behind their back.
+ */
+export function shouldTrySilentRefresh(
+    wasConnected: boolean,
+    lastRefreshAt: number | null,
+    now: number,
+): boolean {
+    if (!wasConnected) return false;
+    return (
+        lastRefreshAt === null ||
+        now - lastRefreshAt >= SILENT_REFRESH_COOLDOWN_MS
+    );
+}

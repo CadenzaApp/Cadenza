@@ -8,8 +8,15 @@ import {
     ReactNode,
 } from "react";
 import { Alert, AppState } from "react-native";
-import { MusicItem, Playback, RepeatMode, ShuffleMode } from "@apple-musickit";
+import {
+    MusicItem,
+    Playback,
+    RepeatMode,
+    ShuffleMode,
+    setPlaybackEngine,
+} from "@apple-musickit";
 
+import { useAccount } from "./account";
 import { useAppleMusic } from "./apple-music-auth";
 import { withoutExplicit } from "./explicit-filter";
 import { useHideExplicit } from "./use-visible-items";
@@ -26,7 +33,10 @@ import {
 } from "./queue-order";
 import { samePlayableItem } from "./playable-item";
 import { abandonTopicPreview } from "./topic-preview";
+import { createPreviewPlayer } from "./preview-player";
+import { useMusicAccess } from "./use-music-access";
 import { nextAction, previousAction } from "./transport";
+import { logHandledError } from "./log";
 
 export type PlaybackQueue = {
     tracks: MusicItem[];
@@ -49,6 +59,13 @@ type PlaybackInfo = {
     isPlaying: boolean;
     isLoading: boolean;
     progress: number;
+    /**
+     * Seconds of what is playing: the song, or with previews its ~30 second
+     * clip. Progress runs against this, not the song's own length.
+     */
+    duration: number;
+    /** Playing Apple Music's preview clips, for want of a subscription. */
+    isPreview: boolean;
     queue: MusicItem[];
     queueIndex: number;
     /** Everything queued after the entry that is playing, in order. */
@@ -76,6 +93,9 @@ type PlaybackInfo = {
 };
 
 const PlaybackContext = createContext<PlaybackInfo | null>(null);
+
+/** One for the app, so its queue survives a re-render. Made on first use. */
+let previewPlayer: ReturnType<typeof createPreviewPlayer> | null = null;
 export type PlaybackTrackState = Pick<
     PlaybackInfo,
     | "activeTrackId"
@@ -128,7 +148,8 @@ export function usePlaybackCommands() {
 }
 
 export function PlaybackProvider({ children }: { children: ReactNode }) {
-    const { isConnected, ensureConnected } = useAppleMusic();
+    const { isInitializing, ensureConnected } = useAppleMusic();
+    const fullPlayback = useMusicAccess().can("fullPlayback");
     const hideExplicit = useHideExplicit();
     const snapshot = Playback.usePlaybackSnapshot();
     const [queue, setQueue] = useState<MusicItem[]>([]);
@@ -172,8 +193,45 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
                 : null,
         [activeTrack, queueSource],
     );
-    // counts plays for the activity tags, off the snapshot polled below
-    usePlayRecorder(snapshot, activeTrack, activeSource);
+    // without a subscription the player plays 30 second previews, which
+    // `PlaybackProvider` drives exactly like the native player. null until the
+    // stored Apple Music session is restored, so startup does not flip
+    // players on its way to the real answer
+    const engine = isInitializing ? null : fullPlayback ? "native" : "preview";
+    // the queue belongs to one engine and one account. a swap stops and
+    // empties the old engine, and a new account (or none) gets a stopped
+    // player. both start from an empty queue, reset while rendering, not in an
+    // effect, so no frame shows the old one
+    const accountId = useAccount().account?.id ?? null;
+    const queueOwner = `${engine}:${accountId}`;
+    const [currentQueueOwner, setCurrentQueueOwner] = useState(queueOwner);
+    if (currentQueueOwner !== queueOwner) {
+        setCurrentQueueOwner(queueOwner);
+        setQueue([]);
+        setQueueIndex(-1);
+        setQueueSource(null);
+    }
+    useEffect(() => {
+        if (engine === null) return;
+        previewPlayer ??= createPreviewPlayer();
+        setPlaybackEngine(engine === "native" ? null : previewPlayer);
+    }, [engine]);
+    const previousAccountId = useRef(accountId);
+    useEffect(() => {
+        const previous = previousAccountId.current;
+        previousAccountId.current = accountId;
+        // restoring the session on launch is not a change of account
+        if (previous === null || previous === accountId) return;
+        Playback.stop().catch((error: unknown) =>
+            logHandledError(
+                "Could not stop playback for the new account",
+                error,
+            ),
+        );
+    }, [accountId]);
+    // counts plays for the activity tags, off the snapshot polled below. a
+    // preview is not a listen, so it is not counted
+    usePlayRecorder(snapshot, fullPlayback ? activeTrack : null, activeSource);
     // stores each opened song's metadata for the query builder's Metadata fields
     useReportOpenedSongs(activeTrack);
 
@@ -208,15 +266,6 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
         };
     }, []);
 
-    function requireConnected(action: string) {
-        if (isConnected) return true;
-        Alert.alert(
-            "Apple Music Not Connected",
-            `Open Account from the profile button and connect Apple Music ${action}.`,
-        );
-        return false;
-    }
-
     /** Starts a queue and throws on failure. Callers own the user-facing alert. */
     async function startQueue({
         tracks,
@@ -233,7 +282,8 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
         const playableTracks = tracks.filter(keep);
         if (playableTracks.length === 0) return;
 
-        await ensureConnected();
+        // previews need no Apple Music, so only full playback asks for it
+        if (fullPlayback) await ensureConnected();
         await abandonTopicPreview();
         // the start song if it was kept, else the next kept song after it
         const boundedIndex = Math.min(
@@ -258,12 +308,10 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     }
 
     async function playQueue(nextQueue: PlaybackQueue) {
-        if (!requireConnected("before playing songs")) return;
-
         try {
             await startQueue(nextQueue);
         } catch (e) {
-            console.error("Failed to start playback queue:", e);
+            logHandledError("Failed to start playback queue", e);
             Alert.alert("Playback Error", "Failed to start playback.");
             throw e;
         }
@@ -286,7 +334,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
                 await playQueue({ tracks: [track], chosenStart: true, source });
             }
         } catch (e) {
-            console.error("Failed to toggle playback:", e);
+            logHandledError("Failed to toggle playback", e);
             // playQueue already alerted on the new-track path.
             if (!isNewTrack) {
                 Alert.alert(
@@ -304,12 +352,8 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
         );
         if (playableTracks.length === 0) return;
 
-        if (!requireConnected("before adding songs to the queue")) {
-            throw new Error("Apple Music is not connected.");
-        }
-
         try {
-            await ensureConnected();
+            if (fullPlayback) await ensureConnected();
 
             // Nothing is playing, so there is no queue to append to.
             if (queue.length === 0 && !activeTrack) {
@@ -332,7 +376,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
             });
             if (queueIndex < 0 && activeTrack) setQueueIndex(0);
         } catch (e) {
-            console.error("Failed to add tracks to playback queue:", e);
+            logHandledError("Failed to add tracks to playback queue", e);
             Alert.alert("Playback Error", "Failed to add songs to the queue.");
             throw e;
         }
@@ -361,7 +405,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
         try {
             await apply();
         } catch (e) {
-            console.error(`Failed to ${describe}:`, e);
+            logHandledError(`Failed to ${describe}`, e);
             setQueue(current.items);
             setQueueIndex(current.index);
             Alert.alert("Playback Error", `Failed to ${describe}.`);
@@ -376,10 +420,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
         );
         if (playableTracks.length === 0) return;
 
-        if (!requireConnected("before queueing songs")) {
-            throw new Error("Apple Music is not connected.");
-        }
-        await ensureConnected();
+        if (fullPlayback) await ensureConnected();
 
         // Nothing is playing, so there is no current entry to queue after.
         if (queue.length === 0 && !activeTrack) {
@@ -423,7 +464,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
         try {
             await Playback.setShuffleMode(mode);
         } catch (e) {
-            console.error("Failed to set the shuffle mode:", e);
+            logHandledError("Failed to set the shuffle mode", e);
         }
     }
 
@@ -431,7 +472,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
         try {
             await Playback.setRepeatMode(mode);
         } catch (e) {
-            console.error("Failed to set the repeat mode:", e);
+            logHandledError("Failed to set the repeat mode", e);
         }
     }
 
@@ -443,7 +484,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
         try {
             await Playback.seekToTime(boundedTime);
         } catch (e) {
-            console.error("Failed to seek playback:", e);
+            logHandledError("Failed to seek playback", e);
         }
     }
 
@@ -479,7 +520,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
                     break;
             }
         } catch (e) {
-            console.error("Failed to skip to the next track:", e);
+            logHandledError("Failed to skip to the next track", e);
         }
     }
 
@@ -498,7 +539,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
             await Playback.skipToPreviousEntry();
             setQueueIndex(resolvedQueueIndex - 1);
         } catch (e) {
-            console.error("Failed to skip to the previous track:", e);
+            logHandledError("Failed to skip to the previous track", e);
         }
     }
 
@@ -582,6 +623,10 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
                         isPlaying: snapshot.isPlaying,
                         isLoading: snapshot.isLoading,
                         progress: snapshot.progress,
+                        duration: fullPlayback
+                            ? (activeTrack?.songDuration ?? 0)
+                            : (snapshot.duration ?? 0),
+                        isPreview: !fullPlayback,
                         queue,
                         queueIndex: resolvedQueueIndex,
                         upcoming:

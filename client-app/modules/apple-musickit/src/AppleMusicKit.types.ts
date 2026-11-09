@@ -163,6 +163,12 @@ export interface PlaybackSnapshot {
     repeatMode?: RepeatMode;
 }
 
+/** What the connected Apple Music account may play. */
+export interface AppleMusicSubscription {
+    /** False means previews only. Absent when the platform cannot say. */
+    canPlayCatalogContent?: boolean;
+}
+
 /** The user's favorite state for an Apple Music resource. */
 export interface FavoriteStatus {
     /** Whether the resource is currently in the user's favorites. */

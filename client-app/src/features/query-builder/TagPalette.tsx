@@ -250,7 +250,8 @@ export function TagPalette({
                             accessibilityLabel="Your tags resize handle"
                             accessibilityHint="Drag up or down to resize the tag palette"
                         >
-                            <View className="-translate-y-1 h-1 w-10 rounded-full bg-border" />
+                            {/* the gray of the native sheet grabber */}
+                            <View className="-translate-y-1 h-1 w-10 rounded-full bg-muted-foreground opacity-50" />
                         </View>
                     </GestureDetector>
                     <Animated.ScrollView

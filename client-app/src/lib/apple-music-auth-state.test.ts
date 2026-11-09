@@ -3,6 +3,8 @@ import test from "node:test";
 import type { AuthResult, AuthStatus } from "@apple-musickit";
 
 import {
+    shouldTrySilentRefresh,
+    SILENT_REFRESH_COOLDOWN_MS,
     parseStoredAppleMusicAuth,
     serializeAppleMusicAuth,
     AppleMusicAuthGeneration,
@@ -53,4 +55,25 @@ test("a failed session is retired once, not by every concurrent read", () => {
     assert.equal(generation.retireIfCurrent(read), true);
     assert.equal(generation.retireIfCurrent(read), false);
     assert.equal(generation.retireIfCurrent(generation.snapshot()), false);
+});
+
+test("silent refresh only replaces a session that was connected", () => {
+    assert.equal(shouldTrySilentRefresh(false, null, 0), false);
+    assert.equal(shouldTrySilentRefresh(true, null, 0), true);
+});
+
+test("a token rejected right after a refresh goes to reconnect, not another refresh", () => {
+    const refreshedAt = 1_000;
+    assert.equal(
+        shouldTrySilentRefresh(true, refreshedAt, refreshedAt + 5_000),
+        false,
+    );
+    assert.equal(
+        shouldTrySilentRefresh(
+            true,
+            refreshedAt,
+            refreshedAt + SILENT_REFRESH_COOLDOWN_MS,
+        ),
+        true,
+    );
 });

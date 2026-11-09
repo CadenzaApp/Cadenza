@@ -4,7 +4,10 @@ import { Pressable, View } from "react-native";
 import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { DetailScreen } from "@/components/ui/detail-screen";
+import {
+    DetailScreen,
+    useDetailHeaderScroll,
+} from "@/components/ui/detail-screen";
 import { Text } from "@/components/ui/text";
 import {
     LIBRARY_CATEGORY_META,
@@ -22,9 +25,10 @@ export default function LibraryCategoriesScreen() {
     const { brand } = useAppTheme().colors;
     const { isEnabled, toggle } = useLibraryCategories();
     const scroll = useScreenScroll();
+    const headerInset = useDetailHeaderScroll(scroll.ref);
 
     return (
-        <DetailScreen title="Library" presentation="sheet">
+        <DetailScreen title="Library" presentation="sheet" scrollsUnderHeader>
             <ScreenScrollMarker>
                 <Animated.ScrollView
                     {...scroll}
@@ -32,7 +36,7 @@ export default function LibraryCategoriesScreen() {
                     contentContainerClassName="px-5"
                     contentContainerStyle={[
                         {
-                            paddingTop: 8,
+                            paddingTop: headerInset + 8,
                             paddingBottom: Math.max(insets.bottom, 16) + 16,
                         },
                         scroll.contentContainerStyle,

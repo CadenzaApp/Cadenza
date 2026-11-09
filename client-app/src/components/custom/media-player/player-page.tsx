@@ -40,6 +40,7 @@ import {
 } from "@/lib/musickit-hooks";
 import { useOpenScreen } from "@/lib/open-screen";
 import { SHEET_DETENT, useAppTheme } from "@/lib/theme";
+import { logHandledError } from "@/lib/log";
 
 import {
     MediaPlayerProgress,
@@ -91,6 +92,8 @@ export function PlayerPage() {
         setRepeatMode,
         canSkipToNext,
         canSkipToPrevious,
+        duration,
+        isPreview,
     } = usePlayback();
     const { colors } = useTheme();
     const { brand } = useAppTheme().colors;
@@ -134,7 +137,6 @@ export function PlayerPage() {
         typeof fullArtworkUrl === "string" &&
         fullArtworkUrl !== failedArtworkUrl &&
         /^https?:\/\//i.test(fullArtworkUrl);
-    const duration = activeTrack?.songDuration ?? 0;
     const isUpdatingFavorite = favoriteUpdateSongId === favoriteSongId;
     const displayedProgress = scrubPosition ?? progress;
     // The sheet is shorter than the window, so size against the measured body.
@@ -292,7 +294,7 @@ export function PlayerPage() {
         try {
             await setSongFavoriteStatus(!isFavorite);
         } catch (error) {
-            console.error("Unable to update Apple Music favorite.", error);
+            logHandledError("Unable to update Apple Music favorite", error);
             Alert.alert(
                 "Couldn't Update Favorite",
                 "Please check your Apple Music connection and try again.",
@@ -431,6 +433,7 @@ export function PlayerPage() {
             <MediaPlayerProgress
                 progress={displayedProgress}
                 duration={duration}
+                isPreview={isPreview}
                 progressControl={
                     <GestureDetector gesture={seekGesture}>
                         <View
