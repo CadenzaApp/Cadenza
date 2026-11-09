@@ -39,8 +39,8 @@ export type AppError = {
 };
 
 const RECONNECT_ACTION: AppErrorAction = {
-    label: "Open settings",
-    href: "/account",
+    label: "Reconnect",
+    href: "/reconnect-apple-music",
 };
 
 /**

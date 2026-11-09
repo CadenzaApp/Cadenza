@@ -98,8 +98,9 @@ ExpoModulesCore renders a thrown exception to JavaScript as `"<name>: <reason>"`
 and the base initializer sets only `description`, leaving `reason` at its
 `"undefined reason"` default. Using it swallows the message: every Apple Music
 failure arrived in JS as `ERR_APPLE_MUSIC_API: undefined reason` with the status
-code and Apple's response body dropped. Android throws plain `Exception(message)`,
-whose message does reach JS already.
+code and Apple's response body dropped. Android throws its own `MusicKitException(code, message)`,
+a `CodedException`, with the same `ERR_` names as iOS. Android `authorize` resolves `failed` with
+a reason (for example, no Apple Music app installed) instead of rejecting.
 
 ## Validation
 

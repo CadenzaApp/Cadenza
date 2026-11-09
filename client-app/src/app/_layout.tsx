@@ -101,9 +101,15 @@ function RootStack() {
             <Stack.Screen name="player" options={sheetScreenOptions(theme)} />
             <Stack.Screen
                 name="auth/index"
-                options={{
-                    title: "Welcome",
-                }}
+                options={{ headerShown: false, animation: "fade" }}
+            />
+            <Stack.Screen
+                name="auth/apple-music"
+                options={{ headerShown: false, gestureEnabled: false }}
+            />
+            <Stack.Screen
+                name="reconnect-apple-music"
+                options={{ headerShown: false, presentation: "modal" }}
             />
             <Stack.Screen
                 name="library-categories"

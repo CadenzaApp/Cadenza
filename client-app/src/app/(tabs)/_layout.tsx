@@ -6,6 +6,8 @@ import { DynamicColorIOS, Platform, View } from "react-native";
 
 import { MediaPlayerFallbackOverlay } from "@/components/custom/media-player";
 import { useAccount } from "@/lib/account";
+import { ONBOARDING_HREF } from "@/features/onboarding/onboarding-step";
+import { useOnboarding } from "@/features/onboarding/use-onboarding";
 import { NativePlayerAccessory } from "@/components/custom/media-player/native-player-accessory";
 import {
     useNativePlayerAccessoryEnabled,
@@ -43,6 +45,7 @@ const TRIGGER_PROPS = { disableAutomaticContentInsets: true } as const;
  */
 export default function TabLayout() {
     const { account } = useAccount();
+    const { step } = useOnboarding();
     const { colors } = useTheme();
     const hidden = useBottomBarsHidden();
     const nativePlayer = useNativePlayerAccessoryEnabled();
@@ -55,6 +58,9 @@ export default function TabLayout() {
 
     if (!account) {
         return <Redirect href="/auth?initialMode=signin" />;
+    }
+    if (step === "connect") {
+        return <Redirect href={ONBOARDING_HREF.connect} />;
     }
 
     return (

@@ -1,6 +1,7 @@
 package expo.modules.applemusickit.AppleMusicKitModule
 
 import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -19,6 +20,7 @@ import com.apple.android.music.playback.model.PlaybackShuffleMode
 import com.apple.android.music.playback.model.PlaybackState
 import com.apple.android.music.playback.model.PlayerMediaItem
 import expo.modules.kotlin.Promise
+import expo.modules.kotlin.exception.CodedException
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import org.json.JSONArray
@@ -199,10 +201,24 @@ class AppleMusicKitModule : Module() {
                     .setHideStartScreen(true)
                     .build()
                 activity.startActivityForResult(intent, APPLE_MUSIC_REQUEST_CODE)
+            } catch (e: ActivityNotFoundException) {
+                // the sign in screen belongs to the Apple Music app, so there
+                // is nothing to open without it. a status, not a rejection,
+                // so JS shows the reason the same way iOS does
+                pendingPromise = null
+                authManager = null
+                promise.resolve(
+                    mapOf(
+                        "status" to "failed",
+                        "error" to "Install the Apple Music app to connect your account."
+                    )
+                )
             } catch (e: Exception) {
                 pendingPromise = null
                 authManager = null
-                promise.reject("ERR_AUTH_LAUNCH", e.message ?: "Failed to launch Apple Music auth", e)
+                promise.resolve(
+                    mapOf("status" to "failed", "error" to (e.message ?: "Could not open Apple Music sign in."))
+                )
             }
         }
 
@@ -242,7 +258,10 @@ class AppleMusicKitModule : Module() {
                     promise.resolve(mapOf("status" to "authorized", "userToken" to result.musicUserToken))
                 }
             } catch (e: Exception) {
-                promise.reject("ERR_AUTH_RESULT", e.message ?: "Failed to process auth result", e)
+                Log.e(TAG, "Failed to process Apple Music auth result", e)
+                promise.resolve(
+                    mapOf("status" to "failed", "error" to "Apple Music couldn't connect. Please try again.")
+                )
             }
         }
 
@@ -1048,9 +1067,9 @@ class AppleMusicKitModule : Module() {
         allowNotFound: Boolean = false
     ): Map<String, Any> {
         val devToken = developerToken?.takeIf { it.isNotBlank() }
-            ?: throw Exception("Missing developerToken. Call authorize first.")
+            ?: throw MusicKitException("ERR_MISSING_TOKEN", "Missing Apple Music developer token.")
         val musicUserToken = userToken?.takeIf { it.isNotBlank() }
-            ?: throw Exception("Missing Music User Token. Authorize Apple Music first.")
+            ?: throw MusicKitException("ERR_MISSING_USER_TOKEN", "Missing Apple Music user token.")
         val url = URL("https://api.music.apple.com$path")
         val connection = url.openConnection() as HttpURLConnection
         connection.requestMethod = method
@@ -1078,7 +1097,16 @@ class AppleMusicKitModule : Module() {
                 if (allowNotFound && responseCode == 404) return emptyMap()
                 val errorMsg = connection.errorStream?.bufferedReader()?.use { it.readText() } ?: "Unknown Error"
                 Log.e(TAG, "API Error: $responseCode - $errorMsg")
-                throw Exception("Apple Music API Error ($responseCode): $errorMsg")
+                // 401 is a bad developer token, 403 a bad music-user token.
+                // either way no retry fixes it, so it gets the code JS reads
+                // as "reconnect", same as iOS
+                if (responseCode == 401 || responseCode == 403) {
+                    throw MusicKitException(
+                        "ERR_APPLE_MUSIC_AUTH",
+                        "Apple Music rejected the credentials ($responseCode): $errorMsg"
+                    )
+                }
+                throw MusicKitException("ERR_APPLE_MUSIC_API", "Apple Music API error ($responseCode): $errorMsg")
             }
         } finally {
             connection.disconnect()
@@ -1210,3 +1238,6 @@ class AppleMusicKitModule : Module() {
         private const val APPLE_MUSIC_REQUEST_CODE = 0xA550
     }
 }
+
+/** An error JS can branch on: `code` is one of the `ERR_` names iOS throws too. */
+private class MusicKitException(code: String, message: String) : CodedException(code, message, null)

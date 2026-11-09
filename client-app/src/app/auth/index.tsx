@@ -1,91 +1,11 @@
-import { SignInForm } from "@/components/ui/sign-in-form";
-import { SignUpForm } from "@/components/ui/sign-up-form";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Text } from "@/components/ui/text";
-import { useAccount } from "@/lib/account";
-import { Redirect, useLocalSearchParams } from "expo-router";
-import { useState } from "react";
-import { ScrollView } from "react-native";
+import { useLocalSearchParams } from "expo-router";
 
-type AuthPageParams = { initialMode: "signup" | "signin" };
+import {
+    LoginScreen,
+    type LoginMode,
+} from "@/features/onboarding/login-screen";
 
-export default function AuthPage() {
-    const { initialMode } = useLocalSearchParams<AuthPageParams>();
-    const [email, setEmail] = useState("");
-    const [password, setPassword] = useState("");
-    const [error, setError] = useState<any>(null);
-    const [loading, setLoading] = useState(false);
-    const { account, signIn, signUp } = useAccount();
-
-    const [mode, setMode] = useState<string>(initialMode ?? "signin");
-
-    function toggleTab(value: string) {
-        setMode(value);
-        setError(null);
-    }
-
-    async function submit() {
-        setLoading(true);
-        setError(null);
-        try {
-            if (mode === "signin") {
-                await signIn(email, password);
-            } else if (mode === "signup") {
-                await signUp(email, password);
-            }
-        } catch (err) {
-            setError(err);
-            setLoading(false);
-        }
-    }
-
-    // already logged in
-    if (account != null) {
-        return <Redirect href="/library" />;
-    }
-
-    return (
-        <ScrollView
-            className="bg-background"
-            contentContainerClassName="flex-grow px-4 py-8"
-            keyboardShouldPersistTaps="handled"
-        >
-            <Tabs value={mode} onValueChange={toggleTab}>
-                <TabsList className="self-center">
-                    <TabsTrigger value="signin">
-                        <Text>Sign In</Text>
-                    </TabsTrigger>
-                    <TabsTrigger value="signup">
-                        <Text>Sign Up</Text>
-                    </TabsTrigger>
-                </TabsList>
-
-                <TabsContent value="signin">
-                    <SignInForm
-                        email={email}
-                        password={password}
-                        onEmailChange={setEmail}
-                        onPasswordChange={setPassword}
-                        onSubmit={submit}
-                        onSwitchMode={() => toggleTab("signup")}
-                        error={error}
-                        loading={loading}
-                    />
-                </TabsContent>
-
-                <TabsContent value="signup">
-                    <SignUpForm
-                        email={email}
-                        password={password}
-                        onEmailChange={setEmail}
-                        onPasswordChange={setPassword}
-                        onSubmit={submit}
-                        onSwitchMode={() => toggleTab("signin")}
-                        error={error}
-                        loading={loading}
-                    />
-                </TabsContent>
-            </Tabs>
-        </ScrollView>
-    );
+export default function AuthRoute() {
+    const { initialMode } = useLocalSearchParams<{ initialMode?: LoginMode }>();
+    return <LoginScreen initialMode={initialMode} />;
 }

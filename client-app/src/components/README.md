@@ -23,10 +23,10 @@ and a backend rejection is a bare `{ error_type }`. The cause still reaches the 
 ### ui/
 
 `badge`, `button`, `card`, `dialog`, `glass-surface`, `glass-button`, `glass-confirm-dialog`,
-`glass-icon-button`, `glass-panel`, `glass-pill`, `glass-toggle`, `segmented-control`, `input`,
+`glass-icon-button`, `glass-input`, `glass-panel`, `glass-pill`, `glass-toggle`, `segmented-control`, `input`,
 `label`, `separator`, `skeleton`, `tabs`, `text`, `native-only-animated-view`, `detail-screen`,
 `nebula-backdrop`, `crossfade`, `floating-back-button`, `dialog-close-button`,
-`pressed-fill`, plus `sign-in-form` and `sign-up-form`.
+`pressed-fill`.
 
 `floating-back-button.tsx` exports `FloatingBackButton`, the back button a pushed screen that
 draws its own hero floats in the top left.
@@ -341,8 +341,6 @@ caches to warm artist details, portrait color, and artwork while the menu is ope
 
 ## Gotchas
 
-- `sign-in-form.tsx` and `sign-up-form.tsx` sit in `ui/` but call `useAccount()`, so they break
-  the rule above. Do not use them as the pattern for new work.
 - Styling is mixed. Newer files use nativewind `className`, some older ones use `StyleSheet`.
   Use `className` for anything new.
 - Anything portal-based (dialogs) needs `PortalHost` mounted, which happens in the root layout.

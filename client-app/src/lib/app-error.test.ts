@@ -19,7 +19,7 @@ test("a 403 from Apple Music asks for reconnection, not a stack trace", () => {
 
     assert.equal(appError.kind, "apple-music-auth");
     assert.equal(appError.title, "Apple Music connection needs attention");
-    assert.equal(appError.action?.href, "/account");
+    assert.equal(appError.action?.href, "/reconnect-apple-music");
     assert.equal(appError.retryable, false);
     // the raw text is kept for logging but is not what the UI shows
     assert.ok(!appError.detail.includes("403"));

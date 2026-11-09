@@ -65,34 +65,41 @@ function connectionFailureMessage(result: AuthResult): string {
 }
 
 /**
- * Connecting Apple Music from a settings screen. `message` is what the last
- * attempt said, success or failure, for the screen to show under the status.
+ * Connecting Apple Music from a settings or onboarding screen. `message` is
+ * what the last attempt said, success or failure, for the screen to show under
+ * the status. `lastStatus` is how it ended, null before any attempt or when it
+ * threw. Resolves the result, or null when it threw.
  */
 export function useConnectAppleMusic() {
     const { connect } = useAppleMusic();
     const [isConnecting, setIsConnecting] = useState(false);
     const [message, setMessage] = useState<string | null>(null);
+    const [lastStatus, setLastStatus] = useState<AuthStatus | null>(null);
 
-    async function connectAppleMusic() {
+    async function connectAppleMusic(): Promise<AuthResult | null> {
         setIsConnecting(true);
         setMessage(null);
+        setLastStatus(null);
         try {
             const result = await connect();
-            if (!result) return;
+            if (!result) return null;
+            setLastStatus(result.status);
             setMessage(
                 result.status === AuthStatus.Authorized && result.userToken
                     ? "Apple Music connected."
                     : connectionFailureMessage(result),
             );
+            return result;
         } catch (error) {
             console.error("Apple Music connection error:", error);
             setMessage("Could not connect Apple Music. Please try again.");
+            return null;
         } finally {
             setIsConnecting(false);
         }
     }
 
-    return { connectAppleMusic, isConnecting, message, setMessage };
+    return { connectAppleMusic, isConnecting, message, setMessage, lastStatus };
 }
 
 const LABEL_REFRESH_MS = 60_000;

@@ -445,12 +445,13 @@ react-navigation `useScrollToTop` subscription remains as a cross-platform fallb
   Music read in `musickit-hooks.ts` goes through a local
   `read()` wrapper that retries once on `ERR_APPLE_MUSIC_AUTH` and, if that fails too, calls
   `reportAppleMusicAuthFailure()`. That clears the rejected credentials and flips
-  `sessionExpired`, which `AppleMusicSessionGuard` turns into the Account sheet. Reads capture
+  `sessionExpired`, which `AppleMusicSessionGuard` turns into the reconnect page. Reads capture
   an auth generation, so a failure from before reconnect cannot clear a newer session;
   reconnect waits for any pending credential reset. A new musickit read that skips `read()`
   will keep replaying rejected credentials instead of prompting a reconnect.
 - `AccountProvider` owns who is signed in, id and email only. `signIn`, `signUp`, `signOut`, and
-  `tryRestoreSession`. Every account change calls `clearCache()`, so switching users cannot leak
+  `tryRestoreSession`. `signUp` resolves `needsEmailConfirmation` and signs no one in when
+  Supabase has no session yet. Every account change calls `clearCache()`, so switching users cannot leak
   cached data. It does not log session tokens or account details. It has no loading state on
   purpose: the splash screen calls `tryRestoreSession` before anything else renders. It also
   subscribes to `supabase.auth.onAuthStateChange`, so a session supabase ends on its own (a

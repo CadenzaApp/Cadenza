@@ -9,8 +9,10 @@ logic out.
 | file                                                                          | route                     | role                                                                                                          |
 | ----------------------------------------------------------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------- |
 | `_layout.tsx`                                                                 | root                      | Provider stack, theme, the root `Stack` navigator, and `PortalHost`.                                          |
-| `(splashscreen)/index.tsx`                                                    | `/`                       | Calls `tryRestoreSession()`, then replaces to `/library` or `/auth`.                                          |
-| `auth/index.tsx`                                                              | `/auth`                   | Sign in / sign up. Takes an `initialMode` search param.                                                       |
+| `(splashscreen)/index.tsx`                                                    | `/`                       | `SplashScreen` from `@/features/onboarding`. Restores the session, then replaces to the onboarding step.      |
+| `auth/index.tsx`                                                              | `/auth`                   | Onboarding step one, sign in / sign up. Takes an `initialMode` search param.                                  |
+| `auth/apple-music.tsx`                                                        | `/auth/apple-music`       | Onboarding step two, connect Apple Music. Back signs out.                                                     |
+| `reconnect-apple-music.tsx`                                                   | `/reconnect-apple-music`  | The same connect page as a modal, opened when Apple drops the connection.                                     |
 | `(tabs)/_layout.tsx`                                                          |                           | Protected native tab group, its five triggers, and the media-player bottom accessory.                         |
 | `(tabs)/(<tab>)/_layout.tsx`                                                  |                           | One native `Stack` per tab, using `TabStack` for the shared top rail.                                         |
 | `(tabs)/(social)/social/index.tsx`                                            | `/social`                 | The ranked social feed.                                                                                       |
@@ -76,9 +78,9 @@ GestureHandlerRootView
 `/library-categories` screen writes it, and those are separate routes.
 
 `AppleMusicSessionGuard` (`@/features/account`) renders nothing. It watches
-`useAppleMusic().sessionExpired` and pushes `/account` once when Apple has rejected the stored
-music-user token, so a library that cannot load turns into a reconnect instead of an error. It
-skips the splash and auth routes.
+`useAppleMusic().sessionExpired` and pushes `/reconnect-apple-music` once when Apple has rejected
+the stored music-user token, so a library that cannot load turns into a reconnect instead of an
+error. It skips the splash, auth, and reconnect routes.
 
 `InterestPlayTracker` (`@/lib/interest-play-tracker`) renders nothing. It sits beside the root
 `Stack` because it only needs to be inside `PlaybackProvider` and `AccountProvider`, and it sends
@@ -97,13 +99,14 @@ still lives above navigation in `PlaybackProvider`.
 Auth gating for the five primary screens is centralized in `(tabs)/_layout.tsx`:
 
 ```tsx
-const { account } = useAccount();
 if (!account) return <Redirect href="/auth?initialMode=signin" />;
+if (step === "connect") return <Redirect href={ONBOARDING_HREF.connect} />;
 ```
 
-The Account and Appearance sheets have their own guards because they are root stack routes. The splash screen owns
-session restore, which is why `AccountProvider` has no loading state. Successful restore and
-authentication both land on `/library`.
+`step` comes from `useOnboarding()` in `@/features/onboarding`, which the splash, login, and
+connect screens also route on. The Account and Appearance sheets have their own guards because
+they are root stack routes. The splash screen owns session restore, which is why
+`AccountProvider` has no loading state.
 
 ## Native tabs and the mini player
 
