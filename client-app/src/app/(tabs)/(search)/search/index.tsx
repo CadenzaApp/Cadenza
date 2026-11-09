@@ -27,7 +27,7 @@ import {
     useLibraryArtistSearch,
     useLibrarySongSearch,
 } from "@/lib/musickit-hooks";
-import { usePlaybackCommands } from "@/lib/playback";
+import { usePlaybackCommands, usePlaybackTrackState } from "@/lib/playback";
 import { useSuppressBottomBars } from "@/lib/screen-overlay";
 import { useOpenScreen } from "@/lib/open-screen";
 
@@ -48,7 +48,11 @@ export default function SearchScreen() {
     // while the user is still typing.
     const [submittedTerm, setSubmittedTerm] = useState("");
     const isFocused = useIsFocused();
-    useSuppressBottomBars(focused && isFocused);
+    const { activeTrack } = usePlaybackTrackState();
+    // focused search hides the tab bar, but never the player once something
+    // plays: without Apple Music this is where songs get played, and the
+    // player is the only way to pause them. the keyboard still hides both
+    useSuppressBottomBars(focused && isFocused && !activeTrack);
     const navigation = useNavigation();
     const openScreen = useOpenScreen();
     const insets = useSafeAreaInsets();
