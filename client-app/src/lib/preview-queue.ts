@@ -4,10 +4,10 @@ import type { RepeatMode } from "@apple-musickit";
 type Repeat = `${RepeatMode}`;
 
 /**
- * Which queue entry the preview player moves to when a clip ends, or null to
- * stop. Entries with no clip are passed over, so a song Apple ships without a
- * preview does not stall the queue. Follows repeat the way the native player
- * does: one replays the entry, all wraps to the start.
+ * Which queue entry comes after `index`, or null at the end. Entries with no
+ * clip are passed over, so a song Apple ships without a preview is never
+ * landed on. Follows repeat the way the native player does: one stays on the
+ * entry, all wraps to the start.
  */
 export function nextPreviewIndex({
     index,

@@ -24,8 +24,9 @@ import { firstPlayableFrom, nextPreviewIndex } from "./preview-queue";
  * Songs are looked up through the catalog, which needs only Cadenza's
  * developer token. The queue keeps every entry it was given, clip or not, so
  * positions match the queue `PlaybackProvider` mirrors; entries with no clip
- * are passed over when playing. Shuffle is remembered but not applied: the
- * mirrored queue is in order, so the clips play in order too.
+ * are passed over when skipping. One clip plays at a time: when it ends the
+ * player stops instead of moving on. Shuffle is remembered but not applied:
+ * the mirrored queue is in order, so skipping goes in order too.
  */
 export function createPreviewPlayer(): PlaybackEngine {
     let queue: MusicItem[] = [];
@@ -85,19 +86,16 @@ export function createPreviewPlayer(): PlaybackEngine {
         }
     }
 
+    // one clip at a time: a clip that ends stops, rather than running on
+    // through the queue. repeat one still replays it. skip moves on by hand
     function onStatus(status: AudioStatus) {
         if (!status.didJustFinish) return;
-        const next = nextPreviewIndex({
-            index,
-            playable: playable(),
-            repeatMode,
-        });
-        if (next === null) {
-            wantsPlay = false;
-            void audio().seekTo(0);
+        if (repeatMode === RepeatMode.One) {
+            void load(index);
             return;
         }
-        void load(next);
+        wantsPlay = false;
+        void audio().seekTo(0);
     }
 
     /** Tracks for queue ids, one per id in order, so positions line up. */
